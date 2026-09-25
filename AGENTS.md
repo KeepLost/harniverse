@@ -1,18 +1,22 @@
 # AGENTS.md
 
-Harniverse is a DeepSeek Harness downstream on vendored Cordis: **everything is a plugin**. Before changing `packages/`, read [architecture.md](docs/architecture.md) and [PLUGINS.md](PLUGINS.md); follow [docs/AGENTS.md](docs/AGENTS.md) for documentation.
+Harniverse is a DeepSeek Harness downstream on vendored Cordis: **everything is a plugin**. Before changing `packages/`, read [architecture.md](docs/architecture.md); follow [docs/AGENTS.md](docs/AGENTS.md) for documentation.
 
 ## Harniverse downstream contract
 
-- [PLUGINS.md](PLUGINS.md) owns the official DSH baseline and downstream capability/composition ledger. Preserve upstream architecture and engineering processes unless a Harniverse decision changes them.
+- Preserve upstream architecture and engineering processes unless a Harniverse decision changes them. Current contracts belong in architecture, subsystem references, and package READMEs; decisions and required verification belong in [Agent Notes](.agents/notes/README.md).
 - Implement downstream behavior through documented plugin extension points. A capability includes its Service Definition, Service Provider, and Consumer roles; do not replace that seam with `agent-loop`, launcher, or bundle special cases.
-- Update `PLUGINS.md` with every downstream package, capability, bundle, profile, preset, or shipped-composition change. Record the implementation SHA in a follow-up tracking commit; leave no placeholder.
+- Update the owning documentation with each package, capability, or shipped-composition change. Keep implementation history in Git and PRs rather than a central change ledger or follow-up SHA-tracking commits.
 - Every Remote declares a required `harniverse.*` capability, and business routes deny missing metadata. Only explicit authentication/bootstrap routes may be public. Preserve owner sealing, loopback-only bypass, and TLS for non-loopback Web listeners ([authentication](docs/subsystems/authentication.md)).
 - Plugin diagnostics are observation-only. Repair, restart, disable, delete, configuration writes, and process control require a separate authorized capability ([diagnostics](docs/subsystems/plugin-diagnostics.md)).
 
 ## Pre-release stance: foundation over blast radius
 
-**Remove this section at the first tagged Harniverse release.** Until a compatibility commitment exists, prefer the correct foundation over speculative shims: rename or repackage and update every reference together. Backends reject old formats. SQLite uses monotonic `SCHEMA_VERSION`; `SESSION_FORMAT_VERSION` remains `0` without compatibility promises.
+**Review this section before the first stable Harniverse release; an RC tag does not retire it.** Where no compatibility commitment exists, prefer the correct foundation over speculative shims: rename or repackage and update every reference together. Explicit durable-format commitments still apply.
+
+## Durable formats
+
+Product versions, SQLite `SCHEMA_VERSION`, and session format versions are independent. SQLite schema versions are monotonic. `SESSION_FORMAT_VERSION` remains `0` under the permanent additive-only policy enforced by `pnpm run verify-session-contract-digest`; structural breaking changes are disallowed. Document additive claims and their verification in the owning Agent Note when updating the digest baseline.
 
 ## Repository orientation
 
@@ -61,7 +65,7 @@ Real-API tests and demos read provider credentials and root `.env`; never commit
 - ESM everywhere. Use package names across packages and `.ts` for local relative imports. Config subprocesses run built `lib/`; source regressions use their declared launcher. Bare config plugins appear in their resolver manifest's dependencies ([development](docs/development.md#typescript-project-layout)).
 - **Registrations are effects:** every contribution uses `ctx.effect()` / `ctx.on()`; a registry's `register()` returns its disposer.
 - Runtime invariants assert owned event/data relationships, not service presence, metadata, effects, or fixed examples. Without one, use an explained empty companion ([package rules](packages/AGENTS.md)).
-- Typed events use declaration merging and documented dispatch modes. Session events are required-on-read unless `ignorable`; only structural format changes bump `SESSION_FORMAT_VERSION`.
+- Typed events use declaration merging and documented dispatch modes. Session events are required-on-read unless `ignorable`; changes follow the durable-format policy above.
 - Closed unions end in `assertNever`; extensible unions use a documented default.
 - Waterfall listeners call `next()` to delegate; returning without it short-circuits the chain ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
 - **Model-visible means logged:** anything reaching a model request is reconstructable from the Session log; new model-visible input requires a session event.
@@ -97,4 +101,4 @@ Treat an `AGENTS.md` change as a standalone task: show the complete draft and ob
 
 ## Upstream and vendoring policy
 
-An official DSH sync adds a dated `PLUGINS.md` baseline and reconciles every downstream change; never replace its immutable ledger silently. Update pinned `vendor/` packages through [vendor/README.md](vendor/README.md), reconcile local modifications, then run `pnpm run test && pnpm run build`.
+For an official DSH sync, record the source revision and integration decisions in its owning Agent Note, reconcile affected Harniverse contracts, and update their documentation. Update pinned `vendor/` packages through [vendor/README.md](vendor/README.md) and reconcile local modifications. Run the relevant local checks and build; CI owns exhaustive verification as specified above.
