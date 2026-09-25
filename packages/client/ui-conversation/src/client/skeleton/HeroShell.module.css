@@ -1,4 +1,4 @@
-/* NEW SESSION hero (figma Input_Bottom 75:8208): fish + title, workspace chip
+/* NEW SESSION hero: the repository-owned Harniverse artwork and title sit
    above the shared InputBar card. The input itself is InputBar — only stack
    geometry and the chip live here. */
 
@@ -23,32 +23,40 @@
   overflow: visible;
 }
 
-/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt500. The preview
-   badge is a product addition outside that source: a mono superscript pill
-   riding the title's top-right. */
+/* The artwork stays square and fully visible at every width. The preview badge
+   remains a product addition beside the hero title. */
 .headline {
-  display: grid;
-  grid-template-columns: 34px auto auto;
-  column-gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   align-items: center;
   justify-content: center;
+}
+
+.brandImage {
+  display: block;
+  width: clamp(160px, 28vw, 260px);
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.headlineCopy {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
   font-size: 26px;
   line-height: 32px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
-.headlineText {
-  grid-row: 1;
-  grid-column: 2;
-}
-
 .previewBadge {
-  grid-row: 1;
-  grid-column: 3;
   align-self: start;
-  margin-top: 2px;
-  margin-left: -3px;
+  margin-top: 0;
   padding: 1px 7px 0;
   border: 1px solid var(--dsw-alias-interactive-bg-hover);
   border-radius: 24px;
@@ -59,41 +67,6 @@
   line-height: 18px;
   font-weight: 500;
   white-space: nowrap;
-}
-
-/* Keep hover detection on a stationary box while the mark moves within it. */
-.fishHitbox {
-  grid-row: 1;
-  grid-column: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Keep the hero mark in the same primary ink as its headline. */
-.fish {
-  color: var(--dsw-alias-label-primary);
-  transform-origin: 50% 60%;
-}
-
-@keyframes hero-fish-swim {
-  0%, 100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
-
-  35% {
-    transform: translate(-1px, -1px) rotate(-5deg);
-  }
-
-  70% {
-    transform: translate(1px, 0) rotate(3deg);
-  }
-}
-
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .fishHitbox:hover .fish {
-    animation: hero-fish-swim var(--ds-transition-duration-slow) var(--ds-ease-in-out);
-  }
 }
 
 /* Workspace row sits 12px above the input card (figma y80 → y112). The blue

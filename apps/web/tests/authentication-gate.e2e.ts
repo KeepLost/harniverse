@@ -28,8 +28,14 @@ describe('web e2e: authentication gate', () => {
     page.on('request', (request) => {
       if (new URL(request.url()).pathname.startsWith('/plugins/')) pluginRequests.push(request.url())
     })
+    const brandResponsePromise = page.waitForResponse(response => (
+      new URL(response.url()).pathname === '/harniverse-brand.png'
+      && response.request().method() === 'GET'
+      && response.status() === 200
+    ))
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    expect((await brandResponsePromise).headers()['content-type']).toBe('image/png')
   }, 120_000)
 
   afterAll(async () => {
@@ -58,6 +64,23 @@ describe('web e2e: authentication gate', () => {
     expect(chrome.bodyBackground).not.toBe('rgba(0, 0, 0, 0)')
     expect(chrome.primaryFill).not.toBe('rgba(0, 0, 0, 0)')
     expect(pluginRequests).toEqual([])
+    await assertLoadedBrandImage(page, true)
+
+    const mobile = await context.newPage()
+    try {
+      await mobile.setViewportSize({ width: 390, height: 844 })
+      const mobileBrandResponsePromise = mobile.waitForResponse(response => (
+        new URL(response.url()).pathname === '/harniverse-brand.png'
+        && response.request().method() === 'GET'
+        && response.status() === 200
+      ))
+      await mobile.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      expect((await mobileBrandResponsePromise).headers()['content-type']).toBe('image/png')
+      await assertLoadedBrandImage(mobile, true)
+    } finally {
+      await mobile.close()
+    }
+
     const sealedBundle = await page.request.get(`${scaffold.baseUrl}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
     const sealedTopology = await page.request.get(`${scaffold.baseUrl}/plugins/events`)
     expect({ bundle: sealedBundle.status(), topology: sealedTopology.status() }).toEqual({ bundle: 401, topology: 401 })
@@ -82,6 +105,7 @@ describe('web e2e: authentication gate', () => {
     const exchangeResponse = await exchangeResponsePromise
     expect(exchangeResponse.status()).toBe(200)
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await assertLoadedBrandImage(page)
     expect(pluginRequests.length).toBeGreaterThan(0)
     expect(await input.count()).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
@@ -89,6 +113,16 @@ describe('web e2e: authentication gate', () => {
 
   it('restores refused sends without reloading, then shows a read-only refresh instruction on revocation', async () => {
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    await assertLoadedBrandImage(page)
+    const mobileHero = await context.newPage()
+    try {
+      await mobileHero.setViewportSize({ width: 390, height: 844 })
+      await mobileHero.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      await mobileHero.locator('textarea').first().waitFor({ timeout: 30_000 })
+      await assertLoadedBrandImage(mobileHero)
+    } finally {
+      await mobileHero.close()
+    }
     const input = page.locator('textarea').first()
     const healthy = page.getByRole('img', { name: 'Connected; authentication is valid', exact: true })
     await healthy.waitFor()
@@ -191,4 +225,22 @@ async function redeemEnrollmentId(response: { json: () => Promise<unknown> }): P
   const body = await response.json() as { id?: unknown }
   if (typeof body.id !== 'string') throw new Error('enrollment response carried no id')
   return body.id
+}
+
+async function assertLoadedBrandImage(page: Page, requireProductText = false): Promise<void> {
+  const image = page.getByRole('img', { name: 'Harniverse brand artwork', exact: true })
+  await image.waitFor({ state: 'visible', timeout: 30_000 })
+  expect(await image.evaluate((element) => {
+    const artwork = element as HTMLImageElement
+    return {
+      path: new URL(artwork.currentSrc || artwork.src, document.baseURI).pathname,
+      naturalWidth: artwork.naturalWidth,
+      naturalHeight: artwork.naturalHeight,
+    }
+  })).toEqual({ path: '/harniverse-brand.png', naturalWidth: 1254, naturalHeight: 1254 })
+  if (requireProductText) {
+    const productName = page.getByText('Harniverse', { exact: true }).first()
+    expect(await productName.isVisible()).toBe(true)
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 }

@@ -10,6 +10,8 @@ Web 外壳内核：`new AppWebEntry(el, seams?).run()` 通过两阶段启动（w
 
 认证门渲染的文档——配对页与 `/auth/manage` 界面——在任何插件产物到达之前就要绘制，因此外壳承载它们的样式：`document.css` 持有设计 token 与文档重置（应用入口也会 import，因此 Vite 会把它落在共享的 eager chunk 而不是插件 chunk 里），`auth.css` 持有只有这两个文档会画的东西。两者都不解析配色；ui-theme 的 index tap 已经为前端提供的每一个文档，把持久化偏好写到了 token 样式表深色集所依据的 body 属性上。
 
+两个认证文档都从 `/harniverse-brand.png` 渲染完整的 Harniverse 图稿；源文件位于 `apps/web/public/`，构建后的 Web Host 在认证插件加载前也提供同一个根 URL。
+
 `PLATFORM_MODULES`（src/platform.ts）是共享模块接口的唯一真源：种子表 key、tsdown 客户端 external 和 vite alias 集都是它的投影。
 
 可选的覆盖参数 `seams` 会为外部 `<script>` 执行无法到达页面上下文的环境转发模块系统的 `loadBundle` 传输覆盖（`BootSeams`）；普通浏览器调用方省略此参数。

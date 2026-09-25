@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Read-only Consumer of Connection's health projection. The plugin occupies `sidebar.header.status`, declared by [ui-sidebar](../ui-sidebar/README.md), between the expanded wordmark and collapse button. The collapsed rail places it below the combined logo/expand control.
+Read-only Consumer of Connection's health projection. The plugin occupies `sidebar.header.status`, declared by [ui-sidebar](../ui-sidebar/README.md), between the expanded wordmark and collapse button. The collapsed rail places it below the panel toggle.
 
 The icon and its localized Tooltip distinguish connecting, connected, renewing, recovering, reconnecting, refresh-required, and explicit local bypass. Hover, keyboard focus, and touch focus expose the same explanation. There is no button, click action, authentication operation, polling, or renewal timer. Terminal authentication failure instructs the user to refresh and notes that a revoked device needs approval. Reduced-motion mode disables rotation.
 

@@ -38,6 +38,7 @@ async function loadComposition(indexPaths: readonly string[] = ['/auth/manage'])
   const distIndex = join(dist, 'index.html')
   await writeFile(distIndex, '<head></head><body>shell</body>')
   await writeFile(join(dist, 'app.js'), 'export {}')
+  await writeFile(join(dist, 'brand.png'), 'PNG')
   await writeFile(join(dist, 'blob.bin'), 'BLOB')
   await writeFile(join(dist, 'manifest.webmanifest'), '{}')
   await writeFile(join(dist, 'assets', 'index-12345678.js'), 'export const cached = true')
@@ -112,6 +113,11 @@ describe('real Loader composition', () => {
       status: 200,
       type: 'application/manifest+json',
       body: '{}',
+    })
+    expect(await request(port, '/brand.png')).toMatchObject({
+      status: 200,
+      type: 'image/png',
+      body: 'PNG',
     })
     await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
     expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export const rebuilt = true' })

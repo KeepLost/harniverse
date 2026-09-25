@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Connection 健康状态投影的只读 Consumer。插件填充由 [ui-sidebar](../ui-sidebar/README.md) 声明的 `sidebar.header.status`，位于展开字标和折叠按钮之间。收起后的窄栏将其放在合并的标识与展开控件下方。
+Connection 健康状态投影的只读 Consumer。插件填充由 [ui-sidebar](../ui-sidebar/README.md) 声明的 `sidebar.header.status`，位于展开字标和折叠按钮之间。收起后的窄栏将其放在侧栏切换按钮下方。
 
 图标及本地化 Tooltip 区分连接中、已连接、续期中、恢复中、重连中、需要刷新和显式本地免认证模式。悬停、键盘聚焦和触屏聚焦展示同一说明。这里没有按钮、点击操作、认证操作、轮询或续期定时器。终止性的认证失败提示用户刷新，并说明已撤销设备需要批准。减少动态效果模式禁用旋转。
 

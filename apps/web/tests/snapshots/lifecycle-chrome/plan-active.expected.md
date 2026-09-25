@@ -29,6 +29,7 @@
 - button "Settings":
   - img
   - text: Settings
+- img "Harniverse brand artwork"
 - text: Into the Unknown Preview
 - button "Open workbench":
   - img

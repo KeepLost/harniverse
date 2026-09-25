@@ -8,6 +8,8 @@ const DIST_ROOT = fileURLToPath(new URL('../dist', import.meta.url))
 it('ships install metadata with the built web application', async () => {
   const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
   expect(index).toContain('<link rel="manifest" href="/manifest.webmanifest" />')
+  expect(index).not.toMatch(/<link\b[^>]*\brel=["'][^"']*\bicon\b/i)
+  await expect(readFile(join(DIST_ROOT, 'favicon.svg'))).rejects.toMatchObject({ code: 'ENOENT' })
 
   const manifest: unknown = JSON.parse(await readFile(join(DIST_ROOT, 'manifest.webmanifest'), 'utf8'))
   expect(manifest).toEqual({
@@ -17,19 +19,31 @@ it('ships install metadata with the built web application', async () => {
     start_url: '/',
     scope: '/',
     display: 'fullscreen',
-    icons: [{
-      src: '/favicon.svg',
-      sizes: 'any',
-      type: 'image/svg+xml',
-      purpose: 'any',
-    }],
+    icons: [
+      {
+        src: '/harniverse-brand-192.png',
+        sizes: '192x192',
+        type: 'image/png',
+        purpose: 'any',
+      },
+      {
+        src: '/harniverse-brand-512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any',
+      },
+    ],
   })
 })
 
-it('ships a favicon that switches to a light mark under dark color scheme', async () => {
-  const favicon = await readFile(join(DIST_ROOT, 'favicon.svg'), 'utf8')
-  // The light fill must live inside the dark-scheme media query, so the icon
-  // stays black in light mode and only turns white under a dark scheme.
-  expect(favicon).toMatch(/@media \(prefers-color-scheme: dark\)\s*{\s*path\s*{[^}]*fill:\s*#fff/i)
-  expect(favicon).toContain('fill="#000"')
+it('ships the complete brand artwork at both install icon sizes', async () => {
+  for (const [name, size] of [
+    ['harniverse-brand-192.png', 192],
+    ['harniverse-brand-512.png', 512],
+  ] as const) {
+    const png = await readFile(join(DIST_ROOT, name))
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    expect(png.readUInt32BE(16)).toBe(size)
+    expect(png.readUInt32BE(20)).toBe(size)
+  }
 })
