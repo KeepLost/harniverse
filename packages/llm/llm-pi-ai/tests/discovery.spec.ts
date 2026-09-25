@@ -171,8 +171,13 @@ describe('catalog-route model discovery', () => {
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: '' }))
       .rejects.toThrow(/set a baseURL/)
     // The seam refuses a request naming neither, so the module's own guard for
-    // that shape is only reachable by calling it directly.
+    // that shape is only reachable by calling it directly; an empty string is
+    // the same no-base a cleared field leaves. An interrogation without a
+    // route names no provider either, so its complaint stays nameless.
     await expect(discoverModels({})).rejects.toThrow(/set a baseURL/)
+    await expect(discoverModels({ baseURL: '' })).rejects.toThrow(/set a baseURL/)
+    await expect(discoverModels({ mode: 'endpoint', baseURL: '' }))
+      .rejects.toThrow(/endpoint discovery for provider "" needs the baseURL/)
   })
 })
 
