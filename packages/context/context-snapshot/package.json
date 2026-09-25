@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-context-snapshot",
   "description": "Durable runtime-context snapshots for the system-prompt contexts plane",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

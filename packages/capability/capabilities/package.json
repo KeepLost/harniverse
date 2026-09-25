@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-capabilities",
   "description": "Agent Profile recipe catalog, dependency planning, and generation composition for the DeepSeek Harness",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": { "access": "public" },
   "repository": {
     "type": "git",

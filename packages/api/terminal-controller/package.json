@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-api-terminal-controller",
   "description": "Session-owned browser terminal controller with bounded screen recovery and unattended reclamation",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

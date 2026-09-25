@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-host-capability-management",
   "description": "Authorized Agent Profile composition planning and Session runtime Remote for Harniverse",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": { "access": "public" },
   "repository": {
     "type": "git",

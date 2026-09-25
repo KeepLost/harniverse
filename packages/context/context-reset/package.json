@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-context-reset",
   "description": "Whole-surface context reset service (ctx.contextReset) with a durable checkpoint marker",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-api-browser-controller",
   "description": "Session-owned host browser pages driven over the Chrome DevTools Protocol, streamed to clients as screencast frames",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

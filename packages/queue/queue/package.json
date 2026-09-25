@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-queue",
   "description": "Session message queue (ctx.queue): Kafka-style durable topics with per-topic offsets, time-based forced archival, silent bidirectional subscription cascades, and wake-on-deliver fan-out into subscribed sessions",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

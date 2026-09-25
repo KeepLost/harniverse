@@ -57,5 +57,5 @@
     "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
-  "version": "0.1.0-rc.5"
+  "version": "1.0.0-rc.1"
 }

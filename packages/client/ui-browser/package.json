@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-browser",
   "description": "Host browser panel: a real browser process on the harness host, streamed to the panel as screencast frames with forwarded input",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

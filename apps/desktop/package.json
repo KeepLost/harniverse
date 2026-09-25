@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-desktop",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "description": "Harniverse desktop workspace for local and remote AI agents",
   "author": "Harniverse contributors",
   "desktopName": "harniverse.desktop",

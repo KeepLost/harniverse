@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-notification-http",
   "description": "HTTP and HTTPS delivery provider for DeepSeek Harness outbound notifications",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },
