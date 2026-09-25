@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-ui-layout 声明两个列表槽 `workbench.section.tab` 与 `workbench.section.panel`（属主份额：`current`、`select`、`request`），与 `center.view` 的声明方式一致——外壳拥有组合点，workbench 条目把它们声明为 children，选中区段记录在 layout store 中，`ctx.layout.openWorkbenchSection(section, request?)` 是一步完成打开与选择的入口，markdown 链接路由现在调用的正是它。ui-browser 与 ui-terminal 各注册一个标签与一个主体；主体仅在其区段显示时挂载（包装组件否则返回 null，面板生命周期——页面画面、输入附件、xterm 挂载——完全随区段激活，与此前随 center 视图占用一致）。选择状态从工作台按 Workspace 的记账移入 layout store，这同时让 `ILayout` 成为程序化打开的唯一通路；按 Workspace 的区段记忆取消，区段页签为全局共享。随之而来三处可达性修复：工作台无论是否解析出 Workspace 都渲染区段（文件/变更/搜索的主体与标签仍需要），blank 会话在工作台与 AppFrame 右栏闸门两处都能解析出自己的 Workspace，以及 blank 会话页头隐藏期间由输入区 dock 胶囊保住工作台入口。键盘漫游从逐按钮处理器移到 tablist 容器，方向键因此覆盖贡献标签；侧栏底部触发器、其组件、视图 store 与相关导出全部删除；调度器保留自己的 center 视图与底部触发器。
+ui-layout 声明两个列表槽 `workbench.section.tab` 与 `workbench.section.panel`（属主份额：`current`、`select`、`request`），与 `center.view` 的声明方式一致——外壳拥有组合点，workbench 条目把它们声明为 children，选中区段记录在 layout store 中，`ctx.layout.openWorkbenchSection(section, request?)` 是一步完成打开与选择的入口，markdown 链接路由调用的正是它。ui-browser 与 ui-terminal 各注册一个标签与一个主体；主体仅在其区段显示时挂载（包装组件否则返回 null，面板生命周期——页面画面、输入附件、xterm 挂载——完全随区段激活，与此前随 center 视图占用一致）。选择状态从工作台按 Workspace 的记账移入 layout store，这同时让 `ILayout` 成为程序化打开的唯一通路；按 Workspace 的区段记忆取消，区段页签为全局共享。工作台无论是否解析出 Workspace 都渲染区段（文件/变更/搜索的主体与标签仍需要），blank 会话在工作台与 AppFrame 右栏闸门两处都能解析出自己的 Workspace。Hero 的 Workspace 胶囊由两个原生按钮组成：文件夹／名称通过 layout 打开与活跃会话页头工具相同的工作台，箭头为现有选择器提供锚点。没有已解析的会话 Workspace 或正在切换时名称按钮禁用；列表加载时从 cwd 派生的标签只用于展示。输入区 dock 保留其他贡献，但不再设置单独的工作台按钮。键盘漫游从逐按钮处理器移到 tablist 容器，方向键因此覆盖贡献标签；侧栏底部触发器、其组件、视图 store 与相关导出全部删除；调度器保留自己的 center 视图与底部触发器。
 
 ## Alternatives considered
 
@@ -18,7 +18,7 @@ ui-layout 声明两个列表槽 `workbench.section.tab` 与 `workbench.section.p
 
 ## Consequences
 
-两个面板成为工作台区段：标签与文件/变更/搜索并列，主体渲染在工作台 tabpanel 内（多页面/多终端标签条原样保留），blank 会话与无 Workspace 会话同样可达。侧栏底部只剩调度器触发器与设置。markdown 链接经 `openWorkbenchSection` 打开浏览器区段，区段缺席或偏好为 `device` 时与此前完全一致地落回读者本机浏览器。生命周期 golden 记录了新页签与 blank 会话胶囊，也记录了底部触发器的移除。调度器的 center 视图缝隙未动。
+两个面板成为工作台区段：标签与文件/变更/搜索并列，主体渲染在工作台 tabpanel 内（多页面/多终端标签条原样保留），blank 会话可经 Workspace 胶囊抵达。侧栏底部只剩调度器触发器与设置。markdown 链接经 `openWorkbenchSection` 打开浏览器区段，区段缺席或偏好为 `device` 时落回读者本机浏览器。调度器的 center 视图槽未动。
 
 ## Testing
 

@@ -374,6 +374,110 @@ describe('BrowserController page lifecycle', () => {
 })
 
 describe('BrowserController launch failures', () => {
+  it('waits for tree quiescence and removes the profile after a DevTools handshake failure', async () => {
+    const { controller, agent, browser, subprocess } = await fixture()
+    subprocess.endpoint = browser.endpoint
+    await browser.close()
+    browsers.pop()
+    subprocess.holdTreeExit = true
+    const creating = controller.create(agent, request, signal())
+    const settled = vi.fn()
+    void creating.then(settled, settled)
+    try {
+      await vi.waitFor(() => { expect(subprocess.handles[0]?.terminated).toBe(true) })
+      const profile = profileOf(subprocess.spawns[0]?.argv ?? [])
+      expect(existsSync(profile)).toBe(true)
+      expect(settled).not.toHaveBeenCalled()
+      subprocess.handles[0]?.releaseTree()
+      await expect(creating).rejects.toMatchObject({
+        code: 'browser-unavailable',
+        message: expect.stringContaining('The browser started but the DevTools connection failed') as unknown as string,
+      })
+      expect(existsSync(profile)).toBe(false)
+    } finally {
+      subprocess.handles[0]?.releaseTree()
+      await creating.catch(() => undefined)
+    }
+  })
+
+  it('waits for tree exit before returning an endpoint-read failure', async () => {
+    const { controller, agent, subprocess } = await fixture({ launchTimeoutMs: 50 }, 'absent')
+    subprocess.holdTreeExit = true
+    const creating = controller.create(agent, request, signal())
+    const settled = vi.fn()
+    void creating.then(settled, settled)
+    try {
+      await vi.waitFor(() => { expect(subprocess.handles[0]?.terminated).toBe(true) })
+      const profile = profileOf(subprocess.spawns[0]?.argv ?? [])
+      expect(existsSync(profile)).toBe(true)
+      expect(settled).not.toHaveBeenCalled()
+      subprocess.handles[0]?.releaseTree()
+      await expect(creating).rejects.toThrow('did not report a DevTools endpoint within 50ms')
+      expect(existsSync(profile)).toBe(false)
+    } finally {
+      subprocess.handles[0]?.releaseTree()
+      await creating.catch(() => undefined)
+    }
+  })
+
+  it('tears down a process when DevTools rejects initial discovery', async () => {
+    const { controller, agent, browser, subprocess } = await fixture()
+    browser.failures.set('Target.setDiscoverTargets', 'discovery denied')
+    await expect(controller.create(agent, request, signal())).rejects.toMatchObject({
+      code: 'browser-unavailable',
+      message: 'The browser started but the DevTools connection failed: Target.setDiscoverTargets failed: discovery denied',
+    })
+    expect(subprocess.handles[0]?.terminated).toBe(true)
+    expect(existsSync(profileOf(subprocess.spawns[0]?.argv ?? []))).toBe(false)
+  })
+
+  it('keeps a failed-handshake process owned until cleanup can be retried', async () => {
+    const { controller, agent, browser, subprocess, disposeEffect } = await fixture()
+    browser.failures.set('Target.setDiscoverTargets', 'discovery denied')
+    subprocess.failWaitForExit = true
+    const failure = await controller.create(agent, request, signal()).catch((error: unknown) => error)
+    const profile = profileOf(subprocess.spawns[0]?.argv ?? [])
+    expect((failure as Error).message).toContain('discovery denied')
+    expect((failure as Error).message).toContain('the browser tree never quiesced')
+    expect(existsSync(profile)).toBe(true)
+    subprocess.failWaitForExit = false
+    browser.failures.delete('Target.setDiscoverTargets')
+    await expect(disposeEffect('browser-controller.processes')).resolves.toBeUndefined()
+    expect(existsSync(profile)).toBe(false)
+    expect(subprocess.handles).toHaveLength(1)
+  })
+
+  it('does not spawn a replacement while a failed cleanup still owns the old tree', async () => {
+    const { controller, agent, browser, subprocess } = await fixture()
+    browser.failures.set('Target.setDiscoverTargets', 'discovery denied')
+    subprocess.failWaitForExit = true
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('browser cleanup failed')
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('the browser tree never quiesced')
+    expect(subprocess.handles).toHaveLength(1)
+    subprocess.failWaitForExit = false
+    browser.failures.delete('Target.setDiscoverTargets')
+    await expect(controller.create(agent, request, signal())).resolves.toMatchObject({ id: pageId })
+    expect(subprocess.handles).toHaveLength(2)
+  })
+
+  it('bounds initial discovery by the launch budget and closes the stalled socket', async () => {
+    const { controller, agent, browser, subprocess } = await fixture({ launchTimeoutMs: 50 })
+    browser.silent.add('Target.setDiscoverTargets')
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('handshake timed out within 50ms')
+    expect(subprocess.handles[0]?.terminated).toBe(true)
+    expect(existsSync(profileOf(subprocess.spawns[0]?.argv ?? []))).toBe(false)
+  })
+
+  it('gives the handshake the full launch budget after a slow spawn', async () => {
+    const { controller, agent, browser, subprocess } = await fixture({ launchTimeoutMs: 500 })
+    // The endpoint line eats most of the budget; a shared deadline would leave
+    // the loopback handshake too little to survive a busy host.
+    subprocess.endpointDelayMs = 350
+    browser.delays.set('Target.setDiscoverTargets', 250)
+    await expect(controller.create(agent, request, signal())).resolves.toMatchObject({ id: pageId })
+    expect(subprocess.handles).toHaveLength(1)
+  })
+
   it('reports an unavailable surface when no executable resolves', async () => {
     const { controller, agent, subprocess } = await fixture()
     subprocess.resolvable.clear()
@@ -481,6 +585,90 @@ describe('BrowserController launch failures', () => {
     await controller.close(agent, pageId)
     expect(controller.list(agent.id)).toHaveLength(1)
     expect(existsSync(profileOf(subprocess.spawns[0]?.argv ?? []))).toBe(true)
+    await controller.close(agent, 'unknown' as HostBrowserPageId)
+    expect(controller.list(agent.id)).toHaveLength(1)
+  })
+
+  it('waits for an in-progress shutdown before creating a replacement browser', async () => {
+    const { controller, agent, subprocess } = await fixture()
+    await controller.create(agent, request, signal())
+    subprocess.holdTreeExit = true
+    const closing = controller.close(agent, pageId)
+    try {
+      await vi.waitFor(() => { expect(subprocess.handles[0]?.terminated).toBe(true) })
+      const replacement = 'page-two' as HostBrowserPageId
+      const creating = controller.create(agent, { ...request, id: replacement }, signal())
+      expect(subprocess.handles).toHaveLength(1)
+      subprocess.holdTreeExit = false
+      subprocess.handles[0]?.releaseTree()
+      await expect(closing).resolves.toBeUndefined()
+      await expect(creating).resolves.toMatchObject({ id: replacement })
+      expect(subprocess.handles).toHaveLength(2)
+    } finally {
+      subprocess.holdTreeExit = false
+      subprocess.handles[0]?.releaseTree()
+      await closing.catch(() => undefined)
+    }
+  })
+
+  it('reports an unconfirmed tree exit while preserving the profile for retry', async () => {
+    const { controller, agent, browser, subprocess } = await fixture()
+    browser.failures.set('Target.setDiscoverTargets', 'discovery denied')
+    subprocess.incompleteWaitForExit = true
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('browser tree did not exit')
+    const profile = profileOf(subprocess.spawns[0]?.argv ?? [])
+    expect(existsSync(profile)).toBe(true)
+    subprocess.incompleteWaitForExit = false
+    await controller.close(agent, pageId)
+    expect(existsSync(profile)).toBe(false)
+  })
+
+  it('preserves the endpoint error when waiting for the tree throws', async () => {
+    const { controller, agent, subprocess } = await fixture({}, 'absent')
+    subprocess.failWaitForExit = true
+    const creating = controller.create(agent, request, signal())
+    await vi.waitFor(() => { expect(subprocess.handles).toHaveLength(1) })
+    subprocess.handles[0]?.endStderr()
+    const failure = await creating.catch((error: unknown) => error)
+    expect((failure as Error).message).toContain('exited before reporting a DevTools endpoint')
+    expect((failure as Error).message).toContain('the browser tree never quiesced')
+    subprocess.failWaitForExit = false
+  })
+
+  it('retains the launch error and profile when endpoint cleanup cannot confirm tree exit', async () => {
+    const { controller, agent, subprocess } = await fixture({}, 'absent')
+    subprocess.incompleteWaitForExit = true
+    const creating = controller.create(agent, request, signal())
+    await vi.waitFor(() => { expect(subprocess.handles).toHaveLength(1) })
+    subprocess.handles[0]?.endStderr()
+    const failure = await creating.catch((error: unknown) => error)
+    expect((failure as Error).message).toContain('exited before reporting a DevTools endpoint')
+    expect((failure as Error).message).toContain('browser tree did not exit')
+    const profile = profileOf(subprocess.spawns[0]?.argv ?? [])
+    expect(existsSync(profile)).toBe(true)
+    subprocess.incompleteWaitForExit = false
+    await controller.close(agent, pageId)
+    expect(existsSync(profile)).toBe(false)
+  })
+
+  it('settles a spawn-level process failure during endpoint discovery', async () => {
+    const { controller, agent, subprocess } = await fixture({}, 'absent')
+    const creating = controller.create(agent, request, signal())
+    await vi.waitFor(() => { expect(subprocess.handles).toHaveLength(1) })
+    subprocess.handles[0]?.fail()
+    subprocess.handles[0]?.endStderr()
+    await expect(creating).rejects.toThrow('exited before reporting a DevTools endpoint')
+  })
+
+  it('reports a non-Error cancellation while discovery is pending', async () => {
+    const { controller, agent, browser, subprocess } = await fixture()
+    browser.silent.add('Target.setDiscoverTargets')
+    const abort = new AbortController()
+    const creating = controller.create(agent, request, abort.signal)
+    await browser.waitFor('Target.setDiscoverTargets')
+    abort.abort('panel closed')
+    await expect(creating).rejects.toThrow('DevTools connection was aborted')
+    expect(subprocess.handles[0]?.terminated).toBe(true)
   })
 
   it('closes a page once when two closes race, and releases the browser only once', async () => {

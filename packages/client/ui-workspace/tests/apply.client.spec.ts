@@ -62,14 +62,15 @@ type HoleName =
   | 'sidebar.workspaces'
   | 'conversation.hero.workspace'
   | 'conversation.session.header.utilities'
+  | 'conversation.input.dock'
   | 'workbench'
   | 'shell.overlay'
 
 /** Declare any subset of the holes with a single root registration ('root' is a single slot). */
 function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
   const children = Object.fromEntries(names.map(name => [name, {
-    kind: name === 'conversation.session.header.utilities' || name === 'shell.overlay' ? 'list' : 'single',
-    scope: name === 'conversation.session.header.utilities' ? 'session' : 'root',
+    kind: name === 'conversation.session.header.utilities' || name === 'conversation.input.dock' || name === 'shell.overlay' ? 'list' : 'single',
+    scope: name === 'conversation.session.header.utilities' || name === 'conversation.input.dock' ? 'session' : 'root',
   }]))
   return slots.register({ name: 'root', children } as never, () => null)
 }
@@ -164,6 +165,14 @@ describe('ui-workspace apply', () => {
     expect(b.gitDiff).toHaveBeenCalledWith('ws', 'README.md', true, signal)
     expect(b.openWorkbench).toHaveBeenCalledOnce()
     expect(b.closeWorkbench).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the session-header utility without placing another button in the input dock', async () => {
+    const b = await bench()
+    declare(b.slots, 'conversation.session.header.utilities', 'conversation.input.dock')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries('conversation.session.header.utilities')).toHaveLength(1)
+    expect(b.slots.entries('conversation.input.dock')).toHaveLength(0)
   })
 
   it('declares the two directory-flow holes and reports their occupancy per surface', async () => {

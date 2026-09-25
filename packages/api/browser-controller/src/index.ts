@@ -78,17 +78,25 @@ export interface Config {
   readonly screencastEveryNthFrame: number
   /** How long a navigation may stay in flight before the panel is told it failed. */
   readonly navigationTimeoutMs: number
-  /** How long to wait for the browser's DevTools endpoint at launch. */
+  /**
+   * Maximum time from browser spawn to the DevTools endpoint line, and again from there through
+   * the socket handshake and initial discovery reply.
+   */
   readonly launchTimeoutMs: number
   /** Browser process-termination grace period in milliseconds. */
   readonly disposeGraceMs: number
 }
 
-/** One Session's browser process, its control connection, and its profile. */
-interface OwnedBrowser {
-  readonly connection: CdpConnection
+/** Process ownership begins at spawn, before CDP readiness. */
+interface SpawnedBrowser {
+  connection?: CdpConnection
   readonly handle: SubprocessHandle
   readonly profileDir: string
+}
+
+/** One Session's connected browser process. */
+interface OwnedBrowser extends SpawnedBrowser {
+  connection: CdpConnection
 }
 
 /** Everything one Session owns: its pages, its browser, and its cleanup state. */
@@ -97,7 +105,7 @@ interface OwnedSession {
   readonly pending: Map<HostBrowserPageId, Promise<HostBrowserPage>>
   readonly closedIds: Set<HostBrowserPageId>
   readonly lifetime: AbortController
-  /** Profile directories whose browser is gone but whose bytes remain. */
+  /** Profile directories awaiting removal after their browser tree exits. */
   readonly discarded: string[]
   /** In-flight or completed launch, memoized so one Session launches once. */
   browser?: Promise<OwnedBrowser>
@@ -106,7 +114,8 @@ interface OwnedSession {
    * {@link OwnedSession.browser}: a launch is always settled by the time
    * cleanup runs, and a plain value cannot hand cleanup a rejection to swallow.
    */
-  live?: OwnedBrowser
+  live?: SpawnedBrowser
+  shutdown?: Promise<void>
   cleanup?: Promise<void>
 }
 
@@ -326,10 +335,17 @@ export class BrowserController extends TypertRemoteService {
     // create publishes the allocation before this wait settles; close owns it even if create then rejects.
     await owner.pending.get(id)?.catch(() => undefined)
     const page = owner.pages.get(id)
-    if (page === undefined) return
+    if (page === undefined) {
+      if (owner.pages.size === 0) {
+        await this.shutdownBrowser(owner)
+      }
+      return
+    }
     await page.close()
     owner.pages.delete(id)
-    if (owner.pages.size === 0) await this.shutdownBrowser(owner)
+    if (owner.pages.size === 0) {
+      await this.shutdownBrowser(owner)
+    }
   }
 
   /** Resolve (and remember) the Session's owner record. */
@@ -367,17 +383,29 @@ export class BrowserController extends TypertRemoteService {
    * disposal that owns it rather than swallowed in a background callback.
    */
   private async shutdownBrowser(owner: OwnedSession): Promise<void> {
-    delete owner.browser
-    const browser = owner.live
-    delete owner.live
-    if (browser !== undefined) {
-      browser.connection.close()
-      browser.handle.terminate()
-      await browser.handle.waitForExit()
-      owner.discarded.push(browser.profileDir)
+    if (owner.shutdown !== undefined) return owner.shutdown
+    const shutdown = (async () => {
+      const browser = owner.live
+      if (browser !== undefined) {
+        browser.connection?.close()
+        browser.handle.terminate()
+        if (!await browser.handle.waitForExit()) throw new Error('The browser tree did not exit')
+        // done marks stream/process settlement; it may reject on a spawn-level failure.
+        await browser.handle.done.catch(() => undefined)
+        delete owner.live
+      }
+      for (const profile of [...owner.discarded]) {
+        await rm(profile, { recursive: true, force: true })
+        owner.discarded.shift()
+      }
+      delete owner.browser
+    })()
+    owner.shutdown = shutdown
+    try {
+      await shutdown
+    } finally {
+      delete owner.shutdown
     }
-    const profiles = owner.discarded.splice(0)
-    for (const profile of profiles) await rm(profile, { recursive: true, force: true })
   }
 
   /** Resolve one live page or reject with the panel's unavailability code. */
@@ -444,6 +472,9 @@ export class BrowserController extends TypertRemoteService {
   /** Launch the Session's browser process once, memoizing the connection. */
   private browser(agent: Agent, owner: OwnedSession, signal: AbortSignal): Promise<OwnedBrowser> {
     const existing = owner.browser
+    if (owner.shutdown !== undefined || (existing === undefined && (owner.live !== undefined || owner.discarded.length > 0))) {
+      return this.shutdownBrowser(owner).then(() => this.browser(agent, owner, signal))
+    }
     if (existing !== undefined) return existing
     const launching = (async () => {
       const { subprocess, sandboxPolicy } = this.execution(agent)
@@ -454,35 +485,58 @@ export class BrowserController extends TypertRemoteService {
         )
       }
       const profileDir = await mkdtemp(join(tmpdir(), 'dsh-browser-'))
-      const uid = process.getuid?.()
-      if (sandboxDisabled(this.config.sandbox, uid) && this.config.sandbox === 'auto') {
-        this.ctx.logger.warn(
-          'Running the panel browser without its own sandbox: Chromium cannot start as root with one',
+      owner.discarded.push(profileDir)
+      try {
+        const uid = process.getuid?.()
+        if (sandboxDisabled(this.config.sandbox, uid) && this.config.sandbox === 'auto') {
+          this.ctx.logger.warn(
+            'Running the panel browser without its own sandbox: Chromium cannot start as root with one',
+          )
+        }
+        const launched = await launchBrowser({
+          subprocess,
+          executablePath: executable,
+          cwd: agent.session.header.cwd ?? sandboxPolicy.workspaceRoot,
+          profileDir,
+          width: this.config.maxWidth,
+          height: this.config.maxHeight,
+          sandbox: this.config.sandbox,
+          uid,
+          graceMs: this.config.disposeGraceMs,
+          sessionId: agent.id,
+          launchTimeoutMs: this.config.launchTimeoutMs,
+          signal,
+          onSpawn: (handle) => { owner.live = { handle, profileDir } },
+        })
+        // A slow spawn must not starve the loopback handshake: the endpoint
+        // wait and the handshake each get the full launch budget.
+        const handshakeTimeout = AbortSignal.timeout(this.config.launchTimeoutMs)
+        const handshakeSignal = AbortSignal.any([signal, handshakeTimeout])
+        let connection: CdpConnection
+        try {
+          connection = await CdpConnection.open(launched.endpoint, handshakeSignal)
+          await awaitDiscovery(connection, handshakeSignal)
+        } catch (error) {
+          throw new Error(`The browser started but the DevTools connection failed: ${
+            handshakeTimeout.aborted && !signal.aborted ? `handshake timed out within ${this.config.launchTimeoutMs}ms` : errorText(error)
+          }`, { cause: error })
+        }
+        const owned: OwnedBrowser = { connection, handle: launched.handle, profileDir }
+        owner.live = owned
+        void launched.handle.done.then(
+          () => { this.onBrowserExit(owner, owned) },
+          () => { this.onBrowserExit(owner, owned) },
         )
+        return owned
+      } catch (error) {
+        try {
+          await this.shutdownBrowser(owner)
+        } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError],
+            `${errorText(error)}; browser cleanup failed: ${errorText(cleanupError)}`)
+        }
+        throw error
       }
-      const launched = await launchBrowser({
-        subprocess,
-        executablePath: executable,
-        cwd: agent.session.header.cwd ?? sandboxPolicy.workspaceRoot,
-        profileDir,
-        width: this.config.maxWidth,
-        height: this.config.maxHeight,
-        sandbox: this.config.sandbox,
-        uid,
-        graceMs: this.config.disposeGraceMs,
-        sessionId: agent.id,
-        launchTimeoutMs: this.config.launchTimeoutMs,
-        signal,
-      })
-      const connection = await CdpConnection.open(launched.endpoint, signal)
-      await connection.send('Target.setDiscoverTargets', { discover: true })
-      const owned: OwnedBrowser = { connection, handle: launched.handle, profileDir }
-      void launched.handle.done.then(
-        () => { this.onBrowserExit(owner, owned) },
-        () => { this.onBrowserExit(owner, owned) },
-      )
-      owner.live = owned
-      return owned
     })()
     owner.browser = launching
     return launching.catch((error: unknown) => {
@@ -494,16 +548,13 @@ export class BrowserController extends TypertRemoteService {
 
   /**
    * Abandon every page of a browser that exited on its own and close its now
-   * useless DevTools socket. The profile directory is handed to the Session's
-   * discard list: this path is a process event with no caller to report a
-   * removal failure to, so the removal belongs to the next shutdown.
+   * useless DevTools socket. Its profile remains on the Session's discard
+   * list until the next shutdown can confirm tree exit and report removal errors.
    */
   private onBrowserExit(owner: OwnedSession, browser: OwnedBrowser): void {
     for (const page of owner.pages.values()) page.abandon()
     owner.pages.clear()
     delete owner.browser
-    delete owner.live
-    owner.discarded.push(browser.profileDir)
     browser.connection.close()
   }
 
@@ -570,8 +621,30 @@ function noBrowserReason(configured: string | undefined, candidates: readonly st
  */
 function browserUnavailable(error: unknown): unknown {
   if (error instanceof RemoteError) return error
-  const detail = error instanceof Error ? error.message : String(error)
-  return new RemoteError('browser-unavailable', `The Session browser could not start: ${detail}`, {})
+  const detail = errorText(error)
+  const message = detail.startsWith('The browser started but the DevTools connection failed:')
+    ? detail : `The Session browser could not start: ${detail}`
+  return new RemoteError('browser-unavailable', message, {}, { cause: error })
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Bound initial CDP discovery to the same launch deadline as the socket handshake. */
+async function awaitDiscovery(connection: CdpConnection, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  const aborted = Promise.withResolvers<never>()
+  const onAbort = (): void => {
+    aborted.reject(signal.reason instanceof Error
+      ? signal.reason : new Error('DevTools connection was aborted', { cause: signal.reason }))
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    await Promise.race([connection.send('Target.setDiscoverTargets', { discover: true }), aborted.promise])
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 /** Host browser page service plugin. */

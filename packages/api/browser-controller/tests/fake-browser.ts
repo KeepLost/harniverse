@@ -40,6 +40,8 @@ export interface FakeBrowser {
   readonly bare: Set<string>
   /** Methods answered with an error object carrying neither code nor message. */
   readonly vagueFailures: Set<string>
+  /** Milliseconds to hold back each method's reply, keyed by method name. */
+  readonly delays: Map<string, number>
   /** Push one protocol event to the connected client. */
   emit: (method: string, params: Record<string, unknown>, sessionId?: string) => void
   /** Send one raw text frame (malformed-input material). */
@@ -80,6 +82,7 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
   const silent = new Set<string>()
   const bare = new Set<string>()
   const vagueFailures = new Set<string>()
+  const delays = new Map<string, number>()
   const waiters = new Map<string, (command: RecordedCommand) => void>()
   let client: WebSocket | undefined
   let targets = 0
@@ -96,18 +99,26 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
       commands.push(record)
       waiters.get(message.method)?.(record)
       waiters.delete(message.method)
+      const reply = (payload: string): void => {
+        const delay = delays.get(message.method)
+        if (delay === undefined) {
+          socket.send(payload)
+          return
+        }
+        setTimeout(() => { socket.send(payload) }, delay)
+      }
       if (silent.has(message.method)) return
       if (bare.has(message.method)) {
-        socket.send(JSON.stringify({ id: message.id }))
+        reply(JSON.stringify({ id: message.id }))
         return
       }
       if (vagueFailures.has(message.method)) {
-        socket.send(JSON.stringify({ id: message.id, error: {} }))
+        reply(JSON.stringify({ id: message.id, error: {} }))
         return
       }
       const failure = failures.get(message.method)
       if (failure !== undefined) {
-        socket.send(JSON.stringify({ id: message.id, error: { code: -32000, message: failure } }))
+        reply(JSON.stringify({ id: message.id, error: { code: -32000, message: failure } }))
         return
       }
       const override = replies.get(message.method)
@@ -115,7 +126,7 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
         targets += 1
         return `${TARGET_PREFIX}${String(targets)}`
       })
-      socket.send(JSON.stringify({ id: message.id, result }))
+      reply(JSON.stringify({ id: message.id, result }))
     })
   })
 
@@ -127,6 +138,7 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
     silent,
     bare,
     vagueFailures,
+    delays,
     emit: (method, params, sessionId) => {
       client?.send(JSON.stringify({ method, params, ...(sessionId === undefined ? {} : { sessionId }) }))
     },
@@ -141,7 +153,10 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
     kill: () => {
       client?.terminate()
     },
-    close: () => new Promise<void>((resolve) => { sockets.close(() => { server.close(() => { resolve() }) }) }),
+    close: () => new Promise<void>((resolve) => {
+      for (const socket of sockets.clients) socket.terminate()
+      sockets.close(() => { server.close(() => { resolve() }) })
+    }),
   }
 }
 
@@ -161,6 +176,15 @@ function defaultResult(method: string, mintTarget: () => string): Record<string,
 }
 
 /** A fake subprocess provider whose spawn reports the fake browser's endpoint. */
+interface FakeBrowserHandle {
+  terminate: () => void
+  exit: () => void
+  fail: () => void
+  endStderr: () => void
+  readonly terminated: boolean
+  releaseTree: () => void
+}
+
 export interface FakeSubprocess {
   readonly runtime: SubprocessRuntime
   /** Spawn specs the controller submitted. */
@@ -168,13 +192,17 @@ export interface FakeSubprocess {
   /** Executables the controller probed. */
   readonly probes: string[]
   /** Handles the provider returned. */
-  readonly handles: { terminate: () => void; exit: () => void; fail: () => void; endStderr: () => void }[]
+  readonly handles: FakeBrowserHandle[]
   /** Executables that resolve; every other probe fails. */
   resolvable: Set<string>
   /** Endpoint line written to the child's stderr; undefined writes nothing. */
   endpoint: string | undefined
   /** When true, awaiting a spawned tree's exit fails. */
   failWaitForExit: boolean
+  /** When true, the tree waiter reports cancellation without confirming exit. */
+  incompleteWaitForExit: boolean
+  /** Keep the tree running after termination until a test releases it. */
+  holdTreeExit: boolean
   /** When true, the spawned handle exposes no diagnostic stream. */
   withoutStderr: boolean
   /** When true, stderr is decoded to strings before the launcher reads it. */
@@ -188,6 +216,8 @@ export interface FakeSubprocess {
    * mid-line.
    */
   splitEndpointTail: number | undefined
+  /** Milliseconds before the endpoint line reaches the launcher's stderr read. */
+  endpointDelayMs: number | undefined
 }
 
 /**
@@ -198,7 +228,7 @@ export interface FakeSubprocess {
 export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
   const spawns: SubprocessSpawnSpec[] = []
   const probes: string[] = []
-  const handles: { terminate: () => void; exit: () => void; fail: () => void; endStderr: () => void }[] = []
+  const handles: FakeSubprocess['handles'][number][] = []
   const fake: FakeSubprocess = {
     spawns,
     probes,
@@ -206,10 +236,13 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
     resolvable: new Set(['google-chrome']),
     endpoint,
     failWaitForExit: false,
+    incompleteWaitForExit: false,
+    holdTreeExit: false,
     withoutStderr: false,
     stringChunks: false,
     prelude: undefined,
     splitEndpointTail: undefined,
+    endpointDelayMs: undefined,
     runtime: {
       resolveExecutable: (command: string) => {
         probes.push(command)
@@ -221,6 +254,8 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
         spawns.push(spec)
         const stderr = fake.stringChunks ? new PassThrough({ encoding: 'utf8' }) : new PassThrough()
         const exit = Promise.withResolvers<{ exitCode: number; signal: null }>()
+        const tree = Promise.withResolvers<boolean>()
+        let terminated = false
         const handle = {
           pid: 4321,
           stdin: undefined,
@@ -228,16 +263,24 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
           stderr: fake.withoutStderr ? undefined : stderr,
           collected: {},
           done: exit.promise,
-          terminate: () => { exit.resolve({ exitCode: 0, signal: null }) },
+          terminate: () => {
+            terminated = true
+            if (!fake.holdTreeExit) {
+              exit.resolve({ exitCode: 0, signal: null })
+              tree.resolve(true)
+            }
+          },
           waitForExit: () => fake.failWaitForExit
             ? Promise.reject(new Error('the browser tree never quiesced'))
-            : exit.promise.then(() => true),
+            : fake.incompleteWaitForExit ? Promise.resolve(false) : tree.promise,
         } as unknown as SubprocessHandle
         handles.push({
           terminate: () => { handle.terminate() },
-          exit: () => { exit.resolve({ exitCode: 1, signal: null }) },
-          fail: () => { exit.reject(new Error('the browser process could not be observed')) },
+          exit: () => { exit.resolve({ exitCode: 1, signal: null }); tree.resolve(true) },
+          fail: () => { exit.reject(new Error('the browser process could not be observed')); tree.resolve(true) },
           endStderr: () => { stderr.end() },
+          get terminated() { return terminated },
+          releaseTree: () => { exit.resolve({ exitCode: 0, signal: null }); tree.resolve(true) },
         })
         if (fake.prelude !== undefined) setTimeout(() => { stderr.write(`${String(fake.prelude)}\n`) }, 0)
         if (fake.endpoint !== undefined) {
@@ -250,7 +293,7 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
             }
             stderr.write(line.slice(0, line.length - withheld))
             setTimeout(() => { stderr.write(line.slice(line.length - withheld)) }, 0)
-          }, 0)
+          }, fake.endpointDelayMs ?? 0)
         }
         return handle
       },

@@ -69,11 +69,16 @@ export class CdpConnection {
    * @returns the connected client.
    */
   static open(endpoint: string, signal: AbortSignal): Promise<CdpConnection> {
+    if (signal.aborted) {
+      return Promise.reject(signal.reason instanceof Error
+        ? signal.reason : new Error('DevTools connection was aborted', { cause: signal.reason }))
+    }
     return new Promise<CdpConnection>((resolve, reject) => {
       const socket = new WebSocket(endpoint)
       const settle = (): void => {
         socket.removeEventListener('open', onOpen)
         socket.removeEventListener('error', onError)
+        socket.removeEventListener('close', onClose)
         signal.removeEventListener('abort', onAbort)
       }
       const onOpen = (): void => {
@@ -82,16 +87,22 @@ export class CdpConnection {
       }
       const onError = (): void => {
         settle()
-        reject(new Error(`DevTools endpoint ${endpoint} refused the connection`))
+        reject(new Error(`DevTools connection to ${endpoint} failed during handshake`))
+      }
+      const onClose = (): void => {
+        settle()
+        reject(new Error(`DevTools connection to ${endpoint} closed during handshake`))
       }
       const onAbort = (): void => {
         settle()
         socket.close()
-        reject(new Error('DevTools connection was aborted'))
+        reject(new Error('DevTools connection was aborted', { cause: signal.reason }))
       }
       socket.addEventListener('open', onOpen)
       socket.addEventListener('error', onError)
+      socket.addEventListener('close', onClose)
       signal.addEventListener('abort', onAbort, { once: true })
+      if (signal.aborted) onAbort()
     })
   }
 

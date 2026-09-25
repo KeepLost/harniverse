@@ -118,6 +118,7 @@ function mount(
     composerBlock?: { reason: string }
     /** Mutable view ledger used by registration-order regressions. */
     viewTabs?: ViewTab[]
+    openWorkbench?: () => void
   } = {},
 ) {
   const root = sid('root')
@@ -268,11 +269,12 @@ function mount(
     renderSlot,
     renderSlotChain,
     selectWorkspace: retargetWorkspace,
+    openWorkbench: options.openWorkbench ?? vi.fn(),
     t,
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, retargetWorkspace, session, slotCalls, seatOwners, open,
+    view, chat, sink, retargetWorkspace, session, workspaces, slotCalls, seatOwners, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -524,6 +526,64 @@ describe('ConversationRoot resident composer', () => {
     // The agent-preset chip sits in the same row, for the same reason: both
     // choices are only open before the first message.
     expect(b.slotCalls).toContain('conversation.hero.agentPreset')
+  })
+
+  it('opens the workbench from the workspace name and leaves the picker on the arrow', () => {
+    const openWorkbench = vi.fn()
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }), undefined, undefined, { openWorkbench })
+    const name = b.view.getByRole('button', { name: '打开工作台' })
+    const arrow = b.view.getByRole('button', { name: '选择工作区' })
+    expect(name).not.toBe(arrow)
+    fireEvent.click(name)
+    expect(openWorkbench).toHaveBeenCalledOnce()
+    expect((b.pickerOwner() as { open: boolean }).open).toBe(false)
+    fireEvent.click(arrow)
+    expect((b.pickerOwner() as { open: boolean }).open).toBe(true)
+    expect(openWorkbench).toHaveBeenCalledOnce()
+  })
+
+  it('does not open the workbench without an owning workspace or during a pending switch', () => {
+    const openWorkbench = vi.fn()
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }), [], undefined, {
+      openWorkbench, summaryBlank: true,
+    })
+    const name = b.view.getByRole('button', { name: '打开工作台' }) as HTMLButtonElement
+    const arrow = b.view.getByRole('button', { name: '选择工作区' })
+    expect(name.disabled).toBe(true)
+    fireEvent.click(name)
+    expect(openWorkbench).not.toHaveBeenCalled()
+    fireEvent.click(arrow)
+    expect((b.pickerOwner() as { open: boolean }).open).toBe(true)
+    b.view.unmount()
+
+    // A pending label is only an optimistic echo, not a committed workspace.
+    const waiting = vi.fn(() => new Promise<void>(() => {}))
+    const pending = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true }),
+      [{ ...workspace('one'), sessionIds: [SID] }, workspace('second')],
+      waiting,
+      { openWorkbench },
+    )
+    fireEvent.click(pending.view.getByRole('button', { name: '选择工作区' }))
+    act(() => { (pending.pickerOwner() as { onPick(id: WorkspaceId): void }).onPick(wid('second')) })
+    const pendingName = pending.view.getByRole('button', { name: '打开工作台' }) as HTMLButtonElement
+    expect(pendingName.disabled).toBe(true)
+    expect(pending.view.getByText('second')).toBeTruthy()
+    fireEvent.click(pendingName)
+    expect(openWorkbench).not.toHaveBeenCalled()
+  })
+
+  it('does not treat the loading cwd label as a resolved workspace', () => {
+    const openWorkbench = vi.fn()
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }), [], undefined, {
+      summaryBlank: true, openWorkbench,
+    })
+    act(() => { b.workspaces.set({ ...workspaceState([]), phase: 'pending' }) })
+    expect(b.view.getByText('one')).toBeTruthy()
+    const name = b.view.getByRole('button', { name: '打开工作台' }) as HTMLButtonElement
+    expect(name.disabled).toBe(true)
+    fireEvent.click(name)
+    expect(openWorkbench).not.toHaveBeenCalled()
   })
 
   it('prompt failure renders the promptError strip (ordinary failure, no transaction UI)', () => {

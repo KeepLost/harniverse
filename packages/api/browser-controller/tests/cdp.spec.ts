@@ -1,5 +1,5 @@
 /** The CDP transport: handshake, command correlation, event delivery, and failure propagation. */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CdpConnection, CdpError, type CdpEvent } from '../src/cdp.ts'
 import { startFakeBrowser } from './fake-browser.ts'
 
@@ -81,7 +81,7 @@ describe('CdpConnection', () => {
     const endpoint = browser.endpoint
     await browser.close()
     await expect(CdpConnection.open(endpoint, new AbortController().signal))
-      .rejects.toThrow(`DevTools endpoint ${endpoint} refused the connection`)
+      .rejects.toThrow(`DevTools connection to ${endpoint} failed during handshake`)
   })
 
   it('rejects when the handshake is aborted', async () => {
@@ -93,6 +93,51 @@ describe('CdpConnection', () => {
       await expect(opening).rejects.toThrow('DevTools connection was aborted')
     } finally {
       await browser.close()
+    }
+  })
+
+  it('does not open a socket for an already-aborted handshake', async () => {
+    const abort = new AbortController()
+    abort.abort(new Error('request cancelled'))
+    await expect(CdpConnection.open('ws://127.0.0.1:1/devtools/browser/fake', abort.signal))
+      .rejects.toThrow('request cancelled')
+  })
+
+  it('normalizes a non-Error abort before opening a socket', async () => {
+    const abort = new AbortController()
+    abort.abort('left')
+    await expect(CdpConnection.open('ws://127.0.0.1:1', abort.signal))
+      .rejects.toThrow('DevTools connection was aborted')
+  })
+
+  it('reports a socket closing during the handshake without calling it a refusal', async () => {
+    const sockets: EventTarget[] = []
+    vi.stubGlobal('WebSocket', class extends EventTarget {
+      constructor(_endpoint: string) { super(); sockets.push(this) }
+      close(): void {}
+    })
+    try {
+      const opening = CdpConnection.open('ws://localhost/devtools', new AbortController().signal)
+      sockets[0]?.dispatchEvent(new Event('close'))
+      await expect(opening).rejects.toThrow('closed during handshake')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('handles an abort during socket construction', async () => {
+    const abort = new AbortController()
+    const close = vi.fn()
+    vi.stubGlobal('WebSocket', class extends EventTarget {
+      constructor(_endpoint: string) { super(); abort.abort(new Error('caller left')) }
+      close(): void { close() }
+    })
+    try {
+      await expect(CdpConnection.open('ws://localhost/devtools', abort.signal))
+        .rejects.toThrow('DevTools connection was aborted')
+      expect(close).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
     }
   })
 

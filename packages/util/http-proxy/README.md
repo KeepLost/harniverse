@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-The **process-wide outbound proxy policy** for the harness: resolve one policy from the launch environment (`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`, either casing), install it behind the dispatcher symbol Node's global `fetch` resolves, and hand every other surface — spawned children, the web-fetch transport — the same routing answer.
+The **process-wide outbound proxy policy** for the harness: resolve one policy from the launch environment (`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`, either casing), install it behind the dispatcher symbol Node's global `fetch` and `WebSocket` resolve, and hand every other surface — spawned children, the web-fetch transport — the same routing answer.
 
 Node's built-in `fetch` ignores the proxy environment on its own, so every harness request would connect directly no matter what the user exported. One install covers LLM adapters, web search, and any plain `fetch()` caller without touching their code: the launcher (`dsh` profile boot) resolves and installs the policy before the first plugin mounts, resolving from the launch-environment snapshot rather than `process.env`, which is what lets a proxy declared in a `.env` layer work — `NODE_USE_ENV_PROXY` cannot, because Node samples the environment at process start.
 
-This is a **library, not a plugin**: transport policy has one answer per process, so there is nothing for a composition to mount, swap, or scope. Harniverse carries it **natively** — no `undici` dependency: the installed dispatcher speaks the dispatch contract global `fetch` already uses, and every proxied hop runs through the one shared tunnel builder.
+This is a **library, not a plugin**: transport policy has one answer per process, so there is nothing for a composition to mount, swap, or scope. Harniverse carries it **natively** — no `undici` dependency: the installed dispatcher speaks Node's dispatch contract and uses native HTTP and TLS transports for requests and upgrades.
 
 ## API
 
@@ -34,6 +34,7 @@ import {
 - **Diagnostics never carry values**: a proxy URL may embed `user:password`, so messages name the variable only.
 - **Loopback is never proxied** (`localhost`, `127.0.0.0/8`, `::1`, IPv4-mapped forms), and every bypass list is merged with those entries.
 - **`NO_PROXY` matching**: comma/space-separated; an entry matches the host and every subdomain; an optional `:port` must equal the effective port; `*` bypasses everything; CIDR is not matched.
+- **WebSocket routing**: Node's global `WebSocket` uses the HTTP policy for `ws:` and the HTTPS policy for `wss:`. Loopback and bypassed upgrades go to the displaced dispatcher, or a native direct connection when none exists. Proxied upgrades use `CONNECT`; `wss:` adds origin TLS with normal certificate verification. Proxy credentials are sent only to the proxy. Handshake failures and cancellation close the pending connections; disposal waits for pending handshakes, while callers own and close successfully upgraded sockets.
 - **No proxy exported**: nothing is installed and no environment name is touched — global `fetch` keeps Node's internal default transport byte-for-byte.
 
 ## Consumers
@@ -53,7 +54,6 @@ None; routing changes carry no request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **No connection pooling** — each proxied hop opens its own socket (per-request tunnels; `agent: false`), and direct URLs under an active policy that displaced no dispatcher also take a per-request socket. Node's internal default transport keeps its pooling when no policy is installed.
+- **No connection pooling** — each proxied hop opens its own socket, and direct URLs under an active policy that displaced no dispatcher also take a per-request socket. Node's internal default transport keeps its pooling when no policy is installed.
 - **HTTP/1.1 only through tunnels** — the CONNECT arm negotiates no ALPN, so an origin that requires HTTP/2 multiplexing cannot be proxied yet.
-- **Upgrade requests are refused on proxied routes** — WebSocket-style upgrades never arrive from `fetch`; a tunnel for them would need its own protocol handling.
 - **Worker threads are not served** — a worker has its own `globalThis` and dispatcher; installing here does not reach it, and model-authored script runtimes must not receive a proxy URL that may carry credentials.

@@ -358,7 +358,10 @@ export interface Config {
   readonly screencastEveryNthFrame: number
   /** How long a navigation may stay in flight before the panel is told it failed. */
   readonly navigationTimeoutMs: number
-  /** How long to wait for the browser's DevTools endpoint at launch. */
+  /**
+   * Maximum time from browser spawn to the DevTools endpoint line, and again from there through
+   * the socket handshake and initial discovery reply.
+   */
   readonly launchTimeoutMs: number
   /** Browser process-termination grace period in milliseconds. */
   readonly disposeGraceMs: number

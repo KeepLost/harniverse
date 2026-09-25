@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-24-proxy-websocket-upgrade-routing.md
+2026-09-24-proxy-websocket-upgrade-routing.md: bc63d7393629929c35bde6d4d7642d5099469a44
+2026-09-24-proxy-websocket-upgrade-routing.zh.md: 8e9e283506802245400e41c79aca6a147622c5a4

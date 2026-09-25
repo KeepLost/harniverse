@@ -54,7 +54,7 @@ async function bench(opts?: { blank?: boolean }) {
   // The plugin injects both; these specs exercise no settings path.
   runtime.provide('remote', { $on: () => () => {} })
   runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
-  runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+  runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn(), openWorkbench: vi.fn() })
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
   runtime.slots.installLocale(locale)
@@ -76,6 +76,18 @@ async function bench(opts?: { blank?: boolean }) {
 }
 
 describe('resident composer', () => {
+  it('opens the existing workbench from the resolved blank-session workspace name', async () => {
+    const runtime = await bench({ blank: true })
+    await runtime.workspaces.update((draft) => {
+      draft.items = [{ workspaceId: 'w1', title: 'Proj', path: '/proj', sessionIds: [SID] }] as never
+    })
+    const openWorkbench = vi.spyOn(runtime.ctx.layout, 'openWorkbench')
+    const view = runtime.renderRoot()
+    fireEvent.click(view.getByRole('button', { name: '打开工作台' }))
+    expect(openWorkbench).toHaveBeenCalledOnce()
+    await runtime.dispose()
+  })
+
   it('renders the locked view state while no session exists at all', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
