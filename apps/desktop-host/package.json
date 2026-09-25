@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-desktop-host",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "description": "Private authenticated Host process owned by the Harniverse desktop shell",
   "type": "module",
   "license": "MIT",

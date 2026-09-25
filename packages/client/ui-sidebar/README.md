@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Sidebar shell plugin: the wordmark, New Session action, layout-owned collapse control, scroll-aware region seat, and bottom-pinned Settings seat. [ui-workspace](../ui-workspace/README.md) owns the Workspace and Session browser rendered into `sidebar.workspaces`; this package neither derives its rows nor owns its view preferences. Collapse into the layout-owned 56px rail remains presentation-local. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
+Sidebar shell plugin: the plain Harniverse wordmark, New Session action, layout-owned collapse control, scroll-aware region seat, and bottom-pinned Settings seat. [ui-workspace](../ui-workspace/README.md) owns the Workspace and Session browser rendered into `sidebar.workspaces`; this package neither derives its rows nor owns its view preferences. Collapse into the layout-owned 56px rail remains presentation-local. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
 
 New Session starts the runtime's page-local frontend Session Intent. The runtime targets the explicit Workspace used by a scoped action, otherwise the current Session's Workspace, otherwise the most recently active Workspace; when none exists it clears into the blank New Session page. Workspace-specific controls and the shared picker belong to ui-workspace.
 
@@ -14,7 +14,7 @@ Scrollbars in the column are a pointer affordance: the shell rebinds ui-theme's 
 
 The foot is the `sidebar.settings` seat: the sidebar renders only the bottom-pinned layout slot and shares its column state (`wide`); ui-settings registers the trigger row and settings panel there.
 
-The root-scoped `sidebar.header.status` seat sits between the expanded brand and collapse control, and below the combined logo/expand control in the rail. Its owner share is only `wide`; [ui-connection-status](../ui-connection-status/README.md) supplies the read-only indicator. The sidebar owns neither authentication state nor renewal work.
+The root-scoped `sidebar.header.status` seat sits between the expanded brand and collapse control, and below the panel toggle in the rail. Its owner share is only `wide`; [ui-connection-status](../ui-connection-status/README.md) supplies the read-only indicator. The sidebar owns neither authentication state nor renewal work.
 
 The `/client` exports are the plugin body (`apply`/`inject`) plus the contract types only; SidebarRoot, the row components, and the tree derivation remain package-internal behind the slot registration.
 

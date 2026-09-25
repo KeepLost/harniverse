@@ -40,25 +40,19 @@
   width: min(100%, 760px);
 }
 
-/* Identity block: mark beside the product line and the page title. */
+/* Identity block: full brand artwork beside the product line and page title. */
 .dsh-auth-head {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  align-items: flex-start;
+  gap: 16px;
 }
 
-.dsh-auth-mark {
+.dsh-auth-brand {
   flex: none;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: 13px;
-  color: var(--dsw-alias-label-primary-foreground);
-  background: var(--dsw-alias-button-info-fill);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .08em;
+  width: 112px;
+  height: 112px;
+  display: block;
+  object-fit: contain;
 }
 
 .dsh-auth-titles {
@@ -71,7 +65,6 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .1em;
-  text-transform: uppercase;
 }
 
 .dsh-auth-card h1 {
@@ -540,6 +533,25 @@
   .dsh-auth {
     align-items: stretch;
     padding: 0;
+  }
+
+  .dsh-auth-head {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .dsh-auth-brand {
+    width: 88px;
+    height: 88px;
+  }
+
+  .dsh-auth-titles {
+    flex: 1 1 0;
+  }
+
+  .dsh-auth-head-actions {
+    flex-basis: 100%;
+    margin-left: 0;
   }
 
   .dsh-auth-card,

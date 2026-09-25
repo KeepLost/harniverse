@@ -122,6 +122,14 @@ Contributors can opt into the comprehensive local gate set with `pnpm run check:
 
 The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
 
+### Release workflow
+
+The dsh release family shares one product version across its manifests and the workspace root; the vendored framework and native packages keep independent version lines and workflows. The [release-sequences Agent Note](../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md) owns the release-family rationale and package boundaries.
+
+Preview a candidate with `pnpm run release:dsh --dry-run 1.0.0-rc.1`; this performs no writes. Use `pnpm run release:dsh --no-commit 1.0.0-rc.1` to write the family manifests and synchronize `pnpm-lock.yaml` while leaving `HEAD` and the index untouched for review. A lockfile-sync failure reports the command failure and leaves the manifest edits available for inspection. Normal mode retains the existing bump-and-commit behavior.
+
+The release workflow packs on pull requests and `master` pushes without publishing. Publication requires an explicit `workflow_dispatch` with `publish: true`, the `npm-publish` environment, and an immutable `harniverse-v<version>` tag whose exact version matches the dsh family; vendor and native publication remain independent. Release versions use `rc.N` candidates followed by stable releases. For declared supported APIs, use patch for compatible fixes, minor for compatible additions, and major for breaking changes. Session format `v0` is permanent and additive, and SQLite schema versions are separate. Write release notes for each release; do not create a central release ledger.
+
 ### Daily commands
 
 The root [contributor instructions](../AGENTS.md#commands) summarize common commands, while [`package.json`](../package.json) and [scripts/run-gates.ts](../scripts/run-gates.ts) own the current script and gate inventories. Select the smallest checks that cover the changed surface. Documentation changes use `pnpm run doc-sync`; package-public behavior changes also update the owning README or JSDoc, and built-artifact checks require `pnpm run build` first.

@@ -1,11 +1,12 @@
-# Pack and publish the dsh release sequence: every package under packages/ plus
+# Pack and publish the Harniverse release sequence: every package under packages/ plus
 # the apps/ entries, all on one version. The vendored framework and the native
 # packages are separate sequences with their own workflows and version lines.
 #
 # Pack runs without credentials on every pull request and master push, so a
-# pull request proves the whole publish set still packs. Publication is a
-# manual dispatch from a dsh-v* tag and consumes exactly the packed bytes.
-name: Release (dsh)
+# pull request proves the whole publish set still packs. Publication is an
+# explicit, environment-gated manual dispatch from an immutable harniverse-v*
+# tag and consumes exactly the packed bytes.
+name: Release (harniverse)
 
 on:
   pull_request:
@@ -14,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the packed tarballs to npm. Must run from a dsh-v* tag.
+        description: Publish the packed tarballs to npm. Must run from a harniverse-v* tag.
         required: true
         type: boolean
         default: false
@@ -108,7 +109,7 @@ jobs:
 
   publish:
     name: Publish to npm
-    if: inputs.publish
+    if: inputs.publish && startsWith(github.ref, 'refs/tags/harniverse-v')
     needs: pack
     runs-on: ubuntu-24.04
     # Required reviewers and the allowed tags live on the environment; this is

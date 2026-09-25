@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-ptc-runtime-python",
   "description": "CPython subprocess implementation of the DeepSeek Harness code-execution seam",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

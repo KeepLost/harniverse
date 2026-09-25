@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-terminal",
   "description": "User-facing terminal panel: xterm.js rendering over the authenticated terminal-controller streams for the Web app",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

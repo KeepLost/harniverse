@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-execution-descriptor",
   "description": "Immutable execution-world descriptor contract: the remote execution machine's identity, POSIX workspace root, capability inventory, machine-owned configuration stance, credential references, and verified revision digest — refusing host-local preset authority",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

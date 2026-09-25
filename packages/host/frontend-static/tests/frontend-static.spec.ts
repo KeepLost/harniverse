@@ -38,6 +38,7 @@ async function loadComposition(indexPaths: readonly string[] = ['/auth/manage'])
   const distIndex = join(dist, 'index.html')
   await writeFile(distIndex, '<head></head><body>shell</body>')
   await writeFile(join(dist, 'app.js'), 'export {}')
+  await writeFile(join(dist, 'brand.png'), 'PNG')
   await writeFile(join(dist, 'blob.bin'), 'BLOB')
   await writeFile(join(dist, 'manifest.webmanifest'), '{}')
   await writeFile(join(dist, 'assets', 'index-12345678.js'), 'export const cached = true')
@@ -97,6 +98,28 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
 }
 
 describe('real Loader composition', () => {
+  it.each(['/brand.png', '/assets/brand-12345678.png'])('serves PNG bytes without transport recompression at %s', async (path) => {
+    const loaded = await loadComposition()
+    await writeFile(join(root!, 'dist', path.slice(1)), 'PNG')
+    for (const encoding of ['br, gzip', 'gzip', 'identity']) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await fetch(`http://127.0.0.1:${String(loaded.webServer.port)}${path}`, {
+          method,
+          headers: { 'accept-encoding': encoding },
+        })
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toBe('image/png')
+        expect(response.headers.get('content-encoding')).toBeNull()
+        expect(response.headers.get('vary')).toBeNull()
+        expect(response.headers.get('content-length')).toBe('3')
+        expect(response.headers.get('cache-control')).toBe(path.startsWith('/assets/')
+          ? 'public, max-age=31536000, immutable'
+          : null)
+        expect(await response.text()).toBe(method === 'HEAD' ? '' : 'PNG')
+      }
+    }
+  })
+
   it('serves declared index paths and files while preserving HTTP error semantics', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const unloaded = [...loaded.loader.entries()]
@@ -112,6 +135,11 @@ describe('real Loader composition', () => {
       status: 200,
       type: 'application/manifest+json',
       body: '{}',
+    })
+    expect(await request(port, '/brand.png')).toMatchObject({
+      status: 200,
+      type: 'image/png',
+      body: 'PNG',
     })
     await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
     expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export const rebuilt = true' })

@@ -42,6 +42,7 @@ const MIME: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
   '.json': 'application/json',
   '.map': 'application/json',
   '.webmanifest': 'application/manifest+json',
@@ -49,8 +50,8 @@ const MIME: Record<string, string> = {
 
 interface CachedAsset {
   raw: Buffer
-  gzip: Buffer
-  br: Buffer
+  gzip?: Buffer
+  br?: Buffer
 }
 
 const IMMUTABLE_ASSET = /^\/assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8,}\.[^/]+$/
@@ -61,7 +62,7 @@ function staticMiss(error: unknown): boolean {
 }
 
 /**
- * Serve one GET/HEAD static request from the dist root.
+ * Serve one GET/HEAD static request from the dist root; PNG bytes bypass transport compression.
  * @param pathname - decoded URL pathname of the request.
  * @param res - the node:http response to write.
  * @param distRoot - absolute dist root directory (resolved by the caller).
@@ -112,17 +113,15 @@ export async function serveStatic(
     let asset = immutable ? assetCache.get(target) : undefined
     if (asset === undefined) {
       const raw = await readFile(target)
-      if (immutable) {
-        asset = { raw, gzip: gzipSync(raw), br: brotliCompressSync(raw) }
-        assetCache.set(target, asset)
-      } else {
-        asset = { raw, gzip: gzipSync(raw), br: brotliCompressSync(raw) }
-      }
+      asset = extname(target) === '.png'
+        ? { raw }
+        : { raw, gzip: gzipSync(raw), br: brotliCompressSync(raw) }
+      if (immutable) assetCache.set(target, asset)
     }
     const encodings = acceptEncoding.split(',').map(item => item.trim().split(';')[0])
-    const brotli = encodings.includes('br')
-    const gzip = !brotli && encodings.includes('gzip')
-    const body = brotli ? asset.br : gzip ? asset.gzip : asset.raw
+    const brotli = encodings.includes('br') ? asset.br : undefined
+    const gzip = !brotli && encodings.includes('gzip') ? asset.gzip : undefined
+    const body = brotli ?? gzip ?? asset.raw
     res.writeHead(200, {
       'content-type': MIME[extname(target)] ?? 'application/octet-stream',
       ...(immutable ? { 'cache-control': 'public, max-age=31536000, immutable' } : {}),

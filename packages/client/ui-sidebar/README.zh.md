@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-侧边栏外壳插件：负责字标、New Session 操作、布局持有的折叠控件、可感知滚动的区域 seat，以及固定在底部的 Settings seat。[ui-workspace](../ui-workspace/README.md) 持有渲染到 `sidebar.workspaces` 的 Workspace 与 Session 浏览器；本包既不派生其中的行，也不持有其视图偏好。折叠到布局拥有的 56px 轨道仍属于本地呈现行为。约定：[slot 系统标准](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md)。
+侧边栏外壳插件：负责纯文本 Harniverse 字标、New Session 操作、布局持有的折叠控件、可感知滚动的区域 seat，以及固定在底部的 Settings seat。[ui-workspace](../ui-workspace/README.md) 持有渲染到 `sidebar.workspaces` 的 Workspace 与 Session 浏览器；本包既不派生其中的行，也不持有其视图偏好。折叠到布局拥有的 56px 轨道仍属于本地呈现行为。约定：[slot 系统标准](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md)。
 
 New Session 会启动运行时的页面局部前端 Session Intent。运行时优先使用作用域操作明确指定的 Workspace，否则使用当前 Session 所属 Workspace，再否则使用最近活跃 Workspace；一个 Workspace 都没有时则清空选择，进入空白 New Session 页面。Workspace 专属控件与共享选择器由 ui-workspace 持有。
 
@@ -14,7 +14,7 @@ New Session 会启动运行时的页面局部前端 Session Intent。运行时�
 
 页脚承载 `sidebar.settings`：侧边栏只渲染固定在底部的布局 slot，并共享其栏状态（`wide`）；ui-settings 在此注册触发行和设置面板。
 
-根作用域的 `sidebar.header.status` seat 在展开时位于品牌与折叠控件之间，在窄栏中位于合并的标识与展开控件下方。它的 owner share 只有 `wide`；[ui-connection-status](../ui-connection-status/README.md) 提供只读图标。侧边栏既不拥有认证状态，也不执行续期工作。
+根作用域的 `sidebar.header.status` seat 在展开时位于品牌与折叠控件之间，在窄栏中位于面板切换控件下方。它的 owner share 只有 `wide`；[ui-connection-status](../ui-connection-status/README.md) 提供只读图标。侧边栏既不拥有认证状态，也不执行续期工作。
 
 `/client` 导出表层只包含插件主体（`apply`／`inject`）及约定类型；SidebarRoot、行组件和树派生仍由 slot 注册封装在包内。
 

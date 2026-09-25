@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-governor",
   "description": "Resource governor board: sessions-as-processes overview (CPU/memory/disk/network-lite), global budget usage, and per-session memory quota adjustment over the governor Remote",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

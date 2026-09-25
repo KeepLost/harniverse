@@ -20,7 +20,7 @@ Status: implemented
 
 - 两次投递之间模型没有被动的调度感知——这是换取「上下文只在用户或投递推动时移动」的既定取舍。
 - 模型自己写的调度 prompt 可能仿冒信封措辞；信任域完全相同（该 prompt 本就存在于会话中），且 UI provenance 读取结构化 source 字段、从不解析文本。
-- 调度器单元与 loader-composition 套件断言信封；被移除 section 的三处上下文断言替换为「不注册上下文」契约测试。PLUGINS.md 与调度器 README 记录能力变更；实现 SHA 记录在后续跟踪提交中。
+- 调度器单元与 loader-composition 套件断言信封；被移除 section 的三处上下文断言替换为「不注册上下文」契约测试。[调度器 README](../../../../packages/schedule/scheduler/README.md)负责投递约定。
 
 ## 考虑过的替代方案
 

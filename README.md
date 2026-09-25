@@ -217,15 +217,15 @@ The startup line shows the effective `hosts` and explicit `origins`. A rejected 
 
 ## Project relationship and status
 
-Harniverse inherits DeepSeek Harness, its `dsh` CLI, the `@deepseek-ai/dsh-*` package namespace, and the Cordis plugin architecture. [PLUGINS.md](PLUGINS.md) records the official baseline, downstream capability families, shipped composition changes, and their implementation commits; it is the authority for what differs from upstream.
+Harniverse inherits DeepSeek Harness, its `dsh` CLI, the `@deepseek-ai/dsh-*` package namespace, and the Cordis plugin architecture. The [architecture](docs/architecture.md), [package references](packages/README.md), and [subsystem references](docs/subsystems/README.md) define current capabilities and composition; [Agent Notes](.agents/notes/README.md) record decisions and required verification.
 
-Until Harniverse establishes a tagged compatibility commitment, source interfaces and persisted formats may change incompatibly. The inherited npm namespace does not indicate a separate Harniverse package release.
+Harniverse's pre-release policy permits interface changes where no explicit compatibility commitment exists. The [durable-format policy](AGENTS.md#durable-formats) preserves permanent additive-only session v0 and monotonic SQLite schema versions. The inherited npm namespace does not indicate a separate Harniverse package release.
 
 Report Harniverse bugs and documentation problems through [Harniverse Issues](https://github.com/KeepLost/harniverse/issues). Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to public plugin repositories for ecosystem discovery.
 
 ## Contributing and development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Contributors start with the [development guide](docs/development.md), read the [architecture documentation](docs/architecture.md), and use [PLUGINS.md](PLUGINS.md) for downstream boundaries. Agents follow [AGENTS.md](AGENTS.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Contributors start with the [development guide](docs/development.md) and read the [architecture documentation](docs/architecture.md). Agents follow [AGENTS.md](AGENTS.md).
 
 ## License and attribution
 

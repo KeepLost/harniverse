@@ -2,7 +2,7 @@
 
 English | [中文](architecture.zh.md)
 
-Harniverse preserves the DeepSeek Harness plugin architecture described here; [PLUGINS.md](../PLUGINS.md) records its downstream baseline and composition differences. Read this before changing anything under `packages/`. It assumes you know Cordis; if you do not, start with the [primer](cordis-primer.md) or the [tutorial](cordis-tutorial/index.md).
+Harniverse preserves the DeepSeek Harness plugin architecture described here. Read this before changing anything under `packages/`; [package references](../packages/README.md) and [subsystem references](subsystems/README.md) own detailed contracts, while [Agent Notes](../.agents/notes/README.md) own decisions and required verification. It assumes you know Cordis; if you do not, start with the [primer](cordis-primer.md) or the [tutorial](cordis-tutorial/index.md).
 
 ## Cordis
 

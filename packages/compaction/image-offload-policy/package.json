@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-image-offload-policy",
   "description": "Contract for age-based image offload: the global imageOffloadAfterUserTurns setting, per-image user-turn aging with compaction and pressure settlement, and the durable image/offload projection event",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

@@ -6,6 +6,8 @@ Web 壳的 SPA dist 服务器：一个函数插件（配置为 `{distIndex, inde
 
 回退席位只有单一所有者（第二次占据会抛错），并受 effect 作用域约束：dispose（资源释放）插件的 fiber 会释放席位，此后无人占据的 webserver 回答 404。
 
+PNG 资源使用 `image/png`，保留文件原始字节，不再进行 gzip 或 Brotli 重压缩。GET 与 HEAD 都报告原始内容长度，不声明内容编码。带哈希的资源保留不可变缓存；其他路径每次重新读取。其他资源类型保留协商压缩（[编码决策](../../../.agents/notes/implemented/bug-fix/2026-09-25-png-static-identity-encoding.md)）。
+
 ## 模型体验
 
 无。该包只服务浏览器资产；其中没有任何内容会进入模型请求。

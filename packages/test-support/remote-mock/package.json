@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-mock",
   "description": "RpcMethodMap-keyed Connection carrier mock for web-client unit tests without a Host",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

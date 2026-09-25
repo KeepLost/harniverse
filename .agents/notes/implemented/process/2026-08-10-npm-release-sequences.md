@@ -22,7 +22,7 @@ Two hard blockers sat in the way. All 217 workspace manifests set `private: true
 
 | Sequence | Members | Version baseline | Tag | Workflow |
 |---|---|---|---|---|
-| dsh | `packages/*/*` + `apps/*` (`@deepseek-ai/dsh` and `@deepseek-ai/dsh-web-frontend`) | one version for the family and the workspace root, `0.0.x` | `dsh-v<version>` | `release.yml` |
+| dsh | `packages/*/*` + `apps/*` (`@deepseek-ai/dsh` and `@deepseek-ai/dsh-web-frontend`) | one version for the family and the workspace root | `harniverse-v<version>` | `release.yml` |
 | vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | `release-vendor.yml` |
 | native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | `landlock-run-release.yml` |
 
@@ -30,9 +30,11 @@ All three publish to the `@deepseek-ai` scope on npmjs.com, and access is per se
 
 ### Versions land in the repository from a local command; CI only checks and uploads
 
-Each sequence has one bump-and-commit command: it derives the target version, writes it into the relevant manifests, runs `pnpm install --lockfile-only`, and commits the manifests with the lockfile. The published version is therefore readable from the repository. A human creates the tag after the commit merges to master; CI never writes to the repository and needs no write permission.
+The dsh and vendored bump commands derive the target version, write it into the relevant manifests, run `pnpm install --lockfile-only`, and in regular mode commit the manifests with the lockfile. `--no-commit` performs that preparation without staging or committing, while `--dry-run` is strictly read-only. If lockfile synchronization fails after manifest writes, the command reports the failure and leaves those edits for inspection; it does not create a commit or roll them back. The published version is therefore readable from the repository. A human creates the immutable tag after the commit merges to master; CI never writes to the repository and needs no write permission. The native sequence retains its independent workflow and version line.
 
-`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the family **and the workspace root** — the workspace constraint requires every member's version to equal the root's, so the root carries the family version, and the root check accepts a prerelease segment. A prerelease such as `0.0.1-rc.1` drives pack, the installed-artifact probe, and one real private publication before numbered versions follow. The dist-tag decision is the one `landlock-run-release.yml` already made: a version with a prerelease segment publishes under `--tag next`, anything else takes `latest`.
+`release:dsh` accepts `major`, `minor`, `patch`, or an explicit SemVer core/prerelease version without build metadata, and writes one version across the family **and the workspace root** — the workspace constraint requires every member's version to equal the root's, so the root carries the family version, and the root check accepts a prerelease segment. A prerelease such as `1.0.0-rc.1` drives pack and the installed-artifact probe before the stable release follows. Once an API is declared supported, compatible fixes use patch, compatible additions use minor, and breaking changes use major. The dist-tag decision is the one `landlock-run-release.yml` already made: a version with a prerelease segment publishes under `--tag next`, anything else takes `latest`.
+
+Session format `v0` is permanent and additive-only; SQLite schema versions are a separate compatibility line. Each release carries its own release notes, and no central release ledger is maintained.
 
 ### vendor: publish what changed, and let tags be the ledger
 
@@ -113,7 +115,7 @@ The dsh family applies the repository's publication payload policy, which reject
 
 The `pack` job walks the whole release set once, packing each member into one directory, writes the upload order, and uploads that directory as one artifact; the `publish` job downloads that artifact and publishes each entry in order. The release set is one unit — half the packages can never reach the registry while the other half is still building.
 
-`pack` carries no credentials and runs on every pull request and master push, so a pull request proves the release set still packs. `publish` is a manual dispatch, sits behind the `npm-publish` environment for human approval, and neither builds nor rebuilds — it uploads the bytes pack produced. Pack runs are grouped per ref so concurrent pull requests do not displace each other; the publish job carries the global group, because dist-tags are shared registry state.
+`pack` carries no credentials and runs on every pull request and master push, so a pull request proves the release set still packs. `publish` is an explicit manual dispatch from an immutable `harniverse-v<version>` tag, sits behind the `npm-publish` environment for human approval, and neither builds nor rebuilds — it uploads the bytes pack produced. Pack runs are grouped per ref so concurrent pull requests do not displace each other; the publish job carries the global group, because dist-tags are shared registry state.
 
 A dsh verification installs the vendored family's pack output too. The harness packages declare the vendored framework as a peer, those packages live in another sequence, and the credential-free job cannot fetch them from a private registry — so `release.yml` packs the vendored family for verification while publishing only its own set.
 
@@ -136,7 +138,7 @@ This Agent Note replaces the version scheme and the release-set boundary in [art
 
 ## Alternatives considered
 
-**A `<base>-<timestamp>-<short SHA>` version.** Planned for continuous dev publication. It conflicts with keeping the published version in the repository: the version embeds a commit SHA, and writing the version back produces a new commit, so the SHA can only name the parent commit that was published and the link needs a convention to explain it. With numbered versions, a prerelease such as `0.0.1-rc.1` already covers "verify first, then release".
+**A `<base>-<timestamp>-<short SHA>` version.** Planned for continuous dev publication. It conflicts with keeping the published version in the repository: the version embeds a commit SHA, and writing the version back produces a new commit, so the SHA can only name the parent commit that was published and the link needs a convention to explain it. With numbered versions, a prerelease such as `1.0.0-rc.1` already covers "verify first, then release".
 
 **A `vendor/published.json` ledger recording each package's published version and commit.** This preceded the tag design. It adds a state file that must not drift from the registry. A per-package tag gives the same commit pointer, and the tag has to exist anyway, so it introduces no second copy of the state.
 

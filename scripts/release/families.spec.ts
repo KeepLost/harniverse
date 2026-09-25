@@ -47,7 +47,7 @@ describe('release families', () => {
     const cli = member('apps/cli', '@deepseek-ai/dsh')
     const cordis = { ...member('vendor/cordis', '@deepseek-ai/cordis'), version: '4.0.1' }
 
-    expect(dsh.tagFor(cli)).toBe('dsh-v0.0.1')
+    expect(dsh.tagFor(cli)).toBe('harniverse-v0.0.1')
     expect(vendor.tagFor(cordis)).toBe('vendor-cordis-v4.0.1')
     // The prefix is constructed, not recovered from a tag: a version with a
     // hyphen would defeat any suffix-stripping.
@@ -228,6 +228,11 @@ describe('vendored version baseline', () => {
 })
 
 describe('version precedence', () => {
+  it('ignores build metadata, including a hyphen in a stable build identifier', () => {
+    expect(compareVersions('1.0.0+build-1', '1.0.0')).toBe(0)
+    expect(compareVersions('1.0.0-rc.1+build-1', '1.0.0-rc.1+other')).toBe(0)
+  })
+
   it('ranks a release above the prerelease it follows', () => {
     // git --sort=v:refname disagrees, placing 4.0.1-rc.1 above 4.0.1, which is
     // why the newest published version is chosen here rather than by git.

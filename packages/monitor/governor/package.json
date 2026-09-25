@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-governor",
   "description": "Resource governor (ctx.governor): per-command CPU/memory/disk/network metering for correlated shell spawns, tiered enforcement (cgroup / prlimit+watchdog / observe), and shared-pool session memory quotas",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

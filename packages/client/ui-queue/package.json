@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-queue",
   "description": "Message-queue panel tab: Kafka-style topics with live/archived messages, silent subscription management with dormant badges, and gated publishing over the queue Remote",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

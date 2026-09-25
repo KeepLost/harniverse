@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-command-reset",
   "description": "Human-facing slash command for a fresh model context over the retained session log",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

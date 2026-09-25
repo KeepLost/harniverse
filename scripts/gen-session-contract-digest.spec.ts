@@ -3,9 +3,6 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildSessionContractDigest, diffSessionContractDigest, parseSessionContractDigest } from './gen-session-contract-digest.ts'
 
-const START = '<!-- compat-convention-start -->'
-const END = '<!-- compat-convention-end -->'
-
 describe('session contract digest', () => {
   it('locks the committed artifact to the source-extracted contract', () => {
     const committed = readFileSync(resolve(import.meta.dirname, '../docs/session-contract-digest.json'), 'utf8')
@@ -54,45 +51,5 @@ describe('session contract digest', () => {
     const base = buildSessionContractDigest()
     const mutated = { ...base, envelope: base.envelope.map((entry, index) => index === 0 ? { ...entry, structuralSha256: '0'.repeat(64) } : entry) }
     expect(diffSessionContractDigest(base, mutated).structural.join('\n')).toContain('changed structurally')
-  })
-})
-
-describe('ledger compat convention', () => {
-  it('accepts rows that declare a stance and non-none rows that name a verifier', async () => {
-    const { checkLedgerCompat } = await import('./verify-ledger-compat.ts')
-    const good = [
-      '## Downstream Commit Ledger',
-      '',
-      '| Commit | Plugin-level effect |',
-      '|---|---|',
-      '| `abc123` | Adds a tool. Compat: none. |',
-      '| `def456` | Extends the session vocabulary. Compat: v0 additive (new event type). Verify: pnpm run verify-session-contract-digest. |',
-      START,
-      '| `789abc` | Adds another tool. Compat: none. |',
-      '| `012def` | Widens a payload. Compat: v0 additive (optional field). Verify: pnpm run verify-persistence-catalog. |',
-      END,
-      '',
-    ].join('\n')
-    expect(checkLedgerCompat(good)).toEqual([])
-  })
-
-  it('reports missing markers and non-compliant rows by line', async () => {
-    const { checkLedgerCompat } = await import('./verify-ledger-compat.ts')
-    expect(checkLedgerCompat('| Commit | effect |\n|---|---|\n| `abc` | no markers. |')).toEqual([
-      { where: 'PLUGINS.md:1', problem: 'missing <!-- compat-convention-start -->; add the marker around ledger rows recorded under the compat convention.' },
-    ])
-    const bad = [
-      '| Commit | Plugin-level effect |',
-      START,
-      '| `abc` | Adds a tool without a stance. |',
-      '| `def` | Touches the log. Compat: v0 additive. |',
-      '| `ghi` | Touches nothing. Compat:  |',
-      END,
-    ].join('\n')
-    const findings = checkLedgerCompat(bad)
-    expect(findings.map(f => f.where)).toEqual(['PLUGINS.md:4', 'PLUGINS.md:5', 'PLUGINS.md:6'])
-    expect(findings[0]?.problem).toContain('no Compat: tail')
-    expect(findings[1]?.problem).toContain('lacks a Verify: command tail')
-    expect(findings[2]?.problem).toContain('no claim sentence')
   })
 })

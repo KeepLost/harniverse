@@ -2,7 +2,7 @@
 
 [English](architecture.md) | 中文
 
-Harniverse 保留本文所述的 DeepSeek Harness 插件架构；[PLUGINS.md](../PLUGINS.md)记录其下游基线与组合差异。改动 `packages/` 下的任何内容之前，请先阅读本文。本文假定你已了解 Cordis；如果尚未了解，请先阅读[入门](cordis-primer.md)或[教程](cordis-tutorial/index.md)。
+Harniverse 保留本文所述的 DeepSeek Harness 插件架构。改动 `packages/` 下的任何内容之前，请先阅读本文；[包参考](../packages/README.md)与[子系统参考](subsystems/README.md)负责详细约定，[Agent Notes](../.agents/notes/README.md)负责决策与所需验证。本文假定你已了解 Cordis；如果尚未了解，请先阅读[入门](cordis-primer.md)或[教程](cordis-tutorial/index.md)。
 
 ## Cordis
 

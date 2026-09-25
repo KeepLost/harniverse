@@ -122,6 +122,14 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
 
+### 发布工作流
+
+dsh 发布族在各个 manifest 与 workspace 根之间共用一个产品版本；vendored 框架与 native 包保留各自独立的版本线和 workflow。[发布序列 Agent Note](../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)负责发布族理由与包边界。
+
+使用 `pnpm run release:dsh --dry-run 1.0.0-rc.1` 预览候选版本；此命令不会写入文件。使用 `pnpm run release:dsh --no-commit 1.0.0-rc.1` 写入该族 manifest 并同步 `pnpm-lock.yaml`，同时保持 `HEAD` 和索引不变以便评审。lockfile 同步失败时会报告命令错误并保留可检查的 manifest 改动。普通模式仍保留原有的 bump-and-commit 行为。
+
+发布 workflow 会在 pull request 与 `master` push 上执行 pack，但不会发布。发布必须显式使用 `workflow_dispatch` 并设置 `publish: true`，通过 `npm-publish` environment，并使用版本完全匹配 dsh 发布族的不可变 `harniverse-v<版本>` tag；vendor 与 native 的发布仍然独立。版本流程先使用 `rc.N` 候选版，再进入 stable；对于已声明支持的 API，兼容修复使用 patch，兼容新增使用 minor，破坏性变更使用 major。Session 格式 `v0` 永久保持只增不减，SQLite schema 版本独立管理。每个版本各自编写 release notes；不要建立中央发布账本。
+
 ### 日常命令
 
 根目录的[贡献者说明](../AGENTS.md#commands)概述常用命令，[`package.json`](../package.json) 与 [scripts/run-gates.ts](../scripts/run-gates.ts) 则负责当前脚本和门禁清单。请选择覆盖变更表面的最小检查集。文档变更使用 `pnpm run doc-sync`；包公开行为变更还需更新所属 README 或 JSDoc，而基于构建产物的检查需要先运行 `pnpm run build`。

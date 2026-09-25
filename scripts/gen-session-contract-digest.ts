@@ -6,8 +6,8 @@
  * `--check` classifies drift against the committed baseline: structural drift
  * (removed events, changed payloads, changed envelope, changed version) fails
  * as a v0-freeze violation, while additive drift (new event types) fails as
- * stale until the baseline is consciously regenerated with a `Compat:` ledger
- * tail. `scripts/gen-session-contract-digest.spec.ts` locks both faces.
+ * stale until the baseline is consciously regenerated with compatibility
+ * rationale and verification recorded in the owning Agent Note.
  *
  * All facts are AST-extracted from source, so the gate never depends on built
  * artifacts.
@@ -183,12 +183,12 @@ function main(): void {
   if (drift.structural.length > 0) {
     console.error('gen-session-contract-digest: STRUCTURAL session-contract drift — the permanent v0 freeze disallows it:')
     for (const item of drift.structural) console.error(`  - ${item}`)
-    console.error('A structural change is policy-disallowed. If a listed change is genuinely additive (for example a new optional envelope field), record the additive claim in the PLUGINS.md ledger row and regenerate the baseline in that same commit.')
+    console.error('A structural breaking change is policy-disallowed. If a listed change is genuinely additive (for example a new optional envelope field), record the compatibility rationale and verification in the owning Agent Note before consciously regenerating the baseline in the same change.')
     process.exit(1)
   }
   console.error('gen-session-contract-digest: additive session-contract drift detected:')
   for (const item of drift.additive) console.error(`  - ${item}`)
-  console.error('Run `pnpm run gen-session-contract-digest`, commit the refresh, and add a Compat:/Verify: tail to the PLUGINS.md ledger row in the same commit.')
+  console.error('Record the additive compatibility rationale and verification in the owning Agent Note, then run `pnpm run gen-session-contract-digest` and include the baseline refresh in the same change.')
   process.exit(1)
 }
 

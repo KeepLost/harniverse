@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-result-artifacts",
   "description": "Finalized tool-result retention and model-facing artifact retrieval over ctx.spillStore",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

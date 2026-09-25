@@ -10,7 +10,9 @@ Harniverse 已经积累了与官方 DeepSeek Harness（DSH）发展方向分叉�
 
 ## Decision
 
-仓库许可证变更为 BSD 3-Clause：根目录 `LICENSE` 换为带 Harniverse 版权行的 BSD-3 文本，README 许可证段落直白陈述这一划分。Harniverse 整体按 BSD-3 分发，而自官方 DSH 原样继承的部分仍保留该项目的 MIT 许可证。该 carve-out 为继承文件保留完整的归属信息，同时不必在首个 tag 发布前强制做逐文件审计；划分边界是“自上游原样继承”，而 PLUGINS.md 基线台账已经从另一个角度追踪了这一边界。
+仓库许可证变更为 BSD 3-Clause：根目录 `LICENSE` 换为带 Harniverse 版权行的 BSD-3 文本，README 许可证段落直白陈述这一划分。Harniverse 整体按 BSD-3 分发，而自官方 DSH 原样继承的部分仍保留该项目的 MIT 许可证。该 carve-out 为继承文件保留完整的归属信息，同时不必在首个 tag 发布前强制做逐文件审计；划分边界是“自上游原样继承”。
+
+最初导入的官方 DeepSeek Harness 修订为 `47f943859bef60e4160492346772ded9b24f765a`，Harniverse 的导入修订为 `440d2ae5a426613bd14c4c601a90f79e4b01c149`；两者指向同一棵树 `f904efab9ef435201d6ba4da88a34d6366568272`。这些标识确定初始归属基线，不构成当前逐文件许可证审计。后续上游集成按照[上游政策](../../../../AGENTS.md#upstream-and-vendoring-policy)，在各自所属 Agent Note 中记录来源修订与决策。
 
 ## Alternatives considered
 

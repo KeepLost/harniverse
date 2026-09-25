@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-control-channel",
   "description": "Shared bounded control-channel for PTC and SSH execution: length-prefixed JSON frames with byte bounds and queued-write backpressure, the orthogonal process-outcome failure vocabulary, the lifecycle state machine separating result, cancellation, closure, quiescence, and cleanup, and the optional stream-attached transport with caller cancellation, deadlines, and close-grace escalation",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

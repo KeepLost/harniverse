@@ -242,8 +242,6 @@ export default withMermaid({
   description: 'DeepSeek Harness 的插件原生下游项目',
   base,
   head: [
-    // VitePress leaves head hrefs untouched, so the base belongs here explicitly.
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon.svg` }],
     ['style', {}, siteStyle],
     ['script', {}, scrollbarScript],
   ],

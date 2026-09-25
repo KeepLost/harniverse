@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-session-delivery",
   "description": "Provider-neutral ordinary-session message delivery capability",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": { "access": "public" },
   "repository": {
     "type": "git",

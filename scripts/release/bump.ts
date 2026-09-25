@@ -1,17 +1,21 @@
 /**
  * Bump one release family's version and commit it, so the published version is
- * readable from the repository rather than derived inside CI
+ * readable from the repository rather than derived inside CI. `--no-commit`
+ * prepares the same manifest and lockfile changes without touching the index or
+ * creating a commit
  * ([rationale](../../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)).
  *
  * The dsh family shares one version across its members and the workspace root:
- * `major`, `minor`, `patch`, or an explicit `x.y.z` (including a prerelease such
- * as `0.0.1-rc.1`). The vendored family has one version line per package, but
+ * `major`, `minor`, `patch`, or an explicit SemVer core/prerelease version
+ * without build metadata, such as `1.0.0-rc.1`. The vendored family has one
+ * version line per package, but
  * every release advances and publishes the complete family so the next release
  * never reuses an unchanged member's existing version from a different
  * repository state.
  *
  * The version lands in the manifests, the lockfile follows, and a human creates
- * the tag after the commit merges. CI never writes to the repository.
+ * the tag after the commit merges. `--dry-run` does not write anything. CI never
+ * writes to the repository.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -33,6 +37,14 @@ const BUILD_INPUTS = ['src/**', 'tsconfig*.json', 'tsdown.config.*', 'build.conf
 
 /** Release types the dsh family accepts besides an explicit version. */
 const RELEASE_TYPES = ['major', 'minor', 'patch'] as const
+
+/** SemVer core and prerelease versions accepted as explicit targets. */
+const SEMVER_IDENTIFIER = '(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+const RELEASE_VERSION = new RegExp([
+  '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)',
+  `(?:-(${SEMVER_IDENTIFIER}(?:\\.${SEMVER_IDENTIFIER})*))?`,
+  '$',
+].join(''))
 
 /** The workspace root manifest, which carries the dsh family's version. */
 const ROOT_MANIFEST = 'package.json'
@@ -57,7 +69,7 @@ interface PlannedVersion {
  * @returns Major, minor, and patch.
  */
 function releaseNumbers(version: string): [number, number, number] {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/.exec(version)
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(version)
   if (match === null) throw new Error(`cannot read release numbers from version ${version}`)
   return [Number(match[1]), Number(match[2]), Number(match[3])]
 }
@@ -81,7 +93,9 @@ function compareReleaseNumbers(left: string, right: string): number {
  */
 function prereleaseOf(version: string): string | undefined {
   const index = version.indexOf('-')
-  return index === -1 ? undefined : version.slice(index + 1)
+  const build = version.indexOf('+')
+  if (index === -1 || (build !== -1 && build < index)) return undefined
+  return version.slice(index + 1, build === -1 ? undefined : build)
 }
 
 /**
@@ -131,7 +145,7 @@ export function compareVersions(left: string, right: string): number {
  */
 function nextSharedVersion(current: string, request: string): string {
   if (!RELEASE_TYPES.includes(request as typeof RELEASE_TYPES[number])) {
-    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(request)) {
+    if (!RELEASE_VERSION.test(request)) {
       throw new Error(`usage: release:dsh <major|minor|patch|x.y.z>, got ${request}`)
     }
     return request
@@ -223,6 +237,21 @@ function writeVersion(root: string, manifestPath: string, from: string, to: stri
   writeFileSync(path, text.replace(line, `"version": "${to}"`))
 }
 
+/** Report preparation edits while rethrowing the original failure unchanged. */
+function failPreparation(
+  error: unknown,
+  writtenManifests: readonly string[],
+  lockfileSyncAttempted: boolean,
+): never {
+  const written = writtenManifests.length === 0 ? 'none' : writtenManifests.join(', ')
+  const lockfile = lockfileSyncAttempted ? 'was attempted' : 'was not attempted'
+  console.error(
+    `release bump: preparation failed; manifest files written: ${written}; `
+    + `lockfile sync ${lockfile}; changes are retained for inspection`,
+  )
+  throw error
+}
+
 /**
  * Read the workspace root version.
  * @param root - repository root.
@@ -299,7 +328,8 @@ function planPerPackage(
 
 /**
  * Bump the family named by `--family` and commit; `--dry-run` only reports the
- * plan. `--prerelease rc.1` makes the vendored family publish a rehearsal
+ * plan, while `--no-commit` prepares manifests and the lockfile without Git
+ * writes. `--prerelease rc.1` makes the vendored family publish a rehearsal
  * version, which never takes the stable dist-tag.
  */
 function main(): void {
@@ -308,6 +338,7 @@ function main(): void {
       family: { type: 'string' },
       prerelease: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
+      'no-commit': { type: 'boolean', default: false },
     },
     allowPositionals: true,
   })
@@ -324,7 +355,7 @@ function main(): void {
     const request = positionals[0]
     if (request === undefined) throw new Error('usage: release:dsh <major|minor|patch|x.y.z>')
     if (values.prerelease !== undefined) {
-      throw new Error('release:dsh takes the prerelease in its version argument, as in 0.0.1-rc.1')
+      throw new Error('release:dsh takes the prerelease in its version argument, as in 1.0.0-rc.1')
     }
     const shared = planShared(family, root, members, request)
     planned = shared.planned
@@ -344,8 +375,18 @@ function main(): void {
 
   const dryRun = values['dry-run']
   if (!dryRun) {
-    for (const entry of planned) writeVersion(root, entry.manifestPath, entry.from, entry.to)
-    capture('pnpm', ['install', '--lockfile-only'])
+    const writtenManifests: string[] = []
+    let lockfileSyncAttempted = false
+    try {
+      for (const entry of planned) {
+        writeVersion(root, entry.manifestPath, entry.from, entry.to)
+        writtenManifests.push(entry.manifestPath)
+      }
+      lockfileSyncAttempted = true
+      capture('pnpm', ['install', '--lockfile-only'])
+    } catch (error: unknown) {
+      failPreparation(error, writtenManifests, lockfileSyncAttempted)
+    }
   }
 
   const summary = sharedVersion
@@ -355,6 +396,10 @@ function main(): void {
 
   if (dryRun) {
     console.log('release bump: dry run, nothing written')
+    return
+  }
+  if (values['no-commit']) {
+    console.log('release bump: prepared; no files staged or commit created')
     return
   }
   capture('git', ['add', 'pnpm-lock.yaml', ...planned.map(entry => entry.manifestPath)])

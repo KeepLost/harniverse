@@ -10,7 +10,7 @@ The Windows native lane runs the same per-file 100% coverage gate as the Linux c
 
 ## Decision
 
-Cover every arm through behavior tests that execute it on any host, using the repository's established idioms: `Object.defineProperty(process, 'platform', …)` flips (with descriptor restore) so a win32 runner enters the POSIX arm, `process.getuid` injection for identity guards, and the existing scripted `node:fs` fault hooks (`statMode`, `renameDestination`, scripted `lstat`/`opendir`/`open`) so platform-flipped operations never depend on host filesystem semantics. The `/dev/fd` Git arms reuse the intercepted git stub, so no real Git must resolve a descriptor path. No thresholds, exclusions, `v8 ignore` directives, or `it.skipIf` guards were introduced; no production source changed, so no `PLUGINS.md` entry applies.
+Cover every arm through behavior tests that execute it on any host, using the repository's established idioms: `Object.defineProperty(process, 'platform', …)` flips (with descriptor restore) so a win32 runner enters the POSIX arm, `process.getuid` injection for identity guards, and the existing scripted `node:fs` fault hooks (`statMode`, `renameDestination`, scripted `lstat`/`opendir`/`open`) so platform-flipped operations never depend on host filesystem semantics. The `/dev/fd` Git arms reuse the intercepted git stub, so no real Git must resolve a descriptor path. No thresholds, exclusions, `v8 ignore` directives, or `it.skipIf` guards were introduced; no production source changed.
 
 ## Alternatives considered
 

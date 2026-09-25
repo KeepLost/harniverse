@@ -244,7 +244,7 @@ export abstract class ReleaseFamily {
 class DshFamily extends ReleaseFamily {
   readonly id = 'dsh'
   readonly patterns = ['packages/*/*/package.json', 'apps/*/package.json'] as const
-  readonly tagPrefix = 'dsh-v'
+  readonly tagPrefix = 'harniverse-v'
 
   /** Require current artifacts from a complete Harniverse client build. */
   override verifyBuildArtifacts(root: string): void {
@@ -265,7 +265,7 @@ class DshFamily extends ReleaseFamily {
 
   /**
    * The single family prefix: every member shares one version, so one tag names it.
-   * @returns `dsh-v`.
+   * @returns `harniverse-v`.
    */
   tagPrefixFor(): string {
     return this.tagPrefix

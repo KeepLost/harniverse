@@ -14,9 +14,9 @@ Status: implemented
 
 Connection 通过该能力处理受保护 HTTP 和无法取得状态码的载体恢复。只有 Host 在分发前返回、携带 `x-dsh-authentication: required` 的 401 才允许重试一次；403、结果不确定的写操作、网络异常和一次性请求流都不会自动重放。既有 expected-principal 检查继续生效。并发恢复共享一次交换，调用方取消不会影响其他等待者，迟到失败不能撤回更新后的凭据。Stop 排空交换后，logout 才能清除 Cookie。确定性的认证失败发布刷新说明，不自动刷新页面。
 
-传输存活状态仍由 Connection 拥有。其健康状态可观察源从当前传输状态和认证快照派生稳定的基本值；下行仍打开不能覆盖需要刷新的认证状态。[状态插件](../../../../packages/client/ui-connection-status/README.md) 使用声明注入和框架绑定的可观察钩子，填充侧边栏拥有的 `sidebar.header.status` 根 slot。展开时位于字标与切换按钮之间，收起后的窄栏将只读图标放在合并的标识与切换控件下方。悬停或聚焦说明状态，包括手动刷新提示。图标不拥有网络操作或续期定时器。
+传输存活状态仍由 Connection 拥有。其健康状态可观察源从当前传输状态和认证快照派生稳定的基本值；下行仍打开不能覆盖需要刷新的认证状态。[状态插件](../../../../packages/client/ui-connection-status/README.md) 使用声明注入和框架绑定的可观察钩子，填充侧边栏拥有的 `sidebar.header.status` 根 slot。展开时位于字标与切换按钮之间，收起后的窄栏将只读图标放在可操作的面板切换控件下方。[Harniverse RC 前端品牌呈现笔记](../feature/2026-09-25-harniverse-rc-frontend-branding.md) 对本笔记原先的收起轨道标识处理进行了部分取代；本笔记仍然持有状态的所有权与位置。悬停或聚焦说明状态，包括手动刷新提示。图标不拥有网络操作或续期定时器。
 
-认证门渲染的文档——配对页与 `/auth/manage`——自带样式，因为它们在任何插件产物被取回之前就要绘制。外壳为它们持有两张样式表：`document.css`（设计 token 加文档重置，应用入口与认证门都会 import）与 `auth.css`（只有这两个文档会画的东西）。两者都不自行推导配色：ui-theme 的 index tap 已经把持久化偏好解析到 body 属性上，而 token 样式表的深色集正是以该属性为键，并且它会变换前端提供的每一个文档，`/auth/manage` 也在其中。若认证门再从操作系统推导一次配色，那么每一次经过它的启动——包括跳过认证的启动——都会把已存的 `dark` 偏好悄悄降级。
+认证门渲染的文档——配对页与 `/auth/manage`——自带样式，因为它们在任何插件产物被取回之前就要绘制。外壳为它们持有两张样式表：`document.css`（设计 token 加文档重置，应用入口与认证门都会 import）与 `auth.css`（只有这两个文档会画的东西）。其中的 Harniverse 图稿与产品名称由[Harniverse RC 前端品牌呈现笔记](../feature/2026-09-25-harniverse-rc-frontend-branding.md)说明；本笔记仍然持有认证文档的生命周期与样式所有权。两者都不自行推导配色：ui-theme 的 index tap 已经把持久化偏好解析到 body 属性上，而 token 样式表的深色集正是以该属性为键，并且它会变换前端提供的每一个文档，`/auth/manage` 也在其中。若认证门再从操作系统推导一次配色，那么每一次经过它的启动——包括跳过认证的启动——都会把已存的 `dark` 偏好悄悄降级。
 
 本决策部分扩展[公钥 Grant 决策](2026-08-17-public-key-grant-authentication.md)，其中的配对、权限、撤销和凭据边界仍然有效。[WebSocket 载体决策](2026-08-04-websocket-downlink-carrier.md) 保持不变：HTTP 上行和两条只下行事件连接共享一个应用协议。
 

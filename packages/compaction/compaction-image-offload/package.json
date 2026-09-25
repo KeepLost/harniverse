@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-compaction-image-offload",
   "description": "Durable age-based image offload: the request-assembly decision listener, the image/offload message projection, and the model-visible offload stub",
-  "version": "0.1.0-rc.5",
+  "version": "1.0.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

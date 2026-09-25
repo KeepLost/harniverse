@@ -308,7 +308,7 @@ function PendingPairing({ pending, onCopyFailure, invitation, onInvitationChange
   )
 }
 
-/** Shared card chrome for both authentication pages: mark, product line, title. */
+/** Shared card chrome for both authentication pages: artwork, product line, title. */
 function AuthCardHeader({ titleId, title, children }: {
   titleId: string
   title: string
@@ -316,9 +316,15 @@ function AuthCardHeader({ titleId, title, children }: {
 }): React.JSX.Element {
   return (
     <header className="dsh-auth-head">
-      <div className="dsh-auth-mark" aria-hidden="true">DSH</div>
+      <img
+        className="dsh-auth-brand"
+        src="/harniverse-brand.png"
+        width={112}
+        height={112}
+        alt="Harniverse brand artwork"
+      />
       <div className="dsh-auth-titles">
-        <p className="dsh-auth-eyebrow">DeepSeek Harness</p>
+        <p className="dsh-auth-eyebrow">Harniverse</p>
         <h1 id={titleId}>{title}</h1>
       </div>
       {children !== undefined && <div className="dsh-auth-head-actions">{children}</div>}
