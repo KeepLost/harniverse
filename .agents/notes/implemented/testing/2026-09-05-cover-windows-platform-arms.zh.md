@@ -10,7 +10,7 @@ Windows native lane 与 Linux coverage lane 执行同一套 per-file 100% 覆盖
 
 ## 决策
 
-用行为测试在每个宿主上都真实执行这些分支来完成覆盖，全部沿用仓库既有惯用法：`Object.defineProperty(process, 'platform', …)` 翻转（并恢复描述符）让 win32 runner 进入 POSIX 分支；为身份守卫注入 `process.getuid`；复用既有的 `node:fs` 脚本化故障钩子（`statMode`、`renameDestination`、脚本化 `lstat`/`opendir`/`open`），使平台翻转后的操作不依赖宿主文件系统语义。`/dev/fd` 的 Git 分支复用被拦截的 git stub，因此无需真实 Git 解析描述符路径。没有引入任何阈值、排除项、`v8 ignore` 指令或 `it.skipIf` 守卫；未改动产品源码，因此不涉及 `PLUGINS.md` 条目。
+用行为测试在每个宿主上都真实执行这些分支来完成覆盖，全部沿用仓库既有惯用法：`Object.defineProperty(process, 'platform', …)` 翻转（并恢复描述符）让 win32 runner 进入 POSIX 分支；为身份守卫注入 `process.getuid`；复用既有的 `node:fs` 脚本化故障钩子（`statMode`、`renameDestination`、脚本化 `lstat`/`opendir`/`open`），使平台翻转后的操作不依赖宿主文件系统语义。`/dev/fd` 的 Git 分支复用被拦截的 git stub，因此无需真实 Git 解析描述符路径。没有引入任何阈值、排除项、`v8 ignore` 指令或 `it.skipIf` 守卫；未改动产品源码。
 
 ## 考虑过的替代方案
 

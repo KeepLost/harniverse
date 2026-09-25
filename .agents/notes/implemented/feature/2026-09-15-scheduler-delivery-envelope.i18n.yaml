@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-15-scheduler-delivery-envelope.md
-2026-09-15-scheduler-delivery-envelope.md: 037529913d3b5fc53daea762e491b25f2e52226c
-2026-09-15-scheduler-delivery-envelope.zh.md: c5c16cc2f73d56baf6abf1a7d4def4bb45e6f540
+2026-09-15-scheduler-delivery-envelope.md: a91f8db1d105101786b1bc228e3fbff0bca9f08e
+2026-09-15-scheduler-delivery-envelope.zh.md: 4b1bc0e29163bab0c4d69acfa019b917cd3a8298

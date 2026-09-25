@@ -217,15 +217,15 @@ pnpm dsh --profile web --host 0.0.0.0 --port 3000 \
 
 ## 项目关系与状态
 
-Harniverse 继承 DeepSeek Harness、其 `dsh` CLI、`@deepseek-ai/dsh-*` 包命名空间和 Cordis 插件架构。[PLUGINS.md](PLUGINS.md) 记录官方基线、下游能力族、已交付组合变更及其实现提交，是下游差异的权威来源。
+Harniverse 继承 DeepSeek Harness、其 `dsh` CLI、`@deepseek-ai/dsh-*` 包命名空间和 Cordis 插件架构。[架构文档](docs/architecture.md)、[包参考](packages/README.md)与[子系统参考](docs/subsystems/README.md)定义当前能力和组合；[Agent Notes](.agents/notes/README.md)记录决策与所需验证。
 
-在 Harniverse 建立带 tag 的兼容性承诺前，源码接口与持久化格式可能发生不兼容变更。继承的 npm 命名空间并不表示已经存在独立的 Harniverse 发行包。
+Harniverse 的预发布政策允许在没有显式兼容性承诺的范围内修改接口。[持久化格式政策](AGENTS.md#durable-formats)保留永久仅允许增量扩展的会话 v0，以及单调递增的 SQLite schema 版本。继承的 npm 命名空间并不表示已经存在独立的 Harniverse 发行包。
 
 请通过 [Harniverse Issues](https://github.com/KeepLost/harniverse/issues) 报告 Harniverse bug 与文档问题。公开插件仓库可添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic，便于生态发现。
 
 ## 参与贡献与开发
 
-提出改动前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。贡献者从[开发指南](docs/development.md)开始，阅读[架构文档](docs/architecture.md)，并使用 [PLUGINS.md](PLUGINS.md) 核对下游边界。agent 遵循 [AGENTS.md](AGENTS.md)。
+提出改动前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。贡献者从[开发指南](docs/development.md)开始，并阅读[架构文档](docs/architecture.md)。agent 遵循 [AGENTS.md](AGENTS.md)。
 
 ## 许可证与归属
 

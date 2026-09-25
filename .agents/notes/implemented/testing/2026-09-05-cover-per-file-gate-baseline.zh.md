@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-基线用真实测试套件补齐，而非改配置：原先不达标的所有文件均通过行为化测试满足 per-file 100% 阈值（新增聚焦 spec 文件并扩展现有套件，90 个变更文件新增约 2,900 条测试断言）。若未覆盖分支被证明是不可达的防御式代码，则删除死分支而非加注解——涉及 `capability/capabilities`、`core/model-policy-fallback`、`session/session-persistence-jsonl`、`spill/spill-local`、`auth/authentication-local`、`subagent/tool-subagent`、`mcp/mcp-user-config`、`web/web-fetch-http`、`fs/tool-str-replace-editor`、`skill/skill-filesystem`、`context/session-reference`、`settings/settings` 及三个客户端组件——每一处都有所属不变量支撑（Settings schema 校验、vendored-cordis disposer 语义、非可选正则分组、React 禁用按钮语义或渲染门控）。可达路径上的行为没有变化，因此不涉及 `PLUGINS.md` 的插件台账条目。
+基线用真实测试套件补齐，而非改配置：原先不达标的所有文件均通过行为化测试满足 per-file 100% 阈值（新增聚焦 spec 文件并扩展现有套件，90 个变更文件新增约 2,900 条测试断言）。若未覆盖分支被证明是不可达的防御式代码，则删除死分支而非加注解——涉及 `capability/capabilities`、`core/model-policy-fallback`、`session/session-persistence-jsonl`、`spill/spill-local`、`auth/authentication-local`、`subagent/tool-subagent`、`mcp/mcp-user-config`、`web/web-fetch-http`、`fs/tool-str-replace-editor`、`skill/skill-filesystem`、`context/session-reference`、`settings/settings` 及三个客户端组件——每一处都有所属不变量支撑（Settings schema 校验、vendored-cordis disposer 语义、非可选正则分组、React 禁用按钮语义或渲染门控）。可达路径上的行为没有变化。
 
 聚合检查的既定契约同步恢复：`all-checks-passed` 的 needs 重新列入 `node-24-coverage`，未来的覆盖率失败会使 required check 失败，而不是躲过聚合结果。
 

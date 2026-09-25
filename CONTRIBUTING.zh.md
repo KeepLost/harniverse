@@ -7,7 +7,7 @@ Harniverse 欢迎问题报告、文档修正、插件实验和 PR（Pull Request
 ## 提出改动前
 
 - 开 issue 前先搜索 [Harniverse Issues](https://github.com/KeepLost/harniverse/issues)，避免重复。重大产品、安全、分发或架构变更应先通过 issue 对齐方向，再开始实现。
-- 阅读 [AGENTS.md](AGENTS.md) 了解仓库工作流与不变量，并通过 [PLUGINS.md](PLUGINS.md) 核对 DeepSeek Harness 官方基线，以及每项 Harniverse 下游能力或组合变更。
+- 阅读 [AGENTS.md](AGENTS.md) 了解仓库工作流与不变量，通过[架构文档](docs/architecture.md)了解组合与扩展点，并通过所属[包参考](packages/README.md)与[子系统参考](docs/subsystems/README.md)了解当前约定。
 - 保持**一切皆插件**。扩展已记录的插件服务并补全 Definition（定义）、Provider（提供方）与 Consumer（消费方）角色，不要向 launcher、loop 或 bundle 添加特殊分支。
 - 保留继承的 `@deepseek-ai/dsh-*` 名称与上游归属，除非经过批准的分发决策明确改变它们。
 
@@ -17,7 +17,7 @@ Harniverse 欢迎问题报告、文档修正、插件实验和 PR（Pull Request
 
 请描述可观察结果、重要设计边界、实际运行的命令，以及尚存的失败或环境缺口。不要包含凭据、私有端点、生成的 secret 或无关格式改动。
 
-Harniverse 是尚无带 tag 兼容性承诺的预发布软件。贡献可以同步更新所有受影响调用方与持久化 fixture，而不添加推测性兼容代码；但必须保留显式认证、授权、TLS 和插件原生归属边界。
+Harniverse 是预发布软件。在没有显式兼容性承诺的范围内，贡献可以同步更新所有受影响调用方与 fixture（测试前置数据），而不添加推测性兼容代码。必须保留[持久化格式政策](AGENTS.md#durable-formats)、显式认证、授权、TLS 和插件原生归属边界，并在所属 [Agent Note](.agents/notes/README.md) 中记录兼容性理由与验证。
 
 ## 为插件生态作出贡献
 

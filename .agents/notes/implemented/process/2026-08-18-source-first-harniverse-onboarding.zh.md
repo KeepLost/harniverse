@@ -14,7 +14,7 @@ Status: implemented
 
 README 明确区分当前 checkout 中的 `pnpm dsh` 与解析到官方 npm 包的 `npx @deepseek-ai/dsh`。它把终端打印 Web 地址视为中间状态，而不是首次使用成功：新的 home 没有已批准浏览器、已配置模型路由或已选工作区。预期现象与聚焦的排错说明紧邻所服务的步骤。
 
-发布的 Web 指南负责更完整的注册与远程服务说明；模型指南负责特定提供方的凭据、端点与模态配置。根 README 对首次使用保持自包含，但通过链接把进阶情况交给这些下级文档，而不复制其内容。包与 capability（能力）清单仍位于各自的权威参考中，[PLUGINS.md](../../../../PLUGINS.md) 负责下游基线与组合记录。
+发布的 Web 指南负责更完整的注册与远程服务说明；模型指南负责特定提供方的凭据、端点与模态配置。根 README 对首次使用保持自包含，但通过链接把进阶情况交给这些下级文档，而不复制其内容。[包参考](../../../../packages/README.md)与[子系统参考](../../../../docs/subsystems/README.md)负责当前约定；[架构文档](../../../../docs/architecture.md)说明组合与扩展点。
 
 容器首次使用由仓库提供 `pnpm run web:container` 路径。它会在 `$DSH_HOME/tls` 下持久化开发 CA 与服务器证书，在镜像允许时把 CA 安装进 Linux 容器系统信任库，提供非回环 HTTPS 参数，并保留正常的认证与 owner 注册流程。`DSH_WEB_TLS_HOSTS` 同时提供证书 SAN 与 Host 信任，可覆盖 Tailscale IP 或 MagicDNS 名称等浏览器 authority。明确配置的跨 Origin UI 可通过 `DSH_WEB_TRUSTED_ORIGINS` 或 `--trusted-origin` 加入；Host 信任仍是必需条件。Enrollment 接受人类可读的 Unicode 设备名称；预期的输入错误与名称冲突会作为可处理响应送达浏览器，意外的 registry 故障则保持为 500 响应，并在服务器日志中记录原因。Web 组合挂载 Cordis 控制台 exporter 来显示运行时 warning、信任拒绝以及连接／认证通过或拒绝事件。日志包含非机密的 peer、Host、Origin、path／channel 与 Grant 身份，不包含凭据或请求体；最小化的准入结果仍保留在 `$DSH_HOME/auth/access.jsonl`。容器外的浏览器信任仍属于宿主机边界；当宿主机能够访问已挂载的 home 时，`pnpm run web:container:trust` 会通过宿主系统信任工具安装生成的 CA，部署也可以改由受信任的反向代理终止 TLS。
 

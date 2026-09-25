@@ -10,7 +10,9 @@ Harniverse has accumulated downstream capabilities, compositions, and documentat
 
 ## Decision
 
-The repository license becomes BSD 3-Clause: the root `LICENSE` file now carries the BSD-3 text with the Harniverse copyright line, and the README license section states the split plainly. Harniverse as a whole is distributed under BSD-3, while portions inherited unchanged from official DSH remain under that project's MIT license. The carve-out keeps attribution intact for inherited files without forcing a per-file audit before the first tagged release; the boundary is "inherited unchanged from upstream", which the PLUGINS.md baseline ledger already tracks from a different angle.
+The repository license becomes BSD 3-Clause: the root `LICENSE` file now carries the BSD-3 text with the Harniverse copyright line, and the README license section states the split plainly. Harniverse as a whole is distributed under BSD-3, while portions inherited unchanged from official DSH remain under that project's MIT license. The carve-out keeps attribution intact for inherited files without forcing a per-file audit before the first tagged release; the boundary is "inherited unchanged from upstream".
+
+The original import is official DeepSeek Harness revision `47f943859bef60e4160492346772ded9b24f765a`, imported by Harniverse revision `440d2ae5a426613bd14c4c601a90f79e4b01c149`; both identify tree `f904efab9ef435201d6ba4da88a34d6366568272`. These identifiers establish the initial attribution baseline, not a current per-file license audit. Later upstream integrations record their source revision and decisions in their owning Agent Notes, under the [upstream policy](../../../../AGENTS.md#upstream-and-vendoring-policy).
 
 ## Alternatives considered
 

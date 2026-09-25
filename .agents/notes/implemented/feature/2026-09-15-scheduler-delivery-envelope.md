@@ -20,7 +20,7 @@ Separately, scheduled sessions exposed a recovery gap: a compaction landing in a
 
 - Between deliveries the model has no ambient schedule awareness — the accepted tradeoff for a context that only moves when the user or a delivery moves it.
 - A schedule prompt written by the model itself could imitate the envelope's framing; trust domains are identical (the prompt already lived in the session), and UI provenance reads the structured source fields, never the text.
-- Scheduler unit and loader-composition suites assert the envelope; the removed section's three context assertions were replaced by a no-context-registration contract test. PLUGINS.md and the scheduler READMEs record the capability change; the implementation SHA is recorded in the follow-up tracking commit.
+- Scheduler unit and loader-composition suites assert the envelope; the removed section's three context assertions were replaced by a no-context-registration contract test. The [scheduler README](../../../../packages/schedule/scheduler/README.md) owns the delivery contract.
 
 ## Alternatives considered
 

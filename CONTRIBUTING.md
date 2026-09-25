@@ -7,7 +7,7 @@ Harniverse welcomes issue reports, documentation corrections, plugin experiments
 ## Before proposing a change
 
 - Search [Harniverse Issues](https://github.com/KeepLost/harniverse/issues) before opening a duplicate. Use an issue to align on substantial product, security, distribution, or architecture changes before implementation.
-- Read [AGENTS.md](AGENTS.md) for repository workflow and invariants, and [PLUGINS.md](PLUGINS.md) for the official DeepSeek Harness baseline and every Harniverse downstream capability or composition change.
+- Read [AGENTS.md](AGENTS.md) for repository workflow and invariants, the [architecture](docs/architecture.md) for composition and extension points, and the owning [package references](packages/README.md) and [subsystem references](docs/subsystems/README.md) for current contracts.
 - Preserve **everything is a plugin**. Extend documented plugin services and complete Definition, Provider, and Consumer roles instead of adding launcher, loop, or bundle special cases.
 - Keep inherited `@deepseek-ai/dsh-*` names and upstream attribution unless an approved distribution decision changes them.
 
@@ -17,7 +17,7 @@ Keep one change focused and include the tests, bilingual documentation, generate
 
 Describe the observable result, important design boundaries, commands actually run, and any remaining failure or environment gap. Do not include credentials, private endpoints, generated secrets, or unrelated formatting churn.
 
-Harniverse is pre-release software without a tagged compatibility commitment. A contribution may update all affected callers and persisted fixtures instead of adding speculative compatibility code, but it must preserve explicit authentication, authorization, TLS, and plugin-native ownership boundaries.
+Harniverse is pre-release software. Where no explicit compatibility commitment exists, a contribution may update all affected callers and fixtures instead of adding speculative compatibility code. Preserve the [durable-format policy](AGENTS.md#durable-formats), explicit authentication, authorization, TLS, and plugin-native ownership boundaries. Record compatibility rationale and verification in the owning [Agent Note](.agents/notes/README.md).
 
 ## Contribute to the plugin ecosystem
 
