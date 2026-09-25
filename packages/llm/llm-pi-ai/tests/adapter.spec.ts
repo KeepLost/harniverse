@@ -1097,8 +1097,9 @@ describe('protocol-owned request assembly', () => {
   it('carries an OpenAI Responses temperature only when thinking is off on the wire', async () => {
     const responses = (effort: ReturnType<typeof ReasoningEffortId> | undefined, temperature?: number) =>
       oneWireRequest({ openai: { apiKeyEnv: 'PI_TEST_KEY' } }, {
-        provider: 'openai', model: 'gpt-5.5', messages: [], temperature,
+        provider: 'openai', model: 'gpt-5.5', messages: [],
         ...effort === undefined ? {} : { reasoningEffort: effort },
+        ...temperature === undefined ? {} : { temperature },
       }, [
         '{"type":"response.created","response":{"id":"resp_1"}}',
         '{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_1"}}',
