@@ -340,7 +340,7 @@ describe('hand-declared providers', () => {
     expect(() => resolveProfiles({
       'acme-gateway': {
         baseURL: 'https://acme.test',
-        models: [{ id: 'm', contextWindow: 1, maxTokens: 1, api: 'quantum-telepathy' as string }],
+        models: [{ id: 'm', contextWindow: 1, maxTokens: 1, api: 'quantum-telepathy' }],
       },
     })).toThrow(/reaches api "quantum-telepathy", which this build cannot serve/)
   })
