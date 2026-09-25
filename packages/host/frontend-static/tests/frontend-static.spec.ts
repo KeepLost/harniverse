@@ -98,6 +98,28 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
 }
 
 describe('real Loader composition', () => {
+  it.each(['/brand.png', '/assets/brand-12345678.png'])('serves PNG bytes without transport recompression at %s', async (path) => {
+    const loaded = await loadComposition()
+    await writeFile(join(root!, 'dist', path.slice(1)), 'PNG')
+    for (const encoding of ['br, gzip', 'gzip', 'identity']) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await fetch(`http://127.0.0.1:${String(loaded.webServer.port)}${path}`, {
+          method,
+          headers: { 'accept-encoding': encoding },
+        })
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toBe('image/png')
+        expect(response.headers.get('content-encoding')).toBeNull()
+        expect(response.headers.get('vary')).toBeNull()
+        expect(response.headers.get('content-length')).toBe('3')
+        expect(response.headers.get('cache-control')).toBe(path.startsWith('/assets/')
+          ? 'public, max-age=31536000, immutable'
+          : null)
+        expect(await response.text()).toBe(method === 'HEAD' ? '' : 'PNG')
+      }
+    }
+  })
+
   it('serves declared index paths and files while preserving HTTP error semantics', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const unloaded = [...loaded.loader.entries()]

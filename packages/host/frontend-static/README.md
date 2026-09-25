@@ -6,6 +6,8 @@ SPA dist server for the Web shell: a function plugin (config `{distIndex, indexP
 
 The fallback seat is single-owner (a second claim throws) and effect-scoped: disposing the plugin's fiber releases the seat, after which the unclaimed webserver answers 404.
 
+PNG assets use `image/png` and retain their file bytes without gzip or Brotli recompression. GET and HEAD report the raw content length with no content encoding. Hashed assets retain immutable caching; other paths are read afresh. Other asset types retain negotiated compression ([encoding decision](../../../.agents/notes/implemented/bug-fix/2026-09-25-png-static-identity-encoding.md)).
+
 ## Model Experience
 
 None, as the package serves browser assets; nothing here reaches a model request.
