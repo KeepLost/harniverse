@@ -30,7 +30,7 @@ Status: implemented
 
 ### 版本由本地命令写进仓库，CI 只核对与上传
 
-dsh 与 vendored 的 bump 命令会算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`；普通模式再把 manifest 连 lockfile 一起 commit。`--no-commit` 只准备这些文件，不暂存也不提交；`--dry-run` 严格只读。如果 lockfile 同步在 manifest 写入后失败，命令会报告失败并保留这些改动供检查，不创建提交，也不回滚。发布版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打，并保持不可变；CI 不写仓库，也不需要写权限。native 序列保留独立的 workflow 与版本线。
+dsh 与 vendored 的 bump 命令会算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`；普通模式再把 manifest 连 lockfile 一起 commit。`--no-commit` 只准备这些文件，不暂存也不提交；`--dry-run` 严格只读。如果 lockfile 同步在 manifest 写入后失败，命令会报告失败并保留这些改动供检查，不创建提交，也不回滚。发布版本因此在仓库里查得到。获授权的操作者依据 [Harniverse 版本与分支策略](../../../../docs/release-policy.md)选定已验证发布提交，并在该提交创建不可变标签；后续候选版的提交来自稳定化分支。CI 不写仓库，也不需要写权限。native 序列保留独立的 workflow 与版本线。
 
 `release:dsh` 接受 `major`、`minor`、`patch` 或不带 build metadata 的显式 SemVer core/prerelease 版本号，把同一个版本写进全族**以及 workspace 根**——workspace 约束要求每个成员的版本等于根版本，所以根承载族版本，而根的检查接受预发布段。像 `1.0.0-rc.1` 这样的预发布号先把 pack 与已安装产物探针跑通，再进入 stable；API 声明支持后，兼容修复使用 patch，兼容新增使用 minor，破坏性变更使用 major。dist-tag 沿用 `landlock-run-release.yml` 已有的判定：版本带预发布段就用 `--tag next`，否则进 `latest`。
 
