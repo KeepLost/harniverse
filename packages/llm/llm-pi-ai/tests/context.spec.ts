@@ -62,7 +62,9 @@ describe('pi-ai request context conversion', () => {
       messages: [
         { role: 'user', content: 'history system' },
         { role: 'assistant' },
-        { role: 'user', content: 'after tool' },
+        // The result directly answers the assistant's call; the user's own
+        // text follows it. A user message first would make pi-ai answer the
+        // call with a synthetic "No result provided" before the real one.
         {
           role: 'toolResult',
           toolCallId: 'call-1',
@@ -70,6 +72,7 @@ describe('pi-ai request context conversion', () => {
           content: [{ type: 'text', text: '(no output)' }],
           isError: false,
         },
+        { role: 'user', content: 'after tool' },
       ],
     })
 
@@ -137,6 +140,33 @@ describe('pi-ai request context conversion', () => {
         isError: true,
         timestamp: 0,
       },
+    ])
+  })
+
+  it('keeps every tool result adjacent to its call on the image path too', async () => {
+    const callId = CallId('call-adjacent')
+    const context = await toPiContext(request([
+      history('assistant', [
+        { type: 'text', text: 'calling' },
+        { type: 'tool-call', id: callId, name: 'lookup', arguments: '{}' },
+      ]),
+      user([
+        { type: 'text', text: 'meanwhile' },
+        { type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text: 'payload' }] },
+      ]),
+    ]), attachments)
+
+    expect(context.messages).toEqual([
+      expect.objectContaining({ role: 'assistant' }),
+      {
+        role: 'toolResult',
+        toolCallId: 'call-adjacent',
+        toolName: 'lookup',
+        content: [{ type: 'text', text: 'payload' }],
+        isError: false,
+        timestamp: 0,
+      },
+      { role: 'user', content: 'meanwhile', timestamp: 0 },
     ])
   })
 
