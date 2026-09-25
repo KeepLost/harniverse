@@ -10,14 +10,15 @@ import type {
 import LlmRuntime, {
   createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, MessageId, ReasoningEffortId, userAgent,
 } from '@deepseek-ai/dsh-llm'
-import type { LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { resolveProfiles } from '../src/config.ts'
 import { assemble } from './assemble.ts'
-import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
+import type { AssembledResult } from './assemble.ts'
+import { anthropicTextEvents, closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 afterEach(async () => {
   vi.unstubAllEnvs()
@@ -999,6 +1000,129 @@ describe('abort wiring', () => {
     expect(server.requests).toHaveLength(1)
   })
 })
+describe('protocol-owned request assembly', () => {
+  /** One request body captured off the wire for assertions. */
+  async function oneWireRequest(
+    providers: Record<string, LlmPiAi.PiAiProviderProfile>,
+    generate: Omit<GenerateOptions, 'provider'> & { provider: string },
+    events: string[] = anthropicTextEvents,
+  ): Promise<{ body: Record<string, unknown>; result: AssembledResult }> {
+    const server = await mockServer([{ events }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: mapProviders(providers, server.url) })
+    const result = await assemble(ctx, generate)
+    expect(result.finish).toMatchObject({ kind: 'stop' })
+    return { body: server.requests[0] as Record<string, unknown>, result }
+  }
+
+  /** Point every profile at the mock server without repeating the field. */
+  function mapProviders(
+    providers: Record<string, LlmPiAi.PiAiProviderProfile>,
+    baseURL: string,
+  ): Record<string, LlmPiAi.PiAiProviderProfile> {
+    return Object.fromEntries(Object.entries(providers).map(([route, profile]) => [route, { ...profile, baseURL }]))
+  }
+
+  it('keeps an unselected adaptive-thinking Anthropic model on its provider default', async () => {
+    const { body } = await oneWireRequest({
+      anthropic: { apiKeyEnv: 'PI_TEST_KEY' },
+    }, { provider: 'anthropic', model: 'claude-sonnet-5', messages: [], temperature: 0.5 })
+
+    // No thinking field at all: the model thinks by its own default, and the
+    // temperature a thinking turn would refuse waits rather than failing.
+    expect(body).not.toHaveProperty('thinking')
+    expect(body).not.toHaveProperty('temperature')
+    // `max_tokens` is required on this protocol, so the capability stands in.
+    expect(body).toMatchObject({ model: 'claude-sonnet-5', max_tokens: 128000 })
+  })
+
+  it('disables Anthropic thinking explicitly for off', async () => {
+    const { body } = await oneWireRequest({
+      anthropic: { apiKeyEnv: 'PI_TEST_KEY' },
+    }, {
+      provider: 'anthropic', model: 'claude-sonnet-5', messages: [],
+      reasoningEffort: ReasoningEffortId('off'), temperature: 0.5,
+    })
+
+    expect(body).toMatchObject({ thinking: { type: 'disabled' }, temperature: 0.5 })
+  })
+
+  it('sends an adaptive effort without inventing a thinking budget', async () => {
+    const { body } = await oneWireRequest({
+      anthropic: { apiKeyEnv: 'PI_TEST_KEY' },
+    }, {
+      provider: 'anthropic', model: 'claude-sonnet-5', messages: [],
+      reasoningEffort: ReasoningEffortId('high'),
+    })
+
+    expect(body).toMatchObject({
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high' },
+    })
+    expect(body).not.toHaveProperty('temperature')
+  })
+
+  it('fits a budget-thinking model inside the caller cap without raising it', async () => {
+    const { body } = await oneWireRequest({
+      anthropic: { apiKeyEnv: 'PI_TEST_KEY' },
+    }, {
+      provider: 'anthropic', model: 'claude-haiku-4-5', messages: [],
+      reasoningEffort: ReasoningEffortId('high'), maxTokens: 4096,
+    })
+
+    // The cap is the cap: pi-ai's simple path would have sent 4096 + 16384;
+    // the budget shrinks to leave the reply its room inside 4096 instead.
+    expect(body).toMatchObject({
+      max_tokens: 4096,
+      thinking: { type: 'enabled', budget_tokens: 3072 },
+    })
+  })
+
+  it('refuses an Anthropic cap that cannot host thinking before the network', async () => {
+    const server = await mockServer([{ events: anthropicTextEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: { anthropic: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url } } })
+
+    const result = await assemble(ctx, {
+      provider: 'anthropic', model: 'claude-haiku-4-5', messages: [],
+      reasoningEffort: ReasoningEffortId('high'), maxTokens: 2047,
+    })
+
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNSUPPORTED_OPTION' } })
+    expect(server.requests).toEqual([])
+  })
+
+  it('carries an OpenAI Responses temperature only when thinking is off on the wire', async () => {
+    const responses = (effort: ReturnType<typeof ReasoningEffortId> | undefined, temperature?: number) =>
+      oneWireRequest({ openai: { apiKeyEnv: 'PI_TEST_KEY' } }, {
+        provider: 'openai', model: 'gpt-5.5', messages: [], temperature,
+        ...effort === undefined ? {} : { reasoningEffort: effort },
+      }, [
+        '{"type":"response.created","response":{"id":"resp_1"}}',
+        '{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_1"}}',
+        '{"type":"response.content_part.added","item_id":"msg_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}',
+        '{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"hello"}',
+        '{"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":"hello"}',
+        '{"type":"response.content_part.done","item_id":"msg_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":"hello"}}',
+        '{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1"}}',
+        '{"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":3,"output_tokens":1}}}',
+      ])
+
+    const unselected = await responses(undefined, 0.5)
+    expect(unselected.body).toMatchObject({ model: 'gpt-5.5', temperature: 0.5 })
+    // Unselected dispatches as an explicit `effort: none`, so the temperature
+    // is safe there; a selected effort drops it instead of failing the request.
+    expect(unselected.body).toMatchObject({ reasoning: { effort: 'none' } })
+    expect(unselected.body).not.toHaveProperty('max_output_tokens')
+
+    const thinking = await responses(ReasoningEffortId('high'), 0.5)
+    expect(thinking.body).toMatchObject({ reasoning: { effort: 'high' } })
+    expect(thinking.body).not.toHaveProperty('temperature')
+  })
+})
+
 describe('PiAiAdapter wire and replay boundaries', () => {
   /** An assistant turn carrying replay state this adapter cannot use. */
   function unusableReplay(): ReturnType<typeof createUserMessage> {
@@ -1018,7 +1142,10 @@ describe('PiAiAdapter wire and replay boundaries', () => {
   it('names the endpoint each provider API posts to', async () => {
     for (const [api, path] of [
       ['openai-responses', '/responses'],
-      ['anthropic-messages', '/messages'],
+      // The Anthropic SDK posts its canonical resource below the configured
+      // base, so the diagnostic names that address — including the repeated
+      // `/v1` a base ending in `/v1` produces on the real wire.
+      ['anthropic-messages', '/v1/messages'],
       ['openai-completions', '/chat/completions'],
     ] as const) {
       const server = await mockServer([{ status: 500, body: '{}' }])
