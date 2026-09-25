@@ -248,6 +248,14 @@ export interface LlmModelDiscoveryRequest {
    */
   provider?: string
   /**
+   * Ask the endpoint even when the named route's adapter already knows its
+   * models. Absent leaves the choice to the adapter, which answers a known
+   * route from its own registry; `endpoint` is the explicit "what does this
+   * base serve *now*" a route whose installed catalog has drifted from its
+   * gateway needs, and it requires a `baseURL` to ask.
+   */
+  mode?: 'endpoint'
+  /**
    * Endpoint to interrogate. Optional because a route the adapter already
    * describes needs none; a route it does not must supply one.
    */
@@ -274,6 +282,13 @@ export interface LlmDiscoveredModel {
   contextWindow?: number
   /** Maximum output tokens, when disclosed. */
   maxTokens?: number
+  /**
+   * Where the answer came from: `catalog` rows were read from the adapter's
+   * installed registry without touching the network, `endpoint` rows from a
+   * live listing. Absent means `endpoint` — the shape predates the field and
+   * every older producer only interrogated.
+   */
+  source?: 'catalog' | 'endpoint'
 }
 
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */

@@ -28,12 +28,14 @@ interface ListingServer {
 
 /**
  * A stand-in provider that answers one scripted `GET /models`. `chunks` writes
- * without a declared length, which is how a real streamed reply arrives.
+ * without a declared length, which is how a real streamed reply arrives;
+ * `pages` answers one body per request in order, for a listing that pages.
  */
 async function listingServer(behavior: {
   status?: number
   body?: string
   chunks?: string[]
+  pages?: string[]
   holdOpenMs?: number
 }): Promise<ListingServer> {
   const paths: string[] = []
@@ -51,7 +53,9 @@ async function listingServer(behavior: {
       setTimeout(() => { response.end() }, behavior.holdOpenMs)
       return
     }
-    const body = behavior.body ?? '{}'
+    const body = behavior.pages !== undefined
+      ? (behavior.pages.shift() ?? behavior.body ?? '{}')
+      : (behavior.body ?? '{}')
     response.writeHead(behavior.status ?? 200, {
       'content-type': 'application/json',
       'content-length': String(Buffer.byteLength(body)),
@@ -85,12 +89,78 @@ describe('catalog-route model discovery', () => {
     expect(models.map(model => model.id).sort())
       .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
     expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
+    // Rows say where they came from, so a surface can tell a bundled catalog
+    // from a live listing instead of guessing.
+    expect(models.every(model => model.source === 'catalog')).toBe(true)
     expect(server.paths).toEqual([])
   })
 
   it('needs no endpoint for a route the catalog describes', async () => {
     const ctx = await harness()
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+  })
+
+  it('interrogates the endpoint on the explicit mode, marking the source', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'live-only' }] }) })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', {
+      provider: 'deepseek',
+      mode: 'endpoint',
+      baseURL: server.url,
+      apiKey: 'probe-key',
+    })
+
+    // The explicit pass on the installed registry: what this base serves now,
+    // not what the bundle shipped — and the rows say so.
+    expect(server.paths).toEqual(['/models'])
+    expect(models).toEqual([{ id: 'live-only', name: 'live-only', source: 'endpoint' }])
+    // The mode names an interrogation, so it has nothing to ask without a base.
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', mode: 'endpoint' }))
+      .rejects.toThrow(/needs the baseURL to interrogate/)
+  })
+
+  it('follows Anthropic listing pages until the endpoint stops offering more', async () => {
+    const server = await listingServer({
+      pages: [
+        JSON.stringify({ data: [{ id: 'a' }], has_more: true, last_id: 'a' }),
+        // A page that offers more without naming a continuation: the last row
+        // is the continuation, as the endpoint's own field would have been.
+        JSON.stringify({ data: [{ id: 'b' }], has_more: true }),
+        JSON.stringify({ data: [{ id: 'c' }], has_more: false }),
+      ],
+    })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'anthropic-messages' })
+
+    expect(server.paths).toEqual([
+      '/v1/models?limit=1000',
+      '/v1/models?limit=1000&last_id=a',
+      '/v1/models?limit=1000&last_id=b',
+    ])
+    expect(models.map(model => model.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('stops at what it has when a page offers more but names no continuation', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [], has_more: true }) })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'anthropic-messages' })
+
+    expect(server.paths).toEqual(['/v1/models?limit=1000'])
+    expect(models).toEqual([])
+  })
+
+  it('names the bound when a listing pages past it', async () => {
+    const pages = Array.from({ length: 12 }, (_, index) =>
+      JSON.stringify({ data: [{ id: `m${String(index)}` }], has_more: true, last_id: `m${String(index)}` }))
+    const server = await listingServer({ pages })
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'anthropic-messages' }))
+      .rejects.toThrow(/more than 10 listing pages/)
+    expect(server.paths).toHaveLength(10)
   })
 
   it('says where a route the catalog does not describe must get its models', async () => {
@@ -121,8 +191,8 @@ describe('draft-provider model discovery', () => {
     const models = await ctx.llm.discoverModels('llm-pi-ai', { baseURL: `${server.url}/v1`, apiKey: 'probe-key' })
 
     expect(models).toEqual([
-      { id: 'acme-large', name: 'Acme Large', contextWindow: 65_536, maxTokens: 4096 },
-      { id: 'acme-small', name: 'acme-small' },
+      { id: 'acme-large', name: 'Acme Large', contextWindow: 65_536, maxTokens: 4096, source: 'endpoint' },
+      { id: 'acme-small', name: 'acme-small', source: 'endpoint' },
     ])
     expect(server.paths).toEqual(['/v1/models'])
     expect(server.headers[0]?.authorization).toBe('Bearer probe-key')
@@ -175,7 +245,7 @@ describe('draft-provider model discovery', () => {
     })
 
     expect(rootModels).toEqual([
-      { id: 'claude-sonnet', name: 'Claude Sonnet', contextWindow: 200_000, maxTokens: 64_000 },
+      { id: 'claude-sonnet', name: 'Claude Sonnet', contextWindow: 200_000, maxTokens: 64_000, source: 'endpoint' },
     ])
     expect(versionedModels).toEqual(rootModels)
     expect(server.paths).toEqual(['/v1/models?limit=1000', '/v1/models?limit=1000', '/v1/models?limit=1000'])
@@ -262,9 +332,10 @@ describe('draft-provider model discovery', () => {
         name: 'DeepSeek V4 Flash',
         contextWindow: 1_048_576,
         maxTokens: 384_000,
+        source: 'endpoint',
       },
-      { id: 'bare-route', name: 'bare-route' },
-      { id: 'nested-id', name: 'Nested fallback' },
+      { id: 'bare-route', name: 'bare-route', source: 'endpoint' },
+      { id: 'nested-id', name: 'Nested fallback', source: 'endpoint' },
     ])
   })
 
@@ -278,7 +349,7 @@ describe('draft-provider model discovery', () => {
     const ctx = await harness()
 
     await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
-      .resolves.toEqual([{ id: 'standard', name: 'standard' }])
+      .resolves.toEqual([{ id: 'standard', name: 'standard', source: 'endpoint' }])
   })
 
   it('sends a configured route\'s deployment headers on the probe', async () => {
@@ -381,8 +452,8 @@ describe('draft-provider model discovery', () => {
 
     expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
       .toEqual([
-        { id: 'good', name: 'good' },
-        { id: 'zero-capacity', name: 'zero-capacity' },
+        { id: 'good', name: 'good', source: 'endpoint' },
+        { id: 'zero-capacity', name: 'zero-capacity', source: 'endpoint' },
       ])
   })
 

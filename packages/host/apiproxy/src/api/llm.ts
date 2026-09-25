@@ -68,6 +68,8 @@ export interface LlmApi {
     request: RpcRequest<{
       settingsNs: string
       provider?: string
+      /** Explicit override: interrogate the endpoint even for a route the adapter's registry answers. */
+      mode?: 'endpoint'
       baseURL?: string
       api?: string
       apiKey?: string
@@ -86,4 +88,6 @@ export interface DiscoveredModelView {
   contextWindow?: number
   /** Maximum output tokens, when disclosed. */
   maxTokens?: number
+  /** Whether the row came from the adapter's installed registry or a live listing. */
+  source?: 'catalog' | 'endpoint'
 }
