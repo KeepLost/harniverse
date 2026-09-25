@@ -3,13 +3,15 @@
  * the adapter's `Models` collection.
  *
  * Two constructions, one decision: a route the installed catalog ships, whose
- * profile does not override the wire protocol, **reuses that catalog provider**
- * with its models replaced — the catalog provider owns API implementations this
- * package cannot reconstruct (Bedrock loads its Smithy module through a
- * separate entry point), so rebuilding it from parts would silently narrow
- * which providers work. Every other route — one pi-ai has never heard of, or a
- * catalog route pointed at a different protocol — is built by `createProvider`
- * over the protocol table below.
+ * models all keep the protocols their catalog entries speak, **reuses that
+ * catalog provider** with its models replaced — the catalog provider owns API
+ * implementations this package cannot reconstruct (Bedrock loads its Smithy
+ * module through a separate entry point), so rebuilding it from parts would
+ * silently narrow which providers work. Every other route — one pi-ai has
+ * never heard of, a model an entry repointed through its own `api`, or a
+ * route-level protocol override — is served per model through the protocol
+ * table below, which lets one route mix protocols without splitting into two
+ * user-visible providers.
  *
  * Credentials never reach this module's storage: the harness resolves a route's
  * key through `ctx.credentials` before the request enters pi-ai and hands it
@@ -19,12 +21,11 @@
  * @module dsh-llm-pi-ai/provider
  */
 
-import { createProvider } from '@earendil-works/pi-ai'
 import type { Api, ApiKeyAuth, Model, Provider, ProviderStreams } from '@earendil-works/pi-ai'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
-import { catalogProvider } from './catalog.ts'
+import { catalogModels, catalogProvider } from './catalog.ts'
 
 /**
  * Wire protocols a configured route may name, mapped to pi-ai's lazily loaded
@@ -90,7 +91,11 @@ export interface ProviderSpec {
   provider: string
   /** Display name for selectors and status labels. */
   displayName: string
-  /** Wire protocol override; absent means each model keeps its catalog protocol. */
+  /**
+   * Wire protocol override for the route's models; absent means each model
+   * keeps the protocol its own declaration resolves to — an entry's `api`,
+   * then the installed catalog entry's.
+   */
   api?: string
   /** Endpoint override already applied to {@link models}; kept for provider-level display. */
   baseURL?: string
@@ -160,33 +165,74 @@ function reuseCatalogProvider(base: Provider, spec: ProviderSpec): Provider {
 
 /**
  * Build the pi-ai provider for one resolved route.
+ *
+ * Dispatch is per model. A model the installed catalog describes, still
+ * speaking the protocol its catalog entry speaks, is served by the catalog
+ * provider's own implementation — preserving provider-native behavior a
+ * protocol table cannot reconstruct. Every other model — one an entry
+ * repointed through its own `api`, a route-level repoint, or a model the
+ * catalog has never described — reaches the protocol table, so one route may
+ * mix protocols without splitting into two user-visible providers.
  * @param spec - the resolved route facts.
  * @returns the provider to register in the adapter's `Models` collection.
- * @throws Error when the route names a wire protocol this build cannot serve.
+ * @throws Error when a protocol this route reaches is one this build cannot serve.
  */
 export function buildProvider(spec: ProviderSpec): Provider {
   const catalog = catalogProvider(spec.provider)
-  // A catalog route keeping its catalog protocol reuses the catalog provider;
-  // an explicit protocol means the deployment is repointing the route at a
-  // different wire format, which only the protocol table can serve.
-  if (catalog !== undefined && spec.api === undefined) return reuseCatalogProvider(catalog, spec)
-
-  // Every model on this path carries the route's protocol: model resolution
-  // requires one for a route the catalog cannot default, and an explicit one
-  // replaces each catalog model's own. So the route has a single API.
-  const factory = spec.api === undefined ? undefined : PROTOCOLS[spec.api]
-  if (factory === undefined) {
-    throw new Error(
-      `llm-pi-ai: provider "${spec.provider}" names api "${spec.api}", which this build cannot serve;`
-      + ` supported protocols are ${supportedProtocols().join(', ')}`,
-    )
+  const defaults = catalog === undefined ? undefined : catalogModels(spec.provider)
+  const stillCatalogDescribed = (model: Model<Api>): boolean => {
+    const base = defaults?.get(model.id)
+    return base !== undefined && base.api === model.api
   }
-  return createProvider({
+  if (catalog !== undefined && spec.api === undefined && spec.models.every(stillCatalogDescribed)) {
+    return reuseCatalogProvider(catalog, spec)
+  }
+
+  const unsupported = (api: string): Error => new Error(
+    `llm-pi-ai: provider "${spec.provider}" reaches api "${api}", which this build cannot serve;`
+    + ` supported protocols are ${supportedProtocols().join(', ')}`,
+  )
+  // Eager, so an unserviceable protocol fails with the rest of resolution
+  // instead of on the first request that reaches it. A route-level api is
+  // validated even when no model needs the table, because a declared value
+  // that could never serve is a configuration fault worth naming now.
+  if (spec.api !== undefined && PROTOCOLS[spec.api] === undefined) throw unsupported(spec.api)
+  const byApi = new Map<string, ProviderStreams>()
+  const dispatch = new Map<string, ProviderStreams>()
+  for (const model of spec.models) {
+    if (catalog !== undefined && stillCatalogDescribed(model)) {
+      dispatch.set(model.id, catalog)
+      continue
+    }
+    let streams = byApi.get(model.api)
+    if (streams === undefined) {
+      const factory = PROTOCOLS[model.api]
+      if (factory === undefined) throw unsupported(model.api)
+      streams = factory()
+      byApi.set(model.api, streams)
+    }
+    dispatch.set(model.id, streams)
+  }
+  const streamsFor = (model: Model<Api>): ProviderStreams => {
+    const streams = dispatch.get(model.id)
+    // Every model this provider serves was dispatched above; pi-ai resolves
+    // models through `getModels()`, so a miss is a foreign descriptor this
+    // provider never claimed.
+    if (streams === undefined) {
+      throw new Error(`llm-pi-ai: provider "${spec.provider}" has no protocol for model "${model.id}"`)
+    }
+    return streams
+  }
+  return {
     id: spec.provider,
     name: spec.displayName,
     ...spec.baseURL === undefined ? {} : { baseUrl: spec.baseURL },
     auth: routeAuth(spec, catalog),
-    models: spec.models,
-    api: factory(),
-  })
+    getModels: () => spec.models,
+    // Delegated rather than copied: the receiver keeps whichever implementation
+    // owns the model — the catalog provider for its own, the protocol streams
+    // for everything else — so state held on the receiver keeps working.
+    stream: (model, context, options) => streamsFor(model).stream(model, context, options),
+    streamSimple: (model, context, options) => streamsFor(model).streamSimple(model, context, options),
+  }
 }

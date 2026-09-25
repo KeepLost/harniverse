@@ -324,11 +324,37 @@ describe('hand-declared providers', () => {
     },
   )
 
-  it('rejects a protocol this build cannot serve, and a route that names none', () => {
-    const spec = { provider: 'acme-gateway', displayName: 'Acme Gateway', models: [], namesCredential: true }
+  it('rejects a protocol this build cannot serve, on the route or on one model', () => {
+    const spec = { provider: 'acme-gateway', displayName: 'Acme Gateway', models: [] as Model<Api>[], namesCredential: true }
     expect(() => buildProvider({ ...spec, api: 'quantum-telepathy' }))
       .toThrow(/cannot serve; supported protocols are/)
-    expect(() => buildProvider(spec)).toThrow(/cannot serve; supported protocols are/)
+    const repointed = { id: 'm', api: 'quantum-telepathy' } as Model<Api>
+    expect(() => buildProvider({ ...spec, models: [repointed] }))
+      .toThrow(/reaches api "quantum-telepathy", which this build cannot serve/)
+    // An api-less route with no models has nothing to dispatch and nothing to
+    // reject here; catalog resolution refuses an empty route before this layer.
+    expect(() => buildProvider(spec)).not.toThrow()
+  })
+
+  it('refuses a model-level protocol resolution cannot serve', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        baseURL: 'https://acme.test',
+        models: [{ id: 'm', contextWindow: 1, maxTokens: 1, api: 'quantum-telepathy' as string }],
+      },
+    })).toThrow(/reaches api "quantum-telepathy", which this build cannot serve/)
+  })
+
+  it('answers a foreign descriptor a dispatch table never claimed', () => {
+    const provider = buildProvider({
+      provider: 'acme-gateway',
+      displayName: 'Acme',
+      api: 'openai-completions',
+      models: [{ id: 'm', api: 'openai-completions' } as Model<Api>],
+      namesCredential: true,
+    })
+    expect(() => provider.stream({ id: 'other', api: 'openai-completions' } as Model<Api>, { messages: [] }, {}))
+      .toThrow(/has no protocol for model "other"/)
   })
 
   it('leaves an unauthenticated route to its protocol rather than inventing a credential', async () => {
@@ -781,6 +807,70 @@ describe('modelOverrides', () => {
     expect(() => resolveProfiles({
       deepseek: { modelOverrides: { [deepseekModel().id]: smuggled } },
     })).toThrow(/sets "id", which is the dict key/)
+  })
+})
+
+describe('per-model protocol dispatch', () => {
+  it('serves a hand-declared route whose models name their own protocol, with no route api', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness({
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: KEY_ENV,
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'acme-large', contextWindow: 8192, maxTokens: 1024, api: 'openai-completions' }],
+        },
+      },
+    })
+
+    const result = await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-large',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(server.paths).toEqual(['/v1/chat/completions'])
+  })
+
+  it('repoints one catalog model while its siblings keep the catalog implementation', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness({
+      providers: {
+        openai: {
+          apiKeyEnv: KEY_ENV,
+          baseURL: server.url,
+          modelOverrides: { 'gpt-4o': { api: 'openai-completions' } },
+        },
+      },
+    })
+
+    const resolved = resolveProfiles({
+      openai: {
+        apiKeyEnv: KEY_ENV,
+        baseURL: server.url,
+        modelOverrides: { 'gpt-4o': { api: 'openai-completions' } },
+      },
+    })
+    const models = resolved.get('openai')?.piProvider.getModels() ?? []
+    expect(models.find(model => model.id === 'gpt-4o')?.api).toBe('openai-completions')
+    expect(models.find(model => model.id === 'gpt-4.1')?.api).toBe('openai-responses')
+
+    const result = await assemble(ctx, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(server.paths).toEqual(['/chat/completions'])
+    expect((server.requests[0] as { model?: string }).model).toBe('gpt-4o')
   })
 })
 

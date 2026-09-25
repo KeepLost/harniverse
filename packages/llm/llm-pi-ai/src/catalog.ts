@@ -213,6 +213,14 @@ export interface PiAiCompatProfile {
 export interface PiAiModelProfile {
   /** Model id sent to the provider and accepted by {@link GenerateOptions.model}. */
   id: string
+  /**
+   * Wire protocol this one model speaks, winning over the route's `api` and
+   * the installed entry's own. The escape hatch for a route whose endpoint
+   * serves one model through a different protocol than its siblings — a
+   * gateway with an OpenAI-compatible bulk path and a native Anthropic path —
+   * without splitting the provider into two user-visible routes.
+   */
+  api?: string
   /** Display name for selectors; defaults to the catalog name, then the id. */
   name?: string
   /** Maximum combined request and response context in tokens. */
@@ -269,7 +277,10 @@ export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
 export interface RouteCatalogRequest {
   /** Provider route key, stamped onto every materialized model. */
   provider: string
-  /** Wire protocol override; absent defers to each catalog model's own API. */
+  /**
+   * Wire protocol override for the route's models; each entry's own `api`
+   * wins, and absent both defers to each catalog model's own API.
+   */
   api?: string
   /** Endpoint override; absent defers to the catalog model, then the catalog provider. */
   baseURL?: string
@@ -547,7 +558,10 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
     seen.add(entry.id)
     const base = defaults.get(entry.id)
-    const api = request.api ?? base?.api ?? routeApi
+    // A model's own protocol wins over the route's, which in turn replaces the
+    // installed entry's own — a repoint, so the entry's protocol-specific
+    // fields (compat, thinking spellings) no longer apply to it.
+    const api = entry.api ?? request.api ?? base?.api ?? routeApi
     if (api === undefined) {
       invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
         + ' route\'s api to the wire protocol its endpoint speaks')
