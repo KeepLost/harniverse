@@ -33,7 +33,7 @@ const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the preset module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 const EXAMPLES_INSTALL_ANCHOR = join(REPO_ROOT, 'examples/package.json')
-const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
+const MINIMAL_PROMPT_PREFIX = 'You are a helpful software engineer assistant powered by'
 const MINIMAL_SHELL = process.platform === 'win32' ? 'pwsh' : 'bash'
 const MINIMAL_TOOL_NAMES = [MINIMAL_SHELL, 'str_replace_editor']
 const MCP_FIXTURE_SERVER = join(REPO_ROOT, 'packages/mcp/mcp-client/tests/fixture-server.ts')
@@ -338,7 +338,7 @@ describe('the shipped Web composition', () => {
         // The checkout-root paragraph embeds this machine's absolute path, so
         // match its stable opening instead of a literal.
         { name: 'harness:source', text: expect.stringContaining('The Harniverse implementation checkout is at') as string },
-        { name: 'deployment:persona', text: MINIMAL_PROMPT },
+        { name: 'deployment:persona', text: expect.stringContaining(MINIMAL_PROMPT_PREFIX) as unknown as string },
         { name: 'sandbox:policy', text: '' },
         { name: 'approval:policy', text: '' },
         {

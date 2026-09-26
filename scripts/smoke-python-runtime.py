@@ -28,7 +28,7 @@ WORKFLOW_WORKER_TEXT = "workflow worker smoke ok"
 MINIMAL_PROMPT = "Exercise the packaged minimal agent's persistent Bash and string-replacement editor."
 MINIMAL_TEXT = "minimal agent smoke ok"
 MINIMAL_EDITOR_PATH_PREFIX = "Editor path: "
-MINIMAL_SYSTEM_PROMPT = "You are a helpful software engineer assistant."
+MINIMAL_SYSTEM_PROMPT = "You are a helpful software engineer assistant powered by"
 MINIMAL_CORDIS = (
     Path(__file__).resolve().parent.parent / "examples" / "jsonrpc-agent" / "minimal.cordis.yml"
 )
