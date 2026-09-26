@@ -10,7 +10,7 @@ Before parsing the plugin manifest, the shell enrolls or reauthenticates a brows
 
 The gate's documents — the pairing page and the `/auth/manage` surface — paint before any plugin bundle arrives, so the shell carries their styling: `document.css` holds the design tokens and the document reset (the app entry imports it too, so Vite lands it in the shared eager chunk instead of the plugin one), and `auth.css` holds everything only these documents draw. Neither resolves a colour scheme; ui-theme's index tap already wrote the durable preference onto the body attribute the token sheets key their dark set on, for every document the frontend serves.
 
-Both authentication documents render the complete Harniverse artwork from `/harniverse-brand.png`; the source lives in `apps/web/public/` and the built web host serves the same root URL before authenticated plugin loading.
+Both authentication documents render the non-transparent Harniverse artwork from `/whale-logo.svg`; the post-authentication loading page and new-session hero use `/whale-logo-light.svg`, and `/whale-logo-transparent.svg` ships for the future dark theme. The sidebar brand and browser tab use `/whale-logo.ico`. These assets live in `apps/web/public/`, and the built web host serves the same root URLs before authenticated plugin loading.
 
 `PLATFORM_MODULES` (src/platform.ts) is the single source of truth for shared modules: seed-table keys, tsdown client externals, and the Vite alias set are its projections.
 

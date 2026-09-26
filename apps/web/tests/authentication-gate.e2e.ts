@@ -29,13 +29,13 @@ describe('web e2e: authentication gate', () => {
       if (new URL(request.url()).pathname.startsWith('/plugins/')) pluginRequests.push(request.url())
     })
     const brandResponsePromise = page.waitForResponse(response => (
-      new URL(response.url()).pathname === '/harniverse-brand.png'
+      new URL(response.url()).pathname === '/whale-logo.svg'
       && response.request().method() === 'GET'
       && response.status() === 200
     ))
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
-    expect((await brandResponsePromise).headers()['content-type']).toBe('image/png')
+    expect((await brandResponsePromise).headers()['content-type']).toBe('image/svg+xml')
   }, 120_000)
 
   afterAll(async () => {
@@ -64,19 +64,19 @@ describe('web e2e: authentication gate', () => {
     expect(chrome.bodyBackground).not.toBe('rgba(0, 0, 0, 0)')
     expect(chrome.primaryFill).not.toBe('rgba(0, 0, 0, 0)')
     expect(pluginRequests).toEqual([])
-    await assertLoadedBrandImage(page, true)
+    await assertLoadedBrandImage(page, true, '/whale-logo.svg')
 
     const mobile = await context.newPage()
     try {
       await mobile.setViewportSize({ width: 390, height: 844 })
       const mobileBrandResponsePromise = mobile.waitForResponse(response => (
-        new URL(response.url()).pathname === '/harniverse-brand.png'
+        new URL(response.url()).pathname === '/whale-logo.svg'
         && response.request().method() === 'GET'
         && response.status() === 200
       ))
       await mobile.goto(scaffold.baseUrl, { waitUntil: 'load' })
-      expect((await mobileBrandResponsePromise).headers()['content-type']).toBe('image/png')
-      await assertLoadedBrandImage(mobile, true)
+      expect((await mobileBrandResponsePromise).headers()['content-type']).toBe('image/svg+xml')
+      await assertLoadedBrandImage(mobile, true, '/whale-logo.svg')
     } finally {
       await mobile.close()
     }
@@ -227,7 +227,7 @@ async function redeemEnrollmentId(response: { json: () => Promise<unknown> }): P
   return body.id
 }
 
-async function assertLoadedBrandImage(page: Page, requireProductText = false): Promise<void> {
+async function assertLoadedBrandImage(page: Page, requireProductText = false, expectedPath = '/whale-logo-light.svg'): Promise<void> {
   const image = page.getByRole('img', { name: 'Harniverse brand artwork', exact: true })
   await image.waitFor({ state: 'visible', timeout: 30_000 })
   expect(await image.evaluate((element) => {
@@ -237,7 +237,7 @@ async function assertLoadedBrandImage(page: Page, requireProductText = false): P
       naturalWidth: artwork.naturalWidth,
       naturalHeight: artwork.naturalHeight,
     }
-  })).toEqual({ path: '/harniverse-brand.png', naturalWidth: 1254, naturalHeight: 1254 })
+  })).toEqual({ path: expectedPath, naturalWidth: 1254, naturalHeight: 1254 })
   if (requireProductText) {
     const productName = page.getByText('Harniverse', { exact: true }).first()
     expect(await productName.isVisible()).toBe(true)

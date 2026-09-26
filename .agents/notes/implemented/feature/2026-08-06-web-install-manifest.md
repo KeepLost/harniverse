@@ -10,7 +10,7 @@ The Web build has a document title but no manifest from which a browser can disc
 
 ## Decision
 
-The Web entry links `/manifest.webmanifest`, which Vite copies from `apps/web/public/` into the production build. The manifest names the product `Harniverse`, uses `Harniverse` as the compact name, and fixes `id`, `start_url`, and `scope` at `/`. It requests `display: "fullscreen"` so supporting browsers can give the installed editor-like surface the available display area while leaving ordinary tabs unchanged; browsers may apply user overrides or fall back to another display mode. Its icon entries are the complete approved artwork at `/harniverse-brand-192.png` and `/harniverse-brand-512.png`, resized without changing the composition. The Web entry deliberately declares no product favicon.
+The Web entry links `/manifest.webmanifest`, which Vite copies from `apps/web/public/` into the production build. The manifest names the product `Harniverse`, uses `Harniverse` as the compact name, and fixes `id`, `start_url`, and `scope` at `/`. It requests `display: "fullscreen"` so supporting browsers can give the installed editor-like surface the available display area while leaving ordinary tabs unchanged; browsers may apply user overrides or fall back to other display modes. Its icon entry is the light transparent SVG at `/whale-logo-light.svg` with `sizes: "any"` and type `image/svg+xml`. The Web entry declares `/whale-logo.ico` as the browser-tab favicon.
 
 The [Harniverse RC frontend branding note](2026-09-25-harniverse-rc-frontend-branding.md) partially supersedes this note's former product-name and icon realization; this note remains authoritative for install metadata semantics.
 
@@ -22,7 +22,7 @@ This feature adds no service worker, cache policy, or offline fallback. The mani
 
 ## Verification
 
-The built-Web test parses the emitted manifest and pins the complete metadata object, including the human-visible name, compact name, PNG icons, root identity, launch boundary, and display mode. It also verifies that the production `index.html` retains the manifest link, declares no product favicon, and emits no deleted `favicon.svg`. The `dsh-host-frontend-static` real Loader composition test serves a `.webmanifest` fixture and pins its `application/manifest+json` media type.
+The built-Web test parses the emitted manifest and pins the complete metadata object, including the human-visible name, compact name, SVG icon, root identity, launch boundary, and display mode. It also verifies that the production `index.html` retains the manifest link and favicon link, and that the emitted logo set contains the authentication SVG, both transparent-theme SVG variants, and the ICO. The `dsh-host-frontend-static` real Loader composition test serves a `.webmanifest` fixture and pins its `application/manifest+json` media type.
 
 ## Alternatives considered
 
@@ -32,7 +32,7 @@ The built-Web test parses the emitted manifest and pins the complete metadata ob
 
 **Choose one static background and theme color.** Rejected because the app resolves light and dark palettes at runtime, so either fixed value is knowingly wrong for one supported state.
 
-**Ship additional raster and maskable icon variants immediately.** Rejected until a supported installation target demonstrates a requirement beyond the approved 192×192 and 512×512 full-art PNGs. New variants remain an additive manifest change rather than a prerequisite for exposing the current identity.
+**Ship additional raster and maskable icon variants immediately.** Rejected until a supported installation target demonstrates a requirement beyond the scalable SVG and browser ICO already shipped. New variants remain an additive manifest change rather than a prerequisite for exposing the current identity.
 
 **Assert only root and display fields in the built artifact.** Rejected because dropping or changing the product name, compact name, or icon is also a shipped install regression. The test intentionally requires an explicit edit whenever any manifest metadata changes.
 

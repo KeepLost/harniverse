@@ -95,12 +95,13 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
         class="brand wide"
         type="button"
       >
-        <span
-          aria-hidden="true"
-          style="font-size: 24px; line-height: 1; font-weight: 650; letter-spacing: -0.02em;"
-        >
-          Harniverse
-        </span>
+        <img
+          alt="Harniverse logo"
+          class="brandIcon"
+          height="28"
+          src="/whale-logo.ico"
+          width="28"
+        />
       </button>
       <div
         data-slot="sidebar.header.status"
@@ -190,12 +191,13 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
         class="brand wide"
         type="button"
       >
-        <span
-          aria-hidden="true"
-          style="font-size: 24px; line-height: 1; font-weight: 650; letter-spacing: -0.02em;"
-        >
-          Harniverse
-        </span>
+        <img
+          alt="Harniverse logo"
+          class="brandIcon"
+          height="28"
+          src="/whale-logo.ico"
+          width="28"
+        />
       </button>
       <div
         data-slot="sidebar.header.status"

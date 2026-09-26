@@ -125,6 +125,13 @@
   cursor: pointer;
 }
 
+.brandIcon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
 .iconButton {
   flex: none;
   display: inline-flex;

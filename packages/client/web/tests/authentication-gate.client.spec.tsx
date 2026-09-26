@@ -97,7 +97,7 @@ describe('browser invitation redemption gate', () => {
       .mockResolvedValueOnce(Response.json({ authenticated: true, expiresAt: '2099-01-01T00:00:00.000Z' }))
     vi.stubGlobal('fetch', fetch)
     const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
-    expect(view.getByRole('img', { name: 'Harniverse brand artwork' }).getAttribute('src')).toBe('/harniverse-brand.png')
+    expect(view.getByRole('img', { name: 'Harniverse brand artwork' }).getAttribute('src')).toBe('/whale-logo.svg')
     expect(view.getByText('Harniverse')).toBeTruthy()
 
     fireEvent.change(await view.findByLabelText('设备名称'), { target: { value: 'tablet' } })
