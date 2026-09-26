@@ -21,8 +21,8 @@
 | `timeoutMs` | number | 超时覆盖值（毫秒）。执行器应用其配置的默认值与上限。 |
 | `workdir` | string | 本次调用的工作目录。默认取调用 agent（智能体）的会话 cwd（`session.header.cwd`），使每个会话在自己的工作区运行；相对 `workdir` 基于同一身份解析。 |
 | `run_in_background` | boolean | 立即返回 job id；不适用超时。 |
-| `sandbox_permissions` | string enum | 仅当已挂载 sandbox 执行器时才会公开（`ctx.shell.sandboxMode` 已定义）。用于对刚被 sandbox 拒绝的命令做一次性重试的更宽 sandbox 模式——取刚好足够的最窄更宽模式，要求 `justification` 并在执行**之前**经 `ctx.approval` 获得用户批准。未拓宽或无法获批的请求 fail-closed，不运行任何内容。 |
-| `justification` | string | 必须与 `sandbox_permissions` 一同提供：用一句话向用户解释为何正是这条命令需要更宽的访问。 |
+| `sandbox_permissions` | string enum | 仅当已挂载沙箱执行器时公开（`ctx.shell.sandboxMode` 已定义）。普通调用省略；被拒后以足够且严格更宽的最窄模式重试同一命令。同模式声明被丢弃，按常驻策略执行且不审批；更窄请求失败关闭。 |
+| `justification` | string | 普通调用省略；真正升权必须用一句非空理由解释为何本命令需要更宽权限。同模式声明会丢弃此字段，即使它为空。 |
 
 `command`、`workdir` 与 `timeoutMs` 在执行前经 `ctx.shell.resolve()` 按执行器配置默认值解析。workdir 默认值在工具层于 `resolve()` 之前从调用 agent 的 `session.header.cwd` 取得——每次会话的 cwd 必须来自 `exec.agent`，因为 N 个会话共享一个执行器；仅当没有会话 cwd 时执行器才回退到自己的配置 / `process.cwd()`。
 
@@ -51,8 +51,10 @@
 ##### Pwsh guidance
 
 ```markdown
-Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure.
+Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure. Omit optional arguments that do not change this call.
 ```
+
+当执行器公开沙箱升权能力时，此段还会追加：`On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.` 工具描述还提示在默认值足够时省略 `workdir`、`run_in_background` 和 `timeoutMs`。
 
 #### Token 影响
 

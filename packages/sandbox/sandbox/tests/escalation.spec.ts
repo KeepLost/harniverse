@@ -12,6 +12,7 @@ import {
   WIDER_MODES,
   approveEscalation,
   escalationHintMarker,
+  normalizeRedundantEscalation,
   sandboxDenialMarker,
   validateEscalationArgs,
 } from '@deepseek-ai/dsh-sandbox'
@@ -39,6 +40,21 @@ describe('validateEscalationArgs', () => {
     expect(() => { validateEscalationArgs('workspace-write', undefined) }).toThrow(/requires a justification/)
     expect(() => { validateEscalationArgs(undefined, 'orphan reason') }).toThrow(/only valid together with sandbox_permissions/)
     expect(() => { validateEscalationArgs('workspace-write', '   ') }).toThrow(/non-empty sentence/)
+  })
+})
+
+describe('normalizeRedundantEscalation', () => {
+  it('omits a same-mode declaration and its reason without mutating the recorded call', () => {
+    const args = { command: 'date', sandbox_permissions: 'danger-full-access', justification: '' }
+    expect(normalizeRedundantEscalation(args, 'danger-full-access')).toEqual({ command: 'date' })
+    expect(args).toEqual({ command: 'date', sandbox_permissions: 'danger-full-access', justification: '' })
+    expect(normalizeRedundantEscalation({ sandbox_permissions: 'workspace-write' }, 'workspace-write')).toEqual({})
+  })
+
+  it('preserves real upgrades and calls without an effective policy for validation', () => {
+    const args = { sandbox_permissions: 'workspace-write', justification: '' }
+    expect(normalizeRedundantEscalation(args, 'read-only')).toBe(args)
+    expect(normalizeRedundantEscalation(args, undefined)).toBe(args)
   })
 })
 

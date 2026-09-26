@@ -41,6 +41,29 @@ export const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
 export const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
 
 /**
+ * Remove a model's redundant same-mode escalation declaration before the
+ * paired-field validator runs. The schema is registry-global, so a model may
+ * see a target that is already the current per-call mode; that request does
+ * not widen authority and needs neither a reason nor approval. Other targets
+ * remain untouched and are validated as real escalation requests.
+ * @param args - a tool argument object carrying the optional escalation fields.
+ * @param effectiveMode - the mode resolved for this call, when sandboxed.
+ * @returns the original argument shape without a same-mode escalation pair.
+ */
+export function normalizeRedundantEscalation<T extends { sandbox_permissions?: string; justification?: string }>(
+  args: T,
+  effectiveMode: SandboxMode | undefined,
+): T {
+  if (args.sandbox_permissions !== undefined && args.sandbox_permissions === effectiveMode) {
+    const normalized = { ...args }
+    delete normalized.sandbox_permissions
+    delete normalized.justification
+    return normalized
+  }
+  return args
+}
+
+/**
  * Validate the escalation argument pairing a tool schema cannot express:
  * `sandbox_permissions` and `justification` travel together — an approval
  * prompt without a reason, or a reason driving nothing, is a malformed ask —

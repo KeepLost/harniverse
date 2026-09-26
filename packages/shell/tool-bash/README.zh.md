@@ -21,8 +21,8 @@
 | `timeoutMs` | number | 以毫秒为单位覆盖超时时间。执行器会应用其配置的默认值和上限。 |
 | `workdir` | string | 本次调用的工作目录。默认为调用方 agent（智能体）会话 cwd 的文件系统标识（`session.header.cwd`），使每个会话都在自己的工作区中运行；相对 `workdir` 也以同一标识为基准解析。 |
 | `run_in_background` | boolean | 立即返回 job id；不应用超时。 |
-| `sandbox_permissions` | string enum | 仅当已挂载的执行器启用沙箱时才会公开（`ctx.shell.sandboxMode` 报告一个具有限制作用的默认值）：被拒命令所需的更宽模式，取自封闭的目标词汇 `workspace-write`/`danger-full-access`（绝不能缩减为执行器默认值；有效模式按会话确定，执行时会基于它检查是否严格拓宽，未拓宽的请求直接失败，不会向任何人发起提示）。 |
-| `justification` | string | 必须与 `sandbox_permissions` 一同提供（缺少任一项都会产生验证错误）：用一句话向用户解释此命令为何需要这项更宽权限。 |
+| `sandbox_permissions` | string enum | 仅当已挂载执行器启用沙箱时才公开（`ctx.shell.sandboxMode` 报告具有限制作用的默认值）：普通调用省略；被拒后以 `workspace-write`/`danger-full-access` 中足够且严格更宽的最窄模式重试。enum 属于全局注册表，有效模式按调用确定。同模式声明是冗余的，按常驻策略执行且不发起审批；更窄请求不执行。 |
+| `justification` | string | 普通调用省略；真正升权必须用一句非空理由解释为何本命令需要更宽权限。同模式声明会丢弃此字段，即使它为空。 |
 
 执行前，`command`、`workdir` 和 `timeoutMs` 会通过 `ctx.shell.resolve()` 依据执行器配置默认值完成解析，因此 Service Definition（`ShellExecSpec`）收到显式的 `workdir`/`timeoutMs` 值。工具层会根据调用方 agent 的 `session.header.cwd` 应用工作目录默认值，然后才调用 `resolve()`：由于 N 个会话共享一个执行器，逐会话 cwd 必须来自 `exec.agent`；只有无法取得会话 cwd 时，执行器才回退到自身配置／`process.cwd()`。存在沙箱策略时，工具会复用已经规范化的 `workspaceRoot` 作为工作目录基准，防止限制逻辑与进程启动过程对同一个会话路径拼写产生不同解析结果。
 
@@ -50,6 +50,8 @@
 
 需要升权的 bash 调用会在执行前解析 `ctx.approval`。`allowed-once` 只对该次调用应用请求模式；审批被拒、取消、不可用或缺少审批上下文时，命令完全不会执行，并返回不同的错误。发生真实拒绝后，模型可以在同一轮次中使用满足需要的最窄模式和理由重试同一命令一次；审批提示本身就是征求同意的步骤。升权绝不能预先推测，禁用或拒绝审批即为最终结果。其理由见 [沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
+普通调用省略 `sandbox_permissions` 和 `justification`，以及默认值足够时的可选参数（会话工作区下的 `workdir`、前台调用的 `run_in_background`、默认超时下的 `timeoutMs`）。请求模式等于本次调用有效模式时，工具在验证之前丢弃两个升权字段；真正升权仍要求配对的非空理由与审批。无沙箱组合不接受升权字段。
+
 ## 逐会话模式切换
 
 对于启用沙箱的执行器，每次调用依次按单次升权、会话覆盖、执行器默认值解析模式。未启用沙箱以及没有 agent 的调用不携带会话覆盖。策略归属方贡献当前且不区分具体能力的常驻模式；拒绝结果仍负责特定于该操作的有效模式与重试引导。参见 [`dsh-shell` 折叠计算](../shell/README.md)和[沙箱切换约定](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
@@ -65,12 +67,14 @@
 ##### Bash 指引
 
 ```markdown
-Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call.
 ```
+
+当执行器公开沙箱升权能力时，此段还会追加：`On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.`
 
 #### Token 影响
 
-插件活跃期间，每个请求都会产生少量固定输入开销，不受沙箱模式或模式切换影响。
+插件活跃期间每个请求产生少量固定输入开销；升权提示句取决于挂载执行器的能力，不受会话模式或切换影响。
 
 #### KV Cache 影响
 
