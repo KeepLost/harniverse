@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,7 +48,7 @@ describe('minimal agent preset', () => {
     expect(agentHandle.agent.session.events.some(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === '@deepseek-ai/dsh-context-snapshot'
-      && JSON.stringify(event.data.content).includes('You are a helpful software engineer assistant.')))
+      && JSON.stringify(event.data.content).includes('You are a helpful software engineer assistant powered by')))
       .toBe(true)
     const shellName = process.platform === 'win32' ? 'pwsh' : 'bash'
     const shellCommand = process.platform === 'win32' ? "Write-Output 'MINIMAL_SHELL_OK'" : "printf 'MINIMAL_SHELL_OK\\n'"
@@ -78,8 +79,14 @@ describe('minimal agent preset', () => {
     expect(shell.isError).toBe(false)
     expect(text(shell)).toContain('MINIMAL_SHELL_OK')
 
+    // The prompt embeds host-machine facts and the session cwd; both are
+    // run-local, so the snapshot compares the tokenized forms.
+    const prompt = (requestHeader.system ?? '')
+      .replaceAll(scaffold.workspaceCwd, '{{cwd}}')
+      .replaceAll(hostname(), '{{machine}}')
+      .replace(/\((?:Linux, bash shell(?: with a (?:GNU|BusyBox) userland)?|macOS, zsh shell with a BSD userland|Windows, PowerShell shell)\)/g, '({{environment}})')
     expect({
-      prompt: requestHeader.system,
+      prompt,
       shell: text(shell).split('\n[stderr]')[0],
       editor: text(editor),
     }).toMatchInlineSnapshot(`
@@ -88,6 +95,8 @@ describe('minimal agent preset', () => {
            1  MINIMAL_EDITOR_OK
            2",
         "prompt": "You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH). Harniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.
+
+      You are working on the machine {{machine}} ({{environment}}). The working directory for this session is {{cwd}}; it stays fixed for the session's lifetime.
 
       Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call. On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 

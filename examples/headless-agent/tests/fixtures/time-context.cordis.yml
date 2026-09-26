@@ -23,6 +23,10 @@
     persona: 'Test the time-context plugin.'
     workspaceContext: false
 
+# Where the agent works: OS, shell, working machine, and the session-fixed
+# working directory, computed once from process-stable platform facts.
+- id: environment
+  name: '@deepseek-ai/dsh-environment'
 - id: persistence
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:

@@ -1396,7 +1396,7 @@ function MarkdownRecordContent({
             aria-expanded={thinkingExpanded}
             onClick={() => { onThinkingExpandedChange(!thinkingExpanded) }}
           >
-            Thinking
+            {record.cell.thinkingSummary === true ? 'Reasoning summary' : 'Thinking'}
             <IconChevronRightOutline14 className={css.thinkingChevron} size={12} />
           </button>
           {thinkingExpanded && (

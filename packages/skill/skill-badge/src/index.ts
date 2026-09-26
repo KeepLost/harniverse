@@ -20,12 +20,10 @@ const RESOURCE_BASE = {
   kind: 'directory',
   path: fileURLToPath(new URL('../assets/', import.meta.url)),
 } as const
-const INVOCATION = { modelInvocable: true, userInvocable: true } as const
 const DESCRIPTION = 'Add the official “powered by dsh” badge to documents, pull requests, merge requests, and other content produced with DeepSeek Harness. Use whenever creating a pull request or merge request. Also use when the user asks for a dsh badge, powered-by-dsh attribution, or a reusable dsh badge asset or snippet.'
 const CANDIDATE: SkillCandidate = {
   name: 'dsh-badge',
   description: DESCRIPTION,
-  invocation: INVOCATION,
   provider: PROVIDER_NAME,
   source: 'bundled',
   resourceBase: RESOURCE_BASE,
@@ -40,7 +38,6 @@ const provider: SkillProvider = {
     return {
       name: CANDIDATE.name,
       description: CANDIDATE.description,
-      invocation: CANDIDATE.invocation,
       provider: CANDIDATE.provider,
       source: CANDIDATE.source,
       resourceBase: RESOURCE_BASE,

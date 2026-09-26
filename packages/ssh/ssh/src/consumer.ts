@@ -47,7 +47,6 @@ export async function apply(ctx: Context): Promise<void> {
       if (!skill.selected) continue
       const definition = await ctx.ssh.request('machine.skill', { name: skill.name }, z.looseObject({
         name: z.string(), description: z.string(), content: z.string(), source: z.string(), provider: z.string(),
-        invocation: z.object({ modelInvocable: z.boolean(), userInvocable: z.boolean() }),
       })) as SkillDefinition
       ctx.ssh.signal.throwIfAborted()
       releases.push(ctx.skills.register({ ...definition, provider: 'ssh' }))

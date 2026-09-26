@@ -7,9 +7,8 @@
  * see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md);
  * determinism
  * lives host-side — the pre-step boundary (`dsh-tool-skill`) recognizes a
- * leading `/name` naming a user-invocable skill and injects the rendered
- * body for every entry point, including `disable-model-invocation` skills the
- * model-side catalog never lists (issue #1470). The RPC rides the plugin's
+ * leading `/name` naming a discovered skill and injects the rendered
+ * body for every entry point. The RPC rides the plugin's
  * root-context connection captured at registration — the source never reads
  * services off a per-call argument. Draft chip visuals derive from
  * the lexicon scan; this source implements no reference codec.
@@ -126,10 +125,6 @@ export function apply(ctx: ClientContext): void {
     for (const key of [...fetches.keys()]) invalidate(key)
   }
 
-  // The bound translate resolves against the registered dictionaries with the
-  // locale service's own fallback ladder; candidate-time reads stay plain text.
-  const t = ctx.locale.bind(NS)
-
   const source: InputTriggerSource = {
     trigger: '/',
     name: 'skill',
@@ -142,9 +137,7 @@ export function apply(ctx: ClientContext): void {
         .filter(skill => skill.name.startsWith(query))
         .map(skill => ({
           name: skill.name,
-          // The user-only marker rides the description (the menu's only
-          // secondary text); `hint` is the claim-state ghost text, not a badge.
-          description: skill.modelInvocable ? skill.description : `${t('menu.userOnly')} · ${skill.description}`,
+          description: skill.description,
         }))
     },
     warm(session) {

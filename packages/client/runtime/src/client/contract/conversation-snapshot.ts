@@ -43,7 +43,7 @@ export interface AssistantProvenanceView {
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
 export type AssistantBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'reasoning'; text: string }
+  | { kind: 'reasoning'; text: string; summary?: boolean }
   | { kind: 'image'; attachment: ImageAttachmentRef }
   | { kind: 'tool-call'; callId: string; name: string; argsRaw: string }
   | { kind: 'other'; block: unknown }
@@ -65,7 +65,11 @@ export function toAssistantBlocks(content: readonly ContentBlock[]): AssistantBl
 export function toAssistantBlock(block: ContentBlock): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
-    case 'reasoning': return { kind: 'reasoning', text: block.text }
+    case 'reasoning': return {
+      kind: 'reasoning',
+      text: block.text,
+      ...block.summary === true ? { summary: true } : {},
+    }
     case 'image': return { kind: 'image', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }

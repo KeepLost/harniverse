@@ -293,6 +293,7 @@ flowchart TD
   end
   subgraph group_preset["packages/preset"]
     pkg_agent_presets["agent-presets"]
+    pkg_environment["environment"]
     pkg_persona["persona"]
   end
   subgraph group_ptc_runtime["packages/ptc-runtime"]
@@ -601,6 +602,8 @@ flowchart TD
   pkg_image_offload_policy --> pkg_session
   pkg_harness_source --> pkg_invariants
   pkg_harness_source --> pkg_system_prompt
+  pkg_environment --> pkg_invariants
+  pkg_environment --> pkg_system_prompt
   pkg_persona --> pkg_invariants
   pkg_persona --> pkg_system_prompt
   pkg_ptc_runtime_python --> pkg_invariants
@@ -1969,6 +1972,7 @@ flowchart TD
 | [`app-boot`](../packages/boot/app-boot) | `boot` | [`hmr-coordination`](../packages/boot/hmr-coordination), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
 | [`image-offload-policy`](../packages/compaction/image-offload-policy) | `compaction` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`harness-source`](../packages/context/harness-source) | `context` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
+| [`environment`](../packages/preset/environment) | `preset` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
 | [`persona`](../packages/preset/persona) | `preset` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
 | [`ptc-runtime-python`](../packages/ptc-runtime/ptc-runtime-python) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |

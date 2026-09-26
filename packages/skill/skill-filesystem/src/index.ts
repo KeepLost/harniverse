@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-skill-filesystem
  */
 
-import { access, lstat, readdir, readFile, stat } from 'node:fs/promises'
+import { access, lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
@@ -25,7 +25,6 @@ import {
   isSkillName,
   type SkillCandidate,
   type SkillDefinition,
-  type SkillInvocationPolicy,
   type SkillLookupOptions,
   type SkillProvider,
   type SkillProviderControl,
@@ -47,7 +46,7 @@ export const inject = ['skills']
 
 /** Local filesystem skill provider configuration. */
 export interface Config {
-  /** Unique provider name. Defaults to `local`. */
+  /** Unique provider name. Defaults to `filesystem`. */
   providerName?: string
   /** Whether project and user roots are included around custom roots. */
   includeDefaultRoots?: boolean
@@ -92,7 +91,6 @@ interface SkillRoot {
   path: string
   source: SkillSource
   rank: number
-  skipSystem?: boolean
   projectRoot?: string
   trustedHost?: boolean
 }
@@ -107,7 +105,6 @@ interface ParsedSkill {
   name: string
   description: string
   whenToUse?: string
-  invocation: SkillInvocationPolicy
   metadata?: Record<string, unknown>
   content: string
 }
@@ -215,7 +212,7 @@ async function skillRootsFor(layout: ProviderLayout, cwd: string | undefined, ct
   roots.push(...layout.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
   if (layout.includeDefaultRoots) {
     roots.push(
-      { path: join(layout.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
+      { path: join(layout.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK },
       { path: join(layout.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
     )
   }
@@ -281,7 +278,6 @@ export class FileSystemSkillProvider implements SkillProvider {
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
-      invocation: parsed.invocation,
       source: candidate.source,
       provider: this.name,
       resourceBase: { kind: 'directory', path: locator.directory },
@@ -715,24 +711,26 @@ function isRelevantWatchEvent(
   const segments = containedSegments(root.path, path)
   if (segments === undefined) return false
   if (segments.length === 0) return event === 'addDir' || event === 'unlinkDir'
-  if (root.skipSystem === true && segments[0] === '.system') return false
-  if (segments.length === 1) {
-    if (event === 'addDir' || event === 'unlinkDir') return true
-    return segments[0]?.endsWith('.md') === true
-  }
-  return segments.length === 2
-    && segments[1] === 'SKILL.md'
-    && event !== 'addDir'
-    && event !== 'unlinkDir'
+  // Deep trees: any non-skipped path can change the recursive discovery result
+  // (a new directory may introduce a SKILL.md; a removed one may take it away).
+  return traversalSegmentsAreScanned(segments)
+    && (event === 'addDir'
+      || event === 'unlinkDir'
+      || segments.at(-1) === 'SKILL.md'
+      || (segments.length === 1 && segments[0]?.endsWith('.md') === true))
 }
 
 function isPotentialSkillPath(root: SkillRoot, path: string): boolean {
   const segments = containedSegments(root.path, path)
-  if (segments === undefined || segments.length === 0 || segments.length > 2) return false
-  if (root.skipSystem === true && segments[0] === '.system') return false
-  return segments.length === 1
-    ? segments[0]?.endsWith('.md') === true
-    : segments[1] === 'SKILL.md'
+  if (segments === undefined || segments.length === 0) return false
+  if (!traversalSegmentsAreScanned(segments)) return false
+  return segments.at(-1) === 'SKILL.md'
+    || (segments.length === 1 && segments[0]?.endsWith('.md') === true)
+}
+
+/** Whether a contained path's directory chain is one recursive discovery enters. */
+function traversalSegmentsAreScanned(segments: readonly string[]): boolean {
+  return segments.slice(0, -1).every(parent => !isSkippedDirectoryName(parent))
 }
 
 function containedSegments(root: string, path: string): string[] | undefined {
@@ -770,22 +768,13 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
   const skills: SkillCandidate[] = []
-  const entries = await listSkillRootEntries(root, ctx)
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (root.skipSystem && entry.name === '.system') continue
-    const locator = entry.type === 'directory'
-      ? { path: join(entry.path, 'SKILL.md'), directory: entry.path }
-      : entry.type === 'file' && entry.name.endsWith('.md')
-        ? { path: entry.path, directory: root.path }
-        : undefined
-    if (locator === undefined) continue
+  for (const locator of await listSkillLocators(root, ctx)) {
     const parsed = await parseSkillFile(locator.path, ctx, undefined, root.trustedHost === true)
     if (parsed === undefined) continue
     skills.push({
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
-      invocation: parsed.invocation,
       provider,
       source: root.source,
       rank: root.rank,
@@ -798,15 +787,97 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Pr
   return skills
 }
 
-async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
-  const fs = optionalFileSystem(ctx)
-  if (fs !== undefined && root.trustedHost !== true) return await listSkillRootEntriesFromFileSystem(root, fs)
-  return await listSkillRootEntriesFromNode(root, ctx)
+/**
+ * Maximum directory depth scanned below one skill root. Guards discovery
+ * against pathological or cyclic trees; ordinary layouts stay far shallower.
+ */
+const MAX_SKILL_DEPTH = 10
+
+/** Directory names never entered during recursive skill discovery. */
+const SKIPPED_DIRECTORY_NAMES = new Set(['node_modules', '.git'])
+
+/** Whether one discovered directory entry is excluded from recursion. */
+function isSkippedDirectoryName(name: string): boolean {
+  return name.startsWith('.') || SKIPPED_DIRECTORY_NAMES.has(name)
 }
 
-async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem): Promise<SkillRootEntry[]> {
+/** One discovered skill file: the `SKILL.md` path and its owning directory. */
+interface SkillLocator {
+  readonly path: string
+  readonly directory: string
+}
+
+/**
+ * List every skill locator under one root: root-level flat `*.md` files plus
+ * `SKILL.md` files at any depth, never entering hidden or `node_modules`/`.git`
+ * directories.
+ * @param root - the skill root being scanned.
+ * @param ctx - context providing optional sandboxed filesystem access.
+ * @returns locators in deterministic path order.
+ */
+async function listSkillLocators(root: SkillRoot, ctx: Context): Promise<SkillLocator[]> {
+  const locators: SkillLocator[] = []
+  await collectSkillLocators(root, ctx, root.path, 0, locators, new Set())
+  // Sort by path through a string-keyed map: default string order is a
+  // code-unit comparison, locale-independent, so the discovery order is
+  // identical on every machine.
+  const byPath = new Map(locators.map(locator => [locator.path, locator]))
+  return [...byPath.keys()].sort().map(path => byPath.get(path) as SkillLocator)
+}
+
+/** Depth-first collection behind {@link listSkillLocators}; `visited` bounds symlink cycles. */
+async function collectSkillLocators(
+  root: SkillRoot,
+  ctx: Context,
+  directory: string,
+  depth: number,
+  locators: SkillLocator[],
+  visited: Set<string>,
+): Promise<void> {
+  if (depth > MAX_SKILL_DEPTH) return
+  const entries = await listSkillRootEntries(root, ctx, directory)
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.type === 'file') {
+      // Flat Markdown skills apply at the root level only; deeper files must
+      // be named SKILL.md to count.
+      if ((depth === 0 && entry.name.endsWith('.md')) || entry.name === 'SKILL.md') {
+        locators.push({ path: entry.path, directory })
+      }
+      continue
+    }
+    if (entry.type !== 'directory' || isSkippedDirectoryName(entry.name)) continue
+    // A directory named SKILL.md is still probed as a skill file: the read
+    // fails loud (and marks discovery incomplete) instead of silently hiding
+    // the malformed bundle, matching the pre-recursion behavior.
+    if (entry.name === 'SKILL.md') {
+      locators.push({ path: entry.path, directory })
+    }
+    const key = await directoryIdentity(entry.path, ctx)
+    if (key === undefined || visited.has(key)) continue
+    visited.add(key)
+    await collectSkillLocators(root, ctx, entry.path, depth + 1, locators, visited)
+  }
+}
+
+/** Stable per-path identity used to bound symlink cycles during recursion. */
+async function directoryIdentity(path: string, ctx: Context): Promise<string | undefined> {
   try {
-    return (await fsListDir(fs, root.path)).map(entryFromFs)
+    return await realpathThroughContext(path, ctx)
+  } catch {
+    // An unstattable directory is skipped by recursion rather than fatal.
+    return undefined
+  }
+}
+
+async function listSkillRootEntries(root: SkillRoot, ctx: Context, directory: string): Promise<SkillRootEntry[]> {
+  const fs = optionalFileSystem(ctx)
+  if (fs !== undefined && root.trustedHost !== true) return await listSkillRootEntriesFromFileSystem(fs, directory)
+  return await listSkillRootEntriesFromNode(ctx, directory)
+}
+
+async function listSkillRootEntriesFromFileSystem(fs: FileSystem, directory: string): Promise<SkillRootEntry[]> {
+  try {
+    return (await fsListDir(fs, directory)).map(entryFromFs)
   } catch (error) {
     if (isAbsentSkillPathError(error)) return []
     throw error
@@ -822,10 +893,10 @@ function entryFromFs(entry: FsDirEntry): SkillRootEntry {
   return { name: entry.name, type: entry.type, path: entry.target.displayPath }
 }
 
-async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
+async function listSkillRootEntriesFromNode(ctx: Context, directory: string): Promise<SkillRootEntry[]> {
   let entries
   try {
-    entries = await readdir(root.path, { withFileTypes: true, encoding: 'utf8' })
+    entries = await readdir(directory, { withFileTypes: true, encoding: 'utf8' })
   } catch (error) {
     /* v8 ignore else -- Native non-absence directory failures are provider-dependent; the ctx.fs path pins incomplete discovery. */
     if (isAbsentSkillPathError(error)) return []
@@ -835,11 +906,21 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
 
   const result: SkillRootEntry[] = []
   for (const entry of entries) {
-    const path = join(root.path, entry.name)
+    const path = join(directory, entry.name)
     const type = await nodeEntryKind(path, entry, ctx)
     result.push({ name: entry.name, type: type ?? 'other', path })
   }
   return result
+}
+
+/** Resolve one absolute path identity, preferring the sandboxed filesystem service. */
+async function realpathThroughContext(path: string, ctx: Context): Promise<string> {
+  const fs = optionalFileSystem(ctx)
+  if (fs !== undefined) {
+    const target = await fs.resolve(path)
+    return target.displayPath
+  }
+  return await realpath(path)
 }
 
 async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, trustedHost = false): Promise<ParsedSkill | undefined> {
@@ -869,18 +950,16 @@ async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, 
     ctx.logger.warn(`skill file ${path} ignored: invalid skill name "${name}"`)
     return undefined
   }
-  let invocation
   try {
-    invocation = parseInvocationPolicy(parsed.data)
+    parseInvocationPolicy(parsed.data)
   } catch (error) {
-    ctx.logger.warn(`skill file ${path} ignored: invalid invocation frontmatter: ${errorMessage(error)}`)
+    ctx.logger.warn(`skill file ${path} ignored: ${errorMessage(error)}`)
     return undefined
   }
   return {
     name,
     description,
     ...optionalString(parsed.data, 'whenToUse'),
-    invocation,
     ...optionalMetadata(parsed.data),
     content: parsed.body.trim(),
   }
@@ -1041,43 +1120,13 @@ function optionalString(data: Record<string, unknown>, key: string): { [K in typ
   return typeof value === 'string' && value.length > 0 ? { [key]: value } : {}
 }
 
-function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy {
-  rejectLegacyInvocationKey(data, 'disableModelInvocation', 'disable-model-invocation')
-  rejectLegacyInvocationKey(data, 'modelInvocable', 'disable-model-invocation')
-  rejectLegacyInvocationKey(data, 'userInvocable', 'user-invocable')
-  const disableModelInvocation = frontmatterBoolean(data, 'disable-model-invocation')
-  const userInvocable = frontmatterBoolean(data, 'user-invocable')
-  return {
-    modelInvocable: disableModelInvocation !== true,
-    userInvocable: userInvocable !== false,
-  }
-}
-
-function rejectLegacyInvocationKey(data: Record<string, unknown>, legacy: string, canonical: string): void {
-  if (Object.hasOwn(data, legacy)) {
-    throw new Error(`frontmatter field "${legacy}" is unsupported; use "${canonical}"`)
-  }
-}
-
-function frontmatterBoolean(data: Record<string, unknown>, key: string): boolean | undefined {
-  if (!Object.hasOwn(data, key)) return undefined
-  const value = data[key]
-  if (typeof value === 'boolean') return value
-  if (value === 1 || value === '1') return true
-  if (value === 0 || value === '0') return false
-  if (typeof value === 'string') {
-    switch (value.toLowerCase()) {
-      case 'true':
-      case 'yes':
-      case 'on':
-        return true
-      case 'false':
-      case 'no':
-      case 'off':
-        return false
+/** Reject removed invocation-policy frontmatter; skills load unconditionally. */
+function parseInvocationPolicy(data: Record<string, unknown>): void {
+  for (const key of ['disableModelInvocation', 'disable-model-invocation', 'modelInvocable', 'userInvocable', 'user-invocable']) {
+    if (Object.hasOwn(data, key)) {
+      throw new Error(`frontmatter field "${key}" is unsupported; every discovered skill is model- and user-invocable`)
     }
   }
-  throw new TypeError(`frontmatter field "${key}" must be a boolean`)
 }
 
 function optionalMetadata(data: Record<string, unknown>): { metadata?: Record<string, unknown> } {

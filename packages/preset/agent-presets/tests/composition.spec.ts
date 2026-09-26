@@ -144,7 +144,7 @@ describe('Agent Profile composition recipes', () => {
     const persona = catalog.descriptors.find(entry => entry.id === 'plugin:persona')
     expect(persona).toMatchObject({ manageable: true, selectionManageable: false })
     expect(persona?.customization?.defaultValues).toMatchObject({
-      text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.',
+      text: 'You are a coding agent powered by {{provider}}/{{model}}.',
     })
   })
 

@@ -16,8 +16,6 @@ export interface SkillEntry {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** False marks a user-only skill (`disable-model-invocation`): invocable here, absent from the model catalog. */
-  readonly modelInvocable: boolean
 }
 
 /**
@@ -28,6 +26,6 @@ export interface SkillEntry {
  * one deterministic path with no dedicated invocation wire.
  */
 export interface SkillsApi {
-  /** Lists the user-invocable skill catalog for the session's project. */
+  /** Lists the discovered skill catalog for the session's project. */
   list(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ skills: readonly SkillEntry[] }>>
 }

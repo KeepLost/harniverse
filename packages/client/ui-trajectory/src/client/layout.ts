@@ -709,10 +709,13 @@ function expandAssistant(
     .filter(block => block.kind === 'text' && (!streaming || block.text !== ''))
     .map(block => block.kind === 'text' ? block.text : '')
     .join('\n\n')
-  const thinkingText = node.blocks
+  const thinkingBlocks = node.blocks
     .filter(block => block.kind === 'reasoning' && (!streaming || block.text !== ''))
+  const thinkingText = thinkingBlocks
     .map(block => block.kind === 'reasoning' ? block.text : '')
     .join('\n\n')
+  const thinkingSummary = thinkingBlocks.length > 0
+    && thinkingBlocks.every(block => block.kind === 'reasoning' && block.summary === true)
   const message: TrajectoryCellProps = {
     index: ++index,
     recordId: `assistant\u0000${node.turn}\u0000${node.step}`,
@@ -728,6 +731,7 @@ function expandAssistant(
         : {}),
     ...(messageText !== '' ? { outputDetail: messageText } : {}),
     ...(thinkingText !== '' ? { thinkingDetail: thinkingText } : {}),
+    ...(thinkingText !== '' && thinkingSummary ? { thinkingSummary: true } : {}),
     sourceBlocks: node.blocks.map(block => assistantSourceBlock(block)),
     timeSeconds: messageDuration,
     startedAt: recordedStart,

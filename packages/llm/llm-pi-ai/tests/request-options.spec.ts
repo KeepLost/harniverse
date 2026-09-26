@@ -94,10 +94,10 @@ describe('openai-responses option translation', () => {
     expect(piStreamOptions(model({ api: 'openai-responses' }), none)).toEqual({})
   })
 
-  it('carries a selected level and cap', () => {
+  it('carries a selected level, summary request, and cap', () => {
     expect(piStreamOptions(model({ api: 'openai-responses' }), {
       ...none, reasoning: 'high', maxTokens: 512,
-    })).toEqual({ reasoningEffort: 'high', maxTokens: 512 })
+    })).toEqual({ reasoningEffort: 'high', reasoningSummary: 'auto', maxTokens: 512 })
     expect(piStreamOptions(model({ api: 'openai-responses' }), { ...none, reasoning: 'off' }))
       .toEqual({})
   })

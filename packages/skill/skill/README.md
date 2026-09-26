@@ -13,9 +13,9 @@ The registry is host+per-scope layered over [`@deepseek-ai/dsh-scope`](../../cor
 ### Public API
 
 - `ctx.skills.registerProvider(create): () => void` Calls a synchronous provider factory with `{ signal, invalidate }`, then registers its readonly result by `provider.name`, unique within the calling context's layer. Duplicate names in one layer throw, `runtime` is reserved, and failed registration aborts the signal. The exact Cordis disposer unregisters the provider, aborts the signal, and preserves ordered composite teardown.
-- `ctx.skills.snapshot({ cwd?, signal?, scope? })` Returns the invocation-neutral `{ skills, complete }` observation for the viewing scope's merged layers. `complete` is false when any provider rejects or explicitly reports incomplete discovery, or when a second catalog revision races the bounded retry; candidates supplied by that observation remain in this result, which is never cached.
-- `ctx.skills.list({ cwd?, signal?, scope? })` Borrows the readonly view options, then returns every winning summary for the current workspace, merged across the global layer and the viewing scope's chain and sorted by name. Consumers apply `isModelInvocable(skill)` or `isUserInvocable(skill)` at their own boundary.
-- `ctx.skills.get(name, { cwd?, signal?, scope? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it regardless of invocation policy.
+- `ctx.skills.snapshot({ cwd?, signal?, scope? })` Returns the `{ skills, complete }` observation for the viewing scope's merged layers. `complete` is false when any provider rejects or explicitly reports incomplete discovery, or when a second catalog revision races the bounded retry; candidates supplied by that observation remain in this result, which is never cached.
+- `ctx.skills.list({ cwd?, signal?, scope? })` Borrows the readonly view options, then returns every winning summary for the current workspace, merged across the global layer and the viewing scope's chain and sorted by name.
+- `ctx.skills.get(name, { cwd?, signal?, scope? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it.
 - `ctx.skills.register(skill): () => void` Registers a readonly runtime embedded skill into the calling context's layer, adding the all-invocable policy and `provider: "runtime"` when omitted. Same-name runtime registrations in one layer are first-wins: a duplicate logs a warning and gets a no-op disposer. Successful registrations return the exact Cordis disposer for ordered composite teardown.
 - `ctx.skills.restrict({ allow, includeOwn? }): () => void` Installs a scoped allowlist applied by both `list()` and `get()`. Restrictions intersect along the scope chain; `includeOwn` lets a standing Profile policy cover the provider mounted in that exact Profile while descendant-owned runtime contributions remain exempt.
 
@@ -29,22 +29,9 @@ The registry is host+per-scope layered over [`@deepseek-ai/dsh-scope`](../../cor
 |---|---|---|
 | `collectCacheMaxEntries` | `128` | Maximum completed cwd/provider catalogs kept in memory. |
 
-### Invocation policy
-
-`SkillSummary.invocation` is a required typed policy object whose positive booleans `modelInvocable` and `userInvocable` describe the two surfaces independently. Providers return this resolved shape on every candidate and definition; only the `SkillRegistration` input may omit it, in which case `register()` supplies `{ modelInvocable: true, userInvocable: true }`. The registry keeps all four combinations so one discovery result can serve model-facing tools, human-facing commands, and trusted internal callers without conflating their catalogs.
-
-| Policy | Model | User |
-|---|---|---|
-| `{ modelInvocable: true, userInvocable: true }` | included | included |
-| `{ modelInvocable: true, userInvocable: false }` | included | excluded |
-| `{ modelInvocable: false, userInvocable: true }` | excluded | included |
-| `{ modelInvocable: false, userInvocable: false }` | excluded | excluded |
-
 ### Shared model-facing rendering
 
 `renderSkillContent(skill)` renders one loaded skill as the canonical `<skill_content>` block (escaped `name` attribute, resource hints, verbatim body). It is the single truth for both loading paths: `dsh-tool-skill` returns it as the `skill` tool result and injects it at the user-explicit gesture boundary, so the model sees one shape regardless of who initiated the load. `escapeText` is exported beside it for consumers embedding prose in the same markup frame. The package also declares the `skill-invocation` `MessageSource` kind ({ name, form: 'instructions' }) that user-explicit injection stamps on its messages — transcript consumers present the invocation from this metadata instead of re-parsing the body.
-
-`isModelInvocable(skill)` and `isUserInvocable(skill)` read the matching positive field directly. `ctx.skills.get()` remains the trusted, policy-neutral loading primitive, so every user- or model-facing consumer must enforce the predicate that matches its surface before exposing or loading a skill.
 
 ## Provider Contract
 
@@ -58,7 +45,7 @@ Definitions remain progressively loaded. `get()` asks the winning provider for t
 
 ## Runtime Skills
 
-`ctx.skills.register(...)` is a convenience for embedded runtime skills. Runtime skills use rank `250`: project providers can override them, while they override the shipped local provider's custom and user roots. Runtime definitions and nested resource metadata are borrowed readonly; the service materializes one top-level definition to supply omitted invocation and provider defaults. Registration is first-wins within runtime contributions, so a duplicate contribution cannot remove the active one through its disposer.
+`ctx.skills.register(...)` is a convenience for embedded runtime skills. Runtime skills use rank `250`: project providers can override them, while they override the shipped local provider's custom and user roots. Runtime definitions and nested resource metadata are borrowed readonly; the service materializes one top-level definition to supply the omitted provider default. Registration is first-wins within runtime contributions, so a duplicate contribution cannot remove the active one through its disposer.
 
 ## Consumer boundary
 

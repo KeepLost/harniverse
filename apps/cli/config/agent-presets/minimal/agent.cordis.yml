@@ -8,7 +8,12 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: You are a helpful software engineer assistant.
+    text: You are a helpful software engineer assistant powered by {{provider}}/{{model}}.
+
+# Where the agent works: OS, shell, working machine, and the session-fixed
+# working directory, computed once from process-stable platform facts.
+- id: environment
+  name: '@deepseek-ai/dsh-environment'
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'

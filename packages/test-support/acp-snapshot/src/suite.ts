@@ -1294,30 +1294,33 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             claimSharedSnapshot(schemaClaims, schemaPath, scenario.name, toolSchemasSnapshot)
             await writeFile(schemaPath, toolSchemasSnapshot)
           }
-          for (const index of childSchemaPins) {
-            const log = result.sessionLogs[index]
-            expect(log, `${mode}: no child session log at index ${index} to snapshot schemas from`)
-              .toBeDefined()
-            const schemaSets = normalizedToolSchemas((log as HarvestedLog).content, ctx)
-            expect(schemaSets.length, `${mode}: child ${index} produced no tool schemas to snapshot`)
-              .toBeGreaterThan(0)
-            await writeFile(join(dir, childToolSchemasSnapshot(index)), formatToolSchemasSnapshot(
-              schemaSets[0] as unknown[],
-              schemaSets.slice(1),
-            ))
-          }
-          for (const index of childPromptPins) {
-            const log = result.sessionLogs[index]
-            expect(log, `${mode}: no child session log at index ${index} to snapshot a prompt from`)
-              .toBeDefined()
-            const prompts = normalizedSystemPrompts((log as HarvestedLog).content, ctx)
-            expect(prompts.length, `${mode}: child ${index} produced no system prompt to snapshot`)
-              .toBeGreaterThan(0)
-            await writeFile(
-              join(dir, childSystemPromptSnapshot(index)),
-              formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1)),
-            )
-          }
+        }
+
+        // Child pins are per-scenario fixtures: refresh rewrites them for
+        // every scenario that declares them, not only header-pinning ones.
+        for (const index of childSchemaPins) {
+          const log = result.sessionLogs[index]
+          expect(log, `${mode}: no child session log at index ${index} to snapshot schemas from`)
+            .toBeDefined()
+          const schemaSets = normalizedToolSchemas((log as HarvestedLog).content, ctx)
+          expect(schemaSets.length, `${mode}: child ${index} produced no tool schemas to snapshot`)
+            .toBeGreaterThan(0)
+          await writeFile(join(dir, childToolSchemasSnapshot(index)), formatToolSchemasSnapshot(
+            schemaSets[0] as unknown[],
+            schemaSets.slice(1),
+          ))
+        }
+        for (const index of childPromptPins) {
+          const log = result.sessionLogs[index]
+          expect(log, `${mode}: no child session log at index ${index} to snapshot a prompt from`)
+            .toBeDefined()
+          const prompts = normalizedSystemPrompts((log as HarvestedLog).content, ctx)
+          expect(prompts.length, `${mode}: child ${index} produced no system prompt to snapshot`)
+            .toBeGreaterThan(0)
+          await writeFile(
+            join(dir, childSystemPromptSnapshot(index)),
+            formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1)),
+          )
         }
 
         for (const expected of stdoutExpectedVariants(scenario)) {

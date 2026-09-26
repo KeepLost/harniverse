@@ -44,15 +44,7 @@ export type SkillResourceBase =
   | { readonly kind: 'url'; readonly url: string }
   | { readonly kind: 'opaque'; readonly description: string }
 
-/** Invocation controls shared by skill discovery consumers. */
-export interface SkillInvocationPolicy {
-  /** Whether model-facing catalogs and loaders include this skill. */
-  readonly modelInvocable: boolean
-  /** Whether human-facing command catalogs and loaders include this skill. */
-  readonly userInvocable: boolean
-}
-
-/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
+/** Skill metadata returned by `ctx.skills.list()`. */
 export interface SkillSummary {
   /** Kebab-case identifier used to address the skill. */
   readonly name: string
@@ -60,8 +52,6 @@ export interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Resolved model and user invocation controls. */
-  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -93,9 +83,7 @@ export interface SkillDefinition extends SkillSummary {
 }
 
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-export type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
-  /** Invocation controls; omission permits both model and user surfaces. */
-  readonly invocation?: SkillInvocationPolicy
+export type SkillRegistration = Omit<SkillDefinition, 'provider'> & {
   /** Provider label; omission uses the registry-owned runtime provider. */
   readonly provider?: string
 }
@@ -120,24 +108,6 @@ export interface SkillViewOptions extends SkillLookupOptions {
 }
 
 /**
- * Return whether a skill may be advertised to and loaded by a model.
- * @param skill - skill metadata carrying resolved invocation controls.
- * @returns whether the policy permits model invocation.
- */
-export function isModelInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
-  return skill.invocation.modelInvocable
-}
-
-/**
- * Return whether a skill may be advertised to and loaded by a human-facing command.
- * @param skill - skill metadata carrying resolved invocation controls.
- * @returns whether the policy permits user invocation.
- */
-export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
-  return skill.invocation.userInvocable
-}
-
-/**
  * Durable source for the context message a user-explicit skill invocation
  * injects: the user's own words ride a plain user message, and the rendered
  * skill body follows as injected `instructions`-form context carrying this
@@ -146,7 +116,7 @@ export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolea
  */
 export interface SkillInvocationSource {
   readonly kind: 'skill-invocation'
-  /** Invoked skill name, validated user-invocable at the injecting boundary. */
+  /** Invoked skill name, named explicitly by the user at the injecting boundary. */
   readonly name: string
   /** Injected skill bodies are instructions for the model to follow. */
   readonly form: 'instructions'
@@ -230,7 +200,7 @@ export function escapeText(value: string): string {
 
 /** One catalog observation plus whether discovery completed within a stable catalog revision. */
 export interface SkillCatalogSnapshot {
-  /** Sorted invocation-neutral summaries collected in this observation. */
+  /** Sorted skill summaries collected in this observation. */
   readonly skills: SkillSummary[]
   /** Whether every registered provider completed without a concurrent catalog revision. */
   readonly complete: boolean
@@ -372,7 +342,7 @@ class SkillLayer implements ScopeLayer {
  * composition lands in that preset's layer. A read merges the global layer
  * with the viewing scope's chain — the nearest layer's entry wins a duplicate
  * name outright, and the rank order decides duplicates only within one layer.
- * It exposes sorted invocation-neutral summaries and loads full skill bodies
+ * It exposes sorted skill summaries and loads full skill bodies
  * on demand.
  */
 export class SkillRegistry extends Service {
@@ -455,7 +425,7 @@ export class SkillRegistry extends Service {
    * entries, within one layer. Same-name runtime entries in one layer are
    * first-wins; a duplicate logs a warning and receives a no-op disposer so
    * it cannot remove the winner.
-   * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
+   * @param skill - the skill definition input; an omitted provider field receives its default.
    * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
    */
   register(skill: SkillRegistration): () => void {
@@ -468,7 +438,6 @@ export class SkillRegistry extends Service {
     }
     const definition: SkillDefinition = {
       ...skill,
-      invocation: skill.invocation ?? { modelInvocable: true, userInvocable: true },
       provider: skill.provider ?? RUNTIME_PROVIDER,
     }
     return this.layers.effect(
@@ -505,8 +474,7 @@ export class SkillRegistry extends Service {
   }
 
   /**
-   * List invocation-neutral skill summaries for a workspace. Consumers apply
-   * model or user invocation policy at their operational boundary. Lookup
+   * List skill summaries for a workspace. Lookup
    * options and provider candidates are readonly same-process values borrowed
    * throughout discovery.
    * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
@@ -517,7 +485,7 @@ export class SkillRegistry extends Service {
   }
 
   /**
-   * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
+   * Observe the current catalog and whether discovery completed within a stable revision.
    * Incomplete observations are never cached, allowing consumers to retain last-good state and
    * retry on their next request boundary.
    * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
@@ -741,7 +709,6 @@ function runtimeCandidate(skill: SkillDefinition): SkillCandidate {
     name: skill.name,
     description: skill.description,
     ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
-    invocation: skill.invocation,
     source: skill.source,
     provider: skill.provider,
     ...skill.resourceBase !== undefined ? { resourceBase: skill.resourceBase } : {},
@@ -765,7 +732,6 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
   if (candidate.description.length === 0) {
     throw new Error(`skill provider "${providerName}" returned skill "${candidate.name}" without a description`)
   }
-  validateInvocation(candidate.invocation, `skill provider "${providerName}" returned skill "${candidate.name}"`)
   if (candidate.whenToUse !== undefined && typeof candidate.whenToUse !== 'string') {
     throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-string whenToUse`)
   }
@@ -789,7 +755,6 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
 function validateRuntimeSkill(skill: SkillRegistration): void {
   if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
-  validateInvocation(skill.invocation, `runtime skill "${skill.name}"`)
 }
 
 /** Validate a definition loaded from a provider-controlled parser or remote source. */
@@ -797,7 +762,6 @@ function validateDefinition(skill: SkillDefinition): void {
   const name = skill.name
   const description = skill.description
   const whenToUse = skill.whenToUse
-  const invocation = skill.invocation
   const source = skill.source
   const provider = skill.provider
   const content = skill.content
@@ -806,7 +770,6 @@ function validateDefinition(skill: SkillDefinition): void {
   if (!SKILL_NAME.test(name)) throw new Error(`loaded skill has invalid name "${name}"`)
   if (typeof description !== 'string') throw new TypeError(`loaded skill "${name}" description must be a string`)
   if (description.length === 0) throw new Error(`loaded skill "${name}" requires a description`)
-  validateInvocation(invocation, `loaded skill "${name}"`)
   if (whenToUse !== undefined && typeof whenToUse !== 'string') throw new TypeError(`loaded skill "${name}" whenToUse must be a string`)
   if (typeof source !== 'string') throw new TypeError(`loaded skill "${name}" source must be a string`)
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
@@ -815,29 +778,14 @@ function validateDefinition(skill: SkillDefinition): void {
 }
 
 function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
-  const { name, description, whenToUse, invocation, source, provider, resourceBase } = skill
+  const { name, description, whenToUse, source, provider, resourceBase } = skill
   return {
     name,
     description,
     ...whenToUse !== undefined ? { whenToUse } : {},
-    invocation,
     source,
     provider,
     ...resourceBase !== undefined ? { resourceBase } : {},
-  }
-}
-
-function validateInvocation(invocation: unknown, subject: string): void {
-  if (invocation === undefined) return
-  if (typeof invocation !== 'object' || invocation === null || Array.isArray(invocation)) {
-    throw new TypeError(`${subject} with a non-object invocation policy`)
-  }
-  const policy = invocation as Record<string, unknown>
-  if (typeof policy.modelInvocable !== 'boolean') {
-    throw new TypeError(`${subject} with a non-boolean invocation.modelInvocable`)
-  }
-  if (typeof policy.userInvocable !== 'boolean') {
-    throw new TypeError(`${subject} with a non-boolean invocation.userInvocable`)
   }
 }
 

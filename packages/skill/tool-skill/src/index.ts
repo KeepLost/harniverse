@@ -13,9 +13,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   escapeText,
-  isModelInvocable,
   isSkillName,
-  isUserInvocable,
   renderSkillContent,
   type SkillInvocationSource,
   type SkillSummary,
@@ -135,15 +133,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!summary) {
         throw new Error(`skill "${args.name}" is unknown or no longer available`)
       }
-      if (!isModelInvocable(summary)) {
-        throw new Error(`skill "${args.name}" is not available for model invocation`)
-      }
       const skill = await ctx.skills.get(args.name, lookup)
       if (!skill) {
         throw new Error(`skill "${args.name}" is unknown or no longer available`)
-      }
-      if (!isModelInvocable(skill)) {
-        throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
       return {
         name: skill.name,
@@ -161,7 +153,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.tools.register(skillTool)
 
   // User-explicit skill invocation: a claimed user message whose first line
-  // starts with `/<name>` naming a user-invocable skill is a deterministic
+  // starts with `/<name>` naming a discovered skill is a deterministic
   // load gesture. The rendered body enters this step as injected
   // instructions context appended after every other injection — background
   // first (workspace rules, runtime policy, the catalog), the material the
@@ -169,11 +161,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   // that placement deterministic: this listener registers before the catalog
   // listener, so the waterfall hands it the catalog-bearing list to extend.
   // Only `source.kind === 'user'` messages are scanned — external text
-  // cannot forge the gesture — and a token naming no user-invocable skill
-  // stays ordinary prose (the command registry is a different closed
-  // namespace, resolved client-side before a line ever becomes a prompt).
-  // This is the only entry point for `disable-model-invocation` skills; the
-  // catalog and the `skill` tool below never see them.
+  // cannot forge the gesture — and a token naming no discovered skill stays
+  // ordinary prose (the command registry is a different closed namespace,
+  // resolved client-side before a line ever becomes a prompt).
   ctx.on('agent/pre-step', async (
     { agent, messages, signal },
     next,
@@ -188,11 +178,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     for (const name of names) {
       const skill = await ctx.skills.get(name, lookup)
       signal.throwIfAborted()
-      // Unknown names and user-disabled skills stay plain prose: the
-      // gesture was never a claim this boundary recognizes. The check sits
-      // on the loaded definition — the single lookup that produces what is
-      // actually injected.
-      if (skill === undefined || !isUserInvocable(skill)) continue
+      // Unknown names stay plain prose: the gesture was never a claim
+      // this boundary recognizes. The check sits on the loaded definition —
+      // the single lookup that produces what is actually injected.
+      if (skill === undefined) continue
       const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
       injections.push(createUserMessage({
         content: [{ type: 'text', text: renderSkillContent(skill) }],
@@ -223,7 +212,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       : { skills: [], complete: true }
     signal.throwIfAborted()
     if (!snapshot.complete) return decision
-    const skills = snapshot.skills.filter(isModelInvocable)
+    const skills = snapshot.skills
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const digest = digestCatalogEntries(entries)
     const history = catalogHistory(agent)

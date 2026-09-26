@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import {
   type NormalizeContext,
@@ -212,6 +213,27 @@ Additional instructions from: nested\AGENTS.md`,
 describe('normalizeSessionLog', () => {
   const header = (over: object) => JSON.stringify({ type: 'session', version: 0, id: 's', createdAt: 123, ...over })
   const event = (over: object) => JSON.stringify({ type: 'turn/start', seq: 1, time: 999, data: { turn: 1 }, ...over })
+
+  it('tokenizes the recorded machine label and its platform clause', () => {
+    const ev = JSON.stringify({
+      type: 'request/header', seq: 3, time: 5,
+      data: { header: { system: `You are working on the machine ${hostname()} (Linux, bash shell with a GNU userland).` } },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('the machine {{machine}} ({{environment}}).')
+    expect(out).not.toContain(hostname())
+  })
+
+  it('keeps the machine label verbatim when the context disables the replacement', () => {
+    // A synthetic label, not the real host name: runner hostnames can embed
+    // UUID-shaped suffixes that the generic UUID scrubber would tokenize.
+    const ev = JSON.stringify({
+      type: 'request/header', seq: 3, time: 5,
+      data: { header: { system: 'machine stable-label-42' } },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, { ...ctx, machine: '' })
+    expect(out).toContain('machine stable-label-42')
+  })
 
   it('zeroes the header createdAt', () => {
     const out = normalizeSessionLog(`${header({})}\n`, ctx)

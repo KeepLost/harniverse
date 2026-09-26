@@ -8,6 +8,7 @@
 // is asserted from the persisted assistant/chunk events, not transient DOM.
 // Record: DSH_SNAPSHOT=record rewrites session.jsonl, then a keyless
 // DSH_SNAPSHOT=refresh regenerates ui.expected.md.
+import { hostname } from 'node:os'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -100,6 +101,8 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       .split(REPO_ROOT).join('{{sourceRoot}}')
       .split(join(scaffold.workspaceCwd, 'workspace')).join('{{cwd}}')
       .split(scaffold.baseUrl).join('{{webUrl}}')
+      .split(hostname()).join('{{machine}}')
+      .replace(/\((?:Linux, bash shell(?: with a (?:GNU|BusyBox) userland)?|macOS, zsh shell with a BSD userland|Windows, PowerShell shell)\)/g, '({{environment}})')
     await compareOrRefreshGolden(SYSTEM_PROMPT_EXPECTED, prefix, MODE)
   })
 
