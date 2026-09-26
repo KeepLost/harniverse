@@ -194,7 +194,11 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
             for message in messages
             if isinstance(message, dict) and message.get("role") == "system"
         ]
-        if system_prompts:
+        if len(system_prompts) != 1 or not all(
+            prompt.startswith("You are working on the machine ")
+            and "The working directory for this session is " in prompt
+            for prompt in system_prompts
+        ):
             raise AssertionError(f"minimal agent smoke assembled unexpected system prompts: {system_prompts}")
         runtime_contexts = [
             prompt
