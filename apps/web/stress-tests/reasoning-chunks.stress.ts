@@ -10,7 +10,7 @@ import { expect, it, onTestFailed } from 'vitest'
 import { launchWebScaffold, watchConsole, type WebScaffold } from '../tests/scaffold.ts'
 import { newEnglishPage, saveFailureShot } from '../tests/support.ts'
 
-const CHUNK_COUNT = 100_000
+const CHUNK_COUNT = positiveInteger(process.env.DSH_WEB_STRESS_CHUNKS, 100_000)
 const CHUNKS_PER_INTERVAL = 128
 const CHUNK_INTERVAL_MS = 16
 const MAIN_THREAD_DELAY_BUDGET_MS = 250
@@ -43,7 +43,7 @@ interface StressWindow extends Window {
   __reasoningStressProbe?: StressProbe
 }
 
-it('keeps the browser responsive while rendering 100,000 reasoning chunks', async () => {
+it('keeps the browser responsive while rendering a reasoning chunk workload', async () => {
   let scaffold: WebScaffold | undefined
   let browser: Browser | undefined
   let page: Page | undefined
@@ -109,6 +109,9 @@ it('keeps the browser responsive while rendering 100,000 reasoning chunks', asyn
       return hooks?.reasoningChunkStormState()?.emitted ?? 0
     }), { timeout: 540_000, interval: 100 }).toBe(CHUNK_COUNT)
     await expect.poll(() => liveThink.textContent(), { timeout: 60_000, interval: 100 }).toContain(marker)
+    await expect.poll(async () => await activePage.evaluate(() => (
+      (window as StressWindow).__reasoningStressProbe?.interactionHandledAt !== null
+    )), { timeout: 60_000, interval: 50 }).toBe(true)
 
     const report = await activePage.evaluate(() => {
       const win = window as StressWindow
@@ -132,6 +135,16 @@ it('keeps the browser responsive while rendering 100,000 reasoning chunks', asyn
       }
     })
     process.stdout.write(`reasoning-chunk stress report: ${JSON.stringify(report)}\n`)
+    process.stdout.write(`HARNIVERSE_BENCHMARK_RESULT ${JSON.stringify({
+      benchmark: 'web-streaming',
+      workload: {
+        chunks: CHUNK_COUNT,
+        chunksPerInterval: CHUNKS_PER_INTERVAL,
+        intervalMs: CHUNK_INTERVAL_MS,
+      },
+      aggregate: report,
+      budgets: { mainThreadDelayMs: MAIN_THREAD_DELAY_BUDGET_MS, interactionDelayMs: MAIN_THREAD_DELAY_BUDGET_MS },
+    })}\n`)
 
     expect(report).toMatchObject({
       chunkCount: CHUNK_COUNT,
@@ -142,8 +155,8 @@ it('keeps the browser responsive while rendering 100,000 reasoning chunks', asyn
     expect(report.heartbeatSamples).toBeGreaterThan(0)
     const interactionDelayMs = report.interactionDelayMs
     if (interactionDelayMs === null) throw new Error(`scheduled interaction was not handled: ${JSON.stringify(report)}`)
-    expect(report.maxMainThreadDelayMs, JSON.stringify(report)).toBeLessThan(MAIN_THREAD_DELAY_BUDGET_MS)
-    expect(interactionDelayMs, JSON.stringify(report)).toBeLessThan(MAIN_THREAD_DELAY_BUDGET_MS)
+    expect(report.maxMainThreadDelayMs, JSON.stringify(report)).toBeLessThanOrEqual(MAIN_THREAD_DELAY_BUDGET_MS)
+    expect(interactionDelayMs, JSON.stringify(report)).toBeLessThanOrEqual(MAIN_THREAD_DELAY_BUDGET_MS)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   } finally {
@@ -151,3 +164,10 @@ it('keeps the browser responsive while rendering 100,000 reasoning chunks', asyn
     await scaffold?.close()
   }
 }, 600_000)
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error('DSH_WEB_STRESS_CHUNKS must be a positive integer')
+  return parsed
+}

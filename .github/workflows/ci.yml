@@ -564,6 +564,105 @@ jobs:
           if [ "$status" -ne 0 ]; then exit "$status"; fi
           echo "$out" | grep -qE 'Test Files[[:space:]]+2 passed \(2\)'
 
+  # Performance gates are independent Linux jobs so their wall-clock time is
+  # parallelized without putting multiple Chromium or benchmark trees on one
+  # runner. Each benchmark runner serializes its samples and enforces a
+  # process-tree RSS ceiling.
+  performance-terminal:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: performance / terminal I/O
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Run terminal I/O benchmark
+        run: pnpm run benchmark:terminal
+
+  performance-browser:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: performance / browser I/O
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+
+      - name: Run browser I/O benchmark
+        run: pnpm run benchmark:browser
+
+  performance-stream:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: performance / streaming I/O
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+
+      - name: Run streaming I/O benchmark
+        run: pnpm run benchmark:stream
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in
@@ -578,7 +677,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, desktop-platform, node-24-coverage, node-24-consumers, node-24-web-snapshot, node-compat, python-sdk, python-runtime, windows]
+    needs: [node-24, desktop-platform, node-24-coverage, node-24-consumers, node-24-web-snapshot, node-compat, python-sdk, python-runtime, windows, performance-terminal, performance-browser, performance-stream]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed
