@@ -4,10 +4,16 @@
  *
  * The list is the profile's `models` array as the card holds it: an empty list
  * means "serve this route's built-in catalog", and any entry replaces that
- * catalog, so a row is only ever added deliberately. Fetching asks the endpoint
- * **the form currently shows** — including a key typed but not yet saved — so
- * adding a provider is one pass instead of save-then-return; the reply is
+ * catalog, so a row is only ever added deliberately. Fetching asks the
+ * form **as it currently shows** — including a key typed but not yet saved —
+ * so adding a provider is one pass instead of save-then-return; the reply is
  * candidates the user picks from, never configuration written behind them.
+ *
+ * A route the adapter already ships answers from its installed catalog, which
+ * is the better first answer (no network, no key); a second action forces the
+ * live endpoint for the models the catalog cannot see — a proxy façade, a
+ * deployment-added model. Candidates say where they came from, and each row
+ * can name a wire protocol of its own when the route serves mixed ones.
  *
  * A provider that cannot be interrogated (an unreachable endpoint, a protocol
  * with no readable listing) is not a dead end: the failure is shown next to the
@@ -84,6 +90,11 @@ export interface ModelListEditorProps {
   probeBlocked?: keyof typeof en | undefined
   /** Wire face the fetch action calls. */
   api: Pick<IApiClient, 'llm'>
+  /**
+   * Wire protocols a row may name for itself, from the adapter's own
+   * `Config`. Absent when the owning card offers no per-row choice.
+   */
+  protocols?: readonly string[]
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable every control (read-only deployment or a pending write). */
@@ -161,7 +172,8 @@ function adopt(candidate: DiscoveredModelView): ModelDraft {
  */
 export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const { models, onChange, probe, api, t, disabled } = props
-  const [busy, setBusy] = useState(false)
+  // Which fetch action is in flight, so only the invoked button reads busy.
+  const [busy, setBusy] = useState<'default' | 'endpoint' | undefined>(undefined)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [candidates, setCandidates] = useState<readonly DiscoveredModelView[] | undefined>(undefined)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
@@ -228,8 +240,8 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }))
   }
 
-  const fetchModels = async (): Promise<void> => {
-    setBusy(true)
+  const fetchModels = async (mode?: 'endpoint'): Promise<void> => {
+    setBusy(mode === 'endpoint' ? 'endpoint' : 'default')
     setFailure(undefined)
     try {
       const response = await api.llm.discoverModels({
@@ -238,6 +250,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
         ...probe.api === undefined ? {} : { api: probe.api },
         ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
+        ...mode === undefined ? {} : { mode },
       })
       if (!response.result.ok) {
         setFailure(response.result.error.message)
@@ -258,7 +271,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       // would stay busy with nothing shown.
       setFailure(messageOf(error))
     } finally {
-      setBusy(false)
+      setBusy(undefined)
     }
   }
 
@@ -294,6 +307,9 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   // A route the adapter already describes answers without an endpoint; only a
   // draft with neither has nothing to ask about.
   const askable = probe.provider !== undefined || (probe.baseURL !== undefined && probe.baseURL.length > 0)
+  // Forcing the endpoint is a real network call to the form's endpoint, so it
+  // needs one even on a route the adapter describes.
+  const endpointAskable = probe.baseURL !== undefined && probe.baseURL.length > 0
   return (
     <section className={styles['modelCatalog']} aria-label={t('models')}>
       <div className={styles['modelListHead']}>
@@ -319,17 +335,35 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             </button>
           )
           : null}
+        {/* The default ask: the adapter answers from its own registry when it
+            describes this route, else from the form's endpoint. */}
         <button
           type="button"
           className={styles['linkButton']}
-          disabled={disabled || busy || !askable || props.probeBlocked !== undefined}
+          disabled={disabled || busy !== undefined || !askable || props.probeBlocked !== undefined}
           title={props.probeBlocked !== undefined
             ? t(props.probeBlocked)
             : askable ? undefined : t('fetchNeedsBaseUrl')}
           onClick={() => { void fetchModels() }}
         >
-          {busy ? t('fetching') : t('fetchModels')}
+          {busy === 'default' ? t('fetching') : t('fetchModels')}
         </button>
+        {/* Only a route the adapter may describe needs the escape hatch: on a
+            create there is no registry to prefer, so the one action already
+            asks the endpoint. */}
+        {probe.provider === undefined ? null : (
+          <button
+            type="button"
+            className={styles['linkButton']}
+            disabled={disabled || busy !== undefined || !endpointAskable || props.probeBlocked !== undefined}
+            title={props.probeBlocked !== undefined
+              ? t(props.probeBlocked)
+              : endpointAskable ? undefined : t('fetchNeedsBaseUrl')}
+            onClick={() => { void fetchModels('endpoint') }}
+          >
+            {busy === 'endpoint' ? t('fetching') : t('fetchFromEndpoint')}
+          </button>
+        )}
       </div>
       {models.length === 0 ? <p className={styles['modelEmpty']}>{t('modelsEmpty')}</p> : null}
       {models.map((model, index) => (
@@ -418,12 +452,35 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
                 </label>
+                {/* The route's protocol is the default; a row naming its own
+                    serves a mixed-protocol façade without splitting the
+                    route. Absent choice = inherit, and `patch` drops the key
+                    so the row stops carrying an override at all. */}
+                {props.protocols !== undefined && props.protocols.length > 0
+                  ? (
+                    <label className={styles['modelField']}>
+                      <span className={styles['modelFieldLabel']}>{t('modelApi')}</span>
+                      <select
+                        className={`${styles['input']} ${styles['selectInput']}`}
+                        value={textOf(model, 'api')}
+                        aria-label={`${t('modelApi')} ${index + 1}`}
+                        disabled={disabled}
+                        onChange={(event) => {
+                          patch(index, { api: event.target.value === '' ? undefined : event.target.value })
+                        }}
+                      >
+                        <option value="">{t('modelApiInherit')}</option>
+                        {props.protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                      </select>
+                    </label>
+                  )
+                  : null}
                 <ModelCapabilities
                   model={model}
                   patch={(next) => { patch(index, next) }}
                   t={t}
                   disabled={disabled}
-                  api={probe.api}
+                  api={textOf(model, 'api') === '' ? probe.api : textOf(model, 'api')}
                 />
               </div>
             )
@@ -464,8 +521,13 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                 />
                 {/* The id alone: it is the string adoption writes, and the
                     capacities the endpoint reported are adopted with it and
-                    editable in the row that appears. */}
+                    editable in the row that appears. Rows the installed
+                    catalog answered wear its tag: those numbers came from the
+                    adapter's own registry, not the endpoint. */}
                 <span className={styles['candidateId']}>{candidate.id}</span>
+                {candidate.source === 'catalog'
+                  ? <span className={styles['candidateSource']}>{t('sourceCatalog')}</span>
+                  : null}
               </label>
             </li>
           ))}

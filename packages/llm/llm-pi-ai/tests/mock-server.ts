@@ -25,6 +25,16 @@ export const textEvents = [
   '[DONE]',
 ]
 
+/** A minimal complete text generation in Anthropic Messages' event shape. */
+export const anthropicTextEvents = [
+  'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":3,"output_tokens":0}}}',
+  'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+  'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}',
+  'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}',
+  'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}',
+  'event: message_stop\ndata: {"type":"message_stop"}',
+]
+
 /** Local provider stand-in: replays scripted behaviors per request. */
 export async function mockServer(script: {
   status?: number
@@ -57,10 +67,13 @@ export async function mockServer(script: {
       }
       response.writeHead(200, { 'content-type': 'text/event-stream' })
       let index = 0
+      // A frame starting with `event:` is a complete SSE frame (the Anthropic
+      // parser keys on the event name, not just the payload); anything else
+      // is a bare data line.
       const writeNext = (): void => {
         const event = behavior.events?.[index++]
         if (event === undefined) { response.end(); return }
-        response.write(`data: ${event}\n\n`)
+        response.write(event.startsWith('event:') ? `${event}\n\n` : `data: ${event}\n\n`)
         if (behavior.delayMs === undefined) writeNext()
         else setTimeout(writeNext, behavior.delayMs)
       }

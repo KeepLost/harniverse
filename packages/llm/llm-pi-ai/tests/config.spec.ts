@@ -35,6 +35,19 @@ describe('reasoning schema boundary', () => {
   it('rejects a thinking format outside the offered set', () => {
     expect(configWith({ compat: { thinkingFormat: 'quantum' } })).toThrow(/expected/)
   })
+
+  it('rejects a thinking budget the wire would refuse, naming the route and level', () => {
+    expect(() => {
+      assertServiceable(routeWith({ thinkingBudgets: { low: 1 } })() as Config)
+    }).toThrow(/thinkingBudgets.low must be an integer of at least 1024/)
+    expect(() => {
+      assertServiceable(routeWith({ thinkingBudgets: { high: 1024.5 } })() as Config)
+    }).toThrow(/thinkingBudgets.high must be an integer of at least 1024/)
+    // The floor itself is serviceable: exactly 1024 fits the wire minimum.
+    expect(() => {
+      assertServiceable(routeWith({ thinkingBudgets: { low: 1024 } })() as Config)
+    }).not.toThrow()
+  })
 })
 
 describe('modality schema boundary', () => {

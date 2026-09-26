@@ -1361,6 +1361,14 @@ export interface PiAiProviderProfile {
 export interface PiAiModelProfile {
   /** Model id sent to the provider and accepted by {@link GenerateOptions.model}. */
   id: string
+  /**
+   * Wire protocol this one model speaks, winning over the route's `api` and
+   * the installed entry's own. The escape hatch for a route whose endpoint
+   * serves one model through a different protocol than its siblings — a
+   * gateway with an OpenAI-compatible bulk path and a native Anthropic path —
+   * without splitting the provider into two user-visible routes.
+   */
+  api?: string
   /** Display name for selectors; defaults to the catalog name, then the id. */
   name?: string
   /** Maximum combined request and response context in tokens. */

@@ -312,7 +312,9 @@ describe('toPiContext', () => {
         }),
       ],
     })
-    expect(context.messages.map(message => message.role)).toEqual(['user', 'user', 'toolResult'])
+    // The result directly follows its assistant call slot; the user's own
+    // text trails it so no user message interrupts the tool flow.
+    expect(context.messages.map(message => message.role)).toEqual(['user', 'toolResult', 'user'])
   })
 
   it('skips plugin-added (unknown) blocks in assistant content', () => {

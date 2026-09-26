@@ -124,6 +124,8 @@ keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若�
 
 ### 发布工作流
 
+选择版本、合入未完成功能、建立稳定化分支或发布候选版之前，先阅读 [Harniverse 版本与分支策略](release-policy.md)。该文档为没有会话历史的维护者或 agent 定义完整流程。
+
 dsh 发布族在各个 manifest 与 workspace 根之间共用一个产品版本；vendored 框架与 native 包保留各自独立的版本线和 workflow。[发布序列 Agent Note](../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)负责发布族理由与包边界。
 
 使用 `pnpm run release:dsh --dry-run 1.0.0-rc.1` 预览候选版本；此命令不会写入文件。使用 `pnpm run release:dsh --no-commit 1.0.0-rc.1` 写入该族 manifest 并同步 `pnpm-lock.yaml`，同时保持 `HEAD` 和索引不变以便评审。lockfile 同步失败时会报告命令错误并保留可检查的 manifest 改动。普通模式仍保留原有的 bump-and-commit 行为。

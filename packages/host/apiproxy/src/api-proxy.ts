@@ -4921,10 +4921,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async discoverModels(request, signal) {
-        const { settingsNs, provider, baseURL, api, apiKey } = request.payload
+        const { settingsNs, provider, mode, baseURL, api, apiKey } = request.payload
         try {
           const models = await ctx.llm.discoverModels(settingsNs, {
             ...provider === undefined ? {} : { provider },
+            ...mode === undefined ? {} : { mode },
             ...baseURL === undefined ? {} : { baseURL },
             ...api === undefined ? {} : { api },
             ...apiKey === undefined ? {} : { apiKey },

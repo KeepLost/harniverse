@@ -8,9 +8,9 @@
  * provider-native authentication);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
  * both families, DeepSeek's id/name/context-window model catalog, and the
- * display name and wire protocol of a pi-ai route the adapter does not ship —
- * the two fields the create card asked that route for, editable here for the
- * same reason).
+ * pi-ai identity fields — the display name of a route the adapter does not
+ * ship, and the wire protocol every pi-ai route offers as the default its
+ * models inherit when their own entry names none).
  * Reasoning effort is deliberately absent: it is a per-MODEL capability, and
  * the models under one provider disagree about it, so a provider-scoped
  * control can only be set to a value some of them reject. The composer's
@@ -53,10 +53,11 @@ export interface ProviderEditorProps {
   hideTitle?: boolean
   /**
    * Whether the adapter reports this route as hand-declared — absent from its
-   * installed catalog. Such a route carries its own wire protocol, chosen when
-   * it was created and editable here for the same reason; a catalog route's
-   * models each carry theirs, so a route-level protocol there could only
-   * override every one of them and the card does not offer it.
+   * installed catalog. Such a route owns the identity fields its creation
+   * asked for: the display name, and a protocol its request cannot resolve
+   * without. A catalog route shares the protocol field under a different
+   * reading — what it picks is the default for the route's models, and a
+   * model naming its own protocol in the model rows overrides it.
    */
   declared?: boolean
   /** The owning namespace view (schema, layers, secrets). */
@@ -220,9 +221,18 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     : undefined
   const shownKeyFailure = credentialRequiredFailure ?? keyFailure
   // What the form currently shows, which is what an interrogation must ask:
-  // an edited-but-unsaved endpoint, and a key typed but not yet stored.
-  const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
-  const probeBaseURL = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL')
+  // an edited-but-unsaved endpoint, and a key typed but not yet stored. A
+  // field the draft DELETED keeps reading from the effective value until the
+  // unset applies, so the target falls to the composition base — the value
+  // the pending edit leaves behind — instead of echoing the override the form
+  // is about to remove.
+  const storedUser = getPath(namespace.user, settingsPath)
+  const afterUnset = (key: string): string | undefined =>
+    stringAt(storedUser, key) !== undefined
+      ? stringAt(getPath(namespace.base, settingsPath), key)
+      : stringAt(fallback, key)
+  const probeApi = stringAt(draft, 'api') ?? afterUnset('api')
+  const probeBaseURL = stringAt(draft, 'baseURL') ?? afterUnset('baseURL')
   const probe = {
     settingsNs: namespace.ns,
     // Naming the route lets an adapter that already describes it answer from
@@ -386,9 +396,9 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         {props.credentialOnly === true ? null : <details className={styles['customized']}>
           <summary className={styles['customizedSummary']}>{t('customized')}</summary>
           <div className={styles['customizedBody']}>
-            {/* The name and the protocol are the create card's two remaining
-                profile fields; a route the adapter ships defaults both from
-                its catalog entry and neither belongs on its card. */}
+            {/* The name belongs to a hand-declared route alone: a catalog
+                route is called what its entry says, so there is nothing for
+                the field to edit. */}
             {ownsIdentity
               ? (
                 <div className={styles['field']}>
@@ -430,8 +440,11 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
               />
             </div>
             {/* The protocol sits beside the endpoint it describes, as it does
-                on the create card. */}
-            {ownsIdentity
+                on the create card. Every pi-ai route offers it: a declared
+                route resolves its requests through it, and a catalog route's
+                models inherit it as their default — each row in the model
+                list can still name its own. */}
+            {family === 'pi-ai'
               ? (
                 <div className={styles['field']}>
                   <span className={styles['fieldLabel']}>{t('customApi')}</span>
@@ -442,13 +455,14 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                     disabled={disabled}
                     onChange={(event) => { setField('api', event.target.value) }}
                   >
-                    {/* A profile naming no protocol — hand-written into
-                        settings.yaml with no model to need one — selects
-                        nothing rather than reading as if it had picked the
-                        first choice. The option is named because a screen
-                        reader announces it either way, and an empty one is
-                        announced as a choice with no identity. */}
-                    {probeApi === undefined ? <option value="">{t('customApiUnset')}</option> : null}
+                    {/* The absent choice is always offered, so a stored
+                        override can be left behind rather than stuck on: a
+                        declared route selects nothing, a catalog route falls
+                        back to the protocol each model's own entry names. It
+                        is labelled because a screen reader announces it either
+                        way, and an empty one is announced as a choice with no
+                        identity. */}
+                    <option value="">{ownsIdentity ? t('customApiUnset') : t('customApiInherit')}</option>
                     {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
                   </select>
                 </div>
@@ -467,7 +481,15 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
                 />
               )
-              : <ModelListEditor {...catalogProps} probe={probe} probeBlocked={keyFailure} api={api} />}
+              : (
+                <ModelListEditor
+                  {...catalogProps}
+                  probe={probe}
+                  probeBlocked={keyFailure}
+                  api={api}
+                  protocols={protocols}
+                />
+              )}
           </div>
         </details>}
       </>

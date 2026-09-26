@@ -880,6 +880,34 @@ describe('llm.discoverModels', () => {
     expect(value.models).toEqual([{ id: 'from-registry', contextWindow: 65_536, maxTokens: 4096 }])
   })
 
+  it('carries the explicit endpoint mode and returns each row\'s source', async () => {
+    const ctx = await harness()
+    let probe: unknown
+    ctx.llm.registerModelDiscovery('llm-pi-ai', (request_) => {
+      probe = request_
+      return Promise.resolve([
+        { id: 'live', source: 'endpoint' as const },
+        { id: 'bundled', source: 'catalog' as const },
+      ])
+    })
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const value = expectOk(await api.llm.discoverModels(request({
+      settingsNs: 'llm-pi-ai',
+      provider: 'deepseek',
+      mode: 'endpoint',
+      baseURL: 'https://gateway.acme.example/v1',
+    })))
+
+    // The mode crosses untouched, and the source a producer reports crosses
+    // with it so the form can tell a bundled row from a live one.
+    expect(probe).toEqual({ provider: 'deepseek', mode: 'endpoint', baseURL: 'https://gateway.acme.example/v1' })
+    expect(value.models).toEqual([
+      { id: 'live', source: 'endpoint' },
+      { id: 'bundled', source: 'catalog' },
+    ])
+  })
+
   it('omits a credential and protocol the draft does not name', async () => {
     const ctx = await harness()
     let probe: unknown

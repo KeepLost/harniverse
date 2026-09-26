@@ -63,6 +63,7 @@ const PiAiConfig = Schema.object({
       name: Schema.string(),
       contextWindow: Schema.number(),
       maxTokens: Schema.number(),
+      api: Schema.union(PROTOCOLS),
     })),
     reasoning: Schema.union(['off', 'high']),
   })),
@@ -330,6 +331,47 @@ describe('model list editing', () => {
         chatTemplateKwargs: { enable_thinking: { $var: 'thinking.enabled' } },
       },
     }])
+  })
+
+  it('names a wire protocol on the model row, and inherits by absence', async () => {
+    // A route can serve mixed protocols through one façade; the row's choice
+    // overrides the route default only while it is set, and inherit drops the
+    // key so the catalog's own entry answers again.
+    const { mutate } = await mountSection({
+      providers: { openai: { baseURL: 'https://proxy.example/v1', api: 'openai-completions' } },
+    })
+    openEditor('openai')
+
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'claude-façade' } })
+    expandModel(1)
+    const rowApi = screen.getByLabelText(`${en.modelApi} 1`) as HTMLSelectElement
+    // The inherit choice is the default: nothing is stored until a protocol
+    // is picked.
+    expect(rowApi.value).toBe('')
+    fireEvent.change(rowApi, { target: { value: 'anthropic-messages' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([
+      { id: 'claude-façade', api: 'anthropic-messages' },
+    ])
+  })
+
+  it('drops the row protocol when the choice returns to inherit', async () => {
+    const { mutate } = await mountSection({
+      providers: {
+        openai: { baseURL: 'https://proxy.example/v1', models: [{ id: 'mixed', api: 'anthropic-messages' }] },
+      },
+    })
+    openEditor('openai')
+
+    expandModel(1)
+    fireEvent.change(screen.getByLabelText(`${en.modelApi} 1`), { target: { value: '' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([{ id: 'mixed' }])
   })
 
   it('reads K and M suffixes and keeps the text the user typed', async () => {
@@ -633,6 +675,84 @@ describe('endpoint interrogation', () => {
     expect(firstProbe(discover)).toEqual({ settingsNs: 'llm-pi-ai', provider: 'openai' })
   })
 
+  it('forces the live endpoint behind the catalog answer', async () => {
+    const discover = vi.fn(() => Promise.resolve(ok({ models: [{ id: 'live-only' }] })))
+    await mountSection({ discover, providers: { openai: { baseURL: 'https://proxy.example/v1' } } })
+    openEditor('openai')
+
+    // The endpoint ask is a real network call, so a route with no endpoint
+    // shows why the action is withheld rather than failing on click.
+    expect(buttonNamed(en.fetchFromEndpoint).disabled).toBe(false)
+    fireEvent.click(screen.getByText(en.fetchFromEndpoint))
+
+    await waitFor(() => { expect(discover).toHaveBeenCalled() })
+    expect(firstProbe(discover)).toEqual({
+      settingsNs: 'llm-pi-ai',
+      provider: 'openai',
+      baseURL: 'https://proxy.example/v1',
+      mode: 'endpoint',
+    })
+  })
+
+  it('withholds the endpoint ask until the form names an endpoint', async () => {
+    await mountSection({ providers: { openai: {} } })
+    openEditor('openai')
+
+    const endpoint = buttonNamed(en.fetchFromEndpoint)
+    expect(endpoint.disabled).toBe(true)
+    expect(endpoint.title).toBe(en.fetchNeedsBaseUrl)
+  })
+
+  it('probes the endpoint a cleared override leaves behind', async () => {
+    // The draft deleted the stored override, but the effective value still
+    // carries it until the unset applies — echoing it would interrogate an
+    // endpoint the pending edit is removing. The layer beneath the user's is
+    // what the edit leaves serving, so that is what the probe asks.
+    const discover = vi.fn(() => Promise.resolve(ok({ models: [{ id: 'any' }] })))
+    await mountSection({
+      discover,
+      providers: {
+        openai: { baseURL: 'https://user-override.example/v1', api: 'openai-responses' },
+      },
+      userProviders: {
+        openai: { baseURL: 'https://user-override.example/v1', api: 'openai-responses' },
+      },
+      baseProviders: {
+        openai: { baseURL: 'https://pinned.example/v1' },
+      },
+    })
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(en.customApi), { target: { value: '' } })
+    fireEvent.click(screen.getByText(en.fetchModels))
+
+    await waitFor(() => { expect(discover).toHaveBeenCalled() })
+    // The pinned base URL survives its override's removal; the protocol had
+    // no layer beneath, so the ask carries none.
+    expect(firstProbe(discover)).toEqual({
+      settingsNs: 'llm-pi-ai',
+      provider: 'openai',
+      baseURL: 'https://pinned.example/v1',
+    })
+  })
+
+  it('tags the rows the installed catalog answered', async () => {
+    const discover = vi.fn(() => Promise.resolve(ok({
+      models: [{ id: 'from-catalog', source: 'catalog' }, { id: 'from-endpoint', source: 'endpoint' }],
+    })))
+    await mountSection({ discover, providers: { openai: { baseURL: 'https://proxy.example/v1' } } })
+    openEditor('openai')
+
+    fireEvent.click(screen.getByText(en.fetchModels))
+    await screen.findByText(en.fetchTitle)
+
+    const catalogRow = screen.getByText('from-catalog').closest('li') as HTMLElement
+    const endpointRow = screen.getByText('from-endpoint').closest('li') as HTMLElement
+    expect(catalogRow.textContent).toContain(en.sourceCatalog)
+    expect(endpointRow.textContent).not.toContain(en.sourceCatalog)
+  })
+
   it('keeps the create card asking only once it has an endpoint', () => {
     // A provider being declared has no route yet, so the endpoint is the only
     // thing an interrogation could go on.
@@ -835,12 +955,13 @@ describe('hand-declared providers', () => {
     expect(fields()).toEqual([en.customRoute, en.customDisplayName, en.baseUrl, en.customApi, en.keyInput])
     cleanup()
 
-    // A shipped route's models each carry their own protocol, so its editor
-    // offers no route-level protocol to override them with.
+    // A shipped route shares the protocol field under a default reading: what
+    // it picks is inherited by models that name no protocol of their own, and
+    // the display name stays off the card because the catalog names the route.
     await mountSection({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
     openEditor('openai')
     fireEvent.click(screen.getByText(en.customized))
-    expect(fields()).toEqual([en.keyInput, en.baseUrl])
+    expect(fields()).toEqual([en.keyInput, en.baseUrl, en.customApi])
     cleanup()
 
     // A hand-declared route named its own protocol at creation, so editing it
@@ -981,6 +1102,28 @@ describe('hand-declared providers', () => {
     openEditor('acme-gateway')
 
     expect(screen.getByLabelText<HTMLSelectElement>(en.customApi).value).toBe('')
+  })
+
+  it('sets the inherited default a shipped route serves under', async () => {
+    // A shipped route's protocol is the default its models inherit, not the
+    // one they must use: the unset choice says so, picking stores a route
+    // default, and returning to inherit removes it so the catalog answers
+    // per model again.
+    const { mutate } = await mountSection({
+      providers: { openai: { baseURL: 'https://proxy.example/v1' } },
+    })
+    openEditor('openai')
+
+    const protocol = screen.getByLabelText<HTMLSelectElement>(en.customApi)
+    // The absence option names inheritance, not "not selected": the catalog's
+    // per-model protocols are what serve while nothing overrides them.
+    expect(protocol.selectedOptions[0]?.textContent).toBe(en.customApiInherit)
+    fireEvent.change(protocol, { target: { value: 'openai-responses' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(firstMutate(mutate).ops)
+      .toEqual([{ op: 'set', path: ['providers', 'openai', 'api'], value: 'openai-responses' }])
   })
 
   it('retries only the key after the profile landed, and reports the provider on cancel', async () => {

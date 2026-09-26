@@ -820,3 +820,12 @@ select.input {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+/* Where a candidate was read from, so a bundled-catalog row next to a live
+   endpoint row tells the two answers apart at a glance. */
+.candidateSource {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}

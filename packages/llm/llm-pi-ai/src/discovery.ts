@@ -48,8 +48,16 @@ const LISTABLE_PROTOCOLS: ReadonlySet<string> = new Set([
 /** Stable API version required by Anthropic's model-listing endpoint. */
 const ANTHROPIC_VERSION = '2023-06-01'
 
-/** Largest model-list page accepted by Anthropic's public endpoint; discovery reads one page and does not follow `has_more`. */
+/** Largest model-list page accepted by Anthropic's public endpoint. */
 const ANTHROPIC_MODEL_LIMIT = 1000
+
+/**
+ * How many listing pages one interrogation follows. The Anthropic endpoint
+ * pages through `has_more`/`last_id`; a catalog larger than this many pages is
+ * not something a configuration surface can offer for adoption anyway, so the
+ * interrogation names the bound rather than paging without one.
+ */
+const MAX_LISTING_PAGES = 10
 
 /**
  * Endpoint replies larger than this are refused. The endpoint is whatever URL
@@ -107,15 +115,22 @@ function label(...candidates: readonly unknown[]): string | undefined {
  * of losing them to `URL` resolution. OpenAI protocols list at
  * `{baseURL}/models`. Anthropic lists at `{root}/v1/models`, where the root is
  * the base without trailing slashes and without one trailing `/v1` segment:
- * gateway documentation publishes both spellings of the same root. Only this
- * listing URL normalizes that segment; model requests receive the configured
- * `baseURL` unchanged.
+ * gateway documentation publishes both spellings of the same root, and model
+ * resolution drops the same segment for the same protocol, so a base that
+ * lists also serves.
+ * @param baseURL - the configured base, treated as a prefix.
+ * @param api - the listing's wire protocol.
+ * @param lastId - the previous page's last id, when following `has_more`.
+ * @returns the listing URL for one page.
  */
-function listingUrl(baseURL: string, api: string): string {
+function listingUrl(baseURL: string, api: string, lastId?: string): string {
   const base = baseURL.replace(/\/+$/, '')
   if (api !== 'anthropic-messages') return `${base}/models`
   const root = base.endsWith('/v1') ? base.slice(0, -3) : base
-  return `${root}/v1/models?limit=${String(ANTHROPIC_MODEL_LIMIT)}`
+  const query = lastId === undefined
+    ? `limit=${String(ANTHROPIC_MODEL_LIMIT)}`
+    : `limit=${String(ANTHROPIC_MODEL_LIMIT)}&last_id=${encodeURIComponent(lastId)}`
+  return `${root}/v1/models?${query}`
 }
 
 /**
@@ -174,9 +189,11 @@ async function readBounded(response: Response, url: string): Promise<string> {
  * interrogation: a single malformed row should not deny the user the rest of
  * a working endpoint's catalog. Missing names fall back to the adopted id so
  * the Web form receives a complete human-readable row.
+ * @param body - the parsed reply of one listing page.
+ * @returns the page's rows and, for an endpoint that pages, its continuation.
  */
-function readListing(body: unknown): LlmDiscoveredModel[] {
-  const listing = body as { data?: unknown; models?: unknown } | null
+function readListing(body: unknown): { models: LlmDiscoveredModel[]; hasMore: boolean; lastId: string | undefined } {
+  const listing = body as { data?: unknown; models?: unknown; has_more?: unknown; last_id?: unknown } | null
   const data = listing?.data
   let listed: { readonly key?: string; readonly raw: unknown }[]
   if (Array.isArray(data)) {
@@ -220,9 +237,14 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
       name,
       ...contextWindow === undefined ? {} : { contextWindow },
       ...maxTokens === undefined ? {} : { maxTokens },
+      source: 'endpoint',
     })
   }
-  return models
+  return {
+    models,
+    hasMore: listing?.has_more === true,
+    lastId: typeof listing?.last_id === 'string' && listing.last_id.length > 0 ? listing.last_id : undefined,
+  }
 }
 
 /**
@@ -264,7 +286,8 @@ export interface StoredModelDiscoveryProfile {
  * @param storedProfile - Host-owned protocol, headers, and lazy credential
  *   resolution for the named route. It is read only on the path that reaches
  *   the network; the credential is resolved only when the draft carries none.
- * @returns the advertised models in endpoint order.
+ * @returns the advertised models in endpoint order, each marked with its
+ *   source; an endpoint that pages is followed to its last page.
  * @throws LlmError when the protocol has no readable listing, the endpoint
  *   refuses or fails the request, or the reply is not a model listing.
  */
@@ -274,7 +297,10 @@ export async function discoverModels(
 ): Promise<readonly LlmDiscoveredModel[]> {
   // A catalog route already has its answer, and a better one: the installed
   // entries carry context windows and output caps no listing endpoint reports.
-  if (request.provider !== undefined) {
+  // `mode: 'endpoint'` is the explicit pass on that answer — the deployment is
+  // asking what this base serves *now* — and it needs a base to ask.
+  const interrogate = request.mode === 'endpoint'
+  if (!interrogate && request.provider !== undefined) {
     const installed = catalogModels(request.provider)
     if (installed.size > 0) {
       return [...installed.values()].map(model => ({
@@ -282,13 +308,17 @@ export async function discoverModels(
         name: model.name,
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
+        source: 'catalog' as const,
       }))
     }
   }
   if (request.baseURL === undefined || request.baseURL.length === 0) {
     throw new LlmError(
-      `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
-      + " endpoint; set a baseURL, or enter this provider's models by hand",
+      interrogate
+        ? `endpoint discovery for provider "${request.provider ?? ''}" needs the baseURL to interrogate;`
+          + ' set one, or leave the mode unset to read the installed catalog'
+        : `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
+          + " endpoint; set a baseURL, or enter this provider's models by hand",
       'DISCOVERY_FAILED',
     )
   }
@@ -307,7 +337,6 @@ export async function discoverModels(
       'DISCOVERY_UNSUPPORTED',
     )
   }
-  const url = listingUrl(request.baseURL, api)
   // A key typed into the form wins: it may replace the stored key that is
   // failing. The stored profile was already read for its protocol past the
   // catalog check, and its credential resolver remains lazy so a typed key
@@ -316,8 +345,7 @@ export async function discoverModels(
   // key exists.
   const supplied = request.apiKey ?? await stored?.resolveApiKey()
   const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
-  let response: Response
-  try {
+  const buildHeaders = (): Headers => {
     const headers = new Headers(stored?.headers === undefined ? undefined : Object.entries(stored.headers))
     headers.set('accept', 'application/json')
     if (api === 'anthropic-messages') {
@@ -327,40 +355,70 @@ export async function discoverModels(
       headers.set('authorization', `Bearer ${apiKey}`)
     }
     for (const [name, value] of Object.entries(attributionHeaders())) headers.set(name, value)
-    response = await fetch(url, {
-      method: 'GET',
-      headers,
-      ...request.signal === undefined ? {} : { signal: request.signal },
-    })
-  } catch (error: unknown) {
-    if (request.signal?.aborted) {
-      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+    return headers
+  }
+  /** Fetch, bound, and parse one listing page. */
+  const fetchPage = async (url: string): Promise<ReturnType<typeof readListing>> => {
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: buildHeaders(),
+        ...request.signal === undefined ? {} : { signal: request.signal },
+      })
+    } catch (error: unknown) {
+      if (request.signal?.aborted) {
+        throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+      }
+      throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
     }
-    throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
-  }
-  if (!response.ok) {
-    throw new LlmError(
-      `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
-      'DISCOVERY_FAILED',
-    )
-  }
-  let text: string
-  try {
-    text = await readBounded(response, url)
-  } catch (error: unknown) {
-    // Cancellation during the body read rejects with the abort reason, which
-    // may be any value; the caller gets the same coded failure it would have
-    // for a cancellation before the request went out.
-    if (request.signal?.aborted) {
-      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+    if (!response.ok) {
+      throw new LlmError(
+        `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
+        'DISCOVERY_FAILED',
+      )
     }
-    throw error
+    let text: string
+    try {
+      text = await readBounded(response, url)
+    } catch (error: unknown) {
+      // Cancellation during the body read rejects with the abort reason, which
+      // may be any value; the caller gets the same coded failure it would have
+      // for a cancellation before the request went out.
+      if (request.signal?.aborted) {
+        throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+      }
+      throw error
+    }
+    try {
+      return readListing(JSON.parse(text))
+    } catch (error: unknown) {
+      if (error instanceof LlmError) throw error
+      throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
+    }
   }
-  let body: unknown
-  try {
-    body = JSON.parse(text)
-  } catch (error: unknown) {
-    throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
+  const models: LlmDiscoveredModel[] = []
+  let lastId: string | undefined
+  for (let page = 0; ; page++) {
+    if (page >= MAX_LISTING_PAGES) {
+      throw new LlmError(
+        `${request.baseURL} reported more than ${String(MAX_LISTING_PAGES)} listing pages;`
+        + ' narrow the endpoint or enter this provider\'s models by hand',
+        'DISCOVERY_FAILED',
+      )
+    }
+    const url = listingUrl(request.baseURL, api, lastId)
+    const result = await fetchPage(url)
+    models.push(...result.models)
+    // Only the Anthropic listing pages; an OpenAI-shaped reply has no
+    // continuation and ends after one page whatever `has_more` says.
+    if (api !== 'anthropic-messages' || !result.hasMore) break
+    // The next page starts after the last row this one produced; a page that
+    // claims more without naming a last id (and without a row to take one
+    // from) cannot be continued, so the interrogation stops at what it has.
+    const next = result.lastId ?? result.models.at(-1)?.id
+    if (next === undefined || next === lastId) break
+    lastId = next
   }
-  return readListing(body)
+  return models
 }

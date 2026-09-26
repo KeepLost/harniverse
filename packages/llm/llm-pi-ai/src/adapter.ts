@@ -29,7 +29,6 @@ import type {
   ModelThinkingLevel,
   MutableModels,
   SimpleStreamOptions,
-  ThinkingLevel,
 } from '@earendil-works/pi-ai'
 import {
   attributionHeaders,
@@ -55,7 +54,19 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import { piStreamOptions } from './request-options.ts'
 import { toStreamChunks } from './stream.ts'
+
+/**
+ * The wire protocols whose request options this adapter assembles itself
+ * through {@link piStreamOptions}. Every other protocol keeps pi-ai's
+ * `streamSimple()` dispatch, which already maps the reasoning selection into
+ * that protocol's own fields.
+ */
+const PROTOCOL_OWNED_OPTIONS: ReadonlySet<string> = new Set([
+  'anthropic-messages',
+  'openai-responses',
+])
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -96,10 +107,14 @@ interface WireAttemptState {
 }
 
 function wireUrl(model: Model<Api>): string {
+  // The SDKs append their canonical resource paths to the configured base:
+  // the OpenAI SDK `/responses` and `/chat/completions`, the Anthropic SDK
+  // `/v1/messages`. The diagnostic names the address the wire actually hits,
+  // including a base whose own trailing `/v1` the Anthropic path repeats.
   const path = model.api === 'openai-responses'
     ? '/responses'
     : model.api === 'anthropic-messages'
-      ? '/messages'
+      ? '/v1/messages'
       : '/chat/completions'
   return `${model.baseUrl.replace(/\/$/u, '')}${path}`
 }
@@ -144,14 +159,10 @@ function wireOutcome(reason: Extract<StreamChunk, { type: 'finish' }>['reason'],
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
 function profileOptions(
   profile: ResolvedPiAiProviderProfile,
-  reasoning: ModelThinkingLevel | undefined,
   apiKey: string | undefined,
 ): SimpleStreamOptions {
-  const enabledReasoning: ThinkingLevel | undefined = reasoning === 'off' ? undefined : reasoning
   return {
     ...apiKey === undefined ? {} : { apiKey },
-    ...enabledReasoning === undefined ? {} : { reasoning: enabledReasoning },
-    ...profile.thinkingBudgets === undefined ? {} : { thinkingBudgets: profile.thinkingBudgets },
     ...profile.cacheRetention === undefined ? {} : { cacheRetention: profile.cacheRetention },
     ...profile.transport === undefined ? {} : { transport: profile.transport },
     ...profile.timeoutMs === undefined ? {} : { timeoutMs: profile.timeoutMs },
@@ -439,10 +450,8 @@ export class PiAiAdapter extends LlmAdapter {
             this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
           },
         )
-      const events = snapshot.models.streamSimple(model, context, {
-        ...profileOptions(profile, reasoning, apiKey),
-        ...options.temperature === undefined ? {} : { temperature: options.temperature },
-        ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+      const common = {
+        ...profileOptions(profile, apiKey),
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         ...onPayload === undefined ? {} : { onPayload },
         ...onResponse === undefined ? {} : { onResponse },
@@ -450,7 +459,29 @@ export class PiAiAdapter extends LlmAdapter {
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers),
-      })
+      }
+      // The two protocols this adapter assembles itself take their options
+      // through the protocol's own vocabulary; every other protocol keeps
+      // `streamSimple()`, where its own dispatch already decides reasoning.
+      const events = PROTOCOL_OWNED_OPTIONS.has(String(model.api))
+        ? snapshot.models.stream(model, context, {
+          ...common,
+          ...piStreamOptions(model, {
+            reasoning,
+            thinkingBudgets: profile.thinkingBudgets,
+            maxTokens: options.maxTokens,
+            temperature: options.temperature,
+          }),
+        })
+        : snapshot.models.streamSimple(model, context, {
+          ...common,
+          // pi-ai's simple vocabulary types no `off`: its dispatches treat an
+          // absent option as the level's own absence, which is `off` there.
+          ...reasoning === undefined || reasoning === 'off' ? {} : { reasoning },
+          ...profile.thinkingBudgets === undefined ? {} : { thinkingBudgets: profile.thinkingBudgets },
+          ...options.temperature === undefined ? {} : { temperature: options.temperature },
+          ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+        })
       const iterator = toStreamChunks(events, model.contextWindow)[Symbol.asyncIterator]()
       let exhausted = false
       try {

@@ -42,12 +42,16 @@ export const discoveredModelViewSchema = z.object({
   name: z.string().min(1).optional(),
   contextWindow: z.number().int().positive().optional(),
   maxTokens: z.number().int().positive().optional(),
+  source: z.enum(['catalog', 'endpoint']).optional(),
 }) satisfies z.ZodType<Wire<DiscoveredModelView>>
 
 /** llm.discoverModels request payload. */
 export const llmDiscoverModelsRequestSchema = z.object({
   settingsNs: z.string().min(1),
   provider: z.string().min(1).optional(),
+  // The one explicit override: interrogate the endpoint even for a route the
+  // adapter's own registry already answers.
+  mode: z.literal('endpoint').optional(),
   baseURL: z.string().min(1).optional(),
   api: z.string().min(1).optional(),
   // Write-only at the host: used for this one interrogation, never stored and

@@ -223,6 +223,9 @@ const reasoningEfforts = z.dict(
 
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {
+  // A per-entry protocol override, validated against the same union the
+  // route's `api` uses; resolution decides the precedence between them.
+  api: z.union(supportedProtocols()),
   name: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
@@ -349,6 +352,19 @@ export function resolveProfiles(
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
     assertValidHeaders(provider, source.headers)
+    // The one budget consumer — Anthropic Messages — refuses a budget below
+    // 1024 on the wire, so a smaller configured value is a fault best named
+    // where the profile is written rather than on the first request that
+    // reaches for it.
+    if (source.thinkingBudgets !== undefined) {
+      for (const [level, budget] of Object.entries(source.thinkingBudgets)) {
+        if (!Number.isInteger(budget) || budget < 1024) {
+          throw new Error(
+            `llm-pi-ai: provider "${provider}" thinkingBudgets.${level} must be an integer of at least 1024`,
+          )
+        }
+      }
+    }
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
       || streamIdleTimeoutMs <= 0

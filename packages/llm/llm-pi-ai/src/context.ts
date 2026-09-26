@@ -105,7 +105,10 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: ReplayDegra
     }
     const text = flattenText(message)
     const results = message.content.filter(block => block.type === 'tool-result')
-    if (text.length > 0 || results.length === 0) messages.push({ role: 'user', content: text, timestamp: 0 })
+    // Results first: pi-ai's history transform treats any user message between
+    // an assistant tool call and its result as an interruption, answering the
+    // call with a synthetic "No result provided" before the real one arrives.
+    // The user's own text follows the results instead of preceding them.
     for (const result of results) {
       messages.push({
         role: 'toolResult',
@@ -119,6 +122,7 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: ReplayDegra
         timestamp: 0,
       })
     }
+    if (text.length > 0 || results.length === 0) messages.push({ role: 'user', content: text, timestamp: 0 })
   }
   return piContext(options, messages)
 }
@@ -190,9 +194,9 @@ async function toPiContextWithImages(
     const regular = message.content.filter(block => block.type !== 'tool-result')
     const content = await userContent(regular, attachments)
     const results = message.content.filter(block => block.type === 'tool-result')
-    if (content.length > 0 || results.length === 0) {
-      messages.push({ role: 'user', content, timestamp: 0 })
-    }
+    // Results first, for the same reason as the text-only path: a user message
+    // between an assistant tool call and its result makes pi-ai answer the
+    // call synthetically before the real result arrives.
     for (const result of results) {
       const resultContent = await userContent(result.content, attachments)
       messages.push({
@@ -205,6 +209,9 @@ async function toPiContextWithImages(
         isError: result.isError ?? false,
         timestamp: 0,
       })
+    }
+    if (content.length > 0 || results.length === 0) {
+      messages.push({ role: 'user', content, timestamp: 0 })
     }
   }
 
