@@ -16,6 +16,7 @@ The repository owns a Linux-only blocking performance gate for three high-freque
 
 - `terminal-io` writes 512 KiB through the production Bash PTY backend, observes a 10 ms heartbeat, reads a bounded 64 KiB result from 256 KiB scrollback, and checks completion, truncation, latency, heartbeat delay, and retained heap.
 - `browser-controller` launches the product BrowserController against the lockfile-selected Chromium, creates four pages in one Session browser, navigates and follows the first page, measures the first frame and text-input acknowledgement, observes process-tree RSS, closes one page while three remain, and closes the final page.
+- The benchmark passes BrowserController `sandbox: 'none'` so hosted-runner user-namespace behavior cannot invalidate the I/O/RSS measurement; sandbox selection is a separate product configuration and test concern.
 - `web-streaming` reuses the assembled keyless browser scaffold and emits a reviewed 4,000-reasoning-chunk workload. It measures the browser main-thread heartbeat and a scheduled interaction while the real client session reduction and rendering path are live. The existing 100,000-chunk workload remains an opt-in diagnostic.
 
 ### Safety and CI
@@ -26,7 +27,7 @@ The three jobs are included in the existing `all checks passed` aggregation. The
 
 ### Calibration record
 
-The calibration on 2026-09-26 used Linux x64, Node v24.14.0, pnpm 11.7.0, and Playwright Chromium 149.0.7827.55 revision 1228. `terminal-io` recorded a 41.851 ms median completion, 3.455 ms maximum heartbeat delay, 0.295 MiB maximum retained heap, and 446 MiB process-tree peak. `browser-controller` recorded a 31.52 ms p95 first-frame time, 1.447 ms p95 input acknowledgement, 1,266.641 MiB maximum observed process-tree RSS, 64.374 MiB retained heap, and 1,615 MiB runner peak. `web-streaming` recorded 21.9 ms maximum main-thread delay and 0.3 ms scheduled interaction delay for 4,000 chunks, with a 1,148 MiB runner peak.
+The calibration on 2026-09-26 used Linux x64, Node v24.14.0, pnpm 11.7.0, and Playwright Chromium 149.0.7827.55 revision 1228. `terminal-io` recorded a 41.851 ms median completion, 3.455 ms maximum heartbeat delay, 0.295 MiB maximum retained heap, and 446 MiB process-tree peak. `browser-controller` recorded a 56.287 ms p95 first-frame time, 2.586 ms p95 input acknowledgement, 1,270.844 MiB maximum observed process-tree RSS, 64.725 MiB retained heap, and 1,601 MiB runner peak with the documented `sandbox: 'none'` benchmark configuration. `web-streaming` recorded 21.9 ms maximum main-thread delay and 0.3 ms scheduled interaction delay for 4,000 chunks, with a 1,148 MiB runner peak.
 
 ## Alternatives considered
 

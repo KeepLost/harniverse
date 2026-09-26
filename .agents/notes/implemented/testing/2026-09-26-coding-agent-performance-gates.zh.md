@@ -16,6 +16,7 @@ Harniverse 原有按需启用的浏览器性能诊断和一份简短的 Python S
 
 - `terminal-io` 经生产 Bash PTY backend 写入 512 KiB，观察 10 ms heartbeat，从 256 KiB scrollback 读取受限的 64 KiB 结果，检查完成、截断、延迟、heartbeat 延迟和 retained heap。
 - `browser-controller` 使用 lockfile 选择的真实 Chromium 启动产品 BrowserController，在一个 Session browser 中创建四页，导航并跟随第一页，测量首帧和文本输入确认，观察进程树 RSS，关闭一个页面后再关闭最后一个页面。
+- Benchmark 传入 BrowserController 的 `sandbox: 'none'`，使 hosted runner 的 user-namespace 行为不会使 I/O/RSS 测量失效；sandbox 选择仍属于独立的产品配置和测试范围。
 - `web-streaming` 复用 assembled keyless browser scaffold，发出审查过的 4,000 个 reasoning chunk，在真实 Session reduction 和渲染路径运行时测量浏览器主线程 heartbeat 与 scheduled interaction。原有 100,000 chunk workload 仍保留为按需诊断。
 
 ### Safety and CI
@@ -26,7 +27,7 @@ Harniverse 原有按需启用的浏览器性能诊断和一份简短的 Python S
 
 ### Calibration record
 
-校准于 2026-09-26 在 Linux x64、Node v24.14.0、pnpm 11.7.0、Playwright Chromium 149.0.7827.55 revision 1228 上完成。`terminal-io` 记录到 41.851 ms completion median、3.455 ms heartbeat 最大延迟、0.295 MiB retained heap 最大值和 446 MiB 进程树峰值。`browser-controller` 记录到 31.52 ms 首帧 p95、1.447 ms 输入确认 p95、1,266.641 MiB 进程树 RSS 最大观测值、64.374 MiB retained heap 和 1,615 MiB runner 峰值。`web-streaming` 在 4,000 chunks 下记录到 21.9 ms 主线程最大延迟和 0.3 ms scheduled interaction 延迟，runner 峰值为 1,148 MiB。
+校准于 2026-09-26 在 Linux x64、Node v24.14.0、pnpm 11.7.0、Playwright Chromium 149.0.7827.55 revision 1228 上完成。`terminal-io` 记录到 41.851 ms completion median、3.455 ms heartbeat 最大延迟、0.295 MiB retained heap 最大值和 446 MiB 进程树峰值。`browser-controller` 在文档所述 `sandbox: 'none'` benchmark 配置下记录到 56.287 ms 首帧 p95、2.586 ms 输入确认 p95、1,270.844 MiB 进程树 RSS 最大观测值、64.725 MiB retained heap 和 1,601 MiB runner 峰值。`web-streaming` 在 4,000 chunks 下记录到 21.9 ms 主线程最大延迟和 0.3 ms scheduled interaction 延迟，runner 峰值为 1,148 MiB。
 
 ## Alternatives considered
 

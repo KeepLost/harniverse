@@ -35,6 +35,10 @@ The required gate runs on one standard `ubuntu-latest` runner per family:
 - Linux only; Node `24`; pnpm `11.7.0`.
 - Chromium is the lockfile-selected Playwright browser, installed with system
   dependencies for the browser families.
+- The Browser benchmark explicitly uses the BrowserController `sandbox: 'none'`
+  option. This keeps hosted-runner user-namespace behavior out of an I/O and
+  RSS measurement; sandbox selection remains a separately tested product
+  configuration.
 - No model credential, model request, recorded user Session, external network,
   or ambient repository content is used.
 - Inputs are generated from constants in the benchmark source.
@@ -104,12 +108,12 @@ process-tree peak: 446 MiB
 `browser-controller`, two samples, four pages in one Session browser:
 
 ```text
-firstPageMs: [697.547, 509.076]
-firstFrameP95Ms: 31.52
-inputAckP95Ms: 1.447
-processTreeRssMaxMb: 1,266.641
-retainedHeapMaxMb: 64.374
-process-tree peak: 1,615 MiB
+firstPageMs: [499.635, 482.6]
+firstFrameP95Ms: 56.287
+inputAckP95Ms: 2.586
+processTreeRssMaxMb: 1,270.844
+retainedHeapMaxMb: 64.725
+process-tree peak: 1,601 MiB
 ```
 
 `web-streaming`, 4,000 reasoning chunks through the real browser scaffold:

@@ -96,7 +96,7 @@ async function sample(index: number): Promise<BrowserSample> {
   const controller = new BrowserController(ctx, {
     executablePath: chromium.executablePath(),
     browserCandidates: [],
-    sandbox: 'auto',
+    sandbox: 'none',
     allowedHosts: ['127.0.0.1'],
     allowPrivateAddresses: true,
     maxPages: PAGE_COUNT,
