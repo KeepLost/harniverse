@@ -21,8 +21,8 @@ The plugin also contributes the `tool:bash` prompt section (order 105): check th
 | `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
 | `workdir` | string | Working directory for this call. Defaults to the filesystem identity of the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that same identity. |
 | `run_in_background` | boolean | Return a job id immediately; no timeout applies. |
-| `sandbox_permissions` | string enum | ADVERTISED ONLY when the mounted executor sandboxes (`ctx.shell.sandboxMode` reports a confining default): the wider mode a denied command needs, from the closed target vocabulary `workspace-write`/`danger-full-access` (never cut down to the executor's default — the effective mode is per-session; strict widening is checked at execution against it, and a non-widening request fails without prompting anyone). |
-| `justification` | string | Required together with `sandbox_permissions` (each without the other is a validation error): one sentence for the user explaining why this exact command needs the wider access. |
+| `sandbox_permissions` | string enum | ADVERTISED ONLY when the mounted executor sandboxes (`ctx.shell.sandboxMode` reports a confining default): omit for ordinary calls; after a denial, retry with the narrowest strictly wider mode from `workspace-write`/`danger-full-access`. The enum is registry-global, while the effective mode is per-call. A same-mode declaration is redundant and executes under the standing policy without prompting; a narrower request fails without execution. |
+| `justification` | string | Omit for ordinary calls; a real escalation requires one non-empty sentence explaining why this exact command needs wider access. A same-mode declaration discards this field even when empty. |
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.shell.resolve()` before execution, so the Service Definition (`ShellExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer from the calling agent's `session.header.cwd` BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`. When sandbox policy is present, the tool reuses its already-canonical `workspaceRoot` as the workdir base so confinement and process launch cannot resolve the same session spelling differently.
 
@@ -50,6 +50,8 @@ Commands run with the executor's full authority unless a sandboxing executor ([`
 
 Escalating bash calls resolve `ctx.approval` before execution. `allowed-once` applies the requested mode only to that call; rejection, cancellation, unavailability, or missing approval context executes nothing and returns a distinct error. On a real denial, the model may retry the same command once in the same turn with the narrowest sufficient mode and justification; the approval prompt itself is the consent step. Escalation is never speculative, and a disabled or rejected approval is final. The [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) owns the rationale.
 
+Ordinary calls omit `sandbox_permissions` and `justification` and optional arguments whose defaults suffice (`workdir` for the session workspace, `run_in_background` for foreground execution, `timeoutMs` for the default timeout). When the requested mode equals the call's effective mode, the tool discards both escalation fields before validation; true escalation still requires the paired non-empty reason and approval. Unconfined compositions do not accept escalation fields.
+
 ## Per-session mode switching
 
 For sandboxing executors, each call resolves mode as one-shot escalation, then session override, then executor default. Non-sandboxing and agent-less calls carry no session override. The policy owner contributes the current capability-neutral standing mode; denial results still own the operation-specific effective mode and retry guidance. See the [`dsh-shell` fold](../shell/README.md) and [sandbox switching contract](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
@@ -60,17 +62,23 @@ For sandboxing executors, each call resolves mode as one-shot escalation, then s
 
 #### What the model sees
 
-Every request in this plugin's registration scope contains the bash guidance below. The policy owner contributes current sandbox state through its cache-safe runtime context rather than changing this section. Scoped tool restrictions can hide the schemas without removing this independently registered section.
+Every request in this plugin's registration scope contains the bash guidance below. The policy owner contributes current sandbox state through its cache-safe runtime context rather than changing this section. Scoped tool restrictions can hide the schemas without removing this independently registered section. The escalation sentence below rides the guidance only while the mounted executor advertises sandbox escalation.
 
 ##### Bash guidance
 
 ```markdown
-Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call.
+```
+
+##### Sandbox escalation sentence
+
+```markdown
+On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 ```
 
 #### Token effect
 
-Small fixed input cost per request while the plugin is active, unchanged by sandbox mode or mode switches.
+Small fixed input cost per request while the plugin is active; the escalation sentence depends on mounted executor capability, not session mode or mode switches.
 
 #### KV Cache effect
 

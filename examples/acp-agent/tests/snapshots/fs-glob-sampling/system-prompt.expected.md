@@ -4,4 +4,4 @@ Use the glob tool — not shell find — to discover files by path pattern. A pa
 
 Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context. If a matching line is truncated, read that path with its line number as offset; continue the same line with line_byte_offset when needed.
 
-Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call.

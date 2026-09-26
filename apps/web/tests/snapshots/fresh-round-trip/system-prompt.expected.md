@@ -12,7 +12,7 @@ Use the glob tool — not shell find — to discover files by path pattern. A pa
 
 Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context. If a matching line is truncated, read that path with its line number as offset; continue the same line with line_byte_offset when needed.
 
-Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call. On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 
 Track every background job id returned by bash, pwsh, or terminal_send. These ids are not subagent Session ids: never pass a subagent Session id to job_output, job_list, or job_kill. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job's work. Before giving a final answer, collect every still-relevant shell or terminal job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.
 

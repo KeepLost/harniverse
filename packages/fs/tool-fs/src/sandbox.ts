@@ -13,7 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, normalizeRedundantEscalation, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { FsError } from '@deepseek-ai/dsh-fs'
 
@@ -61,13 +61,13 @@ export class FsSandboxController {
       sandbox_permissions: {
         type: 'string',
         enum: [...this.escalationModes],
-        description: 'The wider sandbox mode this file operation needs. Only valid as a one-shot retry '
-          + 'of an operation the sandbox just denied; requires justification and user approval.',
+        description: 'Omit for ordinary operations. Set only when retrying the exact same operation after a sandbox denial, '
+          + 'using the narrowest strictly wider mode; never send the current or a narrower mode.',
       },
       justification: {
         type: 'string',
-        description: 'Required with sandbox_permissions: one sentence for the user explaining '
-          + 'why this exact file operation needs the wider access.',
+        description: 'Omit unless sandbox_permissions is present. Then provide one non-empty sentence explaining '
+          + 'why this exact retry needs wider access; never send an empty string.',
       },
     }
   }
@@ -85,9 +85,10 @@ export class FsSandboxController {
    *   unsandboxed backend.
    */
   async resolvePolicy(toolName: string, args: FsEscalationArgs, exec: ToolExecution): Promise<SandboxExecutionPolicy | undefined> {
-    validateEscalationArgs(args.sandbox_permissions, args.justification)
     const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
-    if (args.sandbox_permissions === undefined || args.justification === undefined) {
+    const call = normalizeRedundantEscalation(args, standingPolicy?.mode)
+    validateEscalationArgs(call.sandbox_permissions, call.justification)
+    if (call.sandbox_permissions === undefined || call.justification === undefined) {
       return standingPolicy
     }
     if (this.escalationModes.length === 0) {
@@ -95,7 +96,7 @@ export class FsSandboxController {
     }
     const policy = standingPolicy as SandboxExecutionPolicy
     const approvedMode = await approveEscalation(
-      { requestedMode: args.sandbox_permissions, justification: args.justification, effectiveMode: policy.mode, subject: 'operation' },
+      { requestedMode: call.sandbox_permissions, justification: call.justification, effectiveMode: policy.mode, subject: 'operation' },
       {
         approver: this.ctx.get('approval'),
         agent: exec.agent,

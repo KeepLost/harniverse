@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, canonicalPath, normalizeRedundantEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
@@ -73,7 +73,11 @@ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly S
     : 'Background execution is not available; long-running commands must finish within the timeout.'
   const base = 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
     + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
-    + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
+    + 'pass `workdir` instead of using `cd`. Use the smallest valid argument object: send required fields and only optional fields that change this call; '
+    + 'omit `workdir` for the session workspace, '
+    + (backgroundEnabled ? '`run_in_background` for foreground calls, and ' : '')
+    + '`timeoutMs` when the default is sufficient; never send empty-string placeholders. '
+    + 'Non-zero exits are reported as `[exit code: N]`. '
     + `Current harness environment facts are exposed through managed \`$${DSH_ENV_PREFIX}*\` variables; inspect them when needed. `
     + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. '
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
@@ -83,7 +87,9 @@ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
     + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '
     + 'the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) '
-    + 'plus a one-sentence `justification`. Do not detour through chat to ask permission first — the '
+    + 'plus a one-sentence `justification`. For ordinary calls, omit both escalation fields; the enum lists '
+    + 'possible targets, not a default, so never send the current or a narrower mode. `justification` must '
+    + 'be non-empty — never send `""`. Do not detour through chat to ask permission first — the '
     + 'approval prompt raised by that retry is how the user consents. If the session states approval '
     + 'prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. '
     + 'Never escalate speculatively: ground the request in a real denial — normally the one this command '
@@ -245,7 +251,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.systemPrompt.section({
     name: 'tool:bash',
     order: 105,
-    text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.',
+    text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on. '
+      + 'Omit optional arguments that do not change this call.'
+      + (escalationModes.length > 0 ? ' On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.' : ''),
   })
 
   ctx.tools.register(defineTool({
@@ -269,11 +277,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         sandbox_permissions: {
           type: 'string' as const,
           enum: [...escalationModes],
-          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.',
+          description: 'Omit for ordinary calls. Set only when retrying the exact same command after a sandbox denial, using the narrowest strictly wider mode; never send the current or a narrower mode.',
         },
         justification: {
           type: 'string' as const,
-          description: 'Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access.',
+          description: 'Omit unless sandbox_permissions is present. Then provide one non-empty sentence explaining why this exact retry needs wider access; never send an empty string.',
         },
       } : {},
     },
@@ -350,16 +358,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       }],
     },
     async execute(args: BashToolArgs, exec) {
-      validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
       const standingPolicy = resolveSandboxPolicy(exec)
-      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
-        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
+      const call = normalizeRedundantEscalation(args, standingPolicy?.mode)
+      validateBashArgs(call)
+      const approvedMode = call.sandbox_permissions !== undefined && call.justification !== undefined
+        ? await approveBashEscalation(call.sandbox_permissions, call.justification, exec, standingPolicy)
         : undefined
       const policy = approvedMode === undefined
         ? standingPolicy
         : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
-      const workdir = resolveWorkdir(args.workdir, exec, standingPolicy?.workspaceRoot)
+      const workdir = resolveWorkdir(call.workdir, exec, standingPolicy?.workspaceRoot)
       const dshEnv = ctx.shellEnv.collect(exec)
       // Metering identity: every bash call is attributable to its session
       // (correlation always stamped when the agent is known); bounds apply
@@ -371,15 +380,15 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       const limits = correlation === undefined ? undefined : governor?.limitsFor(correlation.sessionId)
       const request = {
-        command: args.command,
+        command: call.command,
         ...workdir !== undefined ? { workdir } : {},
-        ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
+        ...call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {},
         dshEnv,
         ...policy !== undefined ? { sandboxPolicy: policy } : {},
         ...correlation !== undefined ? { correlation } : {},
         ...limits !== undefined ? { limits } : {},
       }
-      if (args.run_in_background === true) {
+      if (call.run_in_background === true) {
         // Undeclared keys are allowed, so schema omission also needs enforcement.
         if (!backgroundEnabled) {
           throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
@@ -397,7 +406,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         // Task preflight finishes before the starter can spawn a process.
         const id = jobs.start({
           kind: 'bash',
-          label: args.command,
+          label: call.command,
           ...exec.agent ? { owner: exec.agent } : {},
           run: () => processJob(
             signal => ctx.shell.start(ctx.shell.resolve({ ...request, signal })),

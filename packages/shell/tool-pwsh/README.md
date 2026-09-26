@@ -21,8 +21,8 @@ The plugin also contributes the `tool:pwsh` prompt section (order 105): non-zero
 | `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
 | `workdir` | string | Working directory for this call. Defaults to the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that same identity. |
 | `run_in_background` | boolean | Return a job id immediately; no timeout applies. |
-| `sandbox_permissions` | string enum | Advertised only when a sandboxing executor is mounted (`ctx.shell.sandboxMode` defined). The wider sandbox mode for a one-shot retry of a command the sandbox just denied — the narrowest wider mode that suffices, requiring `justification` and user approval through `ctx.approval` BEFORE execution. A non-widening or unapprovable request fails closed without running anything. |
-| `justification` | string | Required with `sandbox_permissions`: one sentence for the user explaining why this exact command needs the wider access. |
+| `sandbox_permissions` | string enum | Advertised only when a sandboxing executor is mounted (`ctx.shell.sandboxMode` defined). Omit for ordinary calls; after a denial retry the exact command in the narrowest strictly wider mode. A same-mode declaration is discarded and executes under the standing policy without approval; a narrower request fails closed. |
+| `justification` | string | Omit for ordinary calls; a real escalation requires one non-empty sentence explaining why this exact command needs wider access. The field is discarded with a same-mode declaration even when empty. |
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.shell.resolve()` before execution. The workdir default is applied in the tool layer from the calling agent's `session.header.cwd` BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
 
@@ -46,12 +46,18 @@ The tool owns its `presentCall`/`presentResult` render intent. A foreground call
 
 #### What the model sees
 
-Every request in this plugin's registration scope contains the pwsh guidance below. Scoped tool restrictions can hide the schema without removing this independently registered section.
+Every request in this plugin's registration scope contains the pwsh guidance below. Scoped tool restrictions can hide the schema without removing this independently registered section. The escalation sentence below rides the guidance only while the mounted executor advertises sandbox escalation.
 
 ##### Pwsh guidance
 
 ```markdown
-Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure.
+Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure. Omit optional arguments that do not change this call.
+```
+
+##### Sandbox escalation sentence
+
+```markdown
+On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 ```
 
 #### Token effect
@@ -66,7 +72,7 @@ Prefix-stable while the registration scope and prompt text are unchanged. Plugin
 
 #### What the model sees
 
-The model sees the generated [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh). Agent-scoped tool restrictions can remove the definition for that agent.
+The model sees the generated [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh). The description asks for the smallest valid argument object, so `workdir`, `run_in_background`, and `timeoutMs` are sent only when they differ from their defaults. Agent-scoped tool restrictions can remove the definition for that agent.
 
 #### Token effect
 

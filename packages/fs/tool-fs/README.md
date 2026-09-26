@@ -52,6 +52,8 @@ The tool passes `exec` (the tool-execution context) as the opaque `actor` on eve
 
 When `ctx.fs.sandboxMode` reports confinement, write/edit advertise `sandbox_permissions` and `justification` and resolve approved retries through `ctx.approval`. The policy owner contributes capability-neutral standing policy; the tool results retain operation-specific denial and retry guidance.
 
+Ordinary writes and edits omit both escalation fields. A declaration equal to the call's effective mode is redundant: the tool discards it and its reason (including an empty reason), runs under the standing policy, and does not ask for approval. A truly wider request still requires a non-empty reason and approval; a narrower request remains invalid. Unconfined compositions reject escalation fields.
+
 ## `fs/observed` is fire-and-forget
 
 `fs/observed` fires AFTER the read/read_image/write/edit already succeeded, via a plain `ctx.emit`. A listener is contractually a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-fs-observation-policy`'s is a `WeakMap.set`); the tool does not guard the emit, so a listener that throws would surface as the tool's `isError` result — async or fallible observation does not belong on this event.

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-26-redundant-sandbox-escalation.md
+2026-09-26-redundant-sandbox-escalation.md: 49d99bffe16b944bd44893d5ecc58913190ccbeb
+2026-09-26-redundant-sandbox-escalation.zh.md: ecdf0e574e35863df7b675fb2c605e4a5061f8a7

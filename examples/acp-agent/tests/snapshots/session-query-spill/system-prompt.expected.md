@@ -6,7 +6,7 @@ Use the write tool to create files or completely replace file contents. Existing
 
 Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
-Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call. On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 
 Track every background job id returned by bash, pwsh, or terminal_send. These ids are not subagent Session ids: never pass a subagent Session id to job_output, job_list, or job_kill. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job's work. Before giving a final answer, collect every still-relevant shell or terminal job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.
 

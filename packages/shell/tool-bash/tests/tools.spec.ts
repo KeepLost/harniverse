@@ -389,6 +389,8 @@ describe('bash tool', () => {
       'test:after-bash',
     ])
     expect(section?.text).toContain('[exit code: N]')
+    expect(section?.text).toContain('Omit optional arguments that do not change this call.')
+    expect(section?.text).not.toContain('sandbox_permissions')
   })
 
   it('unregisters everything when the plugin fiber is disposed (HMR safety)', async () => {
@@ -588,27 +590,33 @@ describe('sandbox escalation through the generic task producer', () => {
   it('advertises the sandbox fields and validates their pairing', async () => {
     const { ctx } = await setupSandboxed()
     const schema = ctx.tools.schemas().find(item => item.name === 'bash')!
-    const properties = schema.parameters.properties as Record<string, { enum?: string[] }>
+    const properties = schema.parameters.properties as Record<string, { enum?: string[]; description?: string }>
     expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+    expect(properties['sandbox_permissions']?.description).toContain('Omit for ordinary calls')
+    expect(properties['justification']?.description).toContain('never send an empty string')
     expect(schema.description).toContain('approval prompt')
+    expect(schema.description).toContain('For ordinary calls, omit both escalation fields')
+    expect(schema.description).toContain('omit `workdir` for the session workspace, `run_in_background` for foreground calls')
+    expect((await ctx.systemPrompt.assemble()).sections.find(s => s.name === 'tool:bash')?.text)
+      .toContain('On ordinary calls, omit both sandbox_permissions and justification')
 
     for (const args of [
       { command: 'true', description: 'd', sandbox_permissions: 'workspace-write' },
       { command: 'true', description: 'd', justification: 'why' },
-      { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: ' ' },
+      { command: 'true', description: 'd', sandbox_permissions: 'danger-full-access', justification: ' ' },
     ]) {
       expect((await call(ctx, 'bash', args)).isError).toBe(true)
     }
   })
 
-  it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
+  it('rejects injected escalation without a sandbox and narrower escalation without prompting', async () => {
     const plain = await setup()
     expect(text(await call(plain, 'bash', escalate))).toContain('not available in this composition')
 
     const { ctx } = await setupSandboxed(true)
     const prompted = vi.fn()
     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
-    const result = await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
+    const result = await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('danger-full-access'))
     expect(text(result)).toContain('not strictly wider')
     expect(prompted).not.toHaveBeenCalled()
 
@@ -618,6 +626,26 @@ describe('sandbox escalation through the generic task producer', () => {
       data: { mode: 'unknown-mode' },
     })
     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
+  })
+
+  it('runs a redundant same-mode request with an empty reason under the standing policy', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const prompted = vi.fn()
+    ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+    const agent = sandboxAgent('danger-full-access')
+    const result = await call(ctx, 'bash', {
+      command: 'date', description: 'read the system clock',
+      sandbox_permissions: 'danger-full-access', justification: '',
+    }, agent)
+    expect(result.isError).toBe(false)
+    expect(bash.modes).toEqual(['danger-full-access'])
+    expect(prompted).not.toHaveBeenCalled()
+    const withoutReason = await call(ctx, 'bash', {
+      command: 'date', description: 'read the system clock', sandbox_permissions: 'danger-full-access',
+    }, agent)
+    expect(withoutReason.isError).toBe(false)
+    expect(bash.modes).toEqual(['danger-full-access', 'danger-full-access'])
+    expect(prompted).not.toHaveBeenCalled()
   })
 
   it('fails closed when approval cannot be routed', async () => {

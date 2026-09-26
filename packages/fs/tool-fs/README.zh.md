@@ -52,6 +52,8 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 当 `ctx.fs.sandboxMode` 表明提供方施加沙箱限制时，write/edit 会公开 `sandbox_permissions` 与 `justification`，并通过 `ctx.approval` 处理获批后的重试。策略归属方会贡献与具体能力无关的常驻策略；工具结果仍保留针对具体操作的拒绝与重试引导。
 
+普通 write/edit 省略两个升权字段。若声明的模式等于本次调用的有效模式，工具会丢弃它和附带理由（包括空理由），按常驻策略执行，不发起审批。真正更宽的请求仍需要非空理由与审批；更窄的请求仍不合法。无沙箱组合拒绝升权字段。
+
 ## `fs/observed` 发后即忘
 
 `fs/observed` 在 read/read_image/write/edit 已经成功之后，通过普通 `ctx.emit` 发出。监听器的约定是同步且只有副作用的记录器（`@deepseek-ai/dsh-fs-observation-policy` 使用 `WeakMap.set`）；工具不保护这次发出，因此监听器抛出会作为工具的 `isError` 结果出现。异步或可能失败的观察不属于该事件。

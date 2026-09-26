@@ -555,9 +555,15 @@ describe('sandbox escalation through ctx.approval', () => {
   it('advertises the sandbox fields, the escalation clause, and the confined-mode contracts', async () => {
     const { ctx } = await setupSandboxed()
     const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
-    const properties = schema.parameters.properties as Record<string, { enum?: string[] }>
+    const properties = schema.parameters.properties as Record<string, { enum?: string[]; description?: string }>
     expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+    expect(properties['sandbox_permissions']?.description).toContain('Omit for ordinary calls')
+    expect(properties['justification']?.description).toContain('never send an empty string')
     expect(schema.description).toContain('approval prompt')
+    expect(schema.description).toContain('For ordinary calls, omit both escalation fields')
+    expect(schema.description).toContain('omit `workdir` for the session workspace, `run_in_background` for foreground calls')
+    expect((await ctx.systemPrompt.assemble()).sections.find(s => s.name === 'tool:pwsh')?.text)
+      .toContain('On ordinary calls, omit both sandbox_permissions and justification')
     expect(schema.description).toContain('ConstrainedLanguage')
     expect(schema.description).toContain('workspace-write stays in FullLanguage')
     expect(schema.description).toContain('In both confined modes, programs cannot open named pipes')
@@ -566,7 +572,7 @@ describe('sandbox escalation through ctx.approval', () => {
     for (const args of [
       { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'workspace-write' },
       { command: 'Write-Output ok', description: 'd', justification: 'why' },
-      { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'workspace-write', justification: ' ' },
+      { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'danger-full-access', justification: ' ' },
     ]) {
       expect((await call(ctx, 'pwsh', args)).isError).toBe(true)
     }
@@ -581,14 +587,14 @@ describe('sandbox escalation through ctx.approval', () => {
     expect(schema.parameters.properties).not.toHaveProperty('sandbox_permissions')
   })
 
-  it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
+  it('rejects injected escalation without a sandbox and narrower escalation without prompting', async () => {
     const plain = await setup()
     expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('not available in this composition')
 
     const { ctx } = await setupSandboxed(true)
     const prompted = vi.fn()
     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
-    const result = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
+    const result = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('danger-full-access'))
     expect(text(result)).toContain('not strictly wider')
     expect(prompted).not.toHaveBeenCalled()
 
@@ -598,6 +604,19 @@ describe('sandbox escalation through ctx.approval', () => {
       data: { mode: 'unknown-mode' },
     })
     expect(text(await call(ctx, 'pwsh', escalate, malformed))).toContain('not strictly wider')
+  })
+
+  it('runs a redundant same-mode request with an empty reason under the standing policy', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const prompted = vi.fn()
+    ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+    const result = await call(ctx, 'pwsh', {
+      command: 'Get-Date', description: 'read the system clock',
+      sandbox_permissions: 'workspace-write', justification: '',
+    }, sandboxAgent('workspace-write'))
+    expect(result.isError).toBe(false)
+    expect(bash.modes).toEqual(['workspace-write'])
+    expect(prompted).not.toHaveBeenCalled()
   })
 
   it('fails closed when approval cannot be routed', async () => {
