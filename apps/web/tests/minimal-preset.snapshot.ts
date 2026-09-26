@@ -89,7 +89,7 @@ describe('minimal agent preset', () => {
            2",
         "prompt": "You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH). Harniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.
 
-      Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+      Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call. On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 
       When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.",
         "shell": "MINIMAL_SHELL_OK",

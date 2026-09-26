@@ -46,7 +46,7 @@ The tool owns its `presentCall`/`presentResult` render intent. A foreground call
 
 #### What the model sees
 
-Every request in this plugin's registration scope contains the pwsh guidance below. Scoped tool restrictions can hide the schema without removing this independently registered section.
+Every request in this plugin's registration scope contains the pwsh guidance below. Scoped tool restrictions can hide the schema without removing this independently registered section. The escalation sentence below rides the guidance only while the mounted executor advertises sandbox escalation.
 
 ##### Pwsh guidance
 
@@ -54,7 +54,11 @@ Every request in this plugin's registration scope contains the pwsh guidance bel
 Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure. Omit optional arguments that do not change this call.
 ```
 
-When the executor advertises sandbox escalation, this section also says: `On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.` The tool description also omits `workdir`, `run_in_background`, and `timeoutMs` when their defaults suffice.
+##### Sandbox escalation sentence
+
+```markdown
+On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
+```
 
 #### Token effect
 
@@ -68,7 +72,7 @@ Prefix-stable while the registration scope and prompt text are unchanged. Plugin
 
 #### What the model sees
 
-The model sees the generated [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh). Agent-scoped tool restrictions can remove the definition for that agent.
+The model sees the generated [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh). The description asks for the smallest valid argument object, so `workdir`, `run_in_background`, and `timeoutMs` are sent only when they differ from their defaults. Agent-scoped tool restrictions can remove the definition for that agent.
 
 #### Token effect
 

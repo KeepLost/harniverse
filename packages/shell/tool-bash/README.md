@@ -62,7 +62,7 @@ For sandboxing executors, each call resolves mode as one-shot escalation, then s
 
 #### What the model sees
 
-Every request in this plugin's registration scope contains the bash guidance below. The policy owner contributes current sandbox state through its cache-safe runtime context rather than changing this section. Scoped tool restrictions can hide the schemas without removing this independently registered section.
+Every request in this plugin's registration scope contains the bash guidance below. The policy owner contributes current sandbox state through its cache-safe runtime context rather than changing this section. Scoped tool restrictions can hide the schemas without removing this independently registered section. The escalation sentence below rides the guidance only while the mounted executor advertises sandbox escalation.
 
 ##### Bash guidance
 
@@ -70,7 +70,11 @@ Every request in this plugin's registration scope contains the bash guidance bel
 Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call.
 ```
 
-When the executor advertises sandbox escalation, this section also says: `On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.`
+##### Sandbox escalation sentence
+
+```markdown
+On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
+```
 
 #### Token effect
 

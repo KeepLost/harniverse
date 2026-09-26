@@ -331,7 +331,7 @@ describe('the shipped Web composition', () => {
       expect(assembly.sections).toEqual([
         { name: 'harness:identity', text: HARNESS_IDENTITY },
         { name: 'context:file-reference', text: '' },
-        { name: 'tool:bash', text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.' },
+        { name: 'tool:bash', text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call.' },
         { name: 'ui:deliverable-file-references', text: 'When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.' },
       ])
       expect(assembly.contexts).toEqual([

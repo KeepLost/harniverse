@@ -46,7 +46,7 @@
 
 #### 模型看到的内容
 
-本插件注册作用域内的每个请求都包含下面的 pwsh 指引。作用域工具限制可以隐藏 schema，但不会移除这个独立注册的段落。
+本插件注册作用域内的每个请求都包含下面的 pwsh 指引。作用域工具限制可以隐藏 schema，但不会移除这个独立注册的段落。下方的升权句仅在挂载执行器声明支持沙箱升权时随指引一起出现。
 
 ##### Pwsh guidance
 
@@ -54,7 +54,11 @@
 Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure. Omit optional arguments that do not change this call.
 ```
 
-当执行器公开沙箱升权能力时，此段还会追加：`On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.` 工具描述还提示在默认值足够时省略 `workdir`、`run_in_background` 和 `timeoutMs`。
+##### 沙箱升权句
+
+```markdown
+On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
+```
 
 #### Token 影响
 
@@ -68,7 +72,7 @@ Non-zero exits are reported as `[exit code: N]` markers; investigate failures be
 
 #### 模型看到的内容
 
-模型看到生成的 [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh)。按 agent 作用域的工具限制可以移除该 agent 的定义。
+模型看到生成的 [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh)。描述要求发送最小合法参数对象，因此 `workdir`、`run_in_background` 和 `timeoutMs` 只在与默认值不同时才发送。按 agent 作用域的工具限制可以移除该 agent 的定义。
 
 #### Token 影响
 

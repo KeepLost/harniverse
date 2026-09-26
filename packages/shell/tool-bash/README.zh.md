@@ -62,7 +62,7 @@
 
 #### 模型看到的内容
 
-此插件注册作用域内的每个请求都包含下方 bash 指引。策略归属方通过自身的缓存安全运行时上下文贡献当前沙箱状态，而不改变此段落。作用域工具限制可以隐藏 schema，但不会移除这个独立注册的段落。
+此插件注册作用域内的每个请求都包含下方 bash 指引。策略归属方通过自身的缓存安全运行时上下文贡献当前沙箱状态，而不改变此段落。作用域工具限制可以隐藏 schema，但不会移除这个独立注册的段落。下方的升权句仅在挂载执行器声明支持沙箱升权时随指引一起出现。
 
 ##### Bash 指引
 
@@ -70,7 +70,11 @@
 Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call.
 ```
 
-当执行器公开沙箱升权能力时，此段还会追加：`On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.`
+##### 沙箱升权句
+
+```markdown
+On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
+```
 
 #### Token 影响
 
