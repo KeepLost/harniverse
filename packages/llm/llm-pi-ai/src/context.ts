@@ -86,9 +86,53 @@ function piContext(options: GenerateOptions, messages: PiMessage[]): PiContext {
 
 type ReplayDegradeHandler = (reason: string) => void
 
+/**
+ * One bounded model-visible notice, appended to the request history when an
+ * earlier assistant reasoning chain could not be carried onto this route.
+ * Deterministically derived from logged message sources, so the request stays
+ * reconstructable from the Session log.
+ */
+const REASONING_DEGRADE_NOTICE = [
+  '<system-reminder>',
+  'An earlier assistant turn in this conversation reasoned under a different model route, and its reasoning chain cannot be replayed here. Only the recorded reasoning text above survives; treat it as an incomplete record and do not assume the reasoning behind earlier decisions is fully preserved.',
+  '</system-reminder>',
+].join('\n')
+
+/** Whether one assistant message carries reasoning content at all. */
+function hasReasoning(message: Message): boolean {
+  return message.role === 'assistant' && message.content.some(block => block.type === 'reasoning')
+}
+
+/** Whether one assistant message's reasoning cannot replay on the request's route. */
+function reasoningUnreplayableOnRoute(message: Message, options: GenerateOptions): boolean {
+  const source = message.source
+  return source.kind !== 'model'
+    || source.replayState === undefined
+    || source.provider !== options.provider
+    || source.model !== options.model
+}
+
+/**
+ * Wrap the caller's degrade handler for one assistant message: a reasoning
+ * message that degrades — either because it has no replay metadata or because
+ * its stored route no longer matches — records that this request carries an
+ * unreplayable chain. Non-reasoning degrades still report through unchanged.
+ */
+function degradeTrackerFor(
+  message: Message,
+  onReplayDegrade: ReplayDegradeHandler | undefined,
+  record: (degraded: boolean) => void,
+): ReplayDegradeHandler {
+  return (reason: string) => {
+    if (hasReasoning(message)) record(true)
+    onReplayDegrade?.(reason)
+  }
+}
+
 function textOnlyContext(options: GenerateOptions, onReplayDegrade?: ReplayDegradeHandler): PiContext {
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
+  let degradedReasoning = false
   for (const message of options.messages) {
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
@@ -98,7 +142,9 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: ReplayDegra
       continue
     }
     if (message.role === 'assistant') {
-      const assistant = toPiAssistant(message, onReplayDegrade)
+      if (hasReasoning(message) && reasoningUnreplayableOnRoute(message, options)) degradedReasoning = true
+      const degrade = degradeTrackerFor(message, onReplayDegrade, (degraded) => { degradedReasoning = degraded })
+      const assistant = toPiAssistant(message, degrade)
       for (const block of assistant.content) if (block.type === 'toolCall') toolNames.set(CallId(block.id), block.name)
       messages.push(assistant)
       continue
@@ -124,6 +170,7 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: ReplayDegra
     }
     if (text.length > 0 || results.length === 0) messages.push({ role: 'user', content: text, timestamp: 0 })
   }
+  if (degradedReasoning) messages.push({ role: 'user', content: REASONING_DEGRADE_NOTICE, timestamp: 0 })
   return piContext(options, messages)
 }
 
@@ -170,6 +217,7 @@ async function toPiContextWithImages(
 ): Promise<PiContext> {
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
+  let degradedReasoning = false
 
   for (const message of options.messages) {
     if (message.role === 'system') {
@@ -183,7 +231,9 @@ async function toPiContextWithImages(
       continue
     }
     if (message.role === 'assistant') {
-      const assistant = toPiAssistant(message, onReplayDegrade)
+      if (hasReasoning(message) && reasoningUnreplayableOnRoute(message, options)) degradedReasoning = true
+      const degrade = degradeTrackerFor(message, onReplayDegrade, (degraded) => { degradedReasoning = degraded })
+      const assistant = toPiAssistant(message, degrade)
       for (const block of assistant.content) {
         if (block.type === 'toolCall') toolNames.set(CallId(block.id), block.name)
       }
@@ -214,6 +264,7 @@ async function toPiContextWithImages(
       messages.push({ role: 'user', content, timestamp: 0 })
     }
   }
+  if (degradedReasoning) messages.push({ role: 'user', content: REASONING_DEGRADE_NOTICE, timestamp: 0 })
 
   return piContext(options, messages)
 }

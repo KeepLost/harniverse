@@ -36,6 +36,84 @@ function history(role: 'system' | 'assistant', content: ContentBlock[]): Message
   return createMessage({ role, content, source: { kind: 'plugin', plugin: 'test' } })
 }
 
+describe('reasoning degrade notices', () => {
+  it('appends one notice when a reasoning assistant message has no replay metadata', () => {
+    const context = toPiContext(request([
+      user([{ type: 'text', text: 'hello' }]),
+      history('assistant', [{ type: 'reasoning', text: 'mull' }, { type: 'text', text: 'answer' }]),
+      user([{ type: 'text', text: 'continue' }]),
+    ]))
+    const last = context.messages.at(-1)
+    expect(last?.role).toBe('user')
+    expect(typeof last?.content === 'string' ? last?.content : '').toContain('<system-reminder>')
+    expect(typeof last?.content === 'string' ? last?.content : '')
+      .toContain('reasoning chain cannot be replayed')
+    // Exactly one notice, not one per degraded message.
+    expect(context.messages.filter(message =>
+      typeof message.content === 'string' && message.content.includes('<system-reminder>'))).toHaveLength(1)
+  })
+
+  it('appends no notice for reasoning-free history or usable replay state', () => {
+    const textOnly = toPiContext(request([
+      history('assistant', [{ type: 'text', text: 'answer' }]),
+    ]))
+    expect(textOnly.messages.at(-1)?.role).toBe('assistant')
+
+    const modelMessage = createMessage({
+      role: 'assistant',
+      content: [{ type: 'reasoning', text: 'mull', encrypted: 'cipher' }],
+      source: {
+        kind: 'model',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        stopReason: { kind: 'stop' },
+        usage: { inputTokens: 1, outputTokens: 1 },
+        replayState: {
+          response: {
+            kind: 'pi-ai',
+            version: 2,
+            api: 'openai-responses',
+            provider: 'openai',
+            model: 'gpt-4.1',
+            stopReason: 'stop',
+          },
+          blocks: [{ type: 'reasoning' }],
+        },
+      },
+    })
+    const replayed = toPiContext(request([modelMessage]))
+    expect(replayed.messages.at(-1)?.role).toBe('assistant')
+  })
+
+  it('appends a notice when the stored route no longer matches this request', () => {
+    const staleRoute = createMessage({
+      role: 'assistant',
+      content: [{ type: 'reasoning', text: 'mull' }],
+      source: {
+        kind: 'model',
+        provider: 'anthropic',
+        model: 'claude-x',
+        stopReason: { kind: 'stop' },
+        usage: { inputTokens: 1, outputTokens: 1 },
+        replayState: {
+          response: {
+            kind: 'pi-ai',
+            version: 2,
+            api: 'anthropic-messages',
+            provider: 'anthropic',
+            model: 'claude-x',
+            stopReason: 'stop',
+          },
+          blocks: [{ type: 'reasoning' }],
+        },
+      },
+    })
+    const context = toPiContext(request([staleRoute]))
+    expect(context.messages.some(message =>
+      typeof message.content === 'string' && message.content.includes('<system-reminder>'))).toBe(true)
+  })
+})
+
 describe('pi-ai request context conversion', () => {
   it('omits absent and empty request-level optional fields', () => {
     const base = { provider: 'openai', model: 'gpt-4.1', messages: [] }
