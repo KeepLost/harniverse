@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-25-harniverse-rc-frontend-branding.md
-2026-09-25-harniverse-rc-frontend-branding.md: e1655324b3fadf59192eeea3f91dde386c0ce468
-2026-09-25-harniverse-rc-frontend-branding.zh.md: 17d7eae597d290cdaa6500dbbac38cf6bceee2a9
+2026-09-25-harniverse-rc-frontend-branding.md: 17193963e4e38dae1488c47e7b7c3dd91c9ab7b1
+2026-09-25-harniverse-rc-frontend-branding.zh.md: 258b308c3000ede37e456c8ab34b61162d38894e

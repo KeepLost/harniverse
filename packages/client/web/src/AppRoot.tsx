@@ -39,7 +39,13 @@ export function AppRoot(props: AppRootProps) {
   return (
     <div className={css.boot}>
       <div className={css.card}>
-        <div className={css.wordmark}>HARNESS</div>
+        <img
+          className={css.brandImage}
+          src="/whale-logo-light.svg"
+          width={96}
+          height={96}
+          alt="Harniverse brand artwork"
+        />
         {!loud
           ? (
             <>

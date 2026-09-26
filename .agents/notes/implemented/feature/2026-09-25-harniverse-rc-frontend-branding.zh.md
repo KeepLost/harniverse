@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-浏览器持有的资源是 `apps/web/public/harniverse-brand.png` 中完整的已提供图稿，保持原始 1254×1254 尺寸复制，并在空白会话 Hero 与两个认证文档中不裁切地渲染。PWA manifest 使用同一构图仅调整尺寸得到的 192×192 与 512×512 PNG。Web 入口和文档站有意不声明产品 favicon，并移除继承的鱼形 favicon 文件。
+浏览器持有的资源是 `apps/web/public/` 中提供的 1254×1254 SVG 变体：非透明背景的 `whale-logo.svg` 用于两个认证文档，当前浅色界面的空白会话 Hero 使用 `whale-logo-light.svg`，`whale-logo-transparent.svg` 随应用交付并供未来深色主题使用。侧边栏品牌和浏览器标签页使用 `whale-logo.ico`。PWA manifest 使用 `whale-logo-light.svg`，因此 Web 入口不再依赖产品 PNG logo。
 
-侧边栏在收起轨道中保留可访问、由布局持有的面板切换控件，展开时以文本渲染纯 `Harniverse` 字标。`FishLogo` 组件及其公共导出被移除。认证页头使用图稿与 Harniverse 产品名称，桌面端蓝色 H 保持不变。
+侧边栏在收起轨道中保留可访问、由布局持有的面板切换控件，展开时将 `whale-logo.ico` 渲染为带新建会话行为的品牌按钮。认证页头使用非透明图稿与 Harniverse 产品名称；认证后的启动加载页和空白会话 Hero 使用浅色透明图稿，桌面端蓝色 H 保持不变。
 
 产品持有的欢迎声明改为双语 Harniverse RC 文案，确认版本为 `2026-09-25.1`；该确认版本独立于 package 与 product version。提供方名称、model id、API key 标签、环境变量、package 名称和内部标识继续保持既有约定。
 
@@ -30,8 +30,8 @@ Status: implemented
 
 未认证 Web 外壳在插件加载前提供一个根相对图稿 URL，因此认证页与 Hero 不依赖认证路由或插件资源。固定图像尺寸会预留布局空间；图稿的呈现不依赖按主题切换的 SVG 标识，因此在明暗主题中都可用。在认证样式表既有的手机断点内，图稿尺寸为 88×88，管理操作独占页头的一整行。
 
-收起轨道只有一个可操作的面板切换控件，不再有静止的装饰性鱼形状态。Web 入口和文档站没有产品 favicon，而 PWA manifest 保留完整图稿 PNG 安装图标。欢迎声明因为含义改变而会为已有用户重新显示一次；Host 镜像文案与 client 文案携带相同版本和文本。构建后的 PWA manifest 与浏览器验收检查会在生成 web dist 后验证复制的资源及其 192/512 尺寸。
+展开的侧边栏品牌按钮显示 ICO logo，同时保留新建会话操作；收起轨道保留面板切换控件。Web 入口声明 ICO 作为浏览器标签页 favicon，PWA manifest 使用浅色透明 SVG。欢迎声明因为含义改变而会为已有用户重新显示一次；Host 镜像文案与 client 文案携带相同版本和文本。构建后的 Web 检查与浏览器验收检查会在生成 web dist 后验证交付的 logo 资源，以及认证页、Hero、侧边栏、favicon 和 manifest 的引用。
 
 ## Verification
 
-源文件与派生 PNG 已识别为 1254×1254、192×192 与 512×512 的 sRGB PNG。定向 client 测试覆盖纯文本字标、侧边栏切换控件、Hero 图稿 URL、认证图稿与名称、常驻编辑器行为，以及双语声明的精确文案。构建后 Web 验证需要新生成的 web dist：PWA 测试检查安装元数据、PNG 尺寸及 favicon 资源缺席；组装后的浏览器检查验证认证前后的图稿，以及明暗主题下的响应式布局。
+交付的 SVG 是 1254×1254 的矢量图稿，ICO 则携带多尺寸浏览器图标 bundle。定向 client 测试覆盖侧边栏 ICO 引用、Hero 图稿 URL、认证图稿与名称、常驻编辑器行为，以及双语声明的精确文案。构建后 Web 验证需要新生成的 web dist：PWA 测试检查安装元数据、SVG／ICO 资源和 favicon 链接；组装后的浏览器检查验证认证前后的图稿，以及明暗主题下的响应式布局。

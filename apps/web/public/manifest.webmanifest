@@ -7,15 +7,9 @@
   "display": "fullscreen",
   "icons": [
     {
-      "src": "/harniverse-brand-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/harniverse-brand-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "/whale-logo-light.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any"
     }
   ]

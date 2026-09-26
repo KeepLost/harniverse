@@ -8,8 +8,7 @@ const DIST_ROOT = fileURLToPath(new URL('../dist', import.meta.url))
 it('ships install metadata with the built web application', async () => {
   const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
   expect(index).toContain('<link rel="manifest" href="/manifest.webmanifest" />')
-  expect(index).not.toMatch(/<link\b[^>]*\brel=["'][^"']*\bicon\b/i)
-  await expect(readFile(join(DIST_ROOT, 'favicon.svg'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(index).toContain('<link rel="icon" href="/whale-logo.ico" type="image/x-icon" />')
 
   const manifest: unknown = JSON.parse(await readFile(join(DIST_ROOT, 'manifest.webmanifest'), 'utf8'))
   expect(manifest).toEqual({
@@ -21,29 +20,21 @@ it('ships install metadata with the built web application', async () => {
     display: 'fullscreen',
     icons: [
       {
-        src: '/harniverse-brand-192.png',
-        sizes: '192x192',
-        type: 'image/png',
-        purpose: 'any',
-      },
-      {
-        src: '/harniverse-brand-512.png',
-        sizes: '512x512',
-        type: 'image/png',
+        src: '/whale-logo-light.svg',
+        sizes: 'any',
+        type: 'image/svg+xml',
         purpose: 'any',
       },
     ],
   })
 })
 
-it('ships the complete brand artwork at both install icon sizes', async () => {
-  for (const [name, size] of [
-    ['harniverse-brand-192.png', 192],
-    ['harniverse-brand-512.png', 512],
-  ] as const) {
-    const png = await readFile(join(DIST_ROOT, name))
-    expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    expect(png.readUInt32BE(16)).toBe(size)
-    expect(png.readUInt32BE(20)).toBe(size)
+it('ships the complete lightweight logo set, including the future dark-theme variant', async () => {
+  for (const name of ['whale-logo.svg', 'whale-logo-light.svg', 'whale-logo-transparent.svg']) {
+    const svg = await readFile(join(DIST_ROOT, name), 'utf8')
+    expect(svg).toContain('<ns0:svg')
+    expect(svg).toContain('width="1254" height="1254"')
   }
+  const ico = await readFile(join(DIST_ROOT, 'whale-logo.ico'))
+  expect(ico.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0]))
 })

@@ -1,4 +1,5 @@
-- button "New session"
+- button "New session":
+  - img "Harniverse logo"
 - img "Connected; local authentication bypass is enabled"
 - button "Collapse sidebar":
   - img

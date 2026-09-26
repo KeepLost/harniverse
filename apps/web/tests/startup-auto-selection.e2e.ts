@@ -69,7 +69,7 @@ describe('web e2e: startup auto-selection', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-first-workspace-stable-tree'))
     await page.locator(`${ROOT_PHASE}[data-phase="hero"]`).waitFor({ timeout: 15_000 })
     const brandImage = page.getByRole('img', { name: 'Harniverse brand artwork' })
-    expect(await brandImage.getAttribute('src')).toBe('/harniverse-brand.png')
+    expect(await brandImage.getAttribute('src')).toBe('/whale-logo-light.svg')
     expect(await brandImage.getAttribute('width')).toBe('260')
     expect(await brandImage.getAttribute('height')).toBe('260')
     await page.evaluate(() => {

@@ -32,8 +32,8 @@ function mount() {
 
 describe('AppRoot', () => {
   it('shows the loading page and never calls renderApp before settled', () => {
-    const { queryByTestId, counts, getByText } = mount()
-    expect(getByText('HARNESS')).toBeTruthy()
+    const { queryByTestId, counts, getByRole } = mount()
+    expect(getByRole('img', { name: 'Harniverse brand artwork' }).getAttribute('src')).toBe('/whale-logo-light.svg')
     expect(queryByTestId('real-ui')).toBeNull()
     expect(counts()).toBe(0)
   })
@@ -67,10 +67,10 @@ describe('AppRoot', () => {
   })
 
   it('flipping settled switches to the real UI in one pass', () => {
-    const { settled, getByTestId, queryByText, counts } = mount()
+    const { settled, getByTestId, queryByRole, counts } = mount()
     act(() => { settled.set(true) })
     expect(getByTestId('real-ui')).toBeTruthy()
-    expect(queryByText('HARNESS')).toBeNull()
+    expect(queryByRole('img', { name: 'Harniverse brand artwork' })).toBeNull()
     expect(counts()).toBe(1)
   })
 })

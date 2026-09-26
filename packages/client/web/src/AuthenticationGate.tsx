@@ -318,7 +318,7 @@ function AuthCardHeader({ titleId, title, children }: {
     <header className="dsh-auth-head">
       <img
         className="dsh-auth-brand"
-        src="/harniverse-brand.png"
+        src="/whale-logo.svg"
         width={112}
         height={112}
         alt="Harniverse brand artwork"

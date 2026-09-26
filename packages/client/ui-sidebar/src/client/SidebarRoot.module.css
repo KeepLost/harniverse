@@ -117,12 +117,20 @@
   min-width: 0;
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   overflow: hidden;
   padding: 0;
   border: none;
   background: transparent;
   color: inherit;
   cursor: pointer;
+}
+
+.brandIcon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 
 .iconButton {

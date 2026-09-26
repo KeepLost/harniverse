@@ -132,7 +132,7 @@ export function HeroShell({ t, children }: HeroShellProps) {
         <div className={css.headline}>
           <img
             className={css.brandImage}
-            src="/harniverse-brand.png"
+            src="/whale-logo-light.svg"
             width={260}
             height={260}
             alt="Harniverse brand artwork"

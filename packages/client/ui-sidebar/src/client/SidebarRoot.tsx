@@ -137,6 +137,7 @@ export function SidebarRoot({
             aria-label={t('session.new.label')}
             onClick={() => { startSession() }}
           >
+            <img className={css.brandIcon} src="/whale-logo-light.svg" width={28} height={28} alt="Harniverse logo" />
             <BrandWordmark />
           </button>
         )}

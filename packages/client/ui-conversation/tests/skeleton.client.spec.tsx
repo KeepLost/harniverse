@@ -300,7 +300,7 @@ describe('Adaptive content width', () => {
 describe('Hero chrome', () => {
   it('renders the English preview badge through the hero locale seat', () => {
     const view = render(<HeroShell t={makeTranslate(en, commonEn)} />)
-    expect(view.getByRole('img', { name: 'Harniverse brand artwork' }).getAttribute('src')).toBe('/harniverse-brand.png')
+    expect(view.getByRole('img', { name: 'Harniverse brand artwork' }).getAttribute('src')).toBe('/whale-logo-light.svg')
     expect(view.getByText('Into the Unknown')).toBeTruthy()
     expect(view.getByText('Preview')).toBeTruthy()
   })
