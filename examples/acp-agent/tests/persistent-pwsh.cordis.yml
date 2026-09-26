@@ -39,5 +39,9 @@
     goals: false
     persona: You are a concise snapshot agent working in {{cwd}}.
 
+# Where the agent works: OS, shell, working machine, and the session-fixed
+# working directory, computed once from process-stable platform facts.
+- id: environment
+  name: '@deepseek-ai/dsh-environment'
 - id: tool-pwsh-persistent
   name: '@deepseek-ai/dsh-tool-pwsh-persistent'
