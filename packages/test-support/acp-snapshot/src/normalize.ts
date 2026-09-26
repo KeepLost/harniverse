@@ -1,10 +1,12 @@
 /**
- * Pure ACP transcript and session-log normalizers. They scrub session ids, run cwd, RPC ids,
- * timestamps, and hook duration while preserving deterministic event sequence numbers.
- * Request-header scrubbers stay composable so one scenario per header class can pin prompt and
- * tool-schema sidecars.
+ * Pure ACP transcript and session-log normalizers. They scrub session ids, run cwd, the host's
+ * machine label, RPC ids, timestamps, and hook duration while preserving deterministic event
+ * sequence numbers. Request-header scrubbers stay composable so one scenario per header class
+ * can pin prompt and tool-schema sidecars.
  * @module @deepseek-ai/dsh-acp-snapshot/normalize
  */
+
+import { hostname } from 'node:os'
 
 const SESSION_ID = '{{sessionId}}'
 const CWD = '{{cwd}}'
@@ -12,6 +14,15 @@ const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
 const EVENT_TIME = '{{eventTime}}'
 const EVENT_OMITTED_BYTES = '{{eventOmittedBytes}}'
+const MACHINE = '{{machine}}'
+const ENVIRONMENT = '{{environment}}'
+/**
+ * The environment-facts section's platform clause, in every per-platform
+ * spelling the section emits. Shared goldens tokenize it so one expected file
+ * compares on every platform; the owning package's tests pin each spelling.
+ */
+const ENVIRONMENT_CLAUSE_RE
+  = /\((?:Linux, bash shell(?: with a (?:GNU|BusyBox) userland)?|macOS, zsh shell with a BSD userland|Windows, PowerShell shell)\)/g
 
 /** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
@@ -84,6 +95,12 @@ export interface NormalizeContext {
   cwd: string
   /** Other filesystem spellings of the same cwd (for example Windows short and long paths). */
   cwdAliases?: readonly string[]
+  /**
+   * The machine label the environment-facts section recorded — replaced with
+   * `{{machine}}`. Defaults to this host's name; an explicit empty string
+   * disables the replacement.
+   */
+  machine?: string
 }
 
 /** How cwd-rooted path separators are represented after the cwd is tokenized. */
@@ -93,6 +110,13 @@ export type CwdPathMode = 'canonical' | 'native'
 export interface NormalizeOptions {
   /** Use `/` for shared goldens, or preserve captured separators for a platform-specific golden. */
   cwdPathMode?: CwdPathMode
+}
+
+/** Replace the recorded machine label and platform clause with stable tokens. */
+function replaceMachine(value: string, ctx: NormalizeContext): string {
+  const machine = ctx.machine ?? hostname()
+  const tokenized = machine.length === 0 ? value : value.replaceAll(machine, MACHINE)
+  return tokenized.replace(ENVIRONMENT_CLAUSE_RE, `(${ENVIRONMENT})`)
 }
 
 /** Return every known spelling of the generated cwd, most specific first. */
@@ -150,7 +174,7 @@ function replaceCwd(value: string, ctx: NormalizeContext, replacement: string): 
 
 /** Replace cwd, session ids, and any stray UUID with stable tokens in a string. */
 function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathMode): string {
-  let out = replaceCwd(value, ctx, CWD)
+  let out = replaceMachine(replaceCwd(value, ctx, CWD), ctx)
   // Filesystem APIs can report one directory with several spellings. Replace
   // every known spelling longest-first so a shorter alias cannot corrupt a
   // longer one before it is tokenized. macOS additionally symlinks
