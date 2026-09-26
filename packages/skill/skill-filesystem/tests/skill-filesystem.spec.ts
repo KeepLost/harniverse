@@ -233,7 +233,7 @@ describe('FileSystemSkillProvider', () => {
     expect((await ctx.skills.get('runtime-name', { cwd: project }))?.description).toBe('Runtime wins')
   })
 
-  it('parses flat skills and filters invalid skills from the invocation-neutral listing', async () => {
+  it('parses flat skills and filters invalid skills from the listing', async () => {
     const home = await tempDir('skill-flat')
     const root = join(home, '.dsh/skills')
     await writeFlatSkill(root, 'flat-skill', 'flat description', 'Flat instructions.')
@@ -242,8 +242,6 @@ describe('FileSystemSkillProvider', () => {
       'name: rich-skill',
       'description: rich description',
       'whenToUse: For richer local parsing',
-      'disable-model-invocation: off',
-      'user-invocable: YES',
       'metadata:',
       '  owner: tests',
       '---',
@@ -259,10 +257,6 @@ describe('FileSystemSkillProvider', () => {
     await writeFile(join(root, 'no-trailing-body.md'), '---\nname: no-trailing-body\ndescription: No trailing body\n---')
     await writeFile(join(root, 'notes.txt'), 'ignored')
     await mkdir(join(root, 'not-a-skill'), { recursive: true })
-    await writeSkill(root, 'user-only-skill', 'user-only description', 'User-only.')
-    await writeFile(join(root, 'user-only-skill/SKILL.md'), '---\nname: user-only-skill\ndescription: user-only description\ndisable-model-invocation: true\n---\n\nUser-only.\n')
-    await writeSkill(root, 'model-only-skill', 'model-only description', 'Model-only.')
-    await writeFile(join(root, 'model-only-skill/SKILL.md'), '---\nname: model-only-skill\ndescription: model-only description\nuser-invocable: false\n---\n\nModel-only.\n')
 
     const ctx = await setupLocal(home)
     const listedBeforeDelete = await ctx.skills.list()
@@ -272,75 +266,38 @@ describe('FileSystemSkillProvider', () => {
 
     expect(listedBeforeDelete.map(skill => skill.name)).toEqual([
       'flat-skill',
-      'model-only-skill',
       'no-trailing-body',
       'rich-skill',
-      'user-only-skill',
     ])
-    expect(flatSummary.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+    expect(flatSummary.description).toBe('flat description')
     expect(await ctx.skills.get('flat-skill')).toBeUndefined()
     expect(await ctx.skills.get('no-trailing-body')).toMatchObject({
-      invocation: { modelInvocable: true, userInvocable: true },
-    })
-    expect(await ctx.skills.get('user-only-skill')).toMatchObject({
-      invocation: { modelInvocable: false, userInvocable: true },
-      content: 'User-only.',
-    })
-    expect(await ctx.skills.get('model-only-skill')).toMatchObject({
-      invocation: { modelInvocable: true, userInvocable: false },
-      content: 'Model-only.',
+      description: 'No trailing body',
     })
     expect(await ctx.skills.get('rich-skill')).toMatchObject({
       whenToUse: 'For richer local parsing',
-      invocation: { modelInvocable: true, userInvocable: true },
       metadata: { owner: 'tests' },
     })
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
   })
 
-  it('accepts the documented boolean spellings for invocation frontmatter', async () => {
-    const home = await tempDir('skill-invocation-booleans')
+  it('discovers nested SKILL.md bundles recursively while skipping hidden, node_modules, and .git directories', async () => {
+    const home = await tempDir('skill-nested')
     const root = join(home, '.dsh/skills')
-    await mkdir(root, { recursive: true })
-    const truthy = ['true', 'TRUE', '"true"', 'yes', 'ON', '1', '"1"']
-    const falsy = ['false', 'FALSE', '"false"', 'no', 'OFF', '0', '"0"']
-    for (const [index, value] of truthy.entries()) {
-      await writeFile(join(root, `truthy-${index}.md`), [
-        '---',
-        `name: truthy-${index}`,
-        `description: Truthy ${index}`,
-        `disable-model-invocation: ${value}`,
-        '---',
-        '',
-        'Truthy.',
-      ].join('\n'))
-    }
-    for (const [index, value] of falsy.entries()) {
-      await writeFile(join(root, `falsy-${index}.md`), [
-        '---',
-        `name: falsy-${index}`,
-        `description: Falsy ${index}`,
-        `user-invocable: ${value}`,
-        '---',
-        '',
-        'Falsy.',
-      ].join('\n'))
-    }
+    await writeSkill(root, 'top-skill', 'Top level', 'Top.')
+    await writeSkill(join(root, 'group'), 'grouped-skill', 'One level deep', 'Grouped.')
+    await writeSkill(join(root, 'group/sub'), 'deep-skill', 'Two levels deep', 'Deep.')
+    await writeSkill(join(root, 'node_modules/pkg'), 'vendored-skill', 'Never discovered', 'Vendored.')
+    await writeSkill(join(root, '.hidden'), 'hidden-skill', 'Never discovered', 'Hidden.')
+    await writeFile(join(root, 'group/notes.md'), '---\nname: notes\ndescription: Not a skill at depth\n---\n\nNotes.\n')
 
     const ctx = await setupLocal(home)
 
-    for (const [index] of truthy.entries()) {
-      expect((await ctx.skills.get(`truthy-${index}`))?.invocation).toEqual({
-        modelInvocable: false,
-        userInvocable: true,
-      })
-    }
-    for (const [index] of falsy.entries()) {
-      expect((await ctx.skills.get(`falsy-${index}`))?.invocation).toEqual({
-        modelInvocable: true,
-        userInvocable: false,
-      })
-    }
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['deep-skill', 'grouped-skill', 'top-skill'])
+    expect((await ctx.skills.get('deep-skill'))?.path).toBe(join(root, 'group/sub/deep-skill/SKILL.md'))
+    expect(await ctx.skills.get('vendored-skill')).toBeUndefined()
+    expect(await ctx.skills.get('hidden-skill')).toBeUndefined()
+    expect(await ctx.skills.get('notes')).toBeUndefined()
   })
 
   it('rejects legacy and invalid invocation frontmatter without hiding valid siblings', async () => {
@@ -351,8 +308,8 @@ describe('FileSystemSkillProvider', () => {
       ['legacy-model', 'disableModelInvocation: true'],
       ['legacy-positive-model', 'modelInvocable: false'],
       ['legacy-user', 'userInvocable: false'],
-      ['bad-string', 'disable-model-invocation: maybe'],
-      ['bad-value', 'user-invocable: null'],
+      ['removed-model', 'disable-model-invocation: true'],
+      ['removed-user', 'user-invocable: false'],
     ] as const
     for (const [name, field] of invalid) {
       await writeFile(join(root, `${name}.md`), `---\nname: ${name}\ndescription: ${name}\n${field}\n---\n\nBad.\n`)
