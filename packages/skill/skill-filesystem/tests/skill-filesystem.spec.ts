@@ -469,6 +469,51 @@ describe('FileSystemSkillProvider', () => {
     })
   })
 
+  it('stops recursing at the ten-level depth cap', async () => {
+    const home = await tempDir('skill-depth-cap')
+    const root = join(home, '.agents/skills')
+    let directory = root
+    for (const segment of ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10', 'd11']) {
+      directory = join(directory, segment)
+    }
+    await writeSkill(directory, 'too-deep-skill', 'Beyond the cap')
+    await writeSkill(root, 'reachable-skill', 'Within the cap')
+
+    const ctx = await setupLocal(home)
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['reachable-skill'])
+  })
+
+  it('skips a nested directory whose identity cannot be resolved', async () => {
+    const home = await tempDir('skill-dir-identity-failure')
+    const root = join(home, '.agents/skills')
+    await writeSkill(root, 'top-skill', 'Top skill')
+    await writeSkill(join(root, 'group'), 'nested-skill', 'Nested skill')
+    await writeSkill(join(root, 'zz-last', 'inner'), 'deep-again', 'Deep again')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: false,
+    })
+    fs.errorResolvePaths.add(join(root, 'group'))
+    ctx.emit(
+      'fs/observed',
+      { targetKey: root as never, displayPath: root },
+      { kind: 'present', version: FsVersion('identity-failure') },
+      { name: 'write' },
+    )
+
+    // The unidentifiable directory is skipped, not fatal: discovery completes
+    // with the readable siblings.
+    const snapshot = await ctx.skills.snapshot()
+    expect(snapshot.complete).toBe(true)
+    expect(snapshot.skills.map(skill => skill.name)).toEqual(['deep-again', 'top-skill'])
+  })
+
   it('distinguishes transient filesystem entry failures from confirmed disappearance', async () => {
     const home = await tempDir('skill-transient-entry')
     const root = join(home, '.agents/skills')

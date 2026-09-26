@@ -818,8 +818,11 @@ interface SkillLocator {
 async function listSkillLocators(root: SkillRoot, ctx: Context): Promise<SkillLocator[]> {
   const locators: SkillLocator[] = []
   await collectSkillLocators(root, ctx, root.path, 0, locators, new Set())
-  locators.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  return locators
+  // Sort by path through a string-keyed map: default string order is a
+  // code-unit comparison, locale-independent, so the discovery order is
+  // identical on every machine.
+  const byPath = new Map(locators.map(locator => [locator.path, locator]))
+  return [...byPath.keys()].sort().map(path => byPath.get(path) as SkillLocator)
 }
 
 /** Depth-first collection behind {@link listSkillLocators}; `visited` bounds symlink cycles. */

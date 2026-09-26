@@ -53,6 +53,46 @@ describe('reasoning degrade notices', () => {
       typeof message.content === 'string' && message.content.includes('<system-reminder>'))).toHaveLength(1)
   })
 
+  it('appends the notice when unusable metadata degrades a matching route under the image-bearing path', async () => {
+    const unusableState = createMessage({
+      role: 'assistant',
+      content: [{ type: 'reasoning', text: 'mull' }],
+      source: {
+        kind: 'model',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        stopReason: { kind: 'stop' },
+        usage: { inputTokens: 1, outputTokens: 1 },
+        replayState: {
+          response: {
+            kind: 'pi-ai',
+            version: 99,
+            api: 'openai-responses',
+            provider: 'openai',
+            model: 'gpt-4.1',
+            stopReason: 'stop',
+          },
+          blocks: [{ type: 'reasoning' }],
+        },
+      },
+    })
+    const reported: string[] = []
+    const context = await toPiContext(request([unusableState]), attachments, (reason) => { reported.push(reason) })
+    expect(context.messages.some(message =>
+      typeof message.content === 'string' && message.content.includes('<system-reminder>'))).toBe(true)
+    expect(reported).toHaveLength(1)
+  })
+
+  it('appends the notice on the image-bearing path too', async () => {
+    const context = await toPiContext(request([
+      user([{ type: 'text', text: 'look' }]),
+      history('assistant', [{ type: 'reasoning', text: 'mull' }]),
+      user([{ type: 'text', text: 'go on' }]),
+    ]), attachments)
+    const last = context.messages.at(-1)
+    expect(typeof last?.content === 'string' ? last?.content : '').toContain('<system-reminder>')
+  })
+
   it('appends no notice for reasoning-free history or usable replay state', () => {
     const textOnly = toPiContext(request([
       history('assistant', [{ type: 'text', text: 'answer' }]),
