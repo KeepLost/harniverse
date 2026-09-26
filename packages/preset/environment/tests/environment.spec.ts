@@ -48,6 +48,13 @@ describe('environment fact detection', () => {
     expect(facts.machine.length).toBeGreaterThan(0)
     expect(['Linux', 'macOS', 'Windows'].includes(facts.os) || facts.os === process.platform).toBe(true)
   })
+
+  it('exercises the default BusyBox probe whenever Linux detection runs', () => {
+    // The default-probe arrow only runs when the platform is Linux, so this
+    // explicit Linux detection keeps it covered on every host platform.
+    const facts = Environment.detectEnvironmentFacts('linux', 'box')
+    expect(['GNU', 'BusyBox']).toContain(facts.userland)
+  })
 })
 
 describe('the environment section text', () => {

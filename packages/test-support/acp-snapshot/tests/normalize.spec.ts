@@ -225,12 +225,14 @@ describe('normalizeSessionLog', () => {
   })
 
   it('keeps the machine label verbatim when the context disables the replacement', () => {
+    // A synthetic label, not the real host name: runner hostnames can embed
+    // UUID-shaped suffixes that the generic UUID scrubber would tokenize.
     const ev = JSON.stringify({
       type: 'request/header', seq: 3, time: 5,
-      data: { header: { system: `machine ${hostname()}` } },
+      data: { header: { system: 'machine stable-label-42' } },
     })
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, { ...ctx, machine: '' })
-    expect(out).toContain(`machine ${hostname()}`)
+    expect(out).toContain('machine stable-label-42')
   })
 
   it('zeroes the header createdAt', () => {
