@@ -6,6 +6,8 @@ The one-shot local Grant management bundle. `dsh auth` boots this profile and fo
 
 The bundle does not mount `dsh-authentication-local` as a network service or open a port. It therefore approves the first owner device in a sealed Harness home without requiring an existing credential.
 
+Its manifest declares `dsh.bundle.homeOwnership: "shared"`, so authentication management remains available while Web holds the home lease. Registry operations retain their own coordination. The launcher serializes invocations of the same profile; adding a bundle without a shared declaration makes the whole composition exclusive (see [profile ownership](../../boot/app-boot/README.md#profiles)).
+
 ## Model Experience
 
 None, as this one-shot management app neither creates an Agent nor contributes model context.

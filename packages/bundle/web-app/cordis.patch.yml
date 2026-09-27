@@ -142,6 +142,16 @@
     - id: capability-management
       name: '@deepseek-ai/dsh-host-capability-management'
 
+    # Local authoritative registry for authenticated SSH-managed remote
+    # Harniverse processes. Browser Remote methods expose non-secret records;
+    # the transport provider owns SSH credentials and forwarding.
+    - id: remote-hosts-ssh
+      name: '@deepseek-ai/dsh-remote-hosts-ssh'
+
+    - id: remote-hosts
+      name: '@deepseek-ai/dsh-remote-hosts'
+      inject: [remoteHostSsh, credentials, settings]
+
     # Session-scoped interactive USER terminals for the browser panel: a Host
     # Remote over the subprocess PTY seam (never sandbox-confined, never
     # model-visible), exposed through the gateway's terminal/* endpoints and
@@ -335,6 +345,9 @@
     # list (pause/resume/delete) over the session-owned Remote verbs.
     - id: ui-scheduler
       name: '@deepseek-ai/dsh-client-ui-scheduler'
+
+    - id: ui-remote-hosts
+      name: '@deepseek-ai/dsh-client-ui-remote-hosts'
 
     # Resource board over the governor Remote: sessions-as-processes overview
     # with per-session memory quota adjustment.

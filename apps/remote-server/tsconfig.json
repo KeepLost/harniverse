@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../vendor/cordis" },
+    { "path": "../../vendor/include" },
+    { "path": "../../packages/boot/app-boot" },
+    { "path": "../../packages/boot/cmdline" },
+    { "path": "../../packages/util/home-paths" },
+    { "path": "../../packages/util/http-proxy" },
+    { "path": "../../packages/util/launch-environment" },
+    { "path": "../../packages/runtime-diagnostics/invariants" },
+    { "path": "../../packages/credentials/credentials-encrypted" },
+    { "path": "../../packages/ssh/remote-runtime" },
+    { "path": "../../packages/bundle/base" },
+    { "path": "../../packages/bundle/web-app" }
+  ]
+}

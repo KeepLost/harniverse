@@ -1,0 +1,40 @@
+# Remote layer: all behavior stays in ordinary plugin configuration.
+- id: credentials
+  disabled: true
+
+- id: authentication
+  config:
+    mode: authenticated
+
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 0
+    compression: gzip
+    compressionLevel: 1
+    compressionThresholdBytes: 1024
+
+- id: agent-loop
+  inject: [remoteRuntime]
+
+- id: harness-source
+  disabled: true
+
+- id: client-hmr
+  disabled: true
+
+- id: web-runtime
+  config:
+    printUrl: false
+    surfaceContext: false
+
+- id: directory-picker
+  disabled: true
+
+- insert:
+    - id: credentials-encrypted
+      name: '@deepseek-ai/dsh-credentials-encrypted'
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+    - id: remote-runtime
+      name: '@deepseek-ai/dsh-remote-runtime'

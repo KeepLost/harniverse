@@ -9,6 +9,7 @@
 
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
+import type { TransportPathResolver } from './target.ts'
 
 /** One upload's raw inputs (a browser File satisfies every field structurally). */
 export interface FileUploadRequest {
@@ -70,10 +71,14 @@ interface ReceiptShape {
  * @param authentication - shared admission and recovery capability, retaining the XHR progress carrier.
  * @returns transport posting raw bytes to the Host attachment route.
  */
-export function createWebFileUploadTransport(resolveBase: () => string, authentication?: Pick<ClientAuthentication, 'ready' | 'check' | 'requireRefresh'>): FileUploadTransport {
+export function createWebFileUploadTransport(
+  resolveBase: () => string,
+  authentication?: Pick<ClientAuthentication, 'ready' | 'check' | 'requireRefresh'>,
+  resolvePath: TransportPathResolver = path => path,
+): FileUploadTransport {
   const upload: FileUploadTransport = (request, hooks) => new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', new URL('/api/attachment/upload', resolveBase()).toString())
+    xhr.open('POST', new URL(resolvePath('/api/attachment/upload'), resolveBase()).toString())
     if (request.mediaType !== undefined) xhr.setRequestHeader('content-type', request.mediaType)
     if (request.name !== undefined) xhr.setRequestHeader('x-attachment-name', encodeURIComponent(request.name))
     xhr.responseType = 'text'

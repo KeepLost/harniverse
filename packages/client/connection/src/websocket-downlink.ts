@@ -18,6 +18,14 @@ import { eventsMuxRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/event
 type Frame = MuxFrame | HostFrame
 type AcceptedAuthentication = Extract<AuthenticationDecision, { kind: 'accepted' }>
 
+/** Minimal upstream socket face used by the SSH remote-host provider. */
+export interface RemoteWebSocket {
+  on(event: 'message', listener: (raw: unknown) => void): this
+  on(event: 'close' | 'error', listener: () => void): this
+  once(event: 'close' | 'error', listener: () => void): this
+  close(): void
+}
+
 function serverRequest(frame: RpcRequest<Frame>): ServerRequest {
   return {
     type: 'server-request',
@@ -141,6 +149,67 @@ export class WebSocketDownlinks {
     }, signal), admission)
   }
 
+  /** Bridge one authenticated remote host stream while preserving local identity. */
+  handleRemote(
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    admission: AcceptedAuthentication,
+    open: (signal: AbortSignal) => Promise<RemoteWebSocket>,
+  ): void {
+    this.server.handleUpgrade(req, socket, head, (websocket) => {
+      const abort = new AbortController()
+      if (!this.authenticationAvailable || this.revoked(admission) || this.expired(admission)) {
+        websocket.close(4001, 'authentication unavailable')
+        return
+      }
+      this.admissions.set(websocket, admission)
+      const expiry = admission.principal.kind === 'grant'
+        ? setTimeout(() => { websocket.close(4001, 'access expired') }, Math.min(
+          Math.max(1, Date.parse(admission.principal.expiresAt) - Date.now()),
+          2_147_483_647,
+        ))
+        : undefined
+      expiry?.unref()
+      const cleanup = (): void => { this.finishRemoteSocket(websocket, abort, expiry) }
+      websocket.once('close', cleanup)
+      websocket.once('error', cleanup)
+      const pump = (async () => {
+        let upstream: RemoteWebSocket | undefined
+        try {
+          await sendRequest(websocket, authenticationRequest(admission))
+          upstream = await open(abort.signal)
+          let sending = Promise.resolve()
+          upstream.on('message', (raw: unknown) => {
+            const text = typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : undefined
+            if (text === undefined) {
+              websocket.close(1003, 'binary upstream frame')
+              return
+            }
+            let frame: unknown
+            try { frame = JSON.parse(text) } catch { websocket.close(1003, 'malformed upstream frame'); return }
+            if (isAuthenticationRequest(frame)) {
+              frame.payload = authenticationPrincipalIdentity(admission.principal)
+            }
+            sending = sending.then(() => sendText(websocket, JSON.stringify(frame))).catch(() => { websocket.close() })
+          })
+          const stop = (): void => { upstream?.close(); websocket.close() }
+          upstream.once('close', stop)
+          upstream.once('error', stop)
+          websocket.once('message', () => { upstream?.close(); websocket.close(1008, 'downlink only') })
+          await new Promise<void>((resolve) => { websocket.once('close', resolve); upstream?.once('close', resolve) })
+        } catch {
+          if (!abort.signal.aborted) websocket.close(1011, 'remote stream failed')
+        } finally {
+          upstream?.close()
+          abort.abort()
+        }
+      })()
+      this.pumps.add(pump)
+      void pump.then(() => { this.pumps.delete(pump) }, () => { this.pumps.delete(pump) })
+    })
+  }
+
   /**
    * Close sockets admitted by any invalidated Grant revision.
    * @param grants - exact Grant revisions invalidated by the registry commit.
@@ -215,11 +284,7 @@ export class WebSocketDownlinks {
         ))
         : undefined
       expiry?.unref()
-      const cleanup = (): void => {
-        if (expiry !== undefined) clearTimeout(expiry)
-        this.admissions.delete(websocket)
-        abort.abort()
-      }
+      const cleanup = (): void => { this.finishRemoteSocket(websocket, abort, expiry) }
       websocket.once('close', cleanup)
       websocket.once('error', cleanup)
       websocket.once('message', () => {
@@ -232,6 +297,21 @@ export class WebSocketDownlinks {
       const forget = (): void => { this.pumps.delete(pump) }
       void pump.then(forget, forget)
     })
+  }
+
+  private revoked(admission: AcceptedAuthentication): boolean {
+    return admission.principal.kind === 'grant'
+      && (this.revokedGrants.get(admission.principal.grantId) ?? 0) >= admission.principal.grantRevision
+  }
+
+  private finishRemoteSocket(websocket: WebSocket, abort: AbortController, expiry: ReturnType<typeof setTimeout> | undefined): void {
+    if (expiry !== undefined) clearTimeout(expiry)
+    this.admissions.delete(websocket)
+    abort.abort()
+  }
+
+  private expired(admission: AcceptedAuthentication): boolean {
+    return admission.principal.kind === 'grant' && Date.parse(admission.principal.expiresAt) <= Date.now()
   }
 
   private async pump<F extends Frame>(
@@ -261,6 +341,18 @@ export class WebSocketDownlinks {
       if (socket.readyState === WebSocket.OPEN) socket.close()
     }
   }
+}
+
+function isAuthenticationRequest(value: unknown): value is { method: string; payload: unknown } {
+  return typeof value === 'object' && value !== null && 'method' in value
+    && value.method === CONNECTION_AUTHENTICATED_METHOD && 'payload' in value
+}
+
+function sendText(socket: WebSocket, text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (socket.readyState !== WebSocket.OPEN) { reject(new Error('websocket closed')); return }
+    socket.send(text, (error) => { if (error) reject(error); else resolve() })
+  })
 }
 
 /** Reject a malformed stream query before WebSocket negotiation. */

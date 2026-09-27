@@ -24,6 +24,10 @@ The node half guards every entry under `/api` before bridging or upgrading (`src
 
 `/api/events.mux` and `/api/events.host` each accept a WebSocket upgrade and send only the transport authentication control followed by the corresponding `ServerRequest` text messages; the client sends no application data over these sockets. Before each generation, `ConnectionController` samples the runtime's current per-Session contiguous cursors and the browser encodes a non-empty map in the mux URL's `since` query; the Host validates it before upgrade. If either socket ends, the current connection generation fails and rebuilds both streams from a fresh cursor sample; readiness requires both controls, matching `host.describe` response identity, and stream establishment before buffered business frames can reach consumers. Host teardown terminates both sockets, aborts their sources, and waits for source cleanup before returning. Ordinary network GETs to these paths return 426 with no SSE fallback; `toFetchHandler`'s SSE codec serves only the isomorphic in-process carrier.
 
+## Remote host targets
+
+A browser page opened with `dshRemoteHost=<RemoteHostId>` keeps authentication, host management, settings, and credentials on the original local Host while routing ordinary `/api` requests, uploads, and the two event WebSockets through the connected SSH coordinator. The Host authenticates the browser locally, checks the target endpoint's declared capability, strips local hop-by-hop credentials, and rewrites remote JSON response identities to the local generation identity. The remote coordinator owns the SSH Access Token, remote WebSocket, request timeout, and disconnect cleanup; the remote process is never stopped by closing the page or disconnecting the browser.
+
 ## Model Experience
 
 None, as the wire consumer layer moves already-composed messages between browser and host; nothing here reaches a model request.
@@ -36,3 +40,4 @@ None; this package neither assembles nor sends a provider request.
 
 - **The browser WebSocket inbox is not independently byte-bounded** — Host stream queues have a frame-count limit and reconnect from durable cursors, but one very large frame or a browser callback that permanently falls behind can still retain significant Client memory.
 - **The `/api` bridge buffers each request body in memory** — `maxRequestBodyBytes` (default 160 MiB, sized for the default 100 MiB aggregate image limit after base64 expansion plus envelope headroom) is therefore also the per-request resident bound; a streaming body path would be needed to lower it without shrinking the image limits.
+- **Remote browser targets require an already connected local coordinator** — the page does not reconnect SSH or expose the remote Access Token, and model/search settings remain locally authoritative and are synchronized on explicit connect.

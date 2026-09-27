@@ -9,6 +9,7 @@ import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
 import type { ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
+import type { TransportPathResolver } from './target.ts'
 
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
 
@@ -77,10 +78,12 @@ export class WebApiClient extends AbstractApiClient {
     initiatingPrincipal?: () => AuthenticationPrincipalIdentity | undefined,
     authenticationMismatch?: () => void,
     private readonly authentication?: ClientAuthentication,
+    private readonly resolvePath: TransportPathResolver = path => path,
   ) { super(timeoutMs, initiatingPrincipal, authenticationMismatch) }
 
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
-    return this.authentication?.fetch(input, init) ?? globalThis.fetch(input, init)
+    const routed = new URL(this.resolvePath(`${input.pathname}${input.search}`), input.origin)
+    return this.authentication?.fetch(routed, init) ?? globalThis.fetch(routed, init)
   }
 
   protected override openMux(
@@ -113,7 +116,7 @@ export class WebApiClient extends AbstractApiClient {
     onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
   ): AsyncGenerator<RpcRequest<F>> {
     await this.authentication?.ready(signal)
-    const url = new URL(path, this.resolveBase())
+    const url = new URL(this.resolvePath(path), this.resolveBase())
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(url)
     const inbox = new SocketRing<F>()

@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true, "composite": false, "incremental": false },
+  "include": ["src", "tests"],
+  "references": [
+    { "path": "../../../vendor/cordis" }, { "path": "../../../vendor/schemastery" },
+    { "path": "../../../vendor/loader" }, { "path": "../../../vendor/include" },
+    { "path": "../../util/brand" }, { "path": "../../credentials/credentials" },
+    { "path": "../../credentials/credentials-local" }, { "path": "../../credentials/credentials-encrypted" },
+    { "path": "../../util/home-paths" }, { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../remote-hosts-ssh" }, { "path": "../remote-runtime" }, { "path": "../../sdk/client" },
+    { "path": "../../core/session" }, { "path": "../../core/agent" },
+    { "path": "../../settings/settings" }, { "path": "../../settings/settings-file" },
+    { "path": "../../typert/protocol" }, { "path": "../../typert/generator" }, { "path": "../../typert/registry" },
+    { "path": "../../auth/authentication" }, { "path": "../../auth/authentication-local" },
+    { "path": "../../host/webserver" }, { "path": "../../api/gateway/tsconfig.host.json" },
+    { "path": "../../client/connection/tsconfig.host.json" }
+  ]
+}

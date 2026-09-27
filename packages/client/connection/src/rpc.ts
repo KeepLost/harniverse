@@ -14,6 +14,23 @@ export interface ConnectionRpcHandlerOptions {
   readonly requiredCapability: AuthenticationCapability
 }
 
+/** Request-shaped proxy policy for endpoints whose carrier is not a JSON RPC. */
+export interface ConnectionHttpProxyPolicy {
+  readonly requiredCapability: AuthenticationCapability
+}
+
+/** Handler for a targeted HTTP proxy after the shared route admitted the caller. */
+export type ConnectionHttpProxyHandler = (
+  request: Request,
+  principal: AuthenticationPrincipal,
+) => Promise<Response>
+
+/** Resolves a targeted proxy endpoint from the decoded request path and query. */
+export type ConnectionHttpProxyResolver = (
+  endpoint: string,
+  request: Request,
+) => ConnectionHttpProxyPolicy | ConnectionRpcEndpointDenial | undefined
+
 /** Authorization metadata for one channel-relative endpoint. */
 export interface ConnectionRpcEndpointPolicy {
   readonly requiredCapability: AuthenticationCapability

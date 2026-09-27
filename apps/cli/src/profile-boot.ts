@@ -13,13 +13,14 @@
 
 import { writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
 import { apply as applyHmrCoordination, name as hmrCoordinationName } from '@deepseek-ai/dsh-hmr-coordination'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import {
   boot,
+  acquireHomeOwnership,
   composeEntries,
   healProfilesModuleFallback,
   installFailLoud,
@@ -95,11 +96,15 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
  * on the same file, so both compose over the identical base).
  * @param name - the profile name.
  * @param userLayer - `false` skips parsing `cordis.patch.yml` (the default dump).
+ * @param homeOwnership - shared launches leave the global module fallback untouched.
  * @returns the loaded profile.
  */
-export function prepareProfile(name: string, userLayer = true): Profile {
-  healProfilesModuleFallback(INSTALL_ANCHOR)
+export function prepareProfile(name: string, userLayer = true, homeOwnership: Profile['homeOwnership'] = 'exclusive'): Profile {
+  if (homeOwnership === 'exclusive') healProfilesModuleFallback(INSTALL_ANCHOR)
   const profile = loadProfile(NAME, name, INSTALL_ANCHOR, undefined, { userLayer })
+  if (homeOwnership === 'shared' && profile.homeOwnership !== 'shared') {
+    throw new Error(`${NAME}: profile ownership changed during startup; retry the launch`)
+  }
   writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
   return profile
 }
@@ -144,8 +149,9 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
 function composeProfile(
   name: string,
   patchFiles: readonly string[],
+  homeOwnership: Profile['homeOwnership'],
 ): ComposedProfile {
-  const profile = prepareProfile(name)
+  const profile = prepareProfile(name, true, homeOwnership)
   const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
   const bundlePatches = profile.layers.flatMap(layer => layer.patches)
@@ -207,19 +213,53 @@ function suppressShutdownError(ctx: Context, signal: AbortSignal, error: unknown
  * @returns the settled root context and the shutdown controller.
  */
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
+  const { homeOwnership } = loadProfile(NAME, options.profile, INSTALL_ANCHOR, undefined, { readOnly: true, userLayer: false })
+  const homeOwner = homeOwnership === 'exclusive' ? await acquireHomeOwnership() : undefined
+  let profileOwner: Awaited<ReturnType<typeof acquireHomeOwnership>>
+  try {
+    profileOwner = await acquireHomeOwnership(undefined, { profile: options.profile })
+  } catch (error) {
+    await homeOwner?.release()
+    throw error
+  }
+  const owner = { async release() {
+    await profileOwner.release()
+    await homeOwner?.release()
+  } }
   // Before the first plugin mounts and before anything can issue a request: Node's fetch ignores the
   // proxy environment on its own, so every profile would otherwise connect directly. Resolving from
   // the launcher's snapshot — not `process.env` — is what lets a proxy declared in a `.env` layer
   // work, which the NODE_USE_ENV_PROXY flag cannot do because Node samples the environment at start.
-  const disposeProxy = await installProxyFromEnvironment(
-    options.environment,
-    (message) => { process.stderr.write(`${NAME}: ${message}\n`) },
-  )
-  const composed = composeProfile(options.profile, options.patchFiles)
+  let disposeProxy: Awaited<ReturnType<typeof installProxyFromEnvironment>>
+  try {
+    disposeProxy = await installProxyFromEnvironment(
+      options.environment,
+      (message) => { process.stderr.write(`${NAME}: ${message}\n`) },
+    )
+  } catch (error) {
+    await owner.release()
+    throw error
+  }
+  return runOwnedProfile(options, owner, disposeProxy, homeOwnership)
+}
+
+async function runOwnedProfile(
+  options: RunProfileOptions, owner: { release(): Promise<void> },
+  disposeProxy: Awaited<ReturnType<typeof installProxyFromEnvironment>>, homeOwnership: Profile['homeOwnership'],
+): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
   const app: { current?: Context } = {}
   const shutdown = createProcessShutdown(async () => {
+    // A failed drain leaves the lease held until process exit and dead-owner recovery.
     await app.current?.fiber.dispose()
-    await disposeProxy()
+    try {
+      await disposeProxy()
+    } finally {
+      try { await owner.release() } finally {
+        uninstallFailLoud()
+        process.off('SIGTERM', onTerm)
+        process.off('SIGINT', onInt)
+      }
+    }
   })
   const signalShutdown = new AbortController()
   const interrupt = (code: number): void => {
@@ -231,77 +271,91 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // SIGTERM is a supervisor's ordinary stop request and exits 0 on every
   // surface — the launcher does not know whether the app considered its work
   // complete; SIGINT is a user interrupt and reports 130.
-  process.on('SIGTERM', () => { interrupt(0) })
-  process.on('SIGINT', () => { interrupt(130) })
-  installFailLoud(NAME, process, async () => {
-    await app.current?.fiber.dispose()
+  const onTerm = (): void => { interrupt(0) }
+  const onInt = (): void => { interrupt(130) }
+  const uninstallFailLoud = installFailLoud(NAME, process, async () => {
+    await shutdown.shutdown(1)
   })
+  process.on('SIGTERM', onTerm)
+  process.on('SIGINT', onInt)
 
-  const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
-  // Recomposition for the live user layers: bundle layers below, overlays
-  // above, so a user edit can never displace them. Parsed app arguments are
-  // not in here at all — they live in app-provided services that survive a
-  // recomposition. BOTH
-  // user files are re-read per generation (the HMR watcher hands us only the
-  // changed file's patches, which one of the reads duplicates — fresh reads
-  // keep the two watchers from stitching in each other's stale copy).
-  // Fresh clones per generation: the include pushes `insert` rows into the
-  // mounted tree BY REFERENCE and later id-targeted patches mutate those
-  // objects in place. Reusing one parsed patch object across applications
-  // would bake a user override into the bundle's in-memory insert row, so
-  // removing the override could never revert the row to the bundle default.
-  const composeLive = (): PatchOptions[] => structuredClone([
-    ...composed.bundlePatches,
-    ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
-    ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
-    ...composed.overlays,
-  ])
-  // Cloned for the same insert-aliasing reason as composeLive: the boot
-  // application must not mutate the objects later reloads recompose from.
-  const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {
-    app.current = hostCtx
-    // Before any config-tree entry mounts, so plugins resolve all launch-time
-    // environment values from the same immutable provenance snapshot.
-    hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)
-    // The command line and bounded exit request are launcher facts available
-    // to every app plugin that injects the argument snapshot.
-    provideCmdline(hostCtx, {
-      args: options.args,
-      exit: code => void shutdown.shutdown(code),
-    })
-  })
-  app.current = ctx
-  // A surface can dispose the whole tree while boot or this post-boot watcher
-  // setup is still in flight — a signal, or a fast one-shot's appExit. Loader
-  // presence and fiber state own liveness; the initial check skips a tree
-  // that already exited, and the catch below re-checks for an exit that
-  // landed mid-setup. Watching is unconditional: a one-shot surface exits
-  // through its bounded shutdown, which disposes the watchers before the
-  // loop drains.
-  if (!signalShutdown.signal.aborted
+  const start = async (): Promise<{ ctx: Context; shutdown: ProcessShutdown }> => {
+    const composed = composeProfile(options.profile, options.patchFiles, homeOwnership)
+
+    const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
+    // Recomposition for the live user layers: bundle layers below, overlays
+    // above, so a user edit can never displace them. Parsed app arguments are
+    // not in here at all — they live in app-provided services that survive a
+    // recomposition. BOTH
+    // user files are re-read per generation (the HMR watcher hands us only the
+    // changed file's patches, which one of the reads duplicates — fresh reads
+    // keep the two watchers from stitching in each other's stale copy).
+    // Fresh clones per generation: the include pushes `insert` rows into the
+    // mounted tree BY REFERENCE and later id-targeted patches mutate those
+    // objects in place. Reusing one parsed patch object across applications
+    // would bake a user override into the bundle's in-memory insert row, so
+    // removing the override could never revert the row to the bundle default.
+    const composeLive = (): PatchOptions[] => structuredClone([
+      ...composed.bundlePatches,
+      ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
+      ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
+      ...composed.overlays,
+    ])
+    // Cloned for the same insert-aliasing reason as composeLive: the boot
+    // application must not mutate the objects later reloads recompose from.
+    // ponytail: Shared profiles require host-resolvable bare plugins; shared
+    // out-of-tree bare plugins need a profile-local fallback resolver.
+    const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {
+      app.current = hostCtx
+      // Before any config-tree entry mounts, so plugins resolve all launch-time
+      // environment values from the same immutable provenance snapshot.
+      hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)
+      // The command line and bounded exit request are launcher facts available
+      // to every app plugin that injects the argument snapshot.
+      provideCmdline(hostCtx, {
+        args: options.args,
+        exit: code => void shutdown.shutdown(code),
+      })
+    }, homeOwnership === 'shared' ? pathToFileURL(INSTALL_ANCHOR).href : undefined)
+    app.current = ctx
+    // A surface can dispose the whole tree while boot or this post-boot watcher
+    // setup is still in flight — a signal, or a fast one-shot's appExit. Loader
+    // presence and fiber state own liveness; the initial check skips a tree
+    // that already exited, and the catch below re-checks for an exit that
+    // landed mid-setup. Watching is unconditional: a one-shot surface exits
+    // through its bounded shutdown, which disposes the watchers before the
+    // loop drains.
+    if (!signalShutdown.signal.aborted
     && ctx.fiber.state === FiberState.ACTIVE
     && ctx.get('loader') !== undefined) {
-    try {
-      // Config-only reloads for the live profile patch layer run through the
-      // HMR coordination service (an exclusive queue over chokidar exact-path
-      // watchers); the shared module-reload `hmr` row stays a bundle decision.
-      // A silent skip would break the documented hot-reload contract.
-      if (ctx.get('hmrCoordination') === undefined) {
-        await ctx.plugin({ name: hmrCoordinationName, apply: applyHmrCoordination })
+      try {
+        // Config-only reloads for the live profile patch layer run through the
+        // HMR coordination service (an exclusive queue over chokidar exact-path
+        // watchers); the shared module-reload `hmr` row stays a bundle decision.
+        // A silent skip would break the documented hot-reload contract.
+        if (ctx.get('hmrCoordination') === undefined) {
+          await ctx.plugin({ name: hmrCoordinationName, apply: applyHmrCoordination })
+        }
+        watchUserPatches(ctx, {
+          binName: NAME,
+          filename: composed.profile.patchPath,
+          compose: composeLive,
+        })
+        watchUserPatches(ctx, {
+          binName: NAME,
+          filename: homePatchPath(),
+          compose: composeLive,
+        })
+      } catch (error) {
+        suppressShutdownError(ctx, signalShutdown.signal, error)
       }
-      watchUserPatches(ctx, {
-        binName: NAME,
-        filename: composed.profile.patchPath,
-        compose: composeLive,
-      })
-      watchUserPatches(ctx, {
-        binName: NAME,
-        filename: homePatchPath(),
-        compose: composeLive,
-      })
-    } catch (error) {
-      suppressShutdownError(ctx, signalShutdown.signal, error)
     }
+    return { ctx, shutdown }
   }
-  return { ctx, shutdown }
+  try {
+    return await start()
+  } catch (error) {
+    await shutdown.shutdown(1)
+    throw error
+  }
 }

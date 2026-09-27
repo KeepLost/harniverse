@@ -10,6 +10,7 @@
 | `loadEnv(binName, dir?, warn?)` | 加载已被 git 忽略的 `.env`（Node `process.loadEnvFile`）；文件不存在不影响启动，文件无法加载时输出一行带标签的警告（默认写入 stderr） |
 | `loadLayeredEnv(binName, cwd?, warn?)` | 构建产品 CLI（命令行界面）冻结的「继承环境 > 项目 `.env` > 用户 `.env`」快照，拒绝文件中的 bootstrap-only 变量，并在不替换继承值的前提下物化其余文件值 |
 | `installFailLoud(binName, proc?, release?)` | 将启动期或后续未处理的 Loader 拒绝转换为一行带标签的 stderr 消息并执行 `exit(1)`；两者之间会等待可选的 `release` 清理钩子（以 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 为上限），使持有终端的界面能在退出前恢复终端；返回卸载函数 |
+| `acquireHomeOwnership(configured?, options?)` | 获取规范化后 Harness home 的独占租约，或独立获取 `options.profile` 的独占租约；同一范围已有存活持有者时拒绝启动，可回收已退出进程的租约；返回可重复调用的异步释放函数 |
 | `FAIL_LOUD_RELEASE_TIMEOUT_MS` | `installFailLoud` 等待其 `release` 回调的时长；卡死的 disposer 只会延迟致命退出，而不会取消它 |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
 | `assertEntriesActivated(ctx, binName)` | 先执行 `assertEntriesLoaded` 检查，再在 Loader 结算后等待每个已启用配置项；抛出的错误包含每个失败插件的原始错误堆栈，或每个等待中插件尚未解析的服务 |
@@ -34,6 +35,10 @@ Loader 并发挂载各个条目，因此当其他环节失败时，某个界面�
 ## Profiles
 
 profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（harness home 由 [`resolveDshHome`](../../util/home-paths/README.md) 解析：先取 `$DSH_HOME`，否则取 `~/.dsh`），其中包含一个 `package.json`（树外插件 `dependencies`，加上 profile manifest `dsh.profile` 及其有序的 `bundles` 层列表）和用户自己的 `cordis.patch.yml`。组合包是在 manifest 中声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的 npm 包；`loadProfile` 以双锚点解析每个 `dsh.profile.bundles` 名称（先从 dsh 安装目录，再从 profile 目录），列出的包若没有组合包声明则明确报错。`composeEntries` 通过 include 自己的 `applyEntryPatches` 在空条目列表之上应用各 patch 层，因此组合、标志推导和配置 dump 绝不会与实际启动内容发生偏离。`healProfilesModuleFallback` 维护扁平的 `$DSH_HOME/profiles/node_modules` 目录（安装目录的应用与各组合包依赖的每个包对应一个符号链接），使任意 profile 中的裸插件名都能经 Node 常规的逐级向上查找解析，而无需由 pnpm 管理随安装内置的包。`PROFILE_TEMPLATES`（`web`、`headless`、`auth`）在首次使用时自动初始化；其他名称在 `initProfile` 创建之前都会明确报错（即 `dsh plugin` 路径）。`loadProfile` 会将与安装自有组合包元组完全一致的列表规范化为随发行版交付的模板，同时保留 manifest 中其他所有字段；一旦条目有任何额外、缺失或重排，该列表就归用户所有并保持不变。
+
+`loadProfile(..., { readOnly: true, userLayer: false })` 检查组合包元数据和 patch，不创建 profile，也不持久化规范化结果；缺失的随附 profile 在内存中使用模板。只有组合包列表非空且每个 manifest 都声明 `dsh.bundle.homeOwnership: "shared"` 时，返回的 `homeOwnership` 才为 `shared`；省略、未知或混合声明均要求 `exclusive` 所有权。共享声明是组合包作者作出的承诺：其提供方自行协调 home 写入，包括用户添加的 patch；该声明不会使任意插件都具备安全并发能力。
+
+CLI 在准备阶段之前为独占组合获取 home 租约，并为每个组合获取独立的 profile 租约。共享组合不改动 `profiles/node_modules`，而是将安装锚点作为 `boot` 的 `bareModuleBaseUrl`；其裸插件名因此必须能从已安装宿主解析。相对插件仍以 profile 目录为基准。租约在插件树 dispose 结算后释放；插件树 dispose 被拒绝或超时时，保留所有权直至进程退出，再通过已退出持有者回收机制恢复。持有者记录解除链接后，即使后继进程已占据目录，清理空目录也能容忍该竞争，且不会删除后继进程的记录。
 
 用户级的机器本地偏好同样位于 harness home 中：
 

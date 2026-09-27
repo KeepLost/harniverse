@@ -161,7 +161,10 @@
     { "path": "./packages/ssh/ssh" },
     { "path": "./packages/ssh/fs-ssh" },
     { "path": "./packages/ssh/subprocess-ssh" },
-    { "path": "./packages/ssh/sandbox-ssh" },
+     { "path": "./packages/ssh/sandbox-ssh" },
+     { "path": "./packages/ssh/remote-hosts-ssh" },
+     { "path": "./packages/ssh/remote-runtime" },
+     { "path": "./packages/ssh/remote-hosts" },
     { "path": "./packages/session-query/session-query" },
     { "path": "./packages/session-query/session-delivery" },
     { "path": "./packages/session-query/session-delivery-local" },
@@ -169,7 +172,8 @@
     { "path": "./packages/settings/settings" },
     { "path": "./packages/settings/settings-file" },
     { "path": "./packages/credentials/credentials" },
-    { "path": "./packages/credentials/credentials-local" },
+     { "path": "./packages/credentials/credentials-local" },
+     { "path": "./packages/credentials/credentials-encrypted" },
     { "path": "./packages/auth/authentication" },
     { "path": "./packages/auth/authentication-local" },
     { "path": "./packages/session-query/tool-session-query" },
@@ -358,6 +362,7 @@
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-stdio" },
     { "path": "./packages/lsp/tool-lsp" },
-    { "path": "./apps/cli" }
+     { "path": "./apps/cli" },
+     { "path": "./apps/remote-server" }
   ]
 }

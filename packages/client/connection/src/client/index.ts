@@ -15,6 +15,7 @@ import { createWebFileUploadTransport } from './upload.ts'
 import type { FileUploadTransport } from './upload.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
+import { createBrowserPathResolver } from './target.ts'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
@@ -145,6 +146,7 @@ export function apply(ctx: Context): void {
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   let authentication: AuthenticationPrincipalIdentity | undefined
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
+  const resolvePath = createBrowserPathResolver(pageLocation?.search)
   let started = false
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
@@ -207,10 +209,13 @@ export function apply(ctx: Context): void {
     () => authentication,
     invalidateAuthentication,
     browserAuthentication,
+    resolvePath,
   )
-  const rpc = carrier?.rpc ?? fixtureClient?.rpc ?? createWebConnectionRpc((input, init) => browserAuthentication.fetch(input, init))
+  const rpc = carrier?.rpc ?? fixtureClient?.rpc ?? createWebConnectionRpc(
+    (input, init) => browserAuthentication.fetch(input, init), resolvePath,
+  )
   const upload: FileUploadTransport = carrier?.upload ?? fixtureClient?.upload
-    ?? createWebFileUploadTransport(resolveBase, browserAuthentication)
+    ?? createWebFileUploadTransport(resolveBase, browserAuthentication, resolvePath)
   ctx.effect(() => browserAuthentication.subscribe(() => {
     if (health.getSnapshot() === 'required') {
       controller?.stop()

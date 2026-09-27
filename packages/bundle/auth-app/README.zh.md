@@ -6,6 +6,8 @@
 
 该组合包不会把 `dsh-authentication-local` 挂载为网络服务，也不会打开端口。因此它可以在封存的 Harness home 中批准第一个 owner 设备，而不要求已有凭据。
 
+其 manifest（元数据清单）声明 `dsh.bundle.homeOwnership: "shared"`，因此 Web 持有 home 租约时，认证管理仍然可用。注册表操作保留自身的协调机制。启动器对同一 profile 的调用实施互斥；添加未声明共享的组合包会使整个组合要求独占（参见 [profile 所有权](../../boot/app-boot/README.md#profiles)）。
+
 ## Model Experience
 
 None, as this one-shot management app neither creates an Agent nor contributes model context.

@@ -42,6 +42,8 @@ export const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
 export interface DshBundleManifest {
   /** The patch layer this bundle exports, relative to its package root. */
   patch: string
+  /** Shared bundles may coexist with the home owner; omission requires exclusive ownership. */
+  homeOwnership?: 'exclusive' | 'shared'
 }
 
 /** The profile half of the `dsh` manifest section: what a profile directory composes. */
@@ -87,6 +89,8 @@ export interface Profile {
   name: string
   /** Absolute profile directory. */
   dir: string
+  /** Shared only when the nonempty bundle list unanimously declares sharing. */
+  homeOwnership: 'exclusive' | 'shared'
   /** Bundle layers in `dsh.profile.bundles` order. */
   layers: ProfileLayer[]
   /** Absolute path of the profile's own patch file. */
@@ -295,7 +299,7 @@ function sameBundles(left: readonly string[], right: readonly string[]): boolean
  * Normalize an exact installation-owned bundle tuple to its shipped template
  * while preserving every other manifest field. Any other list is user-owned.
  */
-function normalizeShippedProfile(name: string, dir: string, manifest: ProfileManifest): ProfileManifest {
+function normalizeShippedProfile(name: string, dir: string, manifest: ProfileManifest, readOnly: boolean): ProfileManifest {
   const installationOwned = INSTALLATION_OWNED_PROFILE_TUPLES[name]
   const current = PROFILE_TEMPLATES[name]
   const bundles = manifest.dsh?.profile?.bundles
@@ -308,7 +312,7 @@ function normalizeShippedProfile(name: string, dir: string, manifest: ProfileMan
       profile: { ...manifest.dsh?.profile, bundles: [...current] },
     },
   }
-  writeProfileManifest(dir, normalized)
+  if (!readOnly) writeProfileManifest(dir, normalized)
   return normalized
 }
 
@@ -366,14 +370,16 @@ export function resolveBundleDir(
  * @param home - the Harness home; defaults to {@link resolveDshHome}.
  * @param options - `userLayer: false` skips reading `cordis.patch.yml`, so a
  * bundles-only consumer (`--dump-default-config`, a recovery diagnostic)
- * cannot fail on a broken user layer.
+ * cannot fail on a broken user layer. `readOnly: true` resolves missing shipped
+ * templates and installation-owned normalization in memory without writing files.
  * @returns the loaded profile (empty `patches` when the user layer is skipped).
  */
 export function loadProfile(
   binName: string, name: string, installAnchor: string, home: string = resolveDshHome(),
-  options: { userLayer?: boolean } = {},
+  options: { userLayer?: boolean; readOnly?: boolean } = {},
 ): Profile {
   const dir = resolveProfileDir(name, home)
+  let manifest: ProfileManifest
   if (!existsSync(join(dir, 'package.json'))) {
     const template = PROFILE_TEMPLATES[name]
     if (template === undefined) {
@@ -381,14 +387,19 @@ export function loadProfile(
         `${binName}: profile ${JSON.stringify(name)} does not exist; create it with 'dsh plugin --profile ${name} add <package>'`,
       )
     }
-    initProfile(dir, template)
+    if (options.readOnly !== true) initProfile(dir, template)
+    manifest = { dsh: { profile: { bundles: [...template] } } }
+  } else {
+    manifest = readProfileManifest(binName, dir)
   }
-  const manifest = normalizeShippedProfile(name, dir, readProfileManifest(binName, dir))
+  manifest = normalizeShippedProfile(name, dir, manifest, options.readOnly === true)
   // A hand-written profile manifest may omit the dsh section entirely.
   const bundles = manifest.dsh?.profile?.bundles ?? []
+  let shared = bundles.length > 0
   const layers = bundles.map((packageName): ProfileLayer => {
     const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir)
     const bundleManifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as ProfileManifest
+    if (bundleManifest.dsh?.bundle?.homeOwnership !== 'shared') shared = false
     const declared = bundleManifest.dsh?.bundle?.patch
     if (declared === undefined) {
       throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`)
@@ -400,7 +411,7 @@ export function loadProfile(
   const patches = options.userLayer !== false && existsSync(patchPath)
     ? loadOverlayPatches(binName, patchPath)
     : []
-  return { name, dir, layers, patchPath, patches }
+  return { name, dir, homeOwnership: shared ? 'shared' : 'exclusive', layers, patchPath, patches }
 }
 
 /**

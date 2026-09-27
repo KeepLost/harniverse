@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../util/brand" },
+    { "path": "../../../vendor/cordis" }, { "path": "../../../vendor/schemastery" },
+    { "path": "../../credentials/credentials" }, { "path": "../../util/home-paths" },
+    { "path": "../../runtime-diagnostics/invariants" }, { "path": "../remote-hosts-ssh" },
+    { "path": "../../sdk/client" }, { "path": "../../core/session" },
+    { "path": "../../settings/settings" }, { "path": "../../typert/protocol" }
+  ]
+}

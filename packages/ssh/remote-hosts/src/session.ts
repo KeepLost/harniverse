@@ -1,0 +1,89 @@
+import { setTimeout as delay } from 'node:timers/promises'
+import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
+import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
+import type { RemoteHostSshConnection, RemoteHostSshForward } from '@deepseek-ai/dsh-remote-hosts-ssh'
+import { inspectArtifact } from './artifact.ts'
+import { bootstrapGrant, deploy, processAlive, startDetached } from './deploy.ts'
+import { nodeCommand, remoteHome } from './platform.ts'
+import { identity } from './secrets.ts'
+import { buildSnapshot } from './sync.ts'
+import { endpointSchema, HostTransport, statusSchema, type Endpoint } from './transport.ts'
+import type { ActiveReverseMapping, Config, HostRecord, RemoteHostState } from './types.ts'
+import { RemoteHostsError } from './validation.ts'
+
+/** All local transport resources belong to this connection attempt's controller. */
+export class HostSession {
+  transport?: HostTransport
+  mappings: ActiveReverseMapping[] = []
+  constructor(readonly connection: RemoteHostSshConnection, readonly controller: AbortController) {}
+  async dispose(): Promise<void> { this.controller.abort(); await this.connection.dispose() }
+}
+
+async function discovery(
+  connection: RemoteHostSshConnection, host: HostRecord, home: string, release: string, signal: AbortSignal,
+): Promise<Endpoint | undefined> {
+  const script = `import {readFile,lstat} from 'node:fs/promises';const p=process.env.DSH_HOME+'/server/endpoint.json';try{
+const s=await lstat(p);if(!s.isFile()||s.isSymbolicLink()||s.size>4096)throw Error('invalid endpoint');
+process.stdout.write(JSON.stringify({endpoint:JSON.parse(await readFile(p,'utf8'))}));
+}catch(e){if(e.code==='ENOENT')process.stdout.write('{}');else throw e}`
+  const result = await connection.exec(nodeCommand(host.platform, release, home, script), undefined, signal)
+  if (result.exitCode !== 0 || result.signal !== null) throw new RemoteHostsError('ENDPOINT_READ_FAILED')
+  const value = JSON.parse(result.stdout.toString('utf8')) as { endpoint?: unknown }
+  return value.endpoint === undefined ? undefined : endpointSchema.parse(value.endpoint)
+}
+
+export async function establish(
+  session: HostSession, host: HostRecord, config: Config, provider: CredentialProvider, settings: SettingsProvider,
+  phase: (state: RemoteHostState) => void,
+): Promise<void> {
+  const connection = session.connection
+  const signal = AbortSignal.any([session.controller.signal, connection.signal])
+  const home = remoteHome(host.platform, await connection.realpath('.', signal), host.dshHome)
+  phase('deploying')
+  const artifact = await inspectArtifact(config.artifactsRoot, host.platform, host.architecture)
+  signal.throwIfAborted()
+  const release = await deploy(connection, host, home, artifact, signal)
+  const keys = await identity(provider, host.id)
+  const grant = await bootstrapGrant(connection, host, home, release, keys.publicKey, signal)
+  let endpoint = await discovery(connection, host, home, release, signal)
+  const live = endpoint !== undefined && await processAlive(connection, host, home, release, endpoint.pid, signal)
+  const startupSignal = AbortSignal.any([signal, AbortSignal.timeout(config.startupTimeoutMs ?? 60_000)])
+  if (!live) await startDetached(connection, host, home, release, startupSignal)
+  let forward: RemoteHostSshForward | undefined
+  while (true) {
+    startupSignal.throwIfAborted()
+    if (!live) endpoint = await discovery(connection, host, home, release, startupSignal)
+    if (endpoint !== undefined && (live || await processAlive(connection, host, home, release, endpoint.pid, startupSignal))) {
+      // This app binds HTTP loopback; TLS deployments require explicit certificate trust integration.
+      if (endpoint.protocol !== 'http:') throw new RemoteHostsError('UNSUPPORTED_ENDPOINT_TLS')
+      forward = await connection.forward('127.0.0.1', endpoint.port, startupSignal)
+      const transport = new HostTransport(forward.port, grant, provider, host.id, signal, config.requestTimeoutMs ?? 30_000)
+      try {
+        const status = statusSchema.parse(await transport.rpc('status', {}, startupSignal))
+        if (status.bootId !== endpoint.bootId || status.platform !== host.platform || status.arch !== host.architecture) {
+          throw new RemoteHostsError('ENDPOINT_IDENTITY_MISMATCH')
+        }
+        session.transport = transport
+        break
+      } catch (error) {
+        await forward.close()
+        if (live || error instanceof RemoteHostsError && error.code === 'ENDPOINT_IDENTITY_MISMATCH') throw error
+      }
+    }
+    await delay(200, undefined, { signal: startupSignal })
+  }
+  for (const mapping of host.reverseMappings) {
+    const handle = await connection.reverse({ localHost: mapping.localHost, localPort: mapping.localPort }, signal)
+    session.mappings.push({ ...mapping, remotePort: handle.port })
+  }
+  await session.transport.rpc('unlock', { key: keys.aes })
+  await synchronize(session, provider, settings)
+  signal.throwIfAborted()
+}
+
+export async function synchronize(session: HostSession, provider: CredentialProvider, settings: SettingsProvider): Promise<void> {
+  if (session.transport === undefined) throw new RemoteHostsError('NOT_CONNECTED')
+  const snapshot = await buildSnapshot(settings, provider, session.mappings)
+  await session.transport.rpc('replaceCredentials', { snapshot: snapshot.credentials })
+  await session.transport.rpc('syncSettings', { snapshot: snapshot.settings })
+}

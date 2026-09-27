@@ -21,6 +21,8 @@ import type {
   ConnectionRpcEndpointResolver,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
+  ConnectionHttpProxyHandler,
+  ConnectionHttpProxyResolver,
   HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
@@ -39,6 +41,11 @@ interface ConnectionRpcInterceptor {
   readonly resolveEndpoint: ConnectionRpcEndpointResolver
   readonly handler: ConnectionRpcHandler
   readonly options: ConnectionRpcHandlerOptions
+}
+
+interface ConnectionHttpProxyInterceptor {
+  readonly resolveEndpoint: ConnectionHttpProxyResolver
+  readonly handler: ConnectionHttpProxyHandler
 }
 
 type RpcFailureReporter = (endpoint: string, error: unknown) => void
@@ -66,6 +73,7 @@ declare module '@deepseek-ai/cordis' {
 /** Host Connection service whose channel registrations belong to the caller fiber. */
 export class HostConnectionService extends Service implements HostConnectionHandle {
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
+  private targetedProxy: ConnectionHttpProxyInterceptor | undefined
 
   /**
    * Provide the Host half over the active HTTP server.
@@ -142,6 +150,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
       fetch: (request) => {
         const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
         if (endpoint === undefined) return Promise.resolve(new Response('forbidden', { status: 403 }))
+        const targeted = this.targetedProxy
+        const targetedResolution = targeted?.resolveEndpoint(endpoint, request)
+        if (targeted !== undefined && targetedResolution !== undefined) {
+          if ('denied' in targetedResolution || !principal.capabilities.includes(targetedResolution.requiredCapability)) {
+            return Promise.resolve(new Response('forbidden', { status: 403 }))
+          }
+          return targeted.handler(request, principal)
+        }
         const interceptor = this.interceptors.get(channel)
         const interceptorResolution = interceptor?.resolveEndpoint(endpoint)
         if (interceptor !== undefined && interceptorResolution !== undefined) {
@@ -165,6 +181,26 @@ export class HostConnectionService extends Service implements HostConnectionHand
         return fallback.fetch(request)
       },
     }
+  }
+
+  /**
+   * Register the one carrier-level target proxy. It runs after local trust and
+   * authentication, before the ordinary shared RPC interceptor and fallback.
+   * @param owner - plugin context that owns the registration.
+   * @param resolveEndpoint - target-aware endpoint policy.
+   * @param handler - raw request forwarder.
+   * @returns an effect disposer.
+   */
+  registerHttpProxy(
+    owner: Context,
+    resolveEndpoint: ConnectionHttpProxyResolver,
+    handler: ConnectionHttpProxyHandler,
+  ): () => Promise<void> {
+    return owner.effect(() => {
+      if (this.targetedProxy !== undefined) throw new Error('client-connection: HTTP target proxy already has an owner')
+      this.targetedProxy = { resolveEndpoint, handler }
+      return () => { this.targetedProxy = undefined }
+    }, 'client-connection: targeted HTTP proxy')
   }
 
   private register(

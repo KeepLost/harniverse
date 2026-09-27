@@ -7,6 +7,7 @@ import {
 import { serverResponseSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import { randomUuid } from './random-uuid.ts'
+import type { TransportPathResolver } from './target.ts'
 
 const INTERNAL_BASE = 'http://dsh.internal'
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
@@ -19,6 +20,7 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
  */
 export function createWebConnectionRpc(
   request: (input: URL, init?: RequestInit) => Promise<Response> = (...args) => globalThis.fetch(...args),
+  resolvePath: TransportPathResolver = path => path,
 ): ClientConnectionRpc {
   return {
     async call(channel, endpoint, payload, signal) {
@@ -31,7 +33,7 @@ export function createWebConnectionRpc(
         payload,
       }
       const response = await request(
-        new URL(`${channel}/${endpoint}`, resolveBase()),
+        new URL(resolvePath(`${channel}/${endpoint}`), resolveBase()),
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
