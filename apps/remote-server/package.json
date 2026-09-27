@@ -12,7 +12,7 @@
     "./invariant": { "types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js" },
     "./package.json": "./package.json"
   },
-  "files": ["lib/*.js", "lib/**/*.js", "lib/**/*.d.ts", "cordis.patch.yml"],
+  "files": ["lib", "cordis.patch.yml"],
   "dsh": {
     "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-remote-server"] },
     "bundle": { "patch": "cordis.patch.yml" }
