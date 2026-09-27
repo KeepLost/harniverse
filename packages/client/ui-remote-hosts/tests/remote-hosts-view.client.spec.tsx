@@ -97,7 +97,7 @@ describe('RemoteHostsView', () => {
     expect(screen.getByText(/model\.example\.test/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: zh.removeMapping }))
     fireEvent.click(screen.getByRole('button', { name: zh.probe }))
-    await waitFor(() => { expect((screen.getByLabelText(zh.fingerprint)).value).toBe(host().fingerprint) })
+    await waitFor(() => { expect(screen.getByDisplayValue(host().fingerprint)).toBeTruthy() })
     fireEvent.click(screen.getByLabelText(zh.saveCredentials))
     fireEvent.click(screen.getByRole('button', { name: zh.save }))
     await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
