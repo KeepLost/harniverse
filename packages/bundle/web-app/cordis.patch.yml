@@ -151,6 +151,9 @@
     - id: remote-hosts
       name: '@deepseek-ai/dsh-remote-hosts'
       inject: [remoteHostSsh, credentials, settings]
+      config:
+        dshHome: !!js dshHomePath()
+        artifactsRoot: !!js dshHomePath('artifacts')
 
     # Session-scoped interactive USER terminals for the browser panel: a Host
     # Remote over the subprocess PTY seam (never sandbox-confined, never
