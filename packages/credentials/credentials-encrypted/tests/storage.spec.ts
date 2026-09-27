@@ -69,6 +69,13 @@ it.skipIf(process.platform === 'win32')('refuses a commit when a newly created d
   await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+it.skipIf(process.platform === 'win32')('syncs newly created ancestors before committing into them', async () => {
+  const { dir } = await store()
+  const path = join(dir, 'new', 'nested', 'credentials.json')
+  await writeDocument(path, 'encrypted envelope')
+  expect(await readFile(path, 'utf8')).toBe('encrypted envelope')
+})
+
 it('treats only missing files as empty and bounds reads', async () => {
   const { path } = await store()
   expect(await readDocument(path)).toBeUndefined()

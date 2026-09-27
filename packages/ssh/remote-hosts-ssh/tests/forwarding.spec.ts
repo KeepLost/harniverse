@@ -68,7 +68,9 @@ it('drains active sockets and removes both listeners during connection disposal'
   const reverse = await connection.reverse({ localHost: '127.0.0.1', localPort: echo.port })
   const sockets = [forward.port, reverse.port].map(port => createConnection({ host: '127.0.0.1', port }))
   for (const socket of sockets) socket.on('error', () => {})
-  const closed = sockets.map(socket => once(socket, 'close'))
+  // A remote channel teardown may report ECONNRESET before its local close;
+  // the close event is the lifecycle contract this test is asserting.
+  const closed = sockets.map(socket => new Promise<void>((resolve) => { socket.once('close', () => { resolve() }) }))
   await Promise.all(sockets.map(socket => once(socket, 'connect')))
   await connection.dispose()
   await Promise.all(closed)

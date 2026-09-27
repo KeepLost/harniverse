@@ -21,9 +21,11 @@ import type { RemoteHostSshAuthentication, RemoteHostSshConnection, RemoteHostSs
 import * as Hosts from '../src/index.ts'
 import type { Endpoint } from '../src/transport.ts'
 
+const fixturePlatform: 'linux' | 'darwin' = process.platform === 'darwin' ? 'darwin' : 'linux'
+const fixtureArchitecture: 'x64' | 'arm64' = process.arch === 'arm64' ? 'arm64' : 'x64'
 export const hostInput = { name: 'Fixture', host: 'fixture.invalid', port: 22, username: 'runner',
-  fingerprint: 'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', platform: 'linux' as const,
-  architecture: 'x64' as const, authentication: { kind: 'password' as const } }
+  fingerprint: 'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', platform: fixturePlatform,
+  architecture: fixtureArchitecture, authentication: { kind: 'password' as const } }
 
 export async function load(ctx: Context, home: string, modules: Record<string, object>, rows: object[]): Promise<void> {
   ctx.baseUrl = pathToFileURL(home).href + '/'
@@ -40,8 +42,8 @@ export async function load(ctx: Context, home: string, modules: Record<string, o
   await ctx.loader.await()
 }
 
-export async function artifact(root: string): Promise<void> {
-  const dir = join(root, 'linux-x64')
+export async function artifact(root: string, platform = fixturePlatform, architecture = fixtureArchitecture): Promise<void> {
+  const dir = join(root, `${platform}-${architecture}`)
   await mkdir(join(dir, 'app/lib'), { recursive: true })
   await copyFile(process.execPath, join(dir, 'node'))
   await writeFile(join(dir, 'app/lib/bin.js'), 'throw new Error("fixture must reuse live remote runtime")\n')
@@ -51,7 +53,7 @@ export async function artifact(root: string): Promise<void> {
     files.push({ path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
   }
   const manifest = JSON.stringify({ formatVersion: 1, package: '@deepseek-ai/dsh-remote-server', version: 'test',
-    node: { platform: 'linux', arch: 'x64', version: process.version, modules: process.versions.modules },
+    node: { platform, arch: architecture, version: process.version, modules: process.versions.modules },
     launch: { executable: 'node', args: ['app/lib/bin.js', '--port', '0'] }, files })
   await writeFile(join(dir, 'manifest.json'), manifest)
   await writeFile(join(dir, 'manifest.sha256'), `${createHash('sha256').update(manifest).digest('hex')}  manifest.json\n`)
