@@ -108,6 +108,145 @@ declare class SshConnection extends Service {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxremotehosts--remotehostsprovider"></a>
+
+### `ctx.remoteHosts` — `RemoteHostsProvider`
+
+Definition consumed by management UIs and trusted same-process proxy plugins.
+
+```ts cordis-catalog
+/**
+ * List configured hosts with their current connection state.
+ * @returns the current view of every configured remote host.
+ */
+list(): Promise<RemoteHostView[]>
+
+/**
+ * Create or replace one host configuration and optionally persist credentials.
+ * @param input - complete host configuration and optional credential references.
+ * @returns the saved host with its current connection state.
+ */
+upsert(input: UpsertHostInput): Promise<RemoteHostView>
+
+/**
+ * Remove one host configuration and its local credential references.
+ * @param id - local registry identity of the host to remove.
+ */
+remove(id: RemoteHostId): Promise<void>
+
+/**
+ * Inspect a host key without persisting the host or authenticating.
+ * @param input - SSH target to probe.
+ * @returns the observed OpenSSH SHA256 fingerprint.
+ */
+probe(input: ProbeHostInput): Promise<{ fingerprint: string }>
+
+/**
+ * Connect to a configured host and synchronize its remote runtime.
+ * @param input - host identity and optional one-shot credentials.
+ * @returns the connected host view.
+ */
+connect(input: ConnectHostInput): Promise<RemoteHostView>
+
+/**
+ * Disconnect a host and close its owned transport resources.
+ * @param id - local registry identity of the host to disconnect.
+ */
+disconnect(id: RemoteHostId): Promise<void>
+
+/**
+ * Proxy one permitted browser request to a connected remote host.
+ * @param id - local registry identity of the destination host.
+ * @param path - remote API path, including its query string.
+ * @param init - optional request method, headers, and body.
+ * @returns the remote HTTP response.
+ */
+request(id: RemoteHostId, path: string, init?: RequestInit): Promise<Response>
+
+/**
+ * Open one permitted event stream to a connected remote host.
+ * @param id - local registry identity of the destination host.
+ * @param path - remote WebSocket path, including its query string.
+ * @param signal - optional cancellation for the opening handshake.
+ * @returns the provider-owned WebSocket transport handle.
+ */
+openWebSocket(id: RemoteHostId, path: string, signal?: AbortSignal): Promise<unknown>
+
+/**
+ * Return local credential references without exposing credential values.
+ * @param id - local registry identity of the host.
+ * @returns secret-free authentication metadata.
+ */
+authentication(id: RemoteHostId): unknown
+
+/**
+ * Return active reverse mappings owned by one connected host.
+ * @param id - local registry identity of the host.
+ * @returns read-only active mapping descriptions.
+ */
+reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
+```
+
+Source: [`packages/ssh/remote-hosts/src/types.ts:70`](../../packages/ssh/remote-hosts/src/types.ts)
+
+<a id="ctxremotehostssh--remotehostsshprovider"></a>
+
+### `ctx.remoteHostSsh` — `RemoteHostSshProvider`
+
+Consumer contract implemented by the Cordis service or a replacement provider.
+
+```ts cordis-catalog
+/** Verify the pin before authentication and return an owned connection.
+ * @param config - pinned SSH target to connect to.
+ * @param authentication - explicit credentials for this connection.
+ * @param signal - optional cancellation for connection setup.
+ * @returns an owned SSH connection.
+ */
+open(config: RemoteHostSshConfig, authentication: RemoteHostSshAuthentication, signal?: AbortSignal): Promise<RemoteHostSshConnection>
+
+/** Observe an untrusted fingerprint, reject its key, and close before authentication.
+ * @param config - SSH target whose host key should be observed.
+ * @param signal - optional cancellation for the probe.
+ * @returns the observed OpenSSH SHA256 fingerprint.
+ */
+probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string>
+```
+
+Source: [`packages/ssh/remote-hosts-ssh/src/types.ts:76`](../../packages/ssh/remote-hosts-ssh/src/types.ts)
+
+<a id="ctxremoteruntime--remoteruntime"></a>
+
+### `ctx.remoteRuntime` — `RemoteRuntime`
+
+Remote control provider. Browser and SSH connections never own its decrypted lifetime.
+
+```ts cordis-catalog
+/** Report lock state and process identity without credential names or values.
+ * @returns the current runtime status.
+ */
+@Remote({ requiredCapability: 'harniverse.observe' }) status(): RemoteRuntimeStatus
+
+/** Unlock the encrypted credential provider for this process.
+ * @param key - canonical base64url encoding of 32 random bytes from the local authority.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async unlock(key: string): Promise<void>
+
+/** Replace the complete encrypted credential map.
+ * @param snapshot - complete credential map; omitted references are deleted.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async replaceCredentials(snapshot: Record<string, string>): Promise<void>
+
+/** Replace the complete model and search settings snapshot.
+ * @param snapshot - complete model/search user sections; omitted registered sections reset.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async syncSettings(snapshot: Record<string, JsonValue>): Promise<void>
+
+/** Synchronous admission check for same-process consumers; never waits for a connection. */
+assertUnlocked(): void
+```
+
+Source: [`packages/ssh/remote-runtime/src/index.ts:28`](../../packages/ssh/remote-runtime/src/index.ts)
+
 <a id="ctxssh--sshconnection"></a>
 
 ### `ctx.ssh` — `SshConnection`

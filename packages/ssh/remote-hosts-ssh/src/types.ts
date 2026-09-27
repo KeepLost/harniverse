@@ -74,9 +74,18 @@ export interface RemoteHostSshConnection {
 
 /** Consumer contract implemented by the Cordis service or a replacement provider. */
 export interface RemoteHostSshProvider {
-  /** Verify the pin before authentication and return an owned connection. */
+  /** Verify the pin before authentication and return an owned connection.
+   * @param config - pinned SSH target to connect to.
+   * @param authentication - explicit credentials for this connection.
+   * @param signal - optional cancellation for connection setup.
+   * @returns an owned SSH connection.
+   */
   open(config: RemoteHostSshConfig, authentication: RemoteHostSshAuthentication, signal?: AbortSignal): Promise<RemoteHostSshConnection>
-  /** Observe an untrusted fingerprint, reject its key, and close before authentication. */
+  /** Observe an untrusted fingerprint, reject its key, and close before authentication.
+   * @param config - SSH target whose host key should be observed.
+   * @param signal - optional cancellation for the probe.
+   * @returns the observed OpenSSH SHA256 fingerprint.
+   */
   probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string>
 }
 

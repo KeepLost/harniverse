@@ -68,14 +68,65 @@ export interface Config {
 
 /** Definition consumed by management UIs and trusted same-process proxy plugins. */
 export interface RemoteHostsProvider {
+  /**
+   * List configured hosts with their current connection state.
+   * @returns the current view of every configured remote host.
+   */
   list(): Promise<RemoteHostView[]>
+  /**
+   * Create or replace one host configuration and optionally persist credentials.
+   * @param input - complete host configuration and optional credential references.
+   * @returns the saved host with its current connection state.
+   */
   upsert(input: UpsertHostInput): Promise<RemoteHostView>
+  /**
+   * Remove one host configuration and its local credential references.
+   * @param id - local registry identity of the host to remove.
+   */
   remove(id: RemoteHostId): Promise<void>
+  /**
+   * Inspect a host key without persisting the host or authenticating.
+   * @param input - SSH target to probe.
+   * @returns the observed OpenSSH SHA256 fingerprint.
+   */
   probe(input: ProbeHostInput): Promise<{ fingerprint: string }>
+  /**
+   * Connect to a configured host and synchronize its remote runtime.
+   * @param input - host identity and optional one-shot credentials.
+   * @returns the connected host view.
+   */
   connect(input: ConnectHostInput): Promise<RemoteHostView>
+  /**
+   * Disconnect a host and close its owned transport resources.
+   * @param id - local registry identity of the host to disconnect.
+   */
   disconnect(id: RemoteHostId): Promise<void>
+  /**
+   * Proxy one permitted browser request to a connected remote host.
+   * @param id - local registry identity of the destination host.
+   * @param path - remote API path, including its query string.
+   * @param init - optional request method, headers, and body.
+   * @returns the remote HTTP response.
+   */
   request(id: RemoteHostId, path: string, init?: RequestInit): Promise<Response>
+  /**
+   * Open one permitted event stream to a connected remote host.
+   * @param id - local registry identity of the destination host.
+   * @param path - remote WebSocket path, including its query string.
+   * @param signal - optional cancellation for the opening handshake.
+   * @returns the provider-owned WebSocket transport handle.
+   */
   openWebSocket(id: RemoteHostId, path: string, signal?: AbortSignal): Promise<unknown>
+  /**
+   * Return local credential references without exposing credential values.
+   * @param id - local registry identity of the host.
+   * @returns secret-free authentication metadata.
+   */
   authentication(id: RemoteHostId): unknown
+  /**
+   * Return active reverse mappings owned by one connected host.
+   * @param id - local registry identity of the host.
+   * @returns read-only active mapping descriptions.
+   */
   reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 }

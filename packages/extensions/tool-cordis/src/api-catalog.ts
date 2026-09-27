@@ -1663,6 +1663,123 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'remoteHosts',
+    summary: 'Definition consumed by management UIs and trusted same-process proxy plugins.',
+    description: 'Definition consumed by management UIs and trusted same-process proxy plugins.',
+    methods: [
+      {
+        signature: 'list(): Promise<RemoteHostView[]>',
+        description: 'List configured hosts with their current connection state.',
+        parameters: [],
+        returns: 'the current view of every configured remote host.',
+      },
+      {
+        signature: 'upsert(input: UpsertHostInput): Promise<RemoteHostView>',
+        description: 'Create or replace one host configuration and optionally persist credentials.',
+        parameters: [{ name: 'input', description: 'complete host configuration and optional credential references.' }],
+        returns: 'the saved host with its current connection state.',
+      },
+      {
+        signature: 'remove(id: RemoteHostId): Promise<void>',
+        description: 'Remove one host configuration and its local credential references.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host to remove.' }],
+      },
+      {
+        signature: 'probe(input: ProbeHostInput): Promise<{ fingerprint: string }>',
+        description: 'Inspect a host key without persisting the host or authenticating.',
+        parameters: [{ name: 'input', description: 'SSH target to probe.' }],
+        returns: 'the observed OpenSSH SHA256 fingerprint.',
+      },
+      {
+        signature: 'connect(input: ConnectHostInput): Promise<RemoteHostView>',
+        description: 'Connect to a configured host and synchronize its remote runtime.',
+        parameters: [{ name: 'input', description: 'host identity and optional one-shot credentials.' }],
+        returns: 'the connected host view.',
+      },
+      {
+        signature: 'disconnect(id: RemoteHostId): Promise<void>',
+        description: 'Disconnect a host and close its owned transport resources.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host to disconnect.' }],
+      },
+      {
+        signature: 'request(id: RemoteHostId, path: string, init?: RequestInit): Promise<Response>',
+        description: 'Proxy one permitted browser request to a connected remote host.',
+        parameters: [{ name: 'id', description: 'local registry identity of the destination host.' }, { name: 'path', description: 'remote API path, including its query string.' }, { name: 'init', description: 'optional request method, headers, and body.' }],
+        returns: 'the remote HTTP response.',
+      },
+      {
+        signature: 'openWebSocket(id: RemoteHostId, path: string, signal?: AbortSignal): Promise<unknown>',
+        description: 'Open one permitted event stream to a connected remote host.',
+        parameters: [{ name: 'id', description: 'local registry identity of the destination host.' }, { name: 'path', description: 'remote WebSocket path, including its query string.' }, { name: 'signal', description: 'optional cancellation for the opening handshake.' }],
+        returns: 'the provider-owned WebSocket transport handle.',
+      },
+      {
+        signature: 'authentication(id: RemoteHostId): unknown',
+        description: 'Return local credential references without exposing credential values.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host.' }],
+        returns: 'secret-free authentication metadata.',
+      },
+      {
+        signature: 'reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]',
+        description: 'Return active reverse mappings owned by one connected host.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host.' }],
+        returns: 'read-only active mapping descriptions.',
+      },
+    ],
+  },
+  {
+    key: 'remoteHostSsh',
+    summary: 'Consumer contract implemented by the Cordis service or a replacement provider.',
+    description: 'Consumer contract implemented by the Cordis service or a replacement provider.',
+    methods: [
+      {
+        signature: 'open(config: RemoteHostSshConfig, authentication: RemoteHostSshAuthentication, signal?: AbortSignal): Promise<RemoteHostSshConnection>',
+        description: 'Verify the pin before authentication and return an owned connection.',
+        parameters: [{ name: 'config', description: 'pinned SSH target to connect to.' }, { name: 'authentication', description: 'explicit credentials for this connection.' }, { name: 'signal', description: 'optional cancellation for connection setup.' }],
+        returns: 'an owned SSH connection.',
+      },
+      {
+        signature: 'probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string>',
+        description: 'Observe an untrusted fingerprint, reject its key, and close before authentication.',
+        parameters: [{ name: 'config', description: 'SSH target whose host key should be observed.' }, { name: 'signal', description: 'optional cancellation for the probe.' }],
+        returns: 'the observed OpenSSH SHA256 fingerprint.',
+      },
+    ],
+  },
+  {
+    key: 'remoteRuntime',
+    summary: 'Remote control provider.',
+    description: 'Remote control provider. Browser and SSH connections never own its decrypted lifetime.',
+    methods: [
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.observe\' }) status(): RemoteRuntimeStatus',
+        description: 'Report lock state and process identity without credential names or values.',
+        parameters: [],
+        returns: 'the current runtime status.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async unlock(key: string): Promise<void>',
+        description: 'Unlock the encrypted credential provider for this process.',
+        parameters: [{ name: 'key', description: 'canonical base64url encoding of 32 random bytes from the local authority.' }],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async replaceCredentials(snapshot: Record<string, string>): Promise<void>',
+        description: 'Replace the complete encrypted credential map.',
+        parameters: [{ name: 'snapshot', description: 'complete credential map; omitted references are deleted.' }],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async syncSettings(snapshot: Record<string, JsonValue>): Promise<void>',
+        description: 'Replace the complete model and search settings snapshot.',
+        parameters: [{ name: 'snapshot', description: 'complete model/search user sections; omitted registered sections reset.' }],
+      },
+      {
+        signature: 'assertUnlocked(): void',
+        description: 'Synchronous admission check for same-process consumers; never waits for a connection.',
+        parameters: [],
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
@@ -3887,6 +4004,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'ActiveReverseMapping',
+    declaration: 'export interface ActiveReverseMapping extends ReverseMapping {\n    remotePort: number;\n}',
+  },
+  {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
@@ -4117,6 +4238,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthenticationStatus',
     declaration: 'export interface AuthenticationStatus {\n    mode: AuthenticationMode;\n    sealed: boolean;\n}',
+  },
+  {
+    name: 'AuthSecrets',
+    declaration: 'export type AuthSecrets = {\n    kind: \'password\';\n    password: string;\n} | {\n    kind: \'key\';\n    privateKey: string;\n    passphrase?: string;\n};',
   },
   {
     name: 'BackendRegistry',
@@ -4437,6 +4562,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ConfinedSandboxMode',
     declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
+  },
+  {
+    name: 'ConnectHostInput',
+    declaration: 'export interface ConnectHostInput {\n    id: RemoteHostId;\n    secrets?: AuthSecrets;\n    storeCredentials?: boolean;\n}',
   },
   {
     name: 'ContentBlockMap',
@@ -4799,6 +4928,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type Hello = z.infer<typeof helloSchema>;',
   },
   {
+    name: 'HostAuthentication',
+    declaration: 'export type HostAuthentication = {\n    kind: \'password\';\n    passwordRef?: string;\n} | {\n    kind: \'key\';\n    privateKeyRef?: string;\n    passphraseRef?: string;\n} | {\n    kind: \'agent\';\n    socket: string;\n};',
+  },
+  {
     name: 'HostBrowserEnvironment',
     declaration: 'export interface HostBrowserEnvironment {\n    readonly available: boolean;\n    readonly unavailableReason?: string;\n    readonly maxPages: number;\n    readonly maxWidth: number;\n    readonly maxHeight: number;\n    readonly allowedHosts: readonly string[];\n    readonly allowPrivateAddresses: boolean;\n}',
   },
@@ -4809,6 +4942,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'HostBrowserPageInfo',
     declaration: 'export interface HostBrowserPageInfo {\n    readonly id: HostBrowserPageId;\n    readonly url: string;\n    readonly title: string;\n    readonly width: number;\n    readonly height: number;\n    readonly loading: boolean;\n    readonly state: \'ready\' | \'failed\' | \'closed\';\n    readonly error?: string;\n    readonly controllerId?: BrowserAttachmentId;\n    readonly canGoBack: boolean;\n    readonly canGoForward: boolean;\n}',
+  },
+  {
+    name: 'HostConfig',
+    declaration: 'export interface HostConfig {\n    name: string;\n    host: string;\n    port: number;\n    username: string;\n    fingerprint: string;\n    platform: RemotePlatform;\n    architecture: RemoteArchitecture;\n    dshHome?: string;\n    authentication: HostAuthentication;\n    reverseMappings: ReverseMapping[];\n}',
+  },
+  {
+    name: 'HostRecord',
+    declaration: 'export interface HostRecord extends HostConfig {\n    id: RemoteHostId;\n}',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -5323,6 +5464,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n} | {\n    kind: \'ask\';\n    reason?: string;\n};',
   },
   {
+    name: 'ProbeHostInput',
+    declaration: 'export interface ProbeHostInput {\n    host: string;\n    port?: number;\n    username: string;\n}',
+  },
+  {
     name: 'ProjectionChangeListener',
     declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: number) => void;',
   },
@@ -5419,6 +5564,58 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
   {
+    name: 'RemoteArchitecture',
+    declaration: 'export type RemoteArchitecture = \'x64\' | \'arm64\';',
+  },
+  {
+    name: 'RemoteHostId',
+    declaration: 'export type RemoteHostId = Branded<\'RemoteHostId\'>;',
+  },
+  {
+    name: 'RemoteHostSshAuthentication',
+    declaration: 'export type RemoteHostSshAuthentication = {\n    kind: \'password\';\n    password: string;\n} | {\n    kind: \'key\';\n    privateKey: string;\n    passphrase?: string;\n} | {\n    kind: \'agent\';\n    socket: string;\n};',
+  },
+  {
+    name: 'RemoteHostSshConfig',
+    declaration: 'export interface RemoteHostSshConfig extends RemoteHostSshTarget {\n    fingerprint: string;\n}',
+  },
+  {
+    name: 'RemoteHostSshConnection',
+    declaration: 'export interface RemoteHostSshConnection {\n    readonly closed: Promise<void>;\n    readonly signal: AbortSignal;\n    exec(command: string, input?: string | Buffer, signal?: AbortSignal): Promise<RemoteHostSshExecResult>;\n    upload(localPath: string, remotePath: string, signal?: AbortSignal): Promise<void>;\n    readFile(path: string, signal?: AbortSignal): Promise<Buffer>;\n    realpath(path: string, signal?: AbortSignal): Promise<string>;\n    mkdir(path: string, signal?: AbortSignal): Promise<void>;\n    forward(remoteHost: string, remotePort: number, signal?: AbortSignal): Promise<RemoteHostSshForward>;\n    reverse(config: RemoteHostSshReverseConfig, signal?: AbortSignal): Promise<RemoteHostSshForward>;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'RemoteHostSshExecResult',
+    declaration: 'export interface RemoteHostSshExecResult {\n    stdout: Buffer;\n    stderr: Buffer;\n    exitCode: number | null;\n    signal: string | null;\n}',
+  },
+  {
+    name: 'RemoteHostSshForward',
+    declaration: 'export interface RemoteHostSshForward {\n    readonly port: number;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'RemoteHostSshReverseConfig',
+    declaration: 'export interface RemoteHostSshReverseConfig {\n    remotePort?: number;\n    localHost: string;\n    localPort: number;\n}',
+  },
+  {
+    name: 'RemoteHostSshTarget',
+    declaration: 'export interface RemoteHostSshTarget {\n    host: string;\n    port?: number;\n    username: string;\n}',
+  },
+  {
+    name: 'RemoteHostState',
+    declaration: 'export type RemoteHostState = \'offline\' | \'connecting\' | \'deploying\' | \'connected\' | \'error\';',
+  },
+  {
+    name: 'RemoteHostView',
+    declaration: 'export interface RemoteHostView extends HostRecord {\n    state: RemoteHostState;\n    error?: string;\n}',
+  },
+  {
+    name: 'RemotePlatform',
+    declaration: 'export type RemotePlatform = \'linux\' | \'darwin\' | \'win32\';',
+  },
+  {
+    name: 'RemoteRuntimeStatus',
+    declaration: 'export interface RemoteRuntimeStatus {\n    locked: boolean;\n    bootId: string;\n    platform: string;\n    arch: string;\n}',
+  },
+  {
     name: 'ReplayEnvelope',
     declaration: 'export interface ReplayEnvelope {\n    response: unknown;\n    blocks?: readonly unknown[];\n}',
   },
@@ -5489,6 +5686,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'ReverseMapping',
+    declaration: 'export interface ReverseMapping {\n    localHost: string;\n    localPort: number;\n    remoteOriginalOrigin: string;\n}',
   },
   {
     name: 'RpcError',
@@ -6629,6 +6830,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
+  },
+  {
+    name: 'UpsertHostInput',
+    declaration: 'export interface UpsertHostInput extends Omit<HostConfig, \'port\' | \'reverseMappings\'> {\n    id?: RemoteHostId;\n    port?: number;\n    reverseMappings?: ReverseMapping[];\n    secrets?: AuthSecrets;\n    storeCredentials?: boolean;\n}',
   },
   {
     name: 'UserMcpServerConfig',

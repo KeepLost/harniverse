@@ -53,26 +53,34 @@ export class RemoteRuntime extends TypertRemoteService {
     })
   }
 
-  /** @returns lock state and process identity without credential names or values. */
+  /** Report lock state and process identity without credential names or values.
+   * @returns the current runtime status.
+   */
   @Remote({ requiredCapability: 'harniverse.observe' })
   status(): RemoteRuntimeStatus {
     return { locked: this.provider().status().locked, bootId: this.bootId, platform: process.platform, arch: process.arch }
   }
 
-  /** @param key - canonical base64url encoding of 32 random bytes from the local authority. */
+  /** Unlock the encrypted credential provider for this process.
+   * @param key - canonical base64url encoding of 32 random bytes from the local authority.
+   */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async unlock(key: string): Promise<void> {
     await this.provider().unlock(key)
   }
 
-  /** @param snapshot - complete credential map; omitted references are deleted. */
+  /** Replace the complete encrypted credential map.
+   * @param snapshot - complete credential map; omitted references are deleted.
+   */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async replaceCredentials(snapshot: Record<string, string>): Promise<void> {
     this.assertUnlocked()
     await this.provider().replace(snapshot)
   }
 
-  /** @param snapshot - complete model/search user sections; omitted registered sections reset. */
+  /** Replace the complete model and search settings snapshot.
+   * @param snapshot - complete model/search user sections; omitted registered sections reset.
+   */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async syncSettings(snapshot: Record<string, JsonValue>): Promise<void> {
     this.assertUnlocked()
