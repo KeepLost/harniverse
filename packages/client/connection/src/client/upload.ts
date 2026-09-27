@@ -69,6 +69,7 @@ interface ReceiptShape {
  * Create the browser (XHR) upload transport.
  * @param resolveBase - origin resolver (shared with the RPC carrier).
  * @param authentication - shared admission and recovery capability, retaining the XHR progress carrier.
+ * @param resolvePath - maps the upload route to the selected transport target.
  * @returns transport posting raw bytes to the Host attachment route.
  */
 export function createWebFileUploadTransport(

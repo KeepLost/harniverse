@@ -16,7 +16,9 @@ const manifestSchema = z.strictObject({
   files: z.array(z.strictObject({ path: safePath, bytes: z.number().int().nonnegative(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/), link: z.string().optional() })).min(2).max(200000),
 })
+/** One verified artifact file ready for transfer. */
 export interface DeployFile { path: string; localPath: string; sha256: string; bytes: number; mode: number }
+/** Complete verified native remote-server artifact. */
 export interface Artifact { digest: string; executable: string; files: DeployFile[] }
 
 async function hashFile(path: string): Promise<string> {
@@ -25,6 +27,12 @@ async function hashFile(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
+/** Verify one local platform artifact and expand its portable links.
+ * @param root - absolute directory containing platform/architecture folders.
+ * @param platform - target operating system.
+ * @param arch - target CPU architecture.
+ * @returns the verified artifact files and manifest digest.
+ */
 export async function inspectArtifact(root: string, platform: RemotePlatform, arch: RemoteArchitecture): Promise<Artifact> {
   if (!isAbsolute(root)) throw new RemoteHostsError('ARTIFACT_ROOT_NOT_ABSOLUTE')
   const directory = await realpath(join(root, `${platform}-${arch}`))

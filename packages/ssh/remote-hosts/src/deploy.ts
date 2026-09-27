@@ -58,6 +58,14 @@ async function verifyNode(
   await execute(connection, command(host.platform, script), undefined, signal)
 }
 
+/** Upload and verify one artifact release on the remote host.
+ * @param connection - owned SSH connection.
+ * @param host - target host platform and path policy.
+ * @param home - validated remote Harness home.
+ * @param artifact - locally verified artifact.
+ * @param signal - cancellation for the deployment.
+ * @returns the immutable remote release directory.
+ */
 export async function deploy(
   connection: RemoteHostSshConnection, host: HostRecord, home: string, artifact: Artifact, signal: AbortSignal,
 ): Promise<string> {
@@ -95,6 +103,15 @@ let grant=(await listAuthenticationGrants(options)).find(g=>g.name===input.name)
 if(grant){if(grant.publicKey!==input.publicKey||grant.kind!=='api-client'||!isAuthenticationGrantActive(grant)||input.capabilities.some(c=>!grant.capabilities.includes(c)))throw Error('grant identity conflict');}
 else grant=await createAuthenticationClientGrant(input,options);process.stdout.write(JSON.stringify({id:grant.id}));`
 
+/** Ensure the remote process has the expected authenticated API grant.
+ * @param connection - owned SSH connection.
+ * @param host - target host platform and path policy.
+ * @param home - validated remote Harness home.
+ * @param release - verified remote release directory.
+ * @param publicKey - public key for the local coordinator grant.
+ * @param signal - cancellation for the operation.
+ * @returns the stable remote grant identity.
+ */
 export async function bootstrapGrant(
   connection: RemoteHostSshConnection, host: HostRecord, home: string, release: string, publicKey: string, signal: AbortSignal,
 ): Promise<string> {
@@ -107,6 +124,15 @@ export async function bootstrapGrant(
   return value.id
 }
 
+/** Probe whether the remote process with one PID is still alive.
+ * @param connection - owned SSH connection.
+ * @param host - target host platform and path policy.
+ * @param home - validated remote Harness home.
+ * @param release - verified remote release directory.
+ * @param pid - remote process identifier.
+ * @param signal - cancellation for the operation.
+ * @returns whether the process is alive.
+ */
 export async function processAlive(
   connection: RemoteHostSshConnection, host: HostRecord, home: string, release: string, pid: number, signal: AbortSignal,
 ): Promise<boolean> {
@@ -116,6 +142,13 @@ export async function processAlive(
   return output === 'live'
 }
 
+/** Start the verified remote server as a detached process.
+ * @param connection - owned SSH connection.
+ * @param host - target host platform and path policy.
+ * @param home - validated remote Harness home.
+ * @param release - verified remote release directory.
+ * @param signal - cancellation for the operation.
+ */
 export async function startDetached(
   connection: RemoteHostSshConnection, host: HostRecord, home: string, release: string, signal: AbortSignal,
 ): Promise<void> {

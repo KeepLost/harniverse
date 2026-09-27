@@ -35,7 +35,7 @@ Startup atomically publishes `server/endpoint.json` with `{ version: 1, host: "1
 
 ## Model Experience
 
-None directly: this Host plugin adds no prompt, tool, message, or model request. Synchronized model and search settings take effect through their existing owning plugins.
+None, as this Host plugin adds no prompt, tool, message, or model request; synchronized model and search settings take effect through their existing owning plugins.
 
 #### KV Cache effect
 

@@ -8,7 +8,7 @@ The view uses the generated `remoteHosts` Remote contract. It lists non-secret h
 
 ## Model Experience
 
-This package contributes no model-visible prompts, tools, events, or request fields. Host operations remain operator actions through authenticated Remote methods.
+None, as this browser-side management surface only exposes authenticated operator actions and registers no model context, tools, events, or request fields.
 
 #### KV Cache effect
 

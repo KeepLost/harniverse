@@ -1,6 +1,7 @@
 /** Bounded, versioned AES-GCM credential documents; the provider sanitizes parsing failures. */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 
+/** Maximum encoded credential document size accepted from disk. */
 export const MAX_FILE_BYTES = 1_500_000
 const MAX_SNAPSHOT_BYTES = 1_048_576
 const MAX_VALUES = 1024

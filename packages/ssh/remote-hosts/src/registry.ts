@@ -9,8 +9,10 @@ import type { HostRecord, RemoteHostId } from './types.ts'
 export class HostRegistry {
   private records: HostRecord[] = []
   private tail: Promise<void> = Promise.resolve()
+  /** Absolute registry file path. */
   readonly path: string
   constructor(private readonly home: string) { this.path = join(home, 'remote-hosts.json') }
+  /** Load and validate the registry file if it exists. */
   async load(): Promise<void> {
     try {
       const info = await lstat(this.path)
@@ -23,16 +25,33 @@ export class HostRegistry {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new RemoteHostsError('INVALID_REGISTRY')
     }
   }
+  /**
+   * List detached copies of every stored host record.
+   * @returns detached host records.
+   */
   list(): HostRecord[] { return structuredClone(this.records) }
+  /**
+   * Read one stored host record.
+   * @param id - local host identity.
+   * @returns a detached host record.
+   */
   get(id: RemoteHostId): HostRecord {
     const record = this.records.find(item => item.id === id)
     if (record === undefined) throw new RemoteHostsError('HOST_NOT_FOUND')
     return structuredClone(record)
   }
+  /**
+   * Replace or append one validated host record.
+   * @param record - record to persist.
+   */
   put(record: HostRecord): Promise<void> {
     const detached = parseRecord(record)
     return this.commit(records => [...records.filter(item => item.id !== record.id), detached])
   }
+  /**
+   * Remove one host record.
+   * @param id - local host identity.
+   */
   remove(id: RemoteHostId): Promise<void> { return this.commit(records => records.filter(item => item.id !== id)) }
   private commit(change: (records: HostRecord[]) => HostRecord[]): Promise<void> {
     const work = this.tail.then(async () => {

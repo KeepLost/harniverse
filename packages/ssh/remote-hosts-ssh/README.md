@@ -73,15 +73,7 @@ A package-only build uses `node_modules/.bin/tsc -p packages/ssh/remote-hosts-ss
 
 ## Model Experience
 
-### Transport operations
-
-#### What the model sees
-
-This provider registers no tools, prompts, model fields or Session events. Consumers own any model-visible projection of transport results.
-
-#### Token effect
-
-The provider adds no request or response tokens directly.
+None, as this provider registers no tools, prompts, model fields, or Session events; consumers own any model-visible projection of transport results.
 
 #### KV Cache effect
 

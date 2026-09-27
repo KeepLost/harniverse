@@ -119,6 +119,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
     occupants: [
       'client-ui-governor GovernorCenterView id \'governor\'',
+      'client-ui-remote-hosts RemoteHostsView id \'remote-hosts\'',
       'client-ui-scheduler ScheduleCenterView id \'schedules\'',
     ],
     replaceRisk: 'none',
@@ -1672,6 +1673,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     declaredBy: 'an entry in \'sidebar\' (client-ui-sidebar), so it exists while that entry is mounted',
     occupants: [
       'client-ui-governor GovernorSidebarAction id \'governor-view\'',
+      'client-ui-remote-hosts RemoteHostsSidebarAction id \'remote-hosts\'',
       'client-ui-scheduler ScheduleSidebarAction id \'schedule-view\'',
       'client-ui-cordis CordisPanel id \'cordis-panel\'',
     ],

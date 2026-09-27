@@ -73,15 +73,7 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/ssh/remote-hosts-ssh
 
 ## 模型体验
 
-### 传输操作
-
-#### 模型看到的内容
-
-此提供方不注册工具、提示词、模型字段或 Session 事件。消费方负责把传输结果投影为模型可见内容。
-
-#### Token 影响
-
-提供方不直接增加请求或响应的 token。
+此提供方不注册工具、提示词、模型字段或 Session 事件；消费方负责把传输结果投影为模型可见内容。
 
 #### KV Cache 影响
 

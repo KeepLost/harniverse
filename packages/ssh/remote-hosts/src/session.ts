@@ -13,9 +13,12 @@ import { RemoteHostsError } from './validation.ts'
 
 /** All local transport resources belong to this connection attempt's controller. */
 export class HostSession {
+  /** Authenticated HTTP transport over the SSH forward. */
   transport?: HostTransport
+  /** Active reverse mapping handles and allocated remote ports. */
   mappings: ActiveReverseMapping[] = []
   constructor(readonly connection: RemoteHostSshConnection, readonly controller: AbortController) {}
+  /** Abort the session and dispose its SSH transport. */
   async dispose(): Promise<void> { this.controller.abort(); await this.connection.dispose() }
 }
 
@@ -32,6 +35,14 @@ process.stdout.write(JSON.stringify({endpoint:JSON.parse(await readFile(p,'utf8'
   return value.endpoint === undefined ? undefined : endpointSchema.parse(value.endpoint)
 }
 
+/** Deploy, start, authenticate, and synchronize one remote session.
+ * @param session - connection-owned session state.
+ * @param host - configured remote host.
+ * @param config - local deployment limits and artifact root.
+ * @param provider - local credential provider.
+ * @param settings - local settings provider.
+ * @param phase - publishes deployment progress.
+ */
 export async function establish(
   session: HostSession, host: HostRecord, config: Config, provider: CredentialProvider, settings: SettingsProvider,
   phase: (state: RemoteHostState) => void,
@@ -81,6 +92,11 @@ export async function establish(
   signal.throwIfAborted()
 }
 
+/** Synchronize complete credentials and model/search settings to a connected host.
+ * @param session - connected host session.
+ * @param provider - local credential provider.
+ * @param settings - local settings provider.
+ */
 export async function synchronize(session: HostSession, provider: CredentialProvider, settings: SettingsProvider): Promise<void> {
   if (session.transport === undefined) throw new RemoteHostsError('NOT_CONNECTED')
   const snapshot = await buildSnapshot(settings, provider, session.mappings)

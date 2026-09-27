@@ -793,6 +793,16 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/client/ui-remote-hosts": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
     "apps/desktop": {
       "entry": [
         "renderer/shell.js",
@@ -831,6 +841,19 @@
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
         "tests/**/*.snapshot.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
+    },
+    "apps/remote-server": {
+      "entry": [
+        "src/bin.ts",
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -915,6 +938,37 @@
       ]
     },
     "packages/ssh/sandbox-ssh": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/ssh/remote-hosts": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/fixture.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/ssh/remote-hosts-ssh": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/fixture.ts",
+        "tests/built-smoke.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "tests/**/*.mjs"
+      ]
+    },
+    "packages/ssh/remote-runtime": {
       "entry": [
         "tests/**/*.spec.ts"
       ],

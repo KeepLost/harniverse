@@ -18,7 +18,10 @@ export type * from './types.ts'
 export { SYNC_SETTINGS_NAMESPACES } from './settings.ts'
 
 /** Endpoint discovery home; credentials use the same home in the server composition. */
-export interface Config { dshHome?: string }
+export interface Config {
+  /** Local home used for remote endpoint discovery and encrypted credentials. */
+  dshHome?: string
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context { remoteRuntime: RemoteRuntime }

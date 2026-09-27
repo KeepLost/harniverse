@@ -7,11 +7,15 @@ import type { RemoteHostId } from './types.ts'
 import { signingKey } from './secrets.ts'
 import { RemoteHostsError } from './validation.ts'
 
+/** Schema for the remote loopback endpoint discovery document. */
 export const endpointSchema = z.strictObject({ version: z.literal(1), host: z.literal('127.0.0.1'),
   port: z.number().int().min(1).max(65535), protocol: z.enum(['http:', 'https:']), pid: z.number().int().positive(), bootId: z.uuid() })
+/** Inferred remote endpoint discovery shape. */
 export type Endpoint = z.infer<typeof endpointSchema>
+/** Schema for the remote runtime status response. */
 export const statusSchema = z.strictObject({ locked: z.boolean(), bootId: z.uuid(), platform: z.string(), arch: z.string() })
 
+/** Authenticated request transport over one SSH local forward. */
 export class HostTransport {
   private readonly access: GrantAccess
   private readonly origin: string
@@ -24,6 +28,11 @@ export class HostTransport {
     })
     signal.addEventListener('abort', () => { this.access.clear() }, { once: true })
   }
+  /** Proxy one same-origin API request to the remote runtime.
+   * @param path - permitted remote API path.
+   * @param init - request method, headers, and body.
+   * @returns the remote response.
+   */
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     const url = this.checkedUrl(path)
     const headers = new Headers(init.headers)
@@ -33,10 +42,16 @@ export class HostTransport {
     return response
   }
 
-  /** Stable identity returned by the remote carrier, when one has settled. */
+  /** Stable identity returned by the remote carrier, when one has settled.
+   * @returns the last secret-free remote identity, when available.
+   */
   authentication(): unknown { return this.remoteIdentity }
 
-  /** Open one authenticated remote WebSocket through the SSH local forward. */
+  /** Open one authenticated remote WebSocket through the SSH local forward.
+   * @param path - permitted remote WebSocket path.
+   * @param signal - optional cancellation for opening and lifetime.
+   * @returns the opened WebSocket.
+   */
   async openWebSocket(path: string, signal?: AbortSignal): Promise<WebSocket> {
     const url = this.checkedUrl(path)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -85,6 +100,12 @@ export class HostTransport {
       // A streaming or malformed response has no usable carrier identity.
     }
   }
+  /** Call one remote runtime method through the authenticated RPC envelope.
+   * @param method - remote runtime method name.
+   * @param payload - method arguments.
+   * @param signal - optional cancellation.
+   * @returns the remote method result.
+   */
   async rpc(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const rpcId = randomUUID()
     const response = await this.request(`/api/remoteRuntime/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' },

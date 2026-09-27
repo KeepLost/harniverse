@@ -164,6 +164,13 @@ flowchart LR
   pkg_fs_ssh["fs-ssh"]
   pkg_subprocess_ssh["subprocess-ssh"]
   pkg_sandbox_ssh["sandbox-ssh"]
+  pkg_remote_hosts_ssh["remote-hosts-ssh"]
+  svc_remoteHostSsh["ctx.remoteHostSsh<br/>Pinned remote-host SSH transport"]
+  pkg_remote_hosts["remote-hosts"]
+  svc_remoteHosts["ctx.remoteHosts<br/>Local remote-host coordinator"]
+  pkg_client_ui_remote_hosts["client-ui-remote-hosts"]
+  pkg_remote_runtime["remote-runtime"]
+  svc_remoteRuntime["ctx.remoteRuntime<br/>Locked remote runtime control"]
   pkg_subprocess["subprocess"]
   svc_subprocess["ctx.subprocess<br/>Subprocess seam"]
   pkg_subprocess_local["subprocess-local"]
@@ -327,6 +334,9 @@ flowchart LR
   pkg_ptc_runtime_python --> svc_ptcRuntime
   pkg_pwsh_local --> svc_shell
   pkg_queue --> svc_queue
+  pkg_remote_hosts --> svc_remoteHosts
+  pkg_remote_hosts_ssh --> svc_remoteHostSsh
+  pkg_remote_runtime --> svc_remoteRuntime
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
@@ -444,6 +454,10 @@ flowchart LR
   svc_pluginDiagnostics --> pkg_host_plugin_inventory
   svc_ptcRuntime --> pkg_tools
   svc_queue --> pkg_client_ui_queue
+  svc_remoteHostSsh --> pkg_remote_hosts
+  svc_remoteHosts --> pkg_client_connection
+  svc_remoteHosts --> pkg_client_ui_remote_hosts
+  svc_remoteRuntime --> pkg_remote_hosts
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
   svc_sandboxPolicy --> pkg_bash_sandbox
@@ -592,6 +606,9 @@ flowchart LR
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | 唯一的具体循环插件；扩展包依赖 dsh-agent 的事件和服务，而不依赖此包。 |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | 从会话日志折叠带修订版本的目标状态，并将实时延续激活保留在进程本地。 |
 | `ctx.ssh` | `seam` | [`ssh`](../packages/ssh/ssh) | [`ssh`](../packages/ssh/ssh) | [`fs-ssh`](../packages/ssh/fs-ssh), [`subprocess-ssh`](../packages/ssh/subprocess-ssh), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | - | 连接拥有 OpenSSH 进程、辅助进程摘要验证、有界控制通道传输与辅助进程租期清理；远端文件系统、子进程与沙箱提供方搭载该传输，并在捕获的机器持有清单约束下于 SSH 主机上实现各自 seam。 |
+| `ctx.remoteHostSsh` | `seam` | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts`](../packages/ssh/remote-hosts) | - | The replaceable transport verifies the independently approved host pin before authentication and owns SSH channels, uploads, forwards, reverse mappings, and teardown for one remote Harniverse connection. |
+| `ctx.remoteHosts` | `seam` | [`remote-hosts`](../packages/ssh/remote-hosts) | [`remote-hosts`](../packages/ssh/remote-hosts) | [`client-ui-remote-hosts`](../packages/client/ui-remote-hosts), [`client-connection`](../packages/client/connection) | - | The local coordinator owns secret-free host records, credential references, artifact verification, remote deployment, settings synchronization, browser proxy boundaries, and connection state; the UI and trusted Host proxy consume its capabilities. |
+| `ctx.remoteRuntime` | `seam` | [`remote-runtime`](../packages/ssh/remote-runtime) | [`remote-runtime`](../packages/ssh/remote-runtime) | [`remote-hosts`](../packages/ssh/remote-hosts) | - | The remote process owns loopback endpoint discovery, encrypted credential unlock, complete credential replacement, and model/search settings synchronization behind authenticated capability-gated Remote methods. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local), [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash), [`lsp-stdio`](../packages/lsp/lsp-stdio), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code), [`governor`](../packages/monitor/governor) | - | Bash 执行器、PTY shell 后端、LSP Host，以及进程外 ACP、Codex 和 Claude Code subagent 后端都通过 ctx.subprocess 执行 spawn；该服务负责进程坐标、进程树／会话生命周期、stdio 处置、终端机制和 kill 升级。 |
 | `ctx.queue` | `seam` | [`queue`](../packages/queue/queue) | [`queue`](../packages/queue/queue) | [`client-ui-queue`](../packages/client/ui-queue) | - | 队列拥有 Kafka 语义的持久 topic、强制归档与投递即唤醒的扇出;四个模型工具(queue-topic/history/subscription/publish)经可分离装载的 queue/tool Consumer 挂载,面板 tab 轮询 queue Remote。 |
 | `ctx.terminalController` | `seam` | [`api-terminal-controller`](../packages/api/terminal-controller) | [`api-terminal-controller`](../packages/api/terminal-controller) | - | - | 终端控制器拥有构建于 subprocess PTY 接缝之上的按 Session 交互式用户 Shell(完整 harness 环境、登录启动、从不施加沙箱约束、对模型不可见),并通过 gateway terminal/* Remote 端点与 apiproxy events.terminal / events.hold SSE 流向浏览器面板提供先快照后输出的屏幕帧。 |

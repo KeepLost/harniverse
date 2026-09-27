@@ -19,9 +19,13 @@ export type RemoteHostSshAuthentication =
 
 /** Provider-wide bounds, validated when the plugin mounts. */
 export interface Config {
+  /** SSH connection establishment deadline in milliseconds. */
   connectTimeoutMs?: number
+  /** Per-operation SSH deadline in milliseconds. */
   operationTimeoutMs?: number
+  /** Maximum captured stdout/stderr bytes per remote command. */
   maxOutputBytes?: number
+  /** Maximum bytes returned by a remote file read. */
   maxReadBytes?: number
 }
 

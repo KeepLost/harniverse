@@ -100,15 +100,7 @@ Then run `../../../node_modules/.bin/tsdown --config tsdown.config.ts` from this
 
 ## Model Experience
 
-### Remote coordination
-
-#### What the model sees
-
-No new tools, prompts, or Session events. Existing remote plugins own model-visible work. Synchronized settings and explicitly selected credentials determine their configuration.
-
-#### Token effect
-
-No direct request or response token overhead.
+None, as this coordinator registers no tools, prompts, or Session events; existing remote plugins own model-visible work while synchronized settings and selected credentials determine their configuration.
 
 #### KV Cache effect
 

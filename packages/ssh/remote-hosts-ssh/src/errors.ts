@@ -18,7 +18,7 @@ export class RemoteHostSshError extends Error {
   }
 }
 
-/**
+/** Validate a TCP port value at an SSH input boundary.
  * @param value - Port at an input boundary.
  * @param zero - Permit ephemeral binding.
  * @returns whether the value is a permitted TCP port.
@@ -27,7 +27,7 @@ export function validPort(value: unknown, zero = false): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= (zero ? 0 : 1) && value <= 65535
 }
 
-/**
+/** Validate an address, username, or path at an SSH input boundary.
  * @param value - Address, username or path at an input boundary.
  * @returns whether the text is nonempty and contains no NUL.
  */
@@ -35,7 +35,7 @@ export function validText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && !value.includes('\0')
 }
 
-/**
+/** Check whether a runtime value is a non-array record.
  * @param value - Runtime input.
  * @returns whether field validation is possible.
  */

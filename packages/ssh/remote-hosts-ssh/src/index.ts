@@ -107,7 +107,9 @@ export class RemoteHostSsh extends Service implements RemoteHostSshProvider {
     finally { await connection.dispose() }
   }
 
-  /** @returns completion after new admission stops and every owned transport closes. */
+  /** Dispose the provider and wait for every owned transport to close.
+   * @returns completion after new admission stops and every owned transport closes.
+   */
   dispose(): Promise<void> {
     // Publish the admission barrier before abort listeners can reenter open().
     this.disposal ??= Promise.resolve().then(async () => {

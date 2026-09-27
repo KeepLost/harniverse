@@ -175,6 +175,7 @@ flowchart TD
     pkg_client_ui_primitives["client-ui-primitives"]
     pkg_client_ui_queue["client-ui-queue"]
     pkg_client_ui_reference["client-ui-reference"]
+    pkg_client_ui_remote_hosts["client-ui-remote-hosts"]
     pkg_client_ui_scheduler["client-ui-scheduler"]
     pkg_client_ui_settings["client-ui-settings"]
     pkg_client_ui_settings_capabilities["client-ui-settings-capabilities"]
@@ -225,6 +226,7 @@ flowchart TD
   end
   subgraph group_credentials["packages/credentials"]
     pkg_credentials["credentials"]
+    pkg_credentials_encrypted["credentials-encrypted"]
     pkg_credentials_local["credentials-local"]
   end
   subgraph group_deliverables["packages/deliverables"]
@@ -357,6 +359,9 @@ flowchart TD
   end
   subgraph group_ssh["packages/ssh"]
     pkg_fs_ssh["fs-ssh"]
+    pkg_remote_hosts["remote-hosts"]
+    pkg_remote_hosts_ssh["remote-hosts-ssh"]
+    pkg_remote_runtime["remote-runtime"]
     pkg_sandbox_ssh["sandbox-ssh"]
     pkg_ssh["ssh"]
     pkg_subprocess_ssh["subprocess-ssh"]
@@ -433,6 +438,7 @@ flowchart TD
   pkg_ptc_runtime --> pkg_invariants
   pkg_plugin_diagnostics --> pkg_invariants
   pkg_sandbox_windows_acl --> pkg_invariants
+  pkg_remote_hosts_ssh --> pkg_invariants
   pkg_storage --> pkg_invariants
   pkg_control_channel --> pkg_invariants
   pkg_llm_mock_server --> pkg_invariants
@@ -488,6 +494,9 @@ flowchart TD
   pkg_client_modules --> pkg_invariants
   pkg_compaction_settings --> pkg_invariants
   pkg_compaction_settings --> pkg_settings
+  pkg_credentials_encrypted --> pkg_credentials
+  pkg_credentials_encrypted --> pkg_home_paths
+  pkg_credentials_encrypted --> pkg_invariants
   pkg_credentials_local --> pkg_atomic_write
   pkg_credentials_local --> pkg_credentials
   pkg_credentials_local --> pkg_home_paths
@@ -746,6 +755,15 @@ flowchart TD
   pkg_shell --> pkg_sandbox
   pkg_shell --> pkg_settings
   pkg_shell --> pkg_subprocess
+  pkg_remote_runtime --> pkg_agent
+  pkg_remote_runtime --> pkg_authentication
+  pkg_remote_runtime --> pkg_credentials_encrypted
+  pkg_remote_runtime --> pkg_home_paths
+  pkg_remote_runtime --> pkg_host_webserver
+  pkg_remote_runtime --> pkg_invariants
+  pkg_remote_runtime --> pkg_session
+  pkg_remote_runtime --> pkg_settings
+  pkg_remote_runtime --> pkg_typert_protocol
   pkg_terminal --> pkg_agent
   pkg_terminal --> pkg_brand
   pkg_terminal --> pkg_invariants
@@ -1545,6 +1563,15 @@ flowchart TD
   pkg_fs_ssh --> pkg_sandbox
   pkg_fs_ssh --> pkg_sandbox_policy
   pkg_fs_ssh --> pkg_ssh
+  pkg_remote_hosts --> pkg_brand
+  pkg_remote_hosts --> pkg_credentials
+  pkg_remote_hosts --> pkg_home_paths
+  pkg_remote_hosts --> pkg_invariants
+  pkg_remote_hosts --> pkg_remote_hosts_ssh
+  pkg_remote_hosts --> pkg_sdk_client
+  pkg_remote_hosts --> pkg_session
+  pkg_remote_hosts --> pkg_settings
+  pkg_remote_hosts --> pkg_typert_protocol
   pkg_sandbox_ssh --> pkg_invariants
   pkg_sandbox_ssh --> pkg_sandbox
   pkg_sandbox_ssh --> pkg_ssh
@@ -1757,6 +1784,15 @@ flowchart TD
   pkg_client_ui_plan --> pkg_client_ui_slots
   pkg_client_ui_plan --> pkg_invariants
   pkg_client_ui_plan --> pkg_plan_mode
+  pkg_client_ui_remote_hosts --> pkg_api_remotes
+  pkg_client_ui_remote_hosts --> pkg_client_locale
+  pkg_client_ui_remote_hosts --> pkg_client_runtime
+  pkg_client_ui_remote_hosts --> pkg_client_ui_layout
+  pkg_client_ui_remote_hosts --> pkg_client_ui_primitives
+  pkg_client_ui_remote_hosts --> pkg_client_ui_sidebar
+  pkg_client_ui_remote_hosts --> pkg_client_ui_slots
+  pkg_client_ui_remote_hosts --> pkg_invariants
+  pkg_client_ui_remote_hosts --> pkg_remote_hosts
   pkg_client_ui_scheduler --> pkg_api_remotes
   pkg_client_ui_scheduler --> pkg_client_locale
   pkg_client_ui_scheduler --> pkg_client_runtime
@@ -1918,6 +1954,7 @@ flowchart TD
 | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | `runtime-diagnostics` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`storage`](../packages/storage/storage) | `storage` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`control-channel`](../packages/subprocess/control-channel) | `subprocess` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`llm-mock-server`](../packages/test-support/llm-mock-server) | `test-support` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -1944,6 +1981,7 @@ flowchart TD
 | [`capabilities`](../packages/capability/capabilities) | `capability` | [`invariants`](../packages/runtime-diagnostics/invariants), [`scope`](../packages/core/scope), [`settings`](../packages/settings/settings) |
 | [`client-modules`](../packages/client/modules) | `client` | [`client-connection`](../packages/client/connection), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`compaction-settings`](../packages/compaction/compaction-settings) | `compaction` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
+| [`credentials-encrypted`](../packages/credentials/credentials-encrypted) | `credentials` | [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`credentials-local`](../packages/credentials/credentials-local) | `credentials` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment) |
 | [`settings-file`](../packages/settings/settings-file) | `settings` | [`atomic-write`](../packages/util/atomic-write), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
 | [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
@@ -2003,6 +2041,7 @@ flowchart TD
 | [`session-telemetry`](../packages/session/session-telemetry) | `session` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
 | [`session-title`](../packages/session/session-title) | `session` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection) |
 | [`shell`](../packages/shell/shell) | `shell` | [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`settings`](../packages/settings/settings), [`subprocess`](../packages/subprocess/subprocess) |
+| [`remote-runtime`](../packages/ssh/remote-runtime) | `ssh` | [`agent`](../packages/core/agent), [`authentication`](../packages/auth/authentication), [`credentials-encrypted`](../packages/credentials/credentials-encrypted), [`home-paths`](../packages/util/home-paths), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`terminal`](../packages/terminal/terminal) | `terminal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`loader-smoke`](../packages/test-support/loader-smoke) | `test-support` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`workflow`](../packages/workflow/workflow) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
@@ -2126,6 +2165,7 @@ flowchart TD
 | [`client-runtime`](../packages/client/runtime) | `client` | [`api-remotes`](../packages/api/remotes), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol), [`typert-registry`](../packages/typert/registry) |
 | [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/acp/acp), [`agent-instructions`](../packages/context/agent-instructions), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/boot/app-boot), [`invariants`](../packages/runtime-diagnostics/invariants), [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`tools`](../packages/core/tools) |
 | [`fs-ssh`](../packages/ssh/fs-ssh) | `ssh` | [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`ssh`](../packages/ssh/ssh) |
+| [`remote-hosts`](../packages/ssh/remote-hosts) | `ssh` | [`brand`](../packages/util/brand), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh), [`sdk-client`](../packages/sdk/client), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`ssh`](../packages/ssh/ssh) |
 | [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ssh`](../packages/ssh/ssh), [`subprocess`](../packages/subprocess/subprocess) |
 | [`client-ui-settings`](../packages/client/ui-settings) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
@@ -2154,6 +2194,7 @@ flowchart TD
 | [`client-ui-jobs`](../packages/client/ui-jobs) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-message-feedback`](../packages/client/ui-message-feedback) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`message-feedback`](../packages/feedback/message-feedback), [`typert-protocol`](../packages/typert/protocol) |
 | [`client-ui-plan`](../packages/client/ui-plan) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`plan-mode`](../packages/plan/plan-mode) |
+| [`client-ui-remote-hosts`](../packages/client/ui-remote-hosts) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-layout`](../packages/client/ui-layout), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-sidebar`](../packages/client/ui-sidebar), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`remote-hosts`](../packages/ssh/remote-hosts) |
 | [`client-ui-scheduler`](../packages/client/ui-scheduler) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-layout`](../packages/client/ui-layout), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-sidebar`](../packages/client/ui-sidebar), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`scheduler`](../packages/schedule/scheduler) |
 | [`client-ui-settings-capabilities`](../packages/client/ui-settings-capabilities) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-subagent`](../packages/client/ui-subagent) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-input-trigger`](../packages/client/ui-input-trigger), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`subagent`](../packages/subagent/subagent), [`token-meter`](../packages/llm/token-meter) |

@@ -91,7 +91,7 @@ export class SshTransport implements RemoteHostSshConnection {
     })
   }
 
-  /**
+  /** Establish one SSH transport and observe the server fingerprint.
    * @param target - Validated SSH endpoint.
    * @param auth - Explicit authentication options.
    * @param pin - Approved fingerprint, or undefined for a rejecting probe.

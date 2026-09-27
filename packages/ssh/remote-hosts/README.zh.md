@@ -100,15 +100,7 @@ node_modules/.bin/tsx packages/ssh/remote-hosts/build-typert.ts
 
 ## 模型体验
 
-### 远程协调
-
-#### 模型看到什么
-
-没有新增工具、提示词或 Session 事件。现有远程插件负责模型可见工作，同步设置和显式选择的凭据决定其配置。
-
-#### Token 影响
-
-不直接增加请求或响应 token。
+没有新增工具、提示词或 Session 事件；现有远程插件负责模型可见工作，同步设置和显式选择的凭据决定其配置。
 
 #### KV Cache 影响
 

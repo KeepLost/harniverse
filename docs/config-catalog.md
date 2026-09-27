@@ -626,7 +626,7 @@ export interface ConnectionConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:68`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:71`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -798,6 +798,22 @@ export interface Config {
 ```
 
 Source: [`packages/extensions/cordis-host-runner/src/index.ts:88`](../packages/extensions/cordis-host-runner/src/index.ts)
+
+<a id="deepseek-aidsh-credentials-encrypted"></a>
+
+## `@deepseek-ai/dsh-credentials-encrypted`
+
+```ts config-catalog
+/** Non-secret plugin configuration; keys are accepted only by the runtime unlock method. */
+export interface Config {
+  /** Explicit encrypted document path, overriding dshHome. */
+  path?: string
+  /** Harness home; defaults to the home-paths service convention. */
+  dshHome?: string
+}
+```
+
+Source: [`packages/credentials/credentials-encrypted/src/index.ts:20`](../packages/credentials/credentials-encrypted/src/index.ts)
 
 <a id="deepseek-aidsh-credentials-local"></a>
 
@@ -2145,6 +2161,64 @@ export type QueueConfig = z.infer<typeof queueConfigSchema>
 Depends on: `z` (`zod`)
 
 Source: [`packages/queue/queue/src/index.ts:40`](../packages/queue/queue/src/index.ts)
+
+<a id="deepseek-aidsh-remote-hosts"></a>
+
+## `@deepseek-ai/dsh-remote-hosts`
+
+Requires: `remoteHostSsh` · `credentials` · `settings`
+
+```ts config-catalog
+/** Runtime configuration for local remote-host coordination. */
+export interface Config {
+  /** Local registry directory; defaults to standard DSH_HOME resolution. */
+  dshHome?: string
+  /** Absolute local root containing linux-x64/, darwin-arm64/, win32-x64/, etc. */
+  artifactsRoot: string
+  /** Maximum time allowed for startup and remote endpoint discovery. */
+  startupTimeoutMs?: number
+  /** Maximum time allowed for one proxied remote operation. */
+  requestTimeoutMs?: number
+}
+```
+
+Source: [`packages/ssh/remote-hosts/src/types.ts:70`](../packages/ssh/remote-hosts/src/types.ts)
+
+<a id="deepseek-aidsh-remote-hosts-ssh"></a>
+
+## `@deepseek-ai/dsh-remote-hosts-ssh`
+
+```ts config-catalog
+/** Provider-wide bounds, validated when the plugin mounts. */
+export interface Config {
+  /** SSH connection establishment deadline in milliseconds. */
+  connectTimeoutMs?: number
+  /** Per-operation SSH deadline in milliseconds. */
+  operationTimeoutMs?: number
+  /** Maximum captured stdout/stderr bytes per remote command. */
+  maxOutputBytes?: number
+  /** Maximum bytes returned by a remote file read. */
+  maxReadBytes?: number
+}
+```
+
+Source: [`packages/ssh/remote-hosts-ssh/src/types.ts:21`](../packages/ssh/remote-hosts-ssh/src/types.ts)
+
+<a id="deepseek-aidsh-remote-runtime"></a>
+
+## `@deepseek-ai/dsh-remote-runtime`
+
+Requires: `credentials` · `settings` · `webServer` · `authentication` · `agents`
+
+```ts config-catalog
+/** Endpoint discovery home; credentials use the same home in the server composition. */
+export interface Config {
+  /** Local home used for remote endpoint discovery and encrypted credentials. */
+  dshHome?: string
+}
+```
+
+Source: [`packages/ssh/remote-runtime/src/index.ts:21`](../packages/ssh/remote-runtime/src/index.ts)
 
 <a id="deepseek-aidsh-repeat-tool-reminder"></a>
 
@@ -4014,6 +4088,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-queue` ([`packages/client/ui-queue/src/index.ts`](../packages/client/ui-queue/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-remote-hosts` ([`packages/client/ui-remote-hosts/src/index.ts`](../packages/client/ui-remote-hosts/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-scheduler` ([`packages/client/ui-scheduler/src/index.ts`](../packages/client/ui-scheduler/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-capabilities` ([`packages/client/ui-settings-capabilities/src/index.ts`](../packages/client/ui-settings-capabilities/src/index.ts))

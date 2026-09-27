@@ -1,7 +1,9 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 /** Stable local registry identity, independent of host name or address. */
 export type RemoteHostId = Branded<'RemoteHostId'>
+/** Supported operating-system labels for a deployed remote artifact. */
 export type RemotePlatform = 'linux' | 'darwin' | 'win32'
+/** Supported CPU architecture labels for a deployed remote artifact. */
 export type RemoteArchitecture = 'x64' | 'arm64'
 
 /** References only; private key values are never host configuration. */
@@ -16,6 +18,7 @@ export interface ReverseMapping {
   localPort: number
   remoteOriginalOrigin: string
 }
+/** Reverse mapping with the allocated remote loopback port. */
 export interface ActiveReverseMapping extends ReverseMapping { remotePort: number }
 
 /** Persisted host configuration contains no credential values. */
@@ -31,7 +34,9 @@ export interface HostConfig {
   authentication: HostAuthentication
   reverseMappings: ReverseMapping[]
 }
+/** Persisted host record with its stable local identity. */
 export interface HostRecord extends HostConfig { id: RemoteHostId }
+/** One-shot or persisted login secret supplied by an authorized caller. */
 export type AuthSecrets =
   | { kind: 'password'; password: string }
   | { kind: 'key'; privateKey: string; passphrase?: string }
@@ -45,24 +50,31 @@ export interface UpsertHostInput extends Omit<HostConfig, 'port' | 'reverseMappi
   /** Only true authorizes saving submitted secrets through ctx.credentials. */
   storeCredentials?: boolean
 }
+/** Input for connecting one configured host. */
 export interface ConnectHostInput {
   id: RemoteHostId
   secrets?: AuthSecrets
   storeCredentials?: boolean
 }
+/** Lifecycle state of one local remote-host session. */
 export type RemoteHostState = 'offline' | 'connecting' | 'deploying' | 'connected' | 'error'
+/** Secret-free host record plus current local connection state. */
 export interface RemoteHostView extends HostRecord {
   state: RemoteHostState
   /** Fixed diagnostic, never upstream stderr, command, token, or credential data. */
   error?: string
 }
+/** SSH target used for an unauthenticated host-key probe. */
 export interface ProbeHostInput { host: string; port?: number; username: string }
+/** Runtime configuration for local remote-host coordination. */
 export interface Config {
   /** Local registry directory; defaults to standard DSH_HOME resolution. */
   dshHome?: string
   /** Absolute local root containing linux-x64/, darwin-arm64/, win32-x64/, etc. */
   artifactsRoot: string
+  /** Maximum time allowed for startup and remote endpoint discovery. */
   startupTimeoutMs?: number
+  /** Maximum time allowed for one proxied remote operation. */
   requestTimeoutMs?: number
 }
 

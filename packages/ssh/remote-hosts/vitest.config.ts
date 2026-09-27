@@ -10,7 +10,6 @@ export default defineConfig({
     '@deepseek-ai/dsh-credentials-encrypted': resolve('packages/credentials/credentials-encrypted/src/index.ts'),
     '@deepseek-ai/dsh-remote-runtime': resolve('packages/ssh/remote-runtime/src/index.ts'),
   } },
-  cacheDir: './packages/ssh/remote-hosts/node_modules/.vite',
   test: { include: ['packages/ssh/remote-hosts/tests/**/*.spec.ts'], pool: 'forks', maxWorkers: 1,
     execArgv: vitestExecArgv, testTimeout: 15_000, hookTimeout: 15_000 },
 })

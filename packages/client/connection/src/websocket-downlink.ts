@@ -149,7 +149,14 @@ export class WebSocketDownlinks {
     }, signal), admission)
   }
 
-  /** Bridge one authenticated remote host stream while preserving local identity. */
+  /**
+   * Bridge one authenticated remote host stream while preserving local identity.
+   * @param req - HTTP upgrade request.
+   * @param socket - Raw socket transferred by the HTTP server.
+   * @param head - Bytes already read after the upgrade headers.
+   * @param admission - accepted principal and optional revocable credential.
+   * @param open - opens the selected remote WebSocket stream.
+   */
   handleRemote(
     req: IncomingMessage,
     socket: Duplex,

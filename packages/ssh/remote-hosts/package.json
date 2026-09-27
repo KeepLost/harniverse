@@ -2,6 +2,8 @@
   "name": "@deepseek-ai/dsh-remote-hosts",
   "description": "Local authoritative SSH remote-host coordinator",
   "version": "1.0.0-rc.1",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/deepseek-ai/deepseek-harness.git", "directory": "packages/ssh/remote-hosts" },
   "type": "module",
   "license": "MIT",
   "main": "lib/index.js",

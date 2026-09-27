@@ -187,7 +187,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:70`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:82`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 
@@ -212,7 +212,7 @@ open(config: RemoteHostSshConfig, authentication: RemoteHostSshAuthentication, s
 probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string>
 ```
 
-Source: [`packages/ssh/remote-hosts-ssh/src/types.ts:76`](../../packages/ssh/remote-hosts-ssh/src/types.ts)
+Source: [`packages/ssh/remote-hosts-ssh/src/types.ts:80`](../../packages/ssh/remote-hosts-ssh/src/types.ts)
 
 <a id="ctxremoteruntime--remoteruntime"></a>
 
@@ -245,7 +245,7 @@ Remote control provider. Browser and SSH connections never own its decrypted lif
 assertUnlocked(): void
 ```
 
-Source: [`packages/ssh/remote-runtime/src/index.ts:28`](../../packages/ssh/remote-runtime/src/index.ts)
+Source: [`packages/ssh/remote-runtime/src/index.ts:31`](../../packages/ssh/remote-runtime/src/index.ts)
 
 <a id="ctxssh--sshconnection"></a>
 

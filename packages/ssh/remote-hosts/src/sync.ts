@@ -75,6 +75,12 @@ function collect(node: SchemaNode, value: JsonValue | undefined, refs: Set<strin
   }
 }
 
+/** Build the secret-filtered remote settings and credential snapshot.
+ * @param settings - local settings provider.
+ * @param provider - local credential provider.
+ * @param mappings - active reverse mappings used to rewrite origins.
+ * @returns complete remote settings and credential maps.
+ */
 export async function buildSnapshot(
   settings: SettingsProvider,
   provider: CredentialProvider,

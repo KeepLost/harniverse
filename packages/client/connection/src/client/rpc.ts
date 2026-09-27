@@ -16,6 +16,7 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 /**
  * Create the browser-backed generic RPC caller.
  * @param request - authenticated request carrier; standalone callers may supply their own transport.
+ * @param resolvePath - maps a logical route to the selected transport target.
  * @returns caller that owns request correlation and response-envelope validation.
  */
 export function createWebConnectionRpc(

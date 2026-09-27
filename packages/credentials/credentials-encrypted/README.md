@@ -48,7 +48,7 @@ Snapshots allow at most 1,024 entries, POSIX-style references up to 128 ASCII ch
 
 ## Model Experience
 
-Indirectly, consuming model and search providers use resolved values to authorize requests. This package adds no prompt text, tool schema, model-visible output, or token cost. A locked provider prevents credential resolution for those operations.
+None, as credential encryption and resolution authorize consuming providers without registering prompt text, tool schemas, model-visible output, or request fields.
 
 #### KV Cache effect
 
