@@ -1,6 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "sourceMap": false,
+    "declarationMap": false,
+    "tsBuildInfoFile": "../../node_modules/.cache/dsh-remote-server.tsbuildinfo"
+  },
   "include": ["src"],
   "references": [
     { "path": "../../vendor/cordis" },
