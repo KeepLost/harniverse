@@ -29,6 +29,8 @@ flowchart LR
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
+  plugin_acp_environment["environment<br/>@deepseek-ai/dsh-environment"]
+  cfg --> plugin_acp_environment
   plugin_acp_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
   cfg --> plugin_acp_token_meter
   plugin_acp_compaction_basic["compaction-basic<br/>@deepseek-ai/dsh-compaction-basic"]
@@ -86,6 +88,7 @@ flowchart LR
 | `bash` | `@deepseek-ai/dsh-bash-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
+| `environment` | `@deepseek-ai/dsh-environment` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compaction-basic` | `@deepseek-ai/dsh-compaction-basic` |
 | `session-projection` | `@deepseek-ai/dsh-session-projection` |

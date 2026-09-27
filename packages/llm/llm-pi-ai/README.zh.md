@@ -184,7 +184,15 @@ pi-ai 会安装多个提供方 SDK，并延迟加载 catalog 模型所选的 SDK
 
 #### 模型看到的内容
 
-所选 catalog 模型会收到 `GenerateOptions.system`、历史、工具，以及 pi-ai 通用流式 API 支持的采样字段。本包不添加提示词文本。只有当适配器验证提供方原生回放元数据与历史内容匹配时，才会恢复这些元数据。
+所选 catalog 模型会收到 `GenerateOptions.system`、历史、工具，以及 pi-ai 通用流式 API 支持的采样字段。只有当适配器验证提供方原生回放元数据与历史内容匹配时，才会恢复这些元数据。在 OpenAI Responses 上，选定的推理强度还会一并请求自动摘要与加密推理链（`reasoning.summary: auto` 及 `reasoning.encrypted_content` include），使该路由上的推理链可以无状态回放。当较早的 assistant 轮次携带无法在当前路由回放的推理内容（没有存储元数据，或提供方／模型不同）时，历史末尾会加入恰好一条提示：
+
+##### 路由降级提示
+
+```markdown
+<system-reminder>
+An earlier assistant turn in this conversation reasoned under a different model route, and its reasoning chain cannot be replayed here. Only the recorded reasoning text above survives; treat it as an incomplete record and do not assume the reasoning behind earlier decisions is fully preserved.
+</system-reminder>
+```
 
 #### Token 影响
 

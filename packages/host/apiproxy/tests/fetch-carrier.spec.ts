@@ -287,7 +287,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     skills: {
       async list(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } } }
       },
     },
     goals: {
@@ -584,7 +584,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
   it('round-trips skill.list through the wire form', async () => {
     const c = client()
     const skills = await c.skills.list({ sessionId: 's' as never })
-    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } })
+    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
   })
 
   it('lets host.pickDirectory finish after the 30-second default unary deadline', async () => {

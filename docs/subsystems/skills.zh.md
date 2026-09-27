@@ -82,7 +82,7 @@ Chokidar 会监视现有根目录中直属 bundle 和平铺条目的添加与移
 
 ## skill 身份
 
-skill 名称为 kebab-case（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）。本地提供方接受目录包（`<name>/SKILL.md`）和扁平 Markdown 文件（`<name>.md`）。嵌套递归的 `**/SKILL.md` 发现不受支持。
+skill 名称为 kebab-case（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）。本地提供方接受目录包（根下任意深度的 `SKILL.md`）和根层扁平 Markdown 文件（`<name>.md`）。递归发现不会进入隐藏目录、`node_modules` 或 `.git`，并受十层深度与符号链接环身份集合约束。
 
 ```ts type-equiv
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
@@ -91,20 +91,10 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## 摘要、候选项与完整定义
 
-`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 将两个独立调用控制规范化为正向布尔值，且每个已解析的摘要、候选项和定义都携带该策略，而不会把任意 frontmatter 纳入领域模型。
+`SkillSummary` 是注册表的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用 `name` 和 `description`，从不使用正文或绝对文件路径。每个被发现的 skill 都同时可供模型和用户调用：已移除的 `SkillInvocationPolicy` 门禁维护的"仅模型/仅用户"区分没有任何出厂组合需要，需要约束自身使用方式的 skill 改为在正文中写明调用边界。
 
 ```ts type-equiv
-/** Invocation controls shared by skill discovery consumers. */
-interface SkillInvocationPolicy {
-  /** Whether model-facing catalogs and loaders include this skill. */
-  readonly modelInvocable: boolean
-  /** Whether human-facing command catalogs and loaders include this skill. */
-  readonly userInvocable: boolean
-}
-```
-
-```ts type-equiv
-/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
+/** Skill metadata returned by `ctx.skills.list()`. */
 interface SkillSummary {
   /** Kebab-case identifier used to address the skill. */
   readonly name: string
@@ -112,8 +102,6 @@ interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Resolved model and user invocation controls. */
-  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -123,14 +111,14 @@ interface SkillSummary {
 }
 ```
 
-`ctx.skills.list()` 保留全部四种策略组合。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别读取对应的必填字段。仅供模型调用的 skill 设置 `{ modelInvocable: true, userInvocable: false }`，仅供用户调用的 skill 设置 `{ modelInvocable: false, userInvocable: true }`，两个字段均设为 `false` 后，该 skill 只能由受信的 `ctx.skills.get()` 调用方获取。本地提供方读取名称完全匹配的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`，将省略的字段默认为 `true`，并为每个解析出的 skill 生成这个规范化策略。
+本地提供方在解析时直接拒绝已移除的 frontmatter 键 `disable-model-invocation`、`user-invocable` 及其 camelCase 拼写，让过时的策略文件响亮失败，而不是被静默错误加载。
 
-`SkillCatalogSnapshot` 用于区分已确定的不存在与提供方的瞬时失败或发现期间持续变化的目录。`skills` 包含该次观测中收集、排序且与调用策略无关的摘要；只有每个已注册提供方都在没有并发目录修订时完成发现，`complete` 才为 true。不完整快照不会缓存，因此每个消费方可以保留上一份经过自身过滤的可用目录并重试。
+`SkillCatalogSnapshot` 用于区分已确定的不存在与提供方的瞬时失败或发现期间持续变化的目录。`skills` 包含该次观测中收集并排序的摘要；只有每个已注册提供方都在没有并发目录修订时完成发现，`complete` 才为 true。不完整快照不会缓存，因此每个消费方可以保留上一份经过自身过滤的可用目录并重试。
 
 ```ts type-equiv
 /** One catalog observation plus whether discovery completed within a stable catalog revision. */
 interface SkillCatalogSnapshot {
-  /** Sorted invocation-neutral summaries collected in this observation. */
+  /** Sorted skill summaries collected in this observation. */
   readonly skills: SkillSummary[]
   /** Whether every registered provider completed without a concurrent catalog revision. */
   readonly complete: boolean
@@ -175,13 +163,11 @@ interface SkillDefinition extends SkillSummary {
 }
 ```
 
-运行时 skill 输入可以省略调用控制和提供方标签。注册表会一次性补全这两项默认值，随后使用与提供方相同的完整定义形状和先到先得收集顺序。返回的 disposer 移除该贡献并使发现缓存失效。
+运行时 skill 输入可以省略提供方标签。注册表会一次性补全该默认值，随后使用与提供方相同的完整定义形状和先到先得收集顺序。返回的 disposer 移除该贡献并使发现缓存失效。
 
 ```ts type-equiv
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
-  /** Invocation controls; omission permits both model and user surfaces. */
-  readonly invocation?: SkillInvocationPolicy
+type SkillRegistration = Omit<SkillDefinition, 'provider'> & {
   /** Provider label; omission uses the registry-owned runtime provider. */
   readonly provider?: string
 }
@@ -232,7 +218,7 @@ interface Config {
 
 在后续每个模型步骤之前，消费方都会应用精确的工具可见性，并对完整快照中 `<available_skills>` 标签之间精确渲染的条目计算 digest。它以该插件所发布、最新一条可识别且仍可见的目录消息中的相同条目作为比较基线。digest 发生变化时，会通过 `agent.inject()` 追加一条持久的完整目录替换；删除所有 skill 时会追加一条显式的空替换。不完整快照会保留上一份可用模型视图。如果压缩（compaction）隐藏了所有历史目录消息，下一份完整快照会重新建立当前目录；如果视图为空且从未发布目录，则不发送任何内容。这些目录消息属于会话历史，而非 World State。
 
-面向模型的 `skill({ name })` 工具校验 kebab-case 名称，在与调用策略无关的目录中查找摘要，并在加载前通过 `isModelInvocable` 拒绝无权访问的 skill；随后它根据调用方 agent 的 cwd 重新读取完整定义，并在返回内容前再次检查策略。该工具将无法解析的 skill 报告为未知或已不可用，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。因此，仅修改正文会改变后续工具调用，而不会生成目录消息或改写先前工具结果。
+面向模型的 `skill({ name })` 工具校验 kebab-case 名称，在目录中查找摘要，随后根据调用方 agent 的 cwd 重新读取完整定义再返回内容。该工具将无法解析的 skill 报告为未知或已不可用，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。因此，仅修改正文会改变后续工具调用，而不会生成目录消息或改写先前工具结果。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -246,7 +232,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.skills` — `SkillRegistry`
 
-Layered registry of skill providers, the host+per-scope shape the tools registry established. A registration files into the layer of its calling context's scope (scopeOf): host rows and repository plugins land in the global layer, while a plugin mounted by an agent preset's standing composition lands in that preset's layer. A read merges the global layer with the viewing scope's chain — the nearest layer's entry wins a duplicate name outright, and the rank order decides duplicates only within one layer. It exposes sorted invocation-neutral summaries and loads full skill bodies on demand.
+Layered registry of skill providers, the host+per-scope shape the tools registry established. A registration files into the layer of its calling context's scope (scopeOf): host rows and repository plugins land in the global layer, while a plugin mounted by an agent preset's standing composition lands in that preset's layer. A read merges the global layer with the viewing scope's chain — the nearest layer's entry wins a duplicate name outright, and the rank order decides duplicates only within one layer. It exposes sorted skill summaries and loads full skill bodies on demand.
 
 ```ts cordis-catalog
 /**
@@ -268,7 +254,7 @@ registerProvider(create: (control: SkillProviderControl) => SkillProvider): () =
  * entries, within one layer. Same-name runtime entries in one layer are
  * first-wins; a duplicate logs a warning and receives a no-op disposer so
  * it cannot remove the winner.
- * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
+ * @param skill - the skill definition input; an omitted provider field receives its default.
  * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
  */
 register(skill: SkillRegistration): () => void
@@ -281,8 +267,7 @@ register(skill: SkillRegistration): () => void
 restrict(filter: SkillRestriction): () => void
 
 /**
- * List invocation-neutral skill summaries for a workspace. Consumers apply
- * model or user invocation policy at their operational boundary. Lookup
+ * List skill summaries for a workspace. Lookup
  * options and provider candidates are readonly same-process values borrowed
  * throughout discovery.
  * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
@@ -291,7 +276,7 @@ restrict(filter: SkillRestriction): () => void
 async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>
 
 /**
- * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
+ * Observe the current catalog and whether discovery completed within a stable revision.
  * Incomplete observations are never cached, allowing consumers to retain last-good state and
  * retry on their next request boundary.
  * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
@@ -311,7 +296,7 @@ async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot>
 async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:378`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:348`](../../packages/skill/skill/src/index.ts)
 
 <a id="skills-events"></a>
 
@@ -334,5 +319,5 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:309`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:279`](../../packages/skill/skill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

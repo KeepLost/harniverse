@@ -1,5 +1,7 @@
 # Harniverse
 
+<p align="center"><img src="assets/whale-logo.png" width="160" alt="Harniverse whale logo"></p>
+
 [English](README.md) | 中文
 
 Harniverse 是本仓库维护的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 源码优先下游项目。它保留由 Cordis 驱动的**一切皆插件**架构，并通过相同的插件 seam（接缝）组合 Harniverse 特有能力与安全策略。
@@ -155,6 +157,27 @@ pnpm dsh --profile headless "Summarize the current project"
 
 调用命令时所在的目录是 headless 执行的默认工作区。命令会打印 assistant 的最终回复并退出。
 
+## Harniverse home（`DSH_HOME`）
+
+全部用户状态都保存在同一个根目录下：profile、浏览器 Grant 与准入审计日志、提供方设置与凭据存储、会话，以及非回环监听使用的 TLS 材料。
+
+根目录按以下优先级解析（从高到低）：
+
+1. 配置中的显式 `dshHome`；
+2. `DSH_HOME` 环境变量（空值或仅空白字符视为未设置）；
+3. 默认值 `~/.dsh`。
+
+属于同一个 Harniverse 安装的所有进程必须解析到同一个根目录。在第二个终端运行 auth 命令时，请先导出相同的 `DSH_HOME`，否则该命令会检查另一个 home，找不到等待中的请求。
+
+如果本机已经运行官方 DeepSeek Harness，请让 Harniverse 使用独立的根目录，使两套安装的状态互不干扰：
+
+```sh
+export DSH_HOME=~/.harniverse
+pnpm dsh --profile web
+```
+
+取消该变量即可回退到共享默认值 `~/.dsh`。
+
 ## 网络安全
 
 默认回环监听也会启用认证。不要把 `--dangerously-skip-authentication` 当作安装捷径。非回环监听必须提供 TLS 证书和密钥；向其他机器开放 Harniverse 前，请先阅读 [Web UI 指南](docs/user/guide/index.md#remote-access)。
@@ -228,6 +251,8 @@ Harniverse 的预发布政策允许在没有显式兼容性承诺的范围内修
 提出改动前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。贡献者从[开发指南](docs/development.md)开始，并阅读[架构文档](docs/architecture.md)。agent 遵循 [AGENTS.md](AGENTS.md)。
 
 ## 许可证与归属
+
+Harniverse 是一个独立的社区项目，不隶属于 DeepSeek，未获得 DeepSeek 背书，也没有 DeepSeek 员工参与。它构建于开源的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 之上；对原样继承的部分，该项目许可证继续适用。
 
 Harniverse 整体按 [BSD 3-Clause License](LICENSE) 分发；自 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（由 [DeepSeek AI](https://deepseek.com) 开发）原样继承的部分，仍保留该项目的 MIT 许可证。Harniverse 使用 [Cordis](https://github.com/cordiverse/cordis)，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
 

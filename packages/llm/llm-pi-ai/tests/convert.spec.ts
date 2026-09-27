@@ -606,6 +606,80 @@ describe('toStreamChunks', () => {
     ])
   })
 
+  it('lifts the reasoning item metadata onto the closed reasoning block', async () => {
+    const done = assistant({
+      content: [{
+        type: 'thinking',
+        thinking: 'brief plan',
+        thinkingSignature: JSON.stringify({ id: 'rs_1', encrypted_content: 'ciphertext' }),
+      }],
+    })
+    const chunks = await collect(toStreamChunks(feed(
+      { type: 'thinking_start', contentIndex: 0, partial: assistant() },
+      { type: 'thinking_delta', contentIndex: 0, delta: 'brief plan', partial: assistant() },
+      { type: 'thinking_end', contentIndex: 0, content: 'brief plan', partial: assistant() },
+      { type: 'done', reason: 'stop', message: done },
+    )))
+    const blockEnd = chunks.find(chunk => chunk.type === 'block-end')
+    if (blockEnd?.type !== 'block-end') throw new Error('expected block-end')
+    expect(blockEnd.block).toEqual({
+      type: 'reasoning',
+      text: 'brief plan',
+      summary: true,
+      itemId: 'rs_1',
+      encrypted: 'ciphertext',
+    })
+    // The enriched block-end precedes usage and finish so assembly keeps one order.
+    expect(chunks.indexOf(blockEnd)).toBeLessThan(chunks.findIndex(chunk => chunk.type === 'usage'))
+  })
+
+  it('keeps a signature-less reasoning block plain and an unparseable signature opaque', async () => {
+    const plain = await collect(toStreamChunks(feed(
+      { type: 'thinking_start', contentIndex: 0, partial: assistant() },
+      { type: 'thinking_delta', contentIndex: 0, delta: 'mull', partial: assistant() },
+      { type: 'thinking_end', contentIndex: 0, content: 'mull', partial: assistant() },
+      { type: 'done', reason: 'stop', message: assistant() },
+    )))
+    expect(plain.find(chunk => chunk.type === 'block-end' && chunk.block.type === 'reasoning'))
+      .toMatchObject({ block: { type: 'reasoning', text: 'mull' } })
+
+    const opaque = assistant({
+      content: [{ type: 'thinking', thinking: 'mull', thinkingSignature: '{not json' }],
+    })
+    const opaqueChunks = await collect(toStreamChunks(feed(
+      { type: 'thinking_start', contentIndex: 0, partial: assistant() },
+      { type: 'thinking_delta', contentIndex: 0, delta: 'mull', partial: assistant() },
+      { type: 'thinking_end', contentIndex: 0, content: 'mull', partial: assistant() },
+      { type: 'done', reason: 'stop', message: opaque },
+    )))
+    expect(opaqueChunks.find(chunk => chunk.type === 'block-end' && chunk.block.type === 'reasoning'))
+      .toMatchObject({ block: { type: 'reasoning', text: 'mull' } })
+  })
+
+  it('drops non-string reasoning item metadata but keeps a string item id alone', async () => {
+    const wrongTypes = assistant({
+      content: [{ type: 'thinking', thinking: 'plan', thinkingSignature: JSON.stringify({ id: 7, encrypted_content: false }) }],
+    })
+    const wrong = await collect(toStreamChunks(feed(
+      { type: 'thinking_start', contentIndex: 0, partial: assistant() },
+      { type: 'thinking_end', contentIndex: 0, content: 'plan', partial: assistant() },
+      { type: 'done', reason: 'stop', message: wrongTypes },
+    )))
+    expect(wrong.find(chunk => chunk.type === 'block-end' && chunk.block.type === 'reasoning'))
+      .toEqual({ type: 'block-end', index: 0, block: { type: 'reasoning', text: 'plan' } })
+
+    const idOnly = assistant({
+      content: [{ type: 'thinking', thinking: 'plan', thinkingSignature: JSON.stringify({ id: 'rs_2' }) }],
+    })
+    const withId = await collect(toStreamChunks(feed(
+      { type: 'thinking_start', contentIndex: 0, partial: assistant() },
+      { type: 'thinking_end', contentIndex: 0, content: 'plan', partial: assistant() },
+      { type: 'done', reason: 'stop', message: idOnly },
+    )))
+    expect(withId.find(chunk => chunk.type === 'block-end' && chunk.block.type === 'reasoning'))
+      .toEqual({ type: 'block-end', index: 0, block: { type: 'reasoning', text: 'plan', itemId: 'rs_2' } })
+  })
+
   it('maps tool-call events, re-stringifying parsed arguments', async () => {
     const chunks = await collect(toStreamChunks(feed(
       { type: 'toolcall_start', contentIndex: 0, partial: partialWithToolCall },

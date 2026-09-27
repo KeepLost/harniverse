@@ -177,7 +177,15 @@ export function piStreamOptions(model: Model<Api>, selections: PiRequestSelectio
       }
       options.maxTokens = selections.maxTokens
     }
-    if (level !== undefined && level !== 'off') options.reasoningEffort = level
+    if (level !== undefined && level !== 'off') {
+      options.reasoningEffort = level
+      // Request auto summaries with the encrypted reasoning chain alongside
+      // the effort: pi-ai only emits `reasoning.summary` and the
+      // `reasoning.encrypted_content` include when a summary option is
+      // present, and the encrypted payload is what makes the chain replay
+      // statelessly on this route.
+      options.reasoningSummary = 'auto'
+    }
   }
   if (selections.temperature !== undefined && temperatureAllowed(model, level)) {
     options.temperature = selections.temperature

@@ -20,6 +20,8 @@ flowchart LR
   cfg --> plugin_headless_bash
   plugin_headless_agent_spine["agent-spine<br/>@deepseek-ai/dsh-agent-spine-demo"]
   cfg --> plugin_headless_agent_spine
+  plugin_headless_environment["environment<br/>@deepseek-ai/dsh-environment"]
+  cfg --> plugin_headless_environment
   plugin_headless_persistence["persistence<br/>@deepseek-ai/dsh-session-persistence-jsonl"]
   cfg --> plugin_headless_persistence
   plugin_headless_checkpoint_policy["checkpoint-policy<br/>@deepseek-ai/dsh-session-checkpoint-policy"]
@@ -72,6 +74,7 @@ flowchart LR
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `agent-spine` | `@deepseek-ai/dsh-agent-spine-demo` |
+| `environment` | `@deepseek-ai/dsh-environment` |
 | `persistence` | `@deepseek-ai/dsh-session-persistence-jsonl` |
 | `checkpoint-policy` | `@deepseek-ai/dsh-session-checkpoint-policy` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |

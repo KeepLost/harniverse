@@ -82,7 +82,7 @@ Chokidar watches existing roots for direct bundle/flat-entry additions and remov
 
 ## Skill identity
 
-Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider accepts directory bundles (`<name>/SKILL.md`) and flat Markdown files (`<name>.md`). Nested recursive `**/SKILL.md` discovery is not supported.
+Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider accepts directory bundles (`SKILL.md` at any depth under a root) and root-level flat Markdown files (`<name>.md`). Recursive discovery never enters hidden directories, `node_modules`, or `.git`, and is bounded to ten levels plus a symlink-cycle identity set.
 
 ```ts type-equiv
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
@@ -91,20 +91,10 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## Summaries, candidates, and complete definitions
 
-`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans, and every resolved summary, candidate, and definition carries it without turning arbitrary frontmatter into the domain model.
+`SkillSummary` is the registry's summary shape. Consumers choose which entries and fields to render; the model session catalog uses `name` and `description`, never the body or absolute file path. Every discovered skill is model- and user-invocable: the removed `SkillInvocationPolicy` gate kept a model-only/user-only split that no shipped composition needed, and skills that must bound their own use state the boundary in their body text instead.
 
 ```ts type-equiv
-/** Invocation controls shared by skill discovery consumers. */
-interface SkillInvocationPolicy {
-  /** Whether model-facing catalogs and loaders include this skill. */
-  readonly modelInvocable: boolean
-  /** Whether human-facing command catalogs and loaders include this skill. */
-  readonly userInvocable: boolean
-}
-```
-
-```ts type-equiv
-/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
+/** Skill metadata returned by `ctx.skills.list()`. */
 interface SkillSummary {
   /** Kebab-case identifier used to address the skill. */
   readonly name: string
@@ -112,8 +102,6 @@ interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Resolved model and user invocation controls. */
-  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -123,14 +111,14 @@ interface SkillSummary {
 }
 ```
 
-`ctx.skills.list()` preserves all four policy combinations. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the corresponding required field. A model-only skill sets `{ modelInvocable: true, userInvocable: false }`, a user-only skill sets `{ modelInvocable: false, userInvocable: true }`, and setting both fields to `false` keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`, defaults omitted fields to `true`, and projects every parsed skill into this normalized policy.
+The local provider rejects the removed frontmatter keys `disable-model-invocation`, `user-invocable`, and their camelCase spellings at parse time, so a stale policy file fails loud instead of silently misloading.
 
-`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure or a catalog that kept changing during discovery. `skills` contains the sorted invocation-neutral summaries collected in that observation; `complete` is true only when every registered provider completed without a concurrent catalog revision. Incomplete snapshots are not cached, allowing each consumer to retain its last-good filtered catalog and retry.
+`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure or a catalog that kept changing during discovery. `skills` contains the sorted summaries collected in that observation; `complete` is true only when every registered provider completed without a concurrent catalog revision. Incomplete snapshots are not cached, allowing each consumer to retain its last-good filtered catalog and retry.
 
 ```ts type-equiv
 /** One catalog observation plus whether discovery completed within a stable catalog revision. */
 interface SkillCatalogSnapshot {
-  /** Sorted invocation-neutral summaries collected in this observation. */
+  /** Sorted skill summaries collected in this observation. */
   readonly skills: SkillSummary[]
   /** Whether every registered provider completed without a concurrent catalog revision. */
   readonly complete: boolean
@@ -175,13 +163,11 @@ interface SkillDefinition extends SkillSummary {
 }
 ```
 
-Runtime skill inputs may omit invocation controls and the provider label. The registry resolves both defaults once, then uses the same complete definition shape and first-wins collection order as providers. The returned disposer removes the contribution and invalidates discovery caches.
+Runtime skill inputs may omit the provider label. The registry resolves the default once, then uses the same complete definition shape and first-wins collection order as providers. The returned disposer removes the contribution and invalidates discovery caches.
 
 ```ts type-equiv
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
-  /** Invocation controls; omission permits both model and user surfaces. */
-  readonly invocation?: SkillInvocationPolicy
+type SkillRegistration = Omit<SkillDefinition, 'provider'> & {
   /** Provider label; omission uses the registry-owned runtime provider. */
   readonly provider?: string
 }
@@ -232,7 +218,7 @@ interface Config {
 
 Before each later model step, the consumer applies exact tool visibility and digests the exact rendered entries between the `<available_skills>` tags from a complete snapshot. It derives the comparison baseline from the same entries in the newest recognizable visible catalog message sourced by the plugin. A changed digest appends a durable full replacement through `agent.inject()`; deleting every skill appends an explicit empty replacement. Incomplete snapshots preserve the last-good model view. If compaction hides every historical catalog message, the next complete snapshot re-establishes the current catalog; an empty view with no prior catalog emits nothing. These catalog messages are session history, not World State.
 
-The model-facing `skill({ name })` tool validates the kebab-case name, finds the summary in the invocation-neutral catalog, rejects it before loading unless `isModelInvocable` permits access, then rereads the complete definition for the calling agent cwd and rechecks the policy before returning content. It reports an unresolved skill as unknown or no longer available and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. Body-only edits therefore change later tool calls without producing catalog messages or rewriting earlier tool results.
+The model-facing `skill({ name })` tool validates the kebab-case name, finds the summary in the catalog, then rereads the complete definition for the calling agent cwd before returning content. It reports an unresolved skill as unknown or no longer available and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. Body-only edits therefore change later tool calls without producing catalog messages or rewriting earlier tool results.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -246,7 +232,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.skills` — `SkillRegistry`
 
-Layered registry of skill providers, the host+per-scope shape the tools registry established. A registration files into the layer of its calling context's scope (scopeOf): host rows and repository plugins land in the global layer, while a plugin mounted by an agent preset's standing composition lands in that preset's layer. A read merges the global layer with the viewing scope's chain — the nearest layer's entry wins a duplicate name outright, and the rank order decides duplicates only within one layer. It exposes sorted invocation-neutral summaries and loads full skill bodies on demand.
+Layered registry of skill providers, the host+per-scope shape the tools registry established. A registration files into the layer of its calling context's scope (scopeOf): host rows and repository plugins land in the global layer, while a plugin mounted by an agent preset's standing composition lands in that preset's layer. A read merges the global layer with the viewing scope's chain — the nearest layer's entry wins a duplicate name outright, and the rank order decides duplicates only within one layer. It exposes sorted skill summaries and loads full skill bodies on demand.
 
 ```ts cordis-catalog
 /**
@@ -268,7 +254,7 @@ registerProvider(create: (control: SkillProviderControl) => SkillProvider): () =
  * entries, within one layer. Same-name runtime entries in one layer are
  * first-wins; a duplicate logs a warning and receives a no-op disposer so
  * it cannot remove the winner.
- * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
+ * @param skill - the skill definition input; an omitted provider field receives its default.
  * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
  */
 register(skill: SkillRegistration): () => void
@@ -281,8 +267,7 @@ register(skill: SkillRegistration): () => void
 restrict(filter: SkillRestriction): () => void
 
 /**
- * List invocation-neutral skill summaries for a workspace. Consumers apply
- * model or user invocation policy at their operational boundary. Lookup
+ * List skill summaries for a workspace. Lookup
  * options and provider candidates are readonly same-process values borrowed
  * throughout discovery.
  * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
@@ -291,7 +276,7 @@ restrict(filter: SkillRestriction): () => void
 async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>
 
 /**
- * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
+ * Observe the current catalog and whether discovery completed within a stable revision.
  * Incomplete observations are never cached, allowing consumers to retain last-good state and
  * retry on their next request boundary.
  * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
@@ -311,7 +296,7 @@ async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot>
 async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:378`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:348`](../../packages/skill/skill/src/index.ts)
 
 <a id="skills-events"></a>
 
@@ -334,5 +319,5 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:309`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:279`](../../packages/skill/skill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -55,11 +55,16 @@
     workspaceContext:
       maxBytes: 65536
     persona: |
-      You are headless-agent, a coding assistant powered by the {{model}} model.
+      You are headless-agent, a coding assistant powered by {{provider}}/{{model}}.
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
+
+# Where the agent works: OS, shell, working machine, and the session-fixed
+# working directory, computed once from process-stable platform facts.
+- id: environment
+  name: '@deepseek-ai/dsh-environment'
 - id: persistence
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:

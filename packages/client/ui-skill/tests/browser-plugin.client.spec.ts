@@ -23,7 +23,7 @@ import type { ClientSessionContext, InputTriggerSource } from '@deepseek-ai/dsh-
 import { apply, inject } from '../src/client/index.ts'
 import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
 
-type SkillRow = { name: string; description: string; whenToUse?: string; modelInvocable?: boolean }
+type SkillRow = { name: string; description: string; whenToUse?: string }
 type ListResult =
   | { ok: true; value: { skills: SkillRow[] } }
   | { ok: false; error: { code: string; message: string; details: object } }
@@ -81,9 +81,9 @@ async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
 }
 
 const CATALOG: SkillRow[] = [
-  { name: 'commit-helper', description: 'commit flow', modelInvocable: true },
-  { name: 'code-review', description: 'review flow', whenToUse: 'reviews', modelInvocable: true },
-  { name: 'deploy', description: 'deploy flow', modelInvocable: true },
+  { name: 'commit-helper', description: 'commit flow' },
+  { name: 'code-review', description: 'review flow', whenToUse: 'reviews' },
+  { name: 'deploy', description: 'deploy flow' },
 ]
 
 const listOk = (skills: SkillRow[]): ListFn => () => Promise.resolve({ result: { ok: true as const, value: { skills } } })
@@ -129,14 +129,12 @@ describe('apply', () => {
           'row.failed': 'skill 加载失败',
           'row.stopped': 'skill 加载已中止',
           'row.instructions': '说明',
-          'menu.userOnly': '仅用户',
         },
         en: {
           'row.running': 'Loading skill',
           'row.failed': 'Skill load failed',
           'row.stopped': 'Skill load stopped',
           'row.instructions': 'Instructions',
-          'menu.userOnly': 'user-only',
         },
       },
     }])
@@ -351,17 +349,17 @@ describe('pick lands plain text', () => {
   })
 })
 
-describe('user-only marking', () => {
-  it('prefixes the description of candidates the model cannot invoke', async () => {
+describe('candidate descriptions', () => {
+  it('passes each catalog row description through unchanged', async () => {
     const rows: SkillRow[] = [
-      { name: 'shared-skill', description: 'both surfaces', modelInvocable: true },
-      { name: 'user-only-skill', description: 'user surface only', modelInvocable: false },
+      { name: 'shared-skill', description: 'both surfaces' },
+      { name: 'other-skill', description: 'another surface' },
     ]
     const { source } = await bench(listOk(rows))
     const candidates = await source.candidates(proj('s1'), req(''))
     expect(candidates).toEqual([
       { name: 'shared-skill', description: 'both surfaces' },
-      { name: 'user-only-skill', description: '仅用户 · user surface only' },
+      { name: 'other-skill', description: 'another surface' },
     ])
   })
 })

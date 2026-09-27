@@ -1,0 +1,5 @@
+- listbox "Trigger suggestions":
+  - text: Skills
+  - option "menu-alpha First uniform catalog entry" [selected]
+  - option "menu-beta Second uniform catalog entry"
+  - option "menu-gamma Third uniform catalog entry"

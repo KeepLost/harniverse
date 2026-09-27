@@ -1,5 +1,7 @@
 # Harniverse
 
+<p align="center"><img src="assets/whale-logo.png" width="160" alt="Harniverse whale logo"></p>
+
 English | [中文](README.zh.md)
 
 Harniverse is a source-first downstream of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) maintained in this repository. It preserves the Cordis-powered **everything is a plugin** architecture while composing Harniverse-specific capabilities and security policy through the same plugin seams.
@@ -155,6 +157,27 @@ pnpm dsh --profile headless "Summarize the current project"
 
 The invoking directory is the default workspace for headless execution. The command prints the final assistant response and exits.
 
+## The Harniverse home (`DSH_HOME`)
+
+All user state lives under one root directory: profiles, browser Grants and the access audit log, provider settings and the credential store, sessions, and TLS material for non-loopback listeners.
+
+The root resolves by precedence, highest first:
+
+1. an explicit `dshHome` in configuration;
+2. the `DSH_HOME` environment variable (an empty or whitespace-only value is treated as unset);
+3. the default `~/.dsh`.
+
+Every process that belongs to one Harniverse installation must resolve the same root. When you run an auth command in a second terminal, export the same `DSH_HOME` first, or the command inspects a different home and cannot find the pending request.
+
+If you already run the official DeepSeek Harness on this machine, point Harniverse at a separate root to keep the two installations' state disjoint:
+
+```sh
+export DSH_HOME=~/.harniverse
+pnpm dsh --profile web
+```
+
+Unset the variable to fall back to the shared default `~/.dsh`.
+
 ## Network security
 
 Authentication remains enabled on the default loopback listener. Do not use `--dangerously-skip-authentication` as an installation shortcut. Non-loopback listeners require a TLS certificate and key; see the [Web UI guide](docs/user/guide/index.md#remote-access) before exposing Harniverse to another machine.
@@ -228,6 +251,8 @@ Report Harniverse bugs and documentation problems through [Harniverse Issues](ht
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Contributors start with the [development guide](docs/development.md) and read the [architecture documentation](docs/architecture.md). Agents follow [AGENTS.md](AGENTS.md).
 
 ## License and attribution
+
+Harniverse is an independent community project. It is not affiliated with DeepSeek, has not been endorsed by DeepSeek, and no DeepSeek employee participates in it. It builds on the open-sourced [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), whose license continues to apply to the portions inherited unchanged.
 
 Harniverse as a whole is distributed under the [BSD 3-Clause License](LICENSE). Portions inherited unchanged from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), developed by [DeepSeek AI](https://deepseek.com), remain under that project's MIT license. Harniverse uses [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
 

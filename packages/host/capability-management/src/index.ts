@@ -196,7 +196,7 @@ async function recipeDescriptors(ctx: Context, view: CapabilityView) {
         kind: 'skill' as const,
         name: skill.name,
         description: skill.description,
-        defaultVisible: skill.invocation.modelInvocable,
+        defaultVisible: true,
         available: true,
         requires: [],
       })),

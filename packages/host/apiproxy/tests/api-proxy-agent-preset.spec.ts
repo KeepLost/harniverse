@@ -315,7 +315,6 @@ describe('a capability the session\'s preset mounts', () => {
         list: () => Promise.resolve([{
           name: 'preset-owned',
           description: 'ships inside the preset directory',
-          invocation: { modelInvocable: true, userInvocable: true },
         }]),
       },
     })

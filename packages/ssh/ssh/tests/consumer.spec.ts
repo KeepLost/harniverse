@@ -85,7 +85,7 @@ const mount = (script: Mount['script'], overrides: { ssh?: unknown; tools?: unkn
   return state
 }
 
-const skillBody = { name: 'remote-skill', description: 'Remote skill', content: 'machine body', source: 'custom', provider: 'machine', invocation: { modelInvocable: true, userInvocable: false } }
+const skillBody = { name: 'remote-skill', description: 'Remote skill', content: 'machine body', source: 'custom', provider: 'machine' }
 
 describe('SSH profile consumer', () => {
   it('registers the captured generation and revokes it on disconnect', async () => {

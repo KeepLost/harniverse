@@ -1347,11 +1347,6 @@
     },
     {
       "doc": "docs/subsystems/skills.md",
-      "symbol": "SkillInvocationPolicy",
-      "source": "packages/skill/skill/src/index.ts"
-    },
-    {
-      "doc": "docs/subsystems/skills.md",
       "symbol": "SkillLookupOptions",
       "source": "packages/skill/skill/src/index.ts"
     },

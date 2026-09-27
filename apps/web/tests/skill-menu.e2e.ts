@@ -1,8 +1,7 @@
-// Web e2e scenario: the real host serves every user-invocable skill to the
-// browser slash source — user-only (disable-model-invocation) entries appear
-// with their marker while user-disabled quadrants stay hidden. A real
-// chromium connects a fresh workspace seeded with all four policy quadrants;
-// no model call is issued, so a stray stream fails loud on the open LLM seam.
+// Web e2e scenario: the real host serves every discovered skill to the
+// browser slash source uniformly. A real chromium connects a fresh workspace
+// seeded with plain skills; no model call is issued, so a stray stream fails
+// loud on the open LLM seam.
 import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -20,7 +19,7 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/skill-invocation-policy', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/skill-menu', import.meta.url))
 const MENU_EXPECTED = join(SNAPSHOT_DIR, 'menu.expected.md')
 const MODE = webSnapshotMode()
 
@@ -32,24 +31,19 @@ interface SeedSkill {
 
 const SKILLS: readonly SeedSkill[] = [
   {
-    name: 'policy-shared',
-    description: 'Available to both model and user invocation',
+    name: 'menu-alpha',
+    description: 'First uniform catalog entry',
     frontmatter: '',
   },
   {
-    name: 'policy-model-only',
-    description: 'Available only to model invocation',
-    frontmatter: 'user-invocable: false\n',
+    name: 'menu-beta',
+    description: 'Second uniform catalog entry',
+    frontmatter: '',
   },
   {
-    name: 'policy-user-only',
-    description: 'Available only to user invocation',
-    frontmatter: 'disable-model-invocation: true\n',
-  },
-  {
-    name: 'policy-trusted-only',
-    description: 'Available only to trusted internal callers',
-    frontmatter: 'disable-model-invocation: true\nuser-invocable: false\n',
+    name: 'menu-gamma',
+    description: 'Third uniform catalog entry',
+    frontmatter: '',
   },
 ]
 
@@ -71,7 +65,7 @@ async function seedSkills(workspaceCwd: string): Promise<void> {
   }
 }
 
-describe('web e2e: skill invocation policy through the real host', () => {
+describe('web e2e: the skill menu through the real host', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -93,21 +87,18 @@ describe('web e2e: skill invocation policy through the real host', () => {
     await scaffold?.close()
   })
 
-  it('renders every user-invocable skill and marks the user-only entry', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-skill-invocation-policy'))
+  it('renders every discovered skill uniformly', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-skill-menu'))
     const input = page.locator('textarea').first()
-    await input.fill('/policy')
+    await input.fill('/menu-')
     const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
     await expect.poll(
-      () => menu.getByRole('option', { name: /policy-shared/ }).count(),
+      () => menu.getByRole('option', { name: /menu-alpha/ }).count(),
       { timeout: 10_000 },
     ).toBe(1)
 
-    // The user-only quadrant is invocable here — its only entry point — and
-    // wears the user-only marker; both user-disabled quadrants stay hidden.
-    expect(await menu.getByRole('option', { name: /policy-user-only user-only · / }).count()).toBe(1)
-    expect(await menu.getByRole('option', { name: /policy-model-only/ }).count()).toBe(0)
-    expect(await menu.getByRole('option', { name: /policy-trusted-only/ }).count()).toBe(0)
+    expect(await menu.getByRole('option', { name: /menu-beta/ }).count()).toBe(1)
+    expect(await menu.getByRole('option', { name: /menu-gamma/ }).count()).toBe(1)
     // The command roster loads asynchronously; the golden pins the settled
     // menu, so wait out its loading group before capture.
     await expect.poll(

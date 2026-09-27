@@ -9,7 +9,7 @@
  */
 
 import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
-import type { FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, ReasoningBlock, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai'
 import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
 import { toPiReplayState } from './replay.ts'
@@ -113,6 +113,42 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
 }
 
 /**
+ * Build the durable reasoning block for one streamed thinking item, lifting
+ * the provider's replay metadata off the final message when pi-ai stored it.
+ *
+ * pi-ai keeps the complete OpenAI Responses reasoning item (including
+ * `encrypted_content` and its item `id`) in the thinking block's
+ * `thinkingSignature`; a block that carries an encrypted payload renders its
+ * text as the provider's summary of the withheld chain.
+ * @param index - the block's stream index, matching the final message's content order.
+ * @param text - the streamed thinking text.
+ * @param message - the terminal pi-ai assistant message.
+ * @returns the Harness reasoning block with optional replay fields.
+ */
+function reasoningBlock(index: number, text: string, message: AssistantMessage): ReasoningBlock {
+  const block = message.content[index]
+  const signature = block?.type === 'thinking' ? block.thinkingSignature : undefined
+  if (signature === undefined) return { type: 'reasoning', text }
+  let item: { id?: unknown; encrypted_content?: unknown }
+  try {
+    item = JSON.parse(signature) as { id?: unknown; encrypted_content?: unknown }
+  } catch {
+    // A provider signature this build cannot parse stays opaque; the envelope
+    // still replays it verbatim.
+    return { type: 'reasoning', text }
+  }
+  const itemId = typeof item.id === 'string' ? item.id : undefined
+  const encrypted = typeof item.encrypted_content === 'string' ? item.encrypted_content : undefined
+  return {
+    type: 'reasoning',
+    text,
+    ...(encrypted !== undefined ? { summary: true } : {}),
+    ...itemId === undefined ? {} : { itemId },
+    ...encrypted === undefined ? {} : { encrypted },
+  }
+}
+
+/**
  * Translate the pi-ai event stream into StreamChunks. pi-ai never throws
  * mid-stream — failures arrive as `error` events, which become error/aborted
  * `finish` chunks (the harness protocol's other error-delivery style).
@@ -128,6 +164,11 @@ export async function* toStreamChunks(
   // pi-ai contentIndex ↔ our block index map 1:1 (both count blocks from 0
   // in stream order), but we track ids per index for tool calls.
   const toolIds = new Map<number, { id: string; name: string }>()
+  // Thinking blocks close only at `done`: the provider's reasoning item
+  // metadata (item id, encrypted payload) lands on the final message's
+  // blocks, and emitting block-end with it keeps the durable assistant
+  // message replayable without a second correction pass.
+  const openThinking = new Map<number, string>()
 
   for await (const event of events) {
     switch (event.type) {
@@ -149,7 +190,7 @@ export async function* toStreamChunks(
         yield { type: 'reasoning-delta', index: event.contentIndex, text: event.delta }
         break
       case 'thinking_end':
-        yield { type: 'block-end', index: event.contentIndex, block: { type: 'reasoning', text: event.content } }
+        openThinking.set(event.contentIndex, event.content)
         break
       case 'toolcall_start': {
         // The id/name live on the partial's content at this index.
@@ -186,6 +227,10 @@ export async function* toStreamChunks(
         }
         break
       case 'done':
+        for (const [index, text] of openThinking) {
+          yield { type: 'block-end', index, block: reasoningBlock(index, text, event.message) }
+        }
+        openThinking.clear()
         yield { type: 'usage', usage: mapUsage(event.message.usage) }
         yield {
           type: 'finish',
@@ -196,6 +241,8 @@ export async function* toStreamChunks(
       case 'error':
         // In-stream error delivery (pi-ai's style) → error finish chunk
         // (the harness's other sanctioned error path besides throwing).
+        // Open thinking blocks assemble from their accumulated deltas.
+        openThinking.clear()
         yield { type: 'usage', usage: mapUsage(event.error.usage) }
         yield { type: 'finish', reason: mapStopReason(event.error, contextWindow) }
         return

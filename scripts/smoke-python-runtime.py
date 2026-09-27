@@ -28,7 +28,7 @@ WORKFLOW_WORKER_TEXT = "workflow worker smoke ok"
 MINIMAL_PROMPT = "Exercise the packaged minimal agent's persistent Bash and string-replacement editor."
 MINIMAL_TEXT = "minimal agent smoke ok"
 MINIMAL_EDITOR_PATH_PREFIX = "Editor path: "
-MINIMAL_SYSTEM_PROMPT = "You are a helpful software engineer assistant."
+MINIMAL_SYSTEM_PROMPT = "You are a helpful software engineer assistant powered by"
 MINIMAL_CORDIS = (
     Path(__file__).resolve().parent.parent / "examples" / "jsonrpc-agent" / "minimal.cordis.yml"
 )
@@ -194,7 +194,11 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
             for message in messages
             if isinstance(message, dict) and message.get("role") == "system"
         ]
-        if system_prompts:
+        if len(system_prompts) != 1 or not all(
+            prompt.startswith("You are working on the machine ")
+            and "The working directory for this session is " in prompt
+            for prompt in system_prompts
+        ):
             raise AssertionError(f"minimal agent smoke assembled unexpected system prompts: {system_prompts}")
         runtime_contexts = [
             prompt

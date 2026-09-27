@@ -1,9 +1,9 @@
-// Web e2e scenario: a user invokes a disable-model-invocation skill through
-// the composer (issue #1470). The entered `/name args` line claims into
-// skill.invoke: the real host forwards the gesture as an ordinary user
-// prompt, injects the rendered body as instructions context named after the
-// skill, and starts a turn answered by the replay adapter. The transcript shows
-// the gesture bubble, the collapsed context-injection row, and the reply.
+// Web e2e scenario: a user invokes a discovered skill through the composer.
+// The entered `/name args` line claims into skill.invoke: the real host
+// forwards the gesture as an ordinary user prompt, injects the rendered body
+// as instructions context named after the skill, and starts a turn answered
+// by the replay adapter. The transcript shows the gesture bubble, the
+// collapsed context-injection row, and the reply.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -38,8 +38,7 @@ async function seedUserOnlySkill(workspaceCwd: string): Promise<void> {
   await writeFile(join(directory, 'SKILL.md'), [
     '---',
     `name: ${SKILL_NAME}`,
-    'description: Prove user-explicit invocation of a model-hidden skill',
-    'disable-model-invocation: true',
+    'description: Prove user-explicit invocation of a discovered skill',
     '---',
     '',
     'Reply with the fixture acknowledgement line.',

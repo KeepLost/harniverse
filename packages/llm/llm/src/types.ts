@@ -107,6 +107,18 @@ export interface TextBlock {
 export interface ReasoningBlock {
   type: 'reasoning'
   text: string
+  /**
+   * Present when `text` is a provider-generated summary of a reasoning chain
+   * the provider withheld, rather than the full chain itself.
+   */
+  summary?: boolean
+  /**
+   * Provider-issued encrypted reasoning payload. Replayable only on the exact
+   * route that produced it; a foreign route drops it.
+   */
+  encrypted?: string
+  /** Provider-issued reasoning item id for item-aligned replay. */
+  itemId?: string
 }
 
 /**

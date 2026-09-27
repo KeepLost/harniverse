@@ -184,7 +184,15 @@ pi-ai installs several provider SDKs and lazy-loads the one selected by the cata
 
 #### What the model sees
 
-The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. This package adds no prompt prose. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
+The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. Provider-native replay metadata is restored only when the adapter validates it for the historical content. On OpenAI Responses, a selected reasoning effort also requests auto summaries with the encrypted reasoning chain (`reasoning.summary: auto` plus the `reasoning.encrypted_content` include), so the chain replays statelessly on that route. When an earlier assistant turn carries reasoning that cannot replay on the request's route — no stored metadata, or a different provider/model — exactly one trailing notice joins the history:
+
+##### The route-degradation notice
+
+```markdown
+<system-reminder>
+An earlier assistant turn in this conversation reasoned under a different model route, and its reasoning chain cannot be replayed here. Only the recorded reasoning text above survives; treat it as an incomplete record and do not assume the reasoning behind earlier decisions is fully preserved.
+</system-reminder>
+```
 
 #### Token effect
 
