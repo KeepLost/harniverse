@@ -66,8 +66,11 @@ describe('remote host HTTP proxy', () => {
 
     expect(proxy.resolver('sessions/list', targeted)).toEqual({ requiredCapability: 'harniverse.observe' })
     expect(proxy.resolver('remoteHosts/list', localManagement)).toBeUndefined()
+    expect(proxy.resolver('settings/list', new Request(`http://local/api/settings/list?dshRemoteHost=${REMOTE_HOST}`))).toBeUndefined()
+    expect(proxy.resolver('credentials/list', new Request(`http://local/api/credentials/list?dshRemoteHost=${REMOTE_HOST}`))).toBeUndefined()
     expect(proxy.resolver('sessions/list', noTarget)).toBeUndefined()
     expect(proxy.resolver('unknown/endpoint', targeted)).toEqual({ denied: true })
+    expect(proxy.resolver('sessions/list', new Request('http://local/api/sessions/list?dshRemoteHost=invalid'))).toBeUndefined()
   })
 
   it('strips local transport headers, rewrites expectedPrincipal, and localizes the response identity', async () => {
@@ -129,5 +132,66 @@ describe('remote host HTTP proxy', () => {
 
     expect(response.status).toBe(502)
     await expect(response.text()).resolves.toBe('remote host request failed')
+  })
+
+  it('keeps malformed request and non-JSON response bodies opaque', async () => {
+    const calls: CapturedRequest[] = []
+    const proxy = mounted({
+      authentication: () => ({ kind: 'grant', grantId: 'remote-grant' }),
+      request: async (id, path, init) => {
+        calls.push({ id, path, init })
+        return new Response('not-json', { status: 502, headers: { 'content-type': 'text/plain', 'www-authenticate': 'Bearer' } })
+      },
+    })
+    const malformed = new Request(`http://local/api/sessions/list?dshRemoteHost=${REMOTE_HOST}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{broken',
+    })
+    const response = await proxy.handler(malformed, PRINCIPAL)
+    expect(calls[0]?.init?.body).toBe('{broken')
+    expect(response.status).toBe(502)
+    expect(response.headers.get('www-authenticate')).toBeNull()
+    await expect(response.text()).resolves.toBe('not-json')
+
+    const local = await proxy.handler(new Request('http://local/api/sessions/list'), PRINCIPAL)
+    expect(local.status).toBe(403)
+    const invalid = await proxy.handler(new Request('http://local/api/sessions/list?dshRemoteHost=bad'), PRINCIPAL)
+    expect(invalid.status).toBe(403)
+    const absent = await proxy.handler(new Request('http://local/api/sessions/list'), PRINCIPAL)
+    expect(absent.status).toBe(403)
+  })
+
+  it('leaves GET bodies absent and preserves malformed JSON carrier responses', async () => {
+    let captured: CapturedRequest | undefined
+    const proxy = mounted({
+      authentication: () => undefined,
+      request: async (_id, _path, init) => {
+        captured = { id: REMOTE_HOST, path: '/api/sessions/list', init }
+        return new Response('{broken', { status: 200, headers: { 'content-type': 'application/json' } })
+      },
+    })
+    const response = await proxy.handler(
+      new Request(`http://local/api/sessions/list?dshRemoteHost=${REMOTE_HOST}`), PRINCIPAL,
+    )
+    expect(captured?.init?.body).toBeUndefined()
+    expect(await response.text()).toBe('{broken')
+
+    const noPrincipalBody = new Request(`http://local/api/sessions/list?dshRemoteHost=${REMOTE_HOST}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'ordinary' }),
+    })
+    await proxy.handler(noPrincipalBody, PRINCIPAL)
+    expect(captured?.init?.body).toBeInstanceOf(ArrayBuffer)
+    expect(new TextDecoder().decode(captured?.init?.body as ArrayBuffer)).toBe(JSON.stringify({ type: 'ordinary' }))
+
+    const withPrincipal = mounted({
+      authentication: () => ({ kind: 'grant', grantId: 'remote-grant' }),
+      request: async (_id, _path, init) => {
+        captured = { id: REMOTE_HOST, path: '/api/sessions/list', init }
+        return new Response('plain', { headers: { 'content-type': 'text/plain' } })
+      },
+    })
+    await withPrincipal.handler(new Request(`http://local/api/sessions/list?dshRemoteHost=${REMOTE_HOST}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'ordinary' }),
+    }), PRINCIPAL)
+    expect(captured?.init?.body).toBe(JSON.stringify({ type: 'ordinary' }))
   })
 })

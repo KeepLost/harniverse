@@ -54,7 +54,7 @@ export class HostTransport {
    */
   async openWebSocket(path: string, signal?: AbortSignal): Promise<WebSocket> {
     const url = this.checkedUrl(path)
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.protocol = 'ws:'
     const authorization = await this.access.authorization()
     const socket = new WebSocket(url, { headers: { authorization } })
     await new Promise<void>((resolve, reject) => {

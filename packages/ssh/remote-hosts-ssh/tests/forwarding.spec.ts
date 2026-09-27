@@ -1,8 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
-import { createConnection } from 'node:net'
+import { createConnection, createServer } from 'node:net'
 import { once } from 'node:events'
 import type { ServerChannel } from 'ssh2'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RemoteHostSsh from '../src/index.ts'
 import type { RemoteHostSshConnection } from '../src/types.ts'
 import { fixture } from './fixture.ts'
@@ -91,6 +91,46 @@ it('rejects duplicate bindings and snapshots destinations before asynchronous bi
 it('reports refused remote binds without invalidating other operations', async () => {
   await expect(connection.reverse({ remotePort: echo.port, localHost: '127.0.0.1', localPort: echo.port }))
     .rejects.toMatchObject({ code: 'OPERATION_FAILED' })
+  expect(connection.signal.aborted).toBe(false)
+})
+
+it('rejects an already-cancelled forward and stops on an inconsistent remote bind port', async () => {
+  const cancelled = new AbortController()
+  cancelled.abort()
+  await expect(connection.forward('127.0.0.1', echo.port, cancelled.signal)).rejects.toMatchObject({ code: 'ABORTED' })
+  const client = (connection as unknown as { client: { forwardIn: (...args: unknown[]) => void } }).client
+  const forwardIn = vi.spyOn(client, 'forwardIn').mockImplementation((
+    _address: unknown, port: unknown, callback: unknown,
+  ) => { (callback as (error: Error | null, port: number) => void)(null, Number(port) + 1) })
+  await expect(connection.reverse({ remotePort: 55_555, localHost: '127.0.0.1', localPort: echo.port }))
+    .rejects.toMatchObject({ code: 'OPERATION_FAILED' })
+  forwardIn.mockRestore()
+  await connection.closed
+  expect(connection.signal.aborted).toBe(true)
+})
+
+it('cancels a local forward while its loopback listener is starting', async () => {
+  const controller = new AbortController()
+  const opening = connection.forward('127.0.0.1', echo.port, controller.signal)
+  controller.abort()
+  await expect(opening).rejects.toMatchObject({ code: 'ABORTED' })
+  await connection.closed
+  expect(connection.signal.aborted).toBe(true)
+})
+
+it('drains a reverse channel when its local destination refuses the connection', async () => {
+  const unavailable = createServer().listen(0, '127.0.0.1')
+  await once(unavailable, 'listening')
+  const address = unavailable.address()
+  if (!address || typeof address === 'string') throw new Error('fixture port unavailable')
+  await new Promise<void>(resolve => unavailable.close(() => { resolve() }))
+  const reverse = await connection.reverse({ localHost: '127.0.0.1', localPort: address.port })
+  const socket = createConnection({ host: '127.0.0.1', port: reverse.port })
+  socket.on('error', () => {})
+  await once(socket, 'connect')
+  socket.destroy()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  await reverse.close()
   expect(connection.signal.aborted).toBe(false)
 })
 

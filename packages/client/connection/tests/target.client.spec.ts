@@ -8,6 +8,10 @@ describe('remote browser target routing', () => {
     expect(resolve('/api/sessions/list')).toBe('/api/sessions/list?dshRemoteHost=11111111-1111-4111-8111-111111111111')
     expect(resolve('/api/events.mux?since=%7B%7D')).toContain('dshRemoteHost=11111111-1111-4111-8111-111111111111')
     expect(resolve('/api/remoteHosts/list')).toBe('/api/remoteHosts/list')
+    expect(resolve('/api/settings/list')).toBe('/api/settings/list')
+    expect(resolve('/api/credentials/list')).toBe('/api/credentials/list')
+    expect(resolve('/api/')).toContain('dshRemoteHost=11111111-1111-4111-8111-111111111111')
+    expect(resolve('/api-sessions/list')).toBe('/api-sessions/list')
     expect(resolve('/auth/status')).toBe('/auth/status')
   })
 

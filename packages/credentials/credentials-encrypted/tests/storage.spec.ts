@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readDocument, UncertainCommitError, writeDocument } from '../src/storage.ts'
@@ -85,4 +85,11 @@ it.skipIf(process.platform === 'win32')('refuses final-component symlinks withou
   await symlink(target, path)
   await expect(readDocument(path)).rejects.toThrow()
   expect(await readFile(target, 'utf8')).toBe('other encrypted envelope')
+})
+
+it.skipIf(process.platform === 'win32')('rejects a shared parent directory before writing ciphertext', async () => {
+  const { dir, path } = await store()
+  await chmod(dir, 0o755)
+  await expect(writeDocument(path, 'encrypted envelope')).rejects.toThrow(/could not persist/)
+  await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' })
 })

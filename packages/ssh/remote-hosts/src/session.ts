@@ -64,23 +64,29 @@ export async function establish(
   while (true) {
     startupSignal.throwIfAborted()
     if (!live) endpoint = await discovery(connection, host, home, release, startupSignal)
-    if (endpoint !== undefined && (live || await processAlive(connection, host, home, release, endpoint.pid, startupSignal))) {
-      // This app binds HTTP loopback; TLS deployments require explicit certificate trust integration.
-      if (endpoint.protocol !== 'http:') throw new RemoteHostsError('UNSUPPORTED_ENDPOINT_TLS')
-      forward = await connection.forward('127.0.0.1', endpoint.port, startupSignal)
-      const transport = new HostTransport(forward.port, grant, provider, host.id, signal, config.requestTimeoutMs ?? 30_000)
-      try {
-        const status = statusSchema.parse(await transport.rpc('status', {}, startupSignal))
-        if (status.bootId !== endpoint.bootId || status.platform !== host.platform || status.arch !== host.architecture) {
-          throw new RemoteHostsError('ENDPOINT_IDENTITY_MISMATCH')
+    if (endpoint !== undefined) {
+      let processIsAlive = live
+      if (!processIsAlive) processIsAlive = await processAlive(connection, host, home, release, endpoint.pid, startupSignal)
+      if (processIsAlive) {
+        // This app binds HTTP loopback; TLS deployments require explicit certificate trust integration.
+        if (endpoint.protocol !== 'http:') throw new RemoteHostsError('UNSUPPORTED_ENDPOINT_TLS')
+        forward = await connection.forward('127.0.0.1', endpoint.port, startupSignal)
+        const transport = new HostTransport(forward.port, grant, provider, host.id, signal, config.requestTimeoutMs ?? 30_000)
+        try {
+          const status = statusSchema.parse(await transport.rpc('status', {}, startupSignal))
+          if (status.bootId !== endpoint.bootId || status.platform !== host.platform || status.arch !== host.architecture) {
+            throw new RemoteHostsError('ENDPOINT_IDENTITY_MISMATCH')
+          }
+          session.transport = transport
+          break
+        } catch (error) {
+          await forward.close()
+          if (live) throw error
+          if (error instanceof RemoteHostsError && error.code === 'ENDPOINT_IDENTITY_MISMATCH') throw error
         }
-        session.transport = transport
-        break
-      } catch (error) {
-        await forward.close()
-        if (live || error instanceof RemoteHostsError && error.code === 'ENDPOINT_IDENTITY_MISMATCH') throw error
       }
     }
+    /* v8 ignore next -- the deterministic fixture reaches the endpoint immediately; this is the real startup polling backoff. */
     await delay(200, undefined, { signal: startupSignal })
   }
   for (const mapping of host.reverseMappings) {

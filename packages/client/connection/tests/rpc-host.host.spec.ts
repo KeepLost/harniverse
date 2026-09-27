@@ -25,7 +25,7 @@ import { RpcId, RequestId, type ClientRequest } from '@deepseek-ai/dsh-host-apip
 import { serverResponseSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { API_PATH, apply, inject, type HostConnectionHandle } from '../src/index.ts'
-import type { HostConnectionService } from '../src/rpc-host.ts'
+import { HostConnectionService } from '../src/rpc-host.ts'
 
 const BYPASS_PRINCIPAL: AuthenticationPrincipal = {
   kind: 'bypass',
@@ -827,6 +827,43 @@ describe('shared /api interceptor', () => {
     expect(harness.warnings.join('\n')).toContain('RPC handler failed for explode')
     await remove()
     await harness.dispose()
+  })
+})
+
+describe('targeted HTTP proxy dispatch', () => {
+  it('denies unclaimed targets, checks capability, forwards authorized targets, and preserves fallback', async () => {
+    const owner = new Context()
+    const service = new HostConnectionService(owner, [], [])
+    let targetPolicy: { requiredCapability: AuthenticationCapability } | { denied: true } | undefined = undefined
+    const forwarded = vi.fn(async () => new Response('remote'))
+    const fallback = { fetch: vi.fn(async () => new Response('local')) }
+    const fiber = owner.plugin({
+      name: 'targeted-http-proxy-fixture',
+      apply(ctx: Context) {
+        service.registerHttpProxy(ctx, (_endpoint, request) =>
+          new URL(request.url).searchParams.has('dshRemoteHost') ? targetPolicy : undefined, forwarded)
+      },
+    })
+    await fiber.await()
+    expect(() => service.registerHttpProxy(owner, () => ({ requiredCapability: 'harniverse.observe' }), async () => new Response()))
+      .toThrow('client-connection: HTTP target proxy already has an owner')
+    const fetcher = service.createSharedFetchHandler('/api', fallback, () => ({ requiredCapability: 'harniverse.observe' }), OBSERVER_PRINCIPAL)
+    const targeted = () => new Request('http://local/api/sessions/list?dshRemoteHost=22222222-2222-4222-8222-222222222222')
+
+    targetPolicy = { denied: true }
+    expect((await fetcher.fetch(targeted())).status).toBe(403)
+    targetPolicy = { requiredCapability: 'harniverse.operate' }
+    expect((await fetcher.fetch(targeted())).status).toBe(403)
+    expect(forwarded).not.toHaveBeenCalled()
+
+    targetPolicy = { requiredCapability: 'harniverse.observe' }
+    expect(await (await fetcher.fetch(targeted())).text()).toBe('remote')
+    expect(forwarded).toHaveBeenCalledTimes(1)
+
+    targetPolicy = undefined
+    expect(await (await fetcher.fetch(targeted())).text()).toBe('local')
+    expect(fallback.fetch).toHaveBeenCalledTimes(1)
+    await fiber.dispose()
   })
 })
 

@@ -34,14 +34,22 @@ describe('pinned remote SSH transport', () => {
     const connection = await service.open(host.config, { kind: 'password', password: 'fixture-password' })
     const result = await connection.exec('echo input', 'hello')
     expect(result).toEqual({ stdout: Buffer.from('hello'), stderr: Buffer.from('fixture-stderr'), exitCode: 7, signal: null })
+    const binary = await connection.exec('binary input', Buffer.from([0, 255]))
+    expect(binary.stdout).toEqual(Buffer.from([0, 255]))
     await Promise.all([connection.dispose(), connection.dispose()])
     await connection.closed
-    expect(host.commands).toEqual(['echo input'])
+    expect(host.commands).toEqual(['echo input', 'binary input'])
     await expect(connection.exec('after close')).rejects.toMatchObject({ code: 'CLOSED' })
   })
 
   it('sanitizes authentication failures', async () => {
     await expect(service.open(host.config, { kind: 'password', password: 'secret-that-must-not-appear' }))
       .rejects.toMatchObject({ code: 'CONNECT_FAILED', message: 'SSH connection failed' })
+  })
+
+  it('contains an unavailable explicit SSH agent socket', async () => {
+    await expect(service.open(host.config, { kind: 'agent', socket: '/tmp/dsh-missing-agent.sock' }))
+      .rejects.toMatchObject({ code: 'CONNECT_FAILED', message: 'SSH connection failed' })
+    expect(host.authentications).toEqual([])
   })
 })

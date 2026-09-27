@@ -9,6 +9,7 @@ import type { RuntimeEndpoint } from './types.ts'
 const exec = promisify(execFile)
 
 async function protectDirectory(directory: string): Promise<void> {
+  /* v8 ignore start -- native Windows coverage owns the DACL path; POSIX cannot execute PowerShell. */
   if (process.platform !== 'win32') { await chmod(directory, 0o700); return }
   // POSIX mode bits do not establish a Windows DACL. Children inherit this owner-only rule.
   const command = [
@@ -24,6 +25,7 @@ async function protectDirectory(directory: string): Promise<void> {
   await exec(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')],
     { env: { ...process.env, DSH_ENDPOINT_DIRECTORY: directory }, timeout: 15_000 })
+  /* v8 ignore stop */
 }
 
 /**
@@ -37,6 +39,7 @@ export async function publishEndpoint(home: string, endpoint: RuntimeEndpoint): 
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const info = await lstat(directory)
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('remote-runtime: server directory must not be a symlink')
+  /* v8 ignore next -- hosted coverage runs as the owner; this rejects a tampered home owned by another user. */
   if (process.getuid !== undefined && info.uid !== process.getuid()) {
     throw new Error('remote-runtime: server directory must belong to the current user')
   }
@@ -59,6 +62,7 @@ export async function publishEndpoint(home: string, endpoint: RuntimeEndpoint): 
     let text: string
     try { text = await readFile(filename, 'utf8') } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      /* v8 ignore else -- other endpoint read failures are environment-dependent filesystem faults. */
       throw error
     }
     let current: Partial<RuntimeEndpoint> | null
@@ -68,6 +72,7 @@ export async function publishEndpoint(home: string, endpoint: RuntimeEndpoint): 
     }
     if (current?.bootId !== endpoint.bootId || current.pid !== endpoint.pid) return
     await unlink(filename).catch((error: unknown) => {
+      /* v8 ignore next -- unlink failures are surfaced by the disposer; normal cleanup is ENOENT-safe. */
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     })
   }

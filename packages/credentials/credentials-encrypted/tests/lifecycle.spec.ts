@@ -157,3 +157,12 @@ it('bounds queued control operations while persistence is blocked', async () => 
   await Promise.all(queued)
   expect(await provider.resolve(REF)).toEqual({ value: 'queued-14', source: 'encrypted' })
 })
+
+it('rejects invalid storage configuration and exposes disposal to synchronous callers', async () => {
+  expect(() => new EncryptedCredentialProvider(new Context(), { dshHome: '' })).toThrow(/invalid storage path/)
+  new EncryptedCredentialProvider(new Context())
+  const { provider, fiber } = await boot()
+  await fiber.dispose()
+  expect(provider.status()).toEqual({ locked: true })
+  await expect(provider.set(REF, 'late')).rejects.toThrow(/disposed/)
+})

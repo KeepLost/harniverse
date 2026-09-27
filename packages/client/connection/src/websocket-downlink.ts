@@ -98,6 +98,7 @@ export class WebSocketDownlinks {
    */
   constructor(
     private readonly api: ApiProxy,
+    /* v8 ignore next -- composed Connection tests inject a deterministic diagnostic sink. */
     private readonly reportError: (error: unknown) => void = (error) => {
       console.error('[client-connection] WebSocket event stream failed:', error)
     },

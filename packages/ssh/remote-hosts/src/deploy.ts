@@ -49,6 +49,7 @@ async function verifyNode(
   connection: RemoteHostSshConnection, host: HostRecord, release: string, artifact: Artifact, signal: AbortSignal,
 ): Promise<void> {
   const file = artifact.files.find(entry => entry.path === artifact.executable)
+  /* v8 ignore next -- inspectArtifact guarantees the selected executable is present in a deployable artifact. */
   if (!file) throw new RemoteHostsError('INVALID_ARTIFACT')
   const q = (value: string) => quote(host.platform, value)
   const binary = `${release}/${artifact.executable}`

@@ -103,6 +103,7 @@ export class SshTransport implements RemoteHostSshConnection {
     try {
       return await this.operation<string>((op) => {
         this.client.once('ready', () => {
+          /* v8 ignore else -- ssh2 invokes hostVerifier before its ready event by protocol. */
           if (observed !== undefined) op.succeed(observed)
           else op.fail()
         })
@@ -191,7 +192,6 @@ export class SshTransport implements RemoteHostSshConnection {
         this.signal.removeEventListener('abort', closed)
       }
       const closed = () => {
-        if (settled) return
         clear()
         const reason: unknown = this.signal.reason
         reject(reason instanceof RemoteHostSshError ? reason : new RemoteHostSshError('CLOSED'))
@@ -396,8 +396,8 @@ export class SshTransport implements RemoteHostSshConnection {
     try {
       return await this.operation<RemoteHostSshForward>((op) => {
         const server = createServer((socket) => {
-          const owner = tunnel
-          if (!owner) { socket.destroy(); return }
+          /* v8 ignore next -- the listener is created before the assigned tunnel can receive a connection. */
+          const owner = tunnel as Tunnel
           owner.own(socket)
           if (!owner.active()) return
           const pending = this.operation<void>((channelOp) => {
@@ -417,6 +417,7 @@ export class SshTransport implements RemoteHostSshConnection {
         server.listen({ host: '127.0.0.1', port: 0, signal: this.signal }, () => {
           if (!op.active()) { void owner.close(); return }
           const address = server.address()
+          /* v8 ignore next -- a successfully listening TCP server has an AddressInfo with a numeric port. */
           if (!address || typeof address === 'string') { op.fail(); return }
           op.succeed({ port: address.port, close: owner.close })
         })

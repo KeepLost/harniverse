@@ -67,7 +67,10 @@ export async function fixture() {
   const ctx = new Context()
   const observations = { opens: [] as Array<{ config: RemoteHostSshConfig; auth: RemoteHostSshAuthentication }>,
     commands: [] as string[], stdin: [] as string[], uploads: 0, starts: 0, disposals: 0, forwards: 0,
-    reverses: [] as Array<{ localHost: string; localPort: number }>, pinFail: false, holdOpen: false }
+    reverses: [] as Array<{ localHost: string; localPort: number }>, pinFail: false, holdOpen: false,
+    probeFail: false, forwardFail: false, reverseFail: false, discoveryFail: false, endpointMismatchOnStart: false,
+    discoveryMissesAfterStart: 0, failedForwards: 0,
+    deadProcessProbes: 0, restartOnStart: false }
   const controllers: AbortController[] = []
   try {
     await load(remoteCtx, remote, { credentials: Encrypted, settings: Settings, authentication: Authentication,
@@ -81,7 +84,7 @@ export async function fixture() {
     ])
     const endpoint = JSON.parse(await readFile(join(remote, 'server/endpoint.json'), 'utf8')) as Endpoint
     const provider: RemoteHostSshProvider = {
-      async probe() { return hostInput.fingerprint },
+      async probe() { if (observations.probeFail) throw new Error('secret probe failure'); return hostInput.fingerprint },
       async open(config, auth, signal) {
         observations.opens.push({ config, auth })
         if (observations.pinFail) throw new Error('secret upstream password rejection')
@@ -100,6 +103,13 @@ export async function fixture() {
           async exec(cmd, input) {
             observations.commands.push(cmd)
             if (input !== undefined) observations.stdin.push(input.toString())
+            if (cmd.includes('server/endpoint.json') && observations.discoveryFail) {
+              return { stdout: Buffer.alloc(0), stderr: Buffer.from('discovery failed'), exitCode: 1, signal: null }
+            }
+            if (cmd.includes('server/endpoint.json') && observations.starts > 0 && observations.discoveryMissesAfterStart > 0) {
+              observations.discoveryMissesAfterStart--
+              return { stdout: Buffer.from('{}'), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+            }
             if (cmd.includes('listAuthenticationGrants')) {
               const grantInput = JSON.parse(input!.toString()) as Parameters<typeof Authentication.createAuthenticationClientGrant>[0]
               let grant = (await Authentication.listAuthenticationGrants({ dshHome: remote })).find(g => g.name === grantInput.name)
@@ -107,7 +117,17 @@ export async function fixture() {
               grant ??= await Authentication.createAuthenticationClientGrant(grantInput, { dshHome: remote })
               return { stdout: Buffer.from(JSON.stringify({ id: grant.id })), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
             }
-            if (cmd.includes('nohup')) observations.starts++
+            if (cmd.includes('process.kill')) {
+              const state = observations.deadProcessProbes > 0 ? (observations.deadProcessProbes--, 'dead') : 'live'
+              return { stdout: Buffer.from(state), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+            }
+            if (cmd.includes('nohup')) {
+              observations.starts++
+              if (observations.restartOnStart) await writeFile(join(remote, 'server/endpoint.json'), JSON.stringify({
+                ...endpoint, pid: process.pid, ...(observations.endpointMismatchOnStart ? { bootId: 'ecaf46e5-b82a-40af-9b56-0a119053d7c8' } : {}),
+              }))
+              return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+            }
             // Execute deployment, native hashing, and discovery against isolated local paths.
             const child = childExec(cmd, { maxBuffer: 2 * 1024 * 1024 }, () => {})
             child.stdin?.end(input)
@@ -131,15 +151,18 @@ export async function fixture() {
           async mkdir(path) { await mkdir(path, { mode: 0o700 }) },
           async upload(source, target) { observations.uploads++; await copyFile(source, target) },
           async forward(host, port) {
+            if (observations.forwardFail) throw new Error('forward failed')
             if (host !== '127.0.0.1' || port !== endpoint.port) throw new Error('wrong forward')
             observations.forwards++
-            return { port, async close() {} }
+            const forwardedPort = observations.failedForwards > 0 ? (observations.failedForwards--, 0) : port
+            return { port: forwardedPort, async close() {} }
           },
           async reverse(mapping) {
+            if (observations.reverseFail) throw new Error('reverse failed')
             observations.reverses.push(mapping)
             return { port: 30000 + observations.reverses.length, async close() {} }
           },
-          async dispose() { if (!controller.signal.aborted) { observations.disposals++; controller.abort(); close() } await closed },
+          async dispose() { if (!controller.signal.aborted) { observations.disposals++; controller.abort() } close(); await closed },
         }
         return connection
       },

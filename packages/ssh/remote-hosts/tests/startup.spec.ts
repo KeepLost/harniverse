@@ -1,3 +1,4 @@
+import { Context } from '@deepseek-ai/cordis'
 import { exec } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -5,8 +6,15 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 import type { RemoteHostSshConnection } from '@deepseek-ai/dsh-remote-hosts-ssh'
+import * as Hosts from '../src/index.ts'
 import { startDetached } from '../src/deploy.ts'
 import { remoteHostId } from '../src/validation.ts'
+
+it('rejects non-absolute artifact roots and out-of-range operation timeouts', () => {
+  expect(() => new Hosts.RemoteHosts(new Context(), { artifactsRoot: 'relative' })).toThrow('ARTIFACT_ROOT_NOT_ABSOLUTE')
+  expect(() => new Hosts.RemoteHosts(new Context(), { artifactsRoot: '/tmp/artifacts', startupTimeoutMs: 0 })).toThrow('INVALID_TIMEOUT')
+  expect(() => new Hosts.RemoteHosts(new Context(), { artifactsRoot: '/tmp/artifacts', requestTimeoutMs: 2_147_483_648 })).toThrow('INVALID_TIMEOUT')
+})
 
 it.skipIf(process.platform === 'win32')('POSIX child survives its startup shell and owns a separate persistent lifetime', async () => {
   const root = await mkdtemp(join(tmpdir(), 'hosts-detached-'))

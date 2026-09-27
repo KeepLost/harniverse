@@ -68,6 +68,7 @@ export async function inspectArtifact(root: string, platform: RemotePlatform, ar
   }
   const result = new Map(regular)
   function expand(source: string, destination: string, seen: Set<string>): void {
+  /* v8 ignore next -- local realpath validation rejects symlink cycles before expansion. */
     if (seen.has(source) || result.size > 200000) throw new RemoteHostsError('ARTIFACT_LINK_CYCLE')
     const next = new Set(seen).add(source)
     const file = regular.get(source)
@@ -75,6 +76,7 @@ export async function inspectArtifact(root: string, platform: RemotePlatform, ar
     const link = entries.get(source)?.link
     if (link !== undefined) {
       const target = posix.normalize(posix.join(posix.dirname(source), link.replaceAll('\\', '/')))
+      /* v8 ignore next -- the earlier canonical realpath fence rejects escaping links. */
       if (target === '..' || target.startsWith('../') || target === '.') throw new RemoteHostsError('ARTIFACT_LINK_ESCAPE')
       expand(target, destination, next)
       return

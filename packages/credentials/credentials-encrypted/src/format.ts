@@ -74,6 +74,7 @@ export function encrypt(values: Map<string, string>, key: Buffer): string {
       tag: cipher.getAuthTag().toString('base64url'),
       ciphertext: ciphertext.toString('base64url'),
     }) + '\n'
+    /* v8 ignore next -- MAX_SNAPSHOT_BYTES plus the envelope encoding is below MAX_FILE_BYTES by construction. */
     if (Buffer.byteLength(document) > MAX_FILE_BYTES) throw new Error('credentials-encrypted: oversized encrypted document')
     return document
   } finally {

@@ -18,7 +18,8 @@ export function createBrowserPathResolver(search: string | undefined): Transport
   if (raw === null || raw === undefined || !UUID.test(raw)) return path => path
   return (path) => {
     const url = new URL(path, 'http://dsh.internal')
-    if (!url.pathname.startsWith('/api/') || LOCAL_NAMESPACES.has(url.pathname.split('/')[2] ?? '')) return path
+    const namespace = url.pathname.split('/')[2]
+    if (!url.pathname.startsWith('/api/') || (namespace !== undefined && LOCAL_NAMESPACES.has(namespace))) return path
     url.searchParams.set(TARGET_PARAMETER, raw)
     return `${url.pathname}${url.search}`
   }

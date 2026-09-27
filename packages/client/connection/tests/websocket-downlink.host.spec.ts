@@ -1,4 +1,5 @@
 import { once } from 'node:events'
+import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +16,7 @@ import {
 } from '@deepseek-ai/dsh-authentication'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../src/api-path.ts'
 import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks } from '../src/websocket-downlink.ts'
+import type { RemoteWebSocket } from '../src/websocket-downlink.ts'
 
 type MuxSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<MuxFrame>>
 type HostSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<HostFrame>>
@@ -127,6 +129,10 @@ async function acceptedSocket(downlinks: WebSocketDownlinks): Promise<WebSocket>
     expect(accepted).toBeDefined()
   })
   return accepted as WebSocket
+}
+
+function remoteSocket(): RemoteWebSocket & EventEmitter {
+  return Object.assign(new EventEmitter(), { close: vi.fn() })
 }
 
 describe('WebSocket downlinks', () => {
@@ -392,6 +398,23 @@ describe('WebSocket downlinks', () => {
       payload: { type: 'stream/error', error: { message: 'event stream failed' } },
     })
     await once(socket, 'close')
+  })
+
+  it('uses the default diagnostic sink when a host event source fails', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const downlinks = new WebSocketDownlinks(api(
+      async function * () { throw new Error('default logger source failure') },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    const failure = read(socket)
+    await once(socket, 'open')
+    await expect(failure).resolves.toMatchObject({ payload: { type: 'stream/error' } })
+    await once(socket, 'close')
+    expect(diagnostic).toHaveBeenCalled()
+    diagnostic.mockRestore()
   })
 
   it('aborts the source when an accepted socket reports a transport error', async () => {
@@ -755,5 +778,300 @@ describe('rejectUnauthorizedWebSocket', () => {
       releaseCleanup()
       await closing
     }
+  })
+
+  it('bridges authenticated remote frames, rewrites remote identity, and rejects client uplink', async () => {
+    const principal = grant('local-owner', 4, new Date(8_640_000_000_000_000 - 1).toISOString())
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const upstream = remoteSocket()
+    let upstreamClosed = false
+    const closeUpstream = vi.fn(() => {
+      if (upstreamClosed) return
+      upstreamClosed = true
+      queueMicrotask(() => { upstream.emit('close') })
+    })
+    upstream.close = closeUpstream
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const bounded = async <T>(stage: string, promise: Promise<T>): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([promise, new Promise<T>((_resolve, reject) => {
+          timer = setTimeout(() => { reject(new Error(`remote bridge test timed out at ${stage}`)) }, 1_000)
+        })])
+      } finally { if (timer !== undefined) clearTimeout(timer) }
+    }
+    const authFrame = readRaw(socket)
+    await bounded('client-open', once(socket, 'open').then(() => undefined))
+    const authenticated = await bounded('local-auth-frame', authFrame)
+    expect(authenticated.method).toBe('connection.authenticated')
+    await bounded('upstream-listener', vi.waitFor(() => { expect(upstream.listenerCount('message')).toBe(1) }))
+    upstream.emit('message', JSON.stringify({ method: 'connection.authenticated', payload: { kind: 'grant', grantId: 'remote-id' } }))
+    expect(await bounded('rewritten-auth-frame', readRaw(socket))).toMatchObject({
+      method: 'connection.authenticated',
+      payload: { kind: 'grant', grantId: 'local-owner', grantRevision: 4 },
+    })
+    upstream.emit('message', Buffer.from(JSON.stringify({ method: 'host/remote-event', payload: { event: 'commands/change' } })))
+    expect(await bounded('remote-business-frame', readRaw(socket))).toMatchObject({ method: 'host/remote-event', payload: { event: 'commands/change' } })
+    const closed = once(socket, 'close')
+    socket.send('forbidden uplink')
+    const [code, reason] = await bounded('client-uplink-close', closed) as [number, Buffer]
+    expect(code).toBe(1008)
+    expect(String(reason)).toBe('downlink only')
+    expect(closeUpstream).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['binary', new ArrayBuffer(2)],
+    ['malformed', '{broken'],
+  ] as const)('rejects %s frames from a remote upstream', async (_label, frame) => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const upstream = remoteSocket()
+    upstream.close = vi.fn(() => { queueMicrotask(() => { upstream.emit('close') }) })
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: grant('local-owner') }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const auth = readRaw(socket)
+    await once(socket, 'open')
+    await auth
+    await vi.waitFor(() => { expect(upstream.listenerCount('message')).toBe(1) })
+    const closed = once(socket, 'close')
+    upstream.emit('message', frame)
+    const [code] = await closed as [number, Buffer]
+    expect(code).toBe(1003)
+  })
+
+  it('closes a remote downlink when its upstream cannot be opened', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: grant('local-owner') }, async () => {
+        throw new Error('upstream unavailable')
+      })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const identity = readRaw(socket)
+    await once(socket, 'open')
+    await identity
+    const [code] = await once(socket, 'close') as [number, Buffer]
+    expect(code).toBe(1011)
+  })
+
+  it('does not report an upstream failure after the downstream has already aborted', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const opening = Promise.withResolvers<RemoteWebSocket>()
+    let openingSignal: AbortSignal | undefined
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: grant('local-owner') }, (signal) => {
+        openingSignal = signal
+        return opening.promise
+      })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const identity = readRaw(socket)
+    await once(socket, 'open')
+    await identity
+    const closed = once(socket, 'close')
+    socket.close()
+    await closed
+    await vi.waitFor(() => { expect(openingSignal?.aborted).toBe(true) })
+    opening.reject(new Error('upstream failed after abort'))
+    await Promise.resolve()
+  })
+
+  it('removes a rejected remote pump after upstream cleanup throws', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const upstream = remoteSocket()
+    upstream.close = vi.fn(() => { throw new Error('upstream close failed') })
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: grant('local-owner') }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const identity = readRaw(socket)
+    await once(socket, 'open')
+    await identity
+    await vi.waitFor(() => { expect(upstream.listenerCount('close')).toBeGreaterThan(0) })
+    const closed = once(socket, 'close')
+    socket.close()
+    await closed
+    await vi.waitFor(() => { expect((downlinks as unknown as { pumps: Set<Promise<void>> }).pumps.size).toBe(0) })
+    const closeUpstream = Reflect.get(upstream, 'close') as ReturnType<typeof vi.fn>
+    expect(closeUpstream).toHaveBeenCalledOnce()
+  })
+
+  it.each(['unavailable', 'revoked', 'expired'] as const)('rejects a remote upgrade that is %s at admission', async (state) => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const principal = state === 'expired'
+      ? grant('local-owner', 1, new Date(Date.now() - 1_000).toISOString())
+      : grant('local-owner')
+    if (state === 'unavailable') downlinks.authenticationUnavailable()
+    if (state === 'revoked') downlinks.revoke([{ grantId: authenticationGrantId('local-owner'), grantRevision: 1 }])
+    const open = vi.fn(async () => remoteSocket())
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal }, open)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const [code] = await once(socket, 'close') as [number, Buffer]
+    expect(code).toBe(4001)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('expires an admitted remote grant and closes its upstream', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const principal = grant('short-remote', 1, new Date(Date.now() + 500).toISOString())
+    const upstream = remoteSocket()
+    const closeUpstream = vi.fn(() => { queueMicrotask(() => { upstream.emit('close') }) })
+    upstream.close = closeUpstream
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const identity = readRaw(socket)
+    await once(socket, 'open')
+    await identity
+    const [code, reason] = await once(socket, 'close') as [number, Buffer]
+    expect(code).toBe(4001)
+    expect(String(reason)).toBe('access expired')
+    await vi.waitFor(() => { expect(closeUpstream).toHaveBeenCalled() })
+  })
+
+  it('closes the remote link when downstream frame delivery fails', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const upstream = remoteSocket()
+    upstream.close = vi.fn(() => { queueMicrotask(() => { upstream.emit('close') }) })
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: grant('local-owner') }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const identity = readRaw(socket)
+    await once(socket, 'open')
+    await identity
+    await vi.waitFor(() => { expect(upstream.listenerCount('message')).toBe(1) })
+    const accepted = await acceptedSocket(downlinks)
+    vi.spyOn(accepted, 'send').mockImplementation(((
+      _data: unknown,
+      optionsOrCallback?: unknown,
+      callback?: (error?: Error) => void,
+    ) => {
+      const done = typeof optionsOrCallback === 'function'
+        ? optionsOrCallback as (error?: Error) => void
+        : callback
+      done?.(new Error('remote send failed'))
+    }) as WebSocket['send'])
+    const closed = once(socket, 'close')
+    upstream.emit('message', JSON.stringify({ method: 'host/remote-event', payload: {} }))
+    const [code] = await closed as [number, Buffer]
+    expect(code).toBeGreaterThan(1000)
+  })
+
+  it('supports a non-expiring bypass identity on a remote stream', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const upstream = remoteSocket()
+    upstream.close = vi.fn(() => { queueMicrotask(() => { upstream.emit('close') }) })
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: { kind: 'bypass', capabilities: ALL_AUTHENTICATION_CAPABILITIES } }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const identity = readRaw(socket)
+    await once(socket, 'open')
+    expect(await identity).toMatchObject({ method: 'connection.authenticated', payload: { kind: 'bypass' } })
+    const closed = once(socket, 'close')
+    socket.close()
+    await closed
+  })
+
+  it('contains a remote frame racing after the downstream socket closes', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const upstream = remoteSocket()
+    upstream.close = vi.fn(() => { queueMicrotask(() => { upstream.emit('close') }) })
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: grant('local-owner') }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    const identity = readRaw(socket)
+    await once(socket, 'open')
+    await identity
+    await vi.waitFor(() => { expect(upstream.listenerCount('message')).toBe(1) })
+    const accepted = await acceptedSocket(downlinks)
+    const closed = once(socket, 'close')
+    accepted.close()
+    upstream.emit('message', JSON.stringify({ method: 'host/remote-event', payload: {} }))
+    await closed
+    const closeUpstream = Reflect.get(upstream, 'close') as ReturnType<typeof vi.fn>
+    await vi.waitFor(() => { expect(closeUpstream).toHaveBeenCalled() })
   })
 })

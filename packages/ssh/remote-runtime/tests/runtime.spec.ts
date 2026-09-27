@@ -117,6 +117,12 @@ it('withdraws the admission policy and declares capability metadata on every Rem
   expect(() => { ctx.agents.assertAdmission({} as never) }).not.toThrow()
 })
 
+it('rejects status access after the runtime fiber has been disposed', async () => {
+  const { runtime, fiber } = await mount()
+  await fiber.dispose()
+  expect(() => runtime.status()).toThrow(/disposed/)
+})
+
 it('refuses non-loopback, bypass, and structurally similar credential providers', async () => {
   await expect(mount(undefined, { host: '0.0.0.0' })).rejects.toThrow(/127\.0\.0\.1/)
   await expect(mount(undefined, { mode: 'bypass' })).rejects.toThrow(/authentication/)

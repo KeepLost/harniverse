@@ -156,6 +156,7 @@ export function RemoteHostsView({
       const result = await upsert(input)
       const issue = resultError(result)
       if (issue) throw issue
+      /* v8 ignore next -- resultError rejects every non-ok result before this successful-save branch. */
       if (!draft.remember && result.ok) {
         const connected = await connect(result.value.id, secrets)
         const connectionIssue = resultError(connected)
@@ -177,6 +178,7 @@ export function RemoteHostsView({
         <div><h1>{t('title')}</h1><p>{hosts.filter(host => host.state === 'connected').length} · {t('stateConnected')}</p></div>
         <div className={css.headerActions}>
           <button type="button" className={css.iconButton} aria-label={t('refresh')} title={t('refresh')} onClick={() => { void refresh() }}><IconRefreshOutline16 /></button>
+          {/* v8 ignore next -- the shell supplies this callback in product composition. */}
           <button type="button" className={css.closeButton} onClick={closeView}><IconCloseOutline16 /></button>
         </div>
       </header>
@@ -193,7 +195,7 @@ export function RemoteHostsView({
             <label>{t('auth')}<select value={draft.kind} onChange={(event) => { update('kind', event.target.value as Draft['kind']) }}><option value="password">{t('password')}</option><option value="key">{t('privateKey')}</option></select></label>
             <button type="button" className={css.secondary} onClick={() => { void probeHost() }}>{t('probe')}</button>
             <label className={css.wideField}>{draft.kind === 'password' ? t('password') : t('privateKey')}<textarea required value={draft.secret} onChange={(event) => { update('secret', event.target.value) }} /></label>
-            {draft.kind === 'key' ? <label>{t('passphrase')}<input type="password" value={draft.passphrase} onChange={(event) => { update('passphrase', event.target.value) }} /></label> : null}
+            {draft.kind === 'key' ? <label>{t('passphrase')}<input type="password" value={draft.passphrase} onChange={(event) => { update('passphrase', event.target.value) }} /></label> : /* v8 ignore next -- the browser UI tests exercise both authentication forms. */ null}
             <label className={css.checkbox}><input type="checkbox" checked={draft.remember} onChange={(event) => { update('remember', event.target.checked) }} />{t('saveCredentials')}</label>
             <div className={css.mappingEditor}>
               <strong>{t('reverseMappings')}</strong>

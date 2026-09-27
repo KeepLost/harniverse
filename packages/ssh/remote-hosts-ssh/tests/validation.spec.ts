@@ -18,6 +18,7 @@ it('rejects malformed endpoints, fingerprints and authentication before connecti
   const targets: unknown[] = [
     null, { ...host.config, host: '' }, { ...host.config, port: 0 }, { ...host.config, port: 65536 },
     { ...host.config, username: '\0' }, { ...host.config, fingerprint: '' },
+    { host: '127.0.0.1', username: 'fixture', fingerprint: '' },
     { ...host.config, fingerprint: `SHA256:${'B'.repeat(43)}` },
   ]
   for (const target of targets) {

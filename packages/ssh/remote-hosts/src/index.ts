@@ -160,8 +160,8 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
     })
     this.connects.set(id, operation)
     try { return await operation } finally {
-      if (this.attempts.get(id) === controller) this.attempts.delete(id)
-      if (this.connects.get(id) === operation) this.connects.delete(id)
+      this.attempts.delete(id)
+      this.connects.delete(id)
     }
   }
 

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { RemoteHostSshConnection } from '@deepseek-ai/dsh-remote-hosts-ssh'
-import { deploy, startDetached } from '../src/deploy.ts'
+import { bootstrapGrant, deploy, processAlive, startDetached } from '../src/deploy.ts'
 import { remoteHostId } from '../src/validation.ts'
 import { hostInput } from './fixture.ts'
 import type { HostRecord } from '../src/types.ts'
@@ -42,4 +42,56 @@ it('uses macOS native hashing and brokers Windows startup outside the SSH proces
   expect(inner).toContain('Start-Process')
   expect(inner).toContain("Runner''s Home")
   expect(inner).toContain("-ArgumentList 'app/lib/bin.js --port 0'")
+})
+
+it('builds a PowerShell deployment command for Windows releases', async () => {
+  const commands: string[] = []
+  const connection = {
+    async exec(cmd: string) {
+      commands.push(cmd)
+      const encoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(cmd)?.[1]
+      const script = encoded === undefined ? cmd : Buffer.from(encoded, 'base64').toString('utf16le')
+      return { stdout: Buffer.from(script.includes("Write-Output 'yes'") ? 'no' : ''), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+    },
+    async upload() {},
+    async mkdir() {},
+  } as unknown as RemoteHostSshConnection
+  await deploy(connection, { ...host, platform: 'win32' }, 'C:/Runner/.dsh', {
+    ...artifact, executable: 'node.exe', files: [{ ...artifact.files[0]!, path: 'node.exe' }, artifact.files[1]!],
+  }, new AbortController().signal)
+  expect(commands.some(command => command.includes('powershell.exe') && command.includes('EncodedCommand'))).toBe(true)
+})
+
+it('publishes a verified fresh release and validates grant and process probes', async () => {
+  const commands: string[] = []
+  const uploads: string[] = []
+  const directories: string[] = []
+  let processState = 'live'
+  let grantResponse = '{"id":"grant-id"}'
+  const connection = {
+    async exec(cmd: string, input?: Buffer | string) {
+      commands.push(cmd)
+      if (cmd.includes('printf yes')) return { stdout: Buffer.from('no'), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+      if (cmd.includes('sha256sum')) return { stdout: Buffer.from(`${'b'.repeat(64)}  node\n`), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+      if (input?.toString().includes('publicKey')) return { stdout: Buffer.from(grantResponse), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+      if (cmd.includes('process.kill')) return { stdout: Buffer.from(processState), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+      return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, signal: null }
+    },
+    async upload(_source: string, target: string) { uploads.push(target) },
+    async mkdir(path: string) { directories.push(path) },
+  } as unknown as RemoteHostSshConnection
+  const release = await deploy(connection, host, '/remote/home', artifact, new AbortController().signal)
+  expect(release).toContain(artifact.digest)
+  expect(uploads).toHaveLength(2)
+  expect(uploads.every(path => path.includes('/.upload-'))).toBe(true)
+  expect(directories.some(path => path.endsWith('/app/lib'))).toBe(true)
+  expect(commands.some(cmd => cmd.includes('mv '))).toBe(true)
+  expect(await bootstrapGrant(connection, host, '/remote/home', release, 'public-key', new AbortController().signal)).toBe('grant-id')
+  grantResponse = 'null'
+  await expect(bootstrapGrant(connection, host, '/remote/home', release, 'public-key', new AbortController().signal)).rejects.toThrow('INVALID_GRANT')
+  expect(await processAlive(connection, host, '/remote/home', release, 1234, new AbortController().signal)).toBe(true)
+  processState = 'dead'
+  expect(await processAlive(connection, host, '/remote/home', release, 1234, new AbortController().signal)).toBe(false)
+  processState = 'unknown'
+  await expect(processAlive(connection, host, '/remote/home', release, 1234, new AbortController().signal)).rejects.toThrow('INVALID_PROCESS_STATUS')
 })

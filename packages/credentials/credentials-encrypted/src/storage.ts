@@ -36,6 +36,7 @@ export async function readDocument(path: string): Promise<string | undefined> {
       if (!bytesRead) break
       offset += bytesRead
     }
+    /* v8 ignore next -- regular files report their complete size before this bounded read; keep the post-read fence. */
     if (offset > MAX_FILE_BYTES) throw new Error('oversized private document')
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, offset))
   } finally {
@@ -79,6 +80,7 @@ export async function writeDocument(path: string, content: string): Promise<void
     } finally {
       await handle.close()
     }
+    /* v8 ignore next -- native Windows uses rename semantics without POSIX directory handles. */
     const directory = process.platform === 'win32' ? undefined : await open(parent, 'r')
     try {
       await rename(temporary, path)

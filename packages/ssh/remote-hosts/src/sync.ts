@@ -69,9 +69,11 @@ function collect(node: SchemaNode, value: JsonValue | undefined, refs: Set<strin
     for (const entry of value) collect(node.inner, entry, refs, inline)
   } else if (node.type === 'intersect') {
     for (const child of node.list ?? []) collect(child, value, refs, inline)
-  } else if (['union', 'transform', 'lazy'].includes(node.type ?? '') && containsReference(node)) {
-    // Ambiguous branch selection must not grant access to additional local secrets.
-    throw new RemoteHostsError('UNSUPPORTED_SYNC_SCHEMA')
+  } else if (['union', 'transform', 'lazy'].includes(node.type ?? '')) {
+    if (containsReference(node)) {
+      // Ambiguous branch selection must not grant access to additional local secrets.
+      throw new RemoteHostsError('UNSUPPORTED_SYNC_SCHEMA')
+    }
   }
 }
 

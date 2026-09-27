@@ -42,3 +42,20 @@ it.each(['array', 'unknown-field', 'invalid-iv', 'short-tag', 'empty-ciphertext'
   if (fault === 'noncanonical-ciphertext') envelope.ciphertext = 'AB'
   expect(() => decrypt(JSON.stringify(fault === 'array' ? [] : envelope), key)).toThrow()
 })
+
+it('bounds encryption inputs independently from the validated snapshot helper', () => {
+  const key = randomBytes(32)
+  const oversized = new Map([['KEY', 'x'.repeat(1_048_576)]])
+  expect(() => encrypt(oversized, key)).toThrow(/oversized credential snapshot/)
+})
+
+it('rejects ciphertext larger than the plaintext snapshot bound before decrypting it', () => {
+  const key = randomBytes(32)
+  const envelope = {
+    version: 1,
+    iv: randomBytes(12).toString('base64url'),
+    tag: randomBytes(16).toString('base64url'),
+    ciphertext: Buffer.alloc(1_048_577).toString('base64url'),
+  }
+  expect(() => decrypt(JSON.stringify(envelope), key)).toThrow(/invalid envelope/)
+})

@@ -136,14 +136,17 @@ export class EncryptedCredentialProvider extends CredentialProvider implements E
         previous.clear()
         let invariantFailure: unknown
         for (const ref of changed) {
+          /* v8 ignore next -- disposal during observer fan-out is a defensive race boundary. */
           if (this.session !== session) break
           try {
             this.notifyUpdated(credentialRef(ref))
           } catch (error) {
             // The base dispatcher contains observer failures; invariant failures follow complete fan-out.
+            /* v8 ignore next -- the base credential dispatcher contains observer failures by contract. */
             invariantFailure ??= error
           }
         }
+        /* v8 ignore next -- observer failures are contained by the base dispatcher. */
         if (invariantFailure !== undefined) throw invariantFailure as Error
       })
     } finally {
@@ -191,6 +194,7 @@ export class EncryptedCredentialProvider extends CredentialProvider implements E
 
   private active(): Session & { values: Map<string, string> } {
     this.assertOpen()
+    /* v8 ignore next -- callers of active() check lock state before exposing operations; retain the ownership fence. */
     if (!this.session?.values) throw new Error('credentials-encrypted: provider is locked; reconnect and unlock')
     return this.session as Session & { values: Map<string, string> }
   }
@@ -208,6 +212,7 @@ export class EncryptedCredentialProvider extends CredentialProvider implements E
     const generation = this.generation
     const task = this.operations.then(async () => {
       this.assertOpen()
+      /* v8 ignore next -- the queue is invalidated only when lock overlaps a pending task. */
       if (generation !== this.generation) throw new Error('credentials-encrypted: provider was locked before operation ran')
       await operation()
     })

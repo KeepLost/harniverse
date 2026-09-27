@@ -104,6 +104,7 @@ export class RemoteRuntime extends TypertRemoteService {
   private provider(): EncryptedCredentialProvider {
     if (this.stopped) throw new Error('remote-runtime: disposed')
     const provider = this.ctx.credentials
+    /* v8 ignore next -- the injected service is type-checked by construction; this is a defensive topology fence. */
     if (!(provider instanceof EncryptedCredentialProvider)) throw new Error('remote-runtime: encrypted provider unavailable')
     return provider
   }

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import z from '@deepseek-ai/schemastery'
@@ -7,6 +7,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
 import { fixture, hostInput } from './fixture.ts'
 import type { RemoteHostView } from '../src/types.ts'
+import { remoteHostId } from '../src/validation.ts'
 
 it('Loader local-owner API persists secret refs, deploys, authenticates real HTTP, syncs, disconnects and reconnects', async () => {
   const f = await fixture()
@@ -32,6 +33,9 @@ it('Loader local-owner API persists secret refs, deploys, authenticates real HTT
     const disk = await readFile(join(f.local, 'remote-hosts.json'), 'utf8')
     expect(disk).not.toContain('ssh-secret')
     expect(JSON.stringify(host)).not.toContain('ssh-secret')
+    const config = (f.ctx.remoteHosts as unknown as { config: { startupTimeoutMs?: number; requestTimeoutMs?: number } }).config
+    delete config.startupTimeoutMs
+    delete config.requestTimeoutMs
     const firstConnect = f.ctx.remoteHosts.connect({ id: host.id })
     const secondConnect = f.ctx.remoteHosts.connect({ id: host.id })
     const [connected, coalesced] = await Promise.all([firstConnect, secondConnect])
@@ -41,10 +45,29 @@ it('Loader local-owner API persists secret refs, deploys, authenticates real HTT
     expect(f.observations.starts).toBe(0)
     expect(f.observations.uploads).toBe(2)
     expect(f.observations.opens[0]?.auth).toEqual({ kind: 'password', password: 'ssh-secret' })
+    await expect(f.ctx.remoteHosts.upsert({ ...hostInput, id: host.id })).rejects.toThrow('DISCONNECT_BEFORE_EDIT')
+    await expect(f.ctx.remoteHosts.probe({ host: hostInput.host, port: hostInput.port, username: hostInput.username }))
+      .resolves.toEqual({ fingerprint: hostInput.fingerprint })
+    await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'ssh-secret' }, storeCredentials: true })
     expect(f.remoteCtx.settings.describe().find(row => row.ns === 'llm-deepseek')?.value).toEqual({
       apiKeyEnv: 'MODEL_ONLY', baseURL: 'http://127.0.0.1:30001/v1',
     })
     expect(f.remoteCtx.remoteRuntime.status().locked).toBe(false)
+    const sessions = (f.ctx.remoteHosts as unknown as { sessions: Map<string, { transport?: unknown }> }).sessions
+    const session = sessions.get(host.id)!
+    const connectedTransport = session.transport
+    session.transport = undefined
+    await expect(f.ctx.remoteHosts.request(host.id, '/api/sessions/list')).rejects.toThrow('NOT_CONNECTED')
+    await expect(f.ctx.remoteHosts.openWebSocket(host.id, '/api/events')).rejects.toThrow('NOT_CONNECTED')
+    session.transport = connectedTransport
+    const statusResponse = await f.ctx.remoteHosts.request(host.id, '/api/remoteRuntime/status', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'coordinator-status', method: 'remoteRuntime/status', payload: { args: {} } }),
+    })
+    expect(statusResponse.ok).toBe(true)
+    f.ctx.remoteHosts.authentication(host.id)
+    await expect(f.ctx.remoteHosts.request(host.id, '/api/remoteHosts/list')).rejects.toThrow('REQUEST_FAILED')
+    await expect(f.ctx.remoteHosts.openWebSocket(host.id, '/api/../events')).rejects.toThrow('REQUEST_FAILED')
     expect(await f.remoteCtx.credentials.resolve(credentialRef('MODEL_ONLY'))).toMatchObject({ value: 'model-secret' })
     expect(await f.remoteCtx.credentials.resolve(credentialRef('UNRELATED_SECRET'))).toBeUndefined()
     expect(f.ctx.remoteHosts.reverseMappings(host.id)).toEqual([{ localHost: '127.0.0.1', localPort: 9000,
@@ -54,6 +77,10 @@ it('Loader local-owner API persists secret refs, deploys, authenticates real HTT
     expect(grants[0]).not.toContain('PRIVATE KEY')
     expect(JSON.stringify(await f.ctx.remoteHosts.list())).not.toContain('localTunnelPort')
     await f.ctx.remoteHosts.disconnect(host.id)
+    await expect(f.ctx.remoteHosts.request(host.id, '/api/sessions/list')).rejects.toThrow('NOT_CONNECTED')
+    await expect(f.ctx.remoteHosts.openWebSocket(host.id, '/api/events')).rejects.toThrow('NOT_CONNECTED')
+    expect(() => f.ctx.remoteHosts.authentication(host.id)).toThrow('NOT_CONNECTED')
+    expect(() => f.ctx.remoteHosts.reverseMappings(host.id)).toThrow('NOT_CONNECTED')
     expect(f.remoteCtx.remoteRuntime.status().bootId).toBe(f.endpoint.bootId)
     expect(f.remoteCtx.remoteRuntime.status().locked).toBe(false)
     expect(f.observations.disposals).toBe(1)
@@ -114,3 +141,106 @@ it('plugin disposal drains local connections while the authenticated remote runt
     expect(f.remoteCtx.remoteRuntime.status()).toMatchObject({ bootId: f.endpoint.bootId, locked: false })
   } finally { await f.cleanup() }
 })
+
+it('contains probe and connect transport failures and retries after a lost local SSH connection', async () => {
+  const f = await fixture()
+  try {
+    f.observations.probeFail = true
+    await expect(f.ctx.remoteHosts.probe({ host: 'fixture.invalid', username: 'runner' })).rejects.toThrow('PROBE_FAILED')
+    f.observations.probeFail = false
+    const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote,
+      reverseMappings: [{ localHost: '127.0.0.1', localPort: 9000, remoteOriginalOrigin: 'http://127.0.0.1:9000' }] })
+    f.observations.forwardFail = true
+    await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } }))
+      .rejects.toThrow('CONNECT_FAILED')
+    expect((await f.ctx.remoteHosts.list())[0]?.state).toBe('error')
+    f.observations.forwardFail = false
+    f.observations.reverseFail = true
+    await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } }))
+      .rejects.toThrow('CONNECT_FAILED')
+    f.observations.reverseFail = false
+    await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } })
+    f.controllers[2]!.abort()
+    expect((await f.ctx.remoteHosts.list())[0]?.error).toBe('remote-hosts: CONNECTION_LOST')
+    await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } })
+    expect(f.observations.opens).toHaveLength(4)
+    await f.ctx.remoteHosts.disconnect(host.id)
+    expect((await f.ctx.remoteHosts.list())[0]?.state).toBe('offline')
+  } finally { await f.cleanup() }
+}, 30_000)
+
+it('starts a missing remote runtime and rejects an untrusted TLS endpoint', async () => {
+  const f = await fixture()
+  try {
+    const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote })
+    await rm(join(f.remote, 'server/endpoint.json'))
+    f.observations.restartOnStart = true
+    f.observations.discoveryMissesAfterStart = 1
+    f.observations.failedForwards = 1
+    await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } })
+    expect(f.observations.starts).toBe(1)
+    await f.ctx.remoteHosts.disconnect(host.id)
+    f.observations.deadProcessProbes = 2
+    await writeFile(join(f.remote, 'server/endpoint.json'), JSON.stringify({ ...f.endpoint, pid: process.pid + 100000 }))
+    await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } })
+    expect(f.observations.starts).toBe(2)
+    await f.ctx.remoteHosts.disconnect(host.id)
+    await rm(join(f.remote, 'server/endpoint.json'))
+    f.observations.endpointMismatchOnStart = true
+    await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } }))
+      .rejects.toThrow('ENDPOINT_IDENTITY_MISMATCH')
+    expect(f.observations.starts).toBe(3)
+    await writeFile(join(f.remote, 'server/endpoint.json'), JSON.stringify({ ...f.endpoint, protocol: 'https:' }))
+    await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } }))
+      .rejects.toThrow('UNSUPPORTED_ENDPOINT_TLS')
+  } finally { await f.cleanup() }
+}, 30_000)
+
+it('validates public management inputs and stored credential mode mismatches', async () => {
+  const f = await fixture()
+  try {
+    await expect(f.ctx.remoteHosts.probe({ host: '', username: 'runner' })).rejects.toThrow('INVALID_INPUT')
+    await expect(f.ctx.remoteHosts.upsert({ ...hostInput, secrets: { kind: 'password', password: 'ephemeral' } }))
+      .rejects.toThrow('EPHEMERAL_SECRETS_REQUIRE_CONNECT')
+    const host = await f.ctx.remoteHosts.upsert(hostInput)
+    await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'key', privateKey: 'private' } }))
+      .rejects.toThrow('AUTH_KIND_MISMATCH')
+    await expect(f.ctx.remoteHosts.disconnect(remoteHostId('22222222-2222-4222-8222-222222222222')))
+      .rejects.toThrow('HOST_NOT_FOUND')
+    await expect(f.ctx.remoteHosts.remove(remoteHostId('33333333-3333-4333-8333-333333333333')))
+      .rejects.toThrow('HOST_NOT_FOUND')
+    const states = (f.ctx.remoteHosts as unknown as { states: Map<string, unknown> }).states
+    states.delete(host.id)
+    expect((await f.ctx.remoteHosts.list())[0]?.state).toBe('offline')
+    const registry = (f.ctx.remoteHosts as unknown as { registry: { remove(id: string): Promise<void> } }).registry
+    const remove = registry.remove.bind(registry)
+    registry.remove = async () => { throw new Error('disk write failed') }
+    await expect(f.ctx.remoteHosts.remove(host.id)).rejects.toThrow('OPERATION_FAILED')
+    registry.remove = remove
+  } finally { await f.cleanup() }
+})
+
+it('aborts a pending SSH attempt during plugin disposal', async () => {
+  const f = await fixture()
+  try {
+    const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote })
+    f.observations.holdOpen = true
+    const connecting = f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } })
+    const rejected = expect(connecting).rejects.toThrow('CONNECT_FAILED')
+    await expect.poll(() => f.observations.opens.length).toBe(1)
+    await f.ctx.fiber.dispose()
+    await rejected
+    expect(f.controllers.every(controller => controller.signal.aborted)).toBe(true)
+  } finally { await f.cleanup() }
+}, 30_000)
+
+it('rejects endpoint discovery transport failures without exposing remote stderr', async () => {
+  const f = await fixture()
+  try {
+    const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote })
+    f.observations.discoveryFail = true
+    await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } }))
+      .rejects.toThrow('ENDPOINT_READ_FAILED')
+    expect((await f.ctx.remoteHosts.list())[0]?.error).toBe('remote-hosts: ENDPOINT_READ_FAILED')
+  } finally { await f.cleanup() }
+}, 30_000)

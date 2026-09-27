@@ -40,7 +40,8 @@ export function registerRemoteHostProxy(ctx: Context, connection: HostConnection
     const resolver: ConnectionHttpProxyResolver = (endpoint, request) => {
       const target = targetOf(request)
       if (target.kind === 'none') return undefined
-      if (target.kind === 'invalid' || LOCAL_NAMESPACES.has(endpoint.split('/')[0] ?? '')) return undefined
+      const namespace = endpoint.split('/')[0]
+      if (target.kind === 'invalid' || (namespace !== undefined && LOCAL_NAMESPACES.has(namespace))) return undefined
       const requiredCapability = legacyRpcCapability(endpoint)
         ?? typert.local.get(endpoint)?.requiredCapability
       return requiredCapability === undefined ? { denied: true } : { requiredCapability }
