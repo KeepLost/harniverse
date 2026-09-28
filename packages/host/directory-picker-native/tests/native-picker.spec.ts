@@ -204,14 +204,15 @@ describe('native file picker', () => {
   })
 
   it('escapes AppleScript literals in the title and directory', async () => {
-    // The seeded directory genuinely exists — a missing one would be dropped.
-    // Backslash cannot appear in a win32 path segment, so the title carries it.
-    const quoted = mkdtempSync(join(tmpdir(), 'dsh-file-picker-qu"ote-'))
+    // A win32 path segment admits neither quote nor backslash, so the title
+    // carries both characters; the directory's separators exercise
+    // backslash escaping on win32 and stay plain on POSIX.
+    const seeded = mkdtempSync(join(tmpdir(), 'dsh-file-picker-escape-'))
     const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: '/tmp/a"b\n', stderr: '' }))
-    await pickNativeFile(signal(), { title: 'Pick "a"\\b', defaultDirectory: quoted }, { platform: 'darwin', run })
+    await pickNativeFile(signal(), { title: 'Pick "a"\\b', defaultDirectory: seeded }, { platform: 'darwin', run })
     const line = run.mock.calls[0]![1][1]!
     expect(line).toContain('prompt "Pick \\"a\\"\\\\b"')
-    expect(line).toContain(`(POSIX file "${quoted.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}")`)
+    expect(line).toContain(`(POSIX file "${seeded.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}")`)
   })
 
   it('passes mode and start directory to the Win32 dialog', async () => {
