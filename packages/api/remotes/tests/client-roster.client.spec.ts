@@ -67,6 +67,12 @@ async function workspacePackages(): Promise<Map<string, WorkspacePackage>> {
 async function requiredRemoteOwners(
   packages: Map<string, WorkspacePackage>,
 ): Promise<Map<string, WorkspacePackage>> {
+  // Resolve each Client entry back to its manifest by joined path instead of
+  // string surgery, so the same lookup works under either separator.
+  const owner = new Map<string, WorkspacePackage>()
+  for (const pkg of packages.values()) {
+    owner.set(join(pkg.dir, 'src', 'client', 'index.ts'), pkg)
+  }
   const required = new Map<string, WorkspacePackage>()
   let entries = 0
   for await (const file of glob('packages/*/*/src/client/index.ts', { cwd: root })) {
@@ -75,11 +81,12 @@ async function requiredRemoteOwners(
     entries += 1
     const namespaces = [...match[1]!.matchAll(/'remote\.([^']+)'/g)].map(candidate => candidate[1]!)
     if (namespaces.length === 0) continue
-    const self = packages.get(readPackage(file.replace('/src/client/index.ts', '')).name)
+    const self = owner.get(file)
+    expect(self, `no manifest for ${file}`).toBeDefined()
     const owners = (self?.dependencies ?? [])
       .map(name => packages.get(name))
-      .filter((owner): owner is WorkspacePackage => owner?.remoteExport === true)
-    for (const owner of owners) required.set(owner.name, owner)
+      .filter((dependency): dependency is WorkspacePackage => dependency?.remoteExport === true)
+    for (const dependency of owners) required.set(dependency.name, dependency)
   }
   // A scan that matched nothing would let the assertions below pass vacuously.
   expect(entries).toBeGreaterThan(0)
