@@ -1134,6 +1134,9 @@ importers:
       '@deepseek-ai/dsh-queue':
         specifier: workspace:^
         version: link:../../queue/queue
+      '@deepseek-ai/dsh-remote-hosts':
+        specifier: workspace:^
+        version: link:../../ssh/remote-hosts
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
