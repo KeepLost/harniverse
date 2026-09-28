@@ -5749,7 +5749,7 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
       koffi:
-        specifier: ^3.1.0
+        specifier: 3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -6511,7 +6511,7 @@ importers:
         specifier: workspace:^
         version: link:../../util/native-command
       koffi:
-        specifier: ^3.1.0
+        specifier: 3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -7807,7 +7807,7 @@ importers:
         specifier: workspace:^
         version: link:../../util/lazy-require
       koffi:
-        specifier: ^3.1.0
+        specifier: 3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -8325,7 +8325,7 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
       koffi:
-        specifier: ^3.1.0
+        specifier: 3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -10238,7 +10238,7 @@ importers:
         specifier: workspace:^
         version: link:../../util/lazy-require
       koffi:
-        specifier: ^3.1.0
+        specifier: 3.1.1
         version: 3.1.1
       node-pty:
         specifier: ^1.1.0
