@@ -24,6 +24,9 @@
 - button "Open scheduled tasks":
   - img
   - text: Scheduled tasks
+- button "Open remote hosts":
+  - img
+  - text: Remote hosts
 - button "Open the panel":
   - img
   - text: Panel

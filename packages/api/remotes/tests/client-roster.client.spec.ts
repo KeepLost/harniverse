@@ -1,139 +1,121 @@
-// The client half's `$mount` roster is hand-maintained, and both ways it can go
-// wrong are silent or near-silent in production:
+// The client half's `$mount` roster is hand-maintained, and a namespace missing
+// from it fails in the quietest possible way: the owning client plugin stays
+// pending on its `remote.<namespace>` inject forever, so its UI never registers
+// and nothing throws (the remoteHosts regression: the Remote hosts sidebar entry
+// simply never appeared).
 //
-//   1. A namespace missing from the roster leaves the owning client plugin
-//      pending on its `remote.<namespace>` inject forever, so its UI never
-//      registers and nothing throws (the remoteHosts regression: the Remote
-//      hosts sidebar entry simply never appeared).
-//   2. A Remote method whose exported name collides with the namespace service
-//      it is projected onto throws only when that contribution is mounted, so
-//      the whole assembly fails to load (`remoteHosts/remove` against the
-//      service's own `remove` unmount path).
-//
-// This suite mounts the roster through the REAL Gateway client, so a collision
-// fails here, and checks the mount against the injects the shipped client
-// plugins actually declare, so a missing entry fails here too.
+// This suite is source-plane only. The assembly value-imports generated
+// `/remote` artifacts that exist only in `lib`, so it cannot be imported in a
+// pre-build lane (see the coverage exclusion for `src/client/index.ts`). The
+// mounted-composition half of the contract -- that the roster really mounts
+// without a method/namespace collision -- runs against the built bundles in
+// `tests/built-lib.e2e.ts`.
 import { readFileSync } from 'node:fs'
 import { glob } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
-import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-import { apply as applyGateway, inject as gatewayInject } from '@deepseek-ai/dsh-api-gateway/client'
-import { apply, inject } from '../src/client/index.ts'
+import { dirname, join, resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
 
 /** Repository root: this file sits at `<root>/packages/api/remotes/tests`. */
 const root = resolve(import.meta.dirname, '../../../..')
+const assembly = 'packages/api/remotes/src/client/index.ts'
 
-/** The mounted roster, in assembly order, as `remote.<namespace>` keys. */
-const EXPECTED_NAMESPACES = [
-  'commands',
-  'goals',
-  'dynamicCordisRunner',
-  'fileReferences',
-  'pluginInventory',
-  'capabilityManagement',
-  'messageFeedback',
-  'sessionReferenceResolver',
-  'scheduler',
-  'governor',
-  'queue',
-  'remoteHosts',
-] as const
+/** One workspace package's identity and whether it exposes a generated Remote. */
+interface WorkspacePackage {
+  readonly name: string
+  readonly dir: string
+  readonly remoteExport: boolean
+  readonly dependencies: readonly string[]
+}
+
+/** Read the `/remote` export flag and dependency names of one package.json. */
+function readPackage(dir: string): Omit<WorkspacePackage, 'dir'> {
+  const manifest = JSON.parse(readFileSync(join(root, dir, 'package.json'), 'utf8')) as {
+    name: string
+    exports?: Record<string, unknown>
+    dependencies?: Record<string, string>
+    peerDependencies?: Record<string, string>
+    devDependencies?: Record<string, string>
+  }
+  const names = (section: Record<string, string> | undefined): string[] => Object.keys(section ?? {})
+  return {
+    name: manifest.name,
+    remoteExport: manifest.exports?.['./remote'] !== undefined,
+    dependencies: [
+      ...names(manifest.dependencies),
+      ...names(manifest.peerDependencies),
+      ...names(manifest.devDependencies),
+    ].filter(name => name.startsWith('@deepseek-ai/dsh-')),
+  }
+}
+
+/** Every workspace package keyed by npm name. */
+async function workspacePackages(): Promise<Map<string, WorkspacePackage>> {
+  const packages = new Map<string, WorkspacePackage>()
+  for await (const manifest of glob('packages/*/*/package.json', { cwd: root })) {
+    const dir = dirname(manifest)
+    const pkg = readPackage(dir)
+    packages.set(pkg.name, { ...pkg, dir })
+  }
+  return packages
+}
 
 /**
- * Read the `export const inject` array of every workspace client entry.
- * The entries are static source, so no build and no module execution is needed.
- * @returns every `remote.<name>` service name the client plugins require.
+ * The package that owns each `remote.<namespace>` a client plugin injects,
+ * resolved through the plugin's own dependency list.
+ * @returns one owner package per injected namespace.
  */
-async function requiredRemoteNames(): Promise<Set<string>> {
-  const required = new Set<string>()
+async function requiredRemoteOwners(
+  packages: Map<string, WorkspacePackage>,
+): Promise<Map<string, WorkspacePackage>> {
+  const required = new Map<string, WorkspacePackage>()
   let entries = 0
   for await (const file of glob('packages/*/*/src/client/index.ts', { cwd: root })) {
     const match = /export const inject = \[([^\]]*)\]/.exec(readFileSync(join(root, file), 'utf8'))
     if (match === null) continue
     entries += 1
-    for (const candidate of match[1]!.matchAll(/'remote\.([^']+)'/g)) required.add(candidate[1]!)
+    const namespaces = [...match[1]!.matchAll(/'remote\.([^']+)'/g)].map(candidate => candidate[1]!)
+    if (namespaces.length === 0) continue
+    const self = packages.get(readPackage(file.replace('/src/client/index.ts', '')).name)
+    const owners = (self?.dependencies ?? [])
+      .map(name => packages.get(name))
+      .filter((owner): owner is WorkspacePackage => owner?.remoteExport === true)
+    for (const owner of owners) required.set(owner.name, owner)
   }
-  // A scan that matched nothing would let the roster check below pass vacuously.
+  // A scan that matched nothing would let the assertions below pass vacuously.
   expect(entries).toBeGreaterThan(0)
   return required
 }
 
-/**
- * Boot the real Gateway client over a stub carrier and mount the assembly.
- * Mounting runs the production descriptor validation, so a method-name
- * collision against the namespace service surfaces as a rejection here.
- * @returns the Client Context after every contribution is mounted.
- */
-async function mountRoster(): Promise<Context> {
-  const ctx = new Context()
-  await ctx.plugin(TypertRegistry)
-  ctx.provide('connection', { rpc: { call: vi.fn() } } as unknown as ConnectionHandle)
-  await ctx.plugin({ inject: gatewayInject, apply: applyGateway }).await()
-  try {
-    await apply(ctx)
-  } catch (error) {
-    await ctx.fiber.dispose()
-    throw error
-  }
-  return ctx
-}
-
-describe('client Remote roster', () => {
-  it('mounts exactly the roster, and every remote.<name> inject has its namespace', async () => {
-    const ctx = await mountRoster()
-    try {
-      const mounted = EXPECTED_NAMESPACES.filter(name => ctx.get(`remote.${name}`) !== undefined)
-      expect(mounted).toEqual([...EXPECTED_NAMESPACES])
-      const required = await requiredRemoteNames()
-      expect(required.size).toBeGreaterThan(0)
-      expect([...required].filter(name => !mounted.includes(name as typeof EXPECTED_NAMESPACES[number]))).toEqual([])
-    } finally {
-      await ctx.fiber.dispose()
-    }
+describe('client Remote roster (source plane)', () => {
+  it('imports and mounts every generated Remote a client plugin injects', async () => {
+    const source = readFileSync(join(root, assembly), 'utf8')
+    const roster = source.slice(source.indexOf('for (const contribution of ['))
+    // Bindings are hand-named (`goalsRemote` for `dsh-goal`), so read the
+    // import lines rather than deriving a name from the package.
+    const bound = new Map(
+      [...source.matchAll(/^import ([A-Za-z0-9_$]+) from '([^']+)\/remote'$/gmu)]
+        .map(match => [match[2]!, match[1]!]),
+    )
+    const packages = await workspacePackages()
+    const required = await requiredRemoteOwners(packages)
+    expect(required.size).toBeGreaterThan(0)
+    const missing = [...required.values()]
+      .filter((owner) => {
+        const binding = bound.get(owner.name)
+        return binding === undefined || !roster.includes(binding)
+      })
+      .map(owner => owner.name)
+    expect(missing).toEqual([])
   })
 
-  it('projects each contribution onto its own namespace with no method collision', async () => {
-    const ctx = await mountRoster()
-    try {
-      // `removeHost` is the exported name precisely because the namespace
-      // service owns `remove` as its unmount path.
-      const remoteHosts = ctx.get('remote.remoteHosts') as unknown as Record<string, unknown>
-      for (const method of ['list', 'upsert', 'probe', 'connect', 'disconnect', 'removeHost']) {
-        expect(typeof remoteHosts[method], `remoteHosts.${method}`).toBe('function')
-      }
-      const endpoints = ctx.typert.remotes.list()
-        .filter(descriptor => descriptor.namespace === 'remoteHosts')
-        .map(descriptor => `${descriptor.namespace}/${descriptor.method}`)
-        .sort()
-      expect(endpoints).toEqual([
-        'remoteHosts/connect',
-        'remoteHosts/disconnect',
-        'remoteHosts/list',
-        'remoteHosts/probe',
-        'remoteHosts/removeHost',
-        'remoteHosts/upsert',
-      ])
-    } finally {
-      await ctx.fiber.dispose()
-    }
+  it('mounts the remoteHosts contribution, whose absence hid the whole UI', async () => {
+    const source = readFileSync(join(root, assembly), 'utf8')
+    expect(source).toContain("import remoteHostsRemote from '@deepseek-ai/dsh-remote-hosts/remote'")
+    expect(source.slice(source.indexOf('for (const contribution of ['))).toContain('remoteHostsRemote')
   })
 
-  it('withdraws every namespace when the assembly unloads', async () => {
-    const ctx = new Context()
-    await ctx.plugin(TypertRegistry)
-    ctx.provide('connection', { rpc: { call: vi.fn() } } as unknown as ConnectionHandle)
-    await ctx.plugin({ inject: gatewayInject, apply: applyGateway }).await()
-    const assembly = await ctx.plugin({ inject, apply }).await()
-    expect(ctx.get('remote.remoteHosts')).toBeDefined()
-    await assembly.dispose()
-    for (const name of EXPECTED_NAMESPACES) expect(ctx.get(`remote.${name}`)).toBeUndefined()
-    await ctx.fiber.dispose()
-  })
-
-  it('requires the Client Remote service before mounting the roster', () => {
-    expect(inject).toEqual(['remote'])
+  it('requires the Client Remote service before mounting the roster', async () => {
+    const source = readFileSync(join(root, assembly), 'utf8')
+    expect(/export const inject = \['remote'\]/.test(source)).toBe(true)
   })
 })
