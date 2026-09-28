@@ -8,6 +8,7 @@ export type HostCommand =
   | { type: 'activity'; requestId: number }
   | { type: 'update-tasks'; requestId: number; action: 'inspect' | 'lock' | 'unlock' }
   | { type: 'directory-result'; requestId: number; path: string | null }
+  | { type: 'file-result'; requestId: number; path: string | null }
 
 export type HostActivity =
   | { status: 'unknown' }
@@ -24,7 +25,7 @@ export function parseHostCommand(value: unknown): HostCommand | undefined {
   if (row.type === 'activity' && keys('type', 'requestId')) return { type: row.type, requestId }
   if (row.type === 'update-tasks' && keys('type', 'requestId', 'action')
     && (row.action === 'inspect' || row.action === 'lock' || row.action === 'unlock')) return { type: row.type, requestId, action: row.action }
-  if (row.type === 'directory-result' && keys('type', 'requestId', 'path')
+  if ((row.type === 'directory-result' || row.type === 'file-result') && keys('type', 'requestId', 'path')
     && (row.path === null || (typeof row.path === 'string' && row.path.length <= 32768 && !row.path.includes('\0') && isAbsolute(row.path)))) {
     return { type: row.type, requestId, path: row.path }
   }

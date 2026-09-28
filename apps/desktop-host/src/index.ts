@@ -17,7 +17,7 @@ export async function main(): Promise<void> {
     onMessage: (callback) => { process.on('message', callback); return () => process.off('message', callback) },
     onDisconnect: (callback) => { process.once('disconnect', callback); return () => process.off('disconnect', callback) },
   }
-  const lifecycle = serveOwnedHost(channel, async (pickDirectory) => {
+  const lifecycle = serveOwnedHost(channel, async (pickers) => {
     const args = process.argv.slice(2)
     const port = args.at(3)
     if (args.length !== 2 && !(args.length === 4 && args[2] === '--port' && port !== undefined && /^\d+$/u.test(port))) {
@@ -28,7 +28,8 @@ export async function main(): Promise<void> {
     if (home === undefined || installAnchor === undefined || !isAbsolute(home) || !isAbsolute(installAnchor)) {
       throw new Error('Desktop Host requires an absolute owned home and installed CLI manifest.')
     }
-    const host = await startDesktopProfile({ home, installAnchor, pickDirectory,
+    const host = await startDesktopProfile({ home, installAnchor,
+      pickDirectory: signal => pickers.pick(signal), pickFile: (signal, selection) => pickers.pickFile(signal, selection),
       ...port === undefined ? {} : { port: Number(port) } })
     return { url: host.url, stop: () => host.stop(),
       enroll: publicKey => host.ctx.desktopControl.enroll(publicKey),

@@ -39,7 +39,7 @@ async function composition(existingHome?: string) {
   const state = { running: false, terminal: false, schedule: false, emitAvailable: false }
   const teardown = deferred<undefined>()
   const ctx = await boot('desktop-loader-test', config, undefined, async (ctx) => {
-    await ctx.plugin(CallbackDesktopShell, async () => '/selected-by-shell')
+    await ctx.plugin(CallbackDesktopShell, { pickDirectory: async () => '/selected-by-shell', pickFile: async () => '/home/me/.ssh/id_ed25519' })
     Object.assign(ctx.loader.builtins, {
       admission: DesktopAdmission, auth: LocalAuthentication, web: DesktopWebServer,
       picker: DesktopDirectoryPicker, control: DesktopControl,
@@ -109,6 +109,7 @@ describe('Loader desktop composition', () => {
     const picker = ctx.directoryPicker.capability()
     if (picker.kind !== 'native') throw new Error('expected native picker')
     expect(await picker.pick(new AbortController().signal)).toBe('/selected-by-shell')
+    expect(await picker.pickFile(new AbortController().signal, { title: 'Select SSH Private Key' })).toBe('/home/me/.ssh/id_ed25519')
     await ctx.authentication.revokeGrant(enrollment.grant.id)
     expect(await ctx.desktopControl.activity()).toEqual({ status: 'unknown' })
     expect(await ctx.desktopControl.updateTasks('lock')).toEqual({ status: 'unknown' })

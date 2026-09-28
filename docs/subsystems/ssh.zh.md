@@ -142,6 +142,12 @@ remove(id: RemoteHostId): Promise<void>
 verify(input: VerifyHostInput): Promise<ConnectivityResult>
 
 /**
+ * Open the host's native key-file chooser, seeded at the operator's `~/.ssh`.
+ * @returns the picked file's path and content, or neither when cancelled.
+ */
+pickKeyFile(): Promise<PickKeyFileResult>
+
+/**
  * Connect to a configured host and synchronize its remote runtime.
  * @param input - host identity and optional one-shot credentials.
  * @returns the connected host view.
@@ -187,7 +193,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:91`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:99`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 

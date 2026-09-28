@@ -14,7 +14,7 @@ The remote `dshHome` is independent of the local one. It must be absolute in the
 
 ## Management API
 
-The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `upsert(input)`, `removeHost(id)`, `verify(input)`, `connect(input)`, and `disconnect(id)` require `harniverse.administer`. Ordinary authorized local owners can manage hosts through these methods. Browser management must always target the original local host, even while viewing a remote workspace.
+The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `upsert(input)`, `removeHost(id)`, `verify(input)`, `pickKeyFile()`, `connect(input)`, and `disconnect(id)` require `harniverse.administer`. Ordinary authorized local owners can manage hosts through these methods. Browser management must always target the original local host, even while viewing a remote workspace.
 
 `removeHost` is the exported Remote name of the local `ctx.remoteHosts.remove(id)` method. The Client Gateway's namespace Service owns `remove` for unmounting, so a Remote method with that name cannot be mounted.
 
@@ -23,6 +23,8 @@ The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `
 The authentication forms are `{ kind: "password", passwordRef? }`, `{ kind: "key", privateKeyRef?, passphraseRef? }`, and `{ kind: "agent", socket }`. Agent sockets or Windows named pipes are explicit. Reference names follow the credentials service's POSIX identifier format. Private keys are contents, not local file paths.
 
 `verify({ host, port?, username, secrets })` runs the connectivity test that must pass before a host is saved. It authenticates with the submitted credentials, accepts this attempt's host key, and runs one fixed probe, returning `{ fingerprint, platform, architecture }`.
+
+`pickKeyFile()` serves the login form's key-file affordance: it opens the host's native single-file chooser seeded at the operator's `~/.ssh` through `ctx.get('directoryPicker')` (the only optional injection — a composition without a `native` capability fails fast with `KEY_PICKER_UNAVAILABLE`) and returns `{ path, content }` — the picked file's UTF-8 text for `AuthSecrets.privateKey` and its path for display only; neither field is present when the operator cancels. Reads cap at 64 KiB (`KEY_FILE_TOO_LARGE`); a vanished or unreadable pick reports `KEY_FILE_READ_FAILED`; foreign chooser failures are contained as `KEY_PICKER_FAILED`.
 
 The reported `fingerprint` is that connection's own observed host key, and the reported `platform` and `architecture` are what the target answered. They are the values `upsert` then stores: the recorded pin comes from a connection whose login already succeeded, and the detected target skips asking the operator to declare what the host already knows. Detection accepts POSIX `uname` answers first and retries through PowerShell for a Windows default shell; an answer naming no deployable platform or architecture fails the test. Preserved credentials are re-verified by a fresh test, so a pin change surfaces as a failed test with no stored acceptance to fall back on.
 

@@ -1,5 +1,5 @@
 /**
- * Child-process entry for the Win32 folder dialog: blocks THIS process
+ * Child-process entry for the Win32 pick dialog: blocks THIS process
  * inside the modal `Show` so the host event loop stays live, reporting over
  * the IPC channel. Spawned as a child process (not a worker thread) so the
  * dialog is the process's first window and Windows activates it without a
@@ -10,10 +10,16 @@
  */
 
 import { loadWin32DialogBindings } from './win32-dialog-bindings.ts'
-import { runFolderDialog } from './win32-dialog-logic.ts'
+import { runPickDialog } from './win32-dialog-logic.ts'
 
-/** The driver-to-child payload: the dialog title (passed via env). */
-export interface Win32DialogWorkerData { title: string }
+/** The driver-to-child payload, carried through the environment. */
+export interface Win32DialogWorkerData {
+  title: string
+  /** `directory` picks folders; `file` picks a single file. */
+  mode: 'directory' | 'file'
+  /** Absolute directory the dialog opens in; absent uses the dialog default. */
+  defaultDirectory?: string
+}
 
 /** One notice or outcome posted back to the driver. */
 export type Win32DialogWorkerMessage =
@@ -23,6 +29,9 @@ export type Win32DialogWorkerMessage =
 
 const title = process.env.DSH_DIALOG_TITLE ?? ''
 if (title === '') throw new Error('win32-dialog-worker: DSH_DIALOG_TITLE is required')
+const mode = process.env.DSH_DIALOG_MODE === 'file' ? 'file' : process.env.DSH_DIALOG_MODE === 'directory' ? 'directory' : undefined
+if (mode === undefined) throw new Error('win32-dialog-worker: DSH_DIALOG_MODE must be "directory" or "file"')
+const defaultDirectory = process.env.DSH_DIALOG_DEFAULT_DIRECTORY
 if (process.send === undefined) throw new Error('win32-dialog-worker must run as a child process with an IPC channel')
 // node's internal `send` reads `this.connected`, so bind the receiver.
 const send = process.send.bind(process)
@@ -41,7 +50,7 @@ process.on('disconnect', () => process.exit(0))
 void (async () => {
   try {
     const bindings = await loadWin32DialogBindings()
-    const path = runFolderDialog(bindings, title, (threadId) => {
+    const path = runPickDialog(bindings, { title, mode, ...(defaultDirectory === undefined ? {} : { defaultDirectory }) }, (threadId) => {
       post({ kind: 'showing', threadId } satisfies Win32DialogWorkerMessage)
     })
     post({ kind: 'done', path } satisfies Win32DialogWorkerMessage)

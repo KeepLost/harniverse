@@ -74,6 +74,8 @@ export async function fixture() {
     commands: [] as string[], stdin: [] as string[], uploads: 0, starts: 0, disposals: 0, forwards: 0,
     reverses: [] as Array<{ localHost: string; localPort: number }>, pinFail: false, holdOpen: false,
     verifyFail: false, verifyOutput: undefined as string | undefined,
+    pickAnswer: undefined as string | null | undefined, pickRequests: [] as Array<{ title?: string; defaultDirectory?: string }>,
+    pickerKind: 'native' as 'native' | 'browse',
     forwardFail: false, reverseFail: false, discoveryFail: false, endpointMismatchOnStart: false,
     discoveryMissesAfterStart: 0, failedForwards: 0,
     deadProcessProbes: 0, restartOnStart: false }
@@ -184,12 +186,31 @@ export async function fixture() {
       verify: RemoteHostSshProvider['verify'] = (...args) => provider.verify(...args)
       constructor(context: Context) { super(context, 'remoteHostSsh') }
     }
+    class Picker extends Service {
+      constructor(context: Context) { super(context, 'directoryPicker') }
+      capability() {
+        if (observations.pickerKind !== 'native') {
+          return { kind: 'browse' as const, list: async () => { throw new Error('unused') }, createDirectory: async () => { throw new Error('unused') } }
+        }
+        return {
+          kind: 'native' as const,
+          pick: async () => null,
+          pickFile: async (_signal: AbortSignal, request?: { title?: string; defaultDirectory?: string }) => {
+            observations.pickRequests.push(request ?? {})
+            if (observations.pickAnswer === undefined) throw new Error('picker exploded')
+            return observations.pickAnswer
+          },
+        }
+      }
+    }
     await artifact(join(root, 'artifacts'))
-    await load(ctx, local, { hosts: Hosts, ssh: { default: Ssh }, credentials: LocalCredentials, settings: Settings,
+    await load(ctx, local, { hosts: Hosts, ssh: { default: Ssh }, picker: { default: Picker },
+      credentials: LocalCredentials, settings: Settings,
       authentication: Authentication, webserver: WebServer, gateway: Gateway, typert: Typert, connection: Connection }, [
       { id: 'credentials', name: 'credentials', config: { dshHome: local, watch: false } },
       { id: 'settings', name: 'settings', config: { dshHome: local, watch: false } },
-      { id: 'ssh', name: 'ssh' }, { id: 'hosts', name: 'hosts', config: { dshHome: local, artifactsRoot: join(root, 'artifacts') } },
+      { id: 'ssh', name: 'ssh' }, { id: 'picker', name: 'picker' },
+      { id: 'hosts', name: 'hosts', config: { dshHome: local, artifactsRoot: join(root, 'artifacts') } },
       { id: 'authentication', name: 'authentication', config: { dshHome: local, mode: 'bypass', watch: false } },
       { id: 'webserver', name: 'webserver', inject: ['authentication'], config: { host: '127.0.0.1', port: 0 } },
       { id: 'typert', name: 'typert' }, { id: 'gateway', name: 'gateway' }, { id: 'connection', name: 'connection' },

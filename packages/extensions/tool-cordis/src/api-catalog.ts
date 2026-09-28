@@ -1691,6 +1691,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the observed fingerprint and detected platform when authentication succeeds.',
       },
       {
+        signature: 'pickKeyFile(): Promise<PickKeyFileResult>',
+        description: 'Open the host\'s native key-file chooser, seeded at the operator\'s `~/.ssh`.',
+        parameters: [],
+        returns: 'the picked file\'s path and content, or neither when cancelled.',
+      },
+      {
         signature: 'connect(input: ConnectHostInput): Promise<RemoteHostView>',
         description: 'Connect to a configured host and synchronize its remote runtime.',
         parameters: [{ name: 'input', description: 'host identity and optional one-shot credentials.' }],
@@ -4696,8 +4702,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities];',
   },
   {
+    name: 'DirectoryPickerFileRequest',
+    declaration: 'export interface DirectoryPickerFileRequest {\n    title?: string;\n    defaultDirectory?: string;\n}',
+  },
+  {
     name: 'DirectoryPickerNativeCapability',
-    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
+    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n    pickFile(signal: AbortSignal, request?: DirectoryPickerFileRequest): Promise<string | null>;\n}',
   },
   {
     name: 'DirectoryRegistrationHandle',
@@ -5402,6 +5412,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
+  },
+  {
+    name: 'PickKeyFileResult',
+    declaration: 'export interface PickKeyFileResult {\n    path?: string;\n    content?: string;\n}',
   },
   {
     name: 'PluginDiagnosticCheck',

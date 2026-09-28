@@ -34,6 +34,7 @@ describe('client composition', () => {
       list: vi.fn(async () => ({ ok: true, value: [] })),
       upsert: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
       verify: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
+      pickKeyFile: vi.fn(async () => ({ ok: true, value: { path: '/home/me/.ssh/id_ed25519', content: 'KEY' } })),
       connect: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
       disconnect: vi.fn(async () => ({ ok: true, value: undefined })),
       removeHost: vi.fn(async () => ({ ok: true, value: undefined })),
@@ -59,6 +60,7 @@ describe('client composition', () => {
     await center.list!()
     await center.upsert!({ name: 'host' })
     await center.verify!({ host: 'host', username: 'runner', secrets: { kind: 'password', password: 'secret' } })
+    await center.pickKeyFile!()
     await center.connect!('host-id')
     await center.connect!('host-id', { kind: 'password', password: 'secret' })
     await center.disconnect!('host-id')

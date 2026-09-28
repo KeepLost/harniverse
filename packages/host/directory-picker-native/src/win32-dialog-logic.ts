@@ -1,5 +1,5 @@
 /**
- * Pure sequencing of the Win32 `IFileOpenDialog` folder-picker COM
+ * Pure sequencing of the Win32 `IFileOpenDialog` folder- and file-picker COM
  * conversation over injectable platform bindings, so every outcome path
  * (selection, cancellation, HRESULT failure, cleanup ordering) is testable on
  * any platform. The koffi-backed bindings live in
@@ -16,8 +16,8 @@ export const FOS_FORCEFILESYSTEM = 0x40
 /** `FOS_NOCHANGEDIR`: never mutate the process working directory. */
 export const FOS_NOCHANGEDIR = 0x8
 
-/** One created folder dialog: the vtable calls the sequencing needs. */
-export interface Win32FolderDialog {
+/** One created file/folder dialog: the vtable calls the sequencing needs. */
+export interface Win32PickDialog {
   /**
    * `IFileDialog::SetOptions`.
    * @param options - the `FOS_*` flag union to apply.
@@ -30,6 +30,14 @@ export interface Win32FolderDialog {
    * @returns the call's HRESULT.
    */
   setTitle(title: string): number
+  /**
+   * `IFileDialog::SetDefaultFolder` from a parsing path. Best-effort by
+   * contract: sequencing ignores a negative HRESULT so an unavailable shell
+   * item degrades to the dialog's own default location.
+   * @param path - the absolute directory the dialog opens in.
+   * @returns the call chain's HRESULT.
+   */
+  setDefaultFolder(path: string): number
   /**
    * `IModalWindow::Show` with no owner window; blocks the calling thread
    * until the user selects or dismisses.
@@ -44,6 +52,16 @@ export interface Win32FolderDialog {
   resultPath(): { hr: number; path?: string }
   /** Release the dialog's COM reference. */
   release(): void
+}
+
+/** One native selection the sequencing runs: a folder or a single file. */
+export interface Win32DialogSelection {
+  /** Dialog title text. */
+  title: string
+  /** `directory` picks folders (`FOS_PICKFOLDERS`); `file` picks one file. */
+  mode: 'directory' | 'file'
+  /** Absolute directory the dialog opens in; absent uses the dialog default. */
+  defaultDirectory?: string
 }
 
 /** The thread-level native surface the dialog sequencing runs against. */
@@ -72,7 +90,7 @@ export interface Win32DialogBindings {
    * `CoCreateInstance(CLSID_FileOpenDialog)`.
    * @returns the created dialog surface; throws when creation fails.
    */
-  createFolderDialog(): Win32FolderDialog
+  createPickDialog(): Win32PickDialog
   /**
    * `GetCurrentThreadId` — the native id a driver needs to close this
    * thread's windows from outside.
@@ -93,18 +111,18 @@ function check(hr: number, what: string): number {
 }
 
 /**
- * Run one modal folder-picker conversation on the calling thread: DPI opt-in,
+ * Run one modal picker conversation on the calling thread: DPI opt-in,
  * STA init, dialog creation, `Show`, and result extraction, releasing the
  * dialog on every path.
  * @param bindings - the native surface (koffi-backed in production, fakes in tests).
- * @param title - the dialog title text.
+ * @param selection - title, folder/file mode, and optional starting directory.
  * @param onShowing - called with the native thread id immediately before the
  *   blocking `Show`, so a driver on another thread can close the dialog.
  * @returns the selected filesystem path, or null when the user cancels.
  */
-export function runFolderDialog(
+export function runPickDialog(
   bindings: Win32DialogBindings,
-  title: string,
+  selection: Win32DialogSelection,
   onShowing: (threadId: number) => void,
 ): string | null {
   bindings.setThreadDpiAwareness()
@@ -112,10 +130,15 @@ export function runFolderDialog(
   // From here the apartment is initialized (S_OK or S_FALSE) and must be
   // uninitialized exactly once on every path.
   try {
-    const dialog = bindings.createFolderDialog()
+    const dialog = bindings.createPickDialog()
     try {
-      check(dialog.setOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR), 'SetOptions')
-      check(dialog.setTitle(title), 'SetTitle')
+      const modeOptions = selection.mode === 'directory' ? FOS_PICKFOLDERS : 0
+      check(dialog.setOptions(modeOptions | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR), 'SetOptions')
+      check(dialog.setTitle(selection.title), 'SetTitle')
+      if (selection.defaultDirectory !== undefined && dialog.setDefaultFolder(selection.defaultDirectory) < 0) {
+        // A default directory without a live shell item (deleted, offline)
+        // must not cost the pick; the dialog falls back to its own start.
+      }
       onShowing(bindings.currentThreadId())
       const shown = dialog.show()
       if (shown === HRESULT_CANCELLED) return null

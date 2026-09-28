@@ -22,6 +22,21 @@ export interface DirectoryPickerNativeCapability {
    * @returns the chosen absolute path, or null when the operator cancels.
    */
   pick(signal: AbortSignal): Promise<string | null>
+  /**
+   * Open a single-file chooser and wait for the operator.
+   * @param signal - caller/connection lifetime; abort terminates the chooser.
+   * @param request - optional dialog title and starting directory.
+   * @returns the chosen absolute file path, or null when the operator cancels.
+   */
+  pickFile(signal: AbortSignal, request?: DirectoryPickerFileRequest): Promise<string | null>
+}
+
+/** Options shaping one native single-file selection. */
+export interface DirectoryPickerFileRequest {
+  /** Dialog title; the backend substitutes its own default when absent. */
+  title?: string
+  /** Absolute directory the chooser opens in; absent opens the platform default. */
+  defaultDirectory?: string
 }
 
 /** One directory row: a listing child or a breadcrumb ancestor. */

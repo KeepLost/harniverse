@@ -1,4 +1,5 @@
 import { readFile, rm, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import z from '@deepseek-ai/schemastery'
@@ -249,5 +250,38 @@ it('rejects endpoint discovery transport failures without exposing remote stderr
     await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } }))
       .rejects.toThrow('ENDPOINT_READ_FAILED')
     expect((await f.ctx.remoteHosts.list())[0]?.error).toBe('remote-hosts: ENDPOINT_READ_FAILED')
+  } finally { await f.cleanup() }
+}, 30_000)
+
+it('serves the native key-file picker with bounded reads and contained failures', async () => {
+  const f = await fixture()
+  try {
+    const key = join(f.local, 'id_fixture')
+    await writeFile(key, '-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n')
+    f.observations.pickAnswer = key
+    await expect(f.ctx.remoteHosts.pickKeyFile()).resolves.toEqual({ path: key, content: '-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n' })
+    // The chooser is seeded at the operator's home ~/.ssh when it exists.
+    expect(f.observations.pickRequests.at(-1)?.title).toBe('Select SSH Private Key')
+    expect(f.observations.pickRequests.at(-1)?.defaultDirectory).toBe(join(homedir(), '.ssh'))
+
+    f.observations.pickAnswer = null
+    await expect(f.ctx.remoteHosts.pickKeyFile()).resolves.toEqual({})
+
+    f.observations.pickAnswer = join(f.local, 'vanished')
+    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_FILE_READ_FAILED')
+
+    f.observations.pickAnswer = f.local
+    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_FILE_READ_FAILED')
+
+    const oversized = join(f.local, 'oversized')
+    await writeFile(oversized, 'x'.repeat(65_537))
+    f.observations.pickAnswer = oversized
+    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_FILE_TOO_LARGE')
+
+    f.observations.pickAnswer = undefined
+    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_PICKER_FAILED')
+
+    f.observations.pickerKind = 'browse'
+    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_PICKER_UNAVAILABLE')
   } finally { await f.cleanup() }
 }, 30_000)

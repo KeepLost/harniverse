@@ -8,6 +8,7 @@
     { "path": "../../credentials/credentials" }, { "path": "../../util/home-paths" },
     { "path": "../../runtime-diagnostics/invariants" }, { "path": "../remote-hosts-ssh" },
     { "path": "../../sdk/client" }, { "path": "../../core/session" },
-    { "path": "../../settings/settings" }, { "path": "../../typert/protocol" }
+    { "path": "../../settings/settings" }, { "path": "../../typert/protocol" },
+    { "path": "../../host/directory-picker" }
   ]
 }

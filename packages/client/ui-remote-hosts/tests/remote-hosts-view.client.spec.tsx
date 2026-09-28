@@ -34,6 +34,7 @@ type Face = {
   list: () => Promise<RemoteResult<RemoteHostView[]>>
   upsert: RemoteHostsViewProps['upsert']
   verify: RemoteHostsViewProps['verify']
+  pickKeyFile: RemoteHostsViewProps['pickKeyFile']
   connect: RemoteHostsViewProps['connect']
   openRemote: RemoteHostsViewProps['openRemote']
   disconnect: RemoteHostsViewProps['disconnect']
@@ -46,6 +47,7 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
     list: vi.fn(async () => ({ ok: true as const, value: initialHosts })),
     upsert: vi.fn(async () => ({ ok: true as const, value: host() })),
     verify: vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() })),
+    pickKeyFile: vi.fn<RemoteHostsViewProps['pickKeyFile']>(async () => ({ ok: true as const, value: {} })),
     connect: vi.fn(async () => ({ ok: true as const, value: host({ state: 'connected' }) })),
     openRemote: vi.fn(),
     disconnect: vi.fn(async () => ({ ok: true as const, value: undefined })),
@@ -83,7 +85,8 @@ describe('RemoteHostsView', () => {
       active: false,
       useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
       actions: store.actions,
-      list: vi.fn(async () => ({ ok: true as const, value: [] })), upsert: vi.fn(), verify: vi.fn(), connect: vi.fn(), openRemote: vi.fn(),
+      list: vi.fn(async () => ({ ok: true as const, value: [] })), upsert: vi.fn(), verify: vi.fn(), pickKeyFile: vi.fn(),
+      connect: vi.fn(), openRemote: vi.fn(),
       disconnect: vi.fn(), remove: vi.fn(), closeView: vi.fn(), t,
     } as unknown as RemoteHostsViewProps)} />)
     expect(screen.queryByRole('heading', { name: zh.title })).toBeNull()
@@ -209,6 +212,12 @@ describe('RemoteHostsView', () => {
     fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
     fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    // Pasting is opt-in: until then the textarea stays disabled and the file chooser is the enabled path.
+    expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('disabled', true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile }).disabled).toBe(false)
+    fireEvent.click(screen.getByLabelText(zh.manualPaste))
+    expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('disabled', false)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile }).disabled).toBe(true)
     fireEvent.change(screen.getByLabelText(zh.privateKey), { target: { value: 'PRIVATE KEY' } })
     fireEvent.change(screen.getByLabelText(zh.passphrase), { target: { value: 'phrase' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
@@ -361,6 +370,17 @@ describe('RemoteHostsView', () => {
     expect(screen.getByLabelText(zh.name)).toBeTruthy()
   })
 
+  it('closes the editor drawer with the Escape key', () => {
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    expect(screen.getByLabelText(zh.name)).toBeTruthy()
+    // Other keys leave the drawer open; only Escape closes it.
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' })
+    expect(screen.getByLabelText(zh.name)).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(screen.queryByLabelText(zh.name)).toBeNull()
+  })
+
   it('cancels a new host draft without persisting it', () => {
     mount()
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
@@ -414,6 +434,61 @@ describe('RemoteHostsView', () => {
     expect(props.closeView).toHaveBeenCalled()
   })
 
+
+  it('loads the key material from a picked file and invalidates a completed test', async () => {
+    let releasePick: (() => void) | undefined
+    const pickKeyFile = vi.fn<RemoteHostsViewProps['pickKeyFile']>(async () => {
+      await new Promise<void>((resolve) => { releasePick = resolve })
+      return { ok: true as const, value: { path: '/home/me/.ssh/id_ed25519', content: 'PICKED KEY MATERIAL' } }
+    })
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
+    mount({ pickKeyFile, verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
+    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+
+    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    await waitFor(() => { expect(pickKeyFile).toHaveBeenCalledTimes(1) })
+    // While the chooser is open every drawer action — including Escape — stays locked.
+    expect(saveButton().disabled).toBe(true)
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(screen.getByLabelText(zh.name)).toBeTruthy()
+    releasePick?.()
+    // The picked path labels the row and the content becomes the tested secret.
+    await waitFor(() => { expect(screen.getByTitle('/home/me/.ssh/id_ed25519').textContent).toBe('/home/me/.ssh/id_ed25519') })
+    expect(saveButton().disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKey: 'PICKED KEY MATERIAL' }) })
+  })
+
+  it('leaves the draft untouched when the file chooser is dismissed', async () => {
+    const pickKeyFile = vi.fn<RemoteHostsViewProps['pickKeyFile']>(async () => ({ ok: true as const, value: {} }))
+    mount({ pickKeyFile })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    await waitFor(() => { expect(pickKeyFile).toHaveBeenCalledTimes(1) })
+    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('surfaces chooser failures without touching the draft', async () => {
+    const pickKeyFile = vi.fn<RemoteHostsViewProps['pickKeyFile']>(async () => ({ ok: false as const,
+      error: { code: 'picker', message: 'picker unavailable', details: {} } }))
+    mount({ pickKeyFile })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('picker unavailable') })
+    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+
+    pickKeyFile.mockRejectedValueOnce('plain pick failure')
+    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain pick failure') })
+  })
   it('does not persist temporary login secrets and uses them for the initial connection', async () => {
     const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host({
       name: input.name, host: input.host, username: input.username,

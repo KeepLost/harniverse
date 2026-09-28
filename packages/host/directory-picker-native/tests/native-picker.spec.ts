@@ -20,8 +20,11 @@ const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn<ExecFileMock>()
 
 vi.mock('node:child_process', () => ({ execFile: execFileMock }))
 
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { pickNativeDirectory, type DirectoryPickerRunner } from '../src/native-picker.ts'
+import { pickNativeDirectory, pickNativeFile, type DirectoryPickerRunner } from '../src/native-picker.ts'
 
 function failure(code: string | number, stderr = ''): Error {
   return Object.assign(new Error(`command failed: ${String(code)}`), { code, stderr })
@@ -177,5 +180,123 @@ describe('native directory picker', () => {
 
   it('reports unsupported platforms', async () => {
     await expect(pickNativeDirectory(signal(), { platform: 'aix' })).rejects.toThrow('unsupported on aix')
+  })
+})
+
+describe('native file picker', () => {
+  it('uses the macOS file chooser with the requested prompt and default location', async () => {
+    const seed = mkdtempSync(join(tmpdir(), 'dsh-file-picker-seed-'))
+    const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: '/Users/test/.ssh/id_ed25519\n', stderr: '' }))
+    await expect(pickNativeFile(signal(), { title: 'Select SSH Private Key', defaultDirectory: seed }, { platform: 'darwin', run }))
+      .resolves.toBe('/Users/test/.ssh/id_ed25519')
+    expect(run).toHaveBeenCalledWith('osascript', expect.arrayContaining([
+      `set selectedFile to choose file with prompt "Select SSH Private Key" default location (POSIX file "${seed}")`,
+      'POSIX path of selectedFile',
+    ]), expect.any(AbortSignal))
+
+    // A start directory the host cannot see never reaches the chooser.
+    await pickNativeFile(signal(), { title: 'Select SSH Private Key', defaultDirectory: '/nonexistent/dsh-picker-seed' }, { platform: 'darwin', run })
+    expect(run.mock.calls.at(-1)![1][1]).not.toContain('default location')
+
+    run.mockRejectedValueOnce(failure(1, 'execution error: User canceled. (-128)'))
+    await expect(pickNativeFile(signal(), {}, { platform: 'darwin', run })).resolves.toBeNull()
+  })
+
+  it('escapes AppleScript literals in the title and directory', async () => {
+    // The seeded directory genuinely exists — a missing one would be dropped.
+    const quoted = mkdtempSync(join(tmpdir(), 'dsh-file-picker-qu"o\\te-'))
+    const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: '/tmp/a"b\n', stderr: '' }))
+    await pickNativeFile(signal(), { title: 'Pick "a"', defaultDirectory: quoted }, { platform: 'darwin', run })
+    const line = run.mock.calls[0]![1][1]!
+    expect(line).toContain('prompt "Pick \\"a\\""')
+    expect(line).toContain(`(POSIX file "${quoted.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}")`)
+  })
+
+  it('passes mode and start directory to the Win32 dialog', async () => {
+    const seed = mkdtempSync(join(tmpdir(), 'dsh-file-picker-win32-'))
+    const run = vi.fn<DirectoryPickerRunner>()
+    const pickWin32Dialog = vi.fn(async (): Promise<string | null> => 'C:\\ssh\\id_ed25519')
+    await expect(pickNativeFile(signal(), { title: 'Select SSH Private Key', defaultDirectory: seed }, { platform: 'win32', run, pickWin32Dialog }))
+      .resolves.toBe('C:\\ssh\\id_ed25519')
+    expect(pickWin32Dialog).toHaveBeenCalledWith(expect.any(AbortSignal), { title: 'Select SSH Private Key', mode: 'file', defaultDirectory: seed })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('uses Zenity with a seeded filename and falls back to KDialog only when Zenity is missing', async () => {
+    const seed = mkdtempSync(join(tmpdir(), 'dsh-file-picker-linux-'))
+    const run = vi.fn<DirectoryPickerRunner>()
+      .mockRejectedValueOnce(failure('ENOENT'))
+      .mockResolvedValueOnce({ stdout: '/home/test/.ssh/id_ed25519\n', stderr: '' })
+    await expect(pickNativeFile(signal(), { defaultDirectory: seed }, { platform: 'linux', run }))
+      .resolves.toBe('/home/test/.ssh/id_ed25519')
+    expect(run.mock.calls[0]![0]).toBe('zenity')
+    expect(run.mock.calls[0]![1]).toEqual(expect.arrayContaining(['--file-selection', `--filename=${seed}/`]))
+    expect(run.mock.calls[1]![0]).toBe('kdialog')
+    expect(run.mock.calls[1]![1]).toEqual(expect.arrayContaining(['--getopenfilename', seed, '*']))
+  })
+
+  it('maps cancellation and tool absence distinctly on Linux', async () => {
+    const run = vi.fn<DirectoryPickerRunner>().mockRejectedValueOnce(failure(1))
+    await expect(pickNativeFile(signal(), {}, { platform: 'linux', run })).resolves.toBeNull()
+
+    run.mockReset()
+    run.mockRejectedValueOnce(failure('ENOENT')).mockRejectedValueOnce(failure('ENOENT'))
+    await expect(pickNativeFile(signal(), {}, { platform: 'linux', run })).rejects.toThrow('no supported native file picker found')
+  })
+
+  it('refuses unsupported platforms', async () => {
+    await expect(pickNativeFile(signal(), {}, { platform: 'freebsd' })).rejects.toThrow('native file picker is unsupported on freebsd')
+  })
+
+  it('surfaces a non-cancellation macOS failure as-is', async () => {
+    const run = vi.fn<DirectoryPickerRunner>().mockRejectedValueOnce(failure(2, 'permission denied'))
+    await expect(pickNativeFile(signal(), {}, { platform: 'darwin', run })).rejects.toThrow('command failed')
+  })
+
+  it('answers from Zenity directly and rethrows its non-cancellation failures', async () => {
+    const seed = mkdtempSync(join(tmpdir(), 'dsh-file-picker-zenity-'))
+    const run = vi.fn<DirectoryPickerRunner>()
+      .mockResolvedValueOnce({ stdout: '/home/test/zenity-key\n', stderr: '' })
+      .mockRejectedValueOnce(failure(7, 'zenity broke'))
+    await expect(pickNativeFile(signal(), { defaultDirectory: seed }, { platform: 'linux', run }))
+      .resolves.toBe('/home/test/zenity-key')
+    await expect(pickNativeFile(signal(), { defaultDirectory: seed }, { platform: 'linux', run }))
+      .rejects.toThrow('command failed: 7')
+  })
+
+  it('maps a KDialog cancellation to null and rethrows its other failures', async () => {
+    const run = vi.fn<DirectoryPickerRunner>()
+      .mockRejectedValueOnce(failure('ENOENT'))
+      .mockRejectedValueOnce(failure(1))
+      .mockRejectedValueOnce(failure('ENOENT'))
+      .mockRejectedValueOnce(failure(7, 'kdialog broke'))
+    await expect(pickNativeFile(signal(), {}, { platform: 'linux', run })).resolves.toBeNull()
+    await expect(pickNativeFile(signal(), {}, { platform: 'linux', run })).rejects.toThrow('command failed: 7')
+  })
+
+  it('opens the Win32 dialog without a start directory when none survives', async () => {
+    const run = vi.fn<DirectoryPickerRunner>()
+    const pickWin32Dialog = vi.fn(async (): Promise<string | null> => null)
+    await expect(pickNativeFile(signal(), { defaultDirectory: '/nonexistent/dsh-picker-win32' }, { platform: 'win32', run, pickWin32Dialog }))
+      .resolves.toBeNull()
+    expect(pickWin32Dialog).toHaveBeenCalledWith(expect.any(AbortSignal), { title: 'Select File', mode: 'file' })
+  })
+
+  it('wires the real Win32 file dialog as the default tier', async () => {
+    // A pre-aborted signal makes the DEFAULT dialog deterministic on every
+    // host: pickWin32Dialog throws before spawning any worker or window.
+    const abort = new AbortController()
+    abort.abort()
+    const run = vi.fn<DirectoryPickerRunner>()
+    await expect(pickNativeFile(abort.signal, {}, { platform: 'win32', run }))
+      .rejects.toThrow('native directory picker aborted')
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('uses the current process platform when no platform override is supplied', async () => {
+    const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: '/default/platform-key\n', stderr: '' }))
+    const pickWin32Dialog = async (): Promise<string | null> => 'C:\\default\\id_ed25519'
+    const expected = process.platform === 'win32' ? 'C:\\default\\id_ed25519' : '/default/platform-key'
+    await expect(pickNativeFile(signal(), {}, { run, pickWin32Dialog })).resolves.toBe(expected)
   })
 })

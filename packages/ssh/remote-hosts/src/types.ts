@@ -41,6 +41,14 @@ export type AuthSecrets =
   | { kind: 'password'; password: string }
   | { kind: 'key'; privateKey: string; passphrase?: string }
 
+/** An operator-picked local key file: content feeds the form, path only labels it. */
+export interface PickKeyFileResult {
+  /** Absolute path of the picked file; absent when the operator cancelled. */
+  path?: string
+  /** UTF-8 file content for {@link AuthSecrets} `privateKey`; absent on cancel. */
+  content?: string
+}
+
 /** Full replacement. Omitted port and mappings default to 22 and []. */
 export interface UpsertHostInput extends Omit<HostConfig, 'port' | 'reverseMappings'> {
   id?: RemoteHostId
@@ -111,6 +119,11 @@ export interface RemoteHostsProvider {
    * @returns the observed fingerprint and detected platform when authentication succeeds.
    */
   verify(input: VerifyHostInput): Promise<ConnectivityResult>
+  /**
+   * Open the host's native key-file chooser, seeded at the operator's `~/.ssh`.
+   * @returns the picked file's path and content, or neither when cancelled.
+   */
+  pickKeyFile(): Promise<PickKeyFileResult>
   /**
    * Connect to a configured host and synchronize its remote runtime.
    * @param input - host identity and optional one-shot credentials.

@@ -95,12 +95,27 @@ describe('owned IPC lifecycle', () => {
   })
   it('correlates native picker responses and aborts its pending operation on stop', async () => {
     let pick!: (signal: AbortSignal) => Promise<string | null>
-    const run = fixture(async (callback) => { pick = callback; return host(async () => {}) })
+    let pickFile!: (signal: AbortSignal, selection?: { title?: string; defaultDirectory?: string }) => Promise<string | null>
+    const run = fixture(async (pickers) => {
+      pick = signal => pickers.pick(signal)
+      pickFile = (signal, selection) => pickers.pickFile(signal, selection)
+      return host(async () => {})
+    })
     await run.lifecycle.ready
     const selected = pick(new AbortController().signal)
     run.receive({ type: 'directory-result', requestId: 50, path: '/wrong' })
     run.receive({ type: 'directory-result', requestId: 0, path: '/chosen' })
     await expect(selected).resolves.toBe('/chosen')
+    const chosenFile = pickFile(new AbortController().signal, { title: 'Select SSH Private Key', defaultDirectory: '/home/me/.ssh' })
+    run.receive({ type: 'file-result', requestId: 2, path: null })
+    run.receive({ type: 'file-result', requestId: 1, path: '/home/me/.ssh/id_ed25519' })
+    await expect(chosenFile).resolves.toBe('/home/me/.ssh/id_ed25519')
+    // Empty selection strings never cross the wire.
+    const normalized = pickFile(new AbortController().signal, { title: '', defaultDirectory: '' })
+    const sent = run.messages.filter(message => (message as { type?: string }).type === 'file-pick').at(-1)
+    expect(Object.keys(sent ?? {})).toEqual(['type', 'requestId'])
+    run.receive({ type: 'file-result', requestId: 2, path: null })
+    await expect(normalized).resolves.toBeNull()
     const pending = pick(new AbortController().signal)
     const rejected = expect(pending).rejects.toThrow('stopping')
     await run.lifecycle.stop()

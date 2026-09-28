@@ -13,6 +13,8 @@ type HostMessage =
   | { type: 'fatal'; message: string }
   | { type: 'shutdown-complete' }
   | { type: 'directory-pick' | 'directory-cancel'; requestId: number }
+  | { type: 'file-pick'; requestId: number; title?: string; defaultDirectory?: string }
+  | { type: 'file-cancel'; requestId: number }
   | { type: ReplyKind; requestId: number; error: string }
   | { type: 'enrolled'; requestId: number; enrollment: Enrollment }
   | { type: 'activity'; requestId: number; activity: ShellActivity }
@@ -62,7 +64,21 @@ function hostMessage(value: unknown): HostMessage | undefined {
   if (value.type === 'shutdown-complete' && keys(value, 'type')) return { type: value.type }
   if (!count(value.requestId)) return
   const requestId = value.requestId
-  if ((value.type === 'directory-pick' || value.type === 'directory-cancel') && keys(value, 'type', 'requestId')) return { type: value.type, requestId }
+  if ((value.type === 'directory-pick' || value.type === 'directory-cancel' || value.type === 'file-cancel') && keys(value, 'type', 'requestId')) return { type: value.type, requestId }
+  if (value.type === 'file-pick' && count(value.requestId)) {
+    const requestId = value.requestId
+    const hasTitle = Object.hasOwn(value, 'title')
+    const hasDirectory = Object.hasOwn(value, 'defaultDirectory')
+    const width = keys(value, 'type', 'requestId')
+      || (hasTitle && !hasDirectory && keys(value, 'type', 'requestId', 'title'))
+      || (!hasTitle && hasDirectory && keys(value, 'type', 'requestId', 'defaultDirectory'))
+      || (hasTitle && hasDirectory && keys(value, 'type', 'requestId', 'title', 'defaultDirectory'))
+    if (width && (!hasTitle || text(value.title, 4096))
+      && (!hasDirectory || (text(value.defaultDirectory, 32768) && isAbsolute(value.defaultDirectory)))) {
+      return { type: 'file-pick', requestId,
+        ...hasTitle ? { title: value.title } : {}, ...hasDirectory ? { defaultDirectory: value.defaultDirectory } : {} }
+    }
+  }
   if (value.type !== 'enrolled' && value.type !== 'activity' && value.type !== 'update-tasks') return
   if (keys(value, 'type', 'requestId', 'error') && text(value.error, 65536)) return { type: value.type, requestId, error: value.error }
   if (value.type === 'enrolled' && keys(value, 'type', 'requestId', 'enrollment') && enrollment(value.enrollment)) {
@@ -251,12 +267,16 @@ export class OwnedDesktopHostProcess implements OwnedDesktopHost {
       return
     }
     if (this.ready === undefined) { this.fail(new Error('Desktop Host message arrived before ready.')); return }
-    if (message.type === 'directory-cancel') { if (this.pickerId === message.requestId) this.pickerId = undefined; return }
-    if (message.type === 'directory-pick') {
-      if (message.requestId <= this.lastPickerId || this.pickerId !== undefined) { this.fail(new Error('Invalid desktop directory request.')); return }
+    if (message.type === 'directory-cancel' || message.type === 'file-cancel') { if (this.pickerId === message.requestId) this.pickerId = undefined; return }
+    if (message.type === 'directory-pick' || message.type === 'file-pick') {
+      if (message.requestId <= this.lastPickerId || this.pickerId !== undefined) { this.fail(new Error('Invalid desktop picker request.')); return }
       this.lastPickerId = message.requestId
       this.pickerId = message.requestId
-      void this.answerDirectory(message.requestId)
+      if (message.type === 'directory-pick') {
+        void this.answerDirectory(message.requestId)
+      } else {
+        void this.answerFile(message.requestId, message)
+      }
       return
     }
     const pending = this.pending.get(message.requestId)
@@ -299,5 +319,19 @@ export class OwnedDesktopHostProcess implements OwnedDesktopHost {
     this.pickerId = undefined
     try { this.child.send({ type: 'directory-result', requestId, path }, (error) => { if (error !== null) this.fail(error) }) }
     catch (error) { this.fail(error instanceof Error ? error : new Error('Desktop directory response failed.')) }
+  }
+  private async answerFile(requestId: number, request: { title?: string; defaultDirectory?: string }): Promise<void> {
+    let path: string | null = null
+    try {
+      const selection = await this.callbacks.pickFile({
+        ...(request.title === undefined ? {} : { title: request.title }),
+        ...(request.defaultDirectory === undefined ? {} : { defaultDirectory: request.defaultDirectory }),
+      })
+      if (selection.kind === 'selected' && text(selection.path, 32768) && isAbsolute(selection.path)) path = selection.path
+    } catch { /* A failed native dialog is cancellation. */ }
+    if (this.pickerId !== requestId || this.stopping !== undefined || this.child?.connected !== true) return
+    this.pickerId = undefined
+    try { this.child.send({ type: 'file-result', requestId, path }, (error) => { if (error !== null) this.fail(error) }) }
+    catch (error) { this.fail(error instanceof Error ? error : new Error('Desktop file response failed.')) }
   }
 }

@@ -14,7 +14,7 @@
 
 ## 管理 API
 
-Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`upsert(input)`、`removeHost(id)`、`verify(input)`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
+Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`upsert(input)`、`removeHost(id)`、`verify(input)`、`pickKeyFile()`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
 
 `removeHost` 是本地 `ctx.remoteHosts.remove(id)` 方法导出的 Remote 名称。Client Gateway 的命名空间 Service 自身用 `remove` 卸载方法，因此同名 Remote 方法无法挂载。
 
@@ -23,6 +23,8 @@ Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`u
 认证形式为 `{ kind: "password", passwordRef? }`、`{ kind: "key", privateKeyRef?, passphraseRef? }` 或 `{ kind: "agent", socket }`。SSH agent 套接字或 Windows 命名管道必须显式指定。引用名遵守凭据服务的 POSIX 标识符格式。私钥传入内容，不传本地文件路径。
 
 `verify({ host, port?, username, secrets })` 执行保存主机前必须通过的连通性检测。它使用提交的凭据完成身份验证，接受本次尝试的主机密钥，并运行一条固定探测命令，返回 `{ fingerprint, platform, architecture }`。
+
+`pickKeyFile()` 服务于登录表单的密钥文件入口：它经 `ctx.get('directoryPicker')`（唯一的可选注入——没有 `native` 能力的组合会以 `KEY_PICKER_UNAVAILABLE` 快速失败）打开以操作者 `~/.ssh` 为起始目录的宿主原生单文件选择器，并返回 `{ path, content }`——所拾取文件的 UTF-8 文本用作 `AuthSecrets.privateKey`，路径仅用于展示；操作者取消时两个字段都不存在。读取上限为 64 KiB（`KEY_FILE_TOO_LARGE`）；拾取后消失或不可读的文件上报 `KEY_FILE_READ_FAILED`；外来选择器失败被收敛为 `KEY_PICKER_FAILED`。
 
 返回的 `fingerprint` 就是该连接自身观测到的主机密钥，`platform` 与 `architecture` 则是目标主机给出的回答。它们正是 `upsert` 随后保存的值：记录下来的固定指纹来自一次登录已成功的连接，而探测到的目标平台也免去了让操作者声明主机自身已知信息的多余步骤。检测优先接受 POSIX 的 `uname` 回答，若目标是 Windows 默认 shell，则改用 PowerShell 重试；若回答未给出可部署的平台或架构，则判定检测失败。已保存的凭据由后续全新检测重新验证，因此指纹变化会表现为检测失败，而不会退回某个已存的批准记录。
 
