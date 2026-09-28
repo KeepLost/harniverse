@@ -25,6 +25,8 @@ Host Connection 层先在本地认证浏览器，再根据生成的 Typert polic
 
 ## Consequences
 
+管理页面经 `api-remotes` Client 组合挂载的 `remoteHosts` 贡献访问协调器；缺少该挂载时，`ui-remote-hosts` 插件会一直等待 `remote.remoteHosts`，不注册侧边栏入口。删除主机导出为 `remoteHosts/removeHost`，因为 Gateway 命名空间 Service 自身以 `remove` 作为卸载路径；本地 Service 方法仍为 `remove`。浏览器路径解析器与 Host proxy 解析器都在第一个 `/` 或 `.` 处截取命名空间，因此 Typert 形式的 `settings/...` 端点与旧版 `settings.describe`、`credentials.set` 方法同样留在本机。
+
 远程页面是按主机确定的浏览器目标，并通过页面 URL 隔离 runtime 持久化。目标页面要求本地协调器保持连接，不自行重连 SSH。Host proxy 必须保留本地 capability 检查和身份元数据，远程协调器仍是上游 token 与 socket 生命周期的唯一所有者。原生 SSH 部署及 Linux/macOS/Windows 的完整验证仍属于浏览器载体测试之外的工作。
 
 定向测试覆盖远程目标 URL 路由、本地管理排除、目标 HTTP proxy 授权与身份处理、Remote 失败渲染、临时凭据提交、已连接主机打开入口、反向来源同步、既有载体套件和远端 artifact 生命周期 smoke。完整浏览器重连和真实 SSH 主机验证仍需要配置好的 Linux 测试主机。

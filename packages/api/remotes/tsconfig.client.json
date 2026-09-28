@@ -60,6 +60,9 @@
       "path": "../../context/session-reference"
     },
     {
+      "path": "../../ssh/remote-hosts"
+    },
+    {
       "path": "../../typert/protocol"
     }
   ]

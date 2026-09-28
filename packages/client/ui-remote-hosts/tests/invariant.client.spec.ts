@@ -36,7 +36,7 @@ describe('client composition', () => {
       probe: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
       connect: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
       disconnect: vi.fn(async () => ({ ok: true, value: undefined })),
-      remove: vi.fn(async () => ({ ok: true, value: undefined })),
+      removeHost: vi.fn(async () => ({ ok: true, value: undefined })),
     }
     const layout = { setCenterView: vi.fn(), clearCenterView: vi.fn() }
     const ctx = {
@@ -63,6 +63,9 @@ describe('client composition', () => {
     await center.connect!('host-id', { kind: 'password', password: 'secret' })
     await center.disconnect!('host-id')
     await center.remove!('host-id')
+    // The view-facing callback keeps the short name; the Remote method carries
+    // the exported name because the namespace service owns `remove`.
+    expect(remoteHosts.removeHost).toHaveBeenCalledWith('host-id')
     vi.stubGlobal('location', { href: 'http://localhost:3000/' })
     const open = vi.fn()
     vi.stubGlobal('open', open)

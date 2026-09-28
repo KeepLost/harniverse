@@ -6,7 +6,7 @@
 
 `createApiRemoteAgentResolver()` 会复用 live Agent、恢复普通冷会话、对并发恢复去重、保留 subagent ownership fence，并为 Typert `agent` 和 `session` lookup 配置同一个 resolver。其恢复前的检查读取存储的 header，而非日志：ownership fence 与记录的 Profile 都是 header 事实，而随后的恢复本身就会加载日志，因此在此读取日志会在同一条 per-session 持久化链上第二次遍历每个事件，从而延迟调用方自己的历史页。缺少项目的身份改为针对恢复后会话的 header 拒绝，那次加载才是权威读取。标准 Web API Proxy 提供 Agent 默认值和 scope 设置，再将返回的 resolver 用于旧方法，使已迁移与未迁移方法共用同一份策略实现。
 
-当前 Client 组合挂载 Goal Remote 贡献和只读 Host 插件清单贡献（`pluginInventory/list`）。该组合卸载时，Cordis effect 的所有权机制会撤回所有贡献；`@deepseek-ai/dsh-api-gateway/client` 负责描述符校验、可追踪 namespace Service、直接与作用域方法、调用与取消。Client 入口通过 Cordis 消费共享的 `TypertClientRemote` 接口，不导入具体 Gateway；它只以 type-only 形式重新导出 Gateway Client face 的声明合并，因此消费端经由本外观取到转发事件词汇时，运行时不会多出一条通往 Gateway 实现的边。
+Client 组合挂载每个被已发布 Client 插件以 `remote.<namespace>` 注入的生成 `/remote` 贡献。命名空间未挂载的 Client 插件会一直等待其注入，不注册任何 UI；因此 `tests/client-roster.client.spec.ts` 经真实 Gateway Client 挂载整份清单，命名空间缺失或方法名与命名空间 Service 冲突时都会失败。该组合卸载时，Cordis effect 的所有权机制会撤回所有贡献；`@deepseek-ai/dsh-api-gateway/client` 负责描述符校验、可追踪 namespace Service、直接与作用域方法、调用与取消。Client 入口通过 Cordis 消费共享的 `TypertClientRemote` 接口，不导入具体 Gateway；它只以 type-only 形式重新导出 Gateway Client face 的声明合并，因此消费端经由本外观取到转发事件词汇时，运行时不会多出一条通往 Gateway 实现的边。
 
 本包不包含传输逻辑或 Host 服务发现逻辑。Web 或未来的 TUI 只要提供同一份不依赖 React 的 `ctx.remote` 约定，均可复用其 Client face。
 

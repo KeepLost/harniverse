@@ -14,7 +14,9 @@ The remote `dshHome` is independent of the local one. It must be absolute in the
 
 ## Management API
 
-The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `upsert(input)`, `remove(id)`, `probe(input)`, `connect(input)`, and `disconnect(id)` require `harniverse.administer`. Ordinary authorized local owners can manage hosts through these methods. Browser management must always target the original local host, even while viewing a remote workspace.
+The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `upsert(input)`, `removeHost(id)`, `probe(input)`, `connect(input)`, and `disconnect(id)` require `harniverse.administer`. Ordinary authorized local owners can manage hosts through these methods. Browser management must always target the original local host, even while viewing a remote workspace.
+
+`removeHost` is the exported Remote name of the local `ctx.remoteHosts.remove(id)` method. The Client Gateway's namespace Service owns `remove` for unmounting, so a Remote method with that name cannot be mounted.
 
 `upsert` replaces the complete configuration. Omit `id` to create; retain the returned ID to edit. Defaults are `port: 22`, `reverseMappings: []`, and `storeCredentials: false`. Editing a connected host requires disconnect. Required fields are `name`, `host`, `username`, `fingerprint`, `platform` (`linux`, `darwin`, `win32`), `architecture` (`x64`, `arm64`), and `authentication`. Unknown fields reject.
 
@@ -81,7 +83,7 @@ Search schemas also permit literal `apiKey` secrets beside `apiKeyEnv`. Synchron
 
 Every reverse mapping explicitly names `localHost`, `localPort`, and an exact HTTP(S) `remoteOriginalOrigin` without path, credentials, query, or fragment. No implicit localhost forwarding exists. `reverseMappings(id)` returns those same records plus each allocated remote loopback `remotePort`, only to trusted same-process Consumers. During synchronization, matching origin strings in the selected model/search namespaces become `http(s)://127.0.0.1:<remotePort>` while retaining their path. Provider traffic therefore uses only the explicitly configured reverse mapping.
 
-`disconnect` closes SSH and all forwards. Remote agents, encrypted state, and unlocked credentials persist until remote process shutdown. `remove` additionally forgets the local record; it does not revoke remote grants or erase remote files. Coordinator-generated credential references are retained for deliberate recovery/cleanup, including replaced login references. Never delete the AES/signing references while a remote home still needs them.
+`disconnect` closes SSH and all forwards. Remote agents, encrypted state, and unlocked credentials persist until remote process shutdown. `removeHost` additionally forgets the local record; it does not revoke remote grants or erase remote files. Coordinator-generated credential references are retained for deliberate recovery/cleanup, including replaced login references. Never delete the AES/signing references while a remote home still needs them.
 
 ## Verification
 

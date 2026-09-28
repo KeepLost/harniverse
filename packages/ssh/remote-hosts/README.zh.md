@@ -14,7 +14,9 @@
 
 ## 管理 API
 
-Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`upsert(input)`、`remove(id)`、`probe(input)`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
+Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`upsert(input)`、`removeHost(id)`、`probe(input)`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
+
+`removeHost` 是本地 `ctx.remoteHosts.remove(id)` 方法导出的 Remote 名称。Client Gateway 的命名空间 Service 自身用 `remove` 卸载方法，因此同名 Remote 方法无法挂载。
 
 `upsert` 完整替换主机配置。创建时省略 `id`，编辑时保留返回的 ID。默认值为 `port: 22`、`reverseMappings: []`、`storeCredentials: false`。已连接主机必须先断开再编辑。必填字段为 `name`、`host`、`username`、`fingerprint`、`platform`（`linux`、`darwin`、`win32`）、`architecture`（`x64`、`arm64`）、`authentication`；未知字段被拒绝。
 
@@ -81,7 +83,7 @@ SDK `GrantAccess` 使用 SHA-256 IEEE-P1363 签名挑战，并合并访问令牌
 
 每个反向映射显式指定 `localHost`、`localPort`、精确 HTTP(S) `remoteOriginalOrigin`，不允许路径、凭据、查询或片段。没有隐式 localhost 转发。`reverseMappings(id)` 仅向可信同进程消费者返回相同配置和已分配远程回环端口 `remotePort`。同步期间，选定模型/搜索命名空间中匹配的来源字符串会变为 `http(s)://127.0.0.1:<remotePort>`，同时保留路径。因此提供者流量只使用显式配置的反向映射。
 
-`disconnect` 关闭 SSH 和转发；远程代理、加密状态和解锁凭据持续到远程进程关闭。`remove` 还会删除本地记录，但不撤销远程授权或删除远程文件。协调器生成的凭据引用（包括替换后的登录引用）保留用于明确恢复或清理。远程 home 仍需访问时，不应删除 AES/签名引用。
+`disconnect` 关闭 SSH 和转发；远程代理、加密状态和解锁凭据持续到远程进程关闭。`removeHost` 还会删除本地记录，但不撤销远程授权或删除远程文件。协调器生成的凭据引用（包括替换后的登录引用）保留用于明确恢复或清理。远程 home 仍需访问时，不应删除 AES/签名引用。
 
 ## 验证
 

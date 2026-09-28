@@ -25,6 +25,8 @@ Model and search settings remain local-authoritative: the coordinator synchroniz
 
 ## Consequences
 
+The management view reaches the coordinator through the `remoteHosts` contribution mounted in the `api-remotes` Client assembly; without that mount the `ui-remote-hosts` plugin waits on `remote.remoteHosts` and registers no sidebar entry. Host removal is exported as `remoteHosts/removeHost` because the Gateway namespace Service owns `remove` as its unmount path; the local Service method remains `remove`. The browser path resolver and the Host proxy resolver both end the namespace at the first `/` or `.`, so Typert `settings/...` endpoints and legacy `settings.describe`/`credentials.set` methods stay local alike.
+
 Remote pages are immutable per-host browser targets and use isolated runtime persistence through their browser URL scope. A target page requires the local coordinator to remain connected; it does not reconnect SSH itself. The Host proxy must preserve local capability checks and identity metadata, and the remote coordinator must remain the only owner of upstream tokens and socket lifetimes. Native SSH deployment and full Linux/macOS/Windows verification remain separate from browser carrier tests.
 
 Focused tests cover remote target URL routing, local management exclusion, targeted HTTP proxy authorization and identity handling, Remote-result failure rendering, ephemeral credential submission, connected-host opening, reverse-origin synchronization, the existing carrier suites, and the remote artifact lifecycle smoke. Full browser reconnect and real SSH host verification require the configured Linux test host.

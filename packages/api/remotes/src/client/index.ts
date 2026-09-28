@@ -12,6 +12,7 @@ import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
 import schedulerRemote from '@deepseek-ai/dsh-scheduler/remote'
 import governorRemote from '@deepseek-ai/dsh-governor/remote'
 import queueRemote from '@deepseek-ai/dsh-queue/remote'
+import remoteHostsRemote from '@deepseek-ai/dsh-remote-hosts/remote'
 import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 
 export type { TypertClientRemote as ClientRemote } from '@deepseek-ai/dsh-typert-protocol'
@@ -154,6 +155,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       schedulerRemote,
       governorRemote,
       queueRemote,
+      remoteHostsRemote,
     ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }

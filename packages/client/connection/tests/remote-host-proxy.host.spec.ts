@@ -68,6 +68,10 @@ describe('remote host HTTP proxy', () => {
     expect(proxy.resolver('remoteHosts/list', localManagement)).toBeUndefined()
     expect(proxy.resolver('settings/list', new Request(`http://local/api/settings/list?dshRemoteHost=${REMOTE_HOST}`))).toBeUndefined()
     expect(proxy.resolver('credentials/list', new Request(`http://local/api/credentials/list?dshRemoteHost=${REMOTE_HOST}`))).toBeUndefined()
+    // Legacy RPC methods name their namespace with a dot rather than a slash.
+    expect(proxy.resolver('settings.describe', new Request(`http://local/api/settings.describe?dshRemoteHost=${REMOTE_HOST}`))).toBeUndefined()
+    expect(proxy.resolver('credentials.describe', new Request(`http://local/api/credentials.describe?dshRemoteHost=${REMOTE_HOST}`))).toBeUndefined()
+    expect(proxy.resolver('credentials.set', new Request(`http://local/api/credentials.set?dshRemoteHost=${REMOTE_HOST}`))).toBeUndefined()
     expect(proxy.resolver('sessions/list', noTarget)).toBeUndefined()
     expect(proxy.resolver('unknown/endpoint', targeted)).toEqual({ denied: true })
     expect(proxy.resolver('sessions/list', new Request('http://local/api/sessions/list?dshRemoteHost=invalid'))).toBeUndefined()

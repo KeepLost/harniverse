@@ -58,6 +58,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-governor": "workspace:^",
     "@deepseek-ai/dsh-queue": "workspace:^",
+    "@deepseek-ai/dsh-remote-hosts": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   },
   "peerDependencies": {
@@ -76,6 +77,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-message-feedback": "workspace:^",
     "@deepseek-ai/dsh-queue": "workspace:^",
+    "@deepseek-ai/dsh-remote-hosts": "workspace:^",
     "@deepseek-ai/dsh-scheduler": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence": "workspace:^",

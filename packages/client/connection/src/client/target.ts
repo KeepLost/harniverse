@@ -18,7 +18,8 @@ export function createBrowserPathResolver(search: string | undefined): Transport
   if (raw === null || raw === undefined || !UUID.test(raw)) return path => path
   return (path) => {
     const url = new URL(path, 'http://dsh.internal')
-    const namespace = url.pathname.split('/')[2]
+    // Typert endpoints use `namespace/method`; legacy RPC methods use `namespace.method`.
+    const namespace = url.pathname.split('/')[2]?.split('.')[0]
     if (!url.pathname.startsWith('/api/') || (namespace !== undefined && LOCAL_NAMESPACES.has(namespace))) return path
     url.searchParams.set(TARGET_PARAMETER, raw)
     return `${url.pathname}${url.search}`

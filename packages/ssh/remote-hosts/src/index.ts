@@ -84,7 +84,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
   }
 
   /** @param id - host to forget locally; remote storage and processes survive. */
-  @Remote({ requiredCapability: 'harniverse.administer' })
+  @Remote({ requiredCapability: 'harniverse.administer', exportName: 'removeHost' })
   async remove(id: RemoteHostId): Promise<void> {
     id = this.validate(() => remoteHostId(id))
     this.attempts.get(id)?.abort()
