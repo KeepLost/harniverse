@@ -16,10 +16,10 @@ import type { Win32DialogWorkerMessage } from '../src/win32-dialog-worker.ts'
 const builtWorker = fileURLToPath(new URL('../lib/worker.cjs', import.meta.url))
 
 describe.skipIf(!existsSync(builtWorker) || process.platform === 'win32')('built dialog worker (lib/worker.cjs)', () => {
-  it('loads under plain node and reports the native-surface failure', async () => {
+  it.each(['directory', 'file'] as const)('loads under plain node in %s mode and reports the native-surface failure', async (mode) => {
     const message = await new Promise<Win32DialogWorkerMessage>((resolve, reject) => {
       const child = spawn(process.execPath, [builtWorker], {
-        env: { ...process.env, DSH_DIALOG_TITLE: 'Built-artifact guard' },
+        env: { ...process.env, DSH_DIALOG_TITLE: 'Built-artifact guard', DSH_DIALOG_MODE: mode },
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
       })
       child.on('message', resolve)

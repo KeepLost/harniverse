@@ -11,7 +11,11 @@ import { spawn, type StdioOptions } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import type { Win32DialogWorkerData } from './win32-dialog-worker.ts'
 
-/** The child payload's environment projection: title, mode, and optional seed directory. */
+/** The child payload's environment projection: title, mode, and optional seed directory.
+ * @param environment - the parent environment the projection extends.
+ * @param data - the child payload (dialog title, mode, optional start directory).
+ * @returns the environment the dialog child is spawned with.
+ */
 export function dialogWorkerEnvironment(
   environment: NodeJS.ProcessEnv,
   data: Win32DialogWorkerData,

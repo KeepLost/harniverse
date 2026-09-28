@@ -73,10 +73,13 @@ function hostMessage(value: unknown): HostMessage | undefined {
       || (hasTitle && !hasDirectory && keys(value, 'type', 'requestId', 'title'))
       || (!hasTitle && hasDirectory && keys(value, 'type', 'requestId', 'defaultDirectory'))
       || (hasTitle && hasDirectory && keys(value, 'type', 'requestId', 'title', 'defaultDirectory'))
-    if (width && (!hasTitle || text(value.title, 4096))
-      && (!hasDirectory || (text(value.defaultDirectory, 32768) && isAbsolute(value.defaultDirectory)))) {
+    const title = hasTitle && text(value.title, 4096) ? value.title : undefined
+    const defaultDirectory = hasDirectory && text(value.defaultDirectory, 32768) && isAbsolute(value.defaultDirectory)
+      ? value.defaultDirectory
+      : undefined
+    if (width && (!hasTitle || title !== undefined) && (!hasDirectory || defaultDirectory !== undefined)) {
       return { type: 'file-pick', requestId,
-        ...hasTitle ? { title: value.title } : {}, ...hasDirectory ? { defaultDirectory: value.defaultDirectory } : {} }
+        ...title === undefined ? {} : { title }, ...defaultDirectory === undefined ? {} : { defaultDirectory } }
     }
   }
   if (value.type !== 'enrolled' && value.type !== 'activity' && value.type !== 'update-tasks') return
@@ -272,11 +275,14 @@ export class OwnedDesktopHostProcess implements OwnedDesktopHost {
       if (message.requestId <= this.lastPickerId || this.pickerId !== undefined) { this.fail(new Error('Invalid desktop picker request.')); return }
       this.lastPickerId = message.requestId
       this.pickerId = message.requestId
-      if (message.type === 'directory-pick') {
-        void this.answerDirectory(message.requestId)
-      } else {
-        void this.answerFile(message.requestId, message)
+      if (message.type === 'file-pick') {
+        void this.answerFile(message.requestId, {
+          ...message.title === undefined ? {} : { title: message.title },
+          ...message.defaultDirectory === undefined ? {} : { defaultDirectory: message.defaultDirectory },
+        })
+        return
       }
+      void this.answerDirectory(message.requestId)
       return
     }
     const pending = this.pending.get(message.requestId)
@@ -323,10 +329,7 @@ export class OwnedDesktopHostProcess implements OwnedDesktopHost {
   private async answerFile(requestId: number, request: { title?: string; defaultDirectory?: string }): Promise<void> {
     let path: string | null = null
     try {
-      const selection = await this.callbacks.pickFile({
-        ...(request.title === undefined ? {} : { title: request.title }),
-        ...(request.defaultDirectory === undefined ? {} : { defaultDirectory: request.defaultDirectory }),
-      })
+      const selection = await this.callbacks.pickFile(request)
       if (selection.kind === 'selected' && text(selection.path, 32768) && isAbsolute(selection.path)) path = selection.path
     } catch { /* A failed native dialog is cancellation. */ }
     if (this.pickerId !== requestId || this.stopping !== undefined || this.child?.connected !== true) return

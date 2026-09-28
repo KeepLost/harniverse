@@ -186,11 +186,12 @@ describe('native directory picker', () => {
 describe('native file picker', () => {
   it('uses the macOS file chooser with the requested prompt and default location', async () => {
     const seed = mkdtempSync(join(tmpdir(), 'dsh-file-picker-seed-'))
+    const escaped = seed.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
     const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: '/Users/test/.ssh/id_ed25519\n', stderr: '' }))
     await expect(pickNativeFile(signal(), { title: 'Select SSH Private Key', defaultDirectory: seed }, { platform: 'darwin', run }))
       .resolves.toBe('/Users/test/.ssh/id_ed25519')
     expect(run).toHaveBeenCalledWith('osascript', expect.arrayContaining([
-      `set selectedFile to choose file with prompt "Select SSH Private Key" default location (POSIX file "${seed}")`,
+      `set selectedFile to choose file with prompt "Select SSH Private Key" default location (POSIX file "${escaped}")`,
       'POSIX path of selectedFile',
     ]), expect.any(AbortSignal))
 
@@ -204,11 +205,12 @@ describe('native file picker', () => {
 
   it('escapes AppleScript literals in the title and directory', async () => {
     // The seeded directory genuinely exists — a missing one would be dropped.
-    const quoted = mkdtempSync(join(tmpdir(), 'dsh-file-picker-qu"o\\te-'))
+    // Backslash cannot appear in a win32 path segment, so the title carries it.
+    const quoted = mkdtempSync(join(tmpdir(), 'dsh-file-picker-qu"ote-'))
     const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: '/tmp/a"b\n', stderr: '' }))
-    await pickNativeFile(signal(), { title: 'Pick "a"', defaultDirectory: quoted }, { platform: 'darwin', run })
+    await pickNativeFile(signal(), { title: 'Pick "a"\\b', defaultDirectory: quoted }, { platform: 'darwin', run })
     const line = run.mock.calls[0]![1][1]!
-    expect(line).toContain('prompt "Pick \\"a\\""')
+    expect(line).toContain('prompt "Pick \\"a\\"\\\\b"')
     expect(line).toContain(`(POSIX file "${quoted.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}")`)
   })
 
