@@ -76,6 +76,14 @@ export interface RemoteHostSshConnection {
   dispose(): Promise<void>
 }
 
+/** One authenticated first-contact test: the key it accepted and the probe text it ran. */
+export interface RemoteHostSshVerification {
+  /** OpenSSH SHA256 fingerprint whose acceptance authentication proved. */
+  fingerprint: string
+  /** Raw stdout of the test's fixed probe command. */
+  output: string
+}
+
 /** Consumer contract implemented by the Cordis service or a replacement provider. */
 export interface RemoteHostSshProvider {
   /** Verify the pin before authentication and return an owned connection.
@@ -85,12 +93,15 @@ export interface RemoteHostSshProvider {
    * @returns an owned SSH connection.
    */
   open(config: RemoteHostSshConfig, authentication: RemoteHostSshAuthentication, signal?: AbortSignal): Promise<RemoteHostSshConnection>
-  /** Observe an untrusted fingerprint, reject its key, and close before authentication.
-   * @param config - SSH target whose host key should be observed.
-   * @param signal - optional cancellation for the probe.
-   * @returns the observed OpenSSH SHA256 fingerprint.
+  /** Authenticate against an unpinned target and run one probe under the key it accepted.
+   * @param config - SSH target to test; its key is observed rather than compared.
+   * @param authentication - explicit credentials for this attempt.
+   * @param command - probe command run once after authentication.
+   * @param signal - optional cancellation for the attempt.
+   * @returns the accepted fingerprint and the probe's stdout.
    */
-  probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string>
+  verify(config: RemoteHostSshTarget, authentication: RemoteHostSshAuthentication, command: string,
+    signal?: AbortSignal): Promise<RemoteHostSshVerification>
 }
 
 /** Stable, secret-free transport failure categories. */

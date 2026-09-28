@@ -94,9 +94,9 @@ export class SshTransport implements RemoteHostSshConnection {
   /** Establish one SSH transport and observe the server fingerprint.
    * @param target - Validated SSH endpoint.
    * @param auth - Explicit authentication options.
-   * @param pin - Approved fingerprint, or undefined for a rejecting probe.
+   * @param pin - Approved fingerprint, or undefined to accept this attempt's key.
    * @param signal - Establishment cancellation.
-   * @returns observed fingerprint after authentication or a completed rejecting probe.
+   * @returns observed fingerprint after authentication.
    */
   async connect(target: RemoteHostSshTarget, auth: ConnectConfig, pin: string | undefined, signal?: AbortSignal): Promise<string> {
     let observed: string | undefined
@@ -116,7 +116,10 @@ export class SshTransport implements RemoteHostSshConnection {
           hostVerifier: (key: Buffer) => {
             const digest = createHash('sha256').update(key).digest()
             observed = `SHA256:${digest.toString('base64').replace(/=+$/, '')}`
-            if (pin === undefined) return false
+            // An absent pin is the caller's explicit first-contact acceptance; the
+            // fingerprint it observes is trustworthy only because authentication
+            // completes afterwards under this same verified key.
+            if (pin === undefined) return true
             const accepted = timingSafeEqual(digest, Buffer.from(pin.slice(7), 'base64'))
             if (!accepted) this.stop(new RemoteHostSshError('HOST_KEY_MISMATCH'))
             return accepted
@@ -124,8 +127,9 @@ export class SshTransport implements RemoteHostSshConnection {
         })
       }, signal, this.limits.connectTimeoutMs)
     } catch (error) {
+      // A failed establishment owns no usable transport; release it here so the
+      // caller only awaits `closed` rather than disposing a rejected connection.
       await this.dispose()
-      if (pin === undefined && observed !== undefined && !signal?.aborted) return observed
       throw error
     }
   }

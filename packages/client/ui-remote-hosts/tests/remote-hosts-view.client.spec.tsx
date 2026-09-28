@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { RemoteHostId, RemoteHostView } from '@deepseek-ai/dsh-remote-hosts/types'
+import type { ConnectivityResult, RemoteHostId, RemoteHostView } from '@deepseek-ai/dsh-remote-hosts/types'
 import { createRemoteHostsViewStore } from '../src/client/stores.ts'
 import { RemoteHostsView, type RemoteHostsViewProps } from '../src/client/RemoteHostsView.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -24,10 +24,16 @@ function host(overrides: Partial<RemoteHostView> = {}): RemoteHostView {
   }
 }
 
+export function evidence(overrides: Partial<ConnectivityResult> = {}): ConnectivityResult {
+  return { fingerprint: host().fingerprint, platform: 'linux', architecture: 'x64', ...overrides }
+}
+
+
+
 type Face = {
   list: () => Promise<RemoteResult<RemoteHostView[]>>
   upsert: RemoteHostsViewProps['upsert']
-  probe: RemoteHostsViewProps['probe']
+  verify: RemoteHostsViewProps['verify']
   connect: RemoteHostsViewProps['connect']
   openRemote: RemoteHostsViewProps['openRemote']
   disconnect: RemoteHostsViewProps['disconnect']
@@ -39,7 +45,7 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
   const face: Face = {
     list: vi.fn(async () => ({ ok: true as const, value: initialHosts })),
     upsert: vi.fn(async () => ({ ok: true as const, value: host() })),
-    probe: vi.fn(async () => ({ ok: true as const, value: { fingerprint: host().fingerprint } })),
+    verify: vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() })),
     connect: vi.fn(async () => ({ ok: true as const, value: host({ state: 'connected' }) })),
     openRemote: vi.fn(),
     disconnect: vi.fn(async () => ({ ok: true as const, value: undefined })),
@@ -58,6 +64,18 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
   return { face, props, view }
 }
 
+/** Fill the target and credential fields every save path requires. */
+function completeDraft(target: string): void {
+  fireEvent.change(screen.getByLabelText(zh.name), { target: { value: 'New host' } })
+  fireEvent.change(screen.getByLabelText(zh.host), { target: { value: target } })
+  fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
+  fireEvent.change(screen.getByLabelText(zh.password), { target: { value: 'secret' } })
+}
+
+function saveButton(): HTMLButtonElement {
+  return screen.getByRole('button', { name: zh.save }) as HTMLButtonElement
+}
+
 describe('RemoteHostsView', () => {
   it('renders nothing while the view is inactive', () => {
     const store = createRemoteHostsViewStore().create()
@@ -65,44 +83,230 @@ describe('RemoteHostsView', () => {
       active: false,
       useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
       actions: store.actions,
-      list: vi.fn(async () => ({ ok: true as const, value: [] })), upsert: vi.fn(), probe: vi.fn(), connect: vi.fn(), openRemote: vi.fn(),
+      list: vi.fn(async () => ({ ok: true as const, value: [] })), upsert: vi.fn(), verify: vi.fn(), connect: vi.fn(), openRemote: vi.fn(),
       disconnect: vi.fn(), remove: vi.fn(), closeView: vi.fn(), t,
     } as unknown as RemoteHostsViewProps)} />)
     expect(screen.queryByRole('heading', { name: zh.title })).toBeNull()
   })
 
-  it('shows list failures and handles probe, key authentication, mappings, and ephemeral connect', async () => {
+  it('requires a connectivity test before saving and records the tested evidence', async () => {
     const list = vi.fn(async () => ({ ok: true as const, value: [] }))
     const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host({
       name: input.name, host: input.host, username: input.username,
     }) }))
     const connect = vi.fn(async () => ({ ok: true as const, value: host({ state: 'connected' }) }))
-    const probe = vi.fn(async () => ({ ok: true as const, value: { fingerprint: host().fingerprint } }))
-    mount({ list, upsert, connect, probe })
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const,
+      value: evidence({ platform: 'darwin', architecture: 'arm64' }) }))
+    mount({ list, upsert, connect, verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('key.example.test')
+
+    // A draft that has never been tested cannot be saved, and no field asks for a fingerprint.
+    expect(saveButton().disabled).toBe(true)
+    expect(document.body.textContent).not.toContain(evidence().fingerprint)
+
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify).toHaveBeenCalledTimes(1) })
+    expect(verify.mock.calls[0]?.[0]).toEqual({ host: 'key.example.test', port: 22, username: 'runner',
+      secrets: { kind: 'password', password: 'secret' } })
+
+    // Detected values prefill the target and stay editable.
+    await waitFor(() => { expect(screen.getByLabelText(zh.platform)).toHaveProperty('value', 'darwin') })
+    expect(screen.getByLabelText(zh.architecture)).toHaveProperty('value', 'arm64')
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+    expect(screen.getByRole('status').textContent).toContain(evidence().fingerprint)
+
+    fireEvent.click(screen.getByLabelText(zh.saveCredentials))
+    fireEvent.click(saveButton())
+    await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
+    const saved = upsert.mock.calls[0]?.[0]
+    expect(saved?.fingerprint).toBe(evidence().fingerprint)
+    expect(saved?.platform).toBe('darwin')
+    expect(saved?.architecture).toBe('arm64')
+    expect(saved?.secrets).toBeUndefined()
+    expect(connect).toHaveBeenCalledWith(hostId, { kind: 'password', password: 'secret' })
+  })
+
+  it('invalidates a completed test whenever the tested target or credentials change', async () => {
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+
+    // Each edit invalidates the evidence the save would otherwise reuse.
+    for (const edit of [
+      () => { fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'other.example.test' } }) },
+      () => { fireEvent.change(screen.getByLabelText(zh.port), { target: { value: '2222' } }) },
+      () => { fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'other' } }) },
+      () => { fireEvent.change(screen.getByLabelText(zh.password), { target: { value: 'other-secret' } }) },
+    ]) {
+      edit()
+      await waitFor(() => { expect(saveButton().disabled).toBe(true) })
+      expect(screen.queryByRole('status')).toBeNull()
+    }
+
+    // Platform overrides are deployment choices, not part of what was tested.
+    fireEvent.change(screen.getByLabelText(zh.platform), { target: { value: 'win32' } })
+    expect(saveButton().disabled).toBe(true)
+  })
+
+  it('keeps a failed connectivity test from enabling save and reports its reason', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: false as const,
+      error: { code: 'verify', message: 'verify rejected', details: {} } }))
+    const upsert = vi.fn(async () => { throw 'plain rejection' })
+    mount({ verify, upsert })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.remoteOrigin), { target: { value: 'http://model.example.test' } })
+    fireEvent.change(screen.getByLabelText(zh.localPort), { target: { value: '65536' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
+    expect(screen.getByRole('alert').textContent).toContain('valid origin and local port')
+
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('verify rejected') })
+    expect(saveButton().disabled).toBe(true)
+
+    // A successful retry clears the failure and opens the save path.
+    verify.mockResolvedValueOnce({ ok: true as const, value: evidence() })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+  })
+
+  it('drops a stale test when a later test fails', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>()
+      .mockResolvedValueOnce({ ok: true as const, value: evidence() })
+      .mockResolvedValueOnce({ ok: false as const, error: { code: 'verify', message: 'verify rejected', details: {} } })
+    mount({ verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('verify rejected') })
+    expect(saveButton().disabled).toBe(true)
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('clears a stale test when the draft is reopened', async () => {
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+
+    fireEvent.click(screen.getByRole('button', { name: zh.cancel }))
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    expect(saveButton().disabled).toBe(true)
+  })
+
+  it('tests a private key with its passphrase and submits it without one', async () => {
+    const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host(input) }))
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
+    mount({ upsert, verify })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.name), { target: { value: 'Key host' } })
     fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
-    fireEvent.change(screen.getByLabelText(zh.port), { target: { value: '2222' } })
     fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-    fireEvent.change(screen.getByLabelText(zh.platform), { target: { value: 'darwin' } })
-    fireEvent.change(screen.getByLabelText(zh.architecture), { target: { value: 'arm64' } })
     fireEvent.change(screen.getByLabelText(zh.privateKey), { target: { value: 'PRIVATE KEY' } })
     fireEvent.change(screen.getByLabelText(zh.passphrase), { target: { value: 'phrase' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('valid origin') })
-    fireEvent.change(screen.getByLabelText(zh.localHost), { target: { value: '127.0.0.2' } })
-    fireEvent.change(screen.getByLabelText(zh.remoteOrigin), { target: { value: 'http://model.example.test:9000' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
-    expect(screen.getByText(/model\.example\.test/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: zh.removeMapping }))
-    fireEvent.click(screen.getByRole('button', { name: zh.probe }))
-    await waitFor(() => { expect(screen.getByDisplayValue(host().fingerprint)).toBeTruthy() })
-    fireEvent.click(screen.getByLabelText(zh.saveCredentials))
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify).toHaveBeenCalledTimes(1) })
+    expect(verify.mock.calls[0]?.[0].secrets).toEqual({ kind: 'key', privateKey: 'PRIVATE KEY', passphrase: 'phrase' })
+
+    // Dropping the passphrase invalidates the test; the retest carries no passphrase.
+    fireEvent.change(screen.getByLabelText(zh.passphrase), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify).toHaveBeenCalledTimes(2) })
+    expect(verify.mock.calls[1]?.[0].secrets).toEqual({ kind: 'key', privateKey: 'PRIVATE KEY' })
+
     fireEvent.click(screen.getByRole('button', { name: zh.save }))
     await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
-    expect(upsert.mock.calls[0]?.[0].secrets).toBeUndefined()
-    expect(connect).toHaveBeenCalledWith(hostId, { kind: 'key', privateKey: 'PRIVATE KEY', passphrase: 'phrase' })
+    expect(upsert.mock.calls[0]?.[0].secrets).toEqual({ kind: 'key', privateKey: 'PRIVATE KEY' })
+  })
+
+  it('records a valid reverse mapping and removes it again', async () => {
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('mapping.example.test')
+    fireEvent.change(screen.getByLabelText(zh.localHost), { target: { value: '127.0.0.2' } })
+    fireEvent.change(screen.getByLabelText(zh.localPort), { target: { value: '7000' } })
+    fireEvent.change(screen.getByLabelText(zh.remoteOrigin), { target: { value: 'http://model.example.test:9000' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
+    expect(screen.getByText(/model\.example\.test:9000/)).toBeTruthy()
+    expect(screen.getByText(/127\.0\.0\.2:7000/)).toBeTruthy()
+    // A successful add clears the origin field for the next mapping.
+    expect(screen.getByLabelText(zh.remoteOrigin)).toHaveProperty('value', '')
+
+    fireEvent.click(screen.getByRole('button', { name: zh.removeMapping }))
+    expect(screen.queryByText(/model\.example\.test/)).toBeNull()
+  })
+
+  it('keeps an architecture override through a later connectivity test', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
+    const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host(input) }))
+    mount({ verify, upsert })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('arm.example.test')
+    fireEvent.change(screen.getByLabelText(zh.architecture), { target: { value: 'arm64' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+    fireEvent.click(saveButton())
+    await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
+    // The operator's architecture choice survives the test's own detected values.
+    expect(upsert.mock.calls[0]?.[0].architecture).toBe('arm64')
+    expect(upsert.mock.calls[0]?.[0].platform).toBe('linux')
+  })
+
+  it('surfaces a non-Error save rejection', async () => {
+    const upsert = vi.fn(async () => { throw 'plain save failure' })
+    mount({ upsert })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+    fireEvent.click(saveButton())
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain save failure') })
+  })
+
+  it('submits the recorded reverse mappings with the tested host', async () => {
+    const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host({
+      name: input.name, host: input.host, username: input.username,
+    }) }))
+    mount({ upsert })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('mapping.example.test')
+    fireEvent.change(screen.getByLabelText(zh.remoteOrigin), { target: { value: 'http://model.example.test:9000' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
+    fireEvent.change(screen.getByLabelText(zh.platform), { target: { value: 'win32' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+    fireEvent.click(saveButton())
+    await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
+    // A platform override survives the test's detected-value prefill that follows it.
+    expect(upsert.mock.calls[0]?.[0].reverseMappings).toEqual([
+      { localHost: '127.0.0.1', localPort: 3000, remoteOriginalOrigin: 'http://model.example.test:9000' },
+    ])
+  })
+
+  it('surfaces a non-Error connectivity-test rejection', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => { throw 'plain verify failure' })
+    mount({ verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain verify failure') })
+  })
+
+  it('ignores a submit that arrives without recorded test evidence', async () => {
+    const upsert = vi.fn(async () => ({ ok: true as const, value: host() }))
+    const { view } = mount({ upsert })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    // The save control is disabled, but a form submit event can still reach the handler.
+    fireEvent.submit(view.container.querySelector('form')!)
+    await waitFor(() => { expect(upsert).not.toHaveBeenCalled() })
   })
 
   it('renders refresh failures and performs disconnect/remove actions', async () => {
@@ -132,34 +336,14 @@ describe('RemoteHostsView', () => {
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain failure') })
   })
 
-  it('surfaces probe and submit failures and rejects invalid mapping ports', async () => {
-    const probe = vi.fn(async () => ({ ok: false as const, error: { code: 'probe', message: 'probe rejected', details: {} } }))
-    const upsert = vi.fn(async () => { throw 'plain rejection' })
-    mount({ probe, upsert })
-    fireEvent.click(screen.getByRole('button', { name: zh.add }))
-    fireEvent.change(screen.getByLabelText(zh.remoteOrigin), { target: { value: 'http://model.example.test' } })
-    fireEvent.change(screen.getByLabelText(zh.localPort), { target: { value: '65536' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
-    expect(screen.getByRole('alert').textContent).toContain('valid origin and local port')
-    fireEvent.click(screen.getByRole('button', { name: zh.probe }))
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('probe rejected') })
-    fireEvent.change(screen.getByLabelText(zh.name), { target: { value: 'Bad host' } })
-    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'bad.example.test' } })
-    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
-    fireEvent.change(screen.getByLabelText(zh.password), { target: { value: 'secret' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.save }))
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain rejection') })
-  })
-
   it('surfaces remote submit failures from both save and initial ephemeral connect', async () => {
     const upsert = vi.fn(async () => ({ ok: false as const, error: { code: 'denied', message: 'save denied', details: {} } }))
     mount({ upsert })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
-    fireEvent.change(screen.getByLabelText(zh.name), { target: { value: 'Denied host' } })
-    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'host.example.test' } })
-    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
-    fireEvent.change(screen.getByLabelText(zh.password), { target: { value: 'secret' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.save }))
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+    fireEvent.click(saveButton())
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('save denied') })
   })
 
@@ -168,28 +352,13 @@ describe('RemoteHostsView', () => {
     const connect = vi.fn(async () => ({ ok: false as const, error: { code: 'offline', message: 'connect denied', details: {} } }))
     mount({ upsert, connect })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
-    fireEvent.change(screen.getByLabelText(zh.name), { target: { value: 'Ephemeral' } })
-    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'host.example.test' } })
-    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
-    fireEvent.change(screen.getByLabelText(zh.password), { target: { value: 'one-time' } })
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
     fireEvent.click(screen.getByLabelText(zh.saveCredentials))
-    fireEvent.click(screen.getByRole('button', { name: zh.save }))
+    fireEvent.click(saveButton())
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('connect denied') })
     expect(screen.getByLabelText(zh.name)).toBeTruthy()
-  })
-
-  it('submits a private key without a passphrase', async () => {
-    const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host(input) }))
-    mount({ upsert })
-    fireEvent.click(screen.getByRole('button', { name: zh.add }))
-    fireEvent.change(screen.getByLabelText(zh.name), { target: { value: 'Key host' } })
-    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
-    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
-    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-    fireEvent.change(screen.getByLabelText(zh.privateKey), { target: { value: 'PRIVATE KEY' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.save }))
-    await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
-    expect(upsert.mock.calls[0]?.[0].secrets).toEqual({ kind: 'key', privateKey: 'PRIVATE KEY' })
   })
 
   it('cancels a new host draft without persisting it', () => {
@@ -253,17 +422,15 @@ describe('RemoteHostsView', () => {
     mount({ upsert, connect })
 
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
-    fireEvent.change(screen.getByLabelText(zh.name), { target: { value: 'Ephemeral host' } })
-    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'host.example.test' } })
-    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
-    fireEvent.change(screen.getByLabelText(zh.fingerprint), { target: { value: host().fingerprint } })
-    fireEvent.change(screen.getByLabelText(zh.password), { target: { value: 'one-time-password' } })
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
     fireEvent.click(screen.getByLabelText(zh.saveCredentials))
-    fireEvent.click(screen.getByRole('button', { name: zh.save }))
+    fireEvent.click(saveButton())
 
     await waitFor(() => { expect(connect).toHaveBeenCalledTimes(1) })
     const savedInput = upsert.mock.calls[0]?.[0]
     expect(savedInput?.secrets).toBeUndefined()
-    expect(connect).toHaveBeenCalledWith(hostId, { kind: 'password', password: 'one-time-password' })
+    expect(connect).toHaveBeenCalledWith(hostId, { kind: 'password', password: 'secret' })
   })
 })

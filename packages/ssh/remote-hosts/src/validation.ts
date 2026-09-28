@@ -55,8 +55,8 @@ export const upsertSchema = hostSchema.safeExtend({
 export const connectSchema = z.strictObject({
   id: idSchema, secrets: secretsSchema.optional(), storeCredentials: z.boolean().default(false),
 })
-/** Schema for unauthenticated host-key probe input. */
-export const probeSchema = z.strictObject({ host: text, port: port.optional(), username: text })
+/** Schema for connectivity-test input against an unconfigured target. */
+export const verifySchema = z.strictObject({ host: text, port: port.optional(), username: text, secrets: secretsSchema })
 
 /** Parse an untrusted UUID into the local branded identity.
  * @param value - untrusted UUID.

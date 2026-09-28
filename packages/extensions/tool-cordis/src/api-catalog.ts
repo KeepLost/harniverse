@@ -1685,10 +1685,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'id', description: 'local registry identity of the host to remove.' }],
       },
       {
-        signature: 'probe(input: ProbeHostInput): Promise<{ fingerprint: string }>',
-        description: 'Inspect a host key without persisting the host or authenticating.',
-        parameters: [{ name: 'input', description: 'SSH target to probe.' }],
-        returns: 'the observed OpenSSH SHA256 fingerprint.',
+        signature: 'verify(input: VerifyHostInput): Promise<ConnectivityResult>',
+        description: 'Test one SSH target end to end and report what the tested connection proved.',
+        parameters: [{ name: 'input', description: 'target and explicit credentials for the test.' }],
+        returns: 'the observed fingerprint and detected platform when authentication succeeds.',
       },
       {
         signature: 'connect(input: ConnectHostInput): Promise<RemoteHostView>',
@@ -1739,10 +1739,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'an owned SSH connection.',
       },
       {
-        signature: 'probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string>',
-        description: 'Observe an untrusted fingerprint, reject its key, and close before authentication.',
-        parameters: [{ name: 'config', description: 'SSH target whose host key should be observed.' }, { name: 'signal', description: 'optional cancellation for the probe.' }],
-        returns: 'the observed OpenSSH SHA256 fingerprint.',
+        signature: 'verify(config: RemoteHostSshTarget, authentication: RemoteHostSshAuthentication, command: string, signal?: AbortSignal): Promise<RemoteHostSshVerification>',
+        description: 'Authenticate against an unpinned target and run one probe under the key it accepted.',
+        parameters: [{ name: 'config', description: 'SSH target to test; its key is observed rather than compared.' }, { name: 'authentication', description: 'explicit credentials for this attempt.' }, { name: 'command', description: 'probe command run once after authentication.' }, { name: 'signal', description: 'optional cancellation for the attempt.' }],
+        returns: 'the accepted fingerprint and the probe\'s stdout.',
       },
     ],
   },
@@ -4568,6 +4568,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ConnectHostInput {\n    id: RemoteHostId;\n    secrets?: AuthSecrets;\n    storeCredentials?: boolean;\n}',
   },
   {
+    name: 'ConnectivityResult',
+    declaration: 'export interface ConnectivityResult {\n    fingerprint: string;\n    platform: RemotePlatform;\n    architecture: RemoteArchitecture;\n}',
+  },
+  {
     name: 'ContentBlockMap',
     declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
@@ -5464,10 +5468,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n} | {\n    kind: \'ask\';\n    reason?: string;\n};',
   },
   {
-    name: 'ProbeHostInput',
-    declaration: 'export interface ProbeHostInput {\n    host: string;\n    port?: number;\n    username: string;\n}',
-  },
-  {
     name: 'ProjectionChangeListener',
     declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: number) => void;',
   },
@@ -5598,6 +5598,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RemoteHostSshTarget',
     declaration: 'export interface RemoteHostSshTarget {\n    host: string;\n    port?: number;\n    username: string;\n}',
+  },
+  {
+    name: 'RemoteHostSshVerification',
+    declaration: 'export interface RemoteHostSshVerification {\n    fingerprint: string;\n    output: string;\n}',
   },
   {
     name: 'RemoteHostState',
@@ -6846,6 +6850,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UserQuestionProvider',
     declaration: 'export interface UserQuestionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
+  },
+  {
+    name: 'VerifyHostInput',
+    declaration: 'export interface VerifyHostInput {\n    host: string;\n    port?: number;\n    username: string;\n    secrets: AuthSecrets;\n}',
   },
   {
     name: 'WebBootEntry',

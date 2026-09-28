@@ -5,7 +5,7 @@ import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
-import { fixture, hostInput } from './fixture.ts'
+import { fixture, fixtureArchitecture, fixturePlatform, hostInput } from './fixture.ts'
 import type { RemoteHostView } from '../src/types.ts'
 import { remoteHostId } from '../src/validation.ts'
 
@@ -46,8 +46,9 @@ it('Loader local-owner API persists secret refs, deploys, authenticates real HTT
     expect(f.observations.uploads).toBe(2)
     expect(f.observations.opens[0]?.auth).toEqual({ kind: 'password', password: 'ssh-secret' })
     await expect(f.ctx.remoteHosts.upsert({ ...hostInput, id: host.id })).rejects.toThrow('DISCONNECT_BEFORE_EDIT')
-    await expect(f.ctx.remoteHosts.probe({ host: hostInput.host, port: hostInput.port, username: hostInput.username }))
-      .resolves.toEqual({ fingerprint: hostInput.fingerprint })
+    await expect(f.ctx.remoteHosts.verify({ host: hostInput.host, port: hostInput.port, username: hostInput.username,
+      secrets: { kind: 'password', password: 'one-use' } }))
+      .resolves.toEqual({ fingerprint: hostInput.fingerprint, platform: fixturePlatform, architecture: fixtureArchitecture })
     await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'ssh-secret' }, storeCredentials: true })
     expect(f.remoteCtx.settings.describe().find(row => row.ns === 'llm-deepseek')?.value).toEqual({
       apiKeyEnv: 'MODEL_ONLY', baseURL: 'http://127.0.0.1:30001/v1',
@@ -142,12 +143,18 @@ it('plugin disposal drains local connections while the authenticated remote runt
   } finally { await f.cleanup() }
 })
 
-it('contains probe and connect transport failures and retries after a lost local SSH connection', async () => {
+it('contains verify and connect transport failures and retries after a lost local SSH connection', async () => {
   const f = await fixture()
   try {
-    f.observations.probeFail = true
-    await expect(f.ctx.remoteHosts.probe({ host: 'fixture.invalid', username: 'runner' })).rejects.toThrow('PROBE_FAILED')
-    f.observations.probeFail = false
+    f.observations.verifyFail = true
+    await expect(f.ctx.remoteHosts.verify({ host: 'fixture.invalid', username: 'runner',
+      secrets: { kind: 'password', password: 'one-use' } })).rejects.toThrow('VERIFY_FAILED')
+    f.observations.verifyFail = false
+    // A reachable target answering with an undeployable platform keeps its own diagnosis.
+    f.observations.verifyOutput = 'SunOS\nsparc\n'
+    await expect(f.ctx.remoteHosts.verify({ host: 'fixture.invalid', username: 'runner',
+      secrets: { kind: 'password', password: 'one-use' } })).rejects.toThrow('UNSUPPORTED_REMOTE_PLATFORM')
+    f.observations.verifyOutput = undefined
     const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote,
       reverseMappings: [{ localHost: '127.0.0.1', localPort: 9000, remoteOriginalOrigin: 'http://127.0.0.1:9000' }] })
     f.observations.forwardFail = true
@@ -199,7 +206,7 @@ it('starts a missing remote runtime and rejects an untrusted TLS endpoint', asyn
 it('validates public management inputs and stored credential mode mismatches', async () => {
   const f = await fixture()
   try {
-    await expect(f.ctx.remoteHosts.probe({ host: '', username: 'runner' })).rejects.toThrow('INVALID_INPUT')
+    await expect(f.ctx.remoteHosts.verify({ host: '', username: 'runner', secrets: { kind: 'password', password: 'x' } })).rejects.toThrow('INVALID_INPUT')
     await expect(f.ctx.remoteHosts.upsert({ ...hostInput, secrets: { kind: 'password', password: 'ephemeral' } }))
       .rejects.toThrow('EPHEMERAL_SECRETS_REQUIRE_CONNECT')
     const host = await f.ctx.remoteHosts.upsert(hostInput)

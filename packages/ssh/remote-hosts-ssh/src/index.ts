@@ -4,7 +4,7 @@ import schema from '@deepseek-ai/schemastery'
 import type { ConnectConfig } from 'ssh2'
 import { SshTransport } from './connection.ts'
 import { RemoteHostSshError, isRecord, validPort, validText } from './errors.ts'
-import type { Config, RemoteHostSshAuthentication, RemoteHostSshConfig, RemoteHostSshConnection, RemoteHostSshProvider, RemoteHostSshTarget } from './types.ts'
+import type { Config, RemoteHostSshAuthentication, RemoteHostSshConfig, RemoteHostSshConnection, RemoteHostSshProvider, RemoteHostSshTarget, RemoteHostSshVerification } from './types.ts'
 
 export type * from './types.ts'
 export { RemoteHostSshError } from './errors.ts'
@@ -96,15 +96,24 @@ export class RemoteHostSsh extends Service implements RemoteHostSshProvider {
   }
 
   /**
-   * @param config - Endpoint to observe, without credentials or an approved pin.
-   * @param signal - Cancels the observation.
-   * @returns an untrusted SHA256 fingerprint after rejecting its key and closing.
+   * @param config - Endpoint to test, without a pre-approved pin.
+   * @param authentication - Explicit credentials; the attempt authenticates.
+   * @param command - Probe command run once under the accepted key.
+   * @param signal - Cancels the attempt.
+   * @returns the fingerprint successful authentication confirmed, and the probe's stdout.
    */
-  async probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string> {
+  async verify(config: RemoteHostSshTarget, authentication: RemoteHostSshAuthentication, command: string,
+    signal?: AbortSignal): Promise<RemoteHostSshVerification> {
     validateTarget(config)
+    if (!validText(command)) throw new RemoteHostSshError('INVALID_CONFIG')
+    const auth = authenticationOptions(authentication)
     const connection = this.create(signal)
-    try { return await connection.connect(config, { authHandler: [] }, undefined, signal) }
-    finally { await connection.dispose() }
+    try {
+      const fingerprint = await connection.connect(config, auth, undefined, signal)
+      const result = await connection.exec(command, undefined, signal)
+      if (result.exitCode !== 0 || result.signal !== null) throw new RemoteHostSshError('OPERATION_FAILED')
+      return { fingerprint, output: result.stdout.toString('utf8') }
+    } finally { await connection.dispose() }
   }
 
   /** Dispose the provider and wait for every owned transport to close.

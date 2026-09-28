@@ -62,13 +62,19 @@ export async function fixture() {
           const input: Buffer[] = []
           stream.on('data', (chunk: Buffer) => input.push(chunk))
           stream.on('end', () => {
+            if (info.command.includes('uname -s')) {
+              // The connectivity probe expects a zero exit and one platform answer.
+              stream.write('Linux\nx86_64\n')
+              stream.exit(0)
+              stream.end()
+              return
+            }
             stream.write(Buffer.concat(input))
             stream.stderr.write('fixture-stderr')
             if (info.command === 'signal') stream.exit('TERM', false, 'fixture signal')
             else if (info.command !== 'no-exit') stream.exit(7)
             stream.end()
-          })
-        })
+          })        })
       })
     })
   })

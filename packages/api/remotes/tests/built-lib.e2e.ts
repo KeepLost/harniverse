@@ -319,7 +319,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       // name is precisely what a Remote method called remove collides with. So
       // assert on the generated endpoints, and separately pin where remove
       // actually comes from: the base class, not the Host descriptor.
-      const endpoints = ['list', 'upsert', 'probe', 'connect', 'disconnect', 'removeHost']
+      const endpoints = ['list', 'upsert', 'verify', 'connect', 'disconnect', 'removeHost']
       const proxy = client.remote.remoteHosts
       const result = {
         mounted,
@@ -354,7 +354,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     ])
     // `remove` is the namespace Service's own unload path, so the Remote must
     // expose `removeHost` instead; a collision here would have thrown above.
-    expect(output.callable).toEqual(['list', 'upsert', 'probe', 'connect', 'disconnect', 'removeHost'])
+    expect(output.callable).toEqual(['list', 'upsert', 'verify', 'connect', 'disconnect', 'removeHost'])
     expect(output.removeIsEndpoint).toBe(false)
     expect(output.metadata).toEqual(['ctx', 'name', 'namespace', 'methods'])
   }, 60_000)

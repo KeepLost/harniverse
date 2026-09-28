@@ -10,9 +10,11 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { HostRegistry } from './registry.ts'
 import { authentication, storeAuthentication } from './secrets.ts'
+import { detect } from './detect.ts'
+import { detectCommand } from './platform.ts'
 import { establish, HostSession, synchronize } from './session.ts'
-import { authSecrets, connectSchema, parseHostInput, probeSchema, remoteHostId, RemoteHostsError, upsertSchema } from './validation.ts'
-import type { ActiveReverseMapping, Config, ConnectHostInput, HostRecord, ProbeHostInput, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput } from './types.ts'
+import { authSecrets, connectSchema, parseHostInput, remoteHostId, RemoteHostsError, upsertSchema, verifySchema } from './validation.ts'
+import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput } from './types.ts'
 
 export type * from './types.ts'
 export { remoteHostId, RemoteHostsError } from './validation.ts'
@@ -32,7 +34,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
   private readonly queues = new Map<RemoteHostId, Promise<unknown>>()
   private readonly connects = new Map<RemoteHostId, Promise<RemoteHostView>>()
   private readonly lifetime = new AbortController()
-  private readonly probes = new Set<Promise<string>>()
+  private readonly verifications = new Set<Promise<unknown>>()
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'remoteHosts')
@@ -49,7 +51,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
       this.lifetime.abort()
       for (const attempt of this.attempts.values()) attempt.abort()
       for (const session of this.sessions.values()) session.controller.abort()
-      await Promise.allSettled([...this.queues.values(), ...this.probes])
+      await Promise.allSettled([...this.queues.values(), ...this.verifications])
       await Promise.all([...this.sessions.values()].map(session => session.dispose()))
       this.sessions.clear()
     }
@@ -97,16 +99,24 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
     })
   }
 
-  /** @param input - unauthenticated SSH target. @returns untrusted observation requiring explicit independent approval. */
+  /** @param input - SSH target and explicit credentials. @returns what a successful authenticated test proved about the target. */
   @Remote({ requiredCapability: 'harniverse.administer' })
-  async probe(input: ProbeHostInput): Promise<{ fingerprint: string }> {
-    const target = this.validate(() => probeSchema.parse(input))
+  async verify(input: VerifyHostInput): Promise<ConnectivityResult> {
+    const target = this.validate(() => verifySchema.parse(input))
     this.lifetime.signal.throwIfAborted()
-    const operation = this.ctx.remoteHostSsh.probe({ host: target.host, username: target.username,
-      ...(target.port === undefined ? {} : { port: target.port }) }, this.lifetime.signal)
-    this.probes.add(operation)
-    try { return { fingerprint: await operation } } catch { throw new RemoteHostsError('PROBE_FAILED') }
-    finally { this.probes.delete(operation) }
+    const operation = this.ctx.remoteHostSsh.verify({ host: target.host, username: target.username,
+      ...(target.port === undefined ? {} : { port: target.port }) }, authSecrets(target.secrets),
+    detectCommand(), this.lifetime.signal)
+    this.verifications.add(operation)
+    try {
+      const { fingerprint, output } = await operation
+      return { fingerprint, ...detect(output) }
+    } catch (error) {
+      // A reachable target on an unsupported platform is actionable; every other
+      // failure stays the fixed connectivity-test diagnosis.
+      if (error instanceof RemoteHostsError) throw error
+      throw new RemoteHostsError('VERIFY_FAILED')
+    } finally { this.verifications.delete(operation) }
   }
 
   /** @param input - stable identity and optional ephemeral login. @returns connected only after authenticated complete synchronization. */

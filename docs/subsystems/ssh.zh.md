@@ -135,11 +135,11 @@ upsert(input: UpsertHostInput): Promise<RemoteHostView>
 remove(id: RemoteHostId): Promise<void>
 
 /**
- * Inspect a host key without persisting the host or authenticating.
- * @param input - SSH target to probe.
- * @returns the observed OpenSSH SHA256 fingerprint.
+ * Test one SSH target end to end and report what the tested connection proved.
+ * @param input - target and explicit credentials for the test.
+ * @returns the observed fingerprint and detected platform when authentication succeeds.
  */
-probe(input: ProbeHostInput): Promise<{ fingerprint: string }>
+verify(input: VerifyHostInput): Promise<ConnectivityResult>
 
 /**
  * Connect to a configured host and synchronize its remote runtime.
@@ -187,7 +187,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:82`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:91`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 
@@ -204,15 +204,17 @@ Consumer contract implemented by the Cordis service or a replacement provider.
  */
 open(config: RemoteHostSshConfig, authentication: RemoteHostSshAuthentication, signal?: AbortSignal): Promise<RemoteHostSshConnection>
 
-/** Observe an untrusted fingerprint, reject its key, and close before authentication.
- * @param config - SSH target whose host key should be observed.
- * @param signal - optional cancellation for the probe.
- * @returns the observed OpenSSH SHA256 fingerprint.
+/** Authenticate against an unpinned target and run one probe under the key it accepted.
+ * @param config - SSH target to test; its key is observed rather than compared.
+ * @param authentication - explicit credentials for this attempt.
+ * @param command - probe command run once after authentication.
+ * @param signal - optional cancellation for the attempt.
+ * @returns the accepted fingerprint and the probe's stdout.
  */
-probe(config: RemoteHostSshTarget, signal?: AbortSignal): Promise<string>
+verify(config: RemoteHostSshTarget, authentication: RemoteHostSshAuthentication, command: string, signal?: AbortSignal): Promise<RemoteHostSshVerification>
 ```
 
-Source: [`packages/ssh/remote-hosts-ssh/src/types.ts:80`](../../packages/ssh/remote-hosts-ssh/src/types.ts)
+Source: [`packages/ssh/remote-hosts-ssh/src/types.ts:88`](../../packages/ssh/remote-hosts-ssh/src/types.ts)
 
 <a id="ctxremoteruntime--remoteruntime"></a>
 

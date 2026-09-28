@@ -14,7 +14,7 @@ Authentication is one of:
 - `{ kind: 'key', privateKey, passphrase? }` for private-key contents, including encrypted keys. Paths are not substituted for key contents.
 - `{ kind: 'agent', socket }` for an explicitly selected OpenSSH agent Unix socket or Windows named pipe. Agent forwarding is disabled; the transport owns these local sockets, including during cancelled authentication.
 
-`probe({ host, port?, username }, signal?)` returns the observed SHA256 fingerprint. It rejects the key, closes the connection and sends no authentication request. Its result is untrusted observation: the UI must obtain independent verification and explicit per-host approval before supplying the fingerprint to `open`. The provider never stores approval or credentials.
+`verify(config, authentication, command, signal?)` runs one authenticated first-contact test. The provider accepts this attempt's host key rather than comparing it against a pin, authenticates with the supplied credentials, and only then runs `command`, returning `{ fingerprint, output }`. Because authentication completes under the accepted key, the returned fingerprint is the pin the caller records for that host: the caller's approved pin is the fingerprint of a connection whose login already succeeded, not a value typed from an unauthenticated observation. `command` is a caller-supplied string run with the same `exec` semantics; a nonzero exit status fails the test. The provider never stores approval or credentials.
 
 ## Connection API
 
@@ -41,14 +41,14 @@ Plugin `Config` accepts the following positive integer limits, each at most `214
 
 | Setting | Default | Applies to |
 |---|---|---|
-| `connectTimeoutMs` | `30000` | TCP/SSH establishment, authentication and fingerprint probes. |
+| `connectTimeoutMs` | `30000` | TCP/SSH establishment and authentication. |
 | `operationTimeoutMs` | `120000` | Each command, complete SFTP operation, forwarding setup, accepted-socket setup and forwarding-handle cleanup. |
 | `maxOutputBytes` | `8388608` | Combined retained stdout and stderr bytes per command. |
 | `maxReadBytes` | `4194304` | Complete returned file bytes per read. |
 
 SSH keepalives run every 10 seconds with three unanswered probes allowed. Established forwarding streams live until their handle or connection closes; the operation deadline is not an idle timeout.
 
-An already-aborted signal rejects before admission without closing an existing connection. Once admitted, cancellation, an operation deadline or a byte-limit failure closes the entire owning connection, including concurrent operations. Signals supplied to `open`, `probe`, `forward` or `reverse` cover establishment only. Use `dispose` or the returned forwarding handle to close resources after establishment. Failed remote requests can reject while leaving the connection usable; transport failures invalidate it.
+An already-aborted signal rejects before admission without closing an existing connection. Once admitted, cancellation, an operation deadline or a byte-limit failure closes the entire owning connection, including concurrent operations. Signals supplied to `open`, `verify`, `forward` or `reverse` cover establishment only. Use `dispose` or the returned forwarding handle to close resources after establishment. Failed remote requests can reject while leaving the connection usable; transport failures invalidate it.
 
 Failures use `RemoteHostSshError` with codes `INVALID_CONFIG`, `INVALID_ARGUMENT`, `HOST_KEY_MISMATCH`, `CONNECT_FAILED`, `OPERATION_FAILED`, `CLOSED`, `ABORTED`, `TIMED_OUT` or `LIMIT_EXCEEDED`. Messages and causes never copy upstream errors, credentials, commands, paths or caller abort reasons. Exec output is deliberately caller-visible data and can itself contain secrets; consumers own its storage and presentation.
 
@@ -58,7 +58,7 @@ Plugin unload stops new admission and awaits all connecting or established trans
 
 The new `ssh2` dependency provides SSH authentication, key parsing, SFTP and forwarding without a remote helper. Node's crypto/net modules provide pinning and owned sockets; `@types/ssh2` supplies development types. The existing helper-managed SSH execution world is not used because its disconnect lifecycle owns remote child cleanup.
 
-The [tests](tests/) use a real local ssh2 server and process-local RSA keys generated with Node crypto. They exercise password, plain/encrypted key and explicit-agent authentication, failed pinning, pre-authentication probes, SFTP privacy/bounds, forwarding authorization, cancellation, deadlines, plugin unload and a Loader-loaded `cordis.yml` composition. They use no configured host, real user keys or model credentials.
+The [tests](tests/) use a real local ssh2 server and process-local RSA keys generated with Node crypto. They exercise password, plain/encrypted key and explicit-agent authentication, failed pinning, authenticated first-contact tests, SFTP privacy/bounds, forwarding authorization, cancellation, deadlines, plugin unload and a Loader-loaded `cordis.yml` composition. They use no configured host, real user keys or model credentials.
 
 From the repository root, with declared dependencies available:
 

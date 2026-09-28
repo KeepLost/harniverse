@@ -23,6 +23,7 @@ import type { Endpoint } from '../src/transport.ts'
 
 const fixturePlatform: 'linux' | 'darwin' = process.platform === 'darwin' ? 'darwin' : 'linux'
 const fixtureArchitecture: 'x64' | 'arm64' = process.arch === 'arm64' ? 'arm64' : 'x64'
+export { fixtureArchitecture, fixturePlatform }
 export const hostInput = { name: 'Fixture', host: 'fixture.invalid', port: 22, username: 'runner',
   fingerprint: 'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', platform: fixturePlatform,
   architecture: fixtureArchitecture, authentication: { kind: 'password' as const } }
@@ -67,10 +68,13 @@ export async function fixture() {
   await mkdir(remote, { mode: 0o700 })
   const remoteCtx = new Context()
   const ctx = new Context()
-  const observations = { opens: [] as Array<{ config: RemoteHostSshConfig; auth: RemoteHostSshAuthentication }>,
+  type Verification = { config: { host: string; port?: number; username: string }; auth: RemoteHostSshAuthentication; command: string }
+  const observations = { verifications: [] as Verification[],
+    opens: [] as Array<{ config: RemoteHostSshConfig; auth: RemoteHostSshAuthentication }>,
     commands: [] as string[], stdin: [] as string[], uploads: 0, starts: 0, disposals: 0, forwards: 0,
     reverses: [] as Array<{ localHost: string; localPort: number }>, pinFail: false, holdOpen: false,
-    probeFail: false, forwardFail: false, reverseFail: false, discoveryFail: false, endpointMismatchOnStart: false,
+    verifyFail: false, verifyOutput: undefined as string | undefined,
+    forwardFail: false, reverseFail: false, discoveryFail: false, endpointMismatchOnStart: false,
     discoveryMissesAfterStart: 0, failedForwards: 0,
     deadProcessProbes: 0, restartOnStart: false }
   const controllers: AbortController[] = []
@@ -86,7 +90,13 @@ export async function fixture() {
     ])
     const endpoint = JSON.parse(await readFile(join(remote, 'server/endpoint.json'), 'utf8')) as Endpoint
     const provider: RemoteHostSshProvider = {
-      async probe() { if (observations.probeFail) throw new Error('secret probe failure'); return hostInput.fingerprint },
+      async verify(config, auth, command) {
+        observations.verifications.push({ config, auth, command })
+        if (observations.verifyFail) throw new Error('secret verification failure')
+        if (observations.verifyOutput !== undefined) return { fingerprint: hostInput.fingerprint, output: observations.verifyOutput }
+        return { fingerprint: hostInput.fingerprint,
+          output: `${fixturePlatform === 'darwin' ? 'Darwin' : 'Linux'}\n${fixtureArchitecture === 'arm64' ? 'aarch64' : 'x86_64'}\n` }
+      },
       async open(config, auth, signal) {
         observations.opens.push({ config, auth })
         if (observations.pinFail) throw new Error('secret upstream password rejection')
@@ -171,7 +181,7 @@ export async function fixture() {
     }
     class Ssh extends Service {
       open: RemoteHostSshProvider['open'] = (...args) => provider.open(...args)
-      probe: RemoteHostSshProvider['probe'] = (...args) => provider.probe(...args)
+      verify: RemoteHostSshProvider['verify'] = (...args) => provider.verify(...args)
       constructor(context: Context) { super(context, 'remoteHostSsh') }
     }
     await artifact(join(root, 'artifacts'))

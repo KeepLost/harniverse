@@ -64,8 +64,17 @@ export interface RemoteHostView extends HostRecord {
   /** Fixed diagnostic, never upstream stderr, command, token, or credential data. */
   error?: string
 }
-/** SSH target used for an unauthenticated host-key probe. */
-export interface ProbeHostInput { host: string; port?: number; username: string }
+/** SSH target plus explicit credentials used for a connectivity test. */
+export interface VerifyHostInput { host: string; port?: number; username: string; secrets: AuthSecrets }
+/** Evidence one successful connectivity test established about a reachable target. */
+export interface ConnectivityResult {
+  /** Host-key fingerprint the tested connection authenticated under. */
+  fingerprint: string
+  /** Remote operating system reported by that connection. */
+  platform: RemotePlatform
+  /** Remote CPU architecture reported by that connection. */
+  architecture: RemoteArchitecture
+}
 /** Runtime configuration for local remote-host coordination. */
 export interface Config {
   /** Local registry directory; defaults to standard DSH_HOME resolution. */
@@ -97,11 +106,11 @@ export interface RemoteHostsProvider {
    */
   remove(id: RemoteHostId): Promise<void>
   /**
-   * Inspect a host key without persisting the host or authenticating.
-   * @param input - SSH target to probe.
-   * @returns the observed OpenSSH SHA256 fingerprint.
+   * Test one SSH target end to end and report what the tested connection proved.
+   * @param input - target and explicit credentials for the test.
+   * @returns the observed fingerprint and detected platform when authentication succeeds.
    */
-  probe(input: ProbeHostInput): Promise<{ fingerprint: string }>
+  verify(input: VerifyHostInput): Promise<ConnectivityResult>
   /**
    * Connect to a configured host and synchronize its remote runtime.
    * @param input - host identity and optional one-shot credentials.

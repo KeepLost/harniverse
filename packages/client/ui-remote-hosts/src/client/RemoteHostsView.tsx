@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { AuthSecrets, RemoteHostId, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
+import type { AuthSecrets, ConnectivityResult, RemoteHostId, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
 import {
   IconCheckOutline16, IconCloseOutline16, IconGlobeOutline14,
   IconRefreshOutline16, IconTrashOutline16,
@@ -13,7 +13,7 @@ import css from './remote-hosts.module.css'
 interface RemoteHostsActions {
   list: () => Promise<RemoteResult<RemoteHostView[]>>
   upsert: (input: UpsertHostInput) => Promise<RemoteResult<RemoteHostView>>
-  probe: (input: { host: string; port?: number; username: string }) => Promise<RemoteResult<{ fingerprint: string }>>
+  verify: (input: { host: string; port?: number; username: string; secrets: AuthSecrets }) => Promise<RemoteResult<ConnectivityResult>>
   connect: (id: RemoteHostId, secrets?: AuthSecrets) => Promise<RemoteResult<RemoteHostView>>
   openRemote: (id: RemoteHostId) => void
   disconnect: (id: RemoteHostId) => Promise<RemoteResult<void>>
@@ -31,7 +31,6 @@ type Draft = {
   host: string
   port: string
   username: string
-  fingerprint: string
   platform: 'linux' | 'darwin' | 'win32'
   architecture: 'x64' | 'arm64'
   kind: 'password' | 'key'
@@ -44,11 +43,20 @@ type Draft = {
   mappingOrigin: string
 }
 
+/** Evidence from the last successful test, invalidated by any edit to what it tested. */
+type Tested = ConnectivityResult
+
 const initialDraft: Draft = {
-  name: '', host: '', port: '22', username: '', fingerprint: '', platform: 'linux',
+  name: '', host: '', port: '22', username: '', platform: 'linux',
   architecture: 'x64', kind: 'password', secret: '', passphrase: '', remember: true,
   mappings: [], mappingLocalHost: '127.0.0.1', mappingLocalPort: '3000', mappingOrigin: '',
 }
+
+/** Fields whose change invalidates a completed connectivity test. */
+const testedFields = ['host', 'port', 'username', 'kind', 'secret', 'passphrase'] as const
+
+/** Target fields a connectivity test prefills only until the operator overrides them. */
+const detectedFields = ['platform', 'architecture'] as const
 
 function resultError<T>(result: RemoteResult<T>): Error | undefined {
   return result.ok ? undefined : new Error(result.error.message)
@@ -66,10 +74,12 @@ function stateLabel(t: RemoteHostsViewProps['t'], state: RemoteHostView['state']
 }
 
 export function RemoteHostsView({
-  active, actions, list, upsert, probe, connect, openRemote, disconnect, remove, closeView, t,
+  active, actions, list, upsert, verify, connect, openRemote, disconnect, remove, closeView, t,
 }: RemoteHostsViewProps) {
   const [hosts, setHosts] = useState<RemoteHostView[]>([])
   const [draft, setDraft] = useState(initialDraft)
+  const [tested, setTested] = useState<Tested | undefined>()
+  const overrides = useRef(new Set<(typeof detectedFields)[number]>())
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
@@ -113,13 +123,38 @@ export function RemoteHostsView({
 
   const update = <K extends keyof Draft>(key: K, value: Draft[K]): void => {
     setDraft(previous => ({ ...previous, [key]: value }))
+    // A test only describes the exact target and credentials it ran with.
+    if ((testedFields as readonly string[]).includes(key)) setTested(undefined)
+    // A detected default never overrides an operator's explicit target choice.
+    if (key === 'platform' || key === 'architecture') overrides.current.add(key)
   }
 
-  const probeHost = async (): Promise<void> => {
+  const secrets = (): AuthSecrets => draft.kind === 'password'
+    ? { kind: 'password', password: draft.secret }
+    : { kind: 'key', privateKey: draft.secret, ...(draft.passphrase.length > 0 ? { passphrase: draft.passphrase } : {}) }
+
+  const testConnection = async (): Promise<void> => {
+    setBusy('test')
     setError(undefined)
-    const result = await probe({ host: draft.host, port: Number(draft.port), username: draft.username })
-    if (result.ok) update('fingerprint', result.value.fingerprint)
-    else setError(result.error.message)
+    try {
+      const result = await verify({ host: draft.host, port: Number(draft.port), username: draft.username, secrets: secrets() })
+      const issue = resultError(result)
+      if (issue) throw issue
+      /* v8 ignore next -- resultError rejects every non-ok result before this successful-test branch. */
+      if (result.ok) {
+        setTested(result.value)
+        setDraft(previous => ({
+          ...previous,
+          ...(overrides.current.has('platform') ? {} : { platform: result.value.platform }),
+          ...(overrides.current.has('architecture') ? {} : { architecture: result.value.architecture }),
+        }))
+      }
+    } catch (cause) {
+      setTested(undefined)
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(undefined)
+    }
   }
 
   const addMapping = (): void => {
@@ -140,17 +175,17 @@ export function RemoteHostsView({
   }
 
   const submit = async (): Promise<void> => {
+    // The form only offers save once a test passed, and every tested edit clears it.
+    if (tested === undefined) return
     setBusy('new')
     setError(undefined)
     const authentication = draft.kind === 'password' ? { kind: 'password' as const } : { kind: 'key' as const }
-    const secrets: AuthSecrets = draft.kind === 'password'
-      ? { kind: 'password', password: draft.secret }
-      : { kind: 'key', privateKey: draft.secret, ...(draft.passphrase.length > 0 ? { passphrase: draft.passphrase } : {}) }
+    const submitted = secrets()
     const input: UpsertHostInput = {
       name: draft.name, host: draft.host, port: Number(draft.port), username: draft.username,
-      fingerprint: draft.fingerprint, platform: draft.platform, architecture: draft.architecture,
+      fingerprint: tested.fingerprint, platform: draft.platform, architecture: draft.architecture,
       authentication, reverseMappings: draft.mappings,
-      ...(draft.remember ? { secrets, storeCredentials: true } : {}),
+      ...(draft.remember ? { secrets: submitted, storeCredentials: true } : {}),
     }
     try {
       const result = await upsert(input)
@@ -158,12 +193,14 @@ export function RemoteHostsView({
       if (issue) throw issue
       /* v8 ignore next -- resultError rejects every non-ok result before this successful-save branch. */
       if (!draft.remember && result.ok) {
-        const connected = await connect(result.value.id, secrets)
+        const connected = await connect(result.value.id, submitted)
         const connectionIssue = resultError(connected)
         if (connectionIssue) throw connectionIssue
       }
       setAdding(false)
       setDraft(initialDraft)
+      setTested(undefined)
+      overrides.current.clear()
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -183,17 +220,18 @@ export function RemoteHostsView({
         </div>
       </header>
       {error ? <p className={css.error} role="alert">{error}</p> : null}
-      <div className={css.toolbar}><button type="button" className={css.primary} onClick={() => { setAdding(true); setError(undefined) }}><IconGlobeOutline14 />{t('add')}</button></div>
+      <div className={css.toolbar}><button type="button" className={css.primary} onClick={() => { setAdding(true); setError(undefined); setTested(undefined) }}><IconGlobeOutline14 />{t('add')}</button></div>
       {adding ? (
         <form className={css.form} onSubmit={(event) => { event.preventDefault(); void submit() }}>
           <div className={css.formGrid}>
-            {([['name', t('name')], ['host', t('host')], ['port', t('port')], ['username', t('username')], ['fingerprint', t('fingerprint')]] as const).map(([key, label]) => (
-              <label key={key}>{label}<input required={key !== 'fingerprint'} value={draft[key]} onChange={(event) => { update(key, event.target.value) }} /></label>
+            {([['name', t('name')], ['host', t('host')], ['port', t('port')], ['username', t('username')]] as const).map(([key, label]) => (
+              <label key={key}>{label}<input required value={draft[key]} onChange={(event) => {
+                update(key, event.target.value)
+              }} /></label>
             ))}
             <label>{t('platform')}<select value={draft.platform} onChange={(event) => { update('platform', event.target.value as Draft['platform']) }}><option value="linux">Linux</option><option value="darwin">macOS</option><option value="win32">Windows</option></select></label>
             <label>{t('architecture')}<select value={draft.architecture} onChange={(event) => { update('architecture', event.target.value as Draft['architecture']) }}><option value="x64">x64</option><option value="arm64">arm64</option></select></label>
             <label>{t('auth')}<select value={draft.kind} onChange={(event) => { update('kind', event.target.value as Draft['kind']) }}><option value="password">{t('password')}</option><option value="key">{t('privateKey')}</option></select></label>
-            <button type="button" className={css.secondary} onClick={() => { void probeHost() }}>{t('probe')}</button>
             <label className={css.wideField}>{draft.kind === 'password' ? t('password') : t('privateKey')}<textarea required value={draft.secret} onChange={(event) => { update('secret', event.target.value) }} /></label>
             {draft.kind === 'key' ? <label>{t('passphrase')}<input type="password" value={draft.passphrase} onChange={(event) => { update('passphrase', event.target.value) }} /></label> : /* v8 ignore next -- the browser UI tests exercise both authentication forms. */ null}
             <label className={css.checkbox}><input type="checkbox" checked={draft.remember} onChange={(event) => { update('remember', event.target.checked) }} />{t('saveCredentials')}</label>
@@ -203,8 +241,13 @@ export function RemoteHostsView({
               <div className={css.mappingFields}><input aria-label={t('localHost')} value={draft.mappingLocalHost} onChange={(event) => { update('mappingLocalHost', event.target.value) }} /><input aria-label={t('localPort')} value={draft.mappingLocalPort} onChange={(event) => { update('mappingLocalPort', event.target.value) }} /><input aria-label={t('remoteOrigin')} placeholder="https://remote.example" value={draft.mappingOrigin} onChange={(event) => { update('mappingOrigin', event.target.value) }} /><button type="button" className={css.secondary} onClick={addMapping}>{t('addMapping')}</button></div>
             </div>
           </div>
-          <p className={css.hint}>{t('fingerprintHint')}</p>
-          <div className={css.formActions}><button type="button" className={css.secondary} onClick={() => { setAdding(false) }}>{t('cancel')}</button><button type="submit" className={css.primary} disabled={busy === 'new'}><IconCheckOutline16 />{t('save')}</button></div>
+          <p className={css.hint}>{t('testHint')}</p>
+          <div className={css.formActions}>
+            <button type="button" className={css.secondary} disabled={busy === 'test'} onClick={() => { void testConnection() }}>{t('test')}</button>
+            {tested ? <span className={css.tested} role="status">{t('testPassed')} · {tested.fingerprint}</span> : null}
+            <button type="button" className={css.secondary} onClick={() => { setAdding(false); setTested(undefined) }}>{t('cancel')}</button>
+            <button type="submit" className={css.primary} disabled={tested === undefined || busy === 'new'}><IconCheckOutline16 />{t('save')}</button>
+          </div>
         </form>
       ) : null}
       <div className={css.list}>

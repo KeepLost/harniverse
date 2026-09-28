@@ -2,6 +2,18 @@ import { posix, win32 } from 'node:path'
 import type { RemotePlatform } from './types.ts'
 import { RemoteHostsError } from './validation.ts'
 
+/** Detect the remote OS and CPU architecture before any platform-specific command runs.
+ * The target's shell is itself unknown, so the probe asks for a POSIX answer first
+ * and retries through PowerShell for a Windows default shell.
+ * @returns the probe command, whose stdout is `<platform> <architecture>`.
+ */
+export function detectCommand(): string {
+  const posix = 'uname -s && uname -m'
+  const windows = command('win32', '[Console]::Out.Write("$([Environment]::OSVersion.Platform) $env:PROCESSOR_ARCHITECTURE")')
+  // `2>/dev/null` keeps stdout clean when the POSIX form is unavailable to this shell.
+  return `${posix} 2>/dev/null || ${windows}`
+}
+
 /** Quote one remote path or argument for the target shell.
  * @param platform - target shell platform.
  * @param value - untrusted value to quote.

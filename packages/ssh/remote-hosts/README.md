@@ -14,7 +14,7 @@ The remote `dshHome` is independent of the local one. It must be absolute in the
 
 ## Management API
 
-The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `upsert(input)`, `removeHost(id)`, `probe(input)`, `connect(input)`, and `disconnect(id)` require `harniverse.administer`. Ordinary authorized local owners can manage hosts through these methods. Browser management must always target the original local host, even while viewing a remote workspace.
+The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `upsert(input)`, `removeHost(id)`, `verify(input)`, `connect(input)`, and `disconnect(id)` require `harniverse.administer`. Ordinary authorized local owners can manage hosts through these methods. Browser management must always target the original local host, even while viewing a remote workspace.
 
 `removeHost` is the exported Remote name of the local `ctx.remoteHosts.remove(id)` method. The Client Gateway's namespace Service owns `remove` for unmounting, so a Remote method with that name cannot be mounted.
 
@@ -22,11 +22,13 @@ The Remote namespace is `remoteHosts`. `list()` requires `harniverse.observe`; `
 
 The authentication forms are `{ kind: "password", passwordRef? }`, `{ kind: "key", privateKeyRef?, passphraseRef? }`, and `{ kind: "agent", socket }`. Agent sockets or Windows named pipes are explicit. Reference names follow the credentials service's POSIX identifier format. Private keys are contents, not local file paths.
 
-`probe({ host, port?, username })` returns `{ fingerprint }` without authenticating. This is an untrusted observation. The UI must ask for independent verification and explicit approval before submitting that fingerprint in `upsert`; there is no automatic acceptance or separate implicit trust store. Every connection requires the approved SHA256 pin.
+`verify({ host, port?, username, secrets })` runs the connectivity test that must pass before a host is saved. It authenticates with the submitted credentials, accepts this attempt's host key, and runs one fixed probe, returning `{ fingerprint, platform, architecture }`.
+
+The reported `fingerprint` is that connection's own observed host key, and the reported `platform` and `architecture` are what the target answered. They are the values `upsert` then stores: the recorded pin comes from a connection whose login already succeeded, and the detected target skips asking the operator to declare what the host already knows. Detection accepts POSIX `uname` answers first and retries through PowerShell for a Windows default shell; an answer naming no deployable platform or architecture fails the test. Preserved credentials are re-verified by a fresh test, so a pin change surfaces as a failed test with no stored acceptance to fall back on.
 
 ### Concrete UI submission
 
-After independently confirming the observed fingerprint, the UI submits this complete JSON argument. The example password is synthetic documentation data:
+After a successful connectivity test, the UI submits this complete JSON argument, using the fingerprint and detected target that test reported. The example password is synthetic documentation data:
 
 ```json
 {

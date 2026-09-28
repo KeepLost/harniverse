@@ -14,7 +14,7 @@
 
 ## 管理 API
 
-Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`upsert(input)`、`removeHost(id)`、`probe(input)`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
+Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`upsert(input)`、`removeHost(id)`、`verify(input)`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
 
 `removeHost` 是本地 `ctx.remoteHosts.remove(id)` 方法导出的 Remote 名称。Client Gateway 的命名空间 Service 自身用 `remove` 卸载方法，因此同名 Remote 方法无法挂载。
 
@@ -22,7 +22,9 @@ Remote 命名空间为 `remoteHosts`。`list()` 要求 `harniverse.observe`；`u
 
 认证形式为 `{ kind: "password", passwordRef? }`、`{ kind: "key", privateKeyRef?, passphraseRef? }` 或 `{ kind: "agent", socket }`。SSH agent 套接字或 Windows 命名管道必须显式指定。引用名遵守凭据服务的 POSIX 标识符格式。私钥传入内容，不传本地文件路径。
 
-`probe({ host, port?, username })` 不认证，只返回 `{ fingerprint }`。这是未经信任的观察值。UI 必须要求独立核验和明确批准，再通过 `upsert` 提交指纹；不存在自动信任或另一套隐式信任库。每次连接都要求已批准的 SHA256 指纹。
+`verify({ host, port?, username, secrets })` 执行保存主机前必须通过的连通性检测。它使用提交的凭据完成身份验证，接受本次尝试的主机密钥，并运行一条固定探测命令，返回 `{ fingerprint, platform, architecture }`。
+
+返回的 `fingerprint` 就是该连接自身观测到的主机密钥，`platform` 与 `architecture` 则是目标主机给出的回答。它们正是 `upsert` 随后保存的值：记录下来的固定指纹来自一次登录已成功的连接，而探测到的目标平台也免去了让操作者声明主机自身已知信息的多余步骤。检测优先接受 POSIX 的 `uname` 回答，若目标是 Windows 默认 shell，则改用 PowerShell 重试；若回答未给出可部署的平台或架构，则判定检测失败。已保存的凭据由后续全新检测重新验证，因此指纹变化会表现为检测失败，而不会退回某个已存的批准记录。
 
 ### 具体 UI 提交
 
