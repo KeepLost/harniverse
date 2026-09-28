@@ -26,11 +26,14 @@ const h=createHash('sha256');for await(const c of createReadStream(p))h.update(c
 if(h.digest('hex')!==f.sha256)throw Error('digest mismatch'); if(process.platform!=='win32')await chmod(p,f.mode);}
 process.stdout.write('verified');`
 
-function privateDirectories(host: HostRecord, paths: string[]): string {
+function privateDirectories(host: HostRecord, paths: string[], root: string): string {
   const q = (value: string) => quote(host.platform, value)
   const ancestors = new Set<string>()
   for (const path of paths) {
-    for (let current = path; current !== '/' && current !== '.' && !/^[A-Za-z]:$/.test(current); current = posix.dirname(current)) ancestors.add(current)
+    for (let current = path; current !== '/' && current !== '.' && !/^[A-Za-z]:$/.test(current); current = posix.dirname(current)) {
+      ancestors.add(current)
+      if (current === root) break
+    }
   }
   const ordered = [...ancestors].sort((a, b) => a.length - b.length)
   if (host.platform === 'win32') {
@@ -72,14 +75,14 @@ export async function deploy(
 ): Promise<string> {
   const releases = `${home}/server/releases`
   const release = `${releases}/${artifact.digest}`
-  await execute(connection, privateDirectories(host, [home, `${home}/server`, releases]), undefined, signal)
+  await execute(connection, privateDirectories(host, [home, `${home}/server`, releases], home), undefined, signal)
   const q = (value: string) => quote(host.platform, value)
   const exists = await execute(connection, command(host.platform, host.platform === 'win32'
     ? `if(Test-Path -LiteralPath ${q(release)}){Write-Output 'yes'}else{Write-Output 'no'}`
     : `if [ -d ${q(release)} ]; then printf yes; else printf no; fi`), undefined, signal)
   const fresh = exists.trim() === 'no'
   const target = fresh ? `${releases}/.upload-${randomUUID()}` : release
-  await execute(connection, privateDirectories(host, [target]), undefined, signal)
+  await execute(connection, privateDirectories(host, [target], home), undefined, signal)
   if (fresh) {
     const directories = new Set<string>()
     for (const file of artifact.files) for (let parent = posix.dirname(file.path); parent !== '.'; parent = posix.dirname(parent)) directories.add(parent)
