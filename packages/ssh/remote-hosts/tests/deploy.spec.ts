@@ -16,7 +16,7 @@ it('rejects native Node hash failure before any copied executable runs', async (
   const connection = { async exec(cmd: string) {
     commands.push(cmd)
     return { stdout: Buffer.from(cmd.includes('printf yes') ? 'no' : ''), stderr: Buffer.alloc(0),
-      exitCode: cmd.includes('sha256sum') ? 1 : 0, signal: null }
+      exitCode: cmd.includes(host.platform === 'darwin' ? 'shasum' : 'sha256sum') ? 1 : 0, signal: null }
   }, async upload() {}, async mkdir() {} } as unknown as RemoteHostSshConnection
   await expect(deploy(connection, host, '/remote/home', artifact, new AbortController().signal)).rejects.toThrow('REMOTE_COMMAND_FAILED')
   expect(commands.some(cmd => cmd.includes('--input-type=module'))).toBe(false)
