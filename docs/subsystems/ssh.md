@@ -143,9 +143,16 @@ verify(input: VerifyHostInput): Promise<ConnectivityResult>
 
 /**
  * Open the host's native key-file chooser, seeded at the operator's `~/.ssh`.
+ * Serves the `native` interaction only; clients route through `keyFilePicker` first.
  * @returns the picked file's path and content, or neither when cancelled.
  */
 pickKeyFile(): Promise<PickKeyFileResult>
+
+/**
+ * Report which key-file picking interaction this composition serves.
+ * @returns `native` when the host opens its OS chooser, `client` otherwise.
+ */
+keyFilePicker(): Promise<KeyFilePicker>
 
 /**
  * Connect to a configured host and synchronize its remote runtime.
@@ -193,7 +200,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:99`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:106`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 

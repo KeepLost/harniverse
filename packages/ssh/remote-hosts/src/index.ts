@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-remote-hosts-ssh'
 // Side-effect type import: resolves `ctx.get('directoryPicker')` for the optional native key-file chooser.
-import type {} from '@deepseek-ai/dsh-host-directory-picker'
+import type { DirectoryPickerNativeCapability } from '@deepseek-ai/dsh-host-directory-picker'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { HostRegistry } from './registry.ts'
@@ -18,7 +18,7 @@ import { detect } from './detect.ts'
 import { detectCommand } from './platform.ts'
 import { establish, HostSession, synchronize } from './session.ts'
 import { authSecrets, connectSchema, parseHostInput, remoteHostId, RemoteHostsError, upsertSchema, verifySchema } from './validation.ts'
-import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, PickKeyFileResult, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput } from './types.ts'
+import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, KeyFilePicker, PickKeyFileResult, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput } from './types.ts'
 
 export type * from './types.ts'
 export { remoteHostId, RemoteHostsError } from './validation.ts'
@@ -126,13 +126,27 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
     } finally { this.verifications.delete(operation) }
   }
 
+  /** The composed native file-chooser capability, when this composition serves one. */
+  private nativePicker(): DirectoryPickerNativeCapability | undefined {
+    const capability = this.ctx.get('directoryPicker')?.capability()
+    return capability?.kind === 'native' ? capability : undefined
+  }
+
+  /**
+   * Reports the served key-file interaction so clients render the matching
+   * affordance; anything but a native capability falls back to the client.
+   */
+  @Remote({ requiredCapability: 'harniverse.observe' })
+  keyFilePicker(): Promise<KeyFilePicker> {
+    return Promise.resolve(this.nativePicker() === undefined ? { kind: 'client' } : { kind: 'native' })
+  }
+
   /** Opens the host's native key-file chooser seeded at `~/.ssh`. @returns path and content, or neither when the operator cancels. */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async pickKeyFile(): Promise<PickKeyFileResult> {
     this.lifetime.signal.throwIfAborted()
-    const picker = this.ctx.get('directoryPicker')
-    const capability = picker?.capability()
-    if (capability === undefined || capability.kind !== 'native') throw new RemoteHostsError('KEY_PICKER_UNAVAILABLE')
+    const capability = this.nativePicker()
+    if (capability === undefined) throw new RemoteHostsError('KEY_PICKER_UNAVAILABLE')
     let path: string | null
     try {
       // The adapters drop a start directory the host cannot access.

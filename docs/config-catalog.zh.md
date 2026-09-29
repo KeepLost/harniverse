@@ -2185,7 +2185,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:87`](../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:94`](../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="deepseek-aidsh-remote-hosts-ssh"></a>
 

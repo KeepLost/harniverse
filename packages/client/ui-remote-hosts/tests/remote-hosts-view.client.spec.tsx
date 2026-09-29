@@ -34,6 +34,7 @@ type Face = {
   list: () => Promise<RemoteResult<RemoteHostView[]>>
   upsert: RemoteHostsViewProps['upsert']
   verify: RemoteHostsViewProps['verify']
+  keyFilePicker: RemoteHostsViewProps['keyFilePicker']
   pickKeyFile: RemoteHostsViewProps['pickKeyFile']
   connect: RemoteHostsViewProps['connect']
   openRemote: RemoteHostsViewProps['openRemote']
@@ -47,6 +48,7 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
     list: vi.fn(async () => ({ ok: true as const, value: initialHosts })),
     upsert: vi.fn(async () => ({ ok: true as const, value: host() })),
     verify: vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() })),
+    keyFilePicker: vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'native' as const } })),
     pickKeyFile: vi.fn<RemoteHostsViewProps['pickKeyFile']>(async () => ({ ok: true as const, value: {} })),
     connect: vi.fn(async () => ({ ok: true as const, value: host({ state: 'connected' }) })),
     openRemote: vi.fn(),
@@ -76,6 +78,15 @@ function completeDraft(target: string): void {
 
 function saveButton(): HTMLButtonElement {
   return screen.getByRole('button', { name: zh.save }) as HTMLButtonElement
+}
+
+/** The file button stays disabled until the interaction probe lands; wait for the enabled native default. */
+async function enabledKeyFileButton(): Promise<HTMLButtonElement> {
+  return waitFor(() => {
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile })
+    expect(button.disabled).toBe(false)
+    return button
+  })
 }
 
 describe('RemoteHostsView', () => {
@@ -214,7 +225,7 @@ describe('RemoteHostsView', () => {
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
     // Pasting is opt-in: until then the textarea stays disabled and the file chooser is the enabled path.
     expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('disabled', true)
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile }).disabled).toBe(false)
+    await enabledKeyFileButton()
     fireEvent.click(screen.getByLabelText(zh.manualPaste))
     expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('disabled', false)
     expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile }).disabled).toBe(true)
@@ -450,7 +461,7 @@ describe('RemoteHostsView', () => {
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
     await waitFor(() => { expect(saveButton().disabled).toBe(false) })
 
-    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    fireEvent.click(await enabledKeyFileButton())
     await waitFor(() => { expect(pickKeyFile).toHaveBeenCalledTimes(1) })
     // While the chooser is open every drawer action — including Escape — stays locked.
     expect(saveButton().disabled).toBe(true)
@@ -469,7 +480,7 @@ describe('RemoteHostsView', () => {
     mount({ pickKeyFile })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    fireEvent.click(await enabledKeyFileButton())
     await waitFor(() => { expect(pickKeyFile).toHaveBeenCalledTimes(1) })
     expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -481,14 +492,124 @@ describe('RemoteHostsView', () => {
     mount({ pickKeyFile })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    fireEvent.click(await enabledKeyFileButton())
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('picker unavailable') })
     expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
 
+    pickKeyFile.mockRejectedValueOnce(new Error('chooser transport died'))
+    fireEvent.click(await enabledKeyFileButton())
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('chooser transport died') })
     pickKeyFile.mockRejectedValueOnce('plain pick failure')
-    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    fireEvent.click(await enabledKeyFileButton())
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain pick failure') })
   })
+
+  it('reads the key through the browser when the composition serves the client interaction', async () => {
+    const pickKeyFile = vi.fn()
+    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'client' as const } }))
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
+    const { view } = mount({ keyFilePicker, pickKeyFile, verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    const button = await enabledKeyFileButton()
+    expect(screen.getByText(zh.keyFileHintClient)).toBeTruthy()
+    fireEvent.click(button)
+    // The host chooser RPC never runs: the browser's own file input carries the pick.
+    expect(pickKeyFile).not.toHaveBeenCalled()
+    const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
+    expect(input).toBeTruthy()
+    fireEvent.change(input, { target: { files: [new File(['CLIENT KEY MATERIAL'], 'id_ed25519', { type: 'text/plain' })] } })
+    await waitFor(() => { expect(screen.getByTitle('id_ed25519').textContent).toBe('id_ed25519') })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKey: 'CLIENT KEY MATERIAL' }) })
+    // Re-choosing the same file name still fires: the input resets its value after every pick.
+    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
+    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [new File(['SECOND MATERIAL'], 'id_ed25519', { type: 'text/plain' })] } })
+    await waitFor(() => { expect(screen.getByTitle('id_ed25519').textContent).toBe('id_ed25519') })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKey: 'SECOND MATERIAL' }) })
+  })
+
+  it('rejects an oversized client-side pick without touching the draft', async () => {
+    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'client' as const } }))
+    const { view } = mount({ keyFilePicker })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    await enabledKeyFileButton()
+    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [new File(['x'.repeat(65_537)], 'huge_key', { type: 'text/plain' })] } })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorKeyFileTooLarge) })
+    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+    expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('value', '')
+    // A change carrying no file is a cancel: the draft and alerts stay as they were.
+    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [] } })
+    expect(screen.getByRole('alert').textContent).toBe(zh.errorKeyFileTooLarge)
+    // A read that fails surfaces its reason without touching the draft.
+    const broken = new File(['x'], 'broken', { type: 'text/plain' })
+    broken.text = () => Promise.reject(new Error('read blew'))
+    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [broken] } })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('read blew') })
+    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+    const plain = new File(['x'], 'plain', { type: 'text/plain' })
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the non-Error arm is the subject
+    plain.text = () => Promise.reject('plain read failure')
+    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [plain] } })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('plain read failure') })
+  })
+
+  it('drops interaction-probe settlements that land after the view departs', async () => {
+    let releaseResolve!: (value: { ok: true; value: { kind: 'native' } }) => void
+    let releaseReject!: (reason: Error) => void
+    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>()
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseResolve = resolve }))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { releaseReject = reject }))
+    const first = mount({ keyFilePicker })
+    first.view.unmount()
+    releaseResolve({ ok: true as const, value: { kind: 'native' as const } })
+    await Promise.resolve()
+    cleanup()
+    const second = mount({ keyFilePicker })
+    second.view.unmount()
+    releaseReject(new Error('late probe failure'))
+    await Promise.resolve()
+  })
+
+  it('falls back to the client interaction when the probe fails or reports failure', async () => {
+    const pickKeyFile = vi.fn()
+    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>()
+      .mockRejectedValueOnce(new Error('probe crashed'))
+      .mockResolvedValueOnce({ ok: false as const, error: { code: 'internal', message: 'probe failed', details: {} } })
+    const { view } = mount({ keyFilePicker, pickKeyFile })
+    for (let round = 0; round < 2; round++) {
+      fireEvent.click(screen.getByRole('button', { name: zh.add }))
+      fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+      const button = await enabledKeyFileButton()
+      fireEvent.click(button)
+      expect(pickKeyFile).not.toHaveBeenCalled()
+      fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [new File([`MATERIAL ${round}`], 'id_rsa', { type: 'text/plain' })] } })
+      await waitFor(() => { expect(screen.getByTitle('id_rsa').textContent).toBe('id_rsa') })
+      fireEvent.click(screen.getByRole('button', { name: zh.cancel }))
+    }
+  })
+
+  it('maps closed KEY_* picker codes to operator copy instead of wire messages', async () => {
+    const failures = [
+      { code: 'KEY_PICKER_UNAVAILABLE', message: 'remote-hosts: KEY_PICKER_UNAVAILABLE' },
+      { code: 'KEY_PICKER_FAILED', message: 'remote-hosts: KEY_PICKER_FAILED' },
+      { code: 'KEY_FILE_TOO_LARGE', message: 'remote-hosts: KEY_FILE_TOO_LARGE' },
+      { code: 'KEY_FILE_READ_FAILED', message: 'remote-hosts: KEY_FILE_READ_FAILED' },
+    ] as const
+    const pickKeyFile = vi.fn<RemoteHostsViewProps['pickKeyFile']>()
+    for (const failure of failures) pickKeyFile.mockResolvedValueOnce({ ok: false as const, error: { ...failure, details: {} } })
+    mount({ pickKeyFile })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    for (const expected of [zh.errorKeyPickUnavailable, zh.errorKeyPickFailed, zh.errorKeyFileTooLarge, zh.errorKeyFileReadFailed]) {
+      fireEvent.click(await enabledKeyFileButton())
+      await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(expected) })
+    }
+    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+  })
+
   it('does not persist temporary login secrets and uses them for the initial connection', async () => {
     const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host({
       name: input.name, host: input.host, username: input.username,

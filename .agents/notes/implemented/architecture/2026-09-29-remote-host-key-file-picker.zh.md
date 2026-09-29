@@ -26,9 +26,16 @@ Status: implemented
 - 连接时按路径读取密钥文件（持久化路径）：被否决，持久化的主机配置只保存凭据引用，而路径会在文件移动后静默失效；拾取的内容走既有的一次性 `AuthSecrets` 与凭据存储规则。
 - 由客户端播种对话框（浏览器传 `~/.ssh`）：被否决，对话框属于 Host，相关的家目录是 Host 账号的；种子在宿主侧计算。
 
+## 修订：交互探针与客户端回退
+
+第一版强制要求 `native` 能力、否则抛出 `KEY_PICKER_UNAVAILABLE`，这恰恰破坏了最常见的真实部署：`directory-picker-auto` 对绑定非回环、经 SSH 启动或缺少 Linux 选择器二进制的 Host 一律解析为 `browse`，此类 Host 上呈现的是一个死按钮加一句含义不明的 `Remote invocation failed`（普通 `Error` 的 `RemoteHostsError` 不会把错误码带上线路）。两项修正均为插件原生：
+
+- `remoteHosts.keyFilePicker()`（`harniverse.observe`）报告当前组合提供的交互——`native` 或 `client`——登录表单据此渲染对应的入口。`client` 交互即浏览器自身的文件输入：客户端在同样的 64 KiB 上限下读取文件，文件名标注在行内，内容与粘贴文本完全同路地作为一次性凭据。这呼应了缝契约（消费方按 `capability().kind` 分支；不可拾取时降级而不是失败），同时不把 `browse` 能力扩到目录之外。
+- `RemoteHostsError` 改为继承 typert `RemoteError`，网关因此把封闭错误码原样保留上线；表单把 `KEY_*` 错误码映射为本地化文案，而不是透出网关泛化文本。
+
 ## 后果
 
-密钥文件选择在操作者位于 Host 屏幕前时可用——与工作区选择器相同的既有限制。远程/browse 组合会在表单中显示 `KEY_PICKER_UNAVAILABLE` 并退回粘贴密钥文本；该限制记录在 ui-remote-hosts README。Win32 COM 新增（槽位 11 `SetDefaultFolder`、shell32 解析）通过既有 bindings/worker 假件测试覆盖；真实 COM 路径只在真实 Windows 主机上运行，与既有选择器的测试姿态一致。
+密钥文件选择在任何组合下都可用：`native` 时使用 Host 显示器上的原生选择器，其余走客户端文件输入，手动粘贴始终保留。Win32 COM 新增（槽位 11 `SetDefaultFolder`、shell32 解析）通过既有 bindings/worker 假件测试覆盖；真实 COM 路径只在真实 Windows 主机上运行，与既有选择器的测试姿态一致。
 
 文本密钥流程除人机工程外不变：粘贴或拾取的材料都是一次性机密，仅在 `storeCredentials` 下经凭据提供方保存，提交后不再渲染。Electron 外壳与自有 Host 子进程之间的 IPC 协议新增 `file-pick`/`file-result`/`file-cancel`，其精确键校验与目录消息一致。
 

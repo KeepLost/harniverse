@@ -1692,9 +1692,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'pickKeyFile(): Promise<PickKeyFileResult>',
-        description: 'Open the host\'s native key-file chooser, seeded at the operator\'s `~/.ssh`.',
+        description: 'Open the host\'s native key-file chooser, seeded at the operator\'s `~/.ssh`. Serves the `native` interaction only; clients route through `keyFilePicker` first.',
         parameters: [],
         returns: 'the picked file\'s path and content, or neither when cancelled.',
+      },
+      {
+        signature: 'keyFilePicker(): Promise<KeyFilePicker>',
+        description: 'Report which key-file picking interaction this composition serves.',
+        parameters: [],
+        returns: '`native` when the host opens its OS chooser, `client` otherwise.',
       },
       {
         signature: 'connect(input: ConnectHostInput): Promise<RemoteHostView>',
@@ -5092,6 +5098,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'KeyFilePicker',
+    declaration: 'export type KeyFilePicker = {\n    kind: \'native\';\n} | {\n    kind: \'client\';\n};',
   },
   {
     name: 'KnobState',

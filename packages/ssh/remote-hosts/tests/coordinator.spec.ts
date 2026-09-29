@@ -1,12 +1,14 @@
-import { readFile, rm, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
 import { fixture, fixtureArchitecture, fixturePlatform, hostInput } from './fixture.ts'
+import { RemoteHosts } from '../src/index.ts'
 import type { RemoteHostView } from '../src/types.ts'
 import { remoteHostId } from '../src/validation.ts'
 
@@ -285,3 +287,25 @@ it('serves the native key-file picker with bounded reads and contained failures'
     await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_PICKER_UNAVAILABLE')
   } finally { await f.cleanup() }
 }, 30_000)
+
+it('reports the composed key-file interaction for affordance routing', async () => {
+  const f = await fixture()
+  try {
+    await expect(f.ctx.remoteHosts.keyFilePicker()).resolves.toEqual({ kind: 'native' })
+    // A browse composition has no host-side chooser: the client reads the file itself.
+    f.observations.pickerKind = 'browse'
+    await expect(f.ctx.remoteHosts.keyFilePicker()).resolves.toEqual({ kind: 'client' })
+  } finally { await f.cleanup() }
+}, 30_000)
+
+it('treats an absent picker as the client key-file interaction', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'remote-hosts-nopicker-'))
+  const ctx = new Context()
+  try {
+    const service = new RemoteHosts(ctx, { dshHome: home, artifactsRoot: home })
+    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'client' })
+  } finally {
+    await ctx.fiber.dispose()
+    await rm(home, { recursive: true, force: true })
+  }
+})

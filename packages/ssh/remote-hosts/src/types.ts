@@ -41,6 +41,13 @@ export type AuthSecrets =
   | { kind: 'password'; password: string }
   | { kind: 'key'; privateKey: string; passphrase?: string }
 
+/** The key-file picking interaction this composition serves to clients. */
+export type KeyFilePicker =
+  /** The host can open its OS chooser; clients drive `pickKeyFile`. */
+  | { kind: 'native' }
+  /** No host-side chooser exists (browse or absent); the client reads the file itself. */
+  | { kind: 'client' }
+
 /** An operator-picked local key file: content feeds the form, path only labels it. */
 export interface PickKeyFileResult {
   /** Absolute path of the picked file; absent when the operator cancelled. */
@@ -121,9 +128,15 @@ export interface RemoteHostsProvider {
   verify(input: VerifyHostInput): Promise<ConnectivityResult>
   /**
    * Open the host's native key-file chooser, seeded at the operator's `~/.ssh`.
+   * Serves the `native` interaction only; clients route through `keyFilePicker` first.
    * @returns the picked file's path and content, or neither when cancelled.
    */
   pickKeyFile(): Promise<PickKeyFileResult>
+  /**
+   * Report which key-file picking interaction this composition serves.
+   * @returns `native` when the host opens its OS chooser, `client` otherwise.
+   */
+  keyFilePicker(): Promise<KeyFilePicker>
   /**
    * Connect to a configured host and synchronize its remote runtime.
    * @param input - host identity and optional one-shot credentials.

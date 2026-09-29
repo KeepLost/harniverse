@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { AuthSecrets, ConnectivityResult, PickKeyFileResult, RemoteHostId, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { AuthSecrets, ConnectivityResult, KeyFilePicker, PickKeyFileResult, RemoteHostId, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
 import {
   IconCloseOutline16, IconFolderOpenOutline16, IconGlobeOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -13,6 +13,7 @@ interface RemoteHostsActions {
   list: () => Promise<RemoteResult<RemoteHostView[]>>
   upsert: (input: UpsertHostInput) => Promise<RemoteResult<RemoteHostView>>
   verify: (input: { host: string; port?: number; username: string; secrets: AuthSecrets }) => Promise<RemoteResult<ConnectivityResult>>
+  keyFilePicker: () => Promise<RemoteResult<KeyFilePicker>>
   pickKeyFile: () => Promise<RemoteResult<PickKeyFileResult>>
   connect: (id: RemoteHostId, secrets?: AuthSecrets) => Promise<RemoteResult<RemoteHostView>>
   openRemote: (id: RemoteHostId) => void
@@ -60,6 +61,20 @@ const testedFields = ['host', 'port', 'username', 'kind', 'secret', 'credential'
 /** Target fields a connectivity test prefills only until the operator overrides them. */
 const detectedFields = ['platform', 'architecture'] as const
 
+/** Client-side pick bound, mirroring the host's key-file read limit. */
+const KEY_FILE_MAX_BYTES = 65_536
+
+/** A key-picker failure as operator copy: closed KEY_* codes localize, foreign codes keep their wire message. */
+function keyPickIssue(t: RemoteHostsViewProps['t'], error: RemoteFailure): string {
+  switch (error.code) {
+    case 'KEY_PICKER_UNAVAILABLE': return t('errorKeyPickUnavailable')
+    case 'KEY_PICKER_FAILED': return t('errorKeyPickFailed')
+    case 'KEY_FILE_TOO_LARGE': return t('errorKeyFileTooLarge')
+    case 'KEY_FILE_READ_FAILED': return t('errorKeyFileReadFailed')
+    default: return error.message
+  }
+}
+
 function resultError<T>(result: RemoteResult<T>): Error | undefined {
   return result.ok ? undefined : new Error(result.error.message)
 }
@@ -76,7 +91,7 @@ function stateLabel(t: RemoteHostsViewProps['t'], state: RemoteHostView['state']
 }
 
 export function RemoteHostsView({
-  active, actions, list, upsert, verify, pickKeyFile, connect, openRemote, disconnect, remove, closeView, t,
+  active, actions, list, upsert, verify, keyFilePicker, pickKeyFile, connect, openRemote, disconnect, remove, closeView, t,
 }: RemoteHostsViewProps) {
   const [hosts, setHosts] = useState<RemoteHostView[]>([])
   const [draft, setDraft] = useState(initialDraft)
@@ -85,6 +100,8 @@ export function RemoteHostsView({
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
+  const [pickerKind, setPickerKind] = useState<KeyFilePicker['kind']>()
+  const fileInput = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
     const result = await list()
@@ -103,6 +120,17 @@ export function RemoteHostsView({
     actions.setOpen(true)
     return () => { actions.setOpen(false); setHosts([]) }
   }, [actions, active])
+  // The composed interaction decides the affordance; any probe failure falls back to the
+  // client input, which works everywhere.
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+    void keyFilePicker().then(
+      (result) => { if (!cancelled) setPickerKind(result.ok && result.value.kind === 'native' ? 'native' : 'client') },
+      () => { if (!cancelled) setPickerKind('client') },
+    )
+    return () => { cancelled = true }
+  }, [active, keyFilePicker])
 
   if (!active) return null
 
@@ -177,13 +205,40 @@ export function RemoteHostsView({
     setError(undefined)
     try {
       const result = await pickKeyFile()
-      const issue = resultError(result)
-      if (issue) throw issue
+      if (!result.ok) {
+        setError(keyPickIssue(t, result.error))
+        return
+      }
       // A cancelled chooser leaves the form untouched.
-      if (result.ok && result.value.path !== undefined && result.value.content !== undefined) {
-        setDraft(previous => ({ ...previous, secret: result.value.content as string, keyPath: result.value.path as string }))
+      if (result.value.path !== undefined && result.value.content !== undefined) {
+        const path = result.value.path
+        const content = result.value.content
+        setDraft(previous => ({ ...previous, secret: content, keyPath: path }))
         setTested(undefined)
       }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const pickClientFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = event.target.files?.[0]
+    // Reset before any await so re-choosing the same file still fires.
+    event.target.value = ''
+    if (file === undefined) return
+    if (file.size > KEY_FILE_MAX_BYTES) {
+      setError(t('errorKeyFileTooLarge'))
+      return
+    }
+    setBusy('pick')
+    setError(undefined)
+    try {
+      // Browsers expose no real path; the file name only labels the pick.
+      const content = await file.text()
+      setDraft(previous => ({ ...previous, secret: content, keyPath: file.name }))
+      setTested(undefined)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -306,10 +361,11 @@ export function RemoteHostsView({
                 ) : (
                   <div className={css.keySection}>
                     <div className={css.keyFileRow}>
-                      <button type="button" className={css.keyFileButton} disabled={draft.manualPaste || busy !== undefined} onClick={() => { void chooseKeyFile() }}><IconFolderOpenOutline16 />{t('chooseKeyFile')}</button>
+                      <button type="button" className={css.keyFileButton} disabled={draft.manualPaste || busy !== undefined || pickerKind === undefined} onClick={() => { if (pickerKind === 'native') void chooseKeyFile(); else fileInput.current?.click() }}><IconFolderOpenOutline16 />{t('chooseKeyFile')}</button>
+                      {pickerKind === 'client' ? <input ref={fileInput} type="file" hidden onChange={(event) => { void pickClientFile(event) }} /> : null}
                       <span className={css.keyFilePath} title={draft.keyPath}>{draft.keyPath === '' ? t('noKeyFile') : draft.keyPath}</span>
                     </div>
-                    <p className={css.keyFileHint}>{t('keyFileHint')}</p>
+                    <p className={css.keyFileHint}>{t(pickerKind === 'client' ? 'keyFileHintClient' : 'keyFileHint')}</p>
                     <label className={css.checkbox}><input type="checkbox" checked={draft.manualPaste} onChange={(event) => { update('manualPaste', event.target.checked) }} />{t('manualPaste')}</label>
                     <label htmlFor="remote-host-key" className={css.wideField}>{t('privateKey')}<textarea id="remote-host-key" required disabled={!draft.manualPaste} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" value={draft.secret} onChange={(event) => { update('secret', event.target.value) }} /></label>
                     <label htmlFor="remote-host-credential" className={css.wideField}>{t('passphrase')}<input id="remote-host-credential" type="password" autoComplete="new-password" value={draft.credential} onChange={(event) => { update('credential', event.target.value) }} /></label>

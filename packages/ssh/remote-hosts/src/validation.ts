@@ -1,5 +1,6 @@
 import { posix, win32 } from 'node:path'
 import { z } from 'zod'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { AuthSecrets, HostConfig, HostRecord, RemoteHostId } from './types.ts'
 
 const text = z.string().min(1).max(1024).refine(value => !/[\x00-\x1f\x7f]/.test(value))
@@ -87,7 +88,11 @@ export function authSecrets(value: unknown): AuthSecrets {
   return JSON.parse(JSON.stringify(secretsSchema.parse(value))) as AuthSecrets
 }
 
-/** Fixed public failure; upstream messages must not cross this boundary. */
-export class RemoteHostsError extends Error {
-  constructor(readonly code: string) { super(`remote-hosts: ${code}`); this.name = 'RemoteHostsError' }
+/**
+ * Fixed public failure; upstream messages must not cross this boundary. A
+ * {@link RemoteError} subclass so the gateway preserves the closed code onto
+ * the wire and clients localize instead of string-matching messages.
+ */
+export class RemoteHostsError extends RemoteError {
+  constructor(code: string) { super(code, `remote-hosts: ${code}`, {}); this.name = 'RemoteHostsError' }
 }

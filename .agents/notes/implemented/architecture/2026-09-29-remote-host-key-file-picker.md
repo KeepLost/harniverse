@@ -26,9 +26,16 @@ The browser surface is rebuilt to the schedules-view skeleton: fixed header with
 - Reading the key file by path at connect time (persisting the path): rejected because persisted host configuration holds credential references only, and a path would silently break when the file moves; the picked content flows through the existing one-shot `AuthSecrets` and credential-storage rules instead.
 - Seeding the dialog from the client (passing `~/.ssh` from the browser): rejected because the Host owns the dialog and the home directory that matters is the Host account's; the seed is computed host-side.
 
+## Revision: interaction probe and client-side fallback
+
+The first cut demanded the `native` capability and threw `KEY_PICKER_UNAVAILABLE` otherwise, which broke the most common real deployment: `directory-picker-auto` resolves `browse` for any Host that binds beyond loopback, was launched over SSH, or lacks a Linux chooser binary, and such Hosts served a dead button plus an opaque `Remote invocation failed` (the plain-`Error` `RemoteHostsError` carried no code onto the wire). Two corrections, both plugin-native:
+
+- `remoteHosts.keyFilePicker()` (`harniverse.observe`) reports the served interaction — `native` or `client` — and the login form renders the matching affordance. The `client` interaction is the browser's own file input: the file is read client-side under the same 64 KiB bound, its name labels the row, and its content feeds the one-shot credential exactly like pasted text. This mirrors the seam contract (consumers switch on `capability().kind`; anything unpickable degrades rather than fails) without widening the `browse` capability beyond directories.
+- `RemoteHostsError` now subclasses the typert `RemoteError`, so the gateway preserves its closed code onto the wire; the form maps the `KEY_*` codes to localized copy instead of surfacing generic gateway text.
+
 ## Consequences
 
-Key-file picking works where the operator sits at the Host's display — the same accepted limitation as the workspace picker. Remote/browse compositions surface `KEY_PICKER_UNAVAILABLE` in the form and fall back to pasted key text; the limitation is documented in the ui-remote-hosts README. The win32 COM additions (slot-11 `SetDefaultFolder`, shell32 parsing) are fake-tested through the existing bindings/worker harness; the real-COM path is exercised only on actual Windows hosts, matching the pre-existing picker's test posture.
+Key-file picking follows the composed interaction everywhere: `native` where the operator sits at the Host's display, the client-side file input otherwise, and manual paste always available. The win32 COM additions (slot-11 `SetDefaultFolder`, shell32 parsing) are fake-tested through the existing bindings/worker harness; the real-COM path is exercised only on actual Windows hosts, matching the pre-existing picker's test posture.
 
 The typed-key flow is unchanged apart from ergonomics: pasted or picked material is a one-shot secret, saved only through the credential provider under `storeCredentials`, and never rendered after submission. The IPC protocol between the Electron shell and the owned Host child grows `file-pick`/`file-result`/`file-cancel` with exact-key validation mirroring the directory messages.
 

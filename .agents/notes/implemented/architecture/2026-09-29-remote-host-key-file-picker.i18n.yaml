@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-29-remote-host-key-file-picker.md
-2026-09-29-remote-host-key-file-picker.md: 48326f07e9f1e0cfed6bd87313cf2d896a568a3a
-2026-09-29-remote-host-key-file-picker.zh.md: ff29d7e0f796083a7ab264f32d4f93717c28ec1d
+2026-09-29-remote-host-key-file-picker.md: 1ca9fd48a380f34d19328a86c42ef11e9100aeb0
+2026-09-29-remote-host-key-file-picker.zh.md: 6f848e362a400490c4a9db7139620686e844ab31
