@@ -1,8 +1,12 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomUUID, type KeyObject } from 'node:crypto'
+import { readFile, stat } from 'node:fs/promises'
 import { credentialRef, type CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { RemoteHostSshAuthentication } from '@deepseek-ai/dsh-remote-hosts-ssh'
 import type { AuthSecrets, HostRecord, RemoteHostId } from './types.ts'
 import { RemoteHostsError } from './validation.ts'
+
+/** Upper bound for one host-read key file: real key material is far smaller. */
+const KEY_FILE_MAX_BYTES = 65_536
 
 function prefix(id: RemoteHostId): string { return `DSH_REMOTE_HOST_${id.replaceAll('-', '_')}` }
 /** Return the coordinator-owned credential references for one host.
@@ -51,8 +55,37 @@ export async function signingKey(provider: CredentialProvider, id: RemoteHostId)
 }
 
 /**
+ * Read one host-local key file into inline material. The path names a file on
+ * this host (never the client's), so the read happens here at use time and
+ * stays bounded.
+ * @param path - absolute path of the key file on this host.
+ * @returns the file's UTF-8 content.
+ * @throws {RemoteHostsError} `KEY_FILE_READ_FAILED` when the target is not a
+ * readable regular file, `KEY_FILE_TOO_LARGE` past the bound.
+ */
+export async function readKeyFile(path: string): Promise<string> {
+  let size: number
+  try {
+    const info = await stat(path)
+    if (!info.isFile()) throw new Error('not a regular file')
+    size = info.size
+  } catch {
+    throw new RemoteHostsError('KEY_FILE_READ_FAILED')
+  }
+  if (size > KEY_FILE_MAX_BYTES) throw new RemoteHostsError('KEY_FILE_TOO_LARGE')
+  try {
+    return await readFile(path, 'utf8')
+  } catch {
+    /* v8 ignore next -- rejects only when the file vanishes between the stat above and this read; the before-stat miss is covered. */
+    throw new RemoteHostsError('KEY_FILE_READ_FAILED')
+  }
+}
+
+/**
  * Store login secrets under fresh immutable references so failed registry
- * commits cannot replace the old login.
+ * commits cannot replace the old login. A path-based key login stays a path:
+ * the record keeps it and the file is read at connect time, so no key
+ * material crosses the credential store.
  * @param provider - local credential provider.
  * @param host - current host record.
  * @param secrets - submitted login secret.
@@ -65,13 +98,20 @@ export async function storeAuthentication(provider: CredentialProvider, host: Ho
     await provider.set(credentialRef(`${tag}_PASSWORD`), secrets.password)
     return { ...host, authentication: { kind: 'password', passwordRef: `${tag}_PASSWORD` } }
   }
+  if (secrets.privateKeyPath !== undefined) {
+    if (secrets.passphrase !== undefined) await provider.set(credentialRef(`${tag}_PASSPHRASE`), secrets.passphrase)
+    return { ...host, authentication: { kind: 'key', keyPath: secrets.privateKeyPath,
+      ...(secrets.passphrase === undefined ? {} : { passphraseRef: `${tag}_PASSPHRASE` }) } }
+  }
   await provider.set(credentialRef(`${tag}_KEY`), secrets.privateKey)
   if (secrets.passphrase !== undefined) await provider.set(credentialRef(`${tag}_PASSPHRASE`), secrets.passphrase)
   return { ...host, authentication: { kind: 'key', privateKeyRef: `${tag}_KEY`,
     ...(secrets.passphrase === undefined ? {} : { passphraseRef: `${tag}_PASSPHRASE` }) } }
 }
 
-/** Resolve explicit or stored SSH authentication material.
+/**
+ * Resolve explicit or stored SSH authentication material. A key path —
+ * explicit or stored — is read on this host at use time.
  * @param provider - local credential provider.
  * @param host - configured host record.
  * @param secrets - optional one-shot login secret.
@@ -82,13 +122,30 @@ export async function authentication(
 ): Promise<RemoteHostSshAuthentication> {
   if (secrets !== undefined) {
     if (secrets.kind !== host.authentication.kind) throw new RemoteHostsError('AUTH_KIND_MISMATCH')
-    return { ...secrets }
+    return resolveKeySecrets(secrets)
   }
   const auth = host.authentication
   switch (auth.kind) {
     case 'agent': return { kind: 'agent', socket: auth.socket }
     case 'password': return { kind: 'password', password: await required(provider, auth.passwordRef) }
-    case 'key': return { kind: 'key', privateKey: await required(provider, auth.privateKeyRef),
-      ...(auth.passphraseRef === undefined ? {} : { passphrase: await required(provider, auth.passphraseRef) }) }
+    case 'key': {
+      const privateKey = auth.keyPath !== undefined
+        ? await readKeyFile(auth.keyPath)
+        : await required(provider, auth.privateKeyRef)
+      return { kind: 'key', privateKey,
+        ...(auth.passphraseRef === undefined ? {} : { passphrase: await required(provider, auth.passphraseRef) }) }
+    }
   }
+}
+
+/**
+ * Resolve one explicit key secret into transport material, reading the file
+ * on this host when the login is path-based.
+ * @param secrets - validated key or password secret.
+ * @returns transport authentication options.
+ */
+export async function resolveKeySecrets(secrets: AuthSecrets): Promise<RemoteHostSshAuthentication> {
+  if (secrets.kind !== 'key' || secrets.privateKeyPath === undefined) return { ...secrets }
+  return { kind: 'key', privateKey: await readKeyFile(secrets.privateKeyPath),
+    ...(secrets.passphrase === undefined ? {} : { passphrase: secrets.passphrase }) }
 }

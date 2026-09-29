@@ -30,12 +30,14 @@ describe('client composition', () => {
   it('registers the sidebar and center faces with live remote actions', async () => {
     const factories: Array<() => unknown> = []
     const registrations: Array<{ config: { inject?: () => unknown } }> = []
+    const slotListeners = new Set<() => void>()
+    let keyDirectoryFlowOccupied = false
     const remoteHosts = {
       list: vi.fn(async () => ({ ok: true, value: [] })),
       upsert: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
       verify: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
       keyFilePicker: vi.fn(async () => ({ ok: true, value: { kind: 'native' } })),
-      pickKeyFile: vi.fn(async () => ({ ok: true, value: { path: '/home/me/.ssh/id_ed25519', content: 'KEY' } })),
+      pickKeyFile: vi.fn(async () => ({ ok: true, value: { path: '/home/me/.ssh/id_ed25519' } })),
       connect: vi.fn(async (input: unknown) => ({ ok: true, value: input })),
       disconnect: vi.fn(async () => ({ ok: true, value: undefined })),
       removeHost: vi.fn(async () => ({ ok: true, value: undefined })),
@@ -49,6 +51,11 @@ describe('client composition', () => {
       slots: {
         inject: (_name: string, factory: () => unknown) => { factories.push(factory) },
         register: (config: { inject?: () => unknown }) => { registrations.push({ config }); return () => {} },
+        entries: (hole: string) => hole === 'remoteHosts.keyDirectoryFlow' && keyDirectoryFlowOccupied ? [{ name: hole }] : [],
+        subscribe: (_hole: string, listener: () => void) => {
+          slotListeners.add(listener)
+          return () => { slotListeners.delete(listener) }
+        },
       },
     } as never
     applyClient(ctx)
@@ -85,6 +92,20 @@ describe('client composition', () => {
     center.closeView!()
     expect(layout.clearCenterView).toHaveBeenCalled()
     vi.unstubAllGlobals()
+    // The key-directory flow occupancy source reflects hole entries and notifies its subscribers.
+    type KeyDirectoryFlow = { getSnapshot: () => boolean; subscribe: (listener: () => void) => () => void }
+    const keyDirectoryFlow = (center.hooks as unknown as { keyDirectoryFlow: KeyDirectoryFlow }).keyDirectoryFlow
+    expect(keyDirectoryFlow.getSnapshot()).toBe(false)
+    const listener = vi.fn()
+    const unsubscribe = keyDirectoryFlow.subscribe(listener)
+    keyDirectoryFlowOccupied = true
+    for (const notify of slotListeners) notify()
+    expect(keyDirectoryFlow.getSnapshot()).toBe(true)
+    expect(listener).toHaveBeenCalledTimes(1)
+    unsubscribe()
+    keyDirectoryFlowOccupied = false
+    for (const notify of slotListeners) notify()
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 
   it('renders wide and rail sidebar actions from the shared store', () => {

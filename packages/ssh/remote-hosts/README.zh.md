@@ -20,11 +20,11 @@ Remote 命名空间为 `remoteHosts`。`list()` 与 `keyFilePicker()` 要求 `ha
 
 `upsert` 完整替换主机配置。创建时省略 `id`，编辑时保留返回的 ID。默认值为 `port: 22`、`reverseMappings: []`、`storeCredentials: false`。已连接主机必须先断开再编辑。必填字段为 `name`、`host`、`username`、`fingerprint`、`platform`（`linux`、`darwin`、`win32`）、`architecture`（`x64`、`arm64`）、`authentication`；未知字段被拒绝。
 
-认证形式为 `{ kind: "password", passwordRef? }`、`{ kind: "key", privateKeyRef?, passphraseRef? }` 或 `{ kind: "agent", socket }`。SSH agent 套接字或 Windows 命名管道必须显式指定。引用名遵守凭据服务的 POSIX 标识符格式。私钥传入内容，不传本地文件路径。
+认证形式为 `{ kind: "password", passwordRef? }`、`{ kind: "key", privateKeyRef?, keyPath?, passphraseRef? }` 或 `{ kind: "agent", socket }`。SSH agent 套接字或 Windows 命名管道必须显式指定。引用名遵守凭据服务的 POSIX 标识符格式。私钥要么是引用内容（`privateKeyRef`），要么是保留在记录上的宿主本地文件路径（`keyPath`）——路径只是普通字符串，因为它指向 Host 所在机器上的文件，由 Host 在使用时自行读取；提交的秘密二选一：`privateKey` 或 `privateKeyPath`。
 
 `verify({ host, port?, username, secrets })` 执行保存主机前必须通过的连通性检测。它使用提交的凭据完成身份验证，接受本次尝试的主机密钥，并运行一条固定探测命令，返回 `{ fingerprint, platform, architecture }`。
 
-`keyFilePicker()` 报告当前组合提供的交互形态——宿主能打开自己的选择器时返回 `{ kind: 'native' }`，否则（`browse` 组合或未装配选择器）返回 `{ kind: 'client' }`——客户端据此渲染对应的入口而不是猜测。它是路由探针；`pickKeyFile()` 是其中 `native` 一侧的交互。`pickKeyFile()` 服务于登录表单的密钥文件入口：它经 `ctx.get('directoryPicker')`（唯一的可选注入——没有 `native` 能力的组合会以 `KEY_PICKER_UNAVAILABLE` 快速失败，例如探针后组合被卸载的竞态）打开以操作者 `~/.ssh` 为起始目录的宿主原生单文件选择器，并返回 `{ path, content }`——所拾取文件的 UTF-8 文本用作 `AuthSecrets.privateKey`，路径仅用于展示；操作者取消时两个字段都不存在。读取上限为 64 KiB（`KEY_FILE_TOO_LARGE`）；拾取后消失或不可读的文件上报 `KEY_FILE_READ_FAILED`；外来选择器失败被收敛为 `KEY_PICKER_FAILED`。
+`keyFilePicker()` 报告当前组合提供的交互形态——宿主能打开自己的选择器时返回 `{ kind: 'native' }`，browse 目录选择器表面在组合中时返回 `{ kind: 'browse' }`，否则返回 `{ kind: 'absent' }`（无拾取交互）——客户端据此渲染对应的入口而不是猜测。它是路由探针；`pickKeyFile()` 是其中 `native` 一侧的交互。`pickKeyFile()` 服务于登录表单的密钥文件入口：它经 `ctx.get('directoryPicker')`（唯一的可选注入——没有 `native` 能力的组合会以 `KEY_PICKER_UNAVAILABLE` 快速失败，例如探针后组合被卸载的竞态）打开以操作者 `~/.ssh` 为起始目录的宿主原生单文件选择器，并返回 `{ path }`——所拾取文件的宿主本地路径，正是 `AuthSecrets.privateKeyPath` 保存的值；操作者取消时该字段不存在。`browse` 一侧在客户端：密钥目录流槽位的对话框列出 Host 所在机器上的目录，确认后成为路径的目录部分（操作者在获得焦点的路径输入框里补全文件名）。密钥凭据是宿主本地路径，绝不是上传：Host 在使用凭据时——`verify` 与 `connect` 时——自行读取文件，上限 64 KiB（`KEY_FILE_TOO_LARGE`）；使用时消失或不可读的文件上报 `KEY_FILE_READ_FAILED`；外来选择器失败被收敛为 `KEY_PICKER_FAILED`。
 
 返回的 `fingerprint` 就是该连接自身观测到的主机密钥，`platform` 与 `architecture` 则是目标主机给出的回答。它们正是 `upsert` 随后保存的值：记录下来的固定指纹来自一次登录已成功的连接，而探测到的目标平台也免去了让操作者声明主机自身已知信息的多余步骤。检测优先接受 POSIX 的 `uname` 回答，若目标是 Windows 默认 shell，则改用 PowerShell 重试；若回答未给出可部署的平台或架构，则判定检测失败。已保存的凭据由后续全新检测重新验证，因此指纹变化会表现为检测失败，而不会退回某个已存的批准记录。
 
@@ -53,7 +53,7 @@ Remote 命名空间为 `remoteHosts`。`list()` 与 `keyFilePicker()` 要求 `ha
 }
 ```
 
-向 `POST /api/remoteHosts/upsert` 发送现有 Connection 信封：`type` 为 `client-request`，`rpcId` 为唯一请求 ID，`method` 为 `remoteHosts/upsert`，`payload.args` 为上面的参数对象。响应为同一 `rpcId` 的 `server-response`，含 `result: { ok: true, value: RemoteHostView }` 或标准错误结果。生成的 `./remote` 客户端负责信封。密钥认证使用 `authentication: { kind: "key" }` 和 `secrets: { kind: "key", privateKey, passphrase? }`；仅当 `storeCredentials: true` 时保存。返回的主机视图从不包含密码、私钥或口令值。
+向 `POST /api/remoteHosts/upsert` 发送现有 Connection 信封：`type` 为 `client-request`，`rpcId` 为唯一请求 ID，`method` 为 `remoteHosts/upsert`，`payload.args` 为上面的参数对象。响应为同一 `rpcId` 的 `server-response`，含 `result: { ok: true, value: RemoteHostView }` 或标准错误结果。生成的 `./remote` 客户端负责信封。密钥认证使用 `authentication: { kind: "key" }` 和 `secrets: { kind: "key", privateKeyPath, passphrase? }`（宿主本地路径——Host 在使用时读取文件），或 `secrets: { kind: "key", privateKey, passphrase? }`（内联内容，例如粘贴的文本）；仅当 `storeCredentials: true` 时持久保存登录，保存的记录相应保留 `keyPath` 或 `privateKeyRef`。返回的主机视图从不包含密码、私钥或口令值，已保存的路径也永不离开 Host。
 
 假设返回的主机 ID 为 `84fbdabb-7814-4d13-a19a-5afeb7b1eb50`，以下是发往 `POST /api/remoteHosts/connect` 的完整已保存凭据连接请求：
 

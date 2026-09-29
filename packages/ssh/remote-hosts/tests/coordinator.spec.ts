@@ -210,6 +210,16 @@ it('validates public management inputs and stored credential mode mismatches', a
   const f = await fixture()
   try {
     await expect(f.ctx.remoteHosts.verify({ host: '', username: 'runner', secrets: { kind: 'password', password: 'x' } })).rejects.toThrow('INVALID_INPUT')
+    // A key secret carries exactly one of inline material or an absolute host-local path.
+    await expect(f.ctx.remoteHosts.verify({ host: hostInput.host, username: 'runner',
+      secrets: { kind: 'key', privateKey: 'inline', privateKeyPath: '/root/.ssh/id_ed25519' } as never })).rejects.toThrow('INVALID_INPUT')
+    await expect(f.ctx.remoteHosts.verify({ host: hostInput.host, username: 'runner', secrets: { kind: 'key' } as never }))
+      .rejects.toThrow('INVALID_INPUT')
+    await expect(f.ctx.remoteHosts.verify({ host: hostInput.host, username: 'runner',
+      secrets: { kind: 'key', privateKeyPath: 'relative/id_ed25519' } })).rejects.toThrow('INVALID_INPUT')
+    // A UNC path is absolute for a Windows host; this Linux host just cannot read it.
+    await expect(f.ctx.remoteHosts.verify({ host: hostInput.host, username: 'runner',
+      secrets: { kind: 'key', privateKeyPath: '\\\\server\\share\\id_ed25519' } })).rejects.toThrow('KEY_FILE_READ_FAILED')
     await expect(f.ctx.remoteHosts.upsert({ ...hostInput, secrets: { kind: 'password', password: 'ephemeral' } }))
       .rejects.toThrow('EPHEMERAL_SECRETS_REQUIRE_CONNECT')
     const host = await f.ctx.remoteHosts.upsert(hostInput)
@@ -255,30 +265,50 @@ it('rejects endpoint discovery transport failures without exposing remote stderr
   } finally { await f.cleanup() }
 }, 30_000)
 
-it('serves the native key-file picker with bounded reads and contained failures', async () => {
+it('serves path-based key logins end to end: the host reads the file at use time', async () => {
+  const f = await fixture()
+  try {
+    const keyPath = join(f.local, 'id_path_ed25519')
+    await writeFile(keyPath, '-----BEGIN OPENSSH PRIVATE KEY-----\npath-fixture\n')
+    await expect(f.ctx.remoteHosts.verify({ host: hostInput.host, port: hostInput.port, username: hostInput.username,
+      secrets: { kind: 'key', privateKeyPath: keyPath, passphrase: 'phrase' } }))
+      .resolves.toEqual({ fingerprint: hostInput.fingerprint, platform: fixturePlatform, architecture: fixtureArchitecture })
+    // The SSH transport sees the file's material, never the path.
+    expect(f.observations.verifications.at(-1)?.auth).toEqual({
+      kind: 'key', privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\npath-fixture\n', passphrase: 'phrase' })
+    // An unreadable path is the closed read failure with its code preserved.
+    await expect(f.ctx.remoteHosts.verify({ host: hostInput.host, port: hostInput.port, username: hostInput.username,
+      secrets: { kind: 'key', privateKeyPath: join(f.local, 'missing') } })).rejects.toThrow('KEY_FILE_READ_FAILED')
+
+    const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote, authentication: { kind: 'key' },
+      secrets: { kind: 'key', privateKeyPath: keyPath, passphrase: 'phrase' }, storeCredentials: true })
+    // The record keeps the host-local path; no key material is stored anywhere.
+    expect(host.authentication.kind).toBe('key')
+    expect((host.authentication as { keyPath?: string }).keyPath).toBe(keyPath)
+    expect(typeof (host.authentication as { passphraseRef?: string }).passphraseRef).toBe('string')
+    const disk = await readFile(join(f.local, 'remote-hosts.json'), 'utf8')
+    expect(disk).not.toContain('path-fixture')
+    // Connecting with no submitted secrets reads the file on this host.
+    const connected = await f.ctx.remoteHosts.connect({ id: host.id })
+    expect(connected.state).toBe('connected')
+    expect(f.observations.opens.at(-1)?.auth).toEqual({
+      kind: 'key', privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\npath-fixture\n', passphrase: 'phrase' })
+  } finally { await f.cleanup() }
+}, 30_000)
+
+it('serves the native key-file chooser and reports its composition faithfully', async () => {
   const f = await fixture()
   try {
     const key = join(f.local, 'id_fixture')
     await writeFile(key, '-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n')
     f.observations.pickAnswer = key
-    await expect(f.ctx.remoteHosts.pickKeyFile()).resolves.toEqual({ path: key, content: '-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n' })
+    await expect(f.ctx.remoteHosts.pickKeyFile()).resolves.toEqual({ path: key })
     // The chooser is seeded at the operator's home ~/.ssh when it exists.
     expect(f.observations.pickRequests.at(-1)?.title).toBe('Select SSH Private Key')
     expect(f.observations.pickRequests.at(-1)?.defaultDirectory).toBe(join(homedir(), '.ssh'))
 
     f.observations.pickAnswer = null
     await expect(f.ctx.remoteHosts.pickKeyFile()).resolves.toEqual({})
-
-    f.observations.pickAnswer = join(f.local, 'vanished')
-    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_FILE_READ_FAILED')
-
-    f.observations.pickAnswer = f.local
-    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_FILE_READ_FAILED')
-
-    const oversized = join(f.local, 'oversized')
-    await writeFile(oversized, 'x'.repeat(65_537))
-    f.observations.pickAnswer = oversized
-    await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_FILE_TOO_LARGE')
 
     f.observations.pickAnswer = undefined
     await expect(f.ctx.remoteHosts.pickKeyFile()).rejects.toThrow('KEY_PICKER_FAILED')
@@ -292,18 +322,20 @@ it('reports the composed key-file interaction for affordance routing', async () 
   const f = await fixture()
   try {
     await expect(f.ctx.remoteHosts.keyFilePicker()).resolves.toEqual({ kind: 'native' })
-    // A browse composition has no host-side chooser: the client reads the file itself.
+    // A browse composition serves in-app directory browsing, not an OS chooser.
     f.observations.pickerKind = 'browse'
-    await expect(f.ctx.remoteHosts.keyFilePicker()).resolves.toEqual({ kind: 'client' })
+    await expect(f.ctx.remoteHosts.keyFilePicker()).resolves.toEqual({ kind: 'browse' })
   } finally { await f.cleanup() }
 }, 30_000)
 
-it('treats an absent picker as the client key-file interaction', async () => {
+it('treats an absent or foreign picker as no picking interaction', async () => {
   const home = await mkdtemp(join(tmpdir(), 'remote-hosts-nopicker-'))
   const ctx = new Context()
   try {
     const service = new RemoteHosts(ctx, { dshHome: home, artifactsRoot: home })
-    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'client' })
+    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'absent' })
+    ctx.provide('directoryPicker', { capability: () => ({ kind: 'foreign' }) } as never)
+    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'absent' })
   } finally {
     await ctx.fiber.dispose()
     await rm(home, { recursive: true, force: true })

@@ -10,8 +10,10 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the SlotMap merge declaring the directory-flow holes.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+// Type-only: pulls the SlotMap merge declaring the remote-hosts key-directory hole.
+import type {} from '@deepseek-ai/dsh-client-ui-remote-hosts/client'
 import type { BrowseFlowInjected } from './flow.ts'
-import { BrowseDirectoryFlow } from './flow.ts'
+import { BrowseDirectoryFlow, BrowseKeyDirectoryFlow } from './flow.ts'
 
 /** Locale namespace owning the browser dialog's copy. */
 const LOCALE_NS = 'directory-browser'
@@ -34,6 +36,7 @@ export function apply(ctx: ClientContext): void {
     const dictionaries: [locale: string, dict: Record<string, string>][] = [
       ['zh', {
         'browser.title': '选择工作区目录',
+        'browser.keyTitle': '选择密钥所在目录',
         'browser.home': '主目录',
         'browser.newFolder': '新建文件夹',
         'browser.folderName': '文件夹名称',
@@ -49,6 +52,7 @@ export function apply(ctx: ClientContext): void {
       }],
       ['en', {
         'browser.title': 'Select Workspace Directory',
+        'browser.keyTitle': "Select the key's directory",
         'browser.home': 'Home',
         'browser.newFolder': 'New folder',
         'browser.folderName': 'Folder name',
@@ -77,16 +81,20 @@ export function apply(ctx: ClientContext): void {
     createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
     t: ctx.locale.bind(LOCALE_NS),
   })
-  // Both declaration lifetimes must be live before the pair installs; the
-  // generator makes the two registrations one transactional effect. The
-  // outer/inner nesting order is arbitrary; neither hole has precedence.
-  ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
-    ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
-      yield ctx.slots.register({
-        name: 'conversation.hero.workspace.directoryFlow', inject: injected,
-      }, BrowseDirectoryFlow)
-      yield ctx.slots.register({
-        name: 'sidebar.workspaces.directoryFlow', inject: injected,
-      }, BrowseDirectoryFlow)
-    }))
+  // Every declaration lifetime must be live before the trio installs; the
+  // generator makes the three registrations one transactional effect. The
+  // nesting order is arbitrary; no hole has precedence.
+  ctx.slots.inject('remoteHosts.keyDirectoryFlow', () =>
+    ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
+      ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
+        yield ctx.slots.register({
+          name: 'remoteHosts.keyDirectoryFlow', inject: injected,
+        }, BrowseKeyDirectoryFlow)
+        yield ctx.slots.register({
+          name: 'conversation.hero.workspace.directoryFlow', inject: injected,
+        }, BrowseDirectoryFlow)
+        yield ctx.slots.register({
+          name: 'sidebar.workspaces.directoryFlow', inject: injected,
+        }, BrowseDirectoryFlow)
+      })))
 }

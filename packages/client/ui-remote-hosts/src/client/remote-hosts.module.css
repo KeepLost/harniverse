@@ -329,6 +329,18 @@
   min-width: 0;
 }
 
+.keyPathLabel {
+  flex: none;
+  font-size: 13px;
+}
+
+.keyPathInput {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+}
+
 .keyFileButton {
   display: inline-flex;
   align-items: center;
@@ -354,14 +366,6 @@
 .keyFileButton:disabled {
   cursor: default;
   opacity: 0.5;
-}
-
-.keyFilePath {
-  overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .keyFileHint {

@@ -1694,13 +1694,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'pickKeyFile(): Promise<PickKeyFileResult>',
         description: 'Open the host\'s native key-file chooser, seeded at the operator\'s `~/.ssh`. Serves the `native` interaction only; clients route through `keyFilePicker` first.',
         parameters: [],
-        returns: 'the picked file\'s path and content, or neither when cancelled.',
+        returns: 'the picked file\'s host-local path, or nothing when cancelled.',
       },
       {
         signature: 'keyFilePicker(): Promise<KeyFilePicker>',
         description: 'Report which key-file picking interaction this composition serves.',
         parameters: [],
-        returns: '`native` when the host opens its OS chooser, `client` otherwise.',
+        returns: 'the composed directory-picker capability kind, `absent` when unserved.',
       },
       {
         signature: 'connect(input: ConnectHostInput): Promise<RemoteHostView>',
@@ -4253,7 +4253,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AuthSecrets',
-    declaration: 'export type AuthSecrets = {\n    kind: \'password\';\n    password: string;\n} | {\n    kind: \'key\';\n    privateKey: string;\n    passphrase?: string;\n};',
+    declaration: 'export type AuthSecrets = {\n    kind: \'password\';\n    password: string;\n} | {\n    kind: \'key\';\n    privateKey: string;\n    privateKeyPath?: undefined;\n    passphrase?: string;\n} | {\n    kind: \'key\';\n    privateKey?: undefined;\n    privateKeyPath: string;\n    passphrase?: string;\n};',
   },
   {
     name: 'BackendRegistry',
@@ -4949,7 +4949,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HostAuthentication',
-    declaration: 'export type HostAuthentication = {\n    kind: \'password\';\n    passwordRef?: string;\n} | {\n    kind: \'key\';\n    privateKeyRef?: string;\n    passphraseRef?: string;\n} | {\n    kind: \'agent\';\n    socket: string;\n};',
+    declaration: 'export type HostAuthentication = {\n    kind: \'password\';\n    passwordRef?: string;\n} | {\n    kind: \'key\';\n    privateKeyRef?: string;\n    keyPath?: string;\n    passphraseRef?: string;\n} | {\n    kind: \'agent\';\n    socket: string;\n};',
   },
   {
     name: 'HostBrowserEnvironment',
@@ -5101,7 +5101,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KeyFilePicker',
-    declaration: 'export type KeyFilePicker = {\n    kind: \'native\';\n} | {\n    kind: \'client\';\n};',
+    declaration: 'export type KeyFilePicker = {\n    kind: \'native\';\n} | {\n    kind: \'browse\';\n} | {\n    kind: \'absent\';\n};',
   },
   {
     name: 'KnobState',
@@ -5425,7 +5425,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PickKeyFileResult',
-    declaration: 'export interface PickKeyFileResult {\n    path?: string;\n    content?: string;\n}',
+    declaration: 'export interface PickKeyFileResult {\n    path?: string;\n}',
   },
   {
     name: 'PluginDiagnosticCheck',

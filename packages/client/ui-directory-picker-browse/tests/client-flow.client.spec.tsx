@@ -8,7 +8,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
-import { BrowseDirectoryFlow } from '../src/client/flow.ts'
+import { BrowseDirectoryFlow, BrowseKeyDirectoryFlow } from '../src/client/flow.ts'
 import { apply as nodeApply } from '../src/index.ts'
 
 // The service reads its initial locale from the browser; these specs assert
@@ -17,7 +17,7 @@ usePinnedBrowserLanguages('zh-CN')
 
 afterEach(cleanup)
 
-const HOLES = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const
+const HOLES = ['remoteHosts.keyDirectoryFlow', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const
 
 const HOME = '/home/u'
 const homeListing: DirectoryListing = {
@@ -77,8 +77,8 @@ describe('directory-picker-browse client half', () => {
   it('rolls back the outer injection when the second hole is already occupied', async () => {
     const b = await bench()
     b.declare()
-    // Foreign occupant in the SECOND registered hole: the pair construction
-    // throws after the outer injection installed its subscription.
+    // Foreign occupant in the SECOND registered hole: the transactional
+    // construction throws after the outer injection installed its subscription.
     b.slots.register({ name: HOLES[1] } as never, () => null)
     const rejections: unknown[] = []
     const onUnhandled = (reason: unknown): void => { rejections.push(reason) }
@@ -108,10 +108,11 @@ describe('directory-picker-browse client half', () => {
     try {
       // The rival subscribes first, so synchronous declaration notifications
       // let it occupy the pair before this provider's waiting injection runs.
-      b.slots.inject(HOLES[0], () => b.slots.inject(HOLES[1], function* () {
+      b.slots.inject(HOLES[0], () => b.slots.inject(HOLES[1], () => b.slots.inject(HOLES[2], function* () {
         yield b.slots.register({ name: HOLES[0] } as never, () => null)
         yield b.slots.register({ name: HOLES[1] } as never, () => null)
-      }))
+        yield b.slots.register({ name: HOLES[2] } as never, () => null)
+      })))
       await b.ctx.plugin({ inject: [...inject], apply }).await()
       b.declare()
       await new Promise(resolve => setTimeout(resolve, 20))
@@ -169,6 +170,7 @@ describe('directory-picker-browse client half', () => {
     const injected = (entry.inject as () => { t: (key: string) => string })()
     // zh is the shipped default locale.
     expect(injected.t('browser.title')).toBe('选择工作区目录')
+    expect(injected.t('browser.keyTitle')).toBe('选择密钥所在目录')
     expect(injected.t('browser.newFolder')).toBe('新建文件夹')
     expect(injected.t('browser.showHidden')).toBe('显示隐藏文件')
   })
@@ -208,6 +210,33 @@ describe('directory-picker-browse client half', () => {
     fireEvent.click(screen.getByRole('button', { name: 'browser.cancel' }))
     expect(props.onCancel).toHaveBeenCalled()
     expect(props.onError).not.toHaveBeenCalled()
+  })
+
+  it('serves the remote-hosts key hole with the key dialog title', async () => {
+    const b = await bench()
+    b.declare()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    // The key hole's occupant is the key-titled variant; the workspace holes keep theirs.
+    const keyEntry = b.slots.entries(HOLES[0])[0]!
+    const heroEntry = b.slots.entries(HOLES[1])[0]!
+    expect(keyEntry.component).toBe(BrowseKeyDirectoryFlow)
+    expect(heroEntry.component).toBe(BrowseDirectoryFlow)
+    const props = owner()
+    render(
+      <BrowseKeyDirectoryFlow
+        {...props}
+        listDirectory={vi.fn(async () => homeListing)}
+        createDirectory={vi.fn(async () => '')}
+        t={key => key}
+      />,
+    )
+    expect(screen.getByText('browser.keyTitle')).toBeTruthy()
+    const openButton = screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' })
+    await waitFor(() => { expect(openButton.disabled).toBe(false) })
+    fireEvent.click(openButton)
+    expect(props.onPicked).toHaveBeenCalledWith(HOME)
+    fireEvent.click(screen.getByRole('button', { name: 'browser.cancel' }))
+    expect(props.onCancel).toHaveBeenCalled()
   })
 
   it('renders nothing while the flow is closed', () => {

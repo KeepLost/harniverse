@@ -8,16 +8,26 @@ const ref = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)
 /** Schema for a persisted remote-host UUID. */
 export const idSchema = z.uuid()
 const port = z.number().int().min(1).max(65535)
+/** Absolute host-local path: POSIX-absolute, or drive/UNC-qualified on Windows. */
+const absolutePath = z.string().min(1).max(1024).refine((value) => {
+  const paths = /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') ? win32 : posix
+  return paths.isAbsolute(value)
+}, { message: 'absolute host-local path required' })
 /** Schema for secret-free persisted authentication references. */
 export const authenticationSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('password'), passwordRef: ref.optional() }),
-  z.strictObject({ kind: z.literal('key'), privateKeyRef: ref.optional(), passphraseRef: ref.optional() }),
+  z.strictObject({ kind: z.literal('key'), privateKeyRef: ref.optional(), keyPath: absolutePath.optional(), passphraseRef: ref.optional() }),
   z.strictObject({ kind: z.literal('agent'), socket: text }),
 ])
 /** Schema for explicit one-shot login secrets. */
 export const secretsSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('password'), password: z.string().min(1).max(65536) }),
-  z.strictObject({ kind: z.literal('key'), privateKey: z.string().min(1).max(65536), passphrase: z.string().min(1).max(65536).optional() }),
+  z.strictObject({
+    kind: z.literal('key'),
+    privateKey: z.string().min(1).max(65536).optional(),
+    privateKeyPath: absolutePath.optional(),
+    passphrase: z.string().min(1).max(65536).optional(),
+  }).refine(secrets => (secrets.privateKey !== undefined) !== (secrets.privateKeyPath !== undefined), { message: 'exactly one of privateKey or privateKeyPath' }),
 ])
 const mappingSchema = z.strictObject({
   localHost: text.refine(value => !/[\s/\\@]/.test(value)), localPort: port,

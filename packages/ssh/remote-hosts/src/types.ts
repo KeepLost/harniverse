@@ -6,10 +6,13 @@ export type RemotePlatform = 'linux' | 'darwin' | 'win32'
 /** Supported CPU architecture labels for a deployed remote artifact. */
 export type RemoteArchitecture = 'x64' | 'arm64'
 
-/** References only; private key values are never host configuration. */
+/**
+ * Persisted login material references or a host-local key path; private key
+ * values are never host configuration.
+ */
 export type HostAuthentication =
   | { kind: 'password'; passwordRef?: string }
-  | { kind: 'key'; privateKeyRef?: string; passphraseRef?: string }
+  | { kind: 'key'; privateKeyRef?: string; keyPath?: string; passphraseRef?: string }
   | { kind: 'agent'; socket: string }
 
 /** Exact per-host authorization for one remote loopback reverse listener. */
@@ -36,24 +39,34 @@ export interface HostConfig {
 }
 /** Persisted host record with its stable local identity. */
 export interface HostRecord extends HostConfig { id: RemoteHostId }
-/** One-shot or persisted login secret supplied by an authorized caller. */
+/**
+ * One-shot or persisted login secret supplied by an authorized caller. A key
+ * login carries exactly one of inline material or a host-local file path; the
+ * path is read on this host at use time.
+ */
 export type AuthSecrets =
   | { kind: 'password'; password: string }
-  | { kind: 'key'; privateKey: string; passphrase?: string }
+  | { kind: 'key'; privateKey: string; privateKeyPath?: undefined; passphrase?: string }
+  | { kind: 'key'; privateKey?: undefined; privateKeyPath: string; passphrase?: string }
 
-/** The key-file picking interaction this composition serves to clients. */
+/**
+ * The key-file picking interaction this composition serves, mirroring the
+ * directory-picker seam's capability vocabulary. `absent` follows the seam's
+ * documented default for an unknown or unmounted backend: clients hide the
+ * picking affordance instead of failing.
+ */
 export type KeyFilePicker =
   /** The host can open its OS chooser; clients drive `pickKeyFile`. */
   | { kind: 'native' }
-  /** No host-side chooser exists (browse or absent); the client reads the file itself. */
-  | { kind: 'client' }
+  /** The host serves directory listings; clients browse to the key's directory. */
+  | { kind: 'browse' }
+  /** No picking interaction is served; manual entry remains. */
+  | { kind: 'absent' }
 
-/** An operator-picked local key file: content feeds the form, path only labels it. */
+/** An operator-picked host-local key file path; absent when the operator cancelled. */
 export interface PickKeyFileResult {
-  /** Absolute path of the picked file; absent when the operator cancelled. */
+  /** Absolute path of the picked file on this host. */
   path?: string
-  /** UTF-8 file content for {@link AuthSecrets} `privateKey`; absent on cancel. */
-  content?: string
 }
 
 /** Full replacement. Omitted port and mappings default to 22 and []. */
@@ -129,13 +142,13 @@ export interface RemoteHostsProvider {
   /**
    * Open the host's native key-file chooser, seeded at the operator's `~/.ssh`.
    * Serves the `native` interaction only; clients route through `keyFilePicker` first.
-   * @returns the picked file's path and content, or neither when cancelled.
+   * @returns the picked file's host-local path, or nothing when cancelled.
    */
   pickKeyFile(): Promise<PickKeyFileResult>
   /**
-   * Report which key-file picking interaction this composition serves.
-   * @returns `native` when the host opens its OS chooser, `client` otherwise.
-   */
+    * Report which key-file picking interaction this composition serves.
+    * @returns the composed directory-picker capability kind, `absent` when unserved.
+    */
   keyFilePicker(): Promise<KeyFilePicker>
   /**
    * Connect to a configured host and synchronize its remote runtime.

@@ -1,7 +1,10 @@
 import { expect, it } from 'vitest'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { generateKeyPairSync } from 'node:crypto'
-import { identity, identityRefs, authentication, signingKey, storeAuthentication } from '../src/secrets.ts'
+import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { authentication, identity, identityRefs, readKeyFile, resolveKeySecrets, signingKey, storeAuthentication } from '../src/secrets.ts'
 import { remoteHostId } from '../src/validation.ts'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { HostRecord } from '../src/types.ts'
@@ -61,4 +64,44 @@ it('stores and resolves password, key, and agent authentication forms', async ()
   await expect(authentication(fixture.value, host, { kind: 'key', privateKey: 'private' })).rejects.toThrow('AUTH_KIND_MISMATCH')
   await expect(authentication(fixture.value, host)).rejects.toThrow('CREDENTIAL_REQUIRED')
   expect(fixture.store.has(credentialRef(key.authentication.kind === 'key' ? key.authentication.privateKeyRef! : 'missing'))).toBe(true)
+})
+
+it('keeps a path-based key login a path and reads the file at use time', async () => {
+  const fixture = provider()
+  const keyPath = join(await mkdtemp(join(tmpdir(), 'remote-hosts-keypath-')), 'id_ed25519')
+  try {
+    await writeFile(keyPath, 'PATH KEY MATERIAL')
+    const stored = await storeAuthentication(fixture.value, { ...host, authentication: { kind: 'key' } },
+      { kind: 'key', privateKeyPath: keyPath, passphrase: 'phrase' })
+    // The path is host configuration, not a secret: it stays in the record and no key material is stored.
+    expect(stored.authentication.kind).toBe('key')
+    expect((stored.authentication as { keyPath?: string }).keyPath).toBe(keyPath)
+    expect(typeof (stored.authentication as { passphraseRef?: string }).passphraseRef).toBe('string')
+    expect([...fixture.store.keys()].filter(ref => ref.endsWith('_KEY'))).toEqual([])
+    // Resolution reads the file on this host at use time.
+    await expect(authentication(fixture.value, stored)).resolves.toEqual({ kind: 'key', privateKey: 'PATH KEY MATERIAL', passphrase: 'phrase' })
+    const storedWithoutPassphrase = await storeAuthentication(fixture.value, { ...host, authentication: { kind: 'key' } },
+      { kind: 'key', privateKeyPath: keyPath })
+    await expect(authentication(fixture.value, storedWithoutPassphrase)).resolves.toEqual({ kind: 'key', privateKey: 'PATH KEY MATERIAL' })
+
+    // Explicit one-shot path secrets resolve through the same read.
+    await expect(resolveKeySecrets({ kind: 'key', privateKeyPath: keyPath, passphrase: 'phrase' }))
+      .resolves.toEqual({ kind: 'key', privateKey: 'PATH KEY MATERIAL', passphrase: 'phrase' })
+    await expect(resolveKeySecrets({ kind: 'key', privateKeyPath: keyPath }))
+      .resolves.toEqual({ kind: 'key', privateKey: 'PATH KEY MATERIAL' })
+    await expect(resolveKeySecrets({ kind: 'password', password: 'secret' })).resolves.toEqual({ kind: 'password', password: 'secret' })
+    await expect(resolveKeySecrets({ kind: 'key', privateKey: 'inline' })).resolves.toEqual({ kind: 'key', privateKey: 'inline' })
+
+    // An unreadable file is a closed read failure, and the bound holds at the read.
+    await expect(readKeyFile(join(keyPath, '..', 'missing'))).rejects.toThrow('KEY_FILE_READ_FAILED')
+    await expect(authentication(fixture.value, { ...host, authentication: { kind: 'key', keyPath: join(keyPath, '..', 'missing') } }))
+      .rejects.toThrow('KEY_FILE_READ_FAILED')
+    const oversized = join(keyPath, '..', 'oversized')
+    await writeFile(oversized, 'x'.repeat(65_537))
+    await expect(readKeyFile(oversized)).rejects.toThrow('KEY_FILE_TOO_LARGE')
+    const directory = join(keyPath, '..')
+    await expect(readKeyFile(directory)).rejects.toThrow('KEY_FILE_READ_FAILED')
+  } finally {
+    await rm(join(keyPath, '..'), { recursive: true, force: true })
+  }
 })

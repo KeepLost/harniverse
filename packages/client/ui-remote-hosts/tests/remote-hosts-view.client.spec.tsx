@@ -60,6 +60,8 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
     active: true,
     useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
     actions: store.actions,
+    useKeyDirectoryFlow: (selector: (occupied: boolean) => boolean) => selector(false),
+    renderSlot: vi.fn(() => null),
     ...face,
     closeView: vi.fn(),
     t,
@@ -80,10 +82,10 @@ function saveButton(): HTMLButtonElement {
   return screen.getByRole('button', { name: zh.save }) as HTMLButtonElement
 }
 
-/** The file button stays disabled until the interaction probe lands; wait for the enabled native default. */
+/** The pick button stays disabled until the interaction probe lands; wait for the enabled native default. */
 async function enabledKeyFileButton(): Promise<HTMLButtonElement> {
   return waitFor(() => {
-    const button = screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile })
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyDirectory })
     expect(button.disabled).toBe(false)
     return button
   })
@@ -96,6 +98,8 @@ describe('RemoteHostsView', () => {
       active: false,
       useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
       actions: store.actions,
+      useKeyDirectoryFlow: (selector: (occupied: boolean) => boolean) => selector(false),
+      renderSlot: vi.fn(() => null),
       list: vi.fn(async () => ({ ok: true as const, value: [] })), upsert: vi.fn(), verify: vi.fn(), pickKeyFile: vi.fn(),
       connect: vi.fn(), openRemote: vi.fn(),
       disconnect: vi.fn(), remove: vi.fn(), closeView: vi.fn(), t,
@@ -223,12 +227,12 @@ describe('RemoteHostsView', () => {
     fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
     fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-    // Pasting is opt-in: until then the textarea stays disabled and the file chooser is the enabled path.
-    expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('disabled', true)
+    // Pasting is opt-in: until then only the host path input and the picker serve the key.
+    expect(screen.queryByLabelText(zh.privateKey)).toBeNull()
     await enabledKeyFileButton()
     fireEvent.click(screen.getByLabelText(zh.manualPaste))
     expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('disabled', false)
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyDirectory }).disabled).toBe(true)
     fireEvent.change(screen.getByLabelText(zh.privateKey), { target: { value: 'PRIVATE KEY' } })
     fireEvent.change(screen.getByLabelText(zh.passphrase), { target: { value: 'phrase' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
@@ -350,7 +354,7 @@ describe('RemoteHostsView', () => {
     mount({ connect }, [host()])
     await waitFor(() => { expect(screen.getByRole('button', { name: zh.connect })).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: zh.connect }))
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('Remote host operation failed') })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain(zh.actionFailed) })
     connect.mockRejectedValueOnce('plain failure')
     fireEvent.click(screen.getByRole('button', { name: zh.connect }))
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain failure') })
@@ -446,11 +450,11 @@ describe('RemoteHostsView', () => {
   })
 
 
-  it('loads the key material from a picked file and invalidates a completed test', async () => {
+  it('adopts the picked host path from the native chooser and invalidates a completed test', async () => {
     let releasePick: (() => void) | undefined
     const pickKeyFile = vi.fn<RemoteHostsViewProps['pickKeyFile']>(async () => {
       await new Promise<void>((resolve) => { releasePick = resolve })
-      return { ok: true as const, value: { path: '/home/me/.ssh/id_ed25519', content: 'PICKED KEY MATERIAL' } }
+      return { ok: true as const, value: { path: '/home/me/.ssh/id_ed25519' } }
     })
     const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
     mount({ pickKeyFile, verify })
@@ -468,11 +472,11 @@ describe('RemoteHostsView', () => {
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
     expect(screen.getByLabelText(zh.name)).toBeTruthy()
     releasePick?.()
-    // The picked path labels the row and the content becomes the tested secret.
-    await waitFor(() => { expect(screen.getByTitle('/home/me/.ssh/id_ed25519').textContent).toBe('/home/me/.ssh/id_ed25519') })
+    // The picked path becomes the tested secret's source: the host reads the file itself.
+    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('/home/me/.ssh/id_ed25519') })
     expect(saveButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
-    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKey: 'PICKED KEY MATERIAL' }) })
+    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKeyPath: '/home/me/.ssh/id_ed25519' }) })
   })
 
   it('leaves the draft untouched when the file chooser is dismissed', async () => {
@@ -482,7 +486,7 @@ describe('RemoteHostsView', () => {
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
     fireEvent.click(await enabledKeyFileButton())
     await waitFor(() => { expect(pickKeyFile).toHaveBeenCalledTimes(1) })
-    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+    expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
@@ -494,7 +498,7 @@ describe('RemoteHostsView', () => {
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
     fireEvent.click(await enabledKeyFileButton())
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('picker unavailable') })
-    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+    expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('')
 
     pickKeyFile.mockRejectedValueOnce(new Error('chooser transport died'))
     fireEvent.click(await enabledKeyFileButton())
@@ -504,56 +508,83 @@ describe('RemoteHostsView', () => {
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain pick failure') })
   })
 
-  it('reads the key through the browser when the composition serves the client interaction', async () => {
+  it('browses host directories for the key when the composition serves browse', async () => {
     const pickKeyFile = vi.fn()
-    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'client' as const } }))
+    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'browse' as const } }))
     const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
-    const { view } = mount({ keyFilePicker, pickKeyFile, verify })
+    const owners: { open: boolean; onPicked: (path: string) => void; onCancel: () => void; onError: (message: string) => void }[] = []
+    const renderSlot = vi.fn((_name: string, owner: (typeof owners)[number]) => {
+      owners.push(owner)
+      return <button type="button" key={owners.length} data-testid="stub-flow" onClick={() => { owners.at(-1)!.onPicked('/home/me/.ssh') }}>flow</button>
+    })
+    const useKeyDirectoryFlow = (selector: (occupied: boolean) => boolean) => selector(true)
+    mount({ keyFilePicker, pickKeyFile, verify, useKeyDirectoryFlow, renderSlot } as Partial<Face> & object)
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    await waitFor(() => { expect(screen.getByText(zh.keyFileHintBrowse)).toBeTruthy() })
     const button = await enabledKeyFileButton()
-    expect(screen.getByText(zh.keyFileHintClient)).toBeTruthy()
     fireEvent.click(button)
-    // The host chooser RPC never runs: the browser's own file input carries the pick.
+    // The browse composition drives the key-directory flow hole, never the host chooser RPC.
     expect(pickKeyFile).not.toHaveBeenCalled()
-    const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
-    expect(input).toBeTruthy()
-    fireEvent.change(input, { target: { files: [new File(['CLIENT KEY MATERIAL'], 'id_ed25519', { type: 'text/plain' })] } })
-    await waitFor(() => { expect(screen.getByTitle('id_ed25519').textContent).toBe('id_ed25519') })
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
+    // A confirmed directory becomes the path's directory part on the host's own separator.
+    fireEvent.click(screen.getByTestId('stub-flow'))
+    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('/home/me/.ssh/') })
+    expect(owners.at(-1)?.open).toBe(false)
+    expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath)).toBe(document.activeElement)
+    fireEvent.change(screen.getByLabelText(zh.keyPath), { target: { value: '/home/me/.ssh/id_ed25519' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
-    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKey: 'CLIENT KEY MATERIAL' }) })
-    // Re-choosing the same file name still fires: the input resets its value after every pick.
-    fireEvent.click(screen.getByRole('button', { name: zh.chooseKeyFile }))
-    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [new File(['SECOND MATERIAL'], 'id_ed25519', { type: 'text/plain' })] } })
-    await waitFor(() => { expect(screen.getByTitle('id_ed25519').textContent).toBe('id_ed25519') })
+    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKeyPath: '/home/me/.ssh/id_ed25519' }) })
+    // A path-based login may still carry the key's passphrase, submitted alongside the path.
+    fireEvent.change(screen.getByLabelText(zh.passphrase), { target: { value: 'phrase' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
-    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKey: 'SECOND MATERIAL' }) })
+    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKeyPath: '/home/me/.ssh/id_ed25519', passphrase: 'phrase' }) })
+    // A Windows directory adopts a backslash separator; a UNC share and a bare relative name both resolve to a separator too.
+    fireEvent.click(button)
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
+    owners.at(-1)!.onPicked('C:\\Users\\me\\ssh')
+    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('C:\\Users\\me\\ssh\\') })
+    fireEvent.click(button)
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
+    owners.at(-1)!.onPicked('\\\\server\\share\\ssh')
+    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('\\\\server\\share\\ssh\\') })
+    fireEvent.click(button)
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
+    owners.at(-1)!.onPicked('')
+    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('/') })
+    fireEvent.click(button)
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
+    owners.at(-1)!.onPicked('relative-directory')
+    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('relative-directory/') })
+    // Dismissal closes the flow untouched; an interaction failure surfaces and closes it too.
+    fireEvent.click(button)
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
+    owners.at(-1)!.onCancel()
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(false) })
+    fireEvent.click(button)
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
+    owners.at(-1)!.onError('listing denied')
+    await waitFor(() => { expect(owners.at(-1)?.open).toBe(false) })
+    expect(screen.getByRole('alert').textContent).toContain('listing denied')
   })
 
-  it('rejects an oversized client-side pick without touching the draft', async () => {
-    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'client' as const } }))
-    const { view } = mount({ keyFilePicker })
+  it('treats a probe that reports failure as no picking interaction', async () => {
+    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: false as const, error: { code: 'internal', message: 'probe failed', details: {} } }))
+    mount({ keyFilePicker })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-    await enabledKeyFileButton()
-    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [new File(['x'.repeat(65_537)], 'huge_key', { type: 'text/plain' })] } })
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorKeyFileTooLarge) })
-    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
-    expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('value', '')
-    // A change carrying no file is a cancel: the draft and alerts stay as they were.
-    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [] } })
-    expect(screen.getByRole('alert').textContent).toBe(zh.errorKeyFileTooLarge)
-    // A read that fails surfaces its reason without touching the draft.
-    const broken = new File(['x'], 'broken', { type: 'text/plain' })
-    broken.text = () => Promise.reject(new Error('read blew'))
-    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [broken] } })
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('read blew') })
-    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
-    const plain = new File(['x'], 'plain', { type: 'text/plain' })
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the non-Error arm is the subject
-    plain.text = () => Promise.reject('plain read failure')
-    fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [plain] } })
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('plain read failure') })
+    await waitFor(() => { expect(screen.getByText(zh.keyFileHintPath)).toBeTruthy() })
+    expect(screen.queryByRole('button', { name: zh.chooseKeyDirectory })).toBeNull()
+  })
+
+  it('hides the browse pick affordance while the key-directory flow hole is unoccupied', async () => {
+    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'browse' as const } }))
+    mount({ keyFilePicker })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    await waitFor(() => { expect(keyFilePicker).toHaveBeenCalledTimes(1) })
+    expect(screen.queryByRole('button', { name: zh.chooseKeyDirectory })).toBeNull()
+    expect(screen.getByText(zh.keyFileHintBrowse)).toBeTruthy()
   })
 
   it('drops interaction-probe settlements that land after the view departs', async () => {
@@ -573,20 +604,21 @@ describe('RemoteHostsView', () => {
     await Promise.resolve()
   })
 
-  it('falls back to the client interaction when the probe fails or reports failure', async () => {
+  it('hides the pick affordance when the probe fails or reports failure', async () => {
     const pickKeyFile = vi.fn()
     const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>()
       .mockRejectedValueOnce(new Error('probe crashed'))
       .mockResolvedValueOnce({ ok: false as const, error: { code: 'internal', message: 'probe failed', details: {} } })
-    const { view } = mount({ keyFilePicker, pickKeyFile })
-    for (let round = 0; round < 2; round++) {
+    mount({ keyFilePicker, pickKeyFile })
+    for (const expectedHint of [zh.keyFileHintPath, zh.keyFileHintPath]) {
       fireEvent.click(screen.getByRole('button', { name: zh.add }))
       fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-      const button = await enabledKeyFileButton()
-      fireEvent.click(button)
-      expect(pickKeyFile).not.toHaveBeenCalled()
-      fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [new File([`MATERIAL ${round}`], 'id_rsa', { type: 'text/plain' })] } })
-      await waitFor(() => { expect(screen.getByTitle('id_rsa').textContent).toBe('id_rsa') })
+      await waitFor(() => { expect(screen.getByText(expectedHint)).toBeTruthy() })
+      expect(screen.queryByRole('button', { name: zh.chooseKeyDirectory })).toBeNull()
+      // Manual path entry and pasted content keep working without any interaction.
+      fireEvent.change(screen.getByLabelText(zh.keyPath), { target: { value: '/home/me/.ssh/id_ed25519' } })
+      fireEvent.click(screen.getByLabelText(zh.manualPaste))
+      fireEvent.change(screen.getByLabelText(zh.privateKey), { target: { value: 'PASTED' } })
       fireEvent.click(screen.getByRole('button', { name: zh.cancel }))
     }
   })
@@ -607,7 +639,7 @@ describe('RemoteHostsView', () => {
       fireEvent.click(await enabledKeyFileButton())
       await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(expected) })
     }
-    expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
+    expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('')
   })
 
   it('does not persist temporary login secrets and uses them for the initial connection', async () => {

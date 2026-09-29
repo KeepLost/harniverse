@@ -1,6 +1,5 @@
 /** Local authoritative registry and SSH deployment provider; Remote consumers manage it on the local host. */
 import { randomUUID } from 'node:crypto'
-import { stat, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -8,12 +7,12 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-remote-hosts-ssh'
-// Side-effect type import: resolves `ctx.get('directoryPicker')` for the optional native key-file chooser.
-import type { DirectoryPickerNativeCapability } from '@deepseek-ai/dsh-host-directory-picker'
+// Side-effect type import: resolves `ctx.get('directoryPicker')` for the key-file picking interaction.
+import type {} from '@deepseek-ai/dsh-host-directory-picker'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { HostRegistry } from './registry.ts'
-import { authentication, storeAuthentication } from './secrets.ts'
+import { authentication, resolveKeySecrets, storeAuthentication } from './secrets.ts'
 import { detect } from './detect.ts'
 import { detectCommand } from './platform.ts'
 import { establish, HostSession, synchronize } from './session.ts'
@@ -23,9 +22,6 @@ import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult
 export type * from './types.ts'
 export { remoteHostId, RemoteHostsError } from './validation.ts'
 declare module '@deepseek-ai/cordis' { interface Context { remoteHosts: RemoteHostsProvider } }
-
-/** Upper bound for one operator-picked key file: real key material is far smaller. */
-const KEY_FILE_MAX_BYTES = 65_536
 
 /** Service Definition + Provider. Typert management and trusted proxy plugins are Consumers. */
 export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvider {
@@ -112,7 +108,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
     const target = this.validate(() => verifySchema.parse(input))
     this.lifetime.signal.throwIfAborted()
     const operation = this.ctx.remoteHostSsh.verify({ host: target.host, username: target.username,
-      ...(target.port === undefined ? {} : { port: target.port }) }, authSecrets(target.secrets),
+      ...(target.port === undefined ? {} : { port: target.port }) }, await resolveKeySecrets(authSecrets(target.secrets)),
     detectCommand(), this.lifetime.signal)
     this.verifications.add(operation)
     try {
@@ -126,27 +122,28 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
     } finally { this.verifications.delete(operation) }
   }
 
-  /** The composed native file-chooser capability, when this composition serves one. */
-  private nativePicker(): DirectoryPickerNativeCapability | undefined {
-    const capability = this.ctx.get('directoryPicker')?.capability()
-    return capability?.kind === 'native' ? capability : undefined
+  /** The composed directory-picker capability kind, `absent` when unserved. */
+  private pickerCapability(): 'native' | 'browse' | 'absent' {
+    const kind = this.ctx.get('directoryPicker')?.capability().kind
+    return kind === 'native' || kind === 'browse' ? kind : 'absent'
   }
 
   /**
    * Reports the served key-file interaction so clients render the matching
-   * affordance; anything but a native capability falls back to the client.
+   * affordance: the composed directory-picker capability kind, `absent` when
+   * unserved (the seam's documented default is hiding the affordance).
    */
   @Remote({ requiredCapability: 'harniverse.observe' })
   keyFilePicker(): Promise<KeyFilePicker> {
-    return Promise.resolve(this.nativePicker() === undefined ? { kind: 'client' } : { kind: 'native' })
+    return Promise.resolve({ kind: this.pickerCapability() })
   }
 
-  /** Opens the host's native key-file chooser seeded at `~/.ssh`. @returns path and content, or neither when the operator cancels. */
+  /** Opens the host's native key-file chooser seeded at `~/.ssh`. @returns the picked host-local path, or nothing when cancelled. */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async pickKeyFile(): Promise<PickKeyFileResult> {
     this.lifetime.signal.throwIfAborted()
-    const capability = this.nativePicker()
-    if (capability === undefined) throw new RemoteHostsError('KEY_PICKER_UNAVAILABLE')
+    const capability = this.ctx.get('directoryPicker')?.capability()
+    if (capability?.kind !== 'native') throw new RemoteHostsError('KEY_PICKER_UNAVAILABLE')
     let path: string | null
     try {
       // The adapters drop a start directory the host cannot access.
@@ -157,17 +154,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
       // A foreign failure never leaks chooser internals to the wire.
       throw new RemoteHostsError('KEY_PICKER_FAILED')
     }
-    if (path === null) return {}
-    const info = await stat(path).then(entries => entries,
-      () => { throw new RemoteHostsError('KEY_FILE_READ_FAILED') })
-    // Desktop compositions serialize dialogs over their IPC; other native
-    // backends rely on the single-operator surface instead of a lock here.
-    if (!info.isFile()) throw new RemoteHostsError('KEY_FILE_READ_FAILED')
-    if (info.size > KEY_FILE_MAX_BYTES) throw new RemoteHostsError('KEY_FILE_TOO_LARGE')
-    /* v8 ignore next -- rejects only when the file vanishes between the stat above and this read; the before-stat miss is covered. */
-    const content = await readFile(path, 'utf8')
-      .catch(() => { throw new RemoteHostsError('KEY_FILE_READ_FAILED') })
-    return { path, content }
+    return path === null ? {} : { path }
   }
 
   /** @param input - stable identity and optional ephemeral login. @returns connected only after authenticated complete synchronization. */
