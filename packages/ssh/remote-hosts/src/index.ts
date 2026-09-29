@@ -15,9 +15,10 @@ import { HostRegistry } from './registry.ts'
 import { authentication, resolveKeySecrets, storeAuthentication } from './secrets.ts'
 import { detect } from './detect.ts'
 import { detectCommand } from './platform.ts'
+import { listKeyDirectory } from './keyfiles.ts'
 import { establish, HostSession, synchronize } from './session.ts'
-import { authSecrets, connectSchema, parseHostInput, remoteHostId, RemoteHostsError, upsertSchema, verifySchema } from './validation.ts'
-import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, KeyFilePicker, PickKeyFileResult, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput } from './types.ts'
+import { authSecrets, connectSchema, listKeyFilesSchema, parseHostInput, remoteHostId, RemoteHostsError, upsertSchema, verifySchema } from './validation.ts'
+import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, KeyFileListing, KeyFilePicker, ListKeyFilesInput, PickKeyFileResult, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput } from './types.ts'
 
 export type * from './types.ts'
 export { remoteHostId, RemoteHostsError } from './validation.ts'
@@ -122,20 +123,29 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
     } finally { this.verifications.delete(operation) }
   }
 
-  /** The composed directory-picker capability kind, `absent` when unserved. */
-  private pickerCapability(): 'native' | 'browse' | 'absent' {
-    const kind = this.ctx.get('directoryPicker')?.capability().kind
-    return kind === 'native' || kind === 'browse' ? kind : 'absent'
+  /** The key-file interaction this host serves: the OS chooser when the operator sits at its display, else in-app browsing. */
+  private keyFileInteraction(): 'native' | 'browse' {
+    return this.ctx.get('directoryPicker')?.capability().kind === 'native' ? 'native' : 'browse'
   }
 
   /**
    * Reports the served key-file interaction so clients render the matching
-   * affordance: the composed directory-picker capability kind, `absent` when
-   * unserved (the seam's documented default is hiding the affordance).
+   * affordance: `native` opens the host's own single-file chooser, `browse`
+   * serves the in-app directory listing below.
    */
   @Remote({ requiredCapability: 'harniverse.observe' })
   keyFilePicker(): Promise<KeyFilePicker> {
-    return Promise.resolve({ kind: this.pickerCapability() })
+    return Promise.resolve({ kind: this.keyFileInteraction() })
+  }
+
+  /**
+   * List one host directory level for the in-app key browser.
+   * @param input - host directory to list; absent starts at the operator's `~/.ssh`.
+   * @returns one bounded level of directories and files.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer' })
+  async listKeyFiles(input: ListKeyFilesInput): Promise<KeyFileListing> {
+    return listKeyDirectory(this.validate(() => listKeyFilesSchema.parse(input)).path)
   }
 
   /** Opens the host's native key-file chooser seeded at `~/.ssh`. @returns the picked host-local path, or nothing when cancelled. */
@@ -201,6 +211,12 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
       } catch (error) {
         const cancelled = signal.aborted
         await this.close(id)
+        if (!(error instanceof RemoteHostsError)) {
+          // The wire stays fixed; the host log keeps the swallowed cause's class
+          // and code (never its message, which may carry commands or paths).
+          const { name, code } = Object(error) as { name?: unknown; code?: unknown }
+          this.ctx.logger('remote-hosts').warn('connect failed: %s %s', String(name), String(code))
+        }
         const safe = error instanceof RemoteHostsError ? error : new RemoteHostsError('CONNECT_FAILED')
         this.states.set(id, cancelled ? { state: 'offline' } : { state: 'error', error: safe.message })
         throw safe

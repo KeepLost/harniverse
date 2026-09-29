@@ -18,7 +18,9 @@ Status: implemented
 
 `RemoteHostsProvider.verify({ host, port?, username, secrets })` 负责赋予该检测确切的语义。它通过 SSH 提供方运行一条固定的探测命令，并把回答映射为可部署目标，返回 `{ fingerprint, platform, architecture }`。由于此时连目标的 shell 都还未确定，探测先询问 POSIX 形式（`uname -s`、`uname -m`），若目标是 Windows 默认 shell，则改用编码 PowerShell 重试。若回答未给出受支持的平台或架构，检测以 `UNSUPPORTED_REMOTE_PLATFORM` 失败。
 
-`upsert` 仍然要求 `fingerprint`、`platform` 与 `architecture`，因此「保存前必须检测」是由既有 schema 强制执行的，而不是靠新增的服务端状态。视图保存已完成的检测证据，把探测到的平台与架构预填为可编辑的默认值，并以该证据作为保存控件的门槛。任何对被检测地址、端口、用户或凭据的修改都会使其失效。
+`upsert` 仍然要求 `fingerprint`、`platform` 与 `architecture`，因此「保存前必须检测」是由既有 schema 强制执行的，而不是靠新增的服务端状态。视图保存已完成的检测证据，并以该证据作为保存控件的门槛。平台与架构默认「连接时决定」：编辑器把它们收在默认折叠的可选设置区里，保存时若操作者未显式固定，则以检测证据解析。任何对被检测地址、端口、用户或凭据的修改都会使其失效。
+
+连接时的产物检验失败点名原因，而不是一律压平为 `CONNECT_FAILED`：所选产物目录不存在上报 `ARTIFACT_NOT_FOUND`，存在但检验不过上报 `INVALID_ARTIFACT`，都走载波的封闭 reason 通道；Host 只记录被吞原因的错误名与错误码——绝不记录消息——使操作者文案停留在可行动的 reason 上。
 
 ## Alternatives considered
 
@@ -37,4 +39,4 @@ Status: implemented
 
 探测到的平台是默认值，不是保证。`ENDPOINT_IDENTITY_MISMATCH` 仍是最后一道检查，而 `uname` 不可靠的目标需要显式覆盖。
 
-验证位于 SSH 提供方套件（带身份验证的首次接触检测、拒绝时不发送探测命令）、`detect.spec.ts`（POSIX 与 Windows 回答、不受支持的回答、探测顺序）、协调层套件（检测证据、错误净化），以及浏览器视图套件（保存以检测通过为门槛、每个被检测字段的失效、探测值的预填与可编辑、重新检测失败后丢弃陈旧证据）。真实远程验证仍需一台已配置的远程主机。
+验证位于 SSH 提供方套件（带身份验证的首次接触检测、拒绝时不发送探测命令）、`detect.spec.ts`（POSIX 与 Windows 回答、不受支持的回答、探测顺序）、协调层套件（检测证据、错误净化），以及浏览器视图套件（保存以检测通过为门槛、每个被检测字段的失效、检测值的连接时决定解析、重新检测失败后丢弃陈旧证据）。真实远程验证仍需一台已配置的远程主机。

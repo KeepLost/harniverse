@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { serverResponseSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
@@ -258,6 +258,19 @@ it('validates public management inputs and stored credential mode mismatches', a
   } finally { await f.cleanup() }
 })
 
+it('names a missing remote-server artifact instead of a generic connect failure', async () => {
+  const f = await fixture()
+  try {
+    const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote })
+    await rm(join(f.root, 'artifacts'), { recursive: true, force: true })
+    await expect(f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } }))
+      .rejects.toMatchObject({ code: 'remote-host-failed', reason: 'ARTIFACT_NOT_FOUND' })
+    expect((await f.ctx.remoteHosts.list())[0]).toMatchObject({ state: 'error', error: 'remote-hosts: ARTIFACT_NOT_FOUND' })
+    // The check precedes every remote write.
+    expect(f.observations.uploads).toBe(0)
+  } finally { await f.cleanup() }
+})
+
 it('aborts a pending SSH attempt during plugin disposal', async () => {
   const f = await fixture()
   try {
@@ -346,16 +359,39 @@ it('reports the composed key-file interaction for affordance routing', async () 
   } finally { await f.cleanup() }
 }, 30_000)
 
-it('treats an absent or foreign picker as no picking interaction', async () => {
+it('serves in-app key browsing whenever the operator is not at the host display', async () => {
   const home = await mkdtemp(join(tmpdir(), 'remote-hosts-nopicker-'))
   const ctx = new Context()
   try {
     const service = new RemoteHosts(ctx, { dshHome: home, artifactsRoot: home })
-    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'absent' })
+    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'browse' })
     ctx.provide('directoryPicker', { capability: () => ({ kind: 'foreign' }) } as never)
-    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'absent' })
+    await expect(service.keyFilePicker()).resolves.toEqual({ kind: 'browse' })
   } finally {
     await ctx.fiber.dispose()
     await rm(home, { recursive: true, force: true })
   }
+})
+
+it('lists one host directory level for the in-app key browser', async () => {
+  const f = await fixture()
+  try {
+    const listing = await f.ctx.remoteHosts.listKeyFiles({ path: f.local })
+    expect(listing.path).toBe(f.local)
+    expect(listing.parent).toBe(dirname(f.local))
+    expect(listing.truncated).toBe(false)
+    // Directories sort before files; the profile's registry file is a pickable row.
+    const names = listing.entries.map(entry => entry.name)
+    expect(names).toContain('cordis.yml')
+    expect(listing.entries.find(entry => entry.name === 'cordis.yml')?.kind).toBe('file')
+    for (let index = 1; index < listing.entries.length; index++) {
+      const [left, right] = [listing.entries[index - 1]!, listing.entries[index]!]
+      if (left.kind === right.kind) expect(left.name.localeCompare(right.name)).toBeLessThanOrEqual(0)
+      else expect(left.kind).toBe('directory')
+    }
+    // A relative path never resolves against the host process directory.
+    await expect(f.ctx.remoteHosts.listKeyFiles({ path: 'relative/path' })).rejects.toThrow('INVALID_INPUT')
+    // An unreadable level is a fixed diagnosis, never a filesystem message.
+    await expect(f.ctx.remoteHosts.listKeyFiles({ path: join(f.local, 'missing-level') })).rejects.toThrow('KEY_DIRECTORY_UNREADABLE')
+  } finally { await f.cleanup() }
 })

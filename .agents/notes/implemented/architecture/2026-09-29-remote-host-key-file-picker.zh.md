@@ -14,7 +14,7 @@ Status: implemented
 
 directory-picker 缝增加单文件交互而不是第二个服务。`DirectoryPickerNativeCapability` 扩展出 `pickFile(signal, request?)`，请求为 `DirectoryPickerFileRequest { title?, defaultDirectory? }`；`browse` 臂不变，未知种类的消费者继续隐藏入口。原生后端按平台实现：macOS 经 osascript 的 `choose file default location`，Linux 为 `--file-selection --filename=<dir>/`（Zenity）与 `--getopenfilename <dir>`（KDialog），Win32 的 `IFileOpenDialog` 子进程增加文件模式并尽力以 `SHCreateItemFromParsingName` + `SetDefaultFolder` 播种起始目录（不可用的种子退化为对话框自己的起始位置而不是让拾取失败）。宿主看不到的起始目录在适配器边界被丢弃——否则 osascript 会让整个选择器硬失败。Electron 自有 Host 路径把 `pickFile` 穿过与 `pickDirectory` 相同的父回调 IPC（`file-pick`/`file-result`/`file-cancel` 消息，同样的单飞与中止规则）。
 
-`remoteHosts.keyFilePicker()`（`harniverse.observe`）是路由探针：宿主能打开自己的选择器时 `{ kind: 'native' }`，browse 目录选择器表面在组合中时 `{ kind: 'browse' }`，否则 `{ kind: 'absent' }`。`remoteHosts.pickKeyFile()`（`harniverse.administer`）是 `native` 半边：经 `ctx.get('directoryPicker')`（可选服务——没有 `native` 能力的组合以 `KEY_PICKER_UNAVAILABLE` 快速失败）解析选择器，以 `join(homedir(), '.ssh')` 播种，返回 `{ path }`——所拾取文件的宿主本地路径，取消时不存在。`browse` 半边不需要缝之外的新宿主 RPC：ui-remote-hosts 声明 `remoteHosts.keyDirectoryFlow` 槽位，browse 目录选择器表面用服务 ui-workspace 的同一个「选择目录」对话框占据它，标题「选择密钥所在目录」，列出的是 Host 机器上的目录。确认目录后填充路径的目录部分（分隔符从所拾路径本身读出——POSIX 根、盘符或 UNC）；操作者在获得焦点的路径输入框里补全文件名，因为该对话框按缝的既定边界只列目录。
+`remoteHosts.keyFilePicker()`（`harniverse.observe`）是路由探针：宿主能打开自己的选择器时 `{ kind: 'native' }`，否则 `{ kind: 'browse' }`。`remoteHosts.pickKeyFile()`（`harniverse.administer`）是 `native` 半边：经 `ctx.get('directoryPicker')`（可选服务——没有 `native` 能力的组合以 `KEY_PICKER_UNAVAILABLE` 快速失败）解析选择器，以 `join(homedir(), '.ssh')` 播种，返回 `{ path }`——所拾取文件的宿主本地路径，取消时不存在。`browse` 半边是同一命名空间内的具名列表 RPC：`remoteHosts.listKeyFiles(input)`（`harniverse.administer`）每次列出 Host 机器的一个目录层级——目录在前、文件在后、各自按名字排序——以操作者的 `~/.ssh`（不存在时回退家目录）起始，上限 1000 条，触限置 `truncated`。目录进入下一层；文件直接选中，因此选定的凭据始终是具体文件。相对路径以 `INVALID_INPUT` 拒绝；不可读层级上报 `KEY_DIRECTORY_UNREADABLE`。对话框在 ui-remote-hosts 包内，跨包槽位或目录选择器依赖都不再与密钥流耦合。
 
 密钥凭据是宿主本地路径，绝不是上传。`AuthSecrets` 的 key 臂二选一：`privateKey`（内联内容——粘贴文本）或 `privateKeyPath`（绝对 POSIX 或 Windows 路径）；登录表单默认走路径。`storeCredentials` 时记录保留 `keyPath`——命名 Host 机器上文件的普通字符串，与 `dshHome` 等宿主本地路径同列，绝不是秘密——以及加密的口令引用；内联材料照旧流入凭据提供方。Host 在每次使用凭据时——`verify` 与 `connect`——自行读取文件，受 64 KiB 上限约束：超限上报 `KEY_FILE_TOO_LARGE`，使用时消失或不可读上报 `KEY_FILE_READ_FAILED`，外来选择器失败收敛为 `KEY_PICKER_FAILED`。`RemoteHostsError` 继承 typert 的 `RemoteError`，但用载波已注册的 `remote-host-failed` 码，本包自己的封闭错误码放在 `details.reason` 里；表单把可处置的 reason 映射为本地化文案。载波错误码是封闭集合：未注册的码（第一版的 `KEY_FILE_READ_FAILED` 等）会让客户端的响应解析整体失败，界面只显示 schema 报错而非任何诊断——这个 reason 通道正是为替代该回归而设。
 
@@ -27,12 +27,12 @@ directory-picker 缝增加单文件交互而不是第二个服务。`DirectoryPi
 - 给 `pickDirectory` 加模式标志：否决，目录与文件选择是同一后端的两种交互，这正是缝的判别能力联合所建模的；布尔标志会让每个调用方分支。
 - 让持久化的主机配置完全不含路径（只留内容引用）：对密钥否决，因为路径是关于 Host 机器的事实而非秘密——存它就像存 `dshHome`——使用时读取把文件被移动变成 `verify`/`connect` 时封闭、可处置的 `KEY_FILE_READ_FAILED`，而不是留下一份静默过期的密钥副本。内联粘贴材料保持一次性 `AuthSecrets` 与凭据存储规则。
 - 从客户端播种对话框（浏览器传 `~/.ssh`）：否决，对话框属于 Host，要紧的家目录是 Host 账户的；种子在宿主侧计算。
-- 为密钥流建第二个目录选择器服务：否决；browse 表面从同一组注册服务其第三个洞（`remoteHosts.keyDirectoryFlow`），没有任何客户端代码按能力种类分支。
+- 经跨包槽位复用 browse 目录选择器表面（中间切的 `remoteHosts.keyDirectoryFlow` 第三个洞）：否决；它让选择器包依赖 ui-remote-hosts，交互却更差——只列目录，操作者还得手工补全文件名。具名列表 RPC 保持线上词汇封闭、依赖图扁平、拾取落在具体文件上；选择器包回到两洞注册。
 
 ## 后果
 
-密钥选择处处跟随组合出的交互，且始终发生在正确的机器上：操作者坐在 Host 显示器前时走 `native`，`browse` 组合（远程、无头或经 SSH 启动的 Host 的常态）走应用内目录对话框，手动输入路径或粘贴始终可用。win32 COM 增量（槽位 11 `SetDefaultFolder`、shell32 解析）经既有 bindings/worker 假件测试；真实 COM 路径只在真实 Windows 宿主上运行，与既有选择器的测试姿态一致。
+密钥选择处处跟随组合出的交互，且始终发生在正确的机器上：操作者坐在 Host 显示器前时走 `native`，`browse` 组合（远程、无头或经 SSH 启动的 Host 的常态）走应用内密钥文件浏览器，手动输入路径或粘贴始终可用。win32 COM 增量（槽位 11 `SetDefaultFolder`、shell32 解析）经既有 bindings/worker 假件测试；真实 COM 路径只在真实 Windows 宿主上运行，与既有选择器的测试姿态一致。
 
 已保存的密钥登录从此引用宿主本地文件；文件被移动或删除会在下一次 `verify`/`connect` 以 `KEY_FILE_READ_FAILED` 显现，只改口令也不再重写已存的密钥材料。Electron 外壳与自有 Host 子进程之间的 IPC 协议增加 `file-pick`/`file-result`/`file-cancel`，精确键校验镜像目录消息。
 
-验证位于：native-picker 套件（各平台文件适配器、播种与丢弃起始目录、AppleScript 转义、取消）、win32 对话框逻辑/bindings 套件（文件模式选项、`SetDefaultFolder` 成功/失败/退化、worker 模式与播种）、桌面 Host 组合与生命周期套件（回调穿线、关联 `file-result`、中止）、remote-hosts coordinator 套件（三种探针如实上报、拾取成功、取消、选择器不可用、路径制 verify/upsert/connect 端到端含读取失败）、secrets 套件（路径存储、使用时读取、大小与读取界限）、typert 名册、browse 表面 client-flow 套件（第三个洞、密钥对话框标题），以及浏览器视图套件（按探针路由的入口、目录采用与分隔符、手动粘贴互斥、共享凭据字段映射、`KEY_*` 本地化、Escape 抽屉）。
+验证位于：native-picker 套件（各平台文件适配器、播种与丢弃起始目录、AppleScript 转义、取消）、win32 对话框逻辑/bindings 套件（文件模式选项、`SetDefaultFolder` 成功/失败/退化、worker 模式与播种）、桌面 Host 组合与生命周期套件（回调穿线、关联 `file-result`、中止）、remote-hosts coordinator 套件（三种探针如实上报、拾取成功、取消、选择器不可用、路径制 verify/upsert/connect 端到端含读取失败）、secrets 套件（路径存储、使用时读取、大小与读取界限）、typert 名册、keyfiles 套件（默认起始、排序、符号链接归类、条目上限、不可读层级），以及密钥浏览器与浏览器视图套件（按探针路由的入口、层级导航与具体文件拾取、陈旧结算失效、手动粘贴互斥、共享凭据字段映射、`KEY_*` 与连接原因本地化、Escape 抽屉）。

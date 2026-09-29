@@ -27,7 +27,7 @@ it('generates strict management contracts with capability metadata and no proxy 
       }> }
     }
     const methods = TYPERT_REMOTE.descriptors
-    expect(methods.map(method => method.method).sort()).toEqual(['connect', 'disconnect', 'keyFilePicker', 'list', 'pickKeyFile', 'removeHost', 'upsert', 'verify'])
+    expect(methods.map(method => method.method).sort()).toEqual(['connect', 'disconnect', 'keyFilePicker', 'list', 'listKeyFiles', 'pickKeyFile', 'removeHost', 'upsert', 'verify'])
     expect(methods.every(method => method.requiredCapability === (method.method === 'list' || method.method === 'keyFilePicker' ? 'harniverse.observe' : 'harniverse.administer'))).toBe(true)
     const input = methods.find(method => method.method === 'upsert')!.parameters[0]!.codec.schema
     expect(input.safeParse({ name: 'Remote', host: 'example.org', username: 'runner',

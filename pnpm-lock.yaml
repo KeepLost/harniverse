@@ -2711,9 +2711,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: workspace:^
         version: link:../ui-primitives
-      '@deepseek-ai/dsh-client-ui-remote-hosts':
-        specifier: workspace:^
-        version: link:../ui-remote-hosts
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -3284,6 +3281,10 @@ importers:
         version: link:../../context/session-reference
 
   packages/client/ui-remote-hosts:
+    dependencies:
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

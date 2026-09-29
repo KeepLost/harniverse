@@ -666,6 +666,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ConnectivityResult: 'remote host connectivity evidence is owned by packages/ssh/remote-hosts/README.md',
   PickKeyFileResult: 'remote host key-file pick result is owned by packages/ssh/remote-hosts/README.md',
   KeyFilePicker: 'remote host key-file interaction probe result is owned by packages/ssh/remote-hosts/README.md',
+  ListKeyFilesInput: 'remote host key-file listing input is owned by packages/ssh/remote-hosts/README.md',
+  KeyFileListing: 'remote host key-file listing is owned by packages/ssh/remote-hosts/README.md',
   ConnectHostInput: 'remote host connection input is owned by packages/ssh/remote-hosts/README.md',
   ActiveReverseMapping: 'remote reverse mapping is owned by packages/ssh/remote-hosts/README.md',
   RemoteHostSshAuthentication: 'SSH authentication contract is owned by packages/ssh/remote-hosts-ssh/README.md',

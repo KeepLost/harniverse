@@ -68,6 +68,8 @@ export const connectSchema = z.strictObject({
 })
 /** Schema for connectivity-test input against an unconfigured target. */
 export const verifySchema = z.strictObject({ host: text, port: port.optional(), username: text, secrets: secretsSchema })
+/** Schema for one browse key-file listing request. */
+export const listKeyFilesSchema = z.strictObject({ path: absolutePath.optional() })
 
 /** Parse an untrusted UUID into the local branded identity.
  * @param value - untrusted UUID.

@@ -1700,7 +1700,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'keyFilePicker(): Promise<KeyFilePicker>',
         description: 'Report which key-file picking interaction this composition serves.',
         parameters: [],
-        returns: 'the composed directory-picker capability kind, `absent` when unserved.',
+        returns: '`native` when the host can open its own chooser, else `browse` for the in-app listing.',
+      },
+      {
+        signature: 'listKeyFiles(input: ListKeyFilesInput): Promise<KeyFileListing>',
+        description: 'List one host directory level, directories and files alike, for the `browse` key-file interaction. Serves the `browse` interaction only.',
+        parameters: [{ name: 'input', description: 'absolute directory; absent starts at the operator\'s `~/.ssh`.' }],
+        returns: 'the bounded listing of that level.',
       },
       {
         signature: 'connect(input: ConnectHostInput): Promise<RemoteHostView>',
@@ -5100,8 +5106,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KeyFileEntry',
+    declaration: 'export interface KeyFileEntry {\n    name: string;\n    path: string;\n    kind: \'directory\' | \'file\';\n}',
+  },
+  {
+    name: 'KeyFileListing',
+    declaration: 'export interface KeyFileListing {\n    path: string;\n    parent?: string;\n    entries: KeyFileEntry[];\n    truncated: boolean;\n}',
+  },
+  {
     name: 'KeyFilePicker',
-    declaration: 'export type KeyFilePicker = {\n    kind: \'native\';\n} | {\n    kind: \'browse\';\n} | {\n    kind: \'absent\';\n};',
+    declaration: 'export type KeyFilePicker = {\n    kind: \'native\';\n} | {\n    kind: \'browse\';\n};',
   },
   {
     name: 'KnobState',
@@ -5122,6 +5136,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KvUnitDescriptor',
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly migrateFrom?: readonly number[];\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n}',
+  },
+  {
+    name: 'ListKeyFilesInput',
+    declaration: 'export interface ListKeyFilesInput {\n    path?: string;\n}',
   },
   {
     name: 'LlmAdapter',

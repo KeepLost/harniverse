@@ -150,9 +150,17 @@ pickKeyFile(): Promise<PickKeyFileResult>
 
 /**
   * Report which key-file picking interaction this composition serves.
-  * @returns the composed directory-picker capability kind, `absent` when unserved.
+  * @returns `native` when the host can open its own chooser, else `browse` for the in-app listing.
   */
 keyFilePicker(): Promise<KeyFilePicker>
+
+/**
+ * List one host directory level, directories and files alike, for the
+ * `browse` key-file interaction. Serves the `browse` interaction only.
+ * @param input - absolute directory; absent starts at the operator's `~/.ssh`.
+ * @returns the bounded listing of that level.
+ */
+listKeyFiles(input: ListKeyFilesInput): Promise<KeyFileListing>
 
 /**
  * Connect to a configured host and synchronize its remote runtime.
@@ -200,7 +208,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:119`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:143`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 

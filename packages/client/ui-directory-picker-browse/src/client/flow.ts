@@ -9,8 +9,6 @@ import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Translate } from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the owner contract of the directory-flow holes.
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
-// Type-only: the owner contract of the remote-hosts key-directory flow hole.
-import type { KeyDirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-remote-hosts/client'
 import { DirectoryBrowser } from './DirectoryBrowser.tsx'
 
 /** Injected face: the browse wire calls and copy the dialog drives (bound in apply's closure). */
@@ -39,27 +37,6 @@ export function BrowseDirectoryFlow(props: DirectoryFlowOwnerProps & BrowseFlowI
     listDirectory: props.listDirectory,
     createDirectory: props.createDirectory,
     t: props.t,
-    onOpen: props.onPicked,
-    onClose: props.onCancel,
-  })
-}
-
-/**
- * Key-directory occupant for ui-remote-hosts' flow hole: the same browser
- * dialog under key-picking copy. The browse backend lists directories only,
- * so the confirmed directory is the SSH key file's directory part; the owner
- * completes the file name in its path input.
- * @param props - key-directory owner conversation plus the injected browse face.
- * @returns the dialog element (renders nothing while closed).
- */
-export function BrowseKeyDirectoryFlow(props: KeyDirectoryFlowOwnerProps & BrowseFlowInjected): ReactElement {
-  return createElement(DirectoryBrowser, {
-    open: props.open,
-    busy: props.busy,
-    listDirectory: props.listDirectory,
-    createDirectory: props.createDirectory,
-    t: props.t,
-    titleKey: 'browser.keyTitle',
     onOpen: props.onPicked,
     onClose: props.onCancel,
   })

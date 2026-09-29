@@ -24,9 +24,6 @@
       "path": "../runtime"
     },
     {
-      "path": "../ui-remote-hosts"
-    },
-    {
       "path": "../ui-workspace"
     }
   ]

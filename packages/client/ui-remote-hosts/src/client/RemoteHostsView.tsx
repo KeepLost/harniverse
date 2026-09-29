@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { AuthSecrets, ConnectivityResult, KeyFilePicker, PickKeyFileResult, RemoteHostId, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { AuthSecrets, ConnectivityResult, KeyFileListing, KeyFilePicker, ListKeyFilesInput, PickKeyFileResult, RemoteHostId, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
 import {
-  IconCloseOutline16, IconFolderOpenOutline16, IconGlobeOutline14,
+  IconChevronDownOutline14, IconCloseOutline16, IconFolderOpenOutline16, IconGlobeOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { KeyDirectoryPickingHooks } from './contract.ts'
+import type { InjectFace, PropsLocale, PropsStore, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { createRemoteHostsViewStore } from './stores.ts'
+import { remoteIssue, resultError } from './issues.ts'
+import { KeyFileBrowser } from './KeyFileBrowser.tsx'
 import { NS } from './locales.ts'
 import css from './remote-hosts.module.css'
 
@@ -16,6 +17,7 @@ interface RemoteHostsActions {
   verify: (input: { host: string; port?: number; username: string; secrets: AuthSecrets }) => Promise<RemoteResult<ConnectivityResult>>
   keyFilePicker: () => Promise<RemoteResult<KeyFilePicker>>
   pickKeyFile: () => Promise<RemoteResult<PickKeyFileResult>>
+  listKeyFiles: (input: ListKeyFilesInput) => Promise<RemoteResult<KeyFileListing>>
   connect: (id: RemoteHostId, secrets?: AuthSecrets) => Promise<RemoteResult<RemoteHostView>>
   openRemote: (id: RemoteHostId) => void
   disconnect: (id: RemoteHostId) => Promise<RemoteResult<void>>
@@ -24,10 +26,8 @@ interface RemoteHostsActions {
 
 export type RemoteHostsViewProps =
   PropsRuntime<'center.view'>
-  & PropsRenderSlots<'remoteHosts.keyDirectoryFlow'>
   & PropsStore<ReturnType<typeof createRemoteHostsViewStore>>
   & InjectFace<RemoteHostsActions & { closeView: () => void }>
-  & KeyDirectoryPickingHooks
   & PropsLocale<typeof NS>
 
 type Draft = {
@@ -35,8 +35,8 @@ type Draft = {
   host: string
   port: string
   username: string
-  platform: 'linux' | 'darwin' | 'win32'
-  architecture: 'x64' | 'arm64'
+  platform: 'auto' | 'linux' | 'darwin' | 'win32'
+  architecture: 'auto' | 'x64' | 'arm64'
   kind: 'password' | 'key'
   secret: string
   credential: string
@@ -53,44 +53,13 @@ type Draft = {
 type Tested = ConnectivityResult
 
 const initialDraft: Draft = {
-  name: '', host: '', port: '22', username: '', platform: 'linux',
-  architecture: 'x64', kind: 'password', secret: '', credential: '', manualPaste: false, keyPath: '',
+  name: '', host: '', port: '22', username: '', platform: 'auto',
+  architecture: 'auto', kind: 'password', secret: '', credential: '', manualPaste: false, keyPath: '',
   remember: true, mappings: [], mappingLocalHost: '127.0.0.1', mappingLocalPort: '3000', mappingOrigin: '',
 }
 
 /** Fields whose change invalidates a completed connectivity test. */
 const testedFields = ['host', 'port', 'username', 'kind', 'secret', 'credential', 'keyPath', 'manualPaste'] as const
-
-/** Target fields a connectivity test prefills only until the operator overrides them. */
-const detectedFields = ['platform', 'architecture'] as const
-
-/** Path separator of a host path, read off the picked/typed path itself: a POSIX root or a Windows drive/UNC prefix. */
-function hostPathSeparator(path: string): '/' | '\\' {
-  return path.startsWith('/') || path === '' ? '/' : /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\') ? '\\' : '/'
-}
-
-/** The remote-hosts failure reason carried by the carrier's `remote-host-failed` code. */
-function failureReason(failure: RemoteFailure): string {
-  const reason = (failure.details as { reason?: unknown }).reason
-  return typeof reason === 'string' ? reason : failure.code
-}
-
-/** A host failure as operator copy: the package's closed codes localize, foreign codes keep their wire message. */
-function remoteIssue(t: RemoteHostsViewProps['t'], failure: RemoteFailure): string {
-  switch (failureReason(failure)) {
-    case 'KEY_PICKER_UNAVAILABLE': return t('errorKeyPickUnavailable')
-    case 'KEY_PICKER_FAILED': return t('errorKeyPickFailed')
-    case 'KEY_FILE_TOO_LARGE': return t('errorKeyFileTooLarge')
-    case 'KEY_FILE_READ_FAILED': return t('errorKeyFileReadFailed')
-    case 'INVALID_INPUT': return t('errorInvalidInput')
-    case 'VERIFY_FAILED': return t('errorVerifyFailed')
-    default: return typeof failure.message === 'string' && failure.message !== '' ? failure.message : t('actionFailed')
-  }
-}
-
-function resultError<T>(t: RemoteHostsViewProps['t'], result: RemoteResult<T>): Error | undefined {
-  return result.ok ? undefined : new Error(remoteIssue(t, result.error))
-}
 
 function stateLabel(t: RemoteHostsViewProps['t'], state: RemoteHostView['state']): string {
   const key = state === 'offline'
@@ -104,20 +73,18 @@ function stateLabel(t: RemoteHostsViewProps['t'], state: RemoteHostView['state']
 }
 
 export function RemoteHostsView({
-  active, actions, list, upsert, verify, keyFilePicker, pickKeyFile, connect, openRemote, disconnect, remove, closeView,
-  useKeyDirectoryFlow, renderSlot, t,
+  active, actions, list, upsert, verify, keyFilePicker, pickKeyFile, listKeyFiles, connect, openRemote, disconnect, remove, closeView, t,
 }: RemoteHostsViewProps) {
   const [hosts, setHosts] = useState<RemoteHostView[]>([])
   const [draft, setDraft] = useState(initialDraft)
   const [tested, setTested] = useState<Tested | undefined>()
-  const overrides = useRef(new Set<(typeof detectedFields)[number]>())
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [pickerKind, setPickerKind] = useState<KeyFilePicker['kind'] | undefined>()
-  const [keyFlowOpen, setKeyFlowOpen] = useState(false)
+  const [optionsOpen, setOptionsOpen] = useState(false)
+  const [keyBrowserOpen, setKeyBrowserOpen] = useState(false)
   const keyPathInput = useRef<HTMLInputElement>(null)
-  const keyDirectoryFlowAvailable = useKeyDirectoryFlow(occupied => occupied)
 
   const refresh = useCallback(async () => {
     const result = await list()
@@ -137,13 +104,13 @@ export function RemoteHostsView({
     return () => { actions.setOpen(false); setHosts([]) }
   }, [actions, active])
   // The composed interaction decides the affordance; a failed probe or an
-  // unknown kind hides it (the seam's documented default), leaving manual entry.
+  // unresolved one hides it, leaving manual entry.
   useEffect(() => {
     if (!active) return
     let cancelled = false
     void keyFilePicker().then(
-      (result) => { if (!cancelled) setPickerKind(result.ok ? result.value.kind : 'absent') },
-      () => { if (!cancelled) setPickerKind('absent') },
+      (result) => { if (!cancelled) setPickerKind(result.ok ? result.value.kind : undefined) },
+      () => { if (!cancelled) setPickerKind(undefined) },
     )
     return () => { cancelled = true }
   }, [active, keyFilePicker])
@@ -168,8 +135,6 @@ export function RemoteHostsView({
     setDraft(previous => ({ ...previous, [key]: value }))
     // A test only describes the exact target and credentials it ran with.
     if ((testedFields as readonly string[]).includes(key)) setTested(undefined)
-    // A detected default never overrides an operator's explicit target choice.
-    if (key === 'platform' || key === 'architecture') overrides.current.add(key)
   }
 
   const secrets = (): AuthSecrets => draft.kind === 'password'
@@ -181,7 +146,7 @@ export function RemoteHostsView({
   const openEditor = (): void => {
     setDraft(initialDraft)
     setTested(undefined)
-    overrides.current.clear()
+    setOptionsOpen(false)
     setError(undefined)
     setEditing(true)
   }
@@ -220,14 +185,7 @@ export function RemoteHostsView({
       const issue = resultError(t, result)
       if (issue) throw issue
       /* v8 ignore next -- resultError rejects every non-ok result before this successful-test branch. */
-      if (result.ok) {
-        setTested(result.value)
-        setDraft(previous => ({
-          ...previous,
-          ...(overrides.current.has('platform') ? {} : { platform: result.value.platform }),
-          ...(overrides.current.has('architecture') ? {} : { architecture: result.value.architecture }),
-        }))
-      }
+      if (result.ok) setTested(result.value)
     } catch (cause) {
       setTested(undefined)
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -258,11 +216,10 @@ export function RemoteHostsView({
     }
   }
 
-  // A confirmed browse directory becomes the key path's directory part; the
-  // operator completes the file name in the focused path input.
-  const adoptKeyDirectory = (directory: string): void => {
-    setKeyFlowOpen(false)
-    setDraft(previous => ({ ...previous, keyPath: directory + hostPathSeparator(directory) }))
+  // A confirmed file from the in-app browser becomes the key path as-is.
+  const adoptKeyFile = (path: string): void => {
+    setKeyBrowserOpen(false)
+    setDraft(previous => ({ ...previous, keyPath: path }))
     setTested(undefined)
     keyPathInput.current?.focus()
   }
@@ -293,7 +250,10 @@ export function RemoteHostsView({
     const submitted = secrets()
     const input: UpsertHostInput = {
       name: draft.name, host: draft.host, port: Number(draft.port), username: draft.username,
-      fingerprint: tested.fingerprint, platform: draft.platform, architecture: draft.architecture,
+      // An undecided target follows what the passed test detected.
+      fingerprint: tested.fingerprint,
+      platform: draft.platform === 'auto' ? tested.platform : draft.platform,
+      architecture: draft.architecture === 'auto' ? tested.architecture : draft.architecture,
       authentication, reverseMappings: draft.mappings,
       ...(draft.remember ? { secrets: submitted, storeCredentials: true } : {}),
     }
@@ -309,7 +269,6 @@ export function RemoteHostsView({
       }
       closeEditor()
       setDraft(initialDraft)
-      overrides.current.clear()
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -319,7 +278,9 @@ export function RemoteHostsView({
   }
 
   const onDrawerKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key !== 'Escape' || busy !== undefined) return
+    // The key browser's own Escape lands here too through the portal; only a
+    // free-standing Escape closes the drawer.
+    if (event.key !== 'Escape' || busy !== undefined || keyBrowserOpen) return
     event.preventDefault()
     closeEditor()
   }
@@ -374,8 +335,6 @@ export function RemoteHostsView({
                 <label htmlFor="remote-host-address">{t('host')}<input id="remote-host-address" required value={draft.host} onChange={(event) => { update('host', event.target.value) }} /></label>
                 <label htmlFor="remote-host-port">{t('port')}<input id="remote-host-port" required inputMode="numeric" value={draft.port} onChange={(event) => { update('port', event.target.value) }} /></label>
                 <label htmlFor="remote-host-username">{t('username')}<input id="remote-host-username" required value={draft.username} onChange={(event) => { update('username', event.target.value) }} /></label>
-                <label htmlFor="remote-host-platform">{t('platform')}<select id="remote-host-platform" value={draft.platform} onChange={(event) => { update('platform', event.target.value as Draft['platform']) }}><option value="linux">Linux</option><option value="darwin">macOS</option><option value="win32">Windows</option></select></label>
-                <label htmlFor="remote-host-architecture">{t('architecture')}<select id="remote-host-architecture" value={draft.architecture} onChange={(event) => { update('architecture', event.target.value as Draft['architecture']) }}><option value="x64">x64</option><option value="arm64">arm64</option></select></label>
                 <label htmlFor="remote-host-auth">{t('auth')}<select id="remote-host-auth" value={draft.kind} onChange={(event) => { update('kind', event.target.value as Draft['kind']) }}><option value="password">{t('password')}</option><option value="key">{t('privateKey')}</option></select></label>
                 {draft.kind === 'password' ? (
                   <label htmlFor="remote-host-credential" className={css.wideField}>{t('password')}<input id="remote-host-credential" type="password" required autoComplete="new-password" value={draft.credential} onChange={(event) => { update('credential', event.target.value) }} /></label>
@@ -392,31 +351,37 @@ export function RemoteHostsView({
                         value={draft.keyPath}
                         onChange={(event) => { update('keyPath', event.target.value) }}
                       />
-                      {pickerKind !== 'absent' && pickerKind !== undefined && !(pickerKind === 'browse' && !keyDirectoryFlowAvailable) ? (
+                      {pickerKind !== undefined ? (
                         <button
                           type="button"
                           className={css.keyFileButton}
                           disabled={draft.manualPaste || busy !== undefined}
-                          onClick={() => { if (pickerKind === 'native') void chooseKeyFile(); else setKeyFlowOpen(true) }}
-                        ><IconFolderOpenOutline16 />{t('chooseKeyDirectory')}</button>
+                          onClick={() => { if (pickerKind === 'native') void chooseKeyFile(); else setKeyBrowserOpen(true) }}
+                        ><IconFolderOpenOutline16 />{t('chooseKeyFile')}</button>
                       ) : null}
                     </div>
-                    <p className={css.keyFileHint}>{t(draft.manualPaste ? 'keyFileHintPaste' : pickerKind === 'browse' ? 'keyFileHintBrowse' : pickerKind === 'native' ? 'keyFileHint' : 'keyFileHintPath')}</p>
+                    <p className={css.keyFileHint}>{t(draft.manualPaste ? 'keyFileHintPaste' : pickerKind === 'native' ? 'keyFileHint' : pickerKind === 'browse' ? 'keyFileHintBrowse' : 'keyFileHintPath')}</p>
                     <label className={css.checkbox}><input type="checkbox" checked={draft.manualPaste} onChange={(event) => { update('manualPaste', event.target.checked) }} />{t('manualPaste')}</label>
                     {draft.manualPaste ? (
                       <label htmlFor="remote-host-key" className={css.wideField}>{t('privateKey')}<textarea id="remote-host-key" required placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" value={draft.secret} onChange={(event) => { update('secret', event.target.value) }} /></label>
                     ) : null}
                     <label htmlFor="remote-host-credential" className={css.wideField}>{t('passphrase')}<input id="remote-host-credential" type="password" autoComplete="new-password" value={draft.credential} onChange={(event) => { update('credential', event.target.value) }} /></label>
-                    {pickerKind === 'browse' ? renderSlot('remoteHosts.keyDirectoryFlow', {
-                      open: keyFlowOpen,
-                      busy: busy === 'pick',
-                      onPicked: adoptKeyDirectory,
-                      onCancel: () => { setKeyFlowOpen(false) },
-                      onError: (message) => { setKeyFlowOpen(false); setError(message) },
-                    }) : null}
                   </div>
                 )}
                 <label className={css.checkbox}><input type="checkbox" checked={draft.remember} onChange={(event) => { update('remember', event.target.checked) }} />{t('saveCredentials')}</label>
+                <div className={css.optionsSection}>
+                  <button type="button" className={css.optionsToggle} aria-expanded={optionsOpen} aria-controls="remote-host-options" onClick={() => { setOptionsOpen(previous => !previous) }}>
+                    <IconChevronDownOutline14 size={12} className={css.optionsChevron} />
+                    {t('optionalSettings')}
+                  </button>
+                  {optionsOpen ? (
+                    <div id="remote-host-options" className={css.optionsBody}>
+                      <label htmlFor="remote-host-platform">{t('platform')}<select id="remote-host-platform" value={draft.platform} onChange={(event) => { update('platform', event.target.value as Draft['platform']) }}><option value="auto">{t('decideAtConnect')}</option><option value="linux">Linux</option><option value="darwin">macOS</option><option value="win32">Windows</option></select></label>
+                      <label htmlFor="remote-host-architecture">{t('architecture')}<select id="remote-host-architecture" value={draft.architecture} onChange={(event) => { update('architecture', event.target.value as Draft['architecture']) }}><option value="auto">{t('decideAtConnect')}</option><option value="x64">x64</option><option value="arm64">arm64</option></select></label>
+                      <p className={css.optionsHint}>{t('optionalHint')}</p>
+                    </div>
+                  ) : null}
+                </div>
                 <div className={css.mappingEditor}>
                   <strong>{t('reverseMappings')}</strong>
                   <p className={css.mappingHint}>{t('mappingHint')}</p>
@@ -432,13 +397,16 @@ export function RemoteHostsView({
                 </div>
               </div>
               <p className={css.testHint}>{t('testHint')}</p>
-              {tested ? <p className={css.tested} role="status">{t('testPassed')} · {tested.fingerprint}</p> : null}
+              {tested ? <p className={css.tested} role="status">{t('testPassed')} · {tested.platform}/{tested.architecture} · {tested.fingerprint}</p> : null}
               <div className={css.drawerActions}>
                 <button type="button" disabled={busy !== undefined} onClick={() => { void testConnection() }}>{t('test')}</button>
                 <button type="submit" className={css.primary} disabled={tested === undefined || busy !== undefined}>{t('save')}</button>
                 <button type="button" disabled={busy !== undefined} onClick={closeEditor}>{t('cancel')}</button>
               </div>
             </form>
+            <KeyFileBrowser open={keyBrowserOpen} t={t}
+              list={path => listKeyFiles(path === undefined ? {} : { path })}
+              onPick={adoptKeyFile} onClose={() => { setKeyBrowserOpen(false) }} />
           </div>
         ) : null}
       </div>

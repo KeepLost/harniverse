@@ -1173,32 +1173,6 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     source: 'packages/client/ui-governor/src/client/index.ts:46',
   },
   {
-    key: 'remoteHosts.keyDirectoryFlow',
-    kind: 'single',
-    scope: 'root',
-    summary: 'Key-directory flow hole under the remote-hosts center view (declared by the remoteHosts entry).',
-    doc: 'Key-directory flow hole under the remote-hosts center view (declared by the remoteHosts entry).',
-    registerOptions: [],
-    ownerProps: [
-      '/** Owner share of the key-directory flow hole: the trigger surface\'s side of the conversation. */\nexport interface KeyDirectoryFlowOwnerProps {\n  /** True while a picking interaction is requested; flipping back to false withdraws the request. */\n  open: boolean\n  /** True while the owner adopts a picked directory; occupants disable their commit affordances. */\n  busy: boolean\n  /** The operator picked a directory (absolute host path); the owner adopts it as the key path\'s directory part. */\n  onPicked: (path: string) => void\n  /** The operator dismissed the interaction; the owner just closes the flow. */\n  onCancel: () => void\n  /** The interaction itself failed (listing denied); the owner shows its error surface. */\n  onError: (message: string) => void\n}',
-    ],
-    ownerPropsReferences: [],
-    standardProps: [
-      'useSessions: SnapshotSelectorHook<SessionListState>',
-      'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
-    ],
-    keyDomain: '',
-    hookContext: '',
-    slotInject: '',
-    declaredBy: 'an entry in \'center.view\' (client-ui-remote-hosts), so it exists while that entry is mounted',
-    occupants: [
-      'client-ui-directory-picker-browse BrowseKeyDirectoryFlow',
-    ],
-    replaceRisk: 'shadows-shipped-ui',
-    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'remoteHosts.keyDirectoryFlow\', () => ctx.slots.register(\n      { name: \'remoteHosts.keyDirectoryFlow\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-remote-hosts/src/client/contract.ts:27',
-  },
-  {
     key: 'root',
     kind: 'single',
     scope: 'root',

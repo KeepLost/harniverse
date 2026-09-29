@@ -35,11 +35,26 @@ async function hashFile(path: string): Promise<string> {
  */
 export async function inspectArtifact(root: string, platform: RemotePlatform, arch: RemoteArchitecture): Promise<Artifact> {
   if (!isAbsolute(root)) throw new RemoteHostsError('ARTIFACT_ROOT_NOT_ABSOLUTE')
-  const directory = await realpath(join(root, `${platform}-${arch}`))
-  const bytes = await readFile(join(directory, 'manifest.json'))
+  let directory: string
+  try {
+    directory = await realpath(join(root, `${platform}-${arch}`))
+  } catch (error) {
+    // Nothing built for this target is the operator's actionable case; any
+    // other resolution failure (a link loop, a denied parent) is a broken root.
+    throw new RemoteHostsError((error as NodeJS.ErrnoException).code === 'ENOENT' ? 'ARTIFACT_NOT_FOUND' : 'INVALID_ARTIFACT')
+  }
+  let bytes: Buffer
+  let sealed: string
+  try {
+    bytes = await readFile(join(directory, 'manifest.json'))
+    sealed = await readFile(join(directory, 'manifest.sha256'), 'utf8')
+  } catch {
+    // A target directory without its manifest pair is not a deployable artifact.
+    throw new RemoteHostsError('INVALID_ARTIFACT')
+  }
   if (bytes.length > 32 * 1024 * 1024) throw new RemoteHostsError('INVALID_ARTIFACT')
   const digest = createHash('sha256').update(bytes).digest('hex')
-  if ((await readFile(join(directory, 'manifest.sha256'), 'utf8')).trim() !== `${digest}  manifest.json`) throw new RemoteHostsError('ARTIFACT_HASH_MISMATCH')
+  if (sealed.trim() !== `${digest}  manifest.json`) throw new RemoteHostsError('ARTIFACT_HASH_MISMATCH')
   const manifest = manifestSchema.parse(JSON.parse(bytes.toString('utf8')))
   const executable = platform === 'win32' ? 'node.exe' : 'node'
   if (manifest.node.platform !== platform || manifest.node.arch !== arch || manifest.launch.executable !== executable) throw new RemoteHostsError('ARTIFACT_PLATFORM_MISMATCH')

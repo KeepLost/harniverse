@@ -61,8 +61,6 @@ export interface DirectoryBrowserProps {
   busy: boolean
   /** Localized copy. */
   t: Translate
-  /** Dialog title key within `t`'s namespace; absent uses `browser.title` (workspace copy). */
-  titleKey?: string
 }
 
 /** Failure text: the Host business message when typed, else the throw's text. */
@@ -261,7 +259,7 @@ function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPr
  * @param props - owner-controlled browser props.
  * @returns the dialog element (null while closed, via Modal).
  */
-export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen, onClose, busy, t, titleKey }: DirectoryBrowserProps) {
+export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen, onClose, busy, t }: DirectoryBrowserProps) {
   // Miller state: the listed level, the selected row in it, and the selected
   // folder's own listing (the right column; null while nothing is selected).
   const [parent, setParent] = useState<DirectoryListing | null>(null)
@@ -760,7 +758,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // adoption pins the flow — dismissing it would leave the owner's
       // createWorkspace to land after an apparent cancel.
       onClose={() => { if (folderDraft === null && !busy) onClose() }}
-      title={t(titleKey ?? 'browser.title')}
+      title={t('browser.title')}
       className={clsx(css.dialog)}
       headless
     >
@@ -808,7 +806,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         }}
       >
         <div className={css.header}>
-          <h2 className={css.title}>{t(titleKey ?? 'browser.title')}</h2>
+          <h2 className={css.title}>{t('browser.title')}</h2>
           <div className={css.crumbBar}>
             {pathDraft === null
               ? (

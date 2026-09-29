@@ -14,7 +14,7 @@
 
 ## 管理 API
 
-Remote 命名空间为 `remoteHosts`。`list()` 与 `keyFilePicker()` 要求 `harniverse.observe`；`upsert(input)`、`removeHost(id)`、`verify(input)`、`pickKeyFile()`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
+Remote 命名空间为 `remoteHosts`。`list()` 与 `keyFilePicker()` 要求 `harniverse.observe`；`upsert(input)`、`removeHost(id)`、`verify(input)`、`pickKeyFile()`、`listKeyFiles(input)`、`connect(input)`、`disconnect(id)` 要求 `harniverse.administer`。正常授权的本地所有者可调用这些方法。即使界面正在显示远程工作区，管理请求也必须始终发往原始本地主机。
 
 `removeHost` 是本地 `ctx.remoteHosts.remove(id)` 方法导出的 Remote 名称。Client Gateway 的命名空间 Service 自身用 `remove` 卸载方法，因此同名 Remote 方法无法挂载。
 
@@ -24,7 +24,7 @@ Remote 命名空间为 `remoteHosts`。`list()` 与 `keyFilePicker()` 要求 `ha
 
 `verify({ host, port?, username, secrets })` 执行保存主机前必须通过的连通性检测。它使用提交的凭据完成身份验证，接受本次尝试的主机密钥，并运行一条固定探测命令，返回 `{ fingerprint, platform, architecture }`。
 
-`keyFilePicker()` 报告当前组合提供的交互形态——宿主能打开自己的选择器时返回 `{ kind: 'native' }`，browse 目录选择器表面在组合中时返回 `{ kind: 'browse' }`，否则返回 `{ kind: 'absent' }`（无拾取交互）——客户端据此渲染对应的入口而不是猜测。它是路由探针；`pickKeyFile()` 是其中 `native` 一侧的交互。`pickKeyFile()` 服务于登录表单的密钥文件入口：它经 `ctx.get('directoryPicker')`（唯一的可选注入——没有 `native` 能力的组合会以 `KEY_PICKER_UNAVAILABLE` 快速失败，例如探针后组合被卸载的竞态）打开以操作者 `~/.ssh` 为起始目录的宿主原生单文件选择器，并返回 `{ path }`——所拾取文件的宿主本地路径，正是 `AuthSecrets.privateKeyPath` 保存的值；操作者取消时该字段不存在。`browse` 一侧在客户端：密钥目录流槽位的对话框列出 Host 所在机器上的目录，确认后成为路径的目录部分（操作者在获得焦点的路径输入框里补全文件名）。密钥凭据是宿主本地路径，绝不是上传：Host 在使用凭据时——`verify` 与 `connect` 时——自行读取文件，上限 64 KiB（`KEY_FILE_TOO_LARGE`）；使用时消失或不可读的文件上报 `KEY_FILE_READ_FAILED`；外来选择器失败被收敛为 `KEY_PICKER_FAILED`。每个失败都以载波已注册的 `remote-host-failed` 码过线，上述本包错误码放在 `details.reason` 里——载波错误码是封闭集合，客户端按 reason 匹配，绝不按 `code`。
+`keyFilePicker()` 报告当前组合提供的交互形态——宿主能打开自己的选择器时返回 `{ kind: 'native' }`，否则返回 `{ kind: 'browse' }`——客户端据此渲染对应的入口而不是猜测。它是路由探针；`pickKeyFile()` 是其中 `native` 一侧的交互。`pickKeyFile()` 服务于登录表单的密钥文件入口：它经 `ctx.get('directoryPicker')`（唯一的可选注入——没有 `native` 能力的组合会以 `KEY_PICKER_UNAVAILABLE` 快速失败，例如探针后组合被卸载的竞态）打开以操作者 `~/.ssh` 为起始目录的宿主原生单文件选择器，并返回 `{ path }`——所拾取文件的宿主本地路径，正是 `AuthSecrets.privateKeyPath` 保存的值；操作者取消时该字段不存在。`browse` 一侧是由 `listKeyFiles(input)` 供应的应用内列表：每次列出 Host 所在机器的一个目录层级——目录在前、文件在后、各自按名字排序——以操作者的 `~/.ssh`（不存在时为其家目录）起始，上限 1000 条，触限时置 `truncated`。目录进入下一层；文件直接选中，因此操作者落在具体的密钥文件上，绝不会停在目录。相对路径以 `INVALID_INPUT` 拒绝；不可读的层级上报 `KEY_DIRECTORY_UNREADABLE`。密钥凭据是宿主本地路径，绝不是上传：Host 在使用凭据时——`verify` 与 `connect` 时——自行读取文件，上限 64 KiB（`KEY_FILE_TOO_LARGE`）；使用时消失或不可读的文件上报 `KEY_FILE_READ_FAILED`；外来选择器失败被收敛为 `KEY_PICKER_FAILED`。每个失败都以载波已注册的 `remote-host-failed` 码过线，上述本包错误码放在 `details.reason` 里——载波错误码是封闭集合，客户端按 reason 匹配，绝不按 `code`。
 
 返回的 `fingerprint` 就是该连接自身观测到的主机密钥，`platform` 与 `architecture` 则是目标主机给出的回答。它们正是 `upsert` 随后保存的值：记录下来的固定指纹来自一次登录已成功的连接，而探测到的目标平台也免去了让操作者声明主机自身已知信息的多余步骤。检测优先接受 POSIX 的 `uname` 回答，若目标是 Windows 默认 shell，则改用 PowerShell 重试；若回答未给出可部署的平台或架构，则判定检测失败。已保存的凭据由后续全新检测重新验证，因此指纹变化会表现为检测失败，而不会退回某个已存的批准记录。
 
@@ -67,7 +67,7 @@ Remote 命名空间为 `remoteHosts`。`list()` 与 `keyFilePicker()` 要求 `ha
 
 ## 部署、认证与同步
 
-传输前验证清单摘要、平台、架构、路径、每个本地文件的哈希和可移植树内链接。链接物化为已校验的普通文件树，避免依赖 Windows 符号链接权限。上传写入私有随机暂存目录，验证全部成功后才成为 `server/releases/<manifest-digest>`。现有发布目录也重新验证，并拒绝额外文件；不执行或复用不完整暂存目录。
+传输前验证清单摘要、平台、架构、路径、每个本地文件的哈希和可移植树内链接。链接物化为已校验的普通文件树，避免依赖 Windows 符号链接权限。上传写入私有随机暂存目录，验证全部成功后才成为 `server/releases/<manifest-digest>`。现有发布目录也重新验证，并拒绝额外文件；不执行或复用不完整暂存目录。所选产物目录不存在时，需要它的连接以 `ARTIFACT_NOT_FOUND` 失败；存在但检验不过时以 `INVALID_ARTIFACT` 失败。Host 只记录被吞原因的错误名与错误码——绝不记录消息——使面向操作者的失败文案停留在封闭的 reason 上。
 
 运行复制的 Node 前，Linux 使用 `sha256sum`，macOS 使用 `shasum -a 256`，Windows 使用 PowerShell `Get-FileHash`。随后由已验证的 Node 校验完整传输树并恢复执行位。原生哈希命令失败即中止。远端不需要源码、全局 Node、包管理器或依赖安装。原生哈希工具及可信私有路径祖先是前提；可在执行过程中替换文件的同用户攻击者不在此信任边界内。
 

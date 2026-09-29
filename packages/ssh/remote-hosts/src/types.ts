@@ -50,23 +50,47 @@ export type AuthSecrets =
   | { kind: 'key'; privateKey?: undefined; privateKeyPath: string; passphrase?: string }
 
 /**
- * The key-file picking interaction this composition serves, mirroring the
- * directory-picker seam's capability vocabulary. `absent` follows the seam's
- * documented default for an unknown or unmounted backend: clients hide the
- * picking affordance instead of failing.
+ * The key-file picking interaction this composition serves. `native` needs the
+ * operator at the host's own display; `browse` serves every deployment.
  */
 export type KeyFilePicker =
   /** The host can open its OS chooser; clients drive `pickKeyFile`. */
   | { kind: 'native' }
-  /** The host serves directory listings; clients browse to the key's directory. */
+  /** Clients browse host directories one level at a time through `listKeyFiles` and pick a file. */
   | { kind: 'browse' }
-  /** No picking interaction is served; manual entry remains. */
-  | { kind: 'absent' }
 
 /** An operator-picked host-local key file path; absent when the operator cancelled. */
 export interface PickKeyFileResult {
   /** Absolute path of the picked file on this host. */
   path?: string
+}
+
+/** One directory level to list for the browse key-file interaction. */
+export interface ListKeyFilesInput {
+  /** Absolute host directory; absent lists the operator's `~/.ssh`, else the home directory. */
+  path?: string
+}
+
+/** One row of a key-file listing: a directory to enter or a file to pick. */
+export interface KeyFileEntry {
+  /** Base name within the listed directory. */
+  name: string
+  /** Absolute host path of the entry. */
+  path: string
+  /** What the entry is after following symbolic links. */
+  kind: 'directory' | 'file'
+}
+
+/** One host directory level as the key-file browser shows it. */
+export interface KeyFileListing {
+  /** Absolute path of the listed directory. */
+  path: string
+  /** The directory above it; absent at a filesystem root. */
+  parent?: string
+  /** Directories first, then files, each name-sorted. */
+  entries: KeyFileEntry[]
+  /** True when the level holds more entries than the listing bound admits. */
+  truncated: boolean
 }
 
 /** Full replacement. Omitted port and mappings default to 22 and []. */
@@ -147,9 +171,16 @@ export interface RemoteHostsProvider {
   pickKeyFile(): Promise<PickKeyFileResult>
   /**
     * Report which key-file picking interaction this composition serves.
-    * @returns the composed directory-picker capability kind, `absent` when unserved.
+    * @returns `native` when the host can open its own chooser, else `browse` for the in-app listing.
     */
   keyFilePicker(): Promise<KeyFilePicker>
+  /**
+   * List one host directory level, directories and files alike, for the
+   * `browse` key-file interaction. Serves the `browse` interaction only.
+   * @param input - absolute directory; absent starts at the operator's `~/.ssh`.
+   * @returns the bounded listing of that level.
+   */
+  listKeyFiles(input: ListKeyFilesInput): Promise<KeyFileListing>
   /**
    * Connect to a configured host and synchronize its remote runtime.
    * @param input - host identity and optional one-shot credentials.

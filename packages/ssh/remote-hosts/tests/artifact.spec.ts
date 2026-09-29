@@ -111,11 +111,30 @@ it('quotes native Windows commands and resolves server-native homes', () => {
     .toString('utf16le')).toContain('C:/release/app')
 })
 
+it('names a missing platform artifact and contains an unreadable one as invalid', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-artifact-missing-'))
+  try {
+    // No `linux-x64` directory under the root: nothing was built for this target.
+    await expect(inspectArtifact(root, 'linux', 'x64')).rejects.toMatchObject({ reason: 'ARTIFACT_NOT_FOUND' })
+    // A present directory without its manifest pair is not a deployable artifact.
+    await mkdir(join(root, 'linux-x64'))
+    await expect(inspectArtifact(root, 'linux', 'x64')).rejects.toMatchObject({ reason: 'INVALID_ARTIFACT' })
+    // A directory that resolves to nothing at all is a broken root, not a missing build.
+    await symlink(join(root, 'loop-a'), join(root, 'loop-b'))
+    await symlink(join(root, 'loop-b'), join(root, 'loop-a'))
+    await rm(join(root, 'linux-x64'), { recursive: true })
+    await symlink(join(root, 'loop-a'), join(root, 'linux-x64'))
+    await expect(inspectArtifact(root, 'linux', 'x64')).rejects.toMatchObject({ reason: 'INVALID_ARTIFACT' })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 it('rejects an oversized artifact manifest before parsing it', async () => {
   const root = await mkdtemp(join(tmpdir(), 'remote-artifact-oversized-'))
   const dir = join(root, 'linux-x64')
   try {
     await mkdir(dir)
+    // The digest pair exists, so the size bound is what rejects the level.
+    await writeFile(join(dir, 'manifest.sha256'), 'bad  manifest.json\n')
     await writeFile(join(dir, 'manifest.json'), Buffer.alloc(32 * 1024 * 1024 + 1))
     await expect(inspectArtifact(root, 'linux', 'x64')).rejects.toThrow('INVALID_ARTIFACT')
   } finally { await rm(root, { recursive: true, force: true }) }

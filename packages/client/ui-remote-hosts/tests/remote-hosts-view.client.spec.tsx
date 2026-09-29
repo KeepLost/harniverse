@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ConnectivityResult, RemoteHostId, RemoteHostView } from '@deepseek-ai/dsh-remote-hosts/types'
@@ -36,6 +36,7 @@ type Face = {
   verify: RemoteHostsViewProps['verify']
   keyFilePicker: RemoteHostsViewProps['keyFilePicker']
   pickKeyFile: RemoteHostsViewProps['pickKeyFile']
+  listKeyFiles: RemoteHostsViewProps['listKeyFiles']
   connect: RemoteHostsViewProps['connect']
   openRemote: RemoteHostsViewProps['openRemote']
   disconnect: RemoteHostsViewProps['disconnect']
@@ -50,6 +51,9 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
     verify: vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() })),
     keyFilePicker: vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'native' as const } })),
     pickKeyFile: vi.fn<RemoteHostsViewProps['pickKeyFile']>(async () => ({ ok: true as const, value: {} })),
+    listKeyFiles: vi.fn<RemoteHostsViewProps['listKeyFiles']>(async () => ({ ok: true as const, value: {
+      path: '/home/me/.ssh', parent: '/home/me', entries: [], truncated: false,
+    } })),
     connect: vi.fn(async () => ({ ok: true as const, value: host({ state: 'connected' }) })),
     openRemote: vi.fn(),
     disconnect: vi.fn(async () => ({ ok: true as const, value: undefined })),
@@ -60,8 +64,6 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
     active: true,
     useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
     actions: store.actions,
-    useKeyDirectoryFlow: (selector: (occupied: boolean) => boolean) => selector(false),
-    renderSlot: vi.fn(() => null),
     ...face,
     closeView: vi.fn(),
     t,
@@ -85,7 +87,7 @@ function saveButton(): HTMLButtonElement {
 /** The pick button stays disabled until the interaction probe lands; wait for the enabled native default. */
 async function enabledKeyFileButton(): Promise<HTMLButtonElement> {
   return waitFor(() => {
-    const button = screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyDirectory })
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile })
     expect(button.disabled).toBe(false)
     return button
   })
@@ -98,8 +100,6 @@ describe('RemoteHostsView', () => {
       active: false,
       useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
       actions: store.actions,
-      useKeyDirectoryFlow: (selector: (occupied: boolean) => boolean) => selector(false),
-      renderSlot: vi.fn(() => null),
       list: vi.fn(async () => ({ ok: true as const, value: [] })), upsert: vi.fn(), verify: vi.fn(), pickKeyFile: vi.fn(),
       connect: vi.fn(), openRemote: vi.fn(),
       disconnect: vi.fn(), remove: vi.fn(), closeView: vi.fn(), t,
@@ -128,10 +128,9 @@ describe('RemoteHostsView', () => {
     expect(verify.mock.calls[0]?.[0]).toEqual({ host: 'key.example.test', port: 22, username: 'runner',
       secrets: { kind: 'password', password: 'secret' } })
 
-    // Detected values prefill the target and stay editable.
-    await waitFor(() => { expect(screen.getByLabelText(zh.platform)).toHaveProperty('value', 'darwin') })
-    expect(screen.getByLabelText(zh.architecture)).toHaveProperty('value', 'arm64')
+    // An undecided target follows what the test detected; the status line names it.
     await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+    expect(screen.getByRole('status').textContent).toContain('darwin/arm64')
     expect(screen.getByRole('status').textContent).toContain(evidence().fingerprint)
 
     fireEvent.click(screen.getByLabelText(zh.saveCredentials))
@@ -165,6 +164,7 @@ describe('RemoteHostsView', () => {
     }
 
     // Platform overrides are deployment choices, not part of what was tested.
+    fireEvent.click(screen.getByRole('button', { name: zh.optionalSettings }))
     fireEvent.change(screen.getByLabelText(zh.platform), { target: { value: 'win32' } })
     expect(saveButton().disabled).toBe(true)
   })
@@ -233,7 +233,7 @@ describe('RemoteHostsView', () => {
     await enabledKeyFileButton()
     fireEvent.click(screen.getByLabelText(zh.manualPaste))
     expect(screen.getByLabelText(zh.privateKey)).toHaveProperty('disabled', false)
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyDirectory }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.chooseKeyFile }).disabled).toBe(true)
     fireEvent.change(screen.getByLabelText(zh.privateKey), { target: { value: 'PRIVATE KEY' } })
     fireEvent.change(screen.getByLabelText(zh.passphrase), { target: { value: 'phrase' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
@@ -274,12 +274,16 @@ describe('RemoteHostsView', () => {
     mount({ verify, upsert })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     completeDraft('arm.example.test')
+    // The optional section hides the target overrides until opened.
+    expect(screen.queryByLabelText(zh.architecture)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: zh.optionalSettings }))
+    expect(screen.getByLabelText<HTMLSelectElement>(zh.architecture).value).toBe('auto')
     fireEvent.change(screen.getByLabelText(zh.architecture), { target: { value: 'arm64' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
     await waitFor(() => { expect(saveButton().disabled).toBe(false) })
     fireEvent.click(saveButton())
     await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
-    // The operator's architecture choice survives the test's own detected values.
+    // The operator's architecture choice survives; the platform follows the test's own detection.
     expect(upsert.mock.calls[0]?.[0].architecture).toBe('arm64')
     expect(upsert.mock.calls[0]?.[0].platform).toBe('linux')
   })
@@ -304,12 +308,14 @@ describe('RemoteHostsView', () => {
     completeDraft('mapping.example.test')
     fireEvent.change(screen.getByLabelText(zh.remoteOrigin), { target: { value: 'http://model.example.test:9000' } })
     fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
+    fireEvent.click(screen.getByRole('button', { name: zh.optionalSettings }))
     fireEvent.change(screen.getByLabelText(zh.platform), { target: { value: 'win32' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
     await waitFor(() => { expect(saveButton().disabled).toBe(false) })
     fireEvent.click(saveButton())
     await waitFor(() => { expect(upsert).toHaveBeenCalledTimes(1) })
-    // A platform override survives the test's detected-value prefill that follows it.
+    // A platform override survives the test's detected evidence.
+    expect(upsert.mock.calls[0]?.[0].platform).toBe('win32')
     expect(upsert.mock.calls[0]?.[0].reverseMappings).toEqual([
       { localHost: '127.0.0.1', localPort: 3000, remoteOriginalOrigin: 'http://model.example.test:9000' },
     ])
@@ -510,64 +516,88 @@ describe('RemoteHostsView', () => {
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('plain pick failure') })
   })
 
-  it('browses host directories for the key when the composition serves browse', async () => {
+  it('browses host files for the key when the composition serves browse', async () => {
     const pickKeyFile = vi.fn()
     const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'browse' as const } }))
     const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
-    const owners: { open: boolean; onPicked: (path: string) => void; onCancel: () => void; onError: (message: string) => void }[] = []
-    const renderSlot = vi.fn((_name: string, owner: (typeof owners)[number]) => {
-      owners.push(owner)
-      return <button type="button" key={owners.length} data-testid="stub-flow" onClick={() => { owners.at(-1)!.onPicked('/home/me/.ssh') }}>flow</button>
+    const listKeyFiles = vi.fn<RemoteHostsViewProps['listKeyFiles']>(async (input?: { path?: string }) => {
+      if (input?.path === undefined || input?.path === '/home/me/.ssh') return { ok: true as const, value: {
+        path: '/home/me/.ssh', parent: '/home/me',
+        entries: [
+          { name: '.ssh-config', path: '/home/me/.ssh/.ssh-config', kind: 'file' },
+          { name: 'id_ed25519', path: '/home/me/.ssh/id_ed25519', kind: 'file' },
+          { name: 'subdir', path: '/home/me/.ssh/subdir', kind: 'directory' },
+        ], truncated: false,
+      } }
+      if (input?.path === '/home/me/.ssh/subdir') return { ok: true as const, value: {
+        path: '/home/me/.ssh/subdir', parent: '/home/me/.ssh',
+        entries: [{ name: 'nested-key', path: '/home/me/.ssh/subdir/nested-key', kind: 'file' }], truncated: false,
+      } }
+      if (input?.path === '/home/me') return { ok: true as const, value: {
+        path: '/home/me', parent: '/home', entries: [], truncated: false,
+      } }
+      return { ok: false as const, error: { code: 'remote-host-failed', message: 'remote-hosts: KEY_DIRECTORY_UNREADABLE', details: { reason: 'KEY_DIRECTORY_UNREADABLE' } } }
     })
-    const useKeyDirectoryFlow = (selector: (occupied: boolean) => boolean) => selector(true)
-    mount({ keyFilePicker, pickKeyFile, verify, useKeyDirectoryFlow, renderSlot } as Partial<Face> & object)
+    mount({ keyFilePicker, pickKeyFile, verify, listKeyFiles })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
     await waitFor(() => { expect(screen.getByText(zh.keyFileHintBrowse)).toBeTruthy() })
     const button = await enabledKeyFileButton()
     fireEvent.click(button)
-    // The browse composition drives the key-directory flow hole, never the host chooser RPC.
+    // The browse composition drives the in-app file browser, never the host chooser RPC.
     expect(pickKeyFile).not.toHaveBeenCalled()
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
-    // A confirmed directory becomes the path's directory part on the host's own separator.
-    fireEvent.click(screen.getByTestId('stub-flow'))
-    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('/home/me/.ssh/') })
-    expect(owners.at(-1)?.open).toBe(false)
+    await waitFor(() => { expect(listKeyFiles).toHaveBeenCalledWith({}) })
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: zh.keyBrowserTitle })).toBeTruthy() })
+
+    // Directories enter; the entered level lists; the up row returns.
+    fireEvent.click(screen.getByRole('button', { name: 'subdir' }))
+    await waitFor(() => { expect(listKeyFiles).toHaveBeenLastCalledWith({ path: '/home/me/.ssh/subdir' }) })
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'nested-key' })).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: zh.keyBrowserUp }))
+    await waitFor(() => { expect(listKeyFiles).toHaveBeenLastCalledWith({ path: '/home/me/.ssh' }) })
+
+    // A picked file becomes the key path as-is and invalidates the tested state.
+    fireEvent.click(screen.getByRole('button', { name: 'id_ed25519' }))
+    await waitFor(() => { expect(screen.queryByRole('dialog', { name: zh.keyBrowserTitle })).toBeNull() })
+    expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('/home/me/.ssh/id_ed25519')
     expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath)).toBe(document.activeElement)
-    fireEvent.change(screen.getByLabelText(zh.keyPath), { target: { value: '/home/me/.ssh/id_ed25519' } })
-    fireEvent.click(screen.getByRole('button', { name: zh.test }))
-    await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKeyPath: '/home/me/.ssh/id_ed25519' }) })
-    // A path-based login may still carry the key's passphrase, submitted alongside the path.
+    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
+    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
     fireEvent.change(screen.getByLabelText(zh.passphrase), { target: { value: 'phrase' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
     await waitFor(() => { expect(verify.mock.calls.at(-1)?.[0].secrets).toEqual({ kind: 'key', privateKeyPath: '/home/me/.ssh/id_ed25519', passphrase: 'phrase' }) })
-    // A Windows directory adopts a backslash separator; a UNC share and a bare relative name both resolve to a separator too.
+
+    // An unreadable level surfaces localized copy inside the dialog; dismissing keeps the draft.
     fireEvent.click(button)
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
-    owners.at(-1)!.onPicked('C:\\Users\\me\\ssh')
-    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('C:\\Users\\me\\ssh\\') })
-    fireEvent.click(button)
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
-    owners.at(-1)!.onPicked('\\\\server\\share\\ssh')
-    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('\\\\server\\share\\ssh\\') })
-    fireEvent.click(button)
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
-    owners.at(-1)!.onPicked('')
-    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('/') })
-    fireEvent.click(button)
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
-    owners.at(-1)!.onPicked('relative-directory')
-    await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('relative-directory/') })
-    // Dismissal closes the flow untouched; an interaction failure surfaces and closes it too.
-    fireEvent.click(button)
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
-    owners.at(-1)!.onCancel()
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(false) })
-    fireEvent.click(button)
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(true) })
-    owners.at(-1)!.onError('listing denied')
-    await waitFor(() => { expect(owners.at(-1)?.open).toBe(false) })
-    expect(screen.getByRole('alert').textContent).toContain('listing denied')
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: zh.keyBrowserTitle })).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: zh.keyBrowserUp }))
+    await waitFor(() => { expect(listKeyFiles).toHaveBeenLastCalledWith({ path: '/home/me' }) })
+    await waitFor(() => { expect(screen.getByRole('button', { name: zh.keyBrowserUp })).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: zh.keyBrowserUp }))
+    await waitFor(() => { expect(listKeyFiles).toHaveBeenLastCalledWith({ path: '/home' }) })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorKeyDirectoryUnreadable) })
+    fireEvent.click(within(screen.getByRole('dialog', { name: zh.keyBrowserTitle })).getByRole('button', { name: zh.keyBrowserCancel }))
+    await waitFor(() => { expect(screen.queryByRole('dialog', { name: zh.keyBrowserTitle })).toBeNull() })
+    expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('/home/me/.ssh/id_ed25519')
+  })
+
+  it('localizes connect-time artifact and credential reasons for the saved host', async () => {
+    const reason = (why: string) => ({ ok: false as const,
+      error: { code: 'remote-host-failed', message: `remote-hosts: ${why}`, details: { reason: why } } })
+    const connect = vi.fn<RemoteHostsViewProps['connect']>()
+      .mockResolvedValueOnce(reason('ARTIFACT_NOT_FOUND'))
+      .mockResolvedValueOnce(reason('CREDENTIAL_REQUIRED'))
+      .mockResolvedValueOnce(reason('INVALID_ARTIFACT'))
+      .mockResolvedValueOnce(reason('ARTIFACT_HASH_MISMATCH'))
+      .mockResolvedValueOnce(reason('CONNECT_FAILED'))
+    mount({ connect }, [host()])
+    await waitFor(() => { expect(screen.getByRole('button', { name: zh.connect })).toBeTruthy() })
+    const ladder = [zh.errorArtifactNotFound, zh.errorCredentialRequired,
+      zh.errorArtifactInvalid, zh.errorArtifactInvalid, zh.errorConnectFailed]
+    for (const copy of ladder) {
+      fireEvent.click(screen.getByRole('button', { name: zh.connect }))
+      await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(copy) })
+    }
   })
 
   it('treats a probe that reports failure as no picking interaction', async () => {
@@ -576,17 +606,7 @@ describe('RemoteHostsView', () => {
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
     await waitFor(() => { expect(screen.getByText(zh.keyFileHintPath)).toBeTruthy() })
-    expect(screen.queryByRole('button', { name: zh.chooseKeyDirectory })).toBeNull()
-  })
-
-  it('hides the browse pick affordance while the key-directory flow hole is unoccupied', async () => {
-    const keyFilePicker = vi.fn<RemoteHostsViewProps['keyFilePicker']>(async () => ({ ok: true as const, value: { kind: 'browse' as const } }))
-    mount({ keyFilePicker })
-    fireEvent.click(screen.getByRole('button', { name: zh.add }))
-    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
-    await waitFor(() => { expect(keyFilePicker).toHaveBeenCalledTimes(1) })
-    expect(screen.queryByRole('button', { name: zh.chooseKeyDirectory })).toBeNull()
-    expect(screen.getByText(zh.keyFileHintBrowse)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: zh.chooseKeyFile })).toBeNull()
   })
 
   it('drops interaction-probe settlements that land after the view departs', async () => {
@@ -616,7 +636,7 @@ describe('RemoteHostsView', () => {
       fireEvent.click(screen.getByRole('button', { name: zh.add }))
       fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
       await waitFor(() => { expect(screen.getByText(expectedHint)).toBeTruthy() })
-      expect(screen.queryByRole('button', { name: zh.chooseKeyDirectory })).toBeNull()
+      expect(screen.queryByRole('button', { name: zh.chooseKeyFile })).toBeNull()
       // Manual path entry and pasted content keep working without any interaction.
       fireEvent.change(screen.getByLabelText(zh.keyPath), { target: { value: '/home/me/.ssh/id_ed25519' } })
       fireEvent.click(screen.getByLabelText(zh.manualPaste))

@@ -18,7 +18,9 @@ A host is saved only after a connectivity test passes. The test is a real authen
 
 `RemoteHostsProvider.verify({ host, port?, username, secrets })` owns the test's meaning. It runs a fixed detection command through the SSH provider and maps the answer onto a deployable target, returning `{ fingerprint, platform, architecture }`. Detection asks the POSIX form first (`uname -s`, `uname -m`) and retries through encoded PowerShell for a Windows default shell, because the target's shell is itself unknown at that point. An answer naming no supported platform or architecture fails the test with `UNSUPPORTED_REMOTE_PLATFORM`.
 
-`upsert` keeps requiring `fingerprint`, `platform`, and `architecture`, so "test before save" is enforced by the existing schema rather than by new server-side state. The view holds the completed evidence, prefills the detected platform and architecture as editable defaults, and gates its save control on that evidence. Any edit to the tested address, port, user, or credential invalidates it.
+`upsert` keeps requiring `fingerprint`, `platform`, and `architecture`, so "test before save" is enforced by the existing schema rather than by new server-side state. The view holds the completed evidence and gates its save control on it. Platform and architecture default to decide-at-connect: the editor keeps them behind a collapsed optional section, and saving resolves them from the tested evidence unless the operator pinned explicit values. Any edit to the tested address, port, user, or credential invalidates it.
+
+Artifact inspection failures at connect name their cause instead of flattening to `CONNECT_FAILED`: a selected artifact directory that does not exist reports `ARTIFACT_NOT_FOUND`, one that exists but fails inspection reports `INVALID_ARTIFACT`, both over the carrier's closed reason channel; the host logs the swallowed cause's error name and code — never its message — so operator copy stays on the actionable reason.
 
 ## Alternatives considered
 
@@ -37,4 +39,4 @@ The recorded pin's trust root becomes first-contact acceptance under a successfu
 
 The detected platform is a default, not a guarantee. `ENDPOINT_IDENTITY_MISMATCH` remains the last check, and a target whose `uname` is unreliable needs an explicit override.
 
-Verification lives in the SSH provider suites (authenticated first-contact test, rejection without a probe command), `detect.spec.ts` (POSIX and Windows answers, unsupported answers, probe ordering), the coordinator suite (test evidence, sanitized failure), and the browser view suite (save gated on a passing test, invalidation on every tested field, detected values prefilled and editable, stale evidence dropped after a failed retest). Real remote verification still requires a configured remote host.
+Verification lives in the SSH provider suites (authenticated first-contact test, rejection without a probe command), `detect.spec.ts` (POSIX and Windows answers, unsupported answers, probe ordering), the coordinator suite (test evidence, sanitized failure), and the browser view suite (save gated on a passing test, invalidation on every tested field, decide-at-connect resolution of the detected values, stale evidence dropped after a failed retest). Real remote verification still requires a configured remote host.
