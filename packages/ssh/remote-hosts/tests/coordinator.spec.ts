@@ -3,6 +3,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { serverResponseSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -145,6 +146,23 @@ it('plugin disposal drains local connections while the authenticated remote runt
     expect(f.remoteCtx.remoteRuntime.status()).toMatchObject({ bootId: f.endpoint.bootId, locked: false })
   } finally { await f.cleanup() }
 })
+
+it('delivers a failed connectivity test as a client-parseable carrier error', async () => {
+  const f = await fixture()
+  try {
+    f.observations.verifyFail = true
+    const rpcId = 'client-parseable-verify'
+    const response = await fetch(`http://127.0.0.1:${f.ctx.webServer.port}/api/remoteHosts/verify`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId, method: 'remoteHosts/verify',
+        payload: { args: { input: { host: 'fixture.invalid', username: 'runner', secrets: { kind: 'password', password: 'one-use' } } } } }),
+    })
+    expect(response.status).toBe(200)
+    const parsed = serverResponseSchema.parse(await response.json())
+    expect(parsed.result).toMatchObject({ ok: false,
+      error: { code: 'remote-host-failed', details: { reason: 'VERIFY_FAILED' } } })
+  } finally { await f.cleanup() }
+}, 30_000)
 
 it('contains verify and connect transport failures and retries after a lost local SSH connection', async () => {
   const f = await fixture()

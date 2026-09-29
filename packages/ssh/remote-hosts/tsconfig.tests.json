@@ -14,6 +14,6 @@
     { "path": "../../typert/protocol" }, { "path": "../../typert/generator" }, { "path": "../../typert/registry" },
     { "path": "../../auth/authentication" }, { "path": "../../auth/authentication-local" },
     { "path": "../../host/webserver" }, { "path": "../../api/gateway/tsconfig.host.json" },
-    { "path": "../../client/connection/tsconfig.host.json" }
+    { "path": "../../client/connection/tsconfig.host.json" }, { "path": "../../host/apiproxy" }
   ]
 }

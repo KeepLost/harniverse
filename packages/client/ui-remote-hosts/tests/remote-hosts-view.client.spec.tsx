@@ -175,6 +175,7 @@ describe('RemoteHostsView', () => {
     const upsert = vi.fn(async () => { throw 'plain rejection' })
     mount({ verify, upsert })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
     fireEvent.change(screen.getByLabelText(zh.remoteOrigin), { target: { value: 'http://model.example.test' } })
     fireEvent.change(screen.getByLabelText(zh.localPort), { target: { value: '65536' } })
     fireEvent.click(screen.getByRole('button', { name: zh.addMapping }))
@@ -462,6 +463,7 @@ describe('RemoteHostsView', () => {
     fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
     fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    fireEvent.change(screen.getByLabelText(zh.keyPath), { target: { value: '/home/me/.ssh/id_ed25519' } })
     fireEvent.click(screen.getByRole('button', { name: zh.test }))
     await waitFor(() => { expect(saveButton().disabled).toBe(false) })
 
@@ -623,15 +625,15 @@ describe('RemoteHostsView', () => {
     }
   })
 
-  it('maps closed KEY_* picker codes to operator copy instead of wire messages', async () => {
+  it('maps the carrier remote-host-failed reasons to operator copy instead of wire messages', async () => {
     const failures = [
-      { code: 'KEY_PICKER_UNAVAILABLE', message: 'remote-hosts: KEY_PICKER_UNAVAILABLE' },
-      { code: 'KEY_PICKER_FAILED', message: 'remote-hosts: KEY_PICKER_FAILED' },
-      { code: 'KEY_FILE_TOO_LARGE', message: 'remote-hosts: KEY_FILE_TOO_LARGE' },
-      { code: 'KEY_FILE_READ_FAILED', message: 'remote-hosts: KEY_FILE_READ_FAILED' },
+      { code: 'remote-host-failed', message: 'remote-hosts: KEY_PICKER_UNAVAILABLE', details: { reason: 'KEY_PICKER_UNAVAILABLE' } },
+      { code: 'remote-host-failed', message: 'remote-hosts: KEY_PICKER_FAILED', details: { reason: 'KEY_PICKER_FAILED' } },
+      { code: 'remote-host-failed', message: 'remote-hosts: KEY_FILE_TOO_LARGE', details: { reason: 'KEY_FILE_TOO_LARGE' } },
+      { code: 'remote-host-failed', message: 'remote-hosts: KEY_FILE_READ_FAILED', details: { reason: 'KEY_FILE_READ_FAILED' } },
     ] as const
     const pickKeyFile = vi.fn<RemoteHostsViewProps['pickKeyFile']>()
-    for (const failure of failures) pickKeyFile.mockResolvedValueOnce({ ok: false as const, error: { ...failure, details: {} } })
+    for (const failure of failures) pickKeyFile.mockResolvedValueOnce({ ok: false as const, error: failure })
     mount({ pickKeyFile })
     fireEvent.click(screen.getByRole('button', { name: zh.add }))
     fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
@@ -640,6 +642,42 @@ describe('RemoteHostsView', () => {
       await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(expected) })
     }
     expect(screen.getByLabelText<HTMLInputElement>(zh.keyPath).value).toBe('')
+  })
+
+  it('reports an unfinished key path before spending a connectivity test on it', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
+    mount({ verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'key.example.test' } })
+    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+
+    // The empty path is the reported case: the placeholder is an example, not a default.
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorKeyPathEmpty) })
+    expect(verify).not.toHaveBeenCalled()
+
+    // A directory adopted from the browse flow keeps the same complaint until the file name lands.
+    fireEvent.change(screen.getByLabelText(zh.keyPath), { target: { value: '/root/.ssh/' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorKeyPathDirectory) })
+    expect(verify).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText(zh.keyPath), { target: { value: '/root/.ssh/id_ed25519' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify).toHaveBeenCalledTimes(1) })
+    await waitFor(() => { expect(saveButton().disabled).toBe(false) })
+  })
+
+  it('reports a failed connectivity test as the carrier reason names it', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: false as const,
+      error: { code: 'remote-host-failed', message: 'remote-hosts: VERIFY_FAILED', details: { reason: 'VERIFY_FAILED' } } }))
+    mount({ verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorVerifyFailed) })
+    expect(saveButton().disabled).toBe(true)
   })
 
   it('does not persist temporary login secrets and uses them for the initial connection', async () => {

@@ -69,13 +69,21 @@ function hostPathSeparator(path: string): '/' | '\\' {
   return path.startsWith('/') || path === '' ? '/' : /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\') ? '\\' : '/'
 }
 
-/** A host failure as operator copy: closed KEY_* codes localize, foreign codes keep their wire message. */
+/** The remote-hosts failure reason carried by the carrier's `remote-host-failed` code. */
+function failureReason(failure: RemoteFailure): string {
+  const reason = (failure.details as { reason?: unknown }).reason
+  return typeof reason === 'string' ? reason : failure.code
+}
+
+/** A host failure as operator copy: the package's closed codes localize, foreign codes keep their wire message. */
 function remoteIssue(t: RemoteHostsViewProps['t'], failure: RemoteFailure): string {
-  switch (failure.code) {
+  switch (failureReason(failure)) {
     case 'KEY_PICKER_UNAVAILABLE': return t('errorKeyPickUnavailable')
     case 'KEY_PICKER_FAILED': return t('errorKeyPickFailed')
     case 'KEY_FILE_TOO_LARGE': return t('errorKeyFileTooLarge')
     case 'KEY_FILE_READ_FAILED': return t('errorKeyFileReadFailed')
+    case 'INVALID_INPUT': return t('errorInvalidInput')
+    case 'VERIFY_FAILED': return t('errorVerifyFailed')
     default: return typeof failure.message === 'string' && failure.message !== '' ? failure.message : t('actionFailed')
   }
 }
@@ -114,8 +122,8 @@ export function RemoteHostsView({
   const refresh = useCallback(async () => {
     const result = await list()
     if (result.ok) setHosts(result.value)
-    else setError(result.error.message)
-  }, [list])
+    else setError(remoteIssue(t, result.error))
+  }, [list, t])
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
@@ -183,7 +191,28 @@ export function RemoteHostsView({
     setTested(undefined)
   }
 
+  /**
+   * The draft's own problem as operator copy, or nothing when it is worth
+   * sending. Test and save would otherwise reach the Host and come back as the
+   * generic `INVALID_INPUT`, which names no field.
+   * @returns localized copy for the first blocking field, or undefined.
+   */
+  const draftIssue = (): string | undefined => {
+    if (draft.kind === 'password') return draft.credential === '' ? t('errorPasswordEmpty') : undefined
+    if (draft.manualPaste) return draft.secret === '' ? t('errorInlineKeyEmpty') : undefined
+    if (draft.keyPath === '') return t('errorKeyPathEmpty')
+    // A key path ending in either separator names a directory: the browse
+    // flow adopts a directory and expects the operator to complete the name.
+    return /[/\\]$/.test(draft.keyPath) ? t('errorKeyPathDirectory') : undefined
+  }
+
   const testConnection = async (): Promise<void> => {
+    const issue = draftIssue()
+    if (issue !== undefined) {
+      setTested(undefined)
+      setError(issue)
+      return
+    }
     setBusy('test')
     setError(undefined)
     try {
@@ -359,7 +388,7 @@ export function RemoteHostsView({
                         ref={keyPathInput}
                         className={css.keyPathInput}
                         disabled={draft.manualPaste}
-                        placeholder="/root/.ssh/id_ed25519"
+                        placeholder={t('keyPathPlaceholder')}
                         value={draft.keyPath}
                         onChange={(event) => { update('keyPath', event.target.value) }}
                       />

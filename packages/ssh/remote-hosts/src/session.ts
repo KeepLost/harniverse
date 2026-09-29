@@ -82,7 +82,7 @@ export async function establish(
         } catch (error) {
           await forward.close()
           if (live) throw error
-          if (error instanceof RemoteHostsError && error.code === 'ENDPOINT_IDENTITY_MISMATCH') throw error
+          if (error instanceof RemoteHostsError && error.reason === 'ENDPOINT_IDENTITY_MISMATCH') throw error
         }
       }
     }

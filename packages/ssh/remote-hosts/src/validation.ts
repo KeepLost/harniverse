@@ -99,10 +99,18 @@ export function authSecrets(value: unknown): AuthSecrets {
 }
 
 /**
- * Fixed public failure; upstream messages must not cross this boundary. A
- * {@link RemoteError} subclass so the gateway preserves the closed code onto
- * the wire and clients localize instead of string-matching messages.
+ * Fixed public failure; upstream messages must not cross this boundary. The
+ * wire carries the registered `remote-host-failed` code with this package's
+ * own closed code in `details.reason`, because the carrier vocabulary is
+ * closed: an unregistered code fails the client's response parse outright
+ * instead of reaching the management view as a localization key.
  */
-export class RemoteHostsError extends RemoteError {
-  constructor(code: string) { super(code, `remote-hosts: ${code}`, {}); this.name = 'RemoteHostsError' }
+export class RemoteHostsError extends RemoteError<'remote-host-failed'> {
+  /** This package's own closed failure code. */
+  readonly reason: string
+  constructor(reason: string) {
+    super('remote-host-failed', `remote-hosts: ${reason}`, { reason })
+    this.name = 'RemoteHostsError'
+    this.reason = reason
+  }
 }
