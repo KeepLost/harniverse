@@ -680,6 +680,48 @@ describe('RemoteHostsView', () => {
     expect(saveButton().disabled).toBe(true)
   })
 
+  it('localizes the reason a host rejected its input, and keeps a foreign failure message', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>()
+      .mockResolvedValueOnce({ ok: false as const,
+        error: { code: 'remote-host-failed', message: 'remote-hosts: INVALID_INPUT', details: { reason: 'INVALID_INPUT' } } })
+      // A code this build does not know keeps whatever the carrier reported.
+      .mockResolvedValueOnce({ ok: false as const, error: { code: 'bad-request', message: 'upstream detail', details: {} } })
+      // A foreign failure with no readable message falls back to the generic copy.
+      .mockResolvedValueOnce({ ok: false as const, error: { code: 'bad-request', message: '', details: {} } })
+    mount({ verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    completeDraft('host.example.test')
+    for (const expected of [zh.errorInvalidInput, 'upstream detail', zh.actionFailed]) {
+      fireEvent.click(screen.getByRole('button', { name: zh.test }))
+      const text = expected
+      await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(text) })
+    }
+  })
+
+  it('reports an unfinished password or pasted key before spending a connectivity test on it', async () => {
+    const verify = vi.fn<RemoteHostsViewProps['verify']>(async () => ({ ok: true as const, value: evidence() }))
+    mount({ verify })
+    fireEvent.click(screen.getByRole('button', { name: zh.add }))
+    fireEvent.change(screen.getByLabelText(zh.host), { target: { value: 'host.example.test' } })
+    fireEvent.change(screen.getByLabelText(zh.username), { target: { value: 'runner' } })
+
+    // The default login method is password, whose field starts empty.
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorPasswordEmpty) })
+    expect(verify).not.toHaveBeenCalled()
+
+    // Pasted key text is the other one-shot credential with the same trap.
+    fireEvent.change(screen.getByLabelText(zh.auth), { target: { value: 'key' } })
+    fireEvent.click(screen.getByLabelText(zh.manualPaste))
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(zh.errorInlineKeyEmpty) })
+    expect(verify).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText(zh.privateKey), { target: { value: 'PASTED KEY' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.test }))
+    await waitFor(() => { expect(verify).toHaveBeenCalledTimes(1) })
+  })
+
   it('does not persist temporary login secrets and uses them for the initial connection', async () => {
     const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host({
       name: input.name, host: input.host, username: input.username,
