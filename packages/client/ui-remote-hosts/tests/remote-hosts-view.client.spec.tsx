@@ -550,7 +550,6 @@ describe('RemoteHostsView', () => {
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('read blew') })
     expect(screen.getByText(zh.noKeyFile)).toBeTruthy()
     const plain = new File(['x'], 'plain', { type: 'text/plain' })
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the non-Error arm is the subject
     plain.text = () => Promise.reject('plain read failure')
     fireEvent.change(view.container.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [plain] } })
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('plain read failure') })
