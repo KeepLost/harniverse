@@ -10,13 +10,18 @@ import type { NS } from './locales.ts'
 /** The translator face both failure surfaces share. */
 export type IssueTranslate = PropsLocale<typeof NS>['t']
 
-/** The remote-hosts failure reason carried by the carrier's `remote-host-failed` code. */
+/** The remote-hosts failure reason carried by the carrier's `remote-host-failed` code.
+ * @param failure - the wire failure whose details may carry a reason.
+ * @returns the closed reason string, or the wire code when details carry none. */
 export function failureReason(failure: RemoteFailure): string {
   const reason = (failure.details as { reason?: unknown }).reason
   return typeof reason === 'string' ? reason : failure.code
 }
 
-/** A host failure as operator copy: the package's closed codes localize, foreign codes keep their wire message. */
+/** A host failure as operator copy: the package's closed codes localize, foreign codes keep their wire message.
+ * @param t - the localized copy face.
+ * @param failure - the wire failure to translate.
+ * @returns the operator-facing failure text. */
 export function remoteIssue(t: IssueTranslate, failure: RemoteFailure): string {
   switch (failureReason(failure)) {
     case 'KEY_PICKER_UNAVAILABLE': return t('errorKeyPickUnavailable')
@@ -35,7 +40,10 @@ export function remoteIssue(t: IssueTranslate, failure: RemoteFailure): string {
   }
 }
 
-/** A failed Remote result as a throw-ready Error; an ok result maps to nothing. */
+/** A failed Remote result as a throw-ready Error; an ok result maps to nothing.
+ * @param t - the localized copy face.
+ * @param result - the Remote result to convert.
+ * @returns the localized Error for a failed result, or nothing when it succeeded. */
 export function resultError<T>(t: IssueTranslate, result: RemoteResult<T>): Error | undefined {
   return result.ok ? undefined : new Error(remoteIssue(t, result.error))
 }
