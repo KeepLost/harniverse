@@ -6,7 +6,8 @@
 - button "New session":
   - img
   - text: New Session
-- text: Workspaces
+- img
+- text: Current machine This machine Workspaces
 - button "Search sessions":
   - img
 - textbox "Search sessions..."
