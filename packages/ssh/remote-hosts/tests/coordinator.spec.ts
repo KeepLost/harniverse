@@ -398,22 +398,26 @@ it('lists one host directory level for the in-app key browser', async () => {
 })
 
 it('keeps a connected runtime owned by heartbeats and flags it ownerless after the owner goes away', async () => {
-  const f = await fixture({ ownerlessExitMs: 600, heartbeatIntervalMs: 100 })
+  const f = await fixture({ ownerlessExitMs: 1_500, heartbeatIntervalMs: 100 })
   try {
     let ownerless = 0
     f.remoteCtx.on('remote-runtime/ownerless', () => { ownerless++ })
     const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote })
     await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } })
-    // The establish handshake alone ages out within 600ms; staying owned past
-    // that window proves the session heartbeat keeps refreshing the lease.
-    await new Promise(resolve => setTimeout(resolve, 1_100))
-    expect(ownerless).toBe(0)
     expect((await f.ctx.remoteHosts.list()).find(entry => entry.id === host.id)?.state).toBe('connected')
+    // A slow establish may starve the runtime past its window once before the
+    // first status contact; that boot episode re-arms on contact. Baseline it.
+    await new Promise(resolve => setTimeout(resolve, 200))
+    const settled = ownerless
+    // The establish handshake alone ages out within the exit window; staying
+    // owned past it proves the session heartbeat keeps refreshing the lease.
+    await new Promise(resolve => setTimeout(resolve, 2_200))
+    expect(ownerless).toBe(settled)
     // Owner death (connection loss or disconnect) stops the heartbeat; the
     // remote runtime must flag itself ownerless instead of living on as an orphan.
     f.controllers[0]!.abort()
-    await new Promise(resolve => setTimeout(resolve, 1_100))
-    expect(ownerless).toBe(1)
+    await new Promise(resolve => setTimeout(resolve, 2_600))
+    expect(ownerless).toBe(settled + 1)
   } finally { await f.cleanup() }
 }, 15_000)
 

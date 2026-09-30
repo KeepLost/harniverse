@@ -24,6 +24,11 @@ Within the exit window a reconnect still fails fast with `REMOTE_RPC_REJECTED` (
 - **Takeover on admission rejection** — rejected: a rejected successor cannot distinguish a healthy foreign owner from an orphan, and killing a live server on an unauthenticated request is not acceptable.
 - **Non-detached server tied to the SSH session** — rejected: it would trade the existing crash-resilient deployment design for teardown correctness.
 
+## Consequences
+
+An owner crash leaves at most one exit window (default 45s plus one tick) during which reconnects fail fast with the existing `REMOTE_RPC_REJECTED`; a retry after that window deploys fresh. A local instance that stays connected but silent still issues keepalives, so quiet sessions are unaffected. Operators upgrading remote artifacts gain self-healing homes; previously orphaned servers keep holding their lease until killed once by hand. The event vocabulary of the `remote-runtime` scope is now catalog-gated (`ssh.md` owns it), and both packages carry new validated config keys.
+
 ## Verification
+
 
 `remote-runtime` unit specs cover starvation signaling, contact re-arming, and config bounds. A coordinator spec drives the full in-process scenario through the real fixture: heartbeats keep a connected runtime owned past its exit window, and owner death (connection abort) flips it ownerless. A real-machine e2e (web app + real sshd + rebuilt artifact) verified the exact user scenario: connect → `SIGKILL` the web stack → the remote server self-exited after ~50s → the restarted instance reconnected cleanly.

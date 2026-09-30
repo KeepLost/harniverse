@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-30-ownerless-remote-runtime-exit.md
-2026-09-30-ownerless-remote-runtime-exit.md: 119cc950456b727b7e6a203f166e7505226787ed
-2026-09-30-ownerless-remote-runtime-exit.zh.md: ff7c9791b98346c0a4d9d1bc1e227c61ca665458
+2026-09-30-ownerless-remote-runtime-exit.md: deb79ee42d07d1c940155ced0653ee7b9dcb6d2e
+2026-09-30-ownerless-remote-runtime-exit.zh.md: 457998dbcc2eeaa0f03cdbb943de0ca1c5484b94
