@@ -24,7 +24,7 @@ class MemorySettings extends SettingsProvider {
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!() })
 
-async function mount(home?: string, deployment: { host?: string; mode?: string; encrypted?: boolean } = {}) {
+async function mount(home?: string, deployment: { host?: string; mode?: string; encrypted?: boolean; ownerlessExitMs?: number } = {}) {
   if (home === undefined) {
     home = await mkdtemp(join(tmpdir(), 'remote-runtime-'))
     const dir = home
@@ -45,7 +45,8 @@ async function mount(home?: string, deployment: { host?: string; mode?: string; 
     enabled: z.boolean().default(false),
   }))
   const theme = ctx.settings.register(settingsNamespace('ui-theme'), z.object({ dark: z.boolean().default(false) }))
-  const fiber = ctx.plugin(RemoteRuntime, { dshHome: home })
+  const fiber = ctx.plugin(RemoteRuntime, { dshHome: home,
+    ...(deployment.ownerlessExitMs === undefined ? {} : { ownerlessExitMs: deployment.ownerlessExitMs }) })
   await fiber
   return { ctx, home, fiber, model, search, theme, runtime: ctx.remoteRuntime }
 }
@@ -153,4 +154,33 @@ it('synchronizes the real model-policy namespace through its owning schema', asy
   await expect(runtime.syncSettings({ 'model-routes': { routes: { invalid: { targets: [{ model: 42 }] } } } })).rejects.toThrow()
   await runtime.syncSettings({ 'model-routes': { routes: {} } })
   expect(ctx.settings.get(settingsNamespace('model-routes'))).toEqual({ routes: {} })
+})
+
+it('signals an ownerless runtime once per starvation episode and re-arms on owner contact', async () => {
+  const { ctx, runtime } = await mount(undefined, { ownerlessExitMs: 250 })
+  let episodes = 0
+  ctx.on('remote-runtime/ownerless', () => { episodes++ })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  expect(episodes).toBe(1)
+  // A returning owner clears the episode flag; fresh starvation signals again.
+  runtime.status()
+  await new Promise(resolve => setTimeout(resolve, 120))
+  expect(episodes).toBe(1)
+  await new Promise(resolve => setTimeout(resolve, 500))
+  expect(episodes).toBe(2)
+}, 10_000)
+
+it('stays owned while owner contact keeps arriving within the exit window', async () => {
+  const { ctx, runtime } = await mount(undefined, { ownerlessExitMs: 250 })
+  let episodes = 0
+  ctx.on('remote-runtime/ownerless', () => { episodes++ })
+  for (let index = 0; index < 4; index++) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    runtime.status()
+  }
+  expect(episodes).toBe(0)
+}, 10_000)
+
+it('rejects an ownerless exit window outside the safe range', async () => {
+  await expect(mount(undefined, { ownerlessExitMs: 100 })).rejects.toThrow(/ownerlessExitMs/)
 })

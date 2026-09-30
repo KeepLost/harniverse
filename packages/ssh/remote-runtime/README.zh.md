@@ -19,6 +19,11 @@
 
 `assertUnlocked(): void` 是同进程消费者可调用的实际准入检查，在锁定或已释放时抛错，不等待重连。插件通过 `ctx.agents.registerAdmission()` 注册该检查，卸载插件会移除策略。新建、恢复和分叉均受驱动的准入检查约束。浏览器或 SSH 连接断开不会锁定凭据或释放 Agent。加密提供者在自身释放时擦除密钥；即使已有加密文件，新进程仍从锁定状态启动。
 
+## 无主退出
+
+每次通过认证的 Remote 调用都会刷新所有者存活租约。当 `Config.ownerlessExitMs`（默认 `45_000`）内没有任何所有者 RPC 到达时，运行时按饥饿周期发出一次 `remote-runtime/ownerless` 事件；之后的所有者接触会重新武装下一周期。remote-server 应用订阅该事件并通过可执行文件的优雅停止自行退出，因此本地实例死亡不会留下持有独占 home 租约、以 `REMOTE_RPC_REJECTED` 拒绝后继者的孤儿进程。协调方会话通过周期性 `status` 保活（`remoteHosts.heartbeatIntervalMs`，默认 `10_000`）维持租约。
+
+
 ## 设置同步
 
 快照按命名空间包含完整、未脱敏的本地**用户设置节**。支持 `llm-deepseek`、`llm-pi-ai`、`agent-default-model`、`model-profiles`、`model-routes`、`web`、`web-search-deepseek`、`web-search-exa`、`web-search-perplexity`、`web-search-tavily`、`web-search-brave`、`web-search-kagi` 和 `web-firecrawl`。

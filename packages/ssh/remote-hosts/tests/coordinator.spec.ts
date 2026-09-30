@@ -10,6 +10,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
 import { fixture, fixtureArchitecture, fixturePlatform, hostInput } from './fixture.ts'
 import { RemoteHosts } from '../src/index.ts'
+import { HostSession } from '../src/session.ts'
 import type { RemoteHostView } from '../src/types.ts'
 import { remoteHostId } from '../src/validation.ts'
 
@@ -395,3 +396,39 @@ it('lists one host directory level for the in-app key browser', async () => {
     await expect(f.ctx.remoteHosts.listKeyFiles({ path: join(f.local, 'missing-level') })).rejects.toThrow('KEY_DIRECTORY_UNREADABLE')
   } finally { await f.cleanup() }
 })
+
+it('keeps a connected runtime owned by heartbeats and flags it ownerless after the owner goes away', async () => {
+  const f = await fixture({ ownerlessExitMs: 600, heartbeatIntervalMs: 100 })
+  try {
+    let ownerless = 0
+    f.remoteCtx.on('remote-runtime/ownerless', () => { ownerless++ })
+    const host = await f.ctx.remoteHosts.upsert({ ...hostInput, dshHome: f.remote })
+    await f.ctx.remoteHosts.connect({ id: host.id, secrets: { kind: 'password', password: 'one-use' } })
+    // The establish handshake alone ages out within 600ms; staying owned past
+    // that window proves the session heartbeat keeps refreshing the lease.
+    await new Promise(resolve => setTimeout(resolve, 1_100))
+    expect(ownerless).toBe(0)
+    expect((await f.ctx.remoteHosts.list()).find(entry => entry.id === host.id)?.state).toBe('connected')
+    // Owner death (connection loss or disconnect) stops the heartbeat; the
+    // remote runtime must flag itself ownerless instead of living on as an orphan.
+    f.controllers[0]!.abort()
+    await new Promise(resolve => setTimeout(resolve, 1_100))
+    expect(ownerless).toBe(1)
+  } finally { await f.cleanup() }
+}, 15_000)
+
+it('a session heartbeat swallows a failed keepalive and stops on connection abort', async () => {
+  const connection = new AbortController()
+  const session = new HostSession({ signal: connection.signal, closed: Promise.resolve(),
+    async dispose() {} } as never, new AbortController())
+  let calls = 0
+  session.transport = { async rpc() { calls++; throw new Error('forward gone') } } as never
+  session.beginOwnerHeartbeat(5)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  expect(calls).toBeGreaterThan(0)
+  const ticks = calls
+  connection.abort()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  expect(calls).toBe(ticks)
+  await session.dispose()
+}, 5_000)

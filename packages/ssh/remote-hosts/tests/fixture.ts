@@ -60,7 +60,7 @@ export async function artifact(root: string, platform = fixturePlatform, archite
   await writeFile(join(dir, 'manifest.sha256'), `${createHash('sha256').update(manifest).digest('hex')}  manifest.json\n`)
 }
 
-export async function fixture() {
+export async function fixture(options: { ownerlessExitMs?: number; heartbeatIntervalMs?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'remote-hosts-'))
   const local = join(root, 'local')
   const remote = join(root, 'remote home\'s')
@@ -87,7 +87,8 @@ export async function fixture() {
       { id: 'settings', name: 'settings', config: { dshHome: remote, watch: false } },
       { id: 'authentication', name: 'authentication', config: { dshHome: remote, watch: false } },
       { id: 'webserver', name: 'webserver', inject: ['authentication'], config: { host: '127.0.0.1', port: 0 } },
-      { id: 'agents', name: 'agents' }, { id: 'runtime', name: 'runtime', config: { dshHome: remote } },
+      { id: 'agents', name: 'agents' }, { id: 'runtime', name: 'runtime', config: { dshHome: remote,
+        ...(options.ownerlessExitMs === undefined ? {} : { ownerlessExitMs: options.ownerlessExitMs }) } },
       { id: 'typert', name: 'typert' }, { id: 'gateway', name: 'gateway' }, { id: 'connection', name: 'connection' },
     ])
     const endpoint = JSON.parse(await readFile(join(remote, 'server/endpoint.json'), 'utf8')) as Endpoint
@@ -210,7 +211,8 @@ export async function fixture() {
       { id: 'credentials', name: 'credentials', config: { dshHome: local, watch: false } },
       { id: 'settings', name: 'settings', config: { dshHome: local, watch: false } },
       { id: 'ssh', name: 'ssh' }, { id: 'picker', name: 'picker' },
-      { id: 'hosts', name: 'hosts', config: { dshHome: local, artifactsRoot: join(root, 'artifacts') } },
+      { id: 'hosts', name: 'hosts', config: { dshHome: local, artifactsRoot: join(root, 'artifacts'),
+        ...(options.heartbeatIntervalMs === undefined ? {} : { heartbeatIntervalMs: options.heartbeatIntervalMs }) } },
       { id: 'authentication', name: 'authentication', config: { dshHome: local, mode: 'bypass', watch: false } },
       { id: 'webserver', name: 'webserver', inject: ['authentication'], config: { host: '127.0.0.1', port: 0 } },
       { id: 'typert', name: 'typert' }, { id: 'gateway', name: 'gateway' }, { id: 'connection', name: 'connection' },

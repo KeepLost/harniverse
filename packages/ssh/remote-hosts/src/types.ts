@@ -148,6 +148,8 @@ export interface Config {
   startupTimeoutMs?: number
   /** Maximum time allowed for one proxied remote operation. */
   requestTimeoutMs?: number
+  /** Keepalive period for the remote runtime's owner lease (default 10s; below the 45s exit window). */
+  heartbeatIntervalMs?: number
 }
 
 /** Definition consumed by management UIs and trusted same-process proxy plugins. */

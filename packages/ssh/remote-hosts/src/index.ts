@@ -29,7 +29,8 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
   static inject = ['remoteHostSsh', 'credentials', 'settings']
   static Config: z<Config> = z.object({ dshHome: z.string(), artifactsRoot: z.string().required(),
     startupTimeoutMs: z.natural().min(1).max(2147483647).default(60_000),
-    requestTimeoutMs: z.natural().min(1).max(2147483647).default(30_000) })
+    requestTimeoutMs: z.natural().min(1).max(2147483647).default(30_000),
+    heartbeatIntervalMs: z.natural().min(1).max(2147483647).default(10_000) })
   private readonly registry: HostRegistry
   private readonly ready: Promise<void>
   private readonly states = new Map<RemoteHostId, { state: RemoteHostState; error?: string; progress?: RemoteHostProgress }>()
@@ -39,14 +40,16 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
   private readonly connects = new Map<RemoteHostId, Promise<RemoteHostView>>()
   private readonly lifetime = new AbortController()
   private readonly verifications = new Set<Promise<unknown>>()
+  private readonly heartbeatIntervalMs: number
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'remoteHosts')
     if (!isAbsolute(config.artifactsRoot)) throw new RemoteHostsError('ARTIFACT_ROOT_NOT_ABSOLUTE')
-    for (const timeout of [config.startupTimeoutMs, config.requestTimeoutMs]) {
+    for (const timeout of [config.startupTimeoutMs, config.requestTimeoutMs, config.heartbeatIntervalMs]) {
       if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2147483647)) throw new RemoteHostsError('INVALID_TIMEOUT')
     }
     this.registry = new HostRegistry(resolveDshHome(config.dshHome))
+    this.heartbeatIntervalMs = config.heartbeatIntervalMs ?? 10_000
     this.ready = this.registry.load()
   }
 
@@ -204,7 +207,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
           this.states.set(id, { state: controller.signal.aborted ? 'offline' : 'error',
             ...(controller.signal.aborted ? {} : { error: 'remote-hosts: CONNECTION_LOST' }) })
         }, { once: true })
-        await establish(session, host, this.config, this.ctx.credentials, this.ctx.settings,
+        await establish(session, host, this.config, this.ctx.credentials, this.ctx.settings, this.heartbeatIntervalMs,
           (state, progress: RemoteHostProgress) => this.states.set(id, { state, progress }))
         signal.throwIfAborted()
         this.states.set(id, { state: 'connected' })

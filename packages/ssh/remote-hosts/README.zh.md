@@ -6,7 +6,7 @@
 
 ## 配置与所有权
 
-`artifactsRoot` 必须是本地绝对目录，包含按 `linux-x64`、`linux-arm64`、`darwin-x64`、`darwin-arm64`、`win32-x64`、`win32-arm64` 命名的原生产物目录。所选目录必须包含[远程服务器产物](../../../apps/remote-server/README.md#artifact-and-build-commands)，包括清单与摘要；只需准备实际使用的平台。`dshHome` 覆盖本地注册表目录，否则采用标准 `DSH_HOME` 解析。`startupTimeoutMs` 默认 60000，`requestTimeoutMs` 默认 30000，两者均为不超过 2147483647 的正整数。
+`artifactsRoot` 必须是本地绝对目录，包含按 `linux-x64`、`linux-arm64`、`darwin-x64`、`darwin-arm64`、`win32-x64`、`win32-arm64` 命名的原生产物目录。所选目录必须包含[远程服务器产物](../../../apps/remote-server/README.md#artifact-and-build-commands)，包括清单与摘要；只需准备实际使用的平台。`dshHome` 覆盖本地注册表目录，否则采用标准 `DSH_HOME` 解析。`startupTimeoutMs` 默认 60000，`requestTimeoutMs` 默认 30000，两者均为不超过 2147483647 的正整数。`heartbeatIntervalMs`（默认 10000）设置已连接会话对远端运行时无主退出窗口的 `status` 保活周期。
 
 本地 `remote-hosts.json` 格式为 `{ version: 1, hosts: HostRecord[] }`，主机 ID 是带品牌类型的 UUID `RemoteHostId`。文件只保存主机配置和凭据引用，不保存凭据值或连接状态。组合应用负责独占本地 Harness home；注册表写入串行化，通过私有临时文件原子重命名提交。主机操作按 ID 排队，不锁住其他主机。外部修改注册表后应重新加载插件。
 

@@ -17,6 +17,10 @@ The generated Remote namespace is `remoteRuntime`. `./typert` supplies Host meta
 
 `key` is the encrypted provider's canonical unpadded base64url encoding of 32 random bytes. The credential snapshot is `Record<string, string>`: replacement deletes omitted references, including every reference for `{}`. Settings use the existing Session `JsonValue` type rather than `unknown`, so Typert emits strict recursive JSON schemas. Unlock first, then replace credentials and synchronize settings; begin agent work after both synchronization calls succeed. A rejected key leaves the provider locked, or preserves an already unlocked session as specified by the provider.
 
+## Ownerless exit
+
+Every authenticated Remote call refreshes an owner-liveness lease. When no owner RPC arrives within `Config.ownerlessExitMs` (default `45_000`), the runtime emits `remote-runtime/ownerless` once per starvation episode; a later owner contact re-arms the next one. The remote-server app subscribes and terminates itself through the executable's graceful stop, so a dead local instance never leaves an orphan holding the exclusive home lease and rejecting successors with `REMOTE_RPC_REJECTED`. The coordinating host session keeps the lease fresh with periodic `status` keepalives (`remoteHosts.heartbeatIntervalMs`, default `10_000`).
+
 `assertUnlocked(): void` is a concrete same-process admission check for consumers. It throws while locked or disposed and does not wait for reconnect. The plugin installs it through `ctx.agents.registerAdmission()`; disposing the plugin removes that policy. New creation, restoration, and fork operations are subject to the driver's admission check. Disconnecting a browser or SSH transport does not lock credentials or dispose agents. The encrypted provider owns key erasure on its own disposal, and a new process starts locked even when encrypted storage exists.
 
 ## Settings synchronization

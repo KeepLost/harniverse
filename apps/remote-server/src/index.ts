@@ -7,6 +7,7 @@ import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import type {} from '@deepseek-ai/dsh-remote-runtime'
 import { composeRemoteServer, INSTALL_ANCHOR } from './composition.ts'
 
 /**
@@ -41,6 +42,13 @@ export async function runRemoteServer(): Promise<Context> {
     return await boot('dsh-remote-server', config, patches, (ctx) => {
       // Registered before child plugins: reverse teardown releases the lease last.
       ctx.effect(() => release)
+      // An ownerless runtime cannot admit any successor while it lives; the
+      // terminate signal routes through the executable's graceful stop (lease
+      // release, endpoint withdrawal) instead of a new in-process exit path.
+      ctx.on('remote-runtime/ownerless', () => {
+        process.stderr.write('remote-server: owner absent beyond the exit window; terminating\n')
+        process.kill(process.pid, 'SIGTERM')
+      })
       ctx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
       provideCmdline(ctx, { args: ['--port', '0'], exit: (code) => { throw new Error(`remote-server: unexpected startup exit ${code}`) } })
     })

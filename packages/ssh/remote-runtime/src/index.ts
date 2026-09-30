@@ -21,24 +21,42 @@ export { SYNC_SETTINGS_NAMESPACES } from './settings.ts'
 export interface Config {
   /** Local home used for remote endpoint discovery and encrypted credentials. */
   dshHome?: string
+  /** Exit an ownerless runtime after this long without an authenticated owner RPC (default 45s). */
+  ownerlessExitMs?: number
 }
 
 declare module '@deepseek-ai/cordis' {
   interface Context { remoteRuntime: RemoteRuntime }
+  interface Events {
+    /** Emitted once when no authenticated owner RPC arrived within the configured exit window. */
+    'remote-runtime/ownerless'(): void
+  }
 }
+
+/** Fixed lower bound for the watchdog tick; the effective tick is `ownerlessExitMs / 5`. */
+const OWNERLESS_TICK_FLOOR_MS = 50
 
 /** Remote control provider. Browser and SSH connections never own its decrypted lifetime. */
 export class RemoteRuntime extends TypertRemoteService {
   static inject = ['credentials', 'settings', 'webServer', 'authentication', 'agents']
-  static Config: z<Config> = z.object({ dshHome: z.string() })
+  static Config: z<Config> = z.object({ dshHome: z.string(), ownerlessExitMs: z.number() })
   private readonly bootId = randomUUID()
   private readonly home: string
+  private readonly ownerlessExitMs: number
   private settingsTail: Promise<void> = Promise.resolve()
   private stopped = false
+  private ownerless = false
+  private lastOwnerContact = Date.now()
+  private watchdog?: NodeJS.Timeout
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'remoteRuntime')
     this.home = resolveDshHome(config.dshHome)
+    this.ownerlessExitMs = config.ownerlessExitMs ?? 45_000
+    if (!Number.isSafeInteger(this.ownerlessExitMs) || this.ownerlessExitMs < OWNERLESS_TICK_FLOOR_MS * 5
+      || this.ownerlessExitMs > 2_147_483_647) {
+      throw new Error('remote-runtime: ownerlessExitMs must be a safe integer between 250 and 2147483647')
+    }
     if (!(ctx.credentials instanceof EncryptedCredentialProvider)) {
       throw new Error('remote-runtime: ctx.credentials must be EncryptedCredentialProvider')
     }
@@ -48,7 +66,11 @@ export class RemoteRuntime extends TypertRemoteService {
   }
 
   async* [Service.init](): AsyncGenerator<() => Promise<void>, void, void> {
-    yield async () => { this.stopped = true; await this.settingsTail }
+    yield async () => { this.stopped = true; clearInterval(this.watchdog); await this.settingsTail }
+    const tick = Math.max(OWNERLESS_TICK_FLOOR_MS, Math.floor(this.ownerlessExitMs / 5))
+    const watchdog: NodeJS.Timeout = setInterval(() => { this.checkOwner() }, tick)
+    watchdog.unref()
+    this.watchdog = watchdog
     const server = this.ctx.webServer
     yield await publishEndpoint(this.home, {
       version: 1, host: '127.0.0.1', port: server.port, protocol: server.protocol,
@@ -61,6 +83,7 @@ export class RemoteRuntime extends TypertRemoteService {
    */
   @Remote({ requiredCapability: 'harniverse.observe' })
   status(): RemoteRuntimeStatus {
+    this.touch()
     return { locked: this.provider().status().locked, bootId: this.bootId, platform: process.platform, arch: process.arch }
   }
 
@@ -69,6 +92,7 @@ export class RemoteRuntime extends TypertRemoteService {
    */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async unlock(key: string): Promise<void> {
+    this.touch()
     await this.provider().unlock(key)
   }
 
@@ -77,6 +101,7 @@ export class RemoteRuntime extends TypertRemoteService {
    */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async replaceCredentials(snapshot: Record<string, string>): Promise<void> {
+    this.touch()
     this.assertUnlocked()
     await this.provider().replace(snapshot)
   }
@@ -86,6 +111,7 @@ export class RemoteRuntime extends TypertRemoteService {
    */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async syncSettings(snapshot: Record<string, JsonValue>): Promise<void> {
+    this.touch()
     this.assertUnlocked()
     const detached = structuredClone(snapshot)
     const operation = this.settingsTail.then(async () => {
@@ -99,6 +125,20 @@ export class RemoteRuntime extends TypertRemoteService {
   /** Synchronous admission check for same-process consumers; never waits for a connection. */
   assertUnlocked(): void {
     if (this.provider().status().locked) throw new Error('remote-runtime: locked; reconnect and unlock before admitting agents')
+  }
+
+  /** Refresh the owner-liveness lease; every authenticated Remote call re-arms the watchdog. */
+  private touch(): void {
+    this.ownerless = false
+    this.lastOwnerContact = Date.now()
+  }
+
+  /** Signal one starvation episode; a later owner contact re-arms the next one. */
+  private checkOwner(): void {
+    if (this.stopped || this.ownerless || Date.now() - this.lastOwnerContact <= this.ownerlessExitMs) return
+    this.ownerless = true
+    this.ctx.logger.warn('remote-runtime: no owner contact for %dms; signaling ownerless', this.ownerlessExitMs)
+    this.ctx.emit('remote-runtime/ownerless')
   }
 
   private provider(): EncryptedCredentialProvider {

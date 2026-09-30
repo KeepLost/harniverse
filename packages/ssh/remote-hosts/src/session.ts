@@ -17,9 +17,23 @@ export class HostSession {
   transport?: HostTransport
   /** Active reverse mapping handles and allocated remote ports. */
   mappings: ActiveReverseMapping[] = []
+  private heartbeat?: NodeJS.Timeout
   constructor(readonly connection: RemoteHostSshConnection, readonly controller: AbortController) {}
+  /** Keep the remote runtime's owner lease fresh while this session owns it. */
+  beginOwnerHeartbeat(intervalMs: number): void {
+    this.heartbeat ??= setInterval(() => {
+      // Connection-loss detection owns failure reporting; a missed keepalive retries next tick.
+      void this.transport?.rpc('status', {}).catch(() => {})
+    }, intervalMs)
+    this.heartbeat.unref()
+    this.connection.signal.addEventListener('abort', () => { clearInterval(this.heartbeat) }, { once: true })
+  }
   /** Abort the session and dispose its SSH transport. */
-  async dispose(): Promise<void> { this.controller.abort(); await this.connection.dispose() }
+  async dispose(): Promise<void> {
+    clearInterval(this.heartbeat)
+    this.controller.abort()
+    await this.connection.dispose()
+  }
 }
 
 async function discovery(
@@ -45,6 +59,7 @@ process.stdout.write(JSON.stringify({endpoint:JSON.parse(await readFile(p,'utf8'
  */
 export async function establish(
   session: HostSession, host: HostRecord, config: Config, provider: CredentialProvider, settings: SettingsProvider,
+  heartbeatIntervalMs: number,
   phase: (state: RemoteHostState, progress: RemoteHostProgress) => void,
 ): Promise<void> {
   const connection = session.connection
@@ -99,6 +114,7 @@ export async function establish(
   phase('deploying', { phase: 'synchronizing', current: 1, total: 1 })
   await session.transport.rpc('unlock', { key: keys.aes })
   await synchronize(session, provider, settings)
+  session.beginOwnerHeartbeat(heartbeatIntervalMs)
   signal.throwIfAborted()
 }
 
