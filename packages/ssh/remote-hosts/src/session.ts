@@ -19,7 +19,9 @@ export class HostSession {
   mappings: ActiveReverseMapping[] = []
   private heartbeat?: NodeJS.Timeout
   constructor(readonly connection: RemoteHostSshConnection, readonly controller: AbortController) {}
-  /** Keep the remote runtime's owner lease fresh while this session owns it. */
+  /** Keep the remote runtime's owner lease fresh while this session owns it.
+   * @param intervalMs - keepalive period between `status` calls.
+   */
   beginOwnerHeartbeat(intervalMs: number): void {
     this.heartbeat ??= setInterval(() => {
       // Connection-loss detection owns failure reporting; a missed keepalive retries next tick.
@@ -55,6 +57,7 @@ process.stdout.write(JSON.stringify({endpoint:JSON.parse(await readFile(p,'utf8'
  * @param config - local deployment limits and artifact root.
  * @param provider - local credential provider.
  * @param settings - local settings provider.
+ * @param heartbeatIntervalMs - owner keepalive period armed after synchronization.
  * @param phase - publishes each deployment state with its bounded progress.
  */
 export async function establish(

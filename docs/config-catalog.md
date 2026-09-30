@@ -2181,6 +2181,8 @@ export interface Config {
   startupTimeoutMs?: number
   /** Maximum time allowed for one proxied remote operation. */
   requestTimeoutMs?: number
+  /** Keepalive period for the remote runtime's owner lease (default 10s; below the 45s exit window). */
+  heartbeatIntervalMs?: number
 }
 ```
 
@@ -2217,6 +2219,8 @@ Requires: `credentials` · `settings` · `webServer` · `authentication` · `age
 export interface Config {
   /** Local home used for remote endpoint discovery and encrypted credentials. */
   dshHome?: string
+  /** Exit an ownerless runtime after this long without an authenticated owner RPC (default 45s). */
+  ownerlessExitMs?: number
 }
 ```
 

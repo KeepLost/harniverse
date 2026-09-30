@@ -204,6 +204,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'goal': 'goal.md',
   'hmr-coordination': 'extensions.md',
   'llm': 'llm-streaming.md',
+  'remote-runtime': 'ssh.md',
   'session': 'session.md',
   'settings': 'settings.md',
   'skills': 'skills.md',

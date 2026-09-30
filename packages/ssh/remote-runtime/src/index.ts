@@ -28,7 +28,11 @@ export interface Config {
 declare module '@deepseek-ai/cordis' {
   interface Context { remoteRuntime: RemoteRuntime }
   interface Events {
-    /** Emitted once when no authenticated owner RPC arrived within the configured exit window. */
+    /**
+     * Emitted once per starvation episode when no owner RPC arrived within the
+     * configured exit window; a later owner contact re-arms the next one.
+     * @mode emit
+     */
     'remote-runtime/ownerless'(): void
   }
 }

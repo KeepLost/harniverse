@@ -3752,6 +3752,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; their messages already obey the immutable creation contract.' }],
   },
   {
+    name: 'remote-runtime/ownerless',
+    mode: 'emit',
+    signature: '\'remote-runtime/ownerless\'(): void',
+    summary: 'Emitted once per starvation episode when no owner RPC arrived within the configured exit window; a later owner contact re-arms the next one.',
+    description: 'Emitted once per starvation episode when no owner RPC arrived within the configured exit window; a later owner contact re-arms the next one.',
+    parameters: [],
+  },
+  {
     name: 'session-telemetry/record',
     mode: 'waterfall',
     signature: '\'session-telemetry/record\'(record: SessionTelemetryRecord, next: () => SessionTelemetryRecord): SessionTelemetryRecord',

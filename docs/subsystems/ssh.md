@@ -229,7 +229,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:154`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:156`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 
@@ -289,7 +289,7 @@ Remote control provider. Browser and SSH connections never own its decrypted lif
 assertUnlocked(): void
 ```
 
-Source: [`packages/ssh/remote-runtime/src/index.ts:31`](../../packages/ssh/remote-runtime/src/index.ts)
+Source: [`packages/ssh/remote-runtime/src/index.ts:44`](../../packages/ssh/remote-runtime/src/index.ts)
 
 <a id="ctxssh--sshconnection"></a>
 
@@ -320,4 +320,25 @@ dispose(): Promise<void>
 ```
 
 Source: [`packages/ssh/ssh/src/index.ts:56`](../../packages/ssh/ssh/src/index.ts)
+
+<a id="remote-runtime-events"></a>
+
+### `remote-runtime/*` events
+
+<a id="remote-runtimeownerless--emit"></a>
+
+#### `remote-runtime/ownerless` — emit
+
+Emitted once per starvation episode when no owner RPC arrived within the configured exit window; a later owner contact re-arms the next one.
+
+```ts cordis-catalog
+/**
+ * Emitted once per starvation episode when no owner RPC arrived within the
+ * configured exit window; a later owner contact re-arms the next one.
+ * @mode emit
+ */
+'remote-runtime/ownerless'(): void
+```
+
+Source: [`packages/ssh/remote-runtime/src/index.ts:36`](../../packages/ssh/remote-runtime/src/index.ts)
 <!-- END GENERATED cordis-surface -->
