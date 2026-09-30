@@ -41,11 +41,11 @@ process.stdout.write(JSON.stringify({endpoint:JSON.parse(await readFile(p,'utf8'
  * @param config - local deployment limits and artifact root.
  * @param provider - local credential provider.
  * @param settings - local settings provider.
- * @param phase - publishes deployment progress.
+ * @param phase - publishes each deployment state with its bounded progress.
  */
 export async function establish(
   session: HostSession, host: HostRecord, config: Config, provider: CredentialProvider, settings: SettingsProvider,
-  phase: (state: RemoteHostState, progress?: RemoteHostProgress) => void,
+  phase: (state: RemoteHostState, progress: RemoteHostProgress) => void,
 ): Promise<void> {
   const connection = session.connection
   const signal = AbortSignal.any([session.controller.signal, connection.signal])

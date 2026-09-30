@@ -205,7 +205,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
             ...(controller.signal.aborted ? {} : { error: 'remote-hosts: CONNECTION_LOST' }) })
         }, { once: true })
         await establish(session, host, this.config, this.ctx.credentials, this.ctx.settings,
-          (state, progress?: RemoteHostProgress) => this.states.set(id, { state, ...(progress === undefined ? {} : { progress }) }))
+          (state, progress: RemoteHostProgress) => this.states.set(id, { state, progress }))
         signal.throwIfAborted()
         this.states.set(id, { state: 'connected' })
         return this.view(host)
