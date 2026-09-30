@@ -46,6 +46,8 @@ export type ConnectionState = 'connected' | 'reconnecting'
 /** Frame sink callbacks: the Controller owns the physical streams; business dispatch belongs to
  *  SessionManager. */
 export interface ConnectionSinks {
+  /** Retire consumer-owned machine state before streams for a new target start. */
+  onTargetChange?: () => void | Promise<void>
   /** Last contiguous durable seq per resident Session, sampled for each mux generation. */
   muxSince?: () => Parameters<IApiClient['events']['mux']>[0]['since']
   onMuxEnvelope?: (envelope: RpcRequest<MuxFrame>) => void
@@ -74,6 +76,7 @@ export class ConnectionController {
   private generation = 0
   private attempt = 0
   private current: AbortController | null = null
+  private backoff: AbortController | null = null
   private running = false
   private lastState: ConnectionState | null = null
   private readonly config: Required<ConnectionConfig>
@@ -102,6 +105,8 @@ export class ConnectionController {
     this.running = false
     this.current?.abort()
     this.current = null
+    this.backoff?.abort()
+    this.backoff = null
   }
 
   /** Abort the current generation so the normal reconnect loop re-authenticates every carrier. */
@@ -158,19 +163,20 @@ export class ConnectionController {
           if (gen === this.generation && !ac.signal.aborted) ac.abort()
           resolve()
         }
+        ac.signal.addEventListener('abort', settle, { once: true })
         const since = this.sinks.muxSince?.()
         const muxPayload = since === undefined || Object.keys(since).length === 0 ? {} : { since }
-        void this.pumpStream(this.api.events.mux(muxPayload, ac.signal, muxOpened, muxAuthenticated), muxAdmission, settle)
-        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened, hostAuthenticated), hostAdmission, settle)
+        void this.pumpStream(this.api.events.mux(muxPayload, ac.signal, muxOpened, muxAuthenticated), muxAdmission, settle, ac)
+        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened, hostAuthenticated), hostAdmission, settle, ac)
       })
 
+      const timeout = new AbortController()
       try {
         // Strict readiness handshake: describe proves unary reachability, onOpen
         // proves each physical stream is established before any frame —
         // only then may onConnected fire, so the resync it triggers cannot outrun the
         // subscribed baseline. The timeout guards against a carrier that never fires onOpen
         // (see ConnectionConfig.streamOpenTimeoutMs).
-        const timeout = new AbortController()
         const authenticated = Promise.race([
           streamAuthentication,
           sleep(this.config.streamOpenTimeoutMs, timeout.signal).then(() => {
@@ -178,7 +184,7 @@ export class ConnectionController {
           }),
         ])
         const readiness = Promise.all([
-          this.api.host.describe({}),
+          this.api.host.describe({}, ac.signal),
           authenticated,
           Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)]),
         ] as const)
@@ -186,7 +192,6 @@ export class ConnectionController {
           readiness,
           failed.then(() => { throw new Error('stream ended during readiness handshake') }),
         ])
-        timeout.abort()
         const descriptionResult = description.result
         if (!descriptionResult.ok) {
           throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`)
@@ -216,6 +221,8 @@ export class ConnectionController {
         hostAdmission.queued.length = 0
         // Transport failure: treat as generation failure, fall through to the shared backoff.
         if (!ac.signal.aborted) ac.abort()
+      } finally {
+        timeout.abort()
       }
 
       await failed
@@ -224,7 +231,9 @@ export class ConnectionController {
       this.attempt += 1
       console.warn(`[web-runtime] connection lost, retry #${this.attempt}`)
       const idle = new AbortController()
+      this.backoff = idle
       await sleep(this.backoffDelay(this.attempt), idle.signal)
+      if (this.backoff === idle) this.backoff = null
     }
   }
 
@@ -239,16 +248,21 @@ export class ConnectionController {
     stream: AsyncIterable<RpcRequest<F>>,
     admission: StreamAdmission<F>,
     onEnd: () => void,
+    controller: AbortController,
   ): Promise<void> {
     try {
       for await (const envelope of stream) {
+        if (!this.isGenerationActive(controller)) break
         if (envelope.payload.type === 'stream/error') break
         if (!admission.ready) {
           if (admission.sink === undefined) continue
           if (admission.queued.length >= this.config.preReadyBufferMaxFrames) break
           admission.queued.push(envelope)
         }
-        else if (admission.sink !== undefined) this.callSink(() => { admission.sink?.(envelope) })
+        else if (admission.sink !== undefined) {
+          const sink = admission.sink
+          this.callSink(() => { sink(envelope) })
+        }
       }
     } catch {
       // Stream loss: converge on onEnd, which triggers the shared reconnect.
@@ -259,10 +273,11 @@ export class ConnectionController {
   /** Publish frames received before all three carrier identities matched. */
   private flushAdmission<F>(admission: StreamAdmission<F>, controller: AbortController): void {
     const queued = admission.queued.splice(0)
-    if (admission.sink === undefined) return
+    const sink = admission.sink
+    if (sink === undefined) return
     for (const envelope of queued) {
       if (!this.isGenerationActive(controller)) return
-      this.callSink(() => { admission.sink?.(envelope) })
+      this.callSink(() => { sink(envelope) })
     }
   }
 

@@ -97,6 +97,7 @@ export class SlotRegistry extends Service {
   private _renderer: SlotRenderer | undefined
   private _locale: LocaleFace | undefined
   private _host: SlotRendererHost | undefined
+  private machineKey = 'host'
 
   /**
    * @param ctx - owning root context.
@@ -272,10 +273,24 @@ export class SlotRegistry extends Service {
   pruneStoreScope(sessionId: string): void {
     for (const [handle, record] of this._stores) {
       if (record.scope !== 'session') continue
-      const instance = record.instances.get(sessionId) ?? handle.create(sessionId)
+      const instance = record.instances.get(sessionId) ?? handle.create(this.storeScopeKey(sessionId))
       instance.clearPersisted()
       record.instances.delete(sessionId)
     }
+  }
+
+  /** Session stores and persistence belong to one machine's namespace. Root UI preferences remain local.
+   * @param key - the machine key (`host` or `remote:<id>`) scoping session persistence.
+   */
+  resetTarget(key: string): void {
+    this.machineKey = key
+    for (const record of this._stores.values()) {
+      if (record.scope !== 'root') record.instances.clear()
+    }
+  }
+
+  private storeScopeKey(sessionId: string): string {
+    return this.machineKey === 'host' ? sessionId : `${this.machineKey}:${sessionId}`
   }
 
   /**
@@ -429,7 +444,7 @@ export class SlotRegistry extends Service {
     if (instance === undefined) {
       // Session instances get the scope key (the engine suffixes the persist
       // key per session); root instances stay keyless.
-      instance = record.scope === 'root' ? handle.create() : handle.create(key)
+      instance = record.scope === 'root' ? handle.create() : handle.create(this.storeScopeKey(key))
       record.instances.set(key, instance)
     }
     return instance

@@ -69,6 +69,12 @@ export class SessionProvideChannel {
     return this.maybeInfoCache
   }
 
+  /** Renew blank-session injection identity when the machine owning the sources changes. */
+  resetTarget(): void {
+    this.maybeInfoCache = this.materializeMaybeInfo()
+    this.publishCurrent()
+  }
+
   /**
    * Register a per-session standard-props provider (see
    * SessionRuntime.provide for the product contract). Live bundles rebuild

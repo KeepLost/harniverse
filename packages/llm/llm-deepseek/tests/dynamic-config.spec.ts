@@ -7,6 +7,8 @@ import LlmRuntime, { createUserMessage, INVALID_CREDENTIAL_CODE } from '@deepsee
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
+import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import type { LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { FileSettingsProvider } from '@deepseek-ai/dsh-settings-file'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -41,9 +43,10 @@ interface Harness {
  * flowing through the in-process write path, which is deterministic; external
  * file watching is the providers' own covered concern.
  */
-async function boot(dir: string, config: object): Promise<Harness> {
+async function boot(dir: string, config: object, environment?: LaunchEnvironmentSnapshot): Promise<Harness> {
   vi.stubEnv('DSH_HOME', dir)
   const ctx = new Context()
+  if (environment !== undefined) ctx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
   cleanups.push(async () => {
     await ctx.fiber.dispose()
   })
@@ -60,6 +63,18 @@ function prompt(ctx: Context) {
 }
 
 describe('request-level dynamic configuration', () => {
+  it('materializes the host-resolved endpoint without changing live settings', async () => {
+    const dir = await home()
+    const host = createLaunchEnvironmentSnapshot([{ source: 'process', values: {
+      DEEPSEEK_BASE_URL: 'https://deepseek-gateway.test/v1',
+    } }])
+    const { ctx } = await boot(dir, {}, host)
+
+    const materialized = await ctx.settings.materialize(NS) as LlmDeepSeek.Config
+    expect(materialized.baseURL).toBe('https://deepseek-gateway.test/v1')
+    expect(ctx.settings.get(NS)).not.toHaveProperty('baseURL', 'https://deepseek-gateway.test/v1')
+  })
+
   it('routes the next request with the freshly resolved base URL and credential', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()

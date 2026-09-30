@@ -18,7 +18,7 @@ import { detectCommand } from './platform.ts'
 import { listKeyDirectory } from './keyfiles.ts'
 import { establish, HostSession, synchronize } from './session.ts'
 import { authSecrets, connectSchema, listKeyFilesSchema, parseHostInput, remoteHostId, RemoteHostsError, upsertSchema, verifySchema } from './validation.ts'
-import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, KeyFileListing, KeyFilePicker, ListKeyFilesInput, PickKeyFileResult, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput } from './types.ts'
+import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, KeyFileListing, KeyFilePicker, ListKeyFilesInput, PickKeyFileResult, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput, RemoteHostProgress } from './types.ts'
 
 export type * from './types.ts'
 export { remoteHostId, RemoteHostsError } from './validation.ts'
@@ -32,7 +32,7 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
     requestTimeoutMs: z.natural().min(1).max(2147483647).default(30_000) })
   private readonly registry: HostRegistry
   private readonly ready: Promise<void>
-  private readonly states = new Map<RemoteHostId, { state: RemoteHostState; error?: string }>()
+  private readonly states = new Map<RemoteHostId, { state: RemoteHostState; error?: string; progress?: RemoteHostProgress }>()
   private readonly sessions = new Map<RemoteHostId, HostSession>()
   private readonly attempts = new Map<RemoteHostId, AbortController>()
   private readonly queues = new Map<RemoteHostId, Promise<unknown>>()
@@ -204,7 +204,8 @@ export class RemoteHosts extends TypertRemoteService implements RemoteHostsProvi
           this.states.set(id, { state: controller.signal.aborted ? 'offline' : 'error',
             ...(controller.signal.aborted ? {} : { error: 'remote-hosts: CONNECTION_LOST' }) })
         }, { once: true })
-        await establish(session, host, this.config, this.ctx.credentials, this.ctx.settings, state => this.states.set(id, { state }))
+        await establish(session, host, this.config, this.ctx.credentials, this.ctx.settings,
+          (state, progress?: RemoteHostProgress) => this.states.set(id, { state, ...(progress === undefined ? {} : { progress }) }))
         signal.throwIfAborted()
         this.states.set(id, { state: 'connected' })
         return this.view(host)

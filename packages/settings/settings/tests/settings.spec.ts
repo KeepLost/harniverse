@@ -128,6 +128,34 @@ describe('registration', () => {
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 16 })
   })
 
+  it('materializes an owner-defined host snapshot without publishing it to settings descriptors', async () => {
+    const { ctx } = await boot()
+    const ns = settingsNamespace('ui-theme')
+    const scope = ctx.settings.register(ns, ThemeSchema, {
+      materialize: value => ({ ...value, fontSize: 18 }),
+    })
+    const materialized = await ctx.settings.materialize(ns) as ThemeConfig
+    materialized.fontSize = 22
+    expect(materialized).toEqual({ theme: 'dark', fontSize: 22 })
+    expect(scope.get()).toEqual({ theme: 'dark', fontSize: 14 })
+    expect(ctx.settings.describe()[0]?.value).toEqual({ theme: 'dark', fontSize: 14 })
+    expect(ctx.settings.describe({ redactSecrets: true })[0]?.value).toEqual({ theme: 'dark', fontSize: 14 })
+    expect(await ctx.settings.materialize(settingsNamespace('missing'))).toBeUndefined()
+    const plain = settingsNamespace('plain-materialize')
+    ctx.settings.register(plain, ThemeSchema)
+    expect(await ctx.settings.materialize(plain)).toEqual({ theme: 'dark', fontSize: 14 })
+  })
+
+  it('rejects invalid materialization and leaves the stored resolved section intact', async () => {
+    const { ctx } = await boot()
+    const ns = settingsNamespace('ui-theme')
+    const scope = ctx.settings.register(ns, ThemeSchema, {
+      materialize: () => ({ theme: 'invalid', fontSize: 14 }) as unknown as ThemeConfig,
+    })
+    await expect(ctx.settings.materialize(ns)).rejects.toThrow()
+    expect(scope.get()).toEqual({ theme: 'dark', fontSize: 14 })
+  })
+
   it('refuses a write its owner could not act on, and keeps the last good value for a stored one', async () => {
     const { ctx } = await boot()
     const ns = settingsNamespace('ui-theme')
@@ -749,6 +777,8 @@ describe('installSettingsSection', () => {
       onChange: () => {
         changes += 1
       },
+      validate: () => {},
+      materialize: value => ({ ...value, theme: `materialized-${value.theme}` }),
     })
     // No settings service mounted: nothing ran, the entry stays authoritative.
     expect(current()).toEqual({ theme: 'entry' })
@@ -760,6 +790,7 @@ describe('installSettingsSection', () => {
       expect(current()).toEqual({ theme: 'user' })
     })
     expect(changes).toBe(1)
+    await expect(ctx.settings.materialize(settingsNamespace('helper-ns'))).resolves.toEqual({ theme: 'materialized-user' })
 
     await ctx.settings.update(settingsNamespace('helper-ns'), { theme: 'live' })
     await vi.waitFor(() => {

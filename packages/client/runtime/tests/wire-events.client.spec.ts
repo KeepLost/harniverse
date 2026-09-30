@@ -56,6 +56,9 @@ async function mount(): Promise<Bench> {
     $dispatch: (event: string, args: readonly unknown[]) => { bench.dispatched.push([event, ...args]) },
   })
   const handle: ConnectionHandle = {
+    target: { getSnapshot: () => ({ kind: 'host' }), subscribe: () => () => {} },
+    captureApi: () => api,
+    switchTarget: async () => {},
     health: { getSnapshot: () => 'bypass', subscribe: () => () => {} },
     api,
     isLoopback: true,

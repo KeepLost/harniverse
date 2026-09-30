@@ -2467,6 +2467,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the resolved value, or `undefined` while unregistered.',
       },
       {
+        signature: 'async materialize(ns: SettingsNamespace): Promise<unknown>',
+        description: 'Build one owner-defined host snapshot without changing the live settings value or exposing the materialized result through settings descriptors. The owner hook runs against a detached value; its result is validated by the registered schema and returned as a detached snapshot.',
+        parameters: [{ name: 'ns', description: 'the namespace to materialize.' }],
+        returns: 'the detached host snapshot, or `undefined` while unregistered.',
+      },
+      {
         signature: 'async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>',
         description: 'Merge a patch into one registered namespace\'s user layer, validate the resolved candidate, persist through the provider, then commit and emit. A validation failure rejects before anything is persisted. Writes to one namespace are serialized: concurrent updates apply in call order, each merging over the previous write\'s committed section.',
         parameters: [{ name: 'ns', description: 'the registered namespace to update.' }, { name: 'patch', description: 'plain-object patch over the user section.' }, { name: 'expectedRevision', description: 'the descriptor `revision` the caller read; a namespace that moved past it rejects with {@link SettingsConflictError}.' }],
@@ -5614,6 +5620,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RemoteHostId = Branded<\'RemoteHostId\'>;',
   },
   {
+    name: 'RemoteHostProgress',
+    declaration: 'export interface RemoteHostProgress {\n    phase: RemoteHostProgressPhase;\n    current: number;\n    total: number;\n}',
+  },
+  {
+    name: 'RemoteHostProgressPhase',
+    declaration: 'export type RemoteHostProgressPhase = \'checking-artifact\' | \'uploading\' | \'verifying\' | \'authorizing\' | \'starting\' | \'forwarding\' | \'synchronizing\';',
+  },
+  {
     name: 'RemoteHostSshAuthentication',
     declaration: 'export type RemoteHostSshAuthentication = {\n    kind: \'password\';\n    password: string;\n} | {\n    kind: \'key\';\n    privateKey: string;\n    passphrase?: string;\n} | {\n    kind: \'agent\';\n    socket: string;\n};',
   },
@@ -5651,7 +5665,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RemoteHostView',
-    declaration: 'export interface RemoteHostView extends HostRecord {\n    state: RemoteHostState;\n    error?: string;\n}',
+    declaration: 'export interface RemoteHostView extends HostRecord {\n    state: RemoteHostState;\n    error?: string;\n    progress?: RemoteHostProgress;\n}',
   },
   {
     name: 'RemotePlatform',
@@ -6251,7 +6265,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsRegisterOptions',
-    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    validate?: (value: T) => void;\n}',
+    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    validate?: (value: T) => void;\n    materialize?: (value: T) => T | Promise<T>;\n}',
   },
   {
     name: 'SettingsUpdateSource',

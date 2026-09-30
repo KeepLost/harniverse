@@ -1298,6 +1298,8 @@ export interface Config {
 export interface PiAiProviderProfile {
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
+  /** Authentication form selected by the provider's credential resolver. */
+  authMode?: 'api-key' | 'bearer' | 'none'
   /** Name shown by configuration surfaces; defaults to the route key. */
   displayName?: string
   /**
@@ -1490,7 +1492,7 @@ type WithheldThinkingFormat = 'qwen-chat-template'
 
 依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`）
 
-来源：[`packages/llm/llm-pi-ai/src/config.ts:172`](../packages/llm/llm-pi-ai/src/config.ts)
+来源：[`packages/llm/llm-pi-ai/src/config.ts:183`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 
@@ -2185,7 +2187,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:94`](../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:142`](../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="deepseek-aidsh-remote-hosts-ssh"></a>
 

@@ -5,7 +5,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
-import { apply, type ConnectionHandle } from '../src/client/index.ts'
+import { apply, type ConnectionHandle, type ConnectionCarrierOverride } from '../src/client/index.ts'
 import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
@@ -18,6 +18,7 @@ type WebSocketGlobal = { WebSocket?: typeof WebSocket }
 
 const originalWebSocket = globalThis.WebSocket
 const sockets: FakeWebSocket[] = []
+const contexts: Context[] = []
 
 class FakeWebSocket extends EventTarget {
   static readonly CONNECTING = 0
@@ -50,7 +51,8 @@ class FakeWebSocket extends EventTarget {
   }
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   delete (globalThis as Win).location
   sockets.length = 0
   if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
@@ -65,9 +67,11 @@ function authenticationDouble(): ClientAuthentication {
   }
 }
 
-async function mount(authentication = authenticationDouble()): Promise<ConnectionHandle> {
+async function mount(authentication = authenticationDouble(), carrier?: ConnectionCarrierOverride): Promise<ConnectionHandle> {
   const ctx = new Context()
+  contexts.push(ctx)
   ctx.provide('clientAuthentication', authentication)
+  if (carrier !== undefined) ctx.provide('connectionCarrier', carrier)
   await ctx.plugin({ apply, inject: [] })
   const handle = ctx.get('connection') as ConnectionHandle | undefined
   if (handle === undefined) throw new Error('ctx.connection not provided')
@@ -75,6 +79,391 @@ async function mount(authentication = authenticationDouble()): Promise<Connectio
 }
 
 describe('connection client apply', () => {
+  it('routes local settings through page authority and retracts a mismatched local reply', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '', origin: 'http://localhost:3080' }
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      if (typeof init?.body !== 'string') throw new TypeError('expected JSON body')
+      const { rpcId, method } = JSON.parse(init.body) as { rpcId: string; method: string }
+      const identity = method === 'settings.describe'
+        ? { kind: 'grant', grantId: 'foreign', grantRevision: 1 } : { kind: 'bypass' }
+      return Promise.resolve(Response.json({ type: 'server-response', rpcId, authentication: identity,
+        result: method === 'host.describe'
+          ? { ok: true, value: { bootId: 'boot', version: '0', cwd: '/', attachedSessions: 0, canOpenPath: false } }
+          : { ok: false, error: { code: 'internal', message: 'offline', details: {} } } }))
+    })
+    const handle = await mount()
+    const loop = handle.start({})
+    try {
+      await vi.waitFor(() => { expect(sockets).toHaveLength(2) })
+      for (const socket of sockets) socket.receive(JSON.stringify({ type: 'server-request', rpcId: 'identity',
+        method: 'connection.authenticated', payload: { kind: 'bypass' } }))
+      await vi.waitFor(() => { expect(handle.authentication.getSnapshot()).toEqual({ kind: 'bypass' }) })
+      await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+      const local = handle.api.settings.describe({ namespace: 'test' })
+      await expect(local).rejects.toThrow('authentication identity mismatch')
+      expect(handle.authentication.getSnapshot()).toBeUndefined()
+      const request = fetch.mock.calls.at(-1)?.[0]
+      expect(new URL(request instanceof Request ? request.url : request!).search).toBe('')
+    } finally { loop.stop(); fetch.mockRestore() }
+  })
+
+  it('routes responses to the selected target and handles uploads with optional hooks', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    await handle.upload({ data: new Uint8Array([1]) })
+    await handle.upload({ data: new Uint8Array([2]) }, {})
+    await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    expect(handle.target.getSnapshot().kind).toBe('remote')
+  })
+
+  it('contains a target observer exception and notifies the remaining observers', async () => {
+    const handle = await mount()
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const seen: string[] = []
+    handle.target.subscribe(() => { throw new Error('observer failed') })
+    handle.target.subscribe(() => { seen.push(handle.target.getSnapshot().kind) })
+    try {
+      await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+      expect(seen).toEqual(['remote'])
+      expect(errors).toHaveBeenCalledWith('[client-connection] target observer failed:', expect.any(Error))
+    } finally { errors.mockRestore() }
+  })
+
+  it('routes a raw upload to the selected remote with no optional hooks', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
+    class UploadXhr {
+      static latest: UploadXhr | undefined
+      constructor() { UploadXhr.latest = this }
+      upload = { onprogress: null as ((event: ProgressEvent) => void) | null }
+      onload: (() => void) | null = null
+      onabort: (() => void) | null = null
+      onerror: (() => void) | null = null
+      responseType = ''
+      status = 200
+      responseText = JSON.stringify({ attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 1 })
+      readonly open = vi.fn()
+      setRequestHeader(): void {}
+      send(): void { this.onload?.() }
+      abort(): void { this.onabort?.() }
+    }
+    vi.stubGlobal('XMLHttpRequest', UploadXhr)
+    try {
+      const handle = await mount()
+      await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+      await expect(handle.upload({ data: new Uint8Array([1]) })).resolves.toMatchObject({ bytes: 1 })
+      expect(UploadXhr.latest?.open).toHaveBeenCalledWith('POST',
+        'http://dsh.internal/api/attachment/upload?dshRemoteHost=11111111-1111-4111-8111-111111111111')
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('delivers matched-generation mux and host frames after authentication', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '', origin: 'http://localhost:3080' }
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      if (typeof init?.body !== 'string') throw new TypeError('expected JSON body')
+      const { rpcId } = JSON.parse(init.body) as { rpcId: string }
+      return Promise.resolve(Response.json({ type: 'server-response', rpcId, authentication: { kind: 'bypass' },
+        result: { ok: true, value: { bootId: 'boot', version: '0', cwd: '/', attachedSessions: 0, canOpenPath: false } } }))
+    })
+    const handle = await mount()
+    const received: string[] = []
+    const loop = handle.start({
+      onMuxEnvelope: (envelope) => { received.push(envelope.payload.type) },
+      onHostEnvelope: (envelope) => { received.push(envelope.payload.type) },
+    })
+    try {
+      await vi.waitFor(() => { expect(sockets).toHaveLength(2) })
+      for (const socket of sockets) socket.receive(JSON.stringify({ type: 'server-request', rpcId: 'identity',
+        method: 'connection.authenticated', payload: { kind: 'bypass' } }))
+      await vi.waitFor(() => { expect(handle.health.getSnapshot()).toBe('bypass') })
+      sockets[0]!.receive(JSON.stringify({ type: 'server-request', rpcId: 'mux', method: 'session/subscribed',
+        payload: { type: 'session/subscribed', sessionId: 'same', lastSeq: 1 } }))
+      sockets[1]!.receive(JSON.stringify({ type: 'server-request', rpcId: 'host', method: 'host/session-removed',
+        payload: { type: 'host/session-removed', sessionId: 'same' } }))
+      await vi.waitFor(() => { expect(received).toEqual(['session/subscribed', 'host/session-removed']) })
+    } finally { loop.stop(); fetch.mockRestore() }
+  })
+
+  it('does not announce a machine retargeted by a health observer mid-handshake', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const connected = vi.fn()
+    const teardown = Promise.withResolvers<undefined>()
+    let switched: Promise<void> | undefined
+    let once = false
+    handle.health.subscribe(() => {
+      if (once || handle.health.getSnapshot() !== 'bypass') return
+      once = true
+      switched = handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    })
+    const loop = handle.start({ onConnected: connected, onTargetChange: () => teardown.promise })
+    await vi.waitFor(() => { expect(once).toBe(true) })
+    expect(connected).not.toHaveBeenCalled()
+    teardown.resolve(undefined)
+    await switched
+    loop.stop()
+  })
+
+  it('does not announce a remote retargeted by its page-identity observer', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    const connected = vi.fn()
+    const teardown = Promise.withResolvers<undefined>()
+    let switched: Promise<void> | undefined
+    let once = false
+    handle.authentication.subscribe(() => {
+      if (once || handle.authentication.getSnapshot() === undefined) return
+      once = true
+      switched = handle.switchTarget({ kind: 'host' })
+    })
+    const loop = handle.start({ onConnected: connected, onTargetChange: () => teardown.promise })
+    await vi.waitFor(() => { expect(once).toBe(true) })
+    expect(connected).not.toHaveBeenCalled()
+    teardown.resolve(undefined)
+    await switched
+    expect(handle.target.getSnapshot()).toEqual({ kind: 'host' })
+    loop.stop()
+  })
+
+  it('shares the pending transition with a same-target request from a target observer', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const teardown = Promise.withResolvers<undefined>()
+    const loop = handle.start({ onTargetChange: () => teardown.promise })
+    let observed: Promise<void> | undefined
+    handle.target.subscribe(() => { observed = handle.switchTarget(handle.target.getSnapshot()) })
+    const switched = handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    expect(observed).toBe(switched)
+    teardown.resolve(undefined)
+    await switched
+    loop.stop()
+  })
+
+  it('publishes the transition before invoking consumer teardown', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const teardown = Promise.withResolvers<undefined>()
+    let observed: Promise<void> | undefined
+    const loop = handle.start({ onTargetChange: () => {
+      observed = handle.switchTarget(handle.target.getSnapshot())
+      return teardown.promise
+    } })
+    const switched = handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    expect(observed).toBe(switched)
+    teardown.resolve(undefined)
+    await switched
+    loop.stop()
+  })
+
+  it('keeps the oldest cleanup barrier when an intervening switch fails', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const teardown = Promise.withResolvers<undefined>()
+    let resets = 0
+    const loop = handle.start({ onTargetChange: () => {
+      resets++
+      if (resets === 1) return teardown.promise
+      if (resets === 2) return Promise.reject(new Error('middle cleanup failed'))
+    } })
+    const first = handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    const second = handle.switchTarget({ kind: 'remote', id: '22222222-2222-4222-8222-222222222222' })
+      .catch((error: unknown) => error)
+    let settled = false
+    const last = handle.switchTarget({ kind: 'host' }).then(() => { settled = true })
+    for (let turn = 0; turn < 12; turn++) await Promise.resolve()
+    expect(settled).toBe(false)
+    teardown.resolve(undefined)
+    await Promise.all([first, last])
+    expect(await second).toMatchObject({ message: 'middle cleanup failed' })
+    expect(settled).toBe(true)
+    loop.stop()
+  })
+
+  it('does not start the latest target until every retired consumer teardown finishes', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const first = Promise.withResolvers<undefined>()
+    let resets = 0
+    const loop = handle.start({ onTargetChange: () => ++resets === 1 ? first.promise : undefined })
+    const toFirst = handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    let settled = false
+    const toSecond = handle.switchTarget({ kind: 'remote', id: '22222222-2222-4222-8222-222222222222' })
+      .then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    first.resolve(undefined)
+    await Promise.all([toFirst, toSecond])
+    expect(settled).toBe(true)
+    loop.stop()
+  })
+
+  it.each(['rejects', 'throws', 'non-error'] as const)('can return to the host after a prior consumer teardown %s', async (failure) => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    let resets = 0
+    const loop = handle.start({ onTargetChange: () => {
+      if (++resets === 1) {
+        const reason: unknown = failure === 'non-error' ? 'cleanup failed' : new Error('cleanup failed')
+        if (failure !== 'rejects') throw reason
+        return Promise.reject(new Error('cleanup failed'))
+      }
+    } })
+    await expect(handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' }))
+      .rejects.toThrow('cleanup failed')
+    await handle.switchTarget({ kind: 'host' })
+    expect(handle.target.getSnapshot()).toEqual({ kind: 'host' })
+    expect(resets).toBe(2)
+    loop.stop()
+  })
+
+  it('cannot revive a disposed connection through a retained switch or start callback', async () => {
+    const handle = await mount()
+    await contexts.at(-1)!.fiber.dispose()
+    expect(() => handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' }))
+      .toThrow('disposed')
+    expect(() => handle.start({})).toThrow('disposed')
+    await expect(handle.captureApi().host.describe({})).rejects.toThrow('machine target changed')
+  })
+
+  it('awaits target teardown, skips superseded streams, and returns from an unavailable remote', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '', origin: 'http://localhost:3080' }
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const first = Promise.withResolvers<undefined>()
+    const second = Promise.withResolvers<undefined>()
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      if (typeof init?.body !== 'string') throw new TypeError('expected a JSON string request body')
+      const { rpcId } = JSON.parse(init.body) as { rpcId: string }
+      return Promise.resolve(Response.json({ type: 'server-response', rpcId, authentication: { kind: 'bypass' },
+        result: { ok: true, value: { bootId: 'boot', version: '0', cwd: '/', attachedSessions: 0, canOpenPath: false } } }))
+    })
+    const handle = await mount()
+    let resets = 0
+    const loop = handle.start({ onTargetChange: () => ++resets === 1 ? first.promise : resets === 2 ? second.promise : undefined })
+    try {
+      await vi.waitFor(() => { expect(sockets).toHaveLength(2) })
+      const toFirst = handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+      const toSecond = handle.switchTarget({ kind: 'remote', id: '22222222-2222-4222-8222-222222222222' })
+      first.resolve(undefined)
+      await toFirst
+      expect(sockets).toHaveLength(2)
+      expect(sockets.every(socket => socket.readyState === FakeWebSocket.CLOSED)).toBe(true)
+      second.resolve(undefined)
+      await toSecond
+      expect(sockets.slice(2).map(socket => new URL(socket.url).searchParams.get('dshRemoteHost'))).toEqual([
+        '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-222222222222',
+      ])
+      await handle.switchTarget({ kind: 'host' })
+      expect(handle.target.getSnapshot()).toEqual({ kind: 'host' })
+      expect(sockets.slice(-2).every(socket => new URL(socket.url).search === '')).toBe(true)
+    } finally { loop.stop(); fetch.mockRestore() }
+  })
+
+  it('revokes retained API calls and ignores unary bodies delivered after a switch', async () => {
+    const handle = await mount()
+    const previous = handle.captureApi()
+    const body = Promise.withResolvers<unknown>()
+    const reading = Promise.withResolvers<undefined>()
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const response = Response.json({})
+      response.json = () => { reading.resolve(undefined); return body.promise }
+      return response
+    })
+    try {
+      const pending = previous.host.describe({}).catch((error: unknown) => error)
+      await reading.promise
+      await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+      expect(await pending).toBeInstanceOf(Error)
+      const calls = fetch.mock.calls.length
+      await expect(previous.host.describe({})).rejects.toThrow('machine target changed')
+      expect(fetch.mock.calls).toHaveLength(calls)
+      body.resolve({})
+      await body.promise
+      expect(handle.target.getSnapshot()).toMatchObject({ kind: 'remote' })
+      await handle.switchTarget({ kind: 'host' })
+    } finally { fetch.mockRestore() }
+  })
+
+  it('aborts uploads and suppresses late receipts and progress after changing machines', async () => {
+    const receipt = Promise.withResolvers<import('@deepseek-ai/dsh-attachment').FileAttachmentRef>()
+    let hooks: import('../src/client/upload.ts').FileUploadHooks | undefined
+    const handle = await mount(authenticationDouble(), {
+      api: new FixtureApiClient(), upload: (_request, next) => { hooks = next; return receipt.promise },
+    })
+    const progress: number[] = []
+    const pending = handle.upload({ data: new Uint8Array([1]) }, { onProgress: value => progress.push(value.loaded) })
+      .catch((error: unknown) => error)
+    hooks?.onProgress?.({ loaded: 1, total: 2 })
+    await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    expect(hooks?.signal?.aborted).toBe(true)
+    hooks?.onProgress?.({ loaded: 2, total: 2 })
+    receipt.resolve({ attachmentId: `sha256:${'a'.repeat(64)}` as never, bytes: 2 })
+    expect(await pending).toBeInstanceOf(Error)
+    expect(progress).toEqual([1])
+  })
+
+  it('preserves page-authority authentication while the selected remote is unavailable', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const ready = Promise.withResolvers<undefined>()
+    const loop = handle.start({ onConnected: () => { ready.resolve(undefined) } })
+    await ready.promise
+    const identity = handle.authentication.getSnapshot()
+    await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    expect(handle.authentication.getSnapshot()).toBe(identity)
+    expect(handle.authentication.validate(identity)).toBe(true)
+    await handle.switchTarget({ kind: 'host' })
+    loop.stop()
+  })
+
+  it('switches machines in the document and treats the same target as a no-op', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
+    const handle = await mount()
+    expect(handle.target.getSnapshot()).toEqual({ kind: 'host' })
+    expect(() => handle.switchTarget({ kind: 'remote', id: '../invalid' })).toThrow('invalid remote host id')
+    expect(handle.target.getSnapshot()).toEqual({ kind: 'host' })
+    const changes: unknown[] = []
+    const unsubscribe = handle.target.subscribe(() => { changes.push(handle.target.getSnapshot()) })
+    const remote = { kind: 'remote' as const, id: '11111111-1111-4111-8111-111111111111' }
+    await handle.switchTarget(remote)
+    const snapshot = handle.target.getSnapshot()
+    await handle.switchTarget({ ...remote })
+    expect(handle.target.getSnapshot()).toBe(snapshot)
+    expect(changes).toEqual([remote])
+    expect((globalThis as Win).location?.search).toBe('')
+    await handle.switchTarget({ kind: 'host' })
+    expect(changes).toEqual([remote, { kind: 'host' }])
+    unsubscribe()
+  })
+
+  it('cancels pending target RPCs across rapid switches and leaves local management usable', async () => {
+    const handle = await mount()
+    const pending = Promise.withResolvers<Response>()
+    const requests: Array<{ url: URL; signal: AbortSignal | null | undefined; rpcId: string }> = []
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      if (typeof init?.body !== 'string') throw new TypeError('expected a JSON string request body')
+      const { rpcId } = JSON.parse(init.body) as { rpcId: string }
+      requests.push({ url, signal: init?.signal, rpcId })
+      if (url.pathname === '/api/goals/read') return pending.promise
+      return Promise.resolve(Response.json({ type: 'server-response', rpcId, result: { ok: true, value: 'local' }, authentication: { kind: 'bypass' } }))
+    })
+    try {
+      const old = handle.rpc.call('/api', 'goals/read', {}).catch((error: unknown) => error)
+      await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+      await handle.switchTarget({ kind: 'remote', id: '22222222-2222-4222-8222-222222222222' })
+      expect(requests[0]?.signal?.aborted).toBe(true)
+      pending.resolve(Response.json({ type: 'server-response', rpcId: requests[0]!.rpcId, result: { ok: true, value: 'stale' }, authentication: { kind: 'bypass' } }))
+      expect(await old).toBeInstanceOf(Error)
+      await expect(handle.rpc.call('/api', 'remoteHosts/list', {})).resolves.toMatchObject({ ok: true, value: 'local' })
+      expect(requests.at(-1)?.url.search).toBe('')
+      await handle.switchTarget({ kind: 'host' })
+      expect(handle.target.getSnapshot()).toEqual({ kind: 'host' })
+    } finally { fetch.mockRestore() }
+  })
+
   it('projects authentication and transport health without exposing recovery actions to observers', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     let snapshot: BrowserAuthenticationSnapshot = { mode: 'authenticated', phase: 'ready', expiresAt: null, reason: null }
@@ -331,7 +720,7 @@ describe('connection client apply', () => {
     await expect(pending).resolves.toMatchObject({ done: true })
   })
 
-  it('closes a WebSocket immediately when its signal was already aborted', async () => {
+  it('does not open a WebSocket when its signal was already aborted', async () => {
     ;(globalThis as Win).location = {
       hostname: 'localhost', search: '', origin: 'http://localhost:3080',
     }
@@ -341,8 +730,7 @@ describe('connection client apply', () => {
     abort.abort()
     const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({ done: true })
-    expect(sockets).toHaveLength(1)
-    expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
+    expect(sockets).toHaveLength(0)
   })
 
   it('carries RPC calls without requiring secure-context randomUUID', async () => {
@@ -397,7 +785,7 @@ describe('connection client apply', () => {
         .rejects.toThrow('HTTP 503')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         new URL('https://harness.example/api/goals/create'),
-        expect.objectContaining({ signal: abort.signal }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) as unknown }),
       )
 
       ;(globalThis as Win).location = { hostname: 'localhost', search: '', origin: 'null' }
@@ -410,7 +798,7 @@ describe('connection client apply', () => {
       await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow('rpcId mismatch')
       const fetch = vi.mocked(globalThis.fetch)
       expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('http://dsh.internal/api/goals/create'))
-      expect(fetch.mock.calls[0]?.[1]).not.toHaveProperty('signal')
+      expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(false)
     } finally {
       globalThis.fetch = original
     }
@@ -563,6 +951,78 @@ describe('connection handle authentication source', () => {
 })
 
 describe('WebApiClient stream authentication frames', () => {
+  it('keeps envelope subscribers on the selected machine and isolates a throwing observer', async () => {
+    const handle = await mount()
+    if (!(handle.api instanceof WebApiClient)) throw new Error('expected a WebApiClient')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const received: RpcMessage[][] = []
+    const throwing = handle.api.subscribeEnvelopes(() => { throw new Error('observer failed') })
+    const stop = handle.api.subscribeEnvelopes((batch) => { received.push([...batch]) })
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      if (typeof init?.body !== 'string') throw new TypeError('expected JSON body')
+      const { rpcId } = JSON.parse(init.body) as { rpcId: string }
+      return Promise.resolve(Response.json({ type: 'server-response', rpcId,
+        authentication: { kind: 'bypass' }, result: { ok: false, error: { code: 'internal', message: 'offline', details: {} } } }))
+    })
+    try {
+      await expect(handle.api.host.describe({})).resolves.toMatchObject({ result: { ok: false } })
+      await vi.waitFor(() => { expect(received.flat()).toHaveLength(2) })
+      expect(errors).toHaveBeenCalledWith('[client-connection] envelope observer failed:', expect.any(Error))
+      await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+      await expect(handle.api.host.describe({})).resolves.toMatchObject({ result: { ok: false } })
+      await vi.waitFor(() => { expect(received.flat()).toHaveLength(4) })
+      stop(); throwing()
+      await handle.api.host.describe({})
+      expect(received.flat()).toHaveLength(4)
+    } finally { fetch.mockRestore(); errors.mockRestore() }
+  })
+
+  it('drops messages delivered to a WebSocket after abort and closes during listener installation', async () => {
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const caller = new AbortController()
+    const api = new WebApiClient()
+    const iterator = api.events.mux({}, caller.signal)[Symbol.asyncIterator]()
+    const first = iterator.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(1) })
+    caller.abort()
+    sockets[0]!.receive(JSON.stringify({ type: 'server-request', rpcId: 'late', method: 'session/subscribed',
+      payload: { type: 'session/subscribed', sessionId: 'same', lastSeq: 1 } }))
+    expect(await first).toMatchObject({ done: true })
+    expect(sockets[0]!.readyState).toBe(FakeWebSocket.CLOSED)
+
+    const duringConstruction = new AbortController()
+    class AbortingSocket extends FakeWebSocket {
+      constructor(url: string | URL) { super(url); duringConstruction.abort() }
+    }
+    globalThis.WebSocket = AbortingSocket as unknown as typeof WebSocket
+    const next = api.events.host({}, duringConstruction.signal)[Symbol.asyncIterator]()
+    expect(await next.next()).toMatchObject({ done: true })
+    expect(sockets.at(-1)?.readyState).toBe(FakeWebSocket.CLOSED)
+  })
+
+  it('discards a queued WebSocket frame when the caller cancels before delivery', async () => {
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const caller = new AbortController()
+    const iterator = new WebApiClient().events.mux({}, caller.signal)[Symbol.asyncIterator]()
+    const pending = iterator.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(1) })
+    sockets[0]!.receive(JSON.stringify({ type: 'server-request', rpcId: 'queued', method: 'session/subscribed',
+      payload: { type: 'session/subscribed', sessionId: 'same', lastSeq: 1 } }))
+    caller.abort()
+    expect(await pending).toMatchObject({ done: true })
+  })
+
+  it('opens an unbound host downlink without a machine generation', async () => {
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const caller = new AbortController()
+    const iterator = new WebApiClient().events.host({}, caller.signal)[Symbol.asyncIterator]()
+    const pending = iterator.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(1) })
+    expect(sockets[0]!.url).toBe('ws://dsh.internal/api/events.host')
+    caller.abort()
+    expect(await pending).toMatchObject({ done: true })
+  })
+
   it('reports the Host-verified identity out of band and keeps it out of the frame stream', async () => {
     ;(globalThis as Win).location = {
       hostname: 'localhost', search: '', origin: 'http://localhost:3080',

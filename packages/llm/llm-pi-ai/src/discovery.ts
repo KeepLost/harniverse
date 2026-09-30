@@ -28,6 +28,7 @@
 import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import type { ResolvedPiAiCredential } from './adapter.ts'
 import { catalogModels } from './catalog.ts'
 
 /**
@@ -277,7 +278,7 @@ export interface StoredModelDiscoveryProfile {
   /** Deployment headers configured on the named route. */
   readonly headers: Readonly<Record<string, string>> | undefined
   /** Resolve the named route's credential only when the draft carries none. */
-  readonly resolveApiKey: () => Promise<string | undefined>
+  readonly resolveCredential: () => Promise<ResolvedPiAiCredential | undefined>
 }
 
 /**
@@ -343,16 +344,22 @@ export async function discoverModels(
   // cannot fail over a stored credential it supersedes. A route may still
   // authenticate through a deployment-owned Authorization header when neither
   // key exists.
-  const supplied = request.apiKey ?? await stored?.resolveApiKey()
-  const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
+  const supplied = request.apiKey === undefined
+    ? await stored?.resolveCredential()
+    : { value: request.apiKey, authMode: 'api-key' as const }
+  const credential = supplied === undefined ? undefined : {
+    ...supplied,
+    value: usableProbeKey(supplied.value),
+  }
   const buildHeaders = (): Headers => {
     const headers = new Headers(stored?.headers === undefined ? undefined : Object.entries(stored.headers))
     headers.set('accept', 'application/json')
     if (api === 'anthropic-messages') {
       headers.set('anthropic-version', ANTHROPIC_VERSION)
-      if (apiKey !== undefined) headers.set('x-api-key', apiKey)
-    } else if (apiKey !== undefined) {
-      headers.set('authorization', `Bearer ${apiKey}`)
+      if (credential?.authMode === 'bearer') headers.set('authorization', `Bearer ${credential.value}`)
+      else if (credential !== undefined) headers.set('x-api-key', credential.value)
+    } else if (credential !== undefined) {
+      headers.set('authorization', `Bearer ${credential.value}`)
     }
     for (const [name, value] of Object.entries(attributionHeaders())) headers.set(name, value)
     return headers

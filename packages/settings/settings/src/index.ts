@@ -59,6 +59,15 @@ export interface SettingsRegisterOptions<T> {
    * @param value - the resolved section, schema-valid by construction.
    */
   validate?: (value: T) => void
+  /**
+   * Produce a host-only snapshot for consumers crossing a process boundary.
+   * The returned value is schema-validated and detached by
+   * {@link SettingsProvider.materialize}; it is never published through
+   * {@link SettingsProvider.describe} or settings update events.
+   * @param value - the current resolved settings value.
+   * @returns the snapshot to validate and detach.
+   */
+  materialize?: (value: T) => T | Promise<T>
 }
 
 /** One registered namespace as surfaced to configuration UIs. */
@@ -328,6 +337,8 @@ interface SettingsRegistration {
   applies: SettingsApplies
   /** Owner-supplied check for constraints the schema cannot express. */
   validate?: (value: unknown) => void
+  /** Owner transformation for host-only snapshots. */
+  materialize?: (value: unknown) => Promise<unknown>
   resolved: unknown
   /**
    * Monotonic counter over this namespace's RAW user section — bumped by any
@@ -438,6 +449,7 @@ export abstract class SettingsProvider extends Service {
     if (this.registrations.has(ns)) {
       throw new Error(`settings namespace "${ns}" is already registered`)
     }
+    const materialize = options?.materialize
     const registration: SettingsRegistration = {
       ns,
       schema: schema as z<unknown>,
@@ -446,6 +458,9 @@ export abstract class SettingsProvider extends Service {
       ...options?.validate === undefined
         ? {}
         : { validate: options.validate as (value: unknown) => void },
+      ...materialize === undefined
+        ? {}
+        : { materialize: async (value: unknown) => materialize(value as T) },
       resolved: deepFreeze(this.resolve(schema, options?.base, this.section(ns), options?.validate)),
       revision: 0,
       watchers: new Set(),
@@ -524,6 +539,25 @@ export abstract class SettingsProvider extends Service {
    */
   get(ns: SettingsNamespace): unknown {
     return this.registrations.get(ns)?.resolved
+  }
+
+  /**
+   * Build one owner-defined host snapshot without changing the live settings
+   * value or exposing the materialized result through settings descriptors.
+   * The owner hook runs against a detached value; its result is validated by
+   * the registered schema and returned as a detached snapshot.
+   * @param ns - the namespace to materialize.
+   * @returns the detached host snapshot, or `undefined` while unregistered.
+   */
+  async materialize(ns: SettingsNamespace): Promise<unknown> {
+    const registration = this.registrations.get(ns)
+    if (registration === undefined) return undefined
+    const input = structuredClone(registration.resolved)
+    const candidate = registration.materialize === undefined
+      ? input
+      : await registration.materialize(input)
+    const resolved = registration.schema(candidate)
+    return structuredClone(resolved)
   }
 
   /**
@@ -869,6 +903,8 @@ export interface SettingsSectionHooks<T> {
    * @param value - the resolved section, schema-valid by construction.
    */
   validate?: (value: T) => void
+  /** Produce the host-only settings snapshot for cross-process consumers. */
+  materialize?: (value: T) => T | Promise<T>
 }
 
 /**
@@ -895,6 +931,7 @@ export function installSettingsSection<T>(
     const scope = sctx.settings.register(ns, schema, {
       base: entry,
       ...hooks.validate === undefined ? {} : { validate: hooks.validate },
+      ...hooks.materialize === undefined ? {} : { materialize: hooks.materialize },
     })
     hooks.setSource(() => scope.get())
     sctx.effect(() => () => {

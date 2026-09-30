@@ -28,6 +28,27 @@
 
 headless 通过已挂载的文件系统提供方记录和检查 Session cwd。因此远端 FS、Bash、终端、LSP 消费方可以共享这些坐标。连接暴露已验证的远端 Node 可执行文件，以及配置后按摘要成对的预装 PTC 入口，使新进程运行时可以经配套子进程提供方启动而不借用主机路径。假定可访问主机文件系统的 Web 工作区视图需要单独集成；仅替换提供方并不会使这些视图支持远端。
 
+## 远程主机部署与同步
+
+本地 remote-host 协调器通过部署中主机视图的有界 `progress` 字段报告每个部署步骤。阶段从产物检查推进到上传——这是唯一携带按文件 `current`/`total` 计数的阶段，其余阶段一律为 `1`/`1`——随后是校验、远端授权、远端进程启动与回环隧道，最后结束于设置与凭据同步。值绝不包含命令输出或秘密数据。
+
+```ts type-equiv
+/** The operation currently keeping a remote host in the deploying state. */
+type RemoteHostProgressPhase = 'checking-artifact' | 'uploading' | 'verifying' | 'authorizing'
+  | 'starting' | 'forwarding' | 'synchronizing'
+```
+
+```ts type-equiv
+/** Bounded progress for one deployment step; values never contain command or secret data. */
+interface RemoteHostProgress {
+  phase: RemoteHostProgressPhase
+  current: number
+  total: number
+}
+```
+
+同步发送完整的仅限 Host 物化设置快照（`ctx.settings.materialize(ns)`，owner 钩子解析诸如环境凭据引用之类的主机环境事实），并经凭据服务解析 schema 选中的凭据引用；主机进程环境绝不复制，超出可引用密钥形态的提供方原生凭据体系也不会跨过该边界。部署、授权与同步的完整契约见[协调器 README](../../packages/ssh/remote-hosts/README.md)。
+
 ## 连接 API
 
 ```ts type-equiv
@@ -208,7 +229,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:143`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:154`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 

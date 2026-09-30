@@ -33,7 +33,9 @@ export class WorkspaceRuntime implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
-  private readonly manager: WorkspaceManager
+  private manager: WorkspaceManager
+  private unsubscribeManager: () => void
+  private stopInitialSelection: (() => void) | undefined
   /** In-flight blank-session creates keyed by workspace and requested profile. */
   private readonly connecting = new Map<string, Promise<SessionId>>()
   /** Guards the runtime-owned one-shot initial-selection subscription. */
@@ -46,14 +48,20 @@ export class WorkspaceRuntime implements IWorkspaces {
    * @param api - shared wire client.
    * @param sessions - cross-domain sessions face used for recency and blank-session reuse.
    */
-  constructor(private readonly ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
+  constructor(private readonly ctx: Context, private api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
-    this.manager.subscribe(() => { this.project() })
-    this.sessions.list.subscribe(() => { this.project() })
+    this.unsubscribeManager = this.manager.subscribe(() => { this.project() })
+    const unsubscribeSessions = this.sessions.list.subscribe(() => { this.project() })
+    ctx.effect(() => () => {
+      unsubscribeSessions()
+      this.unsubscribeManager()
+      this.manager.dispose()
+      this.stopInitialSelection?.()
+    }, 'workspaces: machine lifetime')
     ctx.effect(
       () => ctx.root.on('runtime/session-history-settled', () => {
         this.startupHistorySettled = true
@@ -62,6 +70,24 @@ export class WorkspaceRuntime implements IWorkspaces {
       'workspaces: startup history settlement',
     )
     ctx.reflect.provide('workspaces', this, undefined)
+  }
+
+  /** Install a fresh machine baseline without replacing the observable service.
+   * @param api - authority captured for the new machine generation.
+   */
+  resetTarget(api: IApiClient): void {
+    this.stopInitialSelection?.()
+    this.unsubscribeManager()
+    this.manager.dispose()
+    this.api = api
+    this.manager = new WorkspaceManager(api)
+    this.connecting.clear()
+    this.initialSelectionStarted = false
+    this.startupHistorySettled = false
+    this.startupCoreReported = false
+    this.unsubscribeManager = this.manager.subscribe(() => { this.project() })
+    this.project()
+    this.startInitialSelection()
   }
 
   /**
@@ -78,6 +104,7 @@ export class WorkspaceRuntime implements IWorkspaces {
    * @returns the reused or newly created session id.
    */
   async connectWorkspace(workspaceId: WorkspaceId, agentProfile?: string): Promise<SessionId> {
+    const manager = this.manager
     const workspace = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
     if (workspace === undefined) throw new Error(`workspaces.connectWorkspace: unknown workspace ${workspaceId}`)
     // Coalesce concurrent connects: a create's summary lands without cwd
@@ -105,7 +132,10 @@ export class WorkspaceRuntime implements IWorkspaces {
     const attempt = this.sessions.create({
       workspaceId,
       ...agentProfile === undefined ? {} : { agentProfile },
-    }).finally(() => { this.connecting.delete(connectKey) })
+    }).then((id) => {
+      if (manager !== this.manager) throw new Error('runtime: machine target changed')
+      return id
+    }).finally(() => { if (manager === this.manager) this.connecting.delete(connectKey) })
     this.connecting.set(connectKey, attempt)
     return attempt
   }
@@ -154,10 +184,11 @@ export class WorkspaceRuntime implements IWorkspaces {
     }
     const unsubscribe = this.list.subscribe(reconcile)
     reconcile()
-    return () => {
+    this.stopInitialSelection = () => {
       disposed = true
       unsubscribe()
     }
+    return this.stopInitialSelection
   }
 
   /**
@@ -172,6 +203,7 @@ export class WorkspaceRuntime implements IWorkspaces {
    * @param agentProfile - explicit immutable Agent Profile for the new Session.
    */
   startSession(workspaceId?: WorkspaceId, agentProfile?: string): void {
+    const manager = this.manager
     const workspace = this.list.getSnapshot()
     const current = this.sessions.list.getSnapshot().current
     const currentWorkspaceId = current === undefined
@@ -186,7 +218,7 @@ export class WorkspaceRuntime implements IWorkspaces {
       ? this.connectWorkspace(target)
       : this.connectWorkspace(target, agentProfile)
     void connected.then(
-      (sessionId) => { this.sessions.open(sessionId) },
+      (sessionId) => { if (manager === this.manager) this.sessions.open(sessionId) },
       (reason: unknown) => { console.warn('new session failed:', reason) },
     )
   }

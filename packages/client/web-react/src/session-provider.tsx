@@ -29,6 +29,12 @@ export function useHost(): SlotRendererHost {
 }
 
 const BindingContext = createContext<SessionMaybeProvideInfo | null>(null)
+const MachineContext = createContext(0)
+
+/** Renderer-internal identity from the runtime's standard Session-list feed. */
+export function useMachineGeneration(): number {
+  return useContext(MachineContext)
+}
 
 /** Read the current-session-optional bundle supplied at the root. */
 export function useSessionMaybeProvideInfo(): SessionMaybeProvideInfo {
@@ -64,6 +70,20 @@ export function observableHook<T>(source: HostObservable<T>): SnapshotSelectorHo
   return hook as SnapshotSelectorHook<T>
 }
 const hookCache = new WeakMap<object, unknown>()
+const incarnationKeys = new WeakMap<object, number>()
+let nextIncarnationKey = 0
+
+/** A new Session object with the same wire id must not inherit React state. */
+export function sessionIncarnation(info: SessionMaybeProvideInfo): number {
+  const source = info.hooks.session
+  if (source === undefined) return 0
+  let key = incarnationKeys.get(source)
+  if (key === undefined) {
+    key = ++nextIncarnationKey
+    incarnationKeys.set(source, key)
+  }
+  return key
+}
 
 const absentSource: HostObservable<undefined> = {
   getSnapshot: () => undefined,
@@ -125,10 +145,15 @@ const projectionHookCache = new WeakMap<SessionMaybeProvideInfo, (
 export function SessionMaybeProvider({ children }: { children: ReactNode }) {
   const host = useHost()
   const info = observableHook(host.sessions.provideInfo)(s => s)
+  const generation = observableHook(host.sessions.list)(snapshot =>
+    typeof snapshot === 'object' && snapshot !== null && 'targetGeneration' in snapshot && typeof snapshot.targetGeneration === 'number'
+      ? snapshot.targetGeneration : 0)
   return (
-    <BindingContext.Provider value={info}>
-      {children}
-    </BindingContext.Provider>
+    <MachineContext.Provider value={generation}>
+      <BindingContext.Provider value={info}>
+        {children}
+      </BindingContext.Provider>
+    </MachineContext.Provider>
   )
 }
 
@@ -136,13 +161,13 @@ export function SessionMaybeProvider({ children }: { children: ReactNode }) {
 export interface SessionProviderProps {
   /** No-session body (also covers a current id whose session cannot be resolved). */
   empty?: (() => ReactNode) | undefined
-  /** Session body; remounted per session via key={sessionId}. */
+  /** Session body; remounted per Session object and machine incarnation. */
   children: (sessionId: string) => ReactNode
 }
 
 /**
  * Framework-wired session area: subscribes to the host's current provide
- * source and remounts the body under `key={sessionId}` so a session switch
+ * source and remounts the body by machine and Session identity so a switch
  * rebuilds the session subtree. This dependency-inverted layer uses plain
  * string ids; `PropsRuntime` applies the branded type at the component
  * boundary.
@@ -151,9 +176,10 @@ export function SessionProvider({ empty, children }: SessionProviderProps) {
   const host = useHost()
   const info = observableHook(host.sessions.provideInfo)(s => s)
   const id = info.sessionId
+  const generation = useMachineGeneration()
   if (id === undefined) return <>{empty?.() ?? null}</>
   return (
-    <BindingContext.Provider value={info} key={id}>
+    <BindingContext.Provider value={info} key={`${String(generation)}:${id}:${sessionIncarnation(info)}`}>
       {children(id)}
     </BindingContext.Provider>
   )

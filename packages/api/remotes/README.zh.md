@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-为本应用选定的 Host Remote 能力提供双侧 BFF。Host 入口负责 Agent/Session 身份策略；Client 入口以运行时值形式导入生成的 `/remote` 产物，通过 `ctx.remote.$mount()` 挂载每项贡献，并重新导出对应的声明合并。Client 业务包依赖该外观，而不依赖 Gateway 实现或单独的 Remote 运行时入口。
+为本应用选定的 Host Remote 能力提供双侧 BFF。Host 入口负责 Agent/Session 身份策略；Client 入口以运行时值形式导入生成的 `/remote` 产物，通过 `ctx.remote.$mount()` 挂载每项贡献，并重新导出对应的声明合并。Client 业务包依赖该外观，而不依赖 Gateway 实现或单独的 Remote 运行时入口。Client face 还以 type-only 形式重新导出 Connection 载体的客户端契约类型——包括 `ConnectionHandle` 与机器目标路由词汇 `MachineTarget`/`MachineTargetSource`——使浏览器业务包只需指名本组装包，而无需指名载体插件。
 
 `createApiRemoteAgentResolver()` 会复用 live Agent、恢复普通冷会话、对并发恢复去重、保留 subagent ownership fence，并为 Typert `agent` 和 `session` lookup 配置同一个 resolver。其恢复前的检查读取存储的 header，而非日志：ownership fence 与记录的 Profile 都是 header 事实，而随后的恢复本身就会加载日志，因此在此读取日志会在同一条 per-session 持久化链上第二次遍历每个事件，从而延迟调用方自己的历史页。缺少项目的身份改为针对恢复后会话的 header 拒绝，那次加载才是权威读取。标准 Web API Proxy 提供 Agent 默认值和 scope 设置，再将返回的 resolver 用于旧方法，使已迁移与未迁移方法共用同一份策略实现。
 

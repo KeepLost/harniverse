@@ -137,11 +137,13 @@ export function createWebFileUploadTransport(
   if (authentication === undefined) return upload
   return async (request, hooks) => {
     await authentication.ready(hooks?.signal)
+    hooks?.signal?.throwIfAborted()
     try { return await upload(request, hooks) }
     catch (error) {
       if (!(error instanceof FileUploadError) || error.code !== 'authentication-required') throw error
       await authentication.check(hooks?.signal)
       await authentication.ready(hooks?.signal)
+      hooks?.signal?.throwIfAborted()
       try { return await upload(request, hooks) }
       catch (retryError) {
         if (retryError instanceof FileUploadError && retryError.code === 'authentication-required') authentication.requireRefresh()

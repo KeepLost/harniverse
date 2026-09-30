@@ -110,11 +110,22 @@ export interface ConnectHostInput {
 }
 /** Lifecycle state of one local remote-host session. */
 export type RemoteHostState = 'offline' | 'connecting' | 'deploying' | 'connected' | 'error'
+/** The operation currently keeping a remote host in the deploying state. */
+export type RemoteHostProgressPhase = 'checking-artifact' | 'uploading' | 'verifying' | 'authorizing'
+  | 'starting' | 'forwarding' | 'synchronizing'
+/** Bounded progress for one deployment step; values never contain command or secret data. */
+export interface RemoteHostProgress {
+  phase: RemoteHostProgressPhase
+  current: number
+  total: number
+}
 /** Secret-free host record plus current local connection state. */
 export interface RemoteHostView extends HostRecord {
   state: RemoteHostState
   /** Fixed diagnostic, never upstream stderr, command, token, or credential data. */
   error?: string
+  /** Current deployment step, present only while the host is deploying. */
+  progress?: RemoteHostProgress
 }
 /** SSH target plus explicit credentials used for a connectivity test. */
 export interface VerifyHostInput { host: string; port?: number; username: string; secrets: AuthSecrets }

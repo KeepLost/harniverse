@@ -28,6 +28,27 @@ The machine owns its MCP servers, Skills and Hooks: the helper enumerates them f
 
 Headless records and checks Session cwd through the mounted filesystem provider. Remote FS, Bash, terminal and LSP consumers can therefore share those coordinates. The connection exposes the verified remote Node executable and, when configured, the digest-paired preinstalled PTC entry, so a fresh-process runtime can launch through the paired subprocess provider without borrowing a Host path. Web workspace views that assume host filesystem access need separate integration; replacing providers alone does not make those views remote-aware.
 
+## Remote-host deployment and synchronization
+
+The local remote-host coordinator reports each deployment step through the bounded `progress` field on a deploying host's view. The phase advances from the artifact check through upload — the one phase carrying per-file `current`/`total` counts; every other phase reports `1` of `1` — then verification, the remote authorization grant, remote process start, and the loopback tunnel, and ends at settings and credential synchronization. Values never contain command output or secret data.
+
+```ts type-equiv
+/** The operation currently keeping a remote host in the deploying state. */
+type RemoteHostProgressPhase = 'checking-artifact' | 'uploading' | 'verifying' | 'authorizing'
+  | 'starting' | 'forwarding' | 'synchronizing'
+```
+
+```ts type-equiv
+/** Bounded progress for one deployment step; values never contain command or secret data. */
+interface RemoteHostProgress {
+  phase: RemoteHostProgressPhase
+  current: number
+  total: number
+}
+```
+
+Synchronization sends complete host-only materialized settings snapshots (`ctx.settings.materialize(ns)`, owner hooks resolving host-environment facts such as ambient credential references) with schema-selected credential references resolved through the credential service; the host process environment is never copied, and provider-native credential systems beyond a referenceable key do not cross. The [coordinator README](../../packages/ssh/remote-hosts/README.md) owns the deployment, grant, and synchronization contracts.
+
 ## Connection API
 
 ```ts type-equiv
@@ -208,7 +229,7 @@ authentication(id: RemoteHostId): unknown
 reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]
 ```
 
-Source: [`packages/ssh/remote-hosts/src/types.ts:143`](../../packages/ssh/remote-hosts/src/types.ts)
+Source: [`packages/ssh/remote-hosts/src/types.ts:154`](../../packages/ssh/remote-hosts/src/types.ts)
 
 <a id="ctxremotehostssh--remotehostsshprovider"></a>
 

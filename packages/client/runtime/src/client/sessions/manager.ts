@@ -96,6 +96,7 @@ function questionInteractionStatus(
 
 /** Instance cluster + frame entry + the session list. */
 export class SessionManager {
+  private disposed = false
   private readonly sessions = new Map<SessionId, Session>()
   /** Pre-instantiation buffer for answerable requests and the queued-turn snapshot, which history
    *  cannot reconstruct on open. Live requests remain until resolution; queue and replay duplicates
@@ -258,7 +259,18 @@ export class SessionManager {
    * @param sessionId - the session to drop.
    */
   drop(sessionId: SessionId): void {
+    this.sessions.get(sessionId)?.dispose()
     this.sessions.delete(sessionId)
+  }
+
+  /** Retire the machine's entities and delayed catalog work. */
+  dispose(): void {
+    this.disposed = true
+    for (const timer of this.catalogDebounce.values()) clearTimeout(timer)
+    this.catalogDebounce.clear()
+    this.catalogStale.clear()
+    for (const session of this.sessions.values()) session.dispose()
+    this.sessions.clear()
   }
 
   /**
@@ -315,7 +327,7 @@ export class SessionManager {
       onEngaged: (engaged) => {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
-      ...this.onStartupCoreSettled === undefined ? {} : { onStartupCoreSettled: this.onStartupCoreSettled },
+      onStartupCoreSettled: () => { if (!this.disposed) this.onStartupCoreSettled?.() },
       projections: this.projectionStore(sessionId),
       ...this.conversation === undefined ? {} : { conversation: this.conversation },
     })
@@ -357,6 +369,7 @@ export class SessionManager {
    * @param parentSessionId - catalog owner.
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
+    if (this.disposed) return Promise.resolve()
     const existing = this.catalogInflight.get(parentSessionId)
     if (existing !== undefined) return existing.promise
     const previous = this.catalogs.get(parentSessionId)

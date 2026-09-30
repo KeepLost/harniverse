@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { posix } from 'node:path'
 import type { RemoteHostSshConnection } from '@deepseek-ai/dsh-remote-hosts-ssh'
 import type { Artifact } from './artifact.ts'
-import type { HostRecord } from './types.ts'
+import type { HostRecord, RemoteHostProgress } from './types.ts'
 import { command, nodeCommand, quote } from './platform.ts'
 import { RemoteHostsError } from './validation.ts'
 
@@ -68,10 +68,12 @@ async function verifyNode(
  * @param home - validated remote Harness home.
  * @param artifact - locally verified artifact.
  * @param signal - cancellation for the deployment.
+ * @param progress - optional receiver of bounded upload/verify step progress.
  * @returns the immutable remote release directory.
  */
 export async function deploy(
   connection: RemoteHostSshConnection, host: HostRecord, home: string, artifact: Artifact, signal: AbortSignal,
+  progress?: (value: RemoteHostProgress) => void,
 ): Promise<string> {
   const releases = `${home}/server/releases`
   const release = `${releases}/${artifact.digest}`
@@ -87,9 +89,15 @@ export async function deploy(
     const directories = new Set<string>()
     for (const file of artifact.files) for (let parent = posix.dirname(file.path); parent !== '.'; parent = posix.dirname(parent)) directories.add(parent)
     for (const path of [...directories].sort((a, b) => a.length - b.length)) await connection.mkdir(`${target}/${path}`, signal)
-    for (const file of artifact.files) await connection.upload(file.localPath, `${target}/${file.path}`, signal)
+    const total = Math.max(1, artifact.files.length)
+    for (const [index, file] of artifact.files.entries()) {
+      progress?.({ phase: 'uploading', current: index, total })
+      await connection.upload(file.localPath, `${target}/${file.path}`, signal)
+      progress?.({ phase: 'uploading', current: index + 1, total })
+    }
   }
   // The copied Node is hashed by the native OS before any copied executable runs.
+  progress?.({ phase: 'verifying', current: 1, total: 1 })
   await verifyNode(connection, host, target, artifact, signal)
   const files = artifact.files.map(({ path, sha256, bytes, mode }) => ({ path, sha256, bytes, mode }))
   await execute(connection, nodeCommand(host.platform, target, home, VERIFY), JSON.stringify(files), signal)

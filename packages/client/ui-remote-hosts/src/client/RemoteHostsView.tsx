@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { AuthSecrets, ConnectivityResult, KeyFileListing, KeyFilePicker, ListKeyFilesInput, PickKeyFileResult, RemoteHostId, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
+import type { AuthSecrets, ConnectivityResult, KeyFileListing, KeyFilePicker, ListKeyFilesInput, PickKeyFileResult, RemoteHostId, RemoteHostProgressPhase, RemoteHostView, ReverseMapping, UpsertHostInput } from '@deepseek-ai/dsh-remote-hosts/types'
 import {
   IconChevronDownOutline14, IconCloseOutline16, IconFolderOpenOutline16, IconGlobeOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -19,7 +19,7 @@ interface RemoteHostsActions {
   pickKeyFile: () => Promise<RemoteResult<PickKeyFileResult>>
   listKeyFiles: (input: ListKeyFilesInput) => Promise<RemoteResult<KeyFileListing>>
   connect: (id: RemoteHostId, secrets?: AuthSecrets) => Promise<RemoteResult<RemoteHostView>>
-  openRemote: (id: RemoteHostId) => void
+  openRemote: (id: RemoteHostId) => void | Promise<void>
   disconnect: (id: RemoteHostId) => Promise<RemoteResult<void>>
   remove: (id: RemoteHostId) => Promise<RemoteResult<void>>
 }
@@ -72,6 +72,20 @@ function stateLabel(t: RemoteHostsViewProps['t'], state: RemoteHostView['state']
   return t(key)
 }
 
+const progressLocaleKeys: Record<RemoteHostProgressPhase, Parameters<RemoteHostsViewProps['t']>[0]> = {
+  'checking-artifact': 'progressCheckingArtifact',
+  uploading: 'progressUploading',
+  verifying: 'progressVerifying',
+  authorizing: 'progressAuthorizing',
+  starting: 'progressStarting',
+  forwarding: 'progressForwarding',
+  synchronizing: 'progressSynchronizing',
+}
+
+function progressLabel(t: RemoteHostsViewProps['t'], phase: RemoteHostProgressPhase): string {
+  return t(progressLocaleKeys[phase])
+}
+
 export function RemoteHostsView({
   active, actions, list, upsert, verify, keyFilePicker, pickKeyFile, listKeyFiles, connect, openRemote, disconnect, remove, closeView, t,
 }: RemoteHostsViewProps) {
@@ -80,24 +94,39 @@ export function RemoteHostsView({
   const [tested, setTested] = useState<Tested | undefined>()
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState<string | undefined>()
+  const [pendingConnect, setPendingConnect] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [pickerKind, setPickerKind] = useState<KeyFilePicker['kind'] | undefined>()
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [keyBrowserOpen, setKeyBrowserOpen] = useState(false)
   const keyPathInput = useRef<HTMLInputElement>(null)
+  const refreshGeneration = useRef(0)
 
   const refresh = useCallback(async () => {
-    const result = await list()
-    if (result.ok) setHosts(result.value)
-    else setError(remoteIssue(t, result.error))
+    const generation = ++refreshGeneration.current
+    try {
+      const result = await list()
+      if (generation !== refreshGeneration.current) return
+      if (result.ok) setHosts(result.value)
+      else setError(remoteIssue(t, result.error))
+    } catch (cause) {
+      if (generation === refreshGeneration.current) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
+    }
   }, [list, t])
 
-  useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
-    if (!active || !hosts.some(host => host.state === 'connecting' || host.state === 'deploying')) return
+    if (!active) return
+    void refresh()
+    return () => { refreshGeneration.current++ }
+  }, [active, refresh])
+  const connecting = pendingConnect !== undefined || hosts.some(host => host.state === 'connecting' || host.state === 'deploying')
+  useEffect(() => {
+    if (!active || !connecting) return
     const timer = setInterval(() => { void refresh() }, 1_000)
     return () => { clearInterval(timer) }
-  }, [active, hosts, refresh])
+  }, [active, connecting, refresh])
   useEffect(() => {
     if (!active) return
     actions.setOpen(true)
@@ -128,6 +157,25 @@ export function RemoteHostsView({
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       setBusy(undefined)
+    }
+  }
+
+  const connectHost = async (id: RemoteHostId): Promise<void> => {
+    setPendingConnect(id)
+    try {
+      await withBusy(id, () => connect(id))
+    } finally {
+      setPendingConnect(undefined)
+    }
+  }
+
+  // Async so a synchronous throw inside `openRemote` is reported the same way
+  // as a rejected switch; switching machines never leaves this view.
+  const openRemoteHost = async (id: RemoteHostId): Promise<void> => {
+    try {
+      await openRemote(id)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -285,6 +333,11 @@ export function RemoteHostsView({
     closeEditor()
   }
 
+  const displayedHosts = hosts.map(host =>
+    pendingConnect === host.id && (host.state === 'offline' || host.state === 'error')
+      ? { ...host, state: 'connecting' as const }
+      : host,
+  )
   const connectedCount = hosts.filter(host => host.state === 'connected').length
 
   return (
@@ -304,7 +357,7 @@ export function RemoteHostsView({
         {hosts.length === 0 && !editing ? <p className={css.note}>{t('empty')}</p> : null}
         {hosts.length > 0 ? (
           <ul className={css.cards}>
-            {hosts.map(host => (
+            {displayedHosts.map(host => (
               <li className={css.card} key={host.id}>
                 <div className={css.cardMain}>
                   <IconGlobeOutline14 />
@@ -312,11 +365,29 @@ export function RemoteHostsView({
                     {host.username}@{host.host}:{String(host.port)} · {host.platform}/{host.architecture}
                   </span></div>
                 </div>
-                <span className={css.statePill} data-state={host.state}>{stateLabel(t, host.state)}</span>
+                <div className={css.stateBlock}>
+                  <span className={css.statePill} data-state={host.state}>{stateLabel(t, host.state)}</span>
+                  {host.state === 'deploying' && host.progress ? (
+                    <div className={css.progress}>
+                      <div className={css.progressLabel}>{progressLabel(t, host.progress.phase)}</div>
+                      <progress
+                        max={host.progress.total}
+                        value={host.progress.phase === 'uploading' ? host.progress.current : undefined}
+                        aria-label={progressLabel(t, host.progress.phase)}
+                        {...host.progress.phase === 'uploading'
+                          ? { 'aria-valuenow': host.progress.current, 'aria-valuemax': host.progress.total }
+                          : {}}
+                      />
+                      {host.progress.phase === 'uploading' ? (
+                        <span className={css.progressCount}>{host.progress.current}/{host.progress.total}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
                 <div className={css.rowActions}>
                   {host.state === 'connected'
-                    ? <><button type="button" onClick={() => { openRemote(host.id) }}>{t('openRemote')}</button><button type="button" disabled={busy === host.id} onClick={() => { void withBusy(host.id, () => disconnect(host.id)) }}>{t('disconnect')}</button></>
-                    : <button type="button" disabled={busy === host.id || host.state === 'connecting' || host.state === 'deploying'} onClick={() => { void withBusy(host.id, () => connect(host.id)) }}>{t('connect')}</button>}
+                    ? <><button type="button" onClick={() => { void openRemoteHost(host.id) }}>{t('openRemote')}</button><button type="button" disabled={busy === host.id} onClick={() => { void withBusy(host.id, () => disconnect(host.id)) }}>{t('disconnect')}</button></>
+                    : <button type="button" disabled={busy === host.id || host.state === 'connecting' || host.state === 'deploying'} onClick={() => { void connectHost(host.id) }}>{t('connect')}</button>}
                   <button type="button" disabled={busy === host.id} onClick={() => { void withBusy(host.id, () => remove(host.id)) }}>{t('remove')}</button>
                 </div>
               </li>

@@ -6,11 +6,13 @@ import { join } from 'node:path'
 import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
+import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import type { LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { FileSettingsProvider } from '@deepseek-ai/dsh-settings-file'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
-import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
+import { closeMockServers, mockServer, anthropicTextEvents, textEvents } from './mock-server.ts'
 
 const NS = settingsNamespace('llm-pi-ai')
 
@@ -37,8 +39,9 @@ async function home(): Promise<string> {
 }
 
 /** Real dynamic composition mirroring the deepseek twin's harness. */
-async function boot(dir: string, config: LlmPiAi.Config): Promise<Context> {
+async function boot(dir: string, config: LlmPiAi.Config, environment?: LaunchEnvironmentSnapshot): Promise<Context> {
   const ctx = new Context()
+  if (environment !== undefined) ctx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
   cleanups.push(async () => {
     await ctx.fiber.dispose()
   })
@@ -50,6 +53,199 @@ async function boot(dir: string, config: LlmPiAi.Config): Promise<Context> {
 }
 
 describe('request-level dynamic profiles', () => {
+  it('materializes provider-owned ambient references and builds OpenAI and Anthropic requests remotely', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '')
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', '')
+    vi.stubEnv('ANTHROPIC_API_KEY', '')
+    const localDir = await home()
+    const openai = await mockServer([{ events: textEvents }])
+    const anthropic = await mockServer([{ events: anthropicTextEvents }])
+    const local = await boot(localDir, {
+      providers: {
+        openai: {
+          api: 'openai-completions',
+          baseURL: `${openai.url}/v1`,
+          models: [{ id: 'fake-openai', contextWindow: 100_000, maxTokens: 4096 }],
+        },
+        anthropic: {
+          api: 'anthropic-messages',
+          baseURL: `${anthropic.url}/v1`,
+          models: [{ id: 'fake-anthropic', contextWindow: 200_000, maxTokens: 4096 }],
+        },
+      },
+    }, createLaunchEnvironmentSnapshot([{ source: 'process', values: {
+      OPENAI_API_KEY: 'fake-openai-key',
+      ANTHROPIC_API_KEY: 'fake-anthropic-key',
+    } }]))
+
+    const materialized = await local.settings.materialize(NS) as LlmPiAi.Config
+    expect(materialized.providers?.openai?.apiKeyEnv).toBe('OPENAI_API_KEY')
+    expect(materialized.providers?.anthropic?.apiKeyEnv).toBe('ANTHROPIC_API_KEY')
+    expect(JSON.stringify(materialized)).not.toContain('fake-openai-key')
+    expect(JSON.stringify(materialized)).not.toContain('fake-anthropic-key')
+
+    const remoteDir = await home()
+    await writeFile(join(remoteDir, '.credentials.yaml'), [
+      'OPENAI_API_KEY: fake-openai-key',
+      'ANTHROPIC_API_KEY: fake-anthropic-key',
+      '',
+    ].join('\n'), { mode: 0o600 })
+    const remote = await boot(remoteDir, materialized)
+    await expect(assemble(remote, { provider: 'openai', model: 'fake-openai', messages: [] })).resolves.toMatchObject({
+      finish: { kind: 'stop' },
+    })
+    await expect(assemble(remote, { provider: 'anthropic', model: 'fake-anthropic', messages: [] })).resolves.toMatchObject({
+      finish: { kind: 'stop' },
+    })
+    expect(openai.paths).toEqual(['/v1/chat/completions'])
+    expect(openai.headers[0]?.authorization).toBe('Bearer fake-openai-key')
+    expect(anthropic.paths).toEqual(['/v1/messages'])
+    expect(anthropic.headers[0]?.['x-api-key']).toBe('fake-anthropic-key')
+  })
+
+  it('preserves Anthropic provider-selected bearer authentication across sync', async () => {
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', '')
+    vi.stubEnv('ANTHROPIC_API_KEY', '')
+    vi.stubEnv('ANTHROPIC_OAUTH_TOKEN', '')
+    const localDir = await home()
+    const server = await mockServer([{ events: anthropicTextEvents }])
+    const local = await boot(localDir, {
+      providers: {
+        anthropic: {
+          api: 'anthropic-messages',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'fake-anthropic-bearer', contextWindow: 200_000, maxTokens: 4096 }],
+        },
+      },
+    }, createLaunchEnvironmentSnapshot([{ source: 'process', values: {
+      ANTHROPIC_AUTH_TOKEN: 'fake-anthropic-bearer-token',
+    } }]))
+    const materialized = await local.settings.materialize(NS) as LlmPiAi.Config
+    expect(materialized.providers?.anthropic?.apiKeyEnv).toBe('ANTHROPIC_AUTH_TOKEN')
+    expect(materialized.providers?.anthropic?.authMode).toBe('bearer')
+
+    const remoteDir = await home()
+    await writeFile(join(remoteDir, '.credentials.yaml'), 'ANTHROPIC_AUTH_TOKEN: fake-anthropic-bearer-token\n', { mode: 0o600 })
+    const remote = await boot(remoteDir, materialized)
+    const result = await assemble(remote, { provider: 'anthropic', model: 'fake-anthropic-bearer', messages: [] })
+    if (result.finish.kind !== 'stop') throw new Error(JSON.stringify(result.finish))
+    expect(server.headers[0]?.authorization).toBe('Bearer fake-anthropic-bearer-token')
+    expect(server.headers[0]?.['x-api-key']).toBeUndefined()
+  })
+
+  it('authenticates a hand-declared bearer route from its stored credential', async () => {
+    const dir = await home()
+    await writeFile(join(dir, '.credentials.yaml'), 'ACME_GATEWAY_TOKEN: acme-bearer-token\n', { mode: 0o600 })
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await boot(dir, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'ACME_GATEWAY_TOKEN',
+          authMode: 'bearer',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'acme-large', contextWindow: 65_536, maxTokens: 4096 }],
+        },
+      },
+    })
+
+    await expect(assemble(ctx, { provider: 'acme-gateway', model: 'acme-large', messages: [] }))
+      .resolves.toMatchObject({ finish: { kind: 'stop' } })
+    expect(server.headers[0]?.authorization).toBe('Bearer acme-bearer-token')
+  })
+
+  it('pins a host with no ambient credential so the remote cannot use its unrelated environment', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'remote-unrelated-key')
+    const localDir = await home()
+    const server = await mockServer([{ events: textEvents }])
+    const local = await boot(localDir, {
+      providers: {
+        openai: {
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'fake-openai-unconfigured', contextWindow: 100_000, maxTokens: 4096 }],
+        },
+      },
+    }, createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }]))
+    const materialized = await local.settings.materialize(NS) as LlmPiAi.Config
+    expect(materialized.providers?.openai?.apiKeyEnv).toBeUndefined()
+    expect(materialized.providers?.openai?.authMode).toBe('none')
+
+    const remote = await boot(await home(), materialized)
+    const result = await assemble(remote, { provider: 'openai', model: 'fake-openai-unconfigured', messages: [] })
+    expect(result.finish.kind).toBe('error')
+    expect(server.requests).toHaveLength(0)
+  })
+
+  it('materializes a provider reference when the standard credential is persisted', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '')
+    const localDir = await home()
+    await writeFile(join(localDir, '.credentials.yaml'), 'OPENAI_API_KEY: fake-persisted-openai-key\n', { mode: 0o600 })
+    const local = await boot(localDir, { providers: { openai: {} } }, createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }]))
+
+    const materialized = await local.settings.materialize(NS) as LlmPiAi.Config
+    expect(materialized.providers?.openai?.apiKeyEnv).toBe('OPENAI_API_KEY')
+    expect(materialized.providers?.openai?.authMode).toBe('api-key')
+  })
+
+  it('materializes from the launch environment alone without a credentials service, pinning routes pi-ai cannot resolve', async () => {
+    const localDir = await home()
+    // No LocalCredentialProvider: the launch-environment snapshot is the whole
+    // credential plane, exactly like a host booted without the local plugin.
+    const ctx = new Context()
+    ctx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, createLaunchEnvironmentSnapshot([{ source: 'process', values: {
+      OPENAI_API_KEY: 'ambient-openai-key',
+      CLOUDFLARE_API_KEY: 'ambient-cloudflare-key',
+    } }]))
+    cleanups.push(async () => {
+      await ctx.fiber.dispose()
+    })
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(FileSettingsProvider, { path: join(localDir, 'settings.yaml'), watch: false })
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        // Not in the installed catalog: no provider-native discovery exists.
+        'acme-gateway': {
+          api: 'openai-completions',
+          baseURL: 'http://127.0.0.1:1/v1',
+          models: [{ id: 'acme-large', contextWindow: 65_536, maxTokens: 4096 }],
+        },
+        // pi-ai ships no env-key name for Bedrock, so nothing is discoverable.
+        'amazon-bedrock': {},
+        // A resolvable key name, but Cloudflare also needs the account id
+        // beside it, which a one-name ambient probe cannot supply.
+        'cloudflare-workers-ai': {},
+        openai: {},
+        // An explicit reference is never second-guessed by ambient discovery.
+        deepseek: { apiKeyEnv: 'PI_EXPLICIT_KEY' },
+      },
+    })
+
+    const materialized = await ctx.settings.materialize(NS) as LlmPiAi.Config
+    expect(materialized.providers?.openai).toMatchObject({ apiKeyEnv: 'OPENAI_API_KEY', authMode: 'api-key' })
+    expect(materialized.providers?.deepseek?.apiKeyEnv).toBe('PI_EXPLICIT_KEY')
+    expect(materialized.providers?.['acme-gateway']?.authMode).toBe('none')
+    expect(materialized.providers?.['amazon-bedrock']?.authMode).toBe('none')
+    expect(materialized.providers?.['cloudflare-workers-ai']?.authMode).toBe('none')
+    expect(materialized.providers?.['cloudflare-workers-ai']?.apiKeyEnv).toBeUndefined()
+    expect(JSON.stringify(materialized)).not.toContain('ambient-openai-key')
+    expect(JSON.stringify(materialized)).not.toContain('ambient-cloudflare-key')
+  })
+
+  it('fails an explicit missing credential without falling back to ambient discovery', async () => {
+    vi.stubEnv('PI_MISSING_KEY', '')
+    vi.stubEnv('OPENAI_API_KEY', 'unrelated-openai-key')
+    const dir = await home()
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await boot(dir, {
+      providers: { openai: { apiKeyEnv: 'PI_MISSING_KEY', baseURL: `${server.url}/v1` } },
+    })
+
+    const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
+    expect(server.requests).toHaveLength(0)
+  })
+
   it('mounts bare and dormant, then registers routes the moment settings supply providers', async () => {
     vi.stubEnv('PI_DYNAMIC_KEY', '')
     const dir = await home()

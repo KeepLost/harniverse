@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/ssh/remote-hosts/README.md
-README.md: bd6441142a0cc882dbb75265be8da44e9841c2ea
-README.zh.md: 90e0620290a54f1914434a23250ab8817af5f1b7
+README.md: 73ad1d707dc4efde21fbfc08eb61262f40b41c2f
+README.zh.md: 090d1c3aaf9e7c4761bf6a78d20981d0fafb69aa

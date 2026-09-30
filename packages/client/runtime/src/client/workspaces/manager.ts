@@ -32,6 +32,7 @@ type WorkspaceDelta =
 
 /** Workspace object cluster driven by one list baseline and changed-frame upserts. */
 export class WorkspaceManager {
+  private disposed = false
   private items: Workspace[] = []
   private itemViewsSource: readonly Workspace[] | null = null
   private itemViewsCache: readonly WorkspaceView[] = []
@@ -83,6 +84,7 @@ export class WorkspaceManager {
    * @returns the shared in-flight refresh.
    */
   refresh(): Promise<void> {
+    if (this.disposed) return Promise.resolve()
     if (this.inflight !== null) return this.inflight
     this.state = 'loading'
     this.error = null
@@ -93,6 +95,7 @@ export class WorkspaceManager {
       try {
         markClientStartup('workspace-list-start')
         const { result } = await this.api.workspace.list({})
+        if (this.disposed) return
         markClientStartup('workspace-list-end')
         measureClientStartup('workspace-list', 'workspace-list-start', 'workspace-list-end')
         if (result.ok) {
@@ -129,10 +132,12 @@ export class WorkspaceManager {
    * @returns the wire result.
    */
   async create(input: WorkspaceCreateInput): Promise<RpcResult<{ workspace: WorkspaceView; created: boolean }>> {
+    this.assertActive()
     const workspace = new Workspace(this.api, input)
     const completion = workspace.materialize()
     if (completion === undefined) throw new Error('a local Workspace must be materializable')
     const result = await completion
+    this.assertActive()
     if (result.ok) this.upsert(result.value.workspace, workspace)
     return result
   }
@@ -145,7 +150,9 @@ export class WorkspaceManager {
    * @returns the wire result.
    */
   async rename(workspaceId: WorkspaceId, title: string): Promise<RpcResult<{ workspace: WorkspaceView }>> {
+    this.assertActive()
     const { result } = await this.api.workspace.rename({ workspaceId, title })
+    this.assertActive()
     if (result.ok) this.upsert(result.value.workspace)
     return result
   }
@@ -157,7 +164,9 @@ export class WorkspaceManager {
    * @returns the wire result.
    */
   async delete(workspaceId: WorkspaceId): Promise<RpcResult<{ deleted: true }>> {
+    this.assertActive()
     const { result } = await this.api.workspace.delete({ workspaceId })
+    this.assertActive()
     if (result.ok) this.remove(workspaceId, true)
     return result
   }
@@ -173,6 +182,7 @@ export class WorkspaceManager {
     workspaceId: WorkspaceId,
     beforeWorkspaceId?: WorkspaceId,
   ): Promise<RpcResult<{ workspaceIds: WorkspaceId[] }>> {
+    this.assertActive()
     const requestGeneration = ++this.orderRequestGeneration
     const frameGeneration = this.orderFrameGeneration
     const localOrder = this.itemViews().map(workspace => workspace.workspaceId)
@@ -183,6 +193,7 @@ export class WorkspaceManager {
         workspaceId,
         ...beforeWorkspaceId === undefined ? {} : { beforeWorkspaceId },
       }))
+      this.assertActive()
     } catch (error) {
       if (requestGeneration === this.orderRequestGeneration
         && frameGeneration === this.orderFrameGeneration) {
@@ -213,10 +224,12 @@ export class WorkspaceManager {
     sessionId: SessionId,
     beforeSessionId?: SessionId,
   ): Promise<RpcResult<{ workspace: WorkspaceView }>> {
+    this.assertActive()
     const { result } = await this.api.workspace.insertSessionBefore({
       workspaceId, sessionId,
       ...beforeSessionId === undefined ? {} : { beforeSessionId },
     })
+    this.assertActive()
     if (result.ok) this.upsert(result.value.workspace)
     return result
   }
@@ -228,7 +241,9 @@ export class WorkspaceManager {
    * @returns the wire result.
    */
   async archiveSession(sessionId: SessionId): Promise<RpcResult<{ archivedSessionIds: SessionId[] }>> {
+    this.assertActive()
     const { result } = await this.api.workspace.archiveSession({ sessionId })
+    this.assertActive()
     if (result.ok) this.installArchived(result.value.archivedSessionIds)
     return result
   }
@@ -239,7 +254,9 @@ export class WorkspaceManager {
    * @returns the updated archive set or an RPC error.
    */
   async unarchiveSession(sessionId: SessionId): Promise<RpcResult<{ archivedSessionIds: SessionId[] }>> {
+    this.assertActive()
     const { result } = await this.api.workspace.unarchiveSession({ sessionId })
+    this.assertActive()
     if (result.ok) this.installArchived(result.value.archivedSessionIds)
     return result
   }
@@ -264,6 +281,17 @@ export class WorkspaceManager {
   /** Re-pull the baseline after each connection generation. */
   handleConnected(): void {
     void this.refresh()
+  }
+
+  /** Retire a machine's object manager; late unary settlements cannot install state. */
+  dispose(): void {
+    this.disposed = true
+    this.refreshFrames = null
+    this.inflight = null
+  }
+
+  private assertActive(): void {
+    if (this.disposed) throw new Error('workspace manager belongs to a retired machine')
   }
 
   /**

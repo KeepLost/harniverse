@@ -166,6 +166,49 @@
   color: var(--dsw-alias-state-warn-label);
 }
 
+.stateBlock {
+  display: grid;
+  flex: none;
+  min-width: 150px;
+  gap: 4px;
+  margin-left: auto;
+  justify-items: end;
+}
+
+.stateBlock .statePill {
+  margin-left: 0;
+}
+
+.progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  width: min(230px, 24vw);
+  gap: 4px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  text-align: right;
+}
+
+.progressLabel {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  max-width: 230px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress progress {
+  width: 100%;
+  height: 5px;
+  accent-color: var(--dsw-alias-state-warn-label);
+}
+
+.progressCount {
+  min-width: 26px;
+  text-align: right;
+}
+
 .rowActions {
   display: inline-flex;
   flex: none;
@@ -534,6 +577,23 @@
 
 :global([data-viewport='phone']) .statePill {
   margin-left: 0;
+}
+
+/* The deploy progress lives in the stacked card row; give it the full row
+   instead of the cramped 24vw column so the step label stays readable. */
+:global([data-viewport='phone']) .stateBlock {
+  min-width: 0;
+  width: 100%;
+  justify-items: start;
+}
+
+:global([data-viewport='phone']) .progress {
+  width: 100%;
+  text-align: left;
+}
+
+:global([data-viewport='phone']) .progressLabel {
+  max-width: 100%;
 }
 
 :global([data-viewport='phone']) .rowActions {

@@ -65,7 +65,7 @@ Messages 请求携带原生思考重放：每个响应在持久助手内容旁�
 
 连接事实不冻结于加载时。`resolveAdapterOptions` 是从原始配置到已校验事实的唯一显式解析步，适配器通过 thunk **每次操作重读一次**：协议、基址、目录、请求默认值与空闲预算都在下一次请求生效，而进行中的流保持其启动时的事实。两个可选接缝为该 thunk 供数：
 
-- **`ctx.settings`** —— 插件以同一 `Config` schema 注册 `llm-deepseek` 命名空间，并将其 `cordis.yml` 条目作为组合 `base`，因此用户设置文档中的 `llm-deepseek:` 小节无需重启即可覆盖任意字段。未挂载设置服务时仅由条目配置驱动，行为不变。通过 schema 但未通过超 schema 界限的在线设置快照（重复目录 id、损坏的思考/档位组合）保持上一份正确事实并记录失败；条目配置本身仍使插件加载失败。
+- **`ctx.settings`** —— 插件以同一 `Config` schema 注册 `llm-deepseek` 命名空间，并将其 `cordis.yml` 条目作为组合 `base`，因此用户设置文档中的 `llm-deepseek:` 小节无需重启即可覆盖任意字段。未挂载设置服务时仅由条目配置驱动，行为不变。通过 schema 但未通过超 schema 界限的在线设置快照（重复目录 id、损坏的思考/档位组合）保持上一份正确事实并记录失败；条目配置本身仍使插件加载失败。该命名空间还携带面向仅限 Host 快照的 `materialize` 钩子（`ctx.settings.materialize('llm-deepseek')`，由 remote-host 同步消费）：它让分节经过同一 `resolveAdapterOptions` 解析步与启动环境，快照因此携带具体的端点事实——`protocol`、`apiKeyEnv`、`baseURL` 与已解析的 `models` 列表——而不是远端进程可能给出不同答案的环境间接引用。
 - **`ctx.credentials`** —— API key 每次流调用解析，来自供给端点的*同一份*已解析快照。配置只携带 `apiKeyEnv`，绝不携带字面 key：引用经凭据接缝解析，无接缝时经可信环境层解析。由于凭据事实与连接事实同行，被解析器拒绝的设置快照既不贡献端点也不贡献 key：上一代整体继续服务。每个解析出的 key 在使用前都做格式检查，无法放进 HTTP 头的值会以 `LlmError('INVALID_CREDENTIAL')` 失败并指名失败的入口 —— 绝不包含 key 的任何部分 —— 而不是表现为不透明的 `fetch` `TypeError`。无处可取 key 的请求以 `MISSING_CREDENTIAL` 失败并指名每个配置入口，路由保持注册、目录保持可浏览 —— 首次运行的引导是“浏览模型、存 key、再提示”，中间无需重启。
 
 唯一的注册期捕获事实是重试策略：其解析值变化时，插件原地重注册路由（同一适配器实例、一个同步小节），因此 `ctx.llm.providerRetryPolicy('deepseek-official')` 始终报告当前策略。

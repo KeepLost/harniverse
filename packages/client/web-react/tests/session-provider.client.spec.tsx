@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import type { SessionMaybeProvideInfo, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   createSlotRenderer, SessionProvider,
@@ -90,6 +90,18 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
 }
 
 describe('SessionProvider', () => {
+  it('clears session-local input when another machine reuses the same session id', () => {
+    const h = makeHost({ root: () => <SessionProvider>{() => <input aria-label="draft" defaultValue="" />}</SessionProvider> })
+    const original = h.addSession('same')
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    act(() => { h.current.set('same') })
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'local draft' } })
+    act(() => { h.replaceSession({ ...original, props: { feature: 'added' } }) })
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('local draft')
+    act(() => { h.addSession('same') })
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('')
+  })
+
   it('renders empty without a current session, switches to the body on select, falls back on an unresolvable id', () => {
     const h = makeHost({
       root: () => (

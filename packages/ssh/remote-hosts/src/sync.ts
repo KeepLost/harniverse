@@ -94,9 +94,11 @@ export async function buildSnapshot(
   const snapshot: Record<string, JsonValue> = {}
   const refs = new Set<string>()
   const inline: Record<string, string> = Object.create(null) as Record<string, string>
+  const materialize = settings.materialize.bind(settings)
   for (const descriptor of settings.describe()) {
     if (!(NAMESPACES as readonly string[]).includes(descriptor.ns)) continue
-    const value = rewriteOrigin(JSON.parse(JSON.stringify(descriptor.value)) as JsonValue, mappings)
+    const source = await materialize(descriptor.ns) ?? descriptor.value
+    const value = rewriteOrigin(JSON.parse(JSON.stringify(source)) as JsonValue, mappings)
     if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new RemoteHostsError('INVALID_SYNC_SETTINGS')
     snapshot[descriptor.ns] = value
     collect(new z(descriptor.schema as z) as SchemaNode, value, refs, inline)

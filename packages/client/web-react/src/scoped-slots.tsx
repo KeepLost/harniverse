@@ -11,7 +11,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HostContext, SessionMaybeProvider, SessionProvider, SlotAssemblyError, maybeObservableHook,
-  observableHook, projectionHook, useHost, useSessionMaybeProvideInfo,
+  observableHook, projectionHook, sessionIncarnation, useHost, useMachineGeneration, useSessionMaybeProvideInfo,
 } from './session-provider.tsx'
 
 type InjectedProps = Record<string, unknown>
@@ -553,6 +553,7 @@ function SessionMaybeEntry({ entry, ownerProps, slotKey, slotInjected, hookConte
   hasHookContext: boolean
 }) {
   const info = useSessionMaybeProvideInfo()
+  const generation = useMachineGeneration()
   // The child key is an incarnation counter, NOT the session id: adoption
   // must keep the key constant across undefined → first id. Bookkeeping
   // lives in this stable (unkeyed) wrapper via the render-phase setState
@@ -561,16 +562,17 @@ function SessionMaybeEntry({ entry, ownerProps, slotKey, slotInjected, hookConte
   // guard conditions make it convergent — StrictMode-safe).
   const [state, setState] = useState<MaybeIncarnation>(FIRST_INCARNATION)
   let { adopted, epoch } = state
-  if (info.sessionId !== undefined && adopted === undefined) {
+  const identity = info.sessionId === undefined ? undefined : `${info.sessionId}:${sessionIncarnation(info)}`
+  if (identity !== undefined && adopted === undefined) {
     // Adoption: same epoch — no remount.
-    adopted = info.sessionId
+    adopted = identity
     setState({ adopted, epoch })
-  } else if (adopted !== undefined && info.sessionId !== undefined && info.sessionId !== adopted) {
+  } else if (adopted !== undefined && identity !== undefined && identity !== adopted) {
     // Post-adoption session switch: next incarnation, born already adopted.
-    adopted = info.sessionId
+    adopted = identity
     epoch += 1
     setState({ adopted, epoch })
-  } else if (adopted !== undefined && info.sessionId === undefined) {
+  } else if (adopted !== undefined && identity === undefined) {
     // Back to no-session: next incarnation, born blank (adopts anew later).
     adopted = undefined
     epoch += 1
@@ -578,7 +580,7 @@ function SessionMaybeEntry({ entry, ownerProps, slotKey, slotInjected, hookConte
   }
   return (
     <SessionMaybeEntryBody
-      key={epoch}
+      key={`${String(generation)}:${epoch}`}
       entry={entry}
       ownerProps={ownerProps}
       info={info}
@@ -625,11 +627,12 @@ function StrictSessionEntry({ slotKey, entry, ownerProps, slotInjected, hookCont
   onEntryError: (error: unknown) => void
 }) {
   const info = useSessionMaybeProvideInfo()
+  const generation = useMachineGeneration()
   if (info.sessionId === undefined) return null
   // Per-session remount rides this key; per-entry remount rides the outer
   // element's entry-identity key (the outlet's guarded() call).
   return (
-    <SlotErrorBoundary slotKey={slotKey} key={info.sessionId} onEntryError={onEntryError}>
+    <SlotErrorBoundary slotKey={slotKey} key={`${String(generation)}:${info.sessionId}:${sessionIncarnation(info)}`} onEntryError={onEntryError}>
       <SessionEntry
         entry={entry}
         ownerProps={ownerProps}

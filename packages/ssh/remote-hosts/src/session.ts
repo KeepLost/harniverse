@@ -8,7 +8,7 @@ import { nodeCommand, remoteHome } from './platform.ts'
 import { identity } from './secrets.ts'
 import { buildSnapshot } from './sync.ts'
 import { endpointSchema, HostTransport, statusSchema, type Endpoint } from './transport.ts'
-import type { ActiveReverseMapping, Config, HostRecord, RemoteHostState } from './types.ts'
+import type { ActiveReverseMapping, Config, HostRecord, RemoteHostProgress, RemoteHostState } from './types.ts'
 import { RemoteHostsError } from './validation.ts'
 
 /** All local transport resources belong to this connection attempt's controller. */
@@ -45,17 +45,19 @@ process.stdout.write(JSON.stringify({endpoint:JSON.parse(await readFile(p,'utf8'
  */
 export async function establish(
   session: HostSession, host: HostRecord, config: Config, provider: CredentialProvider, settings: SettingsProvider,
-  phase: (state: RemoteHostState) => void,
+  phase: (state: RemoteHostState, progress?: RemoteHostProgress) => void,
 ): Promise<void> {
   const connection = session.connection
   const signal = AbortSignal.any([session.controller.signal, connection.signal])
   const home = remoteHome(host.platform, await connection.realpath('.', signal), host.dshHome)
-  phase('deploying')
+  phase('deploying', { phase: 'checking-artifact', current: 0, total: 1 })
   const artifact = await inspectArtifact(config.artifactsRoot, host.platform, host.architecture)
   signal.throwIfAborted()
-  const release = await deploy(connection, host, home, artifact, signal)
+  const release = await deploy(connection, host, home, artifact, signal, (progress) => { phase('deploying', progress) })
+  phase('deploying', { phase: 'authorizing', current: 1, total: 1 })
   const keys = await identity(provider, host.id)
   const grant = await bootstrapGrant(connection, host, home, release, keys.publicKey, signal)
+  phase('deploying', { phase: 'starting', current: 1, total: 1 })
   let endpoint = await discovery(connection, host, home, release, signal)
   const live = endpoint !== undefined && await processAlive(connection, host, home, release, endpoint.pid, signal)
   const startupSignal = AbortSignal.any([signal, AbortSignal.timeout(config.startupTimeoutMs ?? 60_000)])
@@ -70,6 +72,7 @@ export async function establish(
       if (processIsAlive) {
         // This app binds HTTP loopback; TLS deployments require explicit certificate trust integration.
         if (endpoint.protocol !== 'http:') throw new RemoteHostsError('UNSUPPORTED_ENDPOINT_TLS')
+        phase('deploying', { phase: 'forwarding', current: 1, total: 1 })
         forward = await connection.forward('127.0.0.1', endpoint.port, startupSignal)
         const transport = new HostTransport(forward.port, grant, provider, host.id, signal, config.requestTimeoutMs ?? 30_000)
         try {
@@ -93,6 +96,7 @@ export async function establish(
     const handle = await connection.reverse({ localHost: mapping.localHost, localPort: mapping.localPort }, signal)
     session.mappings.push({ ...mapping, remotePort: handle.port })
   }
+  phase('deploying', { phase: 'synchronizing', current: 1, total: 1 })
   await session.transport.rpc('unlock', { key: keys.aes })
   await synchronize(session, provider, settings)
   signal.throwIfAborted()

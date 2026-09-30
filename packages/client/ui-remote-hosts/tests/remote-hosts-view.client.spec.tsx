@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { ConnectivityResult, RemoteHostId, RemoteHostView } from '@deepseek-ai/dsh-remote-hosts/types'
+import type { ConnectivityResult, RemoteHostId, RemoteHostProgress, RemoteHostView } from '@deepseek-ai/dsh-remote-hosts/types'
 import { createRemoteHostsViewStore } from '../src/client/stores.ts'
 import { RemoteHostsView, type RemoteHostsViewProps } from '../src/client/RemoteHostsView.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -431,6 +431,105 @@ describe('RemoteHostsView', () => {
     }
     view.unmount()
     interval.mockRestore()
+  })
+
+  it('shows connection feedback immediately and renders deployment progress from the next poll', async () => {
+    const callbacks: TimerHandler[] = []
+    const originalInterval = globalThis.setInterval
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout, ...args) => {
+      if (timeout === 1_000) callbacks.push(handler)
+      return originalInterval(handler, timeout, ...args)
+    })
+    let releaseConnect!: (result: RemoteResult<RemoteHostView>) => void
+    const progress: RemoteHostProgress = { phase: 'uploading', current: 1, total: 2 }
+    const list = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, value: [host()] })
+      .mockResolvedValueOnce({ ok: true as const, value: [host({ state: 'deploying', progress })] })
+    const connect = vi.fn(() => new Promise<RemoteResult<RemoteHostView>>((resolve) => { releaseConnect = resolve }))
+    try {
+      mount({ list, connect }, [host()])
+      await waitFor(() => { expect(screen.getByRole('button', { name: zh.connect })).toBeTruthy() })
+
+      fireEvent.click(screen.getByRole('button', { name: zh.connect }))
+      expect(screen.getByText(zh.stateConnecting)).toBeTruthy()
+      expect(screen.queryByRole('progressbar')).toBeNull()
+      expect(screen.getByRole('button', { name: zh.connect }).hasAttribute('disabled')).toBe(true)
+
+      const refresh = callbacks[0]
+      expect(refresh).toBeDefined()
+      if (typeof refresh === 'function') (refresh as () => void)()
+      await waitFor(() => { expect(screen.getByRole('progressbar')).toBeTruthy() })
+      expect(screen.getByText(zh.progressUploading)).toBeTruthy()
+      expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('1')
+      expect(screen.getByRole('progressbar').getAttribute('aria-valuemax')).toBe('2')
+
+      releaseConnect({ ok: true, value: host({ state: 'connected' }) })
+    } finally {
+      interval.mockRestore()
+    }
+  })
+
+  it('renders indeterminate progress for non-upload deployment phases', async () => {
+    const progress: RemoteHostProgress = { phase: 'verifying', current: 0, total: 2 }
+    mount({}, [host({ state: 'deploying', progress })])
+    await waitFor(() => { expect(screen.getByRole('progressbar')).toBeTruthy() })
+    expect(screen.getByText(zh.progressVerifying)).toBeTruthy()
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBeNull()
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuemax')).toBeNull()
+    expect(screen.queryByText('0/2')).toBeNull()
+  })
+
+  it.each([
+    ['an Error', new Error('switch rejected')],
+    ['a non-Error', 'switch blew up'],
+  ] as const)('reports openRemote switch failures from %s without leaving the page', async (_kind, rejection) => {
+    const openRemote = vi.fn().mockRejectedValue(rejection)
+    mount({ openRemote }, [host({ state: 'connected' })])
+    await waitFor(() => { expect(screen.getByRole('button', { name: zh.openRemote })).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: zh.openRemote }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('switch') })
+    // The roster and the opener stay on the page; only the failure is reported.
+    expect(screen.getByRole('button', { name: zh.openRemote })).toBeTruthy()
+  })
+
+  it.each([
+    ['an Error', new Error('roster fetch crashed')],
+    ['a non-Error', 'roster blew up'],
+  ] as const)('surfaces roster refresh rejections from %s', async (_kind, rejection) => {
+    const list = vi.fn().mockRejectedValue(rejection)
+    mount({ list }, [])
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('roster') })
+  })
+
+  it('ignores a roster rejection that settles after a newer refresh has taken over', async () => {
+    const callbacks: TimerHandler[] = []
+    const originalInterval = globalThis.setInterval
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout, ...args) => {
+      if (timeout === 1_000) callbacks.push(handler)
+      return originalInterval(handler, timeout, ...args)
+    })
+    const stale = Promise.withResolvers<never>()
+    const list = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, value: [host({ state: 'connecting' })] })
+      .mockImplementationOnce(() => stale.promise)
+      .mockResolvedValue({ ok: true as const, value: [host()] })
+    try {
+      mount({ list }, [])
+      await waitFor(() => { expect(screen.getByText(zh.stateConnecting)).toBeTruthy() })
+      const refresh = callbacks[0]
+      expect(refresh).toBeDefined()
+      if (typeof refresh !== 'function') return
+      ;(refresh as () => void)()
+      ;(refresh as () => void)()
+      await waitFor(() => { expect(screen.getByRole('button', { name: zh.connect })).toBeTruthy() })
+      stale.reject(new Error('stale roster crash'))
+      await waitFor(() => { expect(list.mock.calls.length).toBeGreaterThanOrEqual(3) })
+      // The stale rejection never reaches the alert surface.
+      await waitFor(() => { expect(screen.getByRole('button', { name: zh.connect })).toBeTruthy() })
+      expect(screen.queryByRole('alert')).toBeNull()
+    } finally {
+      interval.mockRestore()
+    }
   })
 
   it('renders failed Remote results instead of refreshing as if the action succeeded', async () => {

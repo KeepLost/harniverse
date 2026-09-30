@@ -198,16 +198,29 @@ export function apply(ctx: Context): void {
     views: new ConversationViewRegistry(ctx),
   }
   const connection = ctx.get('connection') as ConnectionHandle
-  const sessions = new SessionRuntime(ctx, connection.api, ctx.remote, conversation)
+  const machineKey = (): string => {
+    const target = connection.target.getSnapshot()
+    return target.kind === 'host' ? 'host' : `remote:${target.id}`
+  }
+  ctx.get('slots')?.resetTarget(machineKey())
+  const sessions = new SessionRuntime(ctx, connection.captureApi(), ctx.remote, conversation, machineKey())
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })
-  const workspaces = new WorkspaceRuntime(ctx, connection.api, sessions)
+  const workspaces = new WorkspaceRuntime(ctx, connection.captureApi(), sessions)
+  const resetTarget = (): Promise<void> => {
+    const key = machineKey()
+    ctx.get('slots')?.resetTarget(key)
+    const disposed = sessions.resetTarget(connection.captureApi(), key)
+    workspaces.resetTarget(connection.captureApi())
+    return disposed
+  }
   ctx.effect(
     () => workspaces.startInitialSelection(),
     'runtime: initial Workspace selection',
   )
   const loop = connection.start({
+    onTargetChange: resetTarget,
     muxSince: () => sessions.muxSince(),
     onMuxEnvelope: (envelope) => {
       sessions.handleMuxEnvelope(envelope)

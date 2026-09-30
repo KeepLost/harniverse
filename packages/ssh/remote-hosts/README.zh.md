@@ -63,11 +63,11 @@ Remote 命名空间为 `remoteHosts`。`list()` 与 `keyFilePicker()` 要求 `ha
 
 临时登录先不带 `secrets` 调用 upsert，再调用 `connect({ id, secrets: { kind: "password", password }, storeCredentials: false })`。`connect({ id })` 解析已保存引用。`connect` 中显式设置 `storeCredentials: true` 会在连接前保存提交的凭据。并发连接合并，首次受理的参数生效；已连接时再次 connect 会重新同步设置和凭据。Upsert 拒绝未获存储同意的 secrets，不会悄悄保留或丢弃。
 
-`list()` 返回配置，以及 `state`（`offline`、`connecting`、`deploying`、`connected`、`error`）和可选的固定脱敏 `error`。UI 轮询进度；不返回本地隧道端口或访问令牌，不发出未类型化事件。
+`list()` 返回配置，以及 `state`（`offline`、`connecting`、`deploying`、`connected`、`error`）、可选的固定脱敏 `error`，以及——仅在 `state` 为 `deploying` 时——可选的有界 `progress`（`{ phase, current, total }`），指名当前部署步骤；`uploading` 携带按文件的计数，其余阶段一律为 `1`/`1`，且值绝不包含命令输出或秘密数据。UI 轮询进度；不返回本地隧道端口或访问令牌，不发出未类型化事件。
 
 ## 部署、认证与同步
 
-传输前验证清单摘要、平台、架构、路径、每个本地文件的哈希和可移植树内链接。链接物化为已校验的普通文件树，避免依赖 Windows 符号链接权限。上传写入私有随机暂存目录，验证全部成功后才成为 `server/releases/<manifest-digest>`。现有发布目录也重新验证，并拒绝额外文件；不执行或复用不完整暂存目录。所选产物目录不存在时，需要它的连接以 `ARTIFACT_NOT_FOUND` 失败；存在但检验不过时以 `INVALID_ARTIFACT` 失败。Host 只记录被吞原因的错误名与错误码——绝不记录消息——使面向操作者的失败文案停留在封闭的 reason 上。
+传输前验证清单摘要、平台、架构、路径、每个本地文件的哈希和可移植树内链接。链接物化为已校验的普通文件树，避免依赖 Windows 符号链接权限。上传写入私有随机暂存目录，验证全部成功后才成为 `server/releases/<manifest-digest>`。现有发布目录也重新验证，并拒绝额外文件；不执行或复用不完整暂存目录。所选产物目录不存在时，需要它的连接以 `ARTIFACT_NOT_FOUND` 失败；存在但检验不过时以 `INVALID_ARTIFACT` 失败。Host 只记录被吞原因的错误名与错误码——绝不记录消息——使面向操作者的失败文案停留在封闭的 reason 上。部署随推进通过视图的 `progress` 字段发布当前步骤：`checking-artifact`、`uploading`（按文件计数）、`verifying`、`authorizing`（bootstrap 授权）、`starting`、`forwarding`（回环隧道）与 `synchronizing`（设置与凭据）。
 
 运行复制的 Node 前，Linux 使用 `sha256sum`，macOS 使用 `shasum -a 256`，Windows 使用 PowerShell `Get-FileHash`。随后由已验证的 Node 校验完整传输树并恢复执行位。原生哈希命令失败即中止。远端不需要源码、全局 Node、包管理器或依赖安装。原生哈希工具及可信私有路径祖先是前提；可在执行过程中替换文件的同用户攻击者不在此信任边界内。
 
@@ -77,7 +77,7 @@ POSIX 使用正确引用路径的 `nohup env`，重定向标准输入和日志�
 
 发现过程验证 `server/endpoint.json`。活动 PID 必须通过认证的状态 RPC 返回相同启动 ID、平台和架构。活动但身份不符或不能认证的端点失败，不另启进程。缺失或已死的端点触发后台启动并在启动期限内轮询。支持随应用提供的回环 HTTP；自定义 HTTPS 端点在证书信任集成前明确拒绝。
 
-SDK `GrantAccess` 使用 SHA-256 IEEE-P1363 签名挑战，并合并访问令牌续期。运行时请求采用真实 Connection/Typert JSON 信封。解锁后发送完整凭据替换及已解析的本地模型/搜索设置，明确携带本地组合默认值；匹配反向映射的模型/搜索来源会在同步前改写为该映射分配的远端回环端口。省略的命名空间由运行时重置。只解析支持的已注册设置模式中标记为 `role('credential-ref')` 的字段，递归处理对象、字典、数组和交叉类型；含引用且分支不明确的联合/变换拒绝。排除无关本地秘密和协调器自有引用。设置逐命名空间提交，不是全局事务；失败后再次 connect 可收敛。
+SDK `GrantAccess` 使用 SHA-256 IEEE-P1363 签名挑战，并合并访问令牌续期。运行时请求采用真实 Connection/Typert JSON 信封。解锁后发送完整凭据替换及物化后的本地模型/搜索设置。每个同步分节都是仅限 Host 的 `settings.materialize(ns)` 快照——owner 钩子把环境派生事实（如环境凭据引用）解析进去——未注册钩子的命名空间回退到解析值；进程环境绝不复制。物化分节明确携带本地组合默认值；匹配反向映射的模型/搜索来源会在同步前改写为该映射分配的远端回环端口。省略的命名空间由运行时重置。只解析支持的已注册设置模式中标记为 `role('credential-ref')` 的字段，并经凭据服务解析；递归处理对象、字典、数组和交叉类型；含引用且分支不明确的联合/变换拒绝。排除无关本地秘密和协调器自有引用，且超出可引用密钥形态的提供方原生凭据体系（OAuth 流程、AWS 风格签名链）不予物化——这些路由同步后没有可用凭据。设置逐命名空间提交，不是全局事务；失败后再次 connect 可收敛。
 
 ## 同进程代理与反向映射消费者
 

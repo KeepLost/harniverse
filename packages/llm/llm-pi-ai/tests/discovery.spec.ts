@@ -428,6 +428,29 @@ describe('draft-provider model discovery', () => {
       .toEqual(['Bearer stored-key', 'Bearer typed', undefined])
   })
 
+  it('uses a stored provider-selected bearer credential for Anthropic listing', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
+    process.env['ANTHROPIC_AUTH_TOKEN'] = 'fake-anthropic-bearer-token'
+    touchedEnv.push('ANTHROPIC_AUTH_TOKEN')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        anthropic: {
+          apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN',
+          authMode: 'bearer',
+          api: 'anthropic-messages',
+          baseURL: server.url,
+          models: [{ id: 'fake-anthropic' }],
+        },
+      },
+    })
+
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'anthropic', mode: 'endpoint', baseURL: server.url })
+    expect(server.headers[0]?.authorization).toBe('Bearer fake-anthropic-bearer-token')
+    expect(server.headers[0]?.['x-api-key']).toBeUndefined()
+  })
+
   it('leaves a catalog route\'s credential unresolved, having never reached the network', async () => {
     // The catalog answers before any endpoint is asked, so a route whose
     // profile names a credential that is not set must still answer rather than
