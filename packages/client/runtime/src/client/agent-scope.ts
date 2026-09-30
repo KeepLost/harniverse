@@ -15,10 +15,25 @@
  * — a cold session's host Agent is already disposed while its client actx
  * stays alive for history viewing.
  */
-import { Context as CordisContext, FiberState } from '@deepseek-ai/cordis'
-import type { Context, Fiber } from '@deepseek-ai/cordis'
+import { Context as CordisContext } from '@deepseek-ai/cordis'
+import type { Context, Fiber, FiberState as FiberStateEnum } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypertClientRemote, TypertRemoteScopeApi } from '@deepseek-ai/dsh-typert-protocol'
+
+/**
+ * Runtime mirror of Cordis's `FiberState` const enum members used here. A const
+ * enum carries no runtime object to import (bundlers erase `export *` of it), so
+ * the values mirror the pinned vendored definition while retaining its types —
+ * the same pattern as `@deepseek-ai/dsh-tool-cordis/fiber-state`.
+ */
+const FiberState = {
+  PENDING: 0 as FiberStateEnum.PENDING,
+  LOADING: 1 as FiberStateEnum.LOADING,
+  ACTIVE: 2 as FiberStateEnum.ACTIVE,
+  FAILED: 3 as FiberStateEnum.FAILED,
+  DISPOSED: 4 as FiberStateEnum.DISPOSED,
+  UNLOADING: 5 as FiberStateEnum.UNLOADING,
+} as const
 
 /** Client Cordis Context carrying one Agent identity and its scoped Remote namespaces. */
 export type AgentContext = Omit<Context, 'remote'> & {
