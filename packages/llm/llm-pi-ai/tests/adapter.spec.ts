@@ -1125,6 +1125,54 @@ describe('protocol-owned request assembly', () => {
 })
 
 describe('PiAiAdapter wire and replay boundaries', () => {
+  it('delivers every merged OpenAI Responses frame a gateway collapses into one data payload', async () => {
+    // A relay behind lossy buffering can drop the blank line between two
+    // events, so the SDK receives one SSE event whose data holds two complete
+    // JSON documents; both must reach the stream, not a parse failure.
+    const events = [
+      '{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\ndata: '
+      + '{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_1\"}}',
+      '{"type":"response.content_part.added","item_id":"msg_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}',
+      '{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"hello"}',
+      '{"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":"hello"}',
+      '{"type":"response.content_part.done","item_id":"msg_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":"hello"}}',
+      '{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1"}}',
+      '{"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":3,"output_tokens":1}}}',
+    ]
+    const server = await mockServer([{ events }])
+    const adapter = adapterOf({ openai: { api: 'openai-responses', baseURL: server.url, models: [{ id: 'gpt-x' }] } })
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.stream({
+      provider: 'openai',
+      model: 'gpt-x',
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })],
+    })) chunks.push(chunk)
+
+    expect(chunks.filter(chunk => chunk.type === 'text-delta').map(chunk => chunk.type === 'text-delta' ? chunk.text : '')).toEqual(['hello'])
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+  })
+
+  it('delivers every merged Anthropic frame a gateway collapses into one data payload', async () => {
+    const events = [
+      'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":3,"output_tokens":0},"content":[]}}',
+      'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+      'event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\ndata: '
+      + '{\"type\":\"content_block_stop\",\"index\":0}',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}',
+      'event: message_stop\ndata: {"type":"message_stop"}',
+    ]
+    const server = await mockServer([{ events }])
+    const adapter = adapterOf({ anthropic: { api: 'anthropic-messages', baseURL: server.url, models: [{ id: 'claude-x' }] } })
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.stream({
+      provider: 'anthropic',
+      model: 'claude-x',
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })],
+    })) chunks.push(chunk)
+
+    expect(chunks.filter(chunk => chunk.type === 'text-delta').map(chunk => chunk.type === 'text-delta' ? chunk.text : '')).toEqual(['hello'])
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+  })
   /** An assistant turn carrying replay state this adapter cannot use. */
   function unusableReplay(): ReturnType<typeof createUserMessage> {
     return {
