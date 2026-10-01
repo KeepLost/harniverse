@@ -58,6 +58,8 @@ Child results are projected and snapshotted before crossing from the host to the
 
 `WorkflowRun.cancel()` records the first reason, tells the worker to cancel, aborts the one signal shared by every pending and published child, and arms the `disposeGraceMs` timer. Worker hooks then throw `CANCELLED` at their next await. If the run remains unsettled at the deadline, the host resolves it as cancelled, pairs stranded child lifecycle events, and terminates the worker.
 
+Every kill queues behind the worker's bootstrap: a terminate landing inside the synchronous module-load window can abort the whole process (the V8 cjs-lexer parse window), so the host only terminates after the worker's Ready handshake or its own exit; a 30s backstop covers a wedged boot.
+
 The subagent seam has one cancellation channel: the request signal. There is no separate child-cancel RPC. Published child teardown uses `run.dispose()`; pending provider starts remain provider-owned until their promise rejects or fulfills.
 
 Normal settlement also aborts pending starts and begins disposing any published fire-and-forget children before the result becomes externally settled. The host's quiescence condition includes both pending starts and published child disposals, so cleanup does not forget an async startup transaction.

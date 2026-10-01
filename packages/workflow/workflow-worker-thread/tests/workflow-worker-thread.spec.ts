@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import type { Worker } from 'node:worker_threads'
+import { Worker } from 'node:worker_threads'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -1296,6 +1296,50 @@ describe('dsh-workflow-worker-thread', () => {
       expect(result.stopReason).toBe('error')
       await handle.dispose()
     }, 15_000)
+
+    it('never terminates the real worker inside its bootstrap (the kill queues behind the Ready handshake)', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentRuntime)
+      const provider: SubagentProvider = {
+        name: 'boot-gate',
+        capabilities: { outputSchema: true, depthLimit: true, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        // The script body is never reached: cancellation wins the boot race.
+        start: async () => { throw new Error('unreached') },
+      }
+      ctx.subagents.registerProvider(provider)
+      // A 1ms grace makes the force-settle terminate request land squarely
+      // inside the worker's module-load window — the exact placement that
+      // could abort the whole process before the handshake gate existed.
+      await ctx.plugin(WorkerThreadWorkflowEngine, { provider: 'boot-gate', maxConcurrentAgents: 1, disposeGraceMs: 1 })
+      // Passthrough spies: every call still reaches the real Worker, while
+      // vitest's global invocation order records which side of the handshake
+      // each one happened on.
+      const terminateSpy = vi.spyOn(Worker.prototype, 'terminate')
+      const postSpy = vi.spyOn(Worker.prototype, 'postMessage')
+      try {
+        const handle = ctx.workflowEngine.start({
+          ...scripted('await new Promise(() => {})'),
+          parent: fakeParent(),
+        })
+        handle.cancel('cancel while booting')
+        const result = await handle.result
+        expect(result.stopReason).toBe('cancelled')
+        await handle.dispose()
+        // The kill was requested at the 1ms grace expiry, long before the
+        // worker finished loading — it must still have waited for the Ready
+        // handshake (evidenced by the Go release) before terminating.
+        const firstTerminate = terminateSpy.mock.invocationCallOrder[0]
+        const goIndex = postSpy.mock.calls.findIndex(args => (args[0] as { type?: string } | undefined)?.type === HostToWorkerType.Go)
+        expect(firstTerminate).toBeTypeOf('number')
+        expect(goIndex).toBeGreaterThanOrEqual(0)
+        expect(postSpy.mock.invocationCallOrder[goIndex]!).toBeLessThan(firstTerminate!)
+        await ctx.fiber.dispose()
+      } finally {
+        terminateSpy.mockRestore()
+        postSpy.mockRestore()
+      }
+    })
 
     it('an uncaught exception inside the worker surfaces as an error result and reaps the in-flight child', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
