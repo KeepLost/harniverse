@@ -49,12 +49,18 @@ async function bench() {
   } as never)
   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
   ctx.provide('layout', { openWorkbench, closeWorkbench } as never)
+  const targetListeners = new Set<() => void>()
+  let target: { kind: 'host' } | { kind: 'remote'; id: string } = { kind: 'host' }
+  ctx.provide('connection', { target: { getSnapshot: () => target, subscribe: (listener: () => void) => {
+    targetListeners.add(listener); return () => { targetListeners.delete(listener) }
+  } } } as never)
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
     insertSessionBefore, open, clear, search, renameSession, binding, fork,
     openWorkbench, closeWorkbench, listFiles, searchFiles, readFile, readBinaryFile, gitStatus, gitCommits, gitDiff,
+    switchTarget() { target = { kind: 'remote', id: 'remote' }; for (const listener of targetListeners) listener() },
   }
 }
 
@@ -77,7 +83,44 @@ function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'layout'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'layout', 'connection'])
+  })
+
+  it('remounts machine surfaces and gives colliding workspace stores separate identities', async () => {
+    const b = await bench()
+    declare(b.slots, 'sidebar.workspaces', 'workbench', 'shell.overlay')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const browser = b.slots.entries('sidebar.workspaces')[0]!
+    const workbench = b.slots.entries('workbench')[0]!
+    b.switchTarget()
+    await Promise.resolve()
+    expect(b.slots.entries('sidebar.workspaces')[0]).not.toBe(browser)
+    expect(b.slots.entries('workbench')[0]!.store).not.toBe(workbench.store)
+    expect(b.slots.entries('workbench')[0]!.store).toBe(b.slots.entries('shell.overlay')[0]!.store)
+    expect(b.slots.spec('sidebar.workspaces.machine')).toEqual({ kind: 'single', scope: 'root' })
+    await b.ctx.fiber.dispose()
+  })
+
+  it('rejects retained callbacks and prevents a late fork from selecting the new machine session', async () => {
+    const b = await bench()
+    declare(b.slots, 'sidebar.workspaces', 'workbench')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
+    const workbench = (b.slots.entries('workbench')[0]!.inject as () => WorkspaceWorkbenchInjected)()
+    const fork = Promise.withResolvers<never>()
+    b.fork.mockImplementationOnce(() => fork.promise)
+    browser.forkSession('same' as never)
+    b.switchTarget()
+    fork.resolve('same' as never)
+    await fork.promise
+    await Promise.resolve()
+    expect(b.open).not.toHaveBeenCalled()
+    expect(() => { browser.open('same' as never) }).toThrow('retired machine')
+    expect(() => browser.createWorkspace({ path: '/old' })).toThrow('retired machine')
+    expect(() => workbench.readFile('same' as never, '/old')).toThrow('retired machine')
+    expect(b.create).not.toHaveBeenCalled()
+    expect(b.readFile).not.toHaveBeenCalled()
+    await b.ctx.fiber.dispose()
   })
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {

@@ -16,7 +16,8 @@ import { registerAttachmentRoutes } from './attachment-routes.ts'
 import { registerSessionImportRoute } from './session-import-route.ts'
 import { registerBrowserAuthenticationRoutes } from './browser-auth-routes.ts'
 import { HostConnectionService } from './rpc-host.ts'
-import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks } from './websocket-downlink.ts'
+import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks, type RemoteWebSocket } from './websocket-downlink.ts'
+import { registerRemoteHostProxy } from './remote-host-proxy.ts'
 
 export type {
   ConnectionRpcAuthority,
@@ -25,6 +26,8 @@ export type {
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
   ConnectionRpcInvocation,
+  ConnectionHttpProxyHandler,
+  ConnectionHttpProxyResolver,
   HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
@@ -110,6 +113,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     throw new Error('client-connection: authentication bypass is restricted to a loopback listener')
   }
   const connection = new HostConnectionService(ctx, trustedHosts, trustedOrigins)
+  registerRemoteHostProxy(ctx, connection)
   const fallbackFetchHandler = (principal: AuthenticationPrincipal): FetchHandler => ({
     async fetch(request) {
       const pathname = new URL(request.url).pathname
@@ -189,6 +193,21 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
           apiCtx.logger.info(`client-connection: connection accepted channel=${JSON.stringify(channel)} ${principalDetails(decision.principal)} ${requestDetails(req)}`)
           if (!decision.principal.capabilities.includes('harniverse.observe')) {
             rejectWebSocketUpgrade(socket)
+            return
+          }
+          const target = new URL(req.url ?? '/', 'http://dsh.internal').searchParams.get('dshRemoteHost')
+          if (target !== null) {
+            const remoteHosts = apiCtx.get('remoteHosts') as {
+              openWebSocket(id: string, remotePath: string, signal?: AbortSignal): Promise<unknown>
+            } | undefined
+            if (remoteHosts === undefined || !/^\w{8}-\w{4}-4\w{3}-[89ab]\w{3}-\w{12}$/iu.test(target)) {
+              rejectWebSocketUpgrade(socket)
+              return
+            }
+            const remoteUrl = new URL(req.url ?? '/', 'http://dsh.internal')
+            remoteUrl.searchParams.delete('dshRemoteHost')
+            downlinks.handleRemote(req, socket, head, decision, signal =>
+              remoteHosts.openWebSocket(target, `${remoteUrl.pathname}${remoteUrl.search}`, signal) as Promise<RemoteWebSocket>)
             return
           }
           if (path === MUX_EVENTS_PATH) downlinks.handleMux(req, socket, head, decision)

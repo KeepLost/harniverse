@@ -76,6 +76,8 @@ export interface SessionSummary {
  * sidebar highlighting and SessionProvider share one fact source).
  */
 export interface SessionListState {
+  /** Machine incarnation for render identity, including the no-session state. Absent in single-machine hosts. */
+  targetGeneration?: number
   /** Host-list order; addressed breadcrumb-only rows are excluded. */
   ids: SessionId[]
   /** Host rows plus the current addressed subagent route used by navigation. */

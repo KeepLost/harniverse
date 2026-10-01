@@ -75,13 +75,20 @@ export function supportedProtocols(): readonly string[] {
  * @param name - display name used as the resolution's status label.
  * @returns the api-key auth for a harness-authenticated route.
  */
-function harnessApiKeyAuth(name: string): ApiKeyAuth {
+function harnessApiKeyAuth(name: string, mode: 'api-key' | 'bearer' = 'api-key', ref?: string): ApiKeyAuth {
   return {
     name,
-    resolve: ({ credential }) => Promise.resolve({
-      auth: credential?.key === undefined ? {} : { apiKey: credential.key },
-      source: name,
-    }),
+    resolve: async ({ ctx, credential }) => {
+      const value = credential?.key ?? (mode === 'bearer' && ref !== undefined ? await ctx.env(ref) : undefined)
+      return {
+        auth: value === undefined
+          ? {}
+          : mode === 'bearer'
+            ? { headers: { Authorization: `Bearer ${value}` } }
+            : { apiKey: value },
+        source: name,
+      }
+    },
   }
 }
 
@@ -109,6 +116,12 @@ export interface ProviderSpec {
    * request, never at construction.
    */
   namesCredential: boolean
+  /** Authentication form selected for this route's materialized credential. */
+  authMode?: 'api-key' | 'bearer'
+  /** Credential reference used by the host auth resolver. */
+  credentialRef?: string
+  /** Prevent a catalog provider from rediscovering a remote process credential. */
+  disableAmbientAuth?: boolean
 }
 
 /**
@@ -134,7 +147,9 @@ export interface ProviderSpec {
  * @returns the auth to construct this route's provider with.
  */
 function routeAuth(spec: ProviderSpec, catalog: Provider | undefined): Provider['auth'] {
-  if (catalog === undefined) return { apiKey: harnessApiKeyAuth(spec.displayName) }
+  if (catalog === undefined) return { apiKey: harnessApiKeyAuth(spec.displayName, spec.authMode === 'bearer' ? 'bearer' : 'api-key', spec.credentialRef) }
+  if (spec.disableAmbientAuth === true) return { apiKey: harnessApiKeyAuth(spec.displayName) }
+  if (spec.authMode === 'bearer') return { ...catalog.auth, apiKey: harnessApiKeyAuth(spec.displayName, 'bearer', spec.credentialRef) }
   if (catalog.auth.apiKey !== undefined || !spec.namesCredential) return catalog.auth
   return { ...catalog.auth, apiKey: harnessApiKeyAuth(spec.displayName) }
 }

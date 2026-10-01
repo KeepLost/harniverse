@@ -4,7 +4,7 @@
  * empty-root composition, and the installation module-fallback healing.
  */
 
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -24,7 +24,7 @@ import {
 const tmp = (): string => mkdtempSync(join(tmpdir(), 'dsh-profile-'))
 
 /** Stage a fake installed app: package.json with deps and a node_modules holding bundles. */
-function stageInstallation(bundles: Record<string, { patch?: string; deps?: Record<string, string> }>): string {
+function stageInstallation(bundles: Record<string, { patch?: string; deps?: Record<string, string>; homeOwnership?: string }>): string {
   const root = tmp()
   const appDir = join(root, 'app')
   mkdirSync(join(appDir, 'node_modules'), { recursive: true })
@@ -37,7 +37,7 @@ function stageInstallation(bundles: Record<string, { patch?: string; deps?: Reco
       name,
       version: '0.0.0',
       dependencies: spec.deps ?? {},
-      ...spec.patch === undefined ? {} : { dsh: { bundle: { patch: './cordis.patch.yml' } } },
+      ...spec.patch === undefined ? {} : { dsh: { bundle: { patch: './cordis.patch.yml', homeOwnership: spec.homeOwnership } } },
     }))
     if (spec.patch !== undefined) writeFileSync(join(dir, 'cordis.patch.yml'), spec.patch)
   }
@@ -118,6 +118,47 @@ describe('resolveBundleDir', () => {
 })
 
 describe('loadProfile', () => {
+  it('inspects a shipped template without initializing any profile files', () => {
+    const anchor = stageInstallation({ '@deepseek-ai/dsh-auth-app': { patch: '[]\n', homeOwnership: 'shared' } })
+    const home = tmp()
+    expect(loadProfile('t', 'auth', anchor, home, { readOnly: true }).homeOwnership).toBe('shared')
+    expect(existsSync(join(home, 'profiles'))).toBe(false)
+  })
+
+  it.each([
+    { bundles: ['shared-a', 'shared-b'], expected: 'shared' },
+    { bundles: ['shared-a', 'default'], expected: 'exclusive' },
+    { bundles: ['shared-a', 'explicit'], expected: 'exclusive' },
+    { bundles: ['shared-a', 'unknown'], expected: 'exclusive' },
+    { bundles: [], expected: 'exclusive' },
+  ])('requires every bundle to opt in to sharing: $bundles', ({ bundles, expected }) => {
+    const anchor = stageInstallation({
+      'shared-a': { patch: '[]\n', homeOwnership: 'shared' },
+      'shared-b': { patch: '[]\n', homeOwnership: 'shared' },
+      default: { patch: '[]\n' },
+      explicit: { patch: '[]\n', homeOwnership: 'exclusive' },
+      unknown: { patch: '[]\n', homeOwnership: 'future-mode' },
+    })
+    const home = tmp()
+    // An existing manifest takes precedence over the shipped auth template.
+    initProfile(resolveProfileDir('auth', home), bundles)
+    expect(loadProfile('t', 'auth', anchor, home, { readOnly: true }).homeOwnership).toBe(expected)
+  })
+
+  it('inspects normalization in memory without rewriting an installation-owned manifest', () => {
+    const anchor = stageInstallation({
+      '@deepseek-ai/dsh-base': { patch: '[]\n' },
+      '@deepseek-ai/dsh-headless': { patch: '[]\n' },
+    })
+    const home = tmp()
+    const dir = resolveProfileDir('headless', home)
+    initProfile(dir, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-headless'])
+    const before = readFileSync(join(dir, 'package.json'), 'utf8')
+    const profile = loadProfile('t', 'headless', anchor, home, { readOnly: true })
+    expect(profile.layers.map(layer => layer.packageName)).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'])
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+  })
+
   it('resolves each dsh.profile.bundles entry to its patch layer in order, plus the user layer', () => {
     const anchor = stageInstallation({
       'bundle-a': { patch: '- insert:\n    - id: a\n      name: pkg-a\n' },

@@ -22,6 +22,8 @@ The browser, picker, workbench, preview-overlay, and Session-header target slots
 
 The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`; users enter those conversations through the selected parent's subagent header catalog. Each visible ordinary row inherits the blue activity indicator while any descendant reached through uninterrupted subagent-origin lineage is running, and its hover and assistive text report the exact running-descendant count without describing an idle parent as running. Ordinary forks remain visible and terminate this aggregation because lineage alone does not set their origin. Pending user interaction outranks the session's own running state, and either remains the primary row status while descendant activity stays available as a separate hover and assistive status. With neither present, descendant activity outranks the green unviewed-completion reminder; the reminder returns once no descendant is running. The runtime keeps hidden rows available for conversation, title, and addressed transport state.
 
+The browser declares `sidebar.workspaces.machine` above its list for a machine-navigation contribution. A connection target change disposes and re-registers this package's entries through Cordis effects, clearing search, dialogs, previews, and file caches. Persisted browser expansion and ordering use machine-specific keys. Retained callbacks reject after their machine generation ends, including a fork completion that would otherwise select an identically named session on another machine.
+
 ## Model Experience
 
 None, as the picker is browser chrome; nothing here reaches a model request.

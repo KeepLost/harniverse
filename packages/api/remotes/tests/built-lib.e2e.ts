@@ -241,6 +241,123 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     expect(output.rootResult.ref.id).toMatch(/^goal-/)
     expect(output.scopedResult.ref.id).toMatch(/^goal-/)
   }, 60_000)
+
+  it('mounts the full client Remote roster without a method/namespace collision', async () => {
+    // The assembly mounts every generated Remote behind one hand-maintained
+    // `$mount` roster. Two regressions live here and nowhere else:
+    //   - a namespace missing from the roster leaves its client plugin pending
+    //     on `remote.<namespace>` forever (the UI just never appears);
+    //   - a Remote method whose name equals the namespace Service it projects
+    //     onto aborts the whole assembly at load time.
+    // Both are descriptor-validation outcomes, so they only surface by mounting
+    // the real bundles.
+    const urls = Object.fromEntries(Object.entries({
+      apiGatewayClient: 'packages/api/gateway/lib/client.js',
+      apiGatewayHost: 'packages/api/gateway/lib/index.js',
+      connectionClient: 'packages/client/connection/lib/client.js',
+      connectionHost: 'packages/client/connection/lib/index.js',
+      registryClient: 'packages/typert/registry/lib/client.js',
+      registryHost: 'packages/typert/registry/lib/index.js',
+      remotesClient: 'packages/api/remotes/lib/client.js',
+      authentication: 'packages/auth/authentication/lib/index.js',
+      clientAuthentication: 'packages/client/authentication/lib/index.js',
+      remoteHostsClient: 'packages/ssh/remote-hosts/lib/typert.remote-client.js',
+    }).map(([key, path]) => [key, artifactUrl(path)]))
+    const script = `
+      import * as cordis from '@deepseek-ai/cordis'
+
+      const urls = ${JSON.stringify(urls)}
+      const { Context } = cordis
+      const { ALL_AUTHENTICATION_CAPABILITIES } = await import(urls.authentication)
+      const { default: BrowserAuthenticationService, BrowserAuthentication } = await import(urls.clientAuthentication)
+
+      // The built Client bundles are browser bundles: they expect these globals
+      // and hand their module factories back through __ModuleLoader__.
+      const handoffs = new Map()
+      globalThis.window = Object.assign(new EventTarget(), {
+        location: { origin: 'http://127.0.0.1' },
+        __ModuleLoader__: { load(handoff) { handoffs.set(handoff.id, handoff) } },
+      })
+      globalThis.document = new EventTarget()
+      globalThis.location = { hostname: '127.0.0.1', origin: 'http://127.0.0.1', search: '' }
+      await import(urls.registryClient)
+      await import(urls.connectionClient)
+      await import(urls.apiGatewayClient)
+      await import(urls.remotesClient)
+      await import(urls.remoteHostsClient)
+
+      const instantiate = id => {
+        const handoff = handoffs.get(id)
+        if (handoff === undefined) throw new Error('missing Client bundle handoff ' + id)
+        return handoff.factory(specifier => {
+          if (specifier === '@deepseek-ai/cordis') return cordis
+          throw new Error('unexpected Client external ' + specifier)
+        })
+      }
+
+      const client = new Context()
+      await client.plugin(BrowserAuthenticationService, new BrowserAuthentication({ mode: 'bypass' })).await()
+      const mounted = []
+      for (const id of [
+        '@deepseek-ai/dsh-typert-registry',
+        '@deepseek-ai/dsh-client-connection',
+        '@deepseek-ai/dsh-api-gateway',
+        '@deepseek-ai/dsh-api-remotes',
+      ]) {
+        const plugin = instantiate(id)
+        await client.plugin({ inject: plugin.inject, apply: plugin.apply })
+        mounted.push(id)
+      }
+
+      const namespaces = [
+        'commands', 'goals', 'dynamicCordisRunner', 'fileReferences', 'pluginInventory',
+        'capabilityManagement', 'messageFeedback', 'sessionReferenceResolver', 'scheduler',
+        'governor', 'queue', 'remoteHosts',
+      ]
+      // The proxy also carries service metadata (ctx/name/namespace/methods) and
+      // inherits the cordis Service unload path named remove -- that inherited
+      // name is precisely what a Remote method called remove collides with. So
+      // assert on the generated endpoints, and separately pin where remove
+      // actually comes from: the base class, not the Host descriptor.
+      const endpoints = ['list', 'upsert', 'verify', 'pickKeyFile', 'connect', 'disconnect', 'removeHost']
+      const proxy = client.remote.remoteHosts
+      const result = {
+        mounted,
+        missing: namespaces.filter(name => client.get('remote.' + name) === undefined),
+        callable: endpoints.filter(name => typeof proxy?.[name] === 'function'),
+        removeIsEndpoint: proxy?.methods?.has?.('direct', 'remove') === true
+          || proxy?.methods?.has?.('scoped', 'remove') === true,
+        metadata: ['ctx', 'name', 'namespace', 'methods']
+          .filter(name => proxy?.[name] !== undefined),
+      }
+      await client.fiber.dispose()
+      console.log(JSON.stringify(result))
+    `
+
+    const result = await runPlainNode(script)
+    expect(result.exitCode, `stderr:\n${result.stderr}`).toBe(0)
+    const output = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}') as {
+      mounted: string[]
+      missing: string[]
+      callable: string[]
+      removeIsEndpoint: boolean
+      metadata: string[]
+    }
+    // A namespace absent from the roster is exactly the silent failure mode:
+    // assert on the observed missing set so the diff names the offender.
+    expect(output.missing).toEqual([])
+    expect(output.mounted).toEqual([
+      '@deepseek-ai/dsh-typert-registry',
+      '@deepseek-ai/dsh-client-connection',
+      '@deepseek-ai/dsh-api-gateway',
+      '@deepseek-ai/dsh-api-remotes',
+    ])
+    // `remove` is the namespace Service's own unload path, so the Remote must
+    // expose `removeHost` instead; a collision here would have thrown above.
+    expect(output.callable).toEqual(['list', 'upsert', 'verify', 'pickKeyFile', 'connect', 'disconnect', 'removeHost'])
+    expect(output.removeIsEndpoint).toBe(false)
+    expect(output.metadata).toEqual(['ctx', 'name', 'namespace', 'methods'])
+  }, 60_000)
 })
 
 /** Execute one ESM script without tsx or a TypeScript loader. */

@@ -88,7 +88,7 @@ export interface PiAiAdapterOptions {
    * credential at all, because a named reference that misses throws `LlmError`
    * `MISSING_CREDENTIAL` rather than falling back.
    */
-  resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
+  resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | ResolvedPiAiCredential | undefined>
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
   /**
@@ -96,6 +96,12 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
+}
+
+/** Credential value and the provider-selected wire authentication form. */
+export interface ResolvedPiAiCredential {
+  value: string
+  authMode: 'api-key' | 'bearer'
 }
 
 interface WireAttemptState {
@@ -159,10 +165,13 @@ function wireOutcome(reason: Extract<StreamChunk, { type: 'finish' }>['reason'],
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
 function profileOptions(
   profile: ResolvedPiAiProviderProfile,
-  apiKey: string | undefined,
+  credential: ResolvedPiAiCredential | undefined,
 ): SimpleStreamOptions {
   return {
-    ...apiKey === undefined ? {} : { apiKey },
+    ...credential?.authMode === 'api-key' ? { apiKey: credential.value } : {},
+    ...credential?.authMode === 'bearer' && profile.apiKeyEnv !== undefined
+      ? { env: { [profile.apiKeyEnv]: credential.value } }
+      : {},
     ...profile.cacheRetention === undefined ? {} : { cacheRetention: profile.cacheRetention },
     ...profile.transport === undefined ? {} : { transport: profile.transport },
     ...profile.timeoutMs === undefined ? {} : { timeoutMs: profile.timeoutMs },
@@ -243,11 +252,15 @@ function reasoningInfo(
 }
 
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+function requestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  credential: ResolvedPiAiCredential | undefined,
+): Record<string, string> {
   const attribution = attributionHeaders()
   const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
   return {
     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+    ...credential?.authMode === 'bearer' ? { authorization: `Bearer ${credential.value}` } : {},
     ...attribution,
   }
 }
@@ -369,7 +382,10 @@ export class PiAiAdapter extends LlmAdapter {
       model,
       options.reasoningEffort ?? profile.reasoning,
     )
-    const apiKey = await this.config.resolveApiKey(options.provider, profile)
+    const resolvedCredential = await this.config.resolveApiKey(options.provider, profile)
+    const credential = typeof resolvedCredential === 'string'
+      ? { value: resolvedCredential, authMode: 'api-key' as const }
+      : resolvedCredential
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -451,14 +467,14 @@ export class PiAiAdapter extends LlmAdapter {
           },
         )
       const common = {
-        ...profileOptions(profile, apiKey),
+        ...profileOptions(profile, credential),
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         ...onPayload === undefined ? {} : { onPayload },
         ...onResponse === undefined ? {} : { onResponse },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        headers: requestHeaders(profile.headers, credential),
       }
       // The two protocols this adapter assembles itself take their options
       // through the protocol's own vocabulary; every other protocol keeps

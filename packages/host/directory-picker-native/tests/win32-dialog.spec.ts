@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { pickWin32Directory, type Win32DialogInternals, type Win32DialogWorkerLike } from '../src/win32-dialog.ts'
+import { pickWin32Dialog, pickWin32Directory, type Win32DialogInternals, type Win32DialogWorkerLike } from '../src/win32-dialog.ts'
 import type { Win32DialogWorkerMessage } from '../src/win32-dialog-worker.ts'
 
 class FakeWorker extends EventEmitter implements Win32DialogWorkerLike {
@@ -40,6 +40,32 @@ function harness(overrides: Partial<Win32DialogInternals> = {}): Harness {
 }
 
 const live = (): AbortSignal => new AbortController().signal
+
+describe('dialogWorkerEnvironment', () => {
+  it('projects title and mode, and the seed directory only when present', async () => {
+    const { dialogWorkerEnvironment } = await import('../src/win32-dialog-host.ts')
+    const base = { PATH: '/bin' }
+    expect(dialogWorkerEnvironment(base, { title: 'Pick', mode: 'directory' })).toEqual({ PATH: '/bin', DSH_DIALOG_TITLE: 'Pick', DSH_DIALOG_MODE: 'directory' })
+    expect(dialogWorkerEnvironment(base, { title: 'Pick', mode: 'file', defaultDirectory: 'C:\\ssh' }))
+      .toEqual({ PATH: '/bin', DSH_DIALOG_TITLE: 'Pick', DSH_DIALOG_MODE: 'file', DSH_DIALOG_DEFAULT_DIRECTORY: 'C:\\ssh' })
+  })
+})
+
+describe('pickWin32Dialog', () => {
+  it('forwards the request mode and start directory to the spawned worker', async () => {
+    const spawned: object[] = []
+    const worker = new FakeWorker()
+    const internals: Win32DialogInternals = {
+      spawnWorker: (data) => { spawned.push(data); return worker },
+      closeThreadWindows: async () => undefined,
+      closeRetryMs: 1,
+    }
+    const picked = pickWin32Dialog(live(), { title: 'Select SSH Private Key', mode: 'file', defaultDirectory: 'C:\\ssh' }, internals)
+    worker.post({ kind: 'done', path: 'C:\\ssh\\id_ed25519' })
+    await expect(picked).resolves.toBe('C:\\ssh\\id_ed25519')
+    expect(spawned).toEqual([{ title: 'Select SSH Private Key', mode: 'file', defaultDirectory: 'C:\\ssh' }])
+  })
+})
 
 describe('pickWin32Directory', () => {
   it('resolves the selected path and the cancellation null', async () => {

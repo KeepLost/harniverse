@@ -91,4 +91,31 @@ describe('createWorkspaceWorkbenchStore', () => {
     actions.closeTab('a', 'one')
     expect(store.getSnapshot().byWorkspace.a).toMatchObject({ tabs: [], activeTabId: null, previewOpen: false })
   })
+
+  it('keeps retained accounts and reconciles tab edits, selection and activity', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.ensureWorkspace('a')
+    actions.retainWorkspaces(['a'])
+    actions.openTab('a', { id: 'one', path: 'one', title: 'one', kind: 'text', loading: false })
+    actions.openTab('a', { id: 'one', path: 'one', title: 'reopened', kind: 'text', loading: false })
+    actions.updateTab('a', { id: 'one', path: 'one', title: 'updated', kind: 'text', loading: false })
+    actions.closeTab('a', 'one')
+    actions.setGitArea('a', 'staged')
+    actions.setSyncedActivity('a', 12)
+    expect(store.getSnapshot().byWorkspace.a).toMatchObject({
+      tabs: [], activeTabId: null, previewOpen: false, gitArea: 'staged', syncedActivity: 12,
+    })
+  })
+
+  it('reselects the previous tab after closing the active last tab', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.openTab('a', { id: 'one', path: 'one', title: 'one', kind: 'text', loading: false })
+    actions.openTab('a', { id: 'two', path: 'two', title: 'two', kind: 'text', loading: false })
+    actions.closeTab('a', 'one')
+    expect(store.getSnapshot().byWorkspace.a).toMatchObject({ activeTabId: 'two', previewOpen: true })
+    actions.openTab('a', { id: 'one', path: 'one', title: 'one', kind: 'text', loading: false })
+    actions.selectTab('a', 'two')
+    actions.closeTab('a', 'two')
+    expect(store.getSnapshot().byWorkspace.a).toMatchObject({ activeTabId: 'one', previewOpen: true })
+  })
 })

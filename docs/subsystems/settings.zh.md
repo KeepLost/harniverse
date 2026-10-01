@@ -17,7 +17,7 @@ type SettingsNamespace = Branded<'SettingsNamespace'>
 
 ## 注册
 
-注册把 schemastery schema 绑定到调用方插件 fiber 上的 namespace——dispose（资源释放）该 fiber 即移除 namespace 及其观察者。options 携带组合层、owner 的生效时机，以及一个可选的、用于校验 schema 表达不了的约束的钩子。
+注册把 schemastery schema 绑定到调用方插件 fiber 上的 namespace——dispose（资源释放）该 fiber 即移除 namespace 及其观察者。options 携带组合层、owner 的生效时机、一个可选的、用于校验 schema 表达不了的约束的钩子，以及一个面向跨进程消费方的可选快照变换。
 
 ```ts type-equiv
 /** Registration options beyond the namespace schema. */
@@ -46,6 +46,15 @@ interface SettingsRegisterOptions<T> {
    * @param value - the resolved section, schema-valid by construction.
    */
   validate?: (value: T) => void
+  /**
+   * Produce a host-only snapshot for consumers crossing a process boundary.
+   * The returned value is schema-validated and detached by
+   * {@link SettingsProvider.materialize}; it is never published through
+   * {@link SettingsProvider.describe} or settings update events.
+   * @param value - the current resolved settings value.
+   * @returns the snapshot to validate and detach.
+   */
+  materialize?: (value: T) => T | Promise<T>
 }
 ```
 
@@ -239,6 +248,16 @@ describe(options?: SettingsDescribeOptions): SettingsDescriptor[]
 get(ns: SettingsNamespace): unknown
 
 /**
+ * Build one owner-defined host snapshot without changing the live settings
+ * value or exposing the materialized result through settings descriptors.
+ * The owner hook runs against a detached value; its result is validated by
+ * the registered schema and returned as a detached snapshot.
+ * @param ns - the namespace to materialize.
+ * @returns the detached host snapshot, or `undefined` while unregistered.
+ */
+async materialize(ns: SettingsNamespace): Promise<unknown>
+
+/**
  * Merge a patch into one registered namespace's user layer, validate the
  * resolved candidate, persist through the provider, then commit and emit.
  * A validation failure rejects before anything is persisted. Writes to one
@@ -278,7 +297,7 @@ async replace(ns: SettingsNamespace, section: object, expectedRevision?: number)
 async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
 ```
 
-Source: [`packages/settings/settings/src/index.ts:350`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:361`](../../packages/settings/settings/src/index.ts)
 
 <a id="settings-events"></a>
 

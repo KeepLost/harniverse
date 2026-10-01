@@ -1,5 +1,5 @@
 /**
- * Main-thread driver for the Win32 folder dialog: spawns the dialog child
+ * Main-thread driver for the Win32 pick dialog: spawns the dialog child
  * process (which blocks inside the modal `Show`), maps its message protocol
  * onto a promise, and services aborts by posting `WM_CLOSE` to the dialog
  * thread's windows until the child reports back. The real process/window
@@ -63,8 +63,23 @@ function assertNever(value: never): never {
  * @param internals - Worker/window hooks for deterministic tests.
  * @returns the selected path, or null when the user cancels.
  */
-export async function pickWin32Directory(
+export function pickWin32Directory(
   signal: AbortSignal,
+  internals: Win32DialogInternals = {},
+): Promise<string | null> {
+  return pickWin32Dialog(signal, { title: DIALOG_TITLE, mode: 'directory' }, internals)
+}
+
+/**
+ * Open the modern Win32 picker (folder or single file) off the event loop.
+ * @param signal - caller lifetime; abort closes the dialog and rejects.
+ * @param request - dialog title, mode, and optional starting directory.
+ * @param internals - Worker/window hooks for deterministic tests.
+ * @returns the selected path, or null when the user cancels.
+ */
+export async function pickWin32Dialog(
+  signal: AbortSignal,
+  request: { title: string; mode: 'directory' | 'file'; defaultDirectory?: string },
   internals: Win32DialogInternals = {},
 ): Promise<string | null> {
   if (signal.aborted) throw new Error('native directory picker aborted')
@@ -72,7 +87,8 @@ export async function pickWin32Directory(
   const closeWindows = internals.closeThreadWindows ?? hostCloseThreadWindows
   const closeRetryMs = internals.closeRetryMs ?? CLOSE_RETRY_MS
 
-  const worker: Win32DialogWorkerLike = spawnWorker({ title: DIALOG_TITLE })
+  const worker: Win32DialogWorkerLike = spawnWorker({ title: request.title, mode: request.mode,
+    ...request.defaultDirectory === undefined ? {} : { defaultDirectory: request.defaultDirectory } })
   let dialogThreadId: number | undefined
   let closeTimer: NodeJS.Timeout | undefined
   let settled = false

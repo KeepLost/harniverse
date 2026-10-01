@@ -54,6 +54,8 @@ export interface DirectoryFlowOwnerProps {
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /** Active machine label and navigation, above the workspace list. */
+    'sidebar.workspaces.machine': { kind: 'single'; scope: 'root'; owner: { wide: boolean } }
     /** Directory-flow hole under the conversation empty-state picker (declared by the WorkspacePicker entry). */
     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
@@ -150,7 +152,7 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
 /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
 export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
-  & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>
+  & PropsRenderSlots<'sidebar.workspaces.directoryFlow' | 'sidebar.workspaces.machine'>
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & Omit<WorkspaceBrowserInjected, 'hooks'>
   & DirectoryPickingHooks

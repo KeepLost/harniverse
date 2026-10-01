@@ -12,7 +12,7 @@
  * object's first pointer.
  */
 
-import type { Win32DialogBindings, Win32FolderDialog } from './win32-dialog-logic.ts'
+import type { Win32DialogBindings, Win32PickDialog } from './win32-dialog-logic.ts'
 
 interface KoffiFunction { (...args: unknown[]): unknown }
 interface KoffiLibrary { func(convention: string, name: string, result: string, args: string[]): KoffiFunction }
@@ -60,6 +60,7 @@ const WM_CLOSE = 0x10
 const SLOT_RELEASE = 2
 const SLOT_SHOW = 3
 const SLOT_SET_OPTIONS = 9
+const SLOT_SET_DEFAULT_FOLDER = 11
 const SLOT_SET_TITLE = 17
 const SLOT_GET_RESULT = 20
 /** IShellItem vtable slot for `GetDisplayName`. */
@@ -85,13 +86,14 @@ const IID_IFILE_OPEN_DIALOG = guidBytes('d57c7288-d4ad-4768-be02-9d969532d960')
 
 /**
  * Load koffi and expose the dialog bindings for this thread.
- * @returns the bindings {@link runFolderDialog} sequences against.
+ * @returns the bindings {@link runPickDialog} sequences against.
  */
 export async function loadWin32DialogBindings(): Promise<Win32DialogBindings> {
   const koffi = (await import('koffi')).default as unknown as Koffi
   const ole32 = koffi.load('ole32.dll')
   const user32 = koffi.load('user32.dll')
   const kernel32 = koffi.load('kernel32.dll')
+  const shell32 = koffi.load('shell32.dll')
 
   // Vtable slots and out-pointers are pointer-width offsets: 8 on x64/arm64,
   // 4 on ia32 — koffi reports the running process's width.
@@ -101,10 +103,12 @@ export async function loadWin32DialogBindings(): Promise<Win32DialogBindings> {
   const coCreateInstance = ole32.func('__stdcall', 'CoCreateInstance', 'int32', ['void *', 'void *', 'uint32', 'void *', 'void *'])
   const coTaskMemFree = ole32.func('__stdcall', 'CoTaskMemFree', 'void', ['void *'])
   const getCurrentThreadId = kernel32.func('__stdcall', 'GetCurrentThreadId', 'uint32', [])
+  const createItemFromParsingName = shell32.func('__stdcall', 'SHCreateItemFromParsingName', 'int32', ['str16', 'void *', 'void *', 'void **'])
 
   const protoShow = koffi.proto('int32 __stdcall DshDialogShow(void *self, void *owner)')
   const protoSetOptions = koffi.proto('int32 __stdcall DshDialogSetOptions(void *self, uint32 options)')
   const protoSetTitle = koffi.proto('int32 __stdcall DshDialogSetTitle(void *self, str16 title)')
+  const protoSetDefaultFolder = koffi.proto('int32 __stdcall DshDialogSetDefaultFolder(void *self, void *item)')
   const protoGetResult = koffi.proto('int32 __stdcall DshDialogGetResult(void *self, _Out_ void **item)')
   const protoGetDisplayName = koffi.proto('int32 __stdcall DshItemGetDisplayName(void *self, int32 form, _Out_ void **name)')
   const protoRelease = koffi.proto('uint32 __stdcall DshComRelease(void *self)')
@@ -140,7 +144,7 @@ export async function loadWin32DialogBindings(): Promise<Win32DialogBindings> {
       coUninitialize()
     },
     currentThreadId: () => getCurrentThreadId() as number,
-    createFolderDialog: (): Win32FolderDialog => {
+    createPickDialog: (): Win32PickDialog => {
       const out = Buffer.alloc(pointerSize)
       const created = coCreateInstance(CLSID_FILE_OPEN_DIALOG, null, CLSCTX_INPROC_SERVER, IID_IFILE_OPEN_DIALOG, out) as number
       if (created < 0) throw new Error(`CoCreateInstance(FileOpenDialog) failed: HRESULT 0x${(created >>> 0).toString(16)}`)
@@ -148,6 +152,19 @@ export async function loadWin32DialogBindings(): Promise<Win32DialogBindings> {
       return {
         setOptions: options => method(dialog, SLOT_SET_OPTIONS, protoSetOptions)(options),
         setTitle: title => method(dialog, SLOT_SET_TITLE, protoSetTitle)(title),
+        setDefaultFolder: (path) => {
+          // IID_IShellItem: the shell item SetDefaultFolder consumes.
+          const iidItem = guidBytes('43826d1e-e718-42ee-bc55-a1e261c37bfe')
+          const itemOut = Buffer.alloc(pointerSize)
+          const parsed = createItemFromParsingName(path, null, iidItem, itemOut) as number
+          if (parsed < 0) return parsed
+          const item = koffi.decode(itemOut, 'void *')
+          try {
+            return method(dialog, SLOT_SET_DEFAULT_FOLDER, protoSetDefaultFolder)(item)
+          } finally {
+            method(item, SLOT_RELEASE, protoRelease)()
+          }
+        },
         show: () => method(dialog, SLOT_SHOW, protoShow)(null),
         resultPath: () => {
           const itemOut: unknown[] = [null]

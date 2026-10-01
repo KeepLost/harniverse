@@ -28,6 +28,7 @@ export interface OwnedDesktopHost {
 export interface OwnedHostCallbacks {
   onFailure(error: Error): void
   pickDirectory(): Promise<DirectorySelection>
+  pickFile(request: { title?: string; defaultDirectory?: string }): Promise<DirectorySelection>
 }
 
 /** Distribution paths and the owned-process factory are main-process configuration. */
@@ -214,6 +215,7 @@ export class DesktopShell {
         connection.host = this.options.createOwnedHost({
           onFailure: () => { this.hostFailed(connection) },
           pickDirectory: () => this.showDirectoryPicker(connection),
+          pickFile: request => this.showFilePicker(connection, request),
         })
         const ready = await connection.host.start()
         const origin = new URL(validateHostUrl(ready.url)).origin
@@ -297,6 +299,27 @@ export class DesktopShell {
     this.picking = true
     try {
       const selection = await dialog.showOpenDialog(window, { title: 'Choose a local workspace', properties: ['openDirectory', 'createDirectory'] })
+      if (!this.connectionUsable(connection) || selection.canceled || selection.filePaths[0] === undefined) return { kind: 'cancelled' }
+      return { kind: 'selected', path: selection.filePaths[0] }
+    } finally { this.picking = false }
+  }
+
+  private async showFilePicker(connection: Connection, request: { title?: string; defaultDirectory?: string }):
+  Promise<DirectorySelection> {
+    if (connection !== this.connection || connection.profile.kind !== 'local' || connection.host === undefined
+      || connection.failed || connection.stopping || this.quitting || this.updating || this.picking
+      || this.state.phase !== 'ready') {
+      throw new Error('Native file selection requires the active local Host.')
+    }
+    const window = this.window
+    if (window === undefined || window.isDestroyed()) throw new Error('The desktop window is unavailable.')
+    this.picking = true
+    try {
+      const selection = await dialog.showOpenDialog(window, {
+        title: request.title ?? 'Choose a file',
+        properties: ['openFile'],
+        ...(request.defaultDirectory === undefined ? {} : { defaultPath: request.defaultDirectory }),
+      })
       if (!this.connectionUsable(connection) || selection.canceled || selection.filePaths[0] === undefined) return { kind: 'cancelled' }
       return { kind: 'selected', path: selection.filePaths[0] }
     } finally { this.picking = false }

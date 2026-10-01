@@ -162,6 +162,13 @@ flowchart LR
   pkg_fs_ssh["fs-ssh"]
   pkg_subprocess_ssh["subprocess-ssh"]
   pkg_sandbox_ssh["sandbox-ssh"]
+  pkg_remote_hosts_ssh["remote-hosts-ssh"]
+  svc_remoteHostSsh["ctx.remoteHostSsh<br/>Pinned remote-host SSH transport"]
+  pkg_remote_hosts["remote-hosts"]
+  svc_remoteHosts["ctx.remoteHosts<br/>Local remote-host coordinator"]
+  pkg_client_ui_remote_hosts["client-ui-remote-hosts"]
+  pkg_remote_runtime["remote-runtime"]
+  svc_remoteRuntime["ctx.remoteRuntime<br/>Locked remote runtime control"]
   pkg_subprocess["subprocess"]
   svc_subprocess["ctx.subprocess<br/>Subprocess seam"]
   pkg_subprocess_local["subprocess-local"]
@@ -325,6 +332,9 @@ flowchart LR
   pkg_ptc_runtime_python --> svc_ptcRuntime
   pkg_pwsh_local --> svc_shell
   pkg_queue --> svc_queue
+  pkg_remote_hosts --> svc_remoteHosts
+  pkg_remote_hosts_ssh --> svc_remoteHostSsh
+  pkg_remote_runtime --> svc_remoteRuntime
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
@@ -442,6 +452,10 @@ flowchart LR
   svc_pluginDiagnostics --> pkg_host_plugin_inventory
   svc_ptcRuntime --> pkg_tools
   svc_queue --> pkg_client_ui_queue
+  svc_remoteHostSsh --> pkg_remote_hosts
+  svc_remoteHosts --> pkg_client_connection
+  svc_remoteHosts --> pkg_client_ui_remote_hosts
+  svc_remoteRuntime --> pkg_remote_hosts
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
   svc_sandboxPolicy --> pkg_bash_sandbox
@@ -590,6 +604,9 @@ flowchart LR
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
 | `ctx.ssh` | `seam` | [`ssh`](../packages/ssh/ssh) | [`ssh`](../packages/ssh/ssh) | [`fs-ssh`](../packages/ssh/fs-ssh), [`subprocess-ssh`](../packages/ssh/subprocess-ssh), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | - | The connection owns the OpenSSH process, helper digest verification, the bounded control-channel transport, and helper lease cleanup; the remote filesystem, subprocess, and sandbox providers ride that transport and implement their seams on the SSH host under a captured machine-owned inventory. |
+| `ctx.remoteHostSsh` | `seam` | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts`](../packages/ssh/remote-hosts) | - | The replaceable transport verifies the independently approved host pin before authentication and owns SSH channels, uploads, forwards, reverse mappings, and teardown for one remote Harniverse connection. |
+| `ctx.remoteHosts` | `seam` | [`remote-hosts`](../packages/ssh/remote-hosts) | [`remote-hosts`](../packages/ssh/remote-hosts) | [`client-ui-remote-hosts`](../packages/client/ui-remote-hosts), [`client-connection`](../packages/client/connection) | - | The local coordinator owns secret-free host records, credential references, artifact verification, remote deployment, settings synchronization, browser proxy boundaries, and connection state; the UI and trusted Host proxy consume its capabilities. |
+| `ctx.remoteRuntime` | `seam` | [`remote-runtime`](../packages/ssh/remote-runtime) | [`remote-runtime`](../packages/ssh/remote-runtime) | [`remote-hosts`](../packages/ssh/remote-hosts) | - | The remote process owns loopback endpoint discovery, encrypted credential unlock, complete credential replacement, and model/search settings synchronization behind authenticated capability-gated Remote methods. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local), [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash), [`lsp-stdio`](../packages/lsp/lsp-stdio), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code), [`governor`](../packages/monitor/governor) | - | The bash executors, the PTY shell backend, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn through ctx.subprocess; the service owns process coordinates, tree/session lifetime, stdio dispositions, terminal mechanics, and kill escalation. Correlated spawns additionally feed the governor through the subprocess/spawned metering events. |
 | `ctx.queue` | `seam` | [`queue`](../packages/queue/queue) | [`queue`](../packages/queue/queue) | [`client-ui-queue`](../packages/client/ui-queue) | - | The queue owns Kafka-style durable topics with forced archival and wake-on-deliver fan-out; the four model tools (queue-topic/history/subscription/publish) mount through the separately loadable queue/tool Consumer, and the panel tab polls the queue Remote. |
 | `ctx.terminalController` | `seam` | [`api-terminal-controller`](../packages/api/terminal-controller) | [`api-terminal-controller`](../packages/api/terminal-controller) | - | - | The terminal controller owns per-Session interactive USER shells over the subprocess PTY seam (full harness environment, login startup, never sandbox-confined, never model-visible) and serves snapshot-then-output screen frames to browser panels through the gateway terminal/* Remote endpoints and the apiproxy events.terminal / events.hold SSE streams. |

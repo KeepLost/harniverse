@@ -21,6 +21,8 @@ import type {} from '@deepseek-ai/dsh-hmr-coordination'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
+export { acquireHomeOwnership } from './home-ownership.ts'
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Harness-home path resolver available to Loader `!!js` config expressions. */

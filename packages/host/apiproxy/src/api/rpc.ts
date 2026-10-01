@@ -137,6 +137,13 @@ export interface RpcErrorDetailsMap {
   'browser-limit-reached': { limit: number }
   /** The operator's navigation policy refused the requested destination. */
   'browser-navigation-refused': {}
+  /**
+   * A remote-host operation failed. `reason` is the remote-hosts package's own
+   * closed code (`VERIFY_FAILED`, `KEY_FILE_READ_FAILED`, `INVALID_INPUT`, …),
+   * carried so the management view localizes the actionable ones instead of
+   * showing a wire message.
+   */
+  'remote-host-failed': { reason: string }
   'internal': {}
   /** The same idempotency key was reused with a different operation payload. */
   'idempotency-key-reused': { key: string }
@@ -211,6 +218,7 @@ export const RPC_ERROR_CODES = [
   'browser-control-unavailable',
   'browser-limit-reached',
   'browser-navigation-refused',
+  'remote-host-failed',
   'internal',
   'idempotency-key-reused',
   'operation-not-found',

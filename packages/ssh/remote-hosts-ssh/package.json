@@ -1,0 +1,33 @@
+{
+  "name": "@deepseek-ai/dsh-remote-hosts-ssh",
+  "description": "Pinned SSH transport for independently managed remote Harniverse hosts",
+  "version": "1.0.0-rc.1",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/deepseek-ai/deepseek-harness.git", "directory": "packages/ssh/remote-hosts-ssh" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./invariant": { "types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js" },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "lib/invariant.js", "lib/types/**/*.d.ts"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:^",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@types/ssh2": "^1.15.6"
+  }
+}

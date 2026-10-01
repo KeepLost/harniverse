@@ -30,7 +30,7 @@ let child: Child
 let failure: ReturnType<typeof vi.fn<(error: Error) => void>>
 const options = { startupTimeoutMs: 100, requestTimeoutMs: 100, shutdownTimeoutMs: 100, terminateTimeoutMs: 100, killTimeoutMs: 100 }
 function host() { return new OwnedDesktopHostProcess('/app/host.js', '/app/home', '/app/cli/package.json', {
-  onFailure: failure, pickDirectory: async () => ({ kind: 'cancelled' }),
+  onFailure: failure, pickDirectory: async () => ({ kind: 'cancelled' }), pickFile: async () => ({ kind: 'cancelled' }),
 }, options) }
 beforeEach(() => {
   vi.useFakeTimers()
@@ -94,7 +94,7 @@ describe('owned Host process protocol', () => {
   it('does not answer an obsolete directory request after cancellation', async () => {
     let select!: (value: { kind: 'selected'; path: string }) => void
     const process = new OwnedDesktopHostProcess('/app/host.js', '/app/home', '/app/cli/package.json', {
-      onFailure: failure, pickDirectory: () => new Promise((resolve) => { select = resolve }),
+      onFailure: failure, pickDirectory: () => new Promise((resolve) => { select = resolve }), pickFile: async () => ({ kind: 'cancelled' }),
     }, options)
     const start = process.start(); child.emit('message', ready); await start
     child.emit('message', { type: 'directory-pick', requestId: 0 })
@@ -102,6 +102,32 @@ describe('owned Host process protocol', () => {
     select({ kind: 'selected', path: '/private' }); await Promise.resolve()
     expect(child.send.mock.calls.some(([message]) => (message as { type: string }).type === 'directory-result')).toBe(false)
     await stopped(process)
+  })
+  it('answers a file pick with the chosen path and passes the requested selection through', async () => {
+    let choose!: (value: { title?: string; defaultDirectory?: string }) => void
+    const seen: Array<{ title?: string; defaultDirectory?: string }> = []
+    const process = new OwnedDesktopHostProcess('/app/host.js', '/app/home', '/app/cli/package.json', {
+      onFailure: failure, pickDirectory: async () => ({ kind: 'cancelled' }),
+      pickFile: (request) => { seen.push(request); return new Promise((resolve) => { choose = () => { resolve({ kind: 'selected', path: '/home/me/.ssh/id_ed25519' }) } }) },
+    }, options)
+    const start = process.start(); child.emit('message', ready); await start
+    child.emit('message', { type: 'file-pick', requestId: 0, title: 'Select SSH Private Key', defaultDirectory: '/home/me/.ssh' })
+    expect(seen).toEqual([{ title: 'Select SSH Private Key', defaultDirectory: '/home/me/.ssh' }])
+    choose()
+    await Promise.resolve(); await Promise.resolve()
+    const sent = child.send.mock.calls.find(([message]) => (message as { type: string }).type === 'file-result')
+    expect(sent?.[0]).toEqual({ type: 'file-result', requestId: 0, path: '/home/me/.ssh/id_ed25519' })
+    await stopped(process)
+  })
+  it('rejects a malformed file pick instead of answering it', async () => {
+    const process = await started()
+    child.emit('message', { type: 'file-pick', requestId: 0, title: 42, defaultDirectory: 7 })
+    child.emit('message', { type: 'file-pick', requestId: 1, defaultDirectory: 'relative/seed' })
+    await Promise.resolve()
+    expect(child.send.mock.calls.some(([message]) => (message as { type: string }).type === 'file-result')).toBe(false)
+    expect(failure).toHaveBeenCalled()
+    child.close(1)
+    await expect(process.stop()).rejects.toThrow()
   })
   it('returns the exact update activity and ignores a late response for an expired request', async () => {
     const process = await started(); const expired = process.activity(); const rejected = expect(expired).rejects.toThrow(/timed out/i)

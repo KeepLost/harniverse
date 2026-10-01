@@ -6,7 +6,8 @@
 - button "New session":
   - img
   - text: New Session
-- text: Workspaces
+- img
+- text: Current machine This machine Workspaces
 - button "Search sessions":
   - img
 - textbox "Search sessions..."
@@ -24,6 +25,9 @@
 - button "Open scheduled tasks":
   - img
   - text: Scheduled tasks
+- button "Open remote hosts":
+  - img
+  - text: Remote hosts
 - button "Open the panel":
   - img
   - text: Panel

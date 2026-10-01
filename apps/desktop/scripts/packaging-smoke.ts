@@ -88,11 +88,15 @@ async function smoke(): Promise<void> {
       }
     }
     let escalation: ReturnType<typeof setTimeout> | undefined
+    // A cold Windows runner (first launch of the just-signed binary, AV
+    // scanning, cold page cache) can exceed the 2-minute budget Linux enjoys
+    // while still proving a perfectly healthy startup; the receipt, not the
+    // clock, is the signal under test.
     const timer = setTimeout(() => {
       timedOut = true
       terminate('SIGTERM')
       escalation = setTimeout(() => terminate('SIGKILL'), 5000)
-    }, 120_000)
+    }, process.platform === 'win32' ? 300_000 : 120_000)
     try {
       const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((accept, reject) => {
         child.once('error', reject)

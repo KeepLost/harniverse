@@ -85,7 +85,7 @@ function makeHost() {
   const live = new Set<StoredEntry>()
   const abdicated = new Set<StoredEntry>()
   const storeCache = new Map<StoredEntry, Map<string, StoreInstanceLike>>()
-  const list = observable<{ ids: string[] }>({ ids: [] })
+  const list = observable<{ ids: string[]; targetGeneration?: number }>({ ids: [] })
   const workspaces = observable<{ ids: string[] }>({ ids: [] })
   const absentInfo: SessionMaybeProvideInfo = { sessionId: undefined, hooks: {}, props: {} }
   const provide = observable<SessionMaybeProvideInfo>(absentInfo)
@@ -217,6 +217,24 @@ function makeHost() {
 }
 
 type Fake = ReturnType<typeof makeHost>
+
+describe('machine incarnations', () => {
+  it('resets blank session-maybe input on machine change and keeps it through first-session adoption', () => {
+    const h = makeHost()
+    const spec = { kind: 'single', scope: 'session-maybe' } as const
+    h.declare('machine.input', spec)
+    h.add('machine.input', { component: () => <input aria-label="machine draft" defaultValue="" /> })
+    const { view } = mountRoot(h, { 'machine.input': spec }, renderSlot => renderSlot('machine.input', {}))
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'local draft' } })
+    act(() => { h.list.set({ ids: [], targetGeneration: 1 }) })
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('')
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'remote draft' } })
+    act(() => { h.addSession('same'); h.current.set('same') })
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('remote draft')
+    act(() => { h.addSession('same') })
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('')
+  })
+})
 
 /** Mount a root entry whose component renders `body` with its kit renderSlot. */
 function mountRoot(h: Fake, children: Record<string, DeclaredSpec>, body: (renderSlot: RenderSlotFn) => ReactNode) {

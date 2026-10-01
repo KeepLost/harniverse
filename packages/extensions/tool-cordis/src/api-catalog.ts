@@ -1663,6 +1663,141 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'remoteHosts',
+    summary: 'Definition consumed by management UIs and trusted same-process proxy plugins.',
+    description: 'Definition consumed by management UIs and trusted same-process proxy plugins.',
+    methods: [
+      {
+        signature: 'list(): Promise<RemoteHostView[]>',
+        description: 'List configured hosts with their current connection state.',
+        parameters: [],
+        returns: 'the current view of every configured remote host.',
+      },
+      {
+        signature: 'upsert(input: UpsertHostInput): Promise<RemoteHostView>',
+        description: 'Create or replace one host configuration and optionally persist credentials.',
+        parameters: [{ name: 'input', description: 'complete host configuration and optional credential references.' }],
+        returns: 'the saved host with its current connection state.',
+      },
+      {
+        signature: 'remove(id: RemoteHostId): Promise<void>',
+        description: 'Remove one host configuration and its local credential references.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host to remove.' }],
+      },
+      {
+        signature: 'verify(input: VerifyHostInput): Promise<ConnectivityResult>',
+        description: 'Test one SSH target end to end and report what the tested connection proved.',
+        parameters: [{ name: 'input', description: 'target and explicit credentials for the test.' }],
+        returns: 'the observed fingerprint and detected platform when authentication succeeds.',
+      },
+      {
+        signature: 'pickKeyFile(): Promise<PickKeyFileResult>',
+        description: 'Open the host\'s native key-file chooser, seeded at the operator\'s `~/.ssh`. Serves the `native` interaction only; clients route through `keyFilePicker` first.',
+        parameters: [],
+        returns: 'the picked file\'s host-local path, or nothing when cancelled.',
+      },
+      {
+        signature: 'keyFilePicker(): Promise<KeyFilePicker>',
+        description: 'Report which key-file picking interaction this composition serves.',
+        parameters: [],
+        returns: '`native` when the host can open its own chooser, else `browse` for the in-app listing.',
+      },
+      {
+        signature: 'listKeyFiles(input: ListKeyFilesInput): Promise<KeyFileListing>',
+        description: 'List one host directory level, directories and files alike, for the `browse` key-file interaction. Serves the `browse` interaction only.',
+        parameters: [{ name: 'input', description: 'absolute directory; absent starts at the operator\'s `~/.ssh`.' }],
+        returns: 'the bounded listing of that level.',
+      },
+      {
+        signature: 'connect(input: ConnectHostInput): Promise<RemoteHostView>',
+        description: 'Connect to a configured host and synchronize its remote runtime.',
+        parameters: [{ name: 'input', description: 'host identity and optional one-shot credentials.' }],
+        returns: 'the connected host view.',
+      },
+      {
+        signature: 'disconnect(id: RemoteHostId): Promise<void>',
+        description: 'Disconnect a host and close its owned transport resources.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host to disconnect.' }],
+      },
+      {
+        signature: 'request(id: RemoteHostId, path: string, init?: RequestInit): Promise<Response>',
+        description: 'Proxy one permitted browser request to a connected remote host.',
+        parameters: [{ name: 'id', description: 'local registry identity of the destination host.' }, { name: 'path', description: 'remote API path, including its query string.' }, { name: 'init', description: 'optional request method, headers, and body.' }],
+        returns: 'the remote HTTP response.',
+      },
+      {
+        signature: 'openWebSocket(id: RemoteHostId, path: string, signal?: AbortSignal): Promise<unknown>',
+        description: 'Open one permitted event stream to a connected remote host.',
+        parameters: [{ name: 'id', description: 'local registry identity of the destination host.' }, { name: 'path', description: 'remote WebSocket path, including its query string.' }, { name: 'signal', description: 'optional cancellation for the opening handshake.' }],
+        returns: 'the provider-owned WebSocket transport handle.',
+      },
+      {
+        signature: 'authentication(id: RemoteHostId): unknown',
+        description: 'Return local credential references without exposing credential values.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host.' }],
+        returns: 'secret-free authentication metadata.',
+      },
+      {
+        signature: 'reverseMappings(id: RemoteHostId): readonly ActiveReverseMapping[]',
+        description: 'Return active reverse mappings owned by one connected host.',
+        parameters: [{ name: 'id', description: 'local registry identity of the host.' }],
+        returns: 'read-only active mapping descriptions.',
+      },
+    ],
+  },
+  {
+    key: 'remoteHostSsh',
+    summary: 'Consumer contract implemented by the Cordis service or a replacement provider.',
+    description: 'Consumer contract implemented by the Cordis service or a replacement provider.',
+    methods: [
+      {
+        signature: 'open(config: RemoteHostSshConfig, authentication: RemoteHostSshAuthentication, signal?: AbortSignal): Promise<RemoteHostSshConnection>',
+        description: 'Verify the pin before authentication and return an owned connection.',
+        parameters: [{ name: 'config', description: 'pinned SSH target to connect to.' }, { name: 'authentication', description: 'explicit credentials for this connection.' }, { name: 'signal', description: 'optional cancellation for connection setup.' }],
+        returns: 'an owned SSH connection.',
+      },
+      {
+        signature: 'verify(config: RemoteHostSshTarget, authentication: RemoteHostSshAuthentication, command: string, signal?: AbortSignal): Promise<RemoteHostSshVerification>',
+        description: 'Authenticate against an unpinned target and run one probe under the key it accepted.',
+        parameters: [{ name: 'config', description: 'SSH target to test; its key is observed rather than compared.' }, { name: 'authentication', description: 'explicit credentials for this attempt.' }, { name: 'command', description: 'probe command run once after authentication.' }, { name: 'signal', description: 'optional cancellation for the attempt.' }],
+        returns: 'the accepted fingerprint and the probe\'s stdout.',
+      },
+    ],
+  },
+  {
+    key: 'remoteRuntime',
+    summary: 'Remote control provider.',
+    description: 'Remote control provider. Browser and SSH connections never own its decrypted lifetime.',
+    methods: [
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.observe\' }) status(): RemoteRuntimeStatus',
+        description: 'Report lock state and process identity without credential names or values.',
+        parameters: [],
+        returns: 'the current runtime status.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async unlock(key: string): Promise<void>',
+        description: 'Adopt the coordinator\'s session key: a repeat is a no-op, a different key takes over the stored mirror.',
+        parameters: [{ name: 'key', description: 'canonical base64url encoding of 32 random bytes from the local authority.' }],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async replaceCredentials(snapshot: Record<string, string>): Promise<void>',
+        description: 'Replace the complete encrypted credential map.',
+        parameters: [{ name: 'snapshot', description: 'complete credential map; omitted references are deleted.' }],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async syncSettings(snapshot: Record<string, JsonValue>): Promise<void>',
+        description: 'Replace the complete model and search settings snapshot.',
+        parameters: [{ name: 'snapshot', description: 'complete model/search user sections; omitted registered sections reset.' }],
+      },
+      {
+        signature: 'assertUnlocked(): void',
+        description: 'Synchronous admission check for same-process consumers; never waits for a connection.',
+        parameters: [],
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
@@ -2330,6 +2465,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one registered namespace\'s resolved value.',
         parameters: [{ name: 'ns', description: 'the namespace to read.' }],
         returns: 'the resolved value, or `undefined` while unregistered.',
+      },
+      {
+        signature: 'async materialize(ns: SettingsNamespace): Promise<unknown>',
+        description: 'Build one owner-defined host snapshot without changing the live settings value or exposing the materialized result through settings descriptors. The owner hook runs against a detached value; its result is validated by the registered schema and returned as a detached snapshot.',
+        parameters: [{ name: 'ns', description: 'the namespace to materialize.' }],
+        returns: 'the detached host snapshot, or `undefined` while unregistered.',
       },
       {
         signature: 'async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>',
@@ -3611,6 +3752,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; their messages already obey the immutable creation contract.' }],
   },
   {
+    name: 'remote-runtime/ownerless',
+    mode: 'emit',
+    signature: '\'remote-runtime/ownerless\'(): void',
+    summary: 'Emitted once per starvation episode when no owner RPC arrived within the configured exit window; a later owner contact re-arms the next one.',
+    description: 'Emitted once per starvation episode when no owner RPC arrived within the configured exit window; a later owner contact re-arms the next one.',
+    parameters: [],
+  },
+  {
     name: 'session-telemetry/record',
     mode: 'waterfall',
     signature: '\'session-telemetry/record\'(record: SessionTelemetryRecord, next: () => SessionTelemetryRecord): SessionTelemetryRecord',
@@ -3887,6 +4036,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'ActiveReverseMapping',
+    declaration: 'export interface ActiveReverseMapping extends ReverseMapping {\n    remotePort: number;\n}',
+  },
+  {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
@@ -4117,6 +4270,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthenticationStatus',
     declaration: 'export interface AuthenticationStatus {\n    mode: AuthenticationMode;\n    sealed: boolean;\n}',
+  },
+  {
+    name: 'AuthSecrets',
+    declaration: 'export type AuthSecrets = {\n    kind: \'password\';\n    password: string;\n} | {\n    kind: \'key\';\n    privateKey: string;\n    privateKeyPath?: undefined;\n    passphrase?: string;\n} | {\n    kind: \'key\';\n    privateKey?: undefined;\n    privateKeyPath: string;\n    passphrase?: string;\n};',
   },
   {
     name: 'BackendRegistry',
@@ -4439,6 +4596,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
   },
   {
+    name: 'ConnectHostInput',
+    declaration: 'export interface ConnectHostInput {\n    id: RemoteHostId;\n    secrets?: AuthSecrets;\n    storeCredentials?: boolean;\n}',
+  },
+  {
+    name: 'ConnectivityResult',
+    declaration: 'export interface ConnectivityResult {\n    fingerprint: string;\n    platform: RemotePlatform;\n    architecture: RemoteArchitecture;\n}',
+  },
+  {
     name: 'ContentBlockMap',
     declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
@@ -4563,8 +4728,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities];',
   },
   {
+    name: 'DirectoryPickerFileRequest',
+    declaration: 'export interface DirectoryPickerFileRequest {\n    title?: string;\n    defaultDirectory?: string;\n}',
+  },
+  {
     name: 'DirectoryPickerNativeCapability',
-    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
+    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n    pickFile(signal: AbortSignal, request?: DirectoryPickerFileRequest): Promise<string | null>;\n}',
   },
   {
     name: 'DirectoryRegistrationHandle',
@@ -4799,6 +4968,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type Hello = z.infer<typeof helloSchema>;',
   },
   {
+    name: 'HostAuthentication',
+    declaration: 'export type HostAuthentication = {\n    kind: \'password\';\n    passwordRef?: string;\n} | {\n    kind: \'key\';\n    privateKeyRef?: string;\n    keyPath?: string;\n    passphraseRef?: string;\n} | {\n    kind: \'agent\';\n    socket: string;\n};',
+  },
+  {
     name: 'HostBrowserEnvironment',
     declaration: 'export interface HostBrowserEnvironment {\n    readonly available: boolean;\n    readonly unavailableReason?: string;\n    readonly maxPages: number;\n    readonly maxWidth: number;\n    readonly maxHeight: number;\n    readonly allowedHosts: readonly string[];\n    readonly allowPrivateAddresses: boolean;\n}',
   },
@@ -4809,6 +4982,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'HostBrowserPageInfo',
     declaration: 'export interface HostBrowserPageInfo {\n    readonly id: HostBrowserPageId;\n    readonly url: string;\n    readonly title: string;\n    readonly width: number;\n    readonly height: number;\n    readonly loading: boolean;\n    readonly state: \'ready\' | \'failed\' | \'closed\';\n    readonly error?: string;\n    readonly controllerId?: BrowserAttachmentId;\n    readonly canGoBack: boolean;\n    readonly canGoForward: boolean;\n}',
+  },
+  {
+    name: 'HostConfig',
+    declaration: 'export interface HostConfig {\n    name: string;\n    host: string;\n    port: number;\n    username: string;\n    fingerprint: string;\n    platform: RemotePlatform;\n    architecture: RemoteArchitecture;\n    dshHome?: string;\n    authentication: HostAuthentication;\n    reverseMappings: ReverseMapping[];\n}',
+  },
+  {
+    name: 'HostRecord',
+    declaration: 'export interface HostRecord extends HostConfig {\n    id: RemoteHostId;\n}',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -4939,6 +5120,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KeyFileEntry',
+    declaration: 'export interface KeyFileEntry {\n    name: string;\n    path: string;\n    kind: \'directory\' | \'file\';\n}',
+  },
+  {
+    name: 'KeyFileListing',
+    declaration: 'export interface KeyFileListing {\n    path: string;\n    parent?: string;\n    entries: KeyFileEntry[];\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'KeyFilePicker',
+    declaration: 'export type KeyFilePicker = {\n    kind: \'native\';\n} | {\n    kind: \'browse\';\n};',
+  },
+  {
     name: 'KnobState',
     declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
   },
@@ -4957,6 +5150,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KvUnitDescriptor',
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly migrateFrom?: readonly number[];\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n}',
+  },
+  {
+    name: 'ListKeyFilesInput',
+    declaration: 'export interface ListKeyFilesInput {\n    path?: string;\n}',
   },
   {
     name: 'LlmAdapter',
@@ -5259,6 +5456,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
   {
+    name: 'PickKeyFileResult',
+    declaration: 'export interface PickKeyFileResult {\n    path?: string;\n}',
+  },
+  {
     name: 'PluginDiagnosticCheck',
     declaration: 'export interface PluginDiagnosticCheck {\n    readonly id: string;\n    readonly description: string;\n    diagnose(signal?: AbortSignal): readonly PluginDiagnosticFinding[] | Promise<readonly PluginDiagnosticFinding[]>;\n}',
   },
@@ -5419,6 +5620,70 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
   {
+    name: 'RemoteArchitecture',
+    declaration: 'export type RemoteArchitecture = \'x64\' | \'arm64\';',
+  },
+  {
+    name: 'RemoteHostId',
+    declaration: 'export type RemoteHostId = Branded<\'RemoteHostId\'>;',
+  },
+  {
+    name: 'RemoteHostProgress',
+    declaration: 'export interface RemoteHostProgress {\n    phase: RemoteHostProgressPhase;\n    current: number;\n    total: number;\n}',
+  },
+  {
+    name: 'RemoteHostProgressPhase',
+    declaration: 'export type RemoteHostProgressPhase = \'checking-artifact\' | \'uploading\' | \'verifying\' | \'authorizing\' | \'starting\' | \'forwarding\' | \'synchronizing\';',
+  },
+  {
+    name: 'RemoteHostSshAuthentication',
+    declaration: 'export type RemoteHostSshAuthentication = {\n    kind: \'password\';\n    password: string;\n} | {\n    kind: \'key\';\n    privateKey: string;\n    passphrase?: string;\n} | {\n    kind: \'agent\';\n    socket: string;\n};',
+  },
+  {
+    name: 'RemoteHostSshConfig',
+    declaration: 'export interface RemoteHostSshConfig extends RemoteHostSshTarget {\n    fingerprint: string;\n}',
+  },
+  {
+    name: 'RemoteHostSshConnection',
+    declaration: 'export interface RemoteHostSshConnection {\n    readonly closed: Promise<void>;\n    readonly signal: AbortSignal;\n    exec(command: string, input?: string | Buffer, signal?: AbortSignal): Promise<RemoteHostSshExecResult>;\n    upload(localPath: string, remotePath: string, signal?: AbortSignal): Promise<void>;\n    readFile(path: string, signal?: AbortSignal): Promise<Buffer>;\n    realpath(path: string, signal?: AbortSignal): Promise<string>;\n    mkdir(path: string, signal?: AbortSignal): Promise<void>;\n    forward(remoteHost: string, remotePort: number, signal?: AbortSignal): Promise<RemoteHostSshForward>;\n    reverse(config: RemoteHostSshReverseConfig, signal?: AbortSignal): Promise<RemoteHostSshForward>;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'RemoteHostSshExecResult',
+    declaration: 'export interface RemoteHostSshExecResult {\n    stdout: Buffer;\n    stderr: Buffer;\n    exitCode: number | null;\n    signal: string | null;\n}',
+  },
+  {
+    name: 'RemoteHostSshForward',
+    declaration: 'export interface RemoteHostSshForward {\n    readonly port: number;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'RemoteHostSshReverseConfig',
+    declaration: 'export interface RemoteHostSshReverseConfig {\n    remotePort?: number;\n    localHost: string;\n    localPort: number;\n}',
+  },
+  {
+    name: 'RemoteHostSshTarget',
+    declaration: 'export interface RemoteHostSshTarget {\n    host: string;\n    port?: number;\n    username: string;\n}',
+  },
+  {
+    name: 'RemoteHostSshVerification',
+    declaration: 'export interface RemoteHostSshVerification {\n    fingerprint: string;\n    output: string;\n}',
+  },
+  {
+    name: 'RemoteHostState',
+    declaration: 'export type RemoteHostState = \'offline\' | \'connecting\' | \'deploying\' | \'connected\' | \'error\';',
+  },
+  {
+    name: 'RemoteHostView',
+    declaration: 'export interface RemoteHostView extends HostRecord {\n    state: RemoteHostState;\n    error?: string;\n    progress?: RemoteHostProgress;\n}',
+  },
+  {
+    name: 'RemotePlatform',
+    declaration: 'export type RemotePlatform = \'linux\' | \'darwin\' | \'win32\';',
+  },
+  {
+    name: 'RemoteRuntimeStatus',
+    declaration: 'export interface RemoteRuntimeStatus {\n    locked: boolean;\n    bootId: string;\n    platform: string;\n    arch: string;\n}',
+  },
+  {
     name: 'ReplayEnvelope',
     declaration: 'export interface ReplayEnvelope {\n    response: unknown;\n    blocks?: readonly unknown[];\n}',
   },
@@ -5489,6 +5754,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'ReverseMapping',
+    declaration: 'export interface ReverseMapping {\n    localHost: string;\n    localPort: number;\n    remoteOriginalOrigin: string;\n}',
   },
   {
     name: 'RpcError',
@@ -6004,7 +6273,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsRegisterOptions',
-    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    validate?: (value: T) => void;\n}',
+    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    validate?: (value: T) => void;\n    materialize?: (value: T) => T | Promise<T>;\n}',
   },
   {
     name: 'SettingsUpdateSource',
@@ -6631,6 +6900,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
   },
   {
+    name: 'UpsertHostInput',
+    declaration: 'export interface UpsertHostInput extends Omit<HostConfig, \'port\' | \'reverseMappings\'> {\n    id?: RemoteHostId;\n    port?: number;\n    reverseMappings?: ReverseMapping[];\n    secrets?: AuthSecrets;\n    storeCredentials?: boolean;\n}',
+  },
+  {
     name: 'UserMcpServerConfig',
     declaration: 'export interface UserMcpServerConfig {\n    id: string;\n    enabled: boolean;\n    transport: \'stdio\' | \'streamable-http\';\n    serverName: string;\n    command?: string;\n    args: string[];\n    env: Record<string, string>;\n    cwd: string;\n    url?: string;\n    headers: Record<string, string>;\n    toolCallTimeoutMs: number;\n    maxInstructionBytes?: number;\n    failOnStartupError: boolean;\n    reconnect: ReconnectConfig;\n}',
   },
@@ -6641,6 +6914,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UserQuestionProvider',
     declaration: 'export interface UserQuestionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
+  },
+  {
+    name: 'VerifyHostInput',
+    declaration: 'export interface VerifyHostInput {\n    host: string;\n    port?: number;\n    username: string;\n    secrets: AuthSecrets;\n}',
   },
   {
     name: 'WebBootEntry',

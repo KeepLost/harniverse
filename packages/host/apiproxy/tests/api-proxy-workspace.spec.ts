@@ -60,7 +60,7 @@ function stubAgent(session: Session): Agent {
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */
 async function harness(
   root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
-  picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
+  picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null, pickFile: async () => null },
   extras: {
     openPath?: (path: string, signal: AbortSignal) => Promise<void>
     canOpenPath?: () => boolean
@@ -127,11 +127,11 @@ function stageDir(root: string, name: string): string {
 
 describe('host.pickDirectory', () => {
   it('returns a selected path or explicit cancellation from the native capability', async () => {
-    const selected = await harness(undefined, { kind: 'native', pick: async () => '/tmp/project' })
+    const selected = await harness(undefined, { kind: 'native', pick: async () => '/tmp/project', pickFile: async () => null })
     expect((await selected.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: '/tmp/project' } })
 
-    const cancelled = await harness(undefined, { kind: 'native', pick: async () => null })
+    const cancelled = await harness(undefined, { kind: 'native', pick: async () => null, pickFile: async () => null })
     expect((await cancelled.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: null } })
   })
@@ -142,6 +142,7 @@ describe('host.pickDirectory', () => {
       pick: signal => new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
       }),
+      pickFile: async () => null,
     })
     const abort = new AbortController()
     const pending = api.host.pickDirectory(request({}), abort.signal)
@@ -150,7 +151,7 @@ describe('host.pickDirectory', () => {
   })
 
   it('folds a non-abort native-chooser failure into an internal error', async () => {
-    const { api } = await harness(undefined, { kind: 'native', pick: async () => { throw new Error('no chooser installed') } })
+    const { api } = await harness(undefined, { kind: 'native', pick: async () => { throw new Error('no chooser installed') }, pickFile: async () => null })
     const response = await api.host.pickDirectory(request({}), new AbortController().signal)
     expect(response.result).toMatchObject({ ok: false, error: { code: 'internal' } })
   })

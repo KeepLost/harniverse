@@ -1,0 +1,18 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/agent" },
+    { "path": "../../auth/authentication" },
+    { "path": "../../credentials/credentials-encrypted" },
+    { "path": "../../host/webserver" },
+    { "path": "../../core/session" },
+    { "path": "../../settings/settings" },
+    { "path": "../../util/home-paths" },
+    { "path": "../../typert/protocol" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

@@ -39,6 +39,18 @@ function bench() {
 }
 
 describe('createScope', () => {
+  it('does not deliver an old machine scope event to a new scope with the same wire id', async () => {
+    const { root, a, seen, listen } = bench()
+    await a.fiber.dispose()
+    const replacement = createScope(root, sid('a'))
+    listen('replacement', replacement.ctx)
+    listen('root', root)
+    a.ctx.emit(a.ctx, 'test/scope-probe', { from: 'retired' })
+    expect(seen).toEqual([])
+    replacement.ctx.emit(replacement.ctx, 'test/scope-probe', { from: 'current' })
+    expect(seen).toEqual(['replacement:current', 'root:current'])
+  })
+
   it('tags the ctx (scopeOf) and leaves the root untagged', () => {
     const { root, a } = bench()
     expect(scopeOf(a.ctx)).toBe(sid('a'))

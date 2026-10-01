@@ -31,7 +31,7 @@ import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import type {
   SessionBinding, SessionListState, SessionProvideDescriptor, SessionSearchResultItem, SessionSummary,
 } from '../contract/session-state.ts'
-import { createScope, scopeOf as scopeTagOf } from '../agent-scope.ts'
+import { createScope, sameScope, scopeOf as scopeTagOf } from '../agent-scope.ts'
 import type { ConversationRuntime } from './conversation-assembler.ts'
 import type { ConversationSnapshot } from '../contract/conversation-snapshot.ts'
 import { SessionManager } from './manager.ts'
@@ -155,7 +155,12 @@ export class SessionRuntime implements ISessions {
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
-  private readonly manager: SessionManager
+  private manager: SessionManager
+  private unsubscribeManager: () => void
+  private readonly makeManager: (api: IApiClient, restored: SessionSelection) => SessionManager
+  private selectionOffset = 0
+  private targetGeneration = 0
+  private scopeDisposal = Promise.resolve()
   /**
    * Atomic current-session provide projection: selection changes and
    * provider-roster changes publish through this one source (the renderer
@@ -172,7 +177,7 @@ export class SessionRuntime implements ISessions {
    * selection survives transient list states (reconnect re-pull) and
    * resurfaces when its session returns.
    */
-  private readonly selection: SnapshotStore<SessionSelection>
+  private selection: SnapshotStore<SessionSelection>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
   /** The provide channel (roster, materialization rules, current projection) — shared with the test runtime's double. */
@@ -192,16 +197,18 @@ export class SessionRuntime implements ISessions {
    * @param api - wire client shared with every Session.
    * @param remote - generated Remote namespaces shared with every Session.
    * @param conversationRuntime - same-pass registry instances, when runtime apply owns them.
+   * @param machineKey - persistence namespace of the selected machine.
    */
   constructor(
     private readonly rootCtx: Context,
     api: IApiClient,
     remote: SessionRemotes,
     conversationRuntime?: ConversationRuntime,
+    machineKey = 'host',
   ) {
     this.selection = createSnapshotStore<SessionSelection>(
       {},
-      { persist: { name: 'dsh.sessions.current' } })
+      { persist: { name: machineKey === 'host' ? 'dsh.sessions.current' : `dsh.sessions.current:${machineKey}` } })
     const restored = this.selection.getSnapshot()
     const conversationEvents = rootCtx.get('conversationEvents')
     const conversationViews = rootCtx.get('conversationViews')
@@ -210,21 +217,22 @@ export class SessionRuntime implements ISessions {
         ? undefined
         : { events: conversationEvents, views: conversationViews }
     )
-    this.manager = new SessionManager(
-      api,
+    this.makeManager = (client, selection) => new SessionManager(
+      client,
       remote,
-      restored.sessionId,
-      restored.subagentAddress,
+      selection.sessionId,
+      selection.subagentAddress,
       conversation,
       () => { rootCtx.root.emit('runtime/session-history-settled') },
     )
+    this.manager = this.makeManager(api, restored)
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
     })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
-    this.manager.subscribe(() => { this.projectList() })
+    this.unsubscribeManager = this.manager.subscribe(() => { this.projectList() })
     // Stage follower: every current write (open() and projection alike)
     // re-evaluates staging, so startup restore (persisted selection validated
     // by the projection) and reconnect resurfacing open their window with no
@@ -265,6 +273,43 @@ export class SessionRuntime implements ISessions {
       }, 'sessions: conversation registry rebuild')
     }
     rootCtx.reflect.provide('sessions', this, undefined)
+    rootCtx.effect(() => () => {
+      this.unsubscribeManager()
+      this.manager.dispose()
+      return this.scopeDisposal
+    }, 'sessions: manager lifetime')
+  }
+
+  /**
+   * Replace machine-owned state while retaining the list and provide sources.
+   * @param api - authority captured for the new machine generation.
+   * @param key - machine persistence namespace.
+   * @returns completion of all retired Session scope effects.
+   */
+  resetTarget(api: IApiClient, key: string): Promise<void> {
+    this.targetGeneration++
+    this.unsubscribeManager()
+    this.manager.dispose()
+    this.watched = undefined
+    this.deferredRemovals.clear()
+    const disposals = [this.scopeDisposal]
+    const retiredScopes = [...this.scopes.values()]
+    this.scopes.clear()
+    for (const record of retiredScopes) {
+      record.session.unbindScope()
+      disposals.push(record.fiber.dispose())
+    }
+    this.selection = createSnapshotStore<SessionSelection>({}, {
+      persist: { name: key === 'host' ? 'dsh.sessions.current' : `dsh.sessions.current:${key}` },
+    })
+    this.selectionOffset = this.list.getSnapshot().selectionSeq + 1
+    this.manager = this.makeManager(api, this.selection.getSnapshot())
+    this.unsubscribeManager = this.manager.subscribe(() => { this.projectList() })
+    this.list.set({ targetGeneration: this.targetGeneration, ids: [], byId: {}, current: undefined, phase: 'pending',
+      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: this.selectionOffset })
+    this.provideChannel.resetTarget()
+    this.scopeDisposal = Promise.all(disposals).then(() => {})
+    return this.scopeDisposal
   }
 
   /**
@@ -411,7 +456,9 @@ export class SessionRuntime implements ISessions {
     sessionId?: SessionId
     agentProfile?: string
   } = {}): Promise<SessionId> {
-    const result = await this.manager.create(opts)
+    const manager = this.manager
+    const result = await manager.create(opts)
+    this.assertCurrent(manager)
     if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
     this.projectList()
     return result.value.sessionId
@@ -437,20 +484,23 @@ export class SessionRuntime implements ISessions {
     atSeq?: number
     increaseTitle?: boolean
   }): Promise<SessionId> {
+    const manager = this.manager
     // The resident projection is the title's authoritative client-side home
     // (the list row reads it too): reading the projected list store instead
     // would race its flush and silently skip the increment when a fork
     // follows a reconnect baseline that has not re-landed the title yet.
     const sourceTitle = opts.increaseTitle
-      ? await this.settledSourceTitle(opts.sessionId)
+      ? await this.settledSourceTitle(opts.sessionId, manager)
       : undefined
-    const result = await this.manager.fork({
+    this.assertCurrent(manager)
+    const result = await manager.fork({
       sessionId: opts.sessionId,
       // Flooring lands inside the anchor's own turn (every turn opens with a
       // turn/start), so the host's first-turn/end-at-or-after cut still ends
       // on that turn — never clipped back to the previous one.
       ...(opts.atSeq === undefined ? {} : { atSeq: Math.floor(opts.atSeq) }),
     })
+    this.assertCurrent(manager)
     if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
     this.projectList()
     const childId = result.value.sessionId
@@ -458,6 +508,7 @@ export class SessionRuntime implements ISessions {
       const child = this.binding(childId)?.session
       if (child === undefined) throw new Error(`fork child "${childId}" is not locally addressable`)
       const renamed = await child.rename(increasedForkTitle(sourceTitle))
+      this.assertCurrent(manager)
       if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
     }
     return childId
@@ -473,13 +524,14 @@ export class SessionRuntime implements ISessions {
    * @param sessionId - the fork's source session.
    * @returns the durable source title, or undefined when none lands in time.
    */
-  private async settledSourceTitle(sessionId: SessionId): Promise<string | undefined> {
-    const direct = this.manager.titleOf(sessionId)
+  private async settledSourceTitle(sessionId: SessionId, manager: SessionManager): Promise<string | undefined> {
+    const direct = manager.titleOf(sessionId)
     if (direct !== undefined) return direct
     const deadline = Date.now() + FORK_TITLE_SETTLE_WAIT_MS
     for (;;) {
       await new Promise(resolve => setTimeout(resolve, FORK_TITLE_SETTLE_POLL_MS))
-      const title = this.manager.titleOf(sessionId)
+      this.assertCurrent(manager)
+      const title = manager.titleOf(sessionId)
       if (title !== undefined || Date.now() >= deadline) return title
     }
   }
@@ -517,7 +569,9 @@ export class SessionRuntime implements ISessions {
    * @returns the session id, or undefined on root contexts.
    */
   scopeOf(ctx: Context): SessionId | undefined {
-    return scopeTagOf(ctx)
+    const id = scopeTagOf(ctx)
+    if (id !== undefined && !sameScope(ctx, this.scopes.get(id)?.ctx)) throw new Error('session scope belongs to a retired machine')
+    return id
   }
 
   /**
@@ -532,7 +586,8 @@ export class SessionRuntime implements ISessions {
   sessionOf(ctx: Context): SessionFace | undefined {
     const id = scopeTagOf(ctx)
     if (id === undefined) return undefined
-    return this.scopes.get(id)?.binding.session
+    const record = this.scopes.get(id)
+    return sameScope(ctx, record?.ctx) ? record?.binding.session : undefined
   }
 
   /**
@@ -711,9 +766,9 @@ export class SessionRuntime implements ISessions {
     const persisted = this.selection.getSnapshot().sessionId
     // No current (cleared, or masked gap) wipes the persisted cell — a reload
     // stays on empty; the in-memory selection still resurfaces a masked id.
-    if (current === undefined) {
+    if (current === undefined && phase === 'ready') {
       if (persisted !== undefined) this.selection.set({})
-    } else if (byId[current] !== undefined
+    } else if (current !== undefined && byId[current] !== undefined
       && (persisted !== current
         || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
         || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId
@@ -723,8 +778,15 @@ export class SessionRuntime implements ISessions {
         ...(currentAddress === undefined ? {} : { subagentAddress: currentAddress }),
       })
     }
-    this.list.set({ ids, byId, current, phase, subagentsByParent, jobsBySession, currentAddress, selectionSeq })
+    this.list.set({
+      targetGeneration: this.targetGeneration, ids, byId, current, phase, subagentsByParent, jobsBySession, currentAddress,
+      selectionSeq: selectionSeq + this.selectionOffset,
+    })
     this.pruneScopes()
+  }
+
+  private assertCurrent(manager: SessionManager): void {
+    if (this.manager !== manager) throw new Error('runtime: machine target changed')
   }
 
   /** Tear down scope + instance for no-longer-eligible sessions off stage; the staged one defers until the stage moves. */

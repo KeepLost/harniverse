@@ -20,6 +20,7 @@ export interface DesktopProfileOptions {
   /** Private deployment override; zero isolates tests without changing the production origin. */
   port?: number
   pickDirectory(signal: AbortSignal): Promise<string | null>
+  pickFile(signal: AbortSignal, selection?: { title?: string; defaultDirectory?: string }): Promise<string | null>
 }
 
 /** A packaged CLI anchor identifies the immutable runtime; source launches retain ordinary browser discovery. */
@@ -106,7 +107,10 @@ export async function startDesktopProfile(options: DesktopProfileOptions): Promi
       provideCmdline(context, { args: ['--host', '127.0.0.1', '--port', String(options.port ?? 19387)],
         exit: (code) => { throw new Error(`Desktop profile requested exit ${String(code)} during activation.`) } })
       await loadPlugin(DesktopAdmission)
-      await loadPlugin(CallbackDesktopShell, (signal: AbortSignal) => options.pickDirectory(signal))
+      await loadPlugin(CallbackDesktopShell, {
+        pickDirectory: signal => options.pickDirectory(signal),
+        pickFile: (signal, selection) => options.pickFile(signal, selection),
+      })
       context.loader.builtins['desktop-webserver'] = DesktopWebServer
       context.loader.builtins['desktop-directory-picker'] = DesktopDirectoryPicker
       context.loader.builtins['desktop-control'] = DesktopControl

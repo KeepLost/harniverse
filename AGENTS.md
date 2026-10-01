@@ -53,6 +53,7 @@ Use [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) before pu
 - Build/export changes require `pnpm run clean && pnpm run build`; incremental builds can hide failures behind stale `lib/` artifacts.
 - Match evidence to the surface: focused tests for behavior, snapshots for visible output, `doc-sync` for docs, built checks for published paths, and real-API e2e for providers.
 - Never run full-suite gates locally (`doc-sync`, `test`, `test:coverage`, `website:build`), foreground or background: they have starved the owner's live services. CI owns exhaustive checks; full rehearsal only by explicit owner request.
+- Never run repo-wide lint locally (`pnpm run lint`, `lint:contracts-ready`, or `run-oxlint.ts .`): type-aware whole-repo resolution exhausts host memory (incident: 2026-09-30, killed by owner). Lint only the changed files with an explicit path list (`pnpm exec tsx scripts/run-oxlint.ts <files>`); CI owns the full sweep.
 - `test:coverage`, not `test`, is the CI coverage gate ([testing policy](docs/testing.md)).
 
 ## Secrets and configuration

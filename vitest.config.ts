@@ -88,6 +88,14 @@ const windowsRunnerCoverageExclusions = process.platform === 'win32'
   ? ['packages/sandbox/sandbox-windows-acl/src/runner.ts']
   : []
 
+// The encrypted storage module contains one POSIX-only durability protocol:
+// opening and syncing directory handles before and after the atomic rename.
+// Windows executes the native rename path instead, so those mutually exclusive
+// statements cannot satisfy the same per-file 100% gate on both platforms.
+const windowsPosixCoverageExclusions = process.platform === 'win32'
+  ? ['packages/credentials/credentials-encrypted/src/storage.ts']
+  : []
+
 // pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
 // (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
@@ -311,6 +319,7 @@ export default defineConfig({
         ...windowsOnlyCoverageExclusions,
         ...windowsRunnerCoverageExclusions,
         ...governorProcDefaultsWindowsExclusions,
+        ...windowsPosixCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).

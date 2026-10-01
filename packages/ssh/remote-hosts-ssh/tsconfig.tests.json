@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true, "composite": false, "incremental": false },
+  "include": ["src", "tests"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../../vendor/loader" },
+    { "path": "../../../vendor/include" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

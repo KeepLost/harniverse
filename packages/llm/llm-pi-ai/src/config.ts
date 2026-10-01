@@ -65,6 +65,8 @@ export type {
 export interface PiAiProviderProfile {
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
+  /** Authentication form selected by the provider's credential resolver. */
+  authMode?: 'api-key' | 'bearer' | 'none'
   /** Name shown by configuration surfaces; defaults to the route key. */
   displayName?: string
   /**
@@ -149,6 +151,8 @@ export interface ResolvedPiAiProviderProfile
   displayName: string
   /** Validated credential reference, when one is configured. */
   apiKeyEnv?: CredentialRef
+  /** Validated authentication form for the configured credential. */
+  authMode: 'api-key' | 'bearer' | 'none'
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
   /** Immutable retry policy captured with this provider route. */
@@ -253,6 +257,7 @@ const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 
 const profile = z.object({
   apiKeyEnv: z.string().role('credential-ref'),
+  authMode: z.union(['api-key', 'bearer', 'none']).default('api-key'),
   displayName: z.string(),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
@@ -402,6 +407,7 @@ export function resolveProfiles(
       ...rest,
       provider,
       displayName,
+      authMode: source.authMode ?? 'api-key',
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
@@ -416,6 +422,9 @@ export function resolveProfiles(
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         models: catalog.models,
         namesCredential: apiKeyEnv !== undefined,
+        ...source.authMode === 'bearer' ? { authMode: 'bearer' as const } : {},
+        ...apiKeyEnv === undefined ? {} : { credentialRef: apiKeyEnv },
+        disableAmbientAuth: apiKeyEnv === undefined && source.authMode === 'none',
       }),
     })
   }

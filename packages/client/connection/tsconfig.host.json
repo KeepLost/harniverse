@@ -18,6 +18,7 @@
     "src/loopback-hostname.ts",
     "src/rpc-host.ts",
     "src/rpc.ts",
+    "src/remote-host-proxy.ts",
     "src/websocket-downlink.ts"
   ],
   "references": [

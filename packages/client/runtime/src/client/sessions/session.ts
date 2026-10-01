@@ -70,6 +70,7 @@ export interface SessionOptions {
  * remaining public members are manager/runtime entry points.
  */
 export class Session implements SessionFace {
+  private disposed = false
   // ---- Window and derived state (all private; the snapshot is the only read API) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
@@ -193,6 +194,18 @@ export class Session implements SessionFace {
     this.actx = undefined
   }
 
+  /** Revoke delayed work and scope callbacks when the owning machine is retired. */
+  dispose(): void {
+    this.disposed = true
+    this.openGeneration++
+    this.handleDisconnected()
+    this.unbindScope()
+  }
+
+  private assertActive(): void {
+    if (this.disposed) throw new Error('session belongs to a retired machine')
+  }
+
   // ---- Operations ----
 
   /**
@@ -207,6 +220,7 @@ export class Session implements SessionFace {
     mode: 'queue' | 'steer',
     signal?: AbortSignal,
   ): Promise<RpcResult<{ accepted: true }>> {
+    this.assertActive()
     this.promptError = null
     this.lastAgentError = null
     // Synchronous, before the first await: the blank → engaging edge must be
@@ -384,7 +398,9 @@ export class Session implements SessionFace {
    * @returns the admission result, or the error branch on transport failure.
    */
   async command(line: string): Promise<RemoteResult<{ matched: boolean }>> {
+    this.assertActive()
     const result = await this.remote.commands.execute(this.sessionId, line, [])
+    this.assertActive()
     if (!result.ok) return result
     return { ok: true, value: { matched: result.value !== undefined } }
   }
@@ -694,9 +710,6 @@ export class Session implements SessionFace {
     this.notifier.markDirty()
   }
 
-  /** No-op because session instances remain resident. */
-  dispose(): void {}
-
   /** Rebuild the current window after a low-frequency Definition or view registration change. */
   rebuildConversationRegistry(): void {
     this.scheduleConversation(this.conversation.rebuildRegistry())
@@ -967,6 +980,7 @@ export class Session implements SessionFace {
 
   /** Queue one ordinary-session projection baseline after the message window can paint. */
   private scheduleProjectionRefresh(): void {
+    if (this.disposed) return
     if (this.address !== undefined || this.removed || this.openState !== 'open') return
     this.cancelProjectionRefresh()
     const epoch = this.projectionRefreshEpoch

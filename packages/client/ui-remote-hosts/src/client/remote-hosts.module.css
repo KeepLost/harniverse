@@ -1,0 +1,763 @@
+/* Remote-hosts management view occupying the center column, in the same
+ * design language as the schedules view (ui-scheduler
+ * ScheduleCenterView.module.css): fixed header row over a scrolling body,
+ * card list, right-hand editor drawer, and the shared token vocabulary. */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--dsw-alias-bg-base);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.summary {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.headerActions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.headerActions button {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.headerActions button:hover:not(:disabled),
+.headerActions button:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.headerActions button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  padding: 0 !important;
+}
+
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 24px 24px;
+}
+
+.note {
+  margin: 24px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.alert {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--dsw-alias-state-error-primary);
+  border-radius: 4px;
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  max-width: 860px;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.cardMain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+}
+
+.cardMain div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cardMain span {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statePill {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.statePill[data-state='connected'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.statePill[data-state='error'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.statePill[data-state='connecting'],
+.statePill[data-state='deploying'] {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.stateBlock {
+  display: grid;
+  flex: none;
+  min-width: 150px;
+  gap: 4px;
+  margin-left: auto;
+  justify-items: end;
+}
+
+.stateBlock .statePill {
+  margin-left: 0;
+}
+
+.progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  width: min(230px, 24vw);
+  gap: 4px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  text-align: right;
+}
+
+.progressLabel {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  max-width: 230px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress progress {
+  width: 100%;
+  height: 5px;
+  accent-color: var(--dsw-alias-state-warn-label);
+}
+
+.progressCount {
+  min-width: 26px;
+  text-align: right;
+}
+
+.rowActions {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.rowActions button {
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rowActions button:hover:not(:disabled),
+.rowActions button:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowActions button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Editor drawer: a right-hand sheet over the body, inside the view. */
+.drawer {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 100%);
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.drawerHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.drawerTitle {
+  color: var(--dsw-alias-label-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.drawerClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.drawerClose:hover,
+.drawerClose:focus-visible {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.drawerBody {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow: auto;
+  padding: 16px 20px;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.drawerBody label {
+  display: grid;
+  gap: 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.drawerBody input,
+.drawerBody select,
+.drawerBody textarea {
+  min-width: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  padding: 7px 8px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font: inherit;
+  font-size: 13px;
+}
+
+.drawerBody input:focus-visible,
+.drawerBody select:focus-visible,
+.drawerBody textarea:focus-visible {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: none;
+}
+
+.drawerBody textarea {
+  min-height: 96px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.drawerBody textarea:disabled {
+  opacity: 0.5;
+}
+
+.wideField {
+  grid-column: 1 / -1;
+}
+
+.checkbox {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 7px !important;
+}
+
+.checkbox input {
+  width: 14px;
+}
+
+.keySection {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+}
+
+.keyFileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.keyPathLabel {
+  flex: none;
+  font-size: 13px;
+}
+
+.keyPathInput {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.keyFileButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.keyFileButton:hover:not(:disabled),
+.keyFileButton:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.keyFileButton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.keyFileHint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.mappingEditor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.mappingHint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.mappingList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mappingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.mappingRow span {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mappingRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.mappingRemove:hover,
+.mappingRemove:focus-visible {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.mappingFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mappingFields input {
+  flex: 1 1 110px;
+  min-width: 90px;
+}
+
+.mappingFields button {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mappingFields button:hover:not(:disabled),
+.mappingFields button:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.testHint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.tested {
+  margin: 0;
+  color: var(--dsw-alias-state-success-primary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.drawerActions {
+  display: flex;
+  gap: 8px;
+}
+
+.drawerActions button {
+  min-height: 30px;
+  padding: 5px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.drawerActions button:hover:not(:disabled),
+.drawerActions button:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.drawerActions button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.drawerActions .primary {
+  border-color: var(--dsw-alias-button-primary-fill);
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.drawerActions .primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+/* Phone form (frame data-viewport, ui-layout): the card rows stack their
+   actions, the form collapses to one column, and the drawer covers the body. */
+:global([data-viewport='phone']) .header {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 12px 14px;
+}
+
+:global([data-viewport='phone']) .body {
+  padding: 12px 14px 20px;
+}
+
+:global([data-viewport='phone']) .card {
+  flex-wrap: wrap;
+}
+
+:global([data-viewport='phone']) .statePill {
+  margin-left: 0;
+}
+
+/* The deploy progress lives in the stacked card row; give it the full row
+   instead of the cramped 24vw column so the step label stays readable. */
+:global([data-viewport='phone']) .stateBlock {
+  min-width: 0;
+  width: 100%;
+  justify-items: start;
+}
+
+:global([data-viewport='phone']) .progress {
+  width: 100%;
+  text-align: left;
+}
+
+:global([data-viewport='phone']) .progressLabel {
+  max-width: 100%;
+}
+
+:global([data-viewport='phone']) .rowActions {
+  margin-left: auto;
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+:global([data-viewport='phone']) .formGrid {
+  grid-template-columns: 1fr;
+}
+
+:global([data-viewport='phone']) .wideField {
+  grid-column: auto;
+}
+
+/* Optional-settings section: a collapsed disclosure beside the reverse
+ * mapping editor, hiding the platform/architecture overrides by default. */
+
+.optionsSection {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.optionsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.optionsToggle:hover:not(:disabled),
+.optionsToggle:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.optionsChevron {
+  transition: transform 0.12s ease;
+}
+
+.optionsToggle[aria-expanded='true'] .optionsChevron {
+  transform: rotate(180deg);
+}
+
+.optionsBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.optionsBody .optionsHint {
+  grid-column: 1 / -1;
+}
+
+.optionsHint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+:global([data-viewport='phone']) .optionsBody {
+  grid-template-columns: 1fr;
+}
+
+/* In-app key-file browser dialog: a single scrollable level over the shared
+ * Modal card. */
+
+.keyBrowserDialog.dialog {
+  width: min(480px, 100%);
+}
+
+.keyBrowserBody {
+  display: grid;
+  gap: 8px;
+}
+
+.keyBrowserPath {
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
+.keyBrowserList {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  max-height: min(46vh, 360px);
+  overflow: auto;
+  list-style: none;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.keyBrowserRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.keyBrowserRow:hover:not(:disabled),
+.keyBrowserRow:focus-visible:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.keyBrowserRow:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.keyBrowserIcon {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.keyBrowserFileIcon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 3px;
+}
+
+.keyBrowserName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keyBrowserChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.keyBrowserNote {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}

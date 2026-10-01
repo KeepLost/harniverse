@@ -442,6 +442,15 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   installSettingsSection(ctx, NS, Config, config, {
+    materialize: (value) => {
+      const resolved = resolveAdapterOptions(value, launchEnvironmentOf(ctx))
+      return Object.assign({}, value, {
+        protocol: resolved.protocol,
+        apiKeyEnv: resolved.apiKeyEnv,
+        baseURL: resolved.baseURL,
+        models: [...resolved.models],
+      })
+    },
     setSource: (source) => {
       current = source
     },

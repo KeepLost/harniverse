@@ -60,6 +60,10 @@ allowBuilds:
   electron-winstaller: false
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
+  # SSH transport's optional native crypto acceleration is built for the
+  # local host; the transport still works with its pure-JavaScript fallback.
+  ssh2: true
+  cpu-features: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
   # them only because they ship lifecycle scripts, but those are no-ops we don't
   # need, so we deny them — install still succeeds.
@@ -71,6 +75,7 @@ allowBuilds:
   # The Python runtime deploy includes the reviewed workspace postinstall that
   # restores the executable bit on node-pty's macOS spawn helper.
   '@deepseek-ai/dsh-subprocess-local@file:packages/subprocess/subprocess-local': true
+  '@deepseek-ai/dsh-subprocess-local': true
 
 minimumReleaseAgeExclude:
   # Fresh pi-ai releases carry the model catalog updates that are the whole

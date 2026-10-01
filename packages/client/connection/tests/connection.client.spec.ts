@@ -21,6 +21,50 @@ function subscribedFrame(lastSeq = 0) {
 }
 
 describe('connection lifecycle', () => {
+  it('drops frames after readiness when no business sink is installed', async () => {
+    const api = new FakeApiClient()
+    let connected = false
+    const delivered = Promise.withResolvers<undefined>()
+    const controller = new ConnectionController(api, {
+      onConnected: () => { connected = true },
+      onHostEnvelope: () => { delivered.resolve(undefined) },
+    }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(connected).toBe(true) })
+      api.pushMux(subscribedFrame(4))
+      api.pushHost({ type: 'host/session-removed', sessionId: SID })
+      await delivered.promise
+      expect(api.openMuxCount).toBe(1)
+    } finally { controller.stop() }
+  })
+
+  it('drops a late frame from a stream that ignores generation cancellation', async () => {
+    const api = new FakeApiClient()
+    const frame = Promise.withResolvers<undefined>()
+    const drained = Promise.withResolvers<undefined>()
+    const connected = Promise.withResolvers<undefined>()
+    const seen: unknown[] = []
+    api.events.mux = (_payload, _signal, onOpen, onAuthenticated) => ({
+      async *[Symbol.asyncIterator]() {
+        onOpen?.(); onAuthenticated?.({ kind: 'bypass' })
+        try {
+          await frame.promise
+          yield { rpcId: 'late' as never, payload: subscribedFrame(99) }
+        } finally { drained.resolve(undefined) }
+      },
+    })
+    const controller = new ConnectionController(api, {
+      onConnected: () => { connected.resolve(undefined) }, onMuxEnvelope: envelope => seen.push(envelope),
+    })
+    controller.start()
+    await connected.promise
+    controller.stop()
+    frame.resolve(undefined)
+    await drained.promise
+    expect(seen).toEqual([])
+  })
+
   it('announces connected after describe + both streams open, then pumps frames to sinks', async () => {
     const api = new FakeApiClient()
     const muxSeen: string[] = []

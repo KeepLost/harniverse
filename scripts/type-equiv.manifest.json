@@ -2007,6 +2007,16 @@
       "projection": "public-api"
     },
     {
+      "doc": "docs/subsystems/ssh.md",
+      "symbol": "RemoteHostProgressPhase",
+      "source": "packages/ssh/remote-hosts/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ssh.md",
+      "symbol": "RemoteHostProgress",
+      "source": "packages/ssh/remote-hosts/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/terminal-controller.md",
       "symbol": "WebTerminalInfo",
       "source": "packages/api/terminal-controller/src/types.ts"

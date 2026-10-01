@@ -1,0 +1,5 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "composite": false, "incremental": false, "noEmit": true },
+  "include": ["*.spec.ts", "../src/node-addon-require-builtin.d.ts"]
+}

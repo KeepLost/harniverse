@@ -48,9 +48,10 @@ type WorkspaceViewActions = {
 
 /**
  * Create the workspace browser viewing store handle.
+ * @param machineKey - namespace isolating workspace ids across machines.
  * @returns the store handle (spec + type + identity + factory in one).
  */
-export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
+export function createWorkspaceViewStore(machineKey = 'host'): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
   return defineStore({
     init: (): WorkspaceViewState => ({
       groupBy: 'workspace',
@@ -59,7 +60,7 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       sessionOrderByAccount: {},
       sessionUpdatedAtByAccount: {},
     }),
-    persist: 'dsh.workspace.view.v5',
+    persist: machineKey === 'host' ? 'dsh.workspace.view.v5' : `dsh.workspace.view.v5:${machineKey}`,
     actions: {
       setGroupBy: (d, mode: SessionGroupBy) => { d.groupBy = mode },
       setOrderBy: (d, mode: SessionOrderBy) => { d.orderBy = mode },

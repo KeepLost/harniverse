@@ -8,8 +8,14 @@ declare module '@deepseek-ai/cordis' {
 
 /** Callback Provider installed by the private process entry. */
 export class CallbackDesktopShell extends Service {
-  constructor(ctx: Context, private callback: (signal: AbortSignal) => Promise<string | null>) { super(ctx, 'desktopShell') }
-  pickDirectory(signal: AbortSignal): Promise<string | null> { return this.callback(signal) }
+  constructor(ctx: Context, private readonly pickers: {
+    pickDirectory(signal: AbortSignal): Promise<string | null>
+    pickFile(signal: AbortSignal, selection?: { title?: string; defaultDirectory?: string }): Promise<string | null>
+  }) { super(ctx, 'desktopShell') }
+  pickDirectory(signal: AbortSignal): Promise<string | null> { return this.pickers.pickDirectory(signal) }
+  pickFile(signal: AbortSignal, selection?: { title?: string; defaultDirectory?: string }): Promise<string | null> {
+    return this.pickers.pickFile(signal, selection)
+  }
 }
 
 /** Existing directory-picker Definition remains the business-facing capability. */
@@ -20,7 +26,11 @@ export default class DesktopDirectoryPicker extends DirectoryPicker {
     super(ctx)
     const lifetime = new AbortController()
     ctx.effect(() => () => { lifetime.abort(new Error('Desktop directory picker disposed.')) })
-    this.native = { kind: 'native', pick: signal => ctx.desktopShell.pickDirectory(AbortSignal.any([signal, lifetime.signal])) }
+    this.native = {
+      kind: 'native',
+      pick: signal => ctx.desktopShell.pickDirectory(AbortSignal.any([signal, lifetime.signal])),
+      pickFile: (signal, selection) => ctx.desktopShell.pickFile(AbortSignal.any([signal, lifetime.signal]), selection),
+    }
   }
   override capability(): DirectoryPickerNativeCapability { return this.native }
 }

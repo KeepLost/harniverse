@@ -1,0 +1,118 @@
+import { posix, win32 } from 'node:path'
+import { z } from 'zod'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import type { AuthSecrets, HostConfig, HostRecord, RemoteHostId } from './types.ts'
+
+const text = z.string().min(1).max(1024).refine(value => !/[\x00-\x1f\x7f]/.test(value))
+const ref = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)
+/** Schema for a persisted remote-host UUID. */
+export const idSchema = z.uuid()
+const port = z.number().int().min(1).max(65535)
+/** Absolute host-local path: POSIX-absolute, or drive/UNC-qualified on Windows. */
+const absolutePath = z.string().min(1).max(1024).refine((value) => {
+  const paths = /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') ? win32 : posix
+  return paths.isAbsolute(value)
+}, { message: 'absolute host-local path required' })
+/** Schema for secret-free persisted authentication references. */
+export const authenticationSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('password'), passwordRef: ref.optional() }),
+  z.strictObject({ kind: z.literal('key'), privateKeyRef: ref.optional(), keyPath: absolutePath.optional(), passphraseRef: ref.optional() }),
+  z.strictObject({ kind: z.literal('agent'), socket: text }),
+])
+/** Schema for explicit one-shot login secrets. */
+export const secretsSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('password'), password: z.string().min(1).max(65536) }),
+  z.strictObject({
+    kind: z.literal('key'),
+    privateKey: z.string().min(1).max(65536).optional(),
+    privateKeyPath: absolutePath.optional(),
+    passphrase: z.string().min(1).max(65536).optional(),
+  }).refine(secrets => (secrets.privateKey !== undefined) !== (secrets.privateKeyPath !== undefined), { message: 'exactly one of privateKey or privateKeyPath' }),
+])
+const mappingSchema = z.strictObject({
+  localHost: text.refine(value => !/[\s/\\@]/.test(value)), localPort: port,
+  remoteOriginalOrigin: z.string().refine((value) => {
+    try {
+      const url = new URL(value)
+      return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+        && url.pathname === '/' && !url.search && !url.hash
+    } catch { return false } // Invalid user-entered origins are validation failures.
+  }).transform(value => new URL(value).origin),
+})
+/** Schema for a complete persisted host configuration. */
+export const hostSchema = z.strictObject({
+  name: text, host: text.refine(value => !/[\s/\\@]/.test(value)), port: port.default(22), username: text,
+  fingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}$/).refine(value =>
+    Buffer.from(value.slice(7), 'base64').toString('base64').replace(/=+$/, '') === value.slice(7)),
+  platform: z.enum(['linux', 'darwin', 'win32']), architecture: z.enum(['x64', 'arm64']),
+  dshHome: text.optional(), authentication: authenticationSchema, reverseMappings: z.array(mappingSchema).max(64).default([]),
+}).superRefine((host, ctx) => {
+  if (host.dshHome !== undefined) {
+    const paths = host.platform === 'win32' ? win32 : posix
+    const normalized = paths.normalize(host.dshHome)
+    if (!paths.isAbsolute(host.dshHome) || normalized === paths.parse(normalized).root) {
+      ctx.addIssue({ code: 'custom', message: 'absolute non-root remote home required' })
+    }
+  }
+  if (new Set(host.reverseMappings.map(mapping => mapping.remoteOriginalOrigin)).size !== host.reverseMappings.length) {
+    ctx.addIssue({ code: 'custom', message: 'duplicate reverse origin' })
+  }
+})
+/** Schema for host creation or replacement input. */
+export const upsertSchema = hostSchema.safeExtend({
+  id: idSchema.optional(), secrets: secretsSchema.optional(), storeCredentials: z.boolean().default(false),
+})
+/** Schema for host connection input. */
+export const connectSchema = z.strictObject({
+  id: idSchema, secrets: secretsSchema.optional(), storeCredentials: z.boolean().default(false),
+})
+/** Schema for connectivity-test input against an unconfigured target. */
+export const verifySchema = z.strictObject({ host: text, port: port.optional(), username: text, secrets: secretsSchema })
+/** Schema for one browse key-file listing request. */
+export const listKeyFilesSchema = z.strictObject({ path: absolutePath.optional() })
+
+/** Parse an untrusted UUID into the local branded identity.
+ * @param value - untrusted UUID.
+ * @returns stable branded registry identity.
+ */
+export function remoteHostId(value: string): RemoteHostId { return idSchema.parse(value) as RemoteHostId }
+/** Parse untrusted host fields into a detached configuration.
+ * @param value - untrusted host fields.
+ * @returns validated nonsecret configuration.
+ */
+export function parseHostInput(value: unknown): HostConfig {
+  // JSON detachment removes explicitly undefined optional fields after schema validation.
+  return JSON.parse(JSON.stringify(hostSchema.parse(value))) as HostConfig
+}
+/** Parse one persisted host record.
+ * @param value - persisted JSON value.
+ * @returns validated detached host record.
+ */
+export function parseRecord(value: unknown): HostRecord {
+  const parsed = hostSchema.safeExtend({ id: idSchema }).parse(value)
+  return JSON.parse(JSON.stringify(parsed)) as HostRecord
+}
+/** Parse explicit login secrets into a detached value.
+ * @param value - untrusted secret input.
+ * @returns validated detached secrets.
+ */
+export function authSecrets(value: unknown): AuthSecrets {
+  return JSON.parse(JSON.stringify(secretsSchema.parse(value))) as AuthSecrets
+}
+
+/**
+ * Fixed public failure; upstream messages must not cross this boundary. The
+ * wire carries the registered `remote-host-failed` code with this package's
+ * own closed code in `details.reason`, because the carrier vocabulary is
+ * closed: an unregistered code fails the client's response parse outright
+ * instead of reaching the management view as a localization key.
+ */
+export class RemoteHostsError extends RemoteError<'remote-host-failed'> {
+  /** This package's own closed failure code. */
+  readonly reason: string
+  constructor(reason: string) {
+    super('remote-host-failed', `remote-hosts: ${reason}`, { reason })
+    this.name = 'RemoteHostsError'
+    this.reason = reason
+  }
+}

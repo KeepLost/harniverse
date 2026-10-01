@@ -644,6 +644,18 @@ describe('catalog routes with per-model configuration', () => {
     expect(resolved.get('openai')?.piProvider.auth.apiKey?.name).toBe('OpenAI API key')
   })
 
+  it('builds a harness api-key auth method for a provider outside the catalog', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test/v1',
+        apiKeyEnv: 'ACME_GATEWAY_KEY',
+        models: [{ id: 'acme-model', contextWindow: 100_000, maxTokens: 4096 }],
+      },
+    })
+    expect(resolved.get('acme-gateway')?.piProvider.auth.apiKey?.name).toBe('acme-gateway')
+  })
+
   it('lets an OAuth-only catalog route authenticate with the key its profile names', async () => {
     // pi-ai honours a request's `apiKey` override only when the provider
     // declares an api-key method. `openai-codex` ships OAuth alone, so without

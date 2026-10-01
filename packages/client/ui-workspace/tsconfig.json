@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../api/remotes/tsconfig.client.json" },
     {
       "path": "../locale"
     },

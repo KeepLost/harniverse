@@ -8,9 +8,10 @@
 
 - `documentPath` — 提供方拥有用户可编辑文件时，该字段是文件的绝对路径；非文件提供方保留 `undefined`。Host 配置适配器据此派生可用性，而浏览器协议只暴露一个布尔能力，绝不暴露文件系统目标。
 - `prepareDocument()` — 让文档做好供原生编辑器打开的准备后返回该路径。基类实现返回 `documentPath`；文件提供方可先创建缺失的文档。
-- `register(ns, schema, { base?, applies? })` — 返回 owner 的 `SettingsScope`（`get`/`watch`/`update`）。注册是调用方插件 fiber 上的 effect：dispose（资源释放）该 fiber 即移除 namespace 及其观察者。schema 拒绝的存量分节会使注册本身失败；重复 namespace 立即报错。
+- `register(ns, schema, { base?, applies?, materialize? })` — 返回 owner 的 `SettingsScope`（`get`/`watch`/`update`）。注册是调用方插件 fiber 上的 effect：dispose（资源释放）该 fiber 即移除 namespace 及其观察者。schema 拒绝的存量分节会使注册本身失败；重复 namespace 立即报错。`materialize` 是 `materialize(ns)` 用来生成仅限 Host 快照的 owner 钩子（见下）。
 - `describe(options?)` — 每个 namespace 一条描述（`schema.toJSON()` 封装、解析值、分离出的 `base`/`user` 层、`applies`），供配置界面使用；字段出现在 `user` 中即标记其被用户覆盖。`describe({ redactSecrets: true })` 从每一层剥离 `role('secret')` 字段，并附加 `secrets` slot 列表（`{ path, set }`）；每个协议接口都必须传入它，纯遍历器 `redactSecrets(schema, value)` 已导出，供其他 wire 使用。
 - `get(ns)` — 解析值；未注册时为 `undefined`。
+- `materialize(ns)` — 为跨进程边界的消费方生成一份仅限 Host 的快照：owner 的 `materialize` 钩子在解析值的分离副本上运行，其结果经已注册 schema 校验后作为分离快照返回。实时值不会改变，结果也绝不通过 `describe` 或设置事件发布；未注册时为 `undefined`。未声明钩子的 namespace 重新校验并返回其解析值。
 - `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经提供方持久化后提交。patch 只能包含与 JSON 兼容的数据：Date、Map、BigInt、非有限数或循环引用会在任何内容持久化前被拒绝，并给出以 `$` 为根的路径（YAML/JSON 存储在重载时会静默改变这类值）。校验失败在持久化前拒绝；只读提供方（`writable: false`）拒绝一切写入。同一 namespace 的写入按调用顺序串行。
 - `replace(ns, section)` — 整体替换用户分节：这是刻意的重置（`replace({})` 重新继承 `base` 与 schema 默认值）。
 - `mutate(ns, ops)` — 在写入排到队首那一刻的分节上，按序施加 `{ op: 'set' | 'unset', path }` 编辑。这是任何持有**不完整**视图的调用方的删除路径：配置 UI 读到的是脱敏后的 descriptor，据此重建分节再整体替换，会把 wire 从未回传的每个机密都删掉，而一条 op 只点名它真正要改的那个字段。

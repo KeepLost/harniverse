@@ -21,14 +21,32 @@ interface Bench {
   api: FakeApiClient
   sinks: ConnectionSinks | undefined
   stopped: number
+  switchMachine(api: FakeApiClient, id?: string): Promise<void>
 }
 
 async function mount(): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(TypertRegistry)
   const api = new FakeApiClient()
-  const bench: Bench = { ctx, api, sinks: undefined, stopped: 0 }
+  let target: import('@deepseek-ai/dsh-api-remotes/client').MachineTarget = { kind: 'host' }
+  let currentApi = api
+  const targetListeners = new Set<() => void>()
+  const bench: Bench = { ctx, api, sinks: undefined, stopped: 0,
+    switchMachine(next, id) {
+      currentApi = next
+      target = id === undefined ? { kind: 'host' } : { kind: 'remote', id }
+      const disposed = bench.sinks?.onTargetChange?.()
+      for (const listener of targetListeners) listener()
+      return Promise.resolve(disposed)
+    },
+  }
   const handle: ConnectionHandle = {
+    target: {
+      getSnapshot: () => target,
+      subscribe: (listener) => { targetListeners.add(listener); return () => { targetListeners.delete(listener) } },
+    },
+    captureApi: () => currentApi,
+    switchTarget: async () => {},
     health: { getSnapshot: () => 'bypass', subscribe: () => () => {} },
     api,
     isLoopback: true,
@@ -62,6 +80,97 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('runtime client apply', () => {
+  it('replaces colliding machine data and scopes through stable observable services', async () => {
+    const bench = await mount()
+    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const workspaces = bench.ctx.get('workspaces') as WorkspaceRuntime
+    const list = sessions.list
+    const workspaceList = workspaces.list
+    const emptyProvide = sessions.currentProvideInfo.getSnapshot()
+    bench.sinks?.onHostEnvelope?.({ rpcId: 'local' as never, payload: { type: 'host/session-added', sessionId: 'same', blank: true } as never })
+    await flushMicrotasks()
+    sessions.open('same' as never)
+    const local = sessions.binding('same' as never)!
+    const remote = new FakeApiClient()
+    await bench.switchMachine(remote, 'remote')
+    expect(sessions.list).toBe(list)
+    expect(workspaces.list).toBe(workspaceList)
+    expect(list.getSnapshot()).toMatchObject({ ids: [], current: undefined, phase: 'pending' })
+    expect(workspaceList.getSnapshot()).toMatchObject({ items: [], phase: 'pending' })
+    expect(sessions.currentProvideInfo.getSnapshot()).not.toBe(emptyProvide)
+    expect(bench.sinks?.muxSince?.()).toEqual({})
+    expect(sessions.binding('same' as never)).toBeUndefined()
+    bench.sinks?.onHostEnvelope?.({ rpcId: 'remote' as never, payload: { type: 'host/session-added', sessionId: 'same', blank: true } as never })
+    await flushMicrotasks()
+    sessions.open('same' as never)
+    expect(sessions.binding('same' as never)?.session).not.toBe(local.session)
+    expect(sessions.sessionOf(local.ctx)).toBeUndefined()
+    await bench.switchMachine(bench.api)
+    expect(list.getSnapshot().ids).toEqual([])
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('fences a pending create and baseline when a new machine reuses their ids', async () => {
+    const bench = await mount()
+    const oldCreate = Promise.withResolvers<ReturnType<typeof ok<{ sessionId: never }>>>()
+    bench.api.onCreate = () => oldCreate.promise
+    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const create = sessions.create().catch((error: unknown) => error)
+    const staleList = Promise.withResolvers<ReturnType<typeof ok<{ items: never[] }>>>()
+    bench.api.onList = () => staleList.promise
+    const refresh = sessions.refresh()
+    const remote = new FakeApiClient()
+    await bench.switchMachine(remote, 'remote')
+    oldCreate.resolve(ok({ sessionId: 'same' as never }))
+    staleList.resolve(ok({ items: [{ sessionId: 'stale', blank: true }] as never[] }))
+    await refresh
+    expect(await create).toBeInstanceOf(Error)
+    await flushMicrotasks()
+    expect(sessions.list.getSnapshot().ids).toEqual([])
+    expect(remote.callsOf('session.create')).toEqual([])
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('rejects a late Workspace create after its machine has been retired', async () => {
+    const bench = await mount()
+    const pending = Promise.withResolvers<Awaited<ReturnType<FakeApiClient['onWorkspaceCreate']>>>()
+    bench.api.onWorkspaceCreate = () => pending.promise
+    const workspaces = bench.ctx.get('workspaces') as WorkspaceRuntime
+    const create = workspaces.create({ path: '/local' }).catch((error: unknown) => error)
+    await bench.switchMachine(new FakeApiClient(), 'remote')
+    pending.resolve(ok({ created: true, workspace: {
+      workspaceId: 'same' as never, path: '/local', title: 'local', sessionIds: [], createdAt: '0', updatedAt: '0',
+    } }))
+    expect(await create).toBeInstanceOf(Error)
+    expect(workspaces.list.getSnapshot().items).toEqual([])
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('waits for old session effects to dispose while publishing empty machine state immediately', async () => {
+    const bench = await mount()
+    bench.sinks?.onHostEnvelope?.({ rpcId: 'local' as never, payload: { type: 'host/session-added', sessionId: 'same', blank: true } as never })
+    await flushMicrotasks()
+    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const scope = sessions.scope('same' as never)!
+    const disposing = Promise.withResolvers<undefined>()
+    const disposed = Promise.withResolvers<undefined>()
+    scope.effect(() => () => {
+      expect(sessions.sessionOf(scope)).toBeUndefined()
+      expect(() => sessions.scopeOf(scope)).toThrow('retired machine')
+      disposing.resolve(undefined)
+      return disposed.promise
+    }, 'test: deferred cleanup')
+    let settled = false
+    const switched = bench.switchMachine(new FakeApiClient(), 'remote').then(() => { settled = true })
+    await disposing.promise
+    expect(sessions.list.getSnapshot().ids).toEqual([])
+    expect(settled).toBe(false)
+    disposed.resolve(undefined)
+    await switched
+    expect(sessions.scope('same' as never)).toBeUndefined()
+    await bench.ctx.fiber.dispose()
+  })
+
   it('mounts slots, Sessions, and Workspaces and fans host frames into both managers', async () => {
     const bench = await mount()
     expect(bench.ctx.get('slots') !== undefined).toBe(true)

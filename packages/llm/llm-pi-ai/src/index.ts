@@ -56,14 +56,17 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
+import { findEnvKeys } from '@earendil-works/pi-ai/compat'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
-import { catalogProviderIds, catalogProviderTakesApiKey } from './catalog.ts'
-import { assertServiceable, Config, resolveProfiles } from './config.ts'
-import type { ResolvedPiAiProviderProfile } from './config.ts'
+import type { ResolvedPiAiCredential } from './adapter.ts'
+import { catalogProvider, catalogProviderIds, catalogProviderTakesApiKey } from './catalog.ts'
+import { assertServiceable, Config as PiAiConfig, resolveProfiles } from './config.ts'
+import type { Config, PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
 
@@ -86,6 +89,58 @@ export const name = 'llm-pi-ai'
 export const inject = ['llm']
 
 const NS = settingsNamespace('llm-pi-ai')
+
+/**
+ * Find the provider-owned ambient API-key reference without copying the host
+ * environment into settings. The provider's own auth resolver decides which
+ * host value is usable and reports the corresponding reference as its source;
+ * only that name crosses into the materialized configuration.
+ */
+async function ambientCredential(ctx: Context, provider: string): Promise<Pick<PiAiProviderProfile, 'apiKeyEnv' | 'authMode'> | undefined> {
+  const auth = catalogProvider(provider)?.auth.apiKey
+  if (auth === undefined) return undefined
+  const environment = launchEnvironmentOf(ctx)
+  const credentials = ctx.get('credentials')
+  const names = findEnvKeys(provider, new Proxy(Object.create(null) as Record<string, string>, {
+    get: () => 'configured',
+  })) ?? []
+  for (const name of names) {
+    const stored = credentials === undefined ? undefined : await credentials.resolve(credentialRef(name))
+    const available = credentials === undefined ? environment.get(name)?.value : stored?.value
+    if (available === undefined || available.length === 0) continue
+    const resolved = await auth.resolve({
+      ctx: {
+        env: key => Promise.resolve(key === name ? available : undefined),
+        /* v8 ignore next -- API-key environment providers do not inspect files. */
+        fileExists: () => Promise.resolve(false),
+      },
+    })
+    if (resolved === undefined) continue
+    const bearer = Object.entries(resolved.auth.headers ?? {})
+      .some(([key, value]) => key.toLowerCase() === 'authorization' && typeof value === 'string')
+    if (resolved.auth.apiKey !== undefined || bearer) {
+      return { apiKeyEnv: name, authMode: bearer ? 'bearer' : 'api-key' }
+    }
+  }
+  return undefined
+}
+
+/** Add provider-owned ambient credential references to a host-only snapshot. */
+async function materializeConfig(ctx: Context, value: Config): Promise<Config> {
+  const providers: Record<string, PiAiProviderProfile> = {}
+  for (const [provider, profile] of Object.entries(
+    /* v8 ignore next -- the settings seam schema-materializes providers:{} before this hook observes the section */
+    value.providers ?? {},
+  )) {
+    providers[provider] = profile
+    if (profile.apiKeyEnv !== undefined) continue
+    const ambient = await ambientCredential(ctx, provider)
+    providers[provider] = ambient === undefined
+      ? { ...profile, authMode: 'none' }
+      : { ...profile, ...ambient }
+  }
+  return { providers }
+}
 
 /**
  * The registry captures these per route; a change here must re-register.
@@ -176,7 +231,7 @@ export function apply(ctx: Context, config: Config): void {
   const resolveApiKey = async (
     provider: string,
     profile: ResolvedPiAiProviderProfile,
-  ): Promise<string | undefined> => {
+  ): Promise<ResolvedPiAiCredential | undefined> => {
     const ref = profile.apiKeyEnv
     // Only a profile that names no credential at all defers to pi-ai's
     // provider-native discovery. Once one is named, a miss must fail loud:
@@ -189,7 +244,9 @@ export function apply(ctx: Context, config: Config): void {
       ? (await credentials.resolve(ref))?.value
       // Without the seam the environment is the whole credential plane.
       : launchEnvironmentOf(ctx).get(ref)?.value
-    if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', ref)
+    if (hit !== undefined && hit.length > 0) {
+      return { value: assertUsableApiKey(hit, 'llm-pi-ai', ref), authMode: profile.authMode === 'bearer' ? 'bearer' : 'api-key' }
+    }
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
       + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`
@@ -248,7 +305,7 @@ export function apply(ctx: Context, config: Config): void {
       /* v8 ignore next -- a profile without an api only parses for catalog-described providers, which discovery answers without a probe */
       ...profile.api === undefined ? {} : { api: profile.api },
       headers: profile.headers,
-      resolveApiKey: () => resolveApiKey(provider, profile),
+      resolveCredential: () => resolveApiKey(provider, profile),
     }
   }
   // Interrogating an endpoint is a configuration-time action over a draft, so
@@ -292,7 +349,8 @@ export function apply(ctx: Context, config: Config): void {
   }
   ensureRegistrationFacts()
 
-  installSettingsSection(ctx, NS, Config, config, {
+  installSettingsSection(ctx, NS, PiAiConfig, config, {
+    materialize: value => materializeConfig(ctx, value),
     // Refuse an unserviceable section where it is written: without this a
     // schema-valid profile the adapter cannot serve would be stored and then
     // silently disable every route in this namespace.

@@ -519,6 +519,7 @@
     "browser-control-unavailable",
     "browser-limit-reached",
     "browser-navigation-refused",
+    "remote-host-failed",
     "internal",
     "idempotency-key-reused",
     "operation-not-found"

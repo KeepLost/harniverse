@@ -10,6 +10,7 @@
  */
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -46,7 +47,7 @@ const NS = 'workspace'
  * provides a waitable service. apply therefore depends on each slot
  * declaration through `slots.inject()` instead of assuming order.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'layout']
+export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'layout', 'connection']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -56,9 +57,31 @@ export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'layout']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
+  const connection = ctx.get('connection') as ConnectionHandle
+
+  const mount = () => ctx.effect(() => machineSurfaces(ctx, connection), 'ui-workspace: machine surfaces')
+  let dispose = mount()
+  ctx.effect(() => {
+    const unsubscribe = connection.target.subscribe(() => {
+      void dispose()
+      dispose = mount()
+    })
+    return () => { unsubscribe(); void dispose() }
+  }, 'ui-workspace: target subscription')
+}
+
+/** One machine's registrations own its local interaction state and callbacks. */
+function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Generator<() => void, void, void> {
+  const target = connection.target.getSnapshot()
+  const machineKey = target.kind === 'host' ? 'host' : `remote:${target.id}`
+  const current = (): void => {
+    if (connection.target.getSnapshot() !== target) throw new Error('workspace view belongs to a retired machine')
+  }
 
   const searchSessions: WorkspaceBrowserInjected['searchSessions'] = async (query, signal) => {
+    current()
     const result = await ctx.sessions.search(query, signal)
+    current()
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
@@ -74,11 +97,12 @@ export function apply(ctx: ClientContext): void {
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
-    startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
-    open: (sessionId) => { ctx.sessions.open(sessionId) },
+    startSession: (workspaceId) => { current(); ctx.workspaces.startSession(workspaceId) },
+    open: (sessionId) => { current(); ctx.sessions.open(sessionId) },
     searchSessions,
     searchResultLimit: ctx.sessions.searchResultLimit,
     renameSession: async (sessionId, title) => {
+      current()
       // Row → session-face hop: rename is a per-session verb (ISession), not
       // a list-service verb; the binding resolves any listed session.
       const session = ctx.sessions.binding(sessionId)?.session
@@ -87,45 +111,51 @@ export function apply(ctx: ClientContext): void {
       if (!result.ok) throw new Error(result.error.message)
     },
     forkSession: (sessionId) => {
+      current()
       ctx.sessions.fork({ sessionId, increaseTitle: true })
-        .then((childId) => { ctx.sessions.open(childId) })
+        .then((childId) => { current(); ctx.sessions.open(childId) })
         .catch(() => {
           // Fork or child-rename failure keeps the current selection.
         })
     },
-    renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
-    deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
+    renameWorkspace: async (workspaceId, title) => { current(); await ctx.workspaces.rename(workspaceId, title) },
+    deleteWorkspace: async (workspaceId) => { current(); await ctx.workspaces.delete(workspaceId) },
     insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
+      current()
       await ctx.workspaces.insertBefore(workspaceId, beforeWorkspaceId)
     },
-    archiveSession: async (sessionId) => { await ctx.workspaces.archiveSession(sessionId) },
-    unarchiveSession: async (sessionId) => { await ctx.workspaces.unarchiveSession(sessionId) },
-    openArchive: sessionId => ctx.sessions.openArchive(sessionId),
-    loadArchiveOlder: sessionId => ctx.sessions.loadArchiveOlder(sessionId),
-    deleteSession: sessionId => ctx.sessions.deleteSession(sessionId),
+    archiveSession: async (sessionId) => { current(); await ctx.workspaces.archiveSession(sessionId) },
+    unarchiveSession: async (sessionId) => { current(); await ctx.workspaces.unarchiveSession(sessionId) },
+    openArchive: (sessionId) => { current(); return ctx.sessions.openArchive(sessionId) },
+    loadArchiveOlder: (sessionId) => { current(); return ctx.sessions.loadArchiveOlder(sessionId) },
+    deleteSession: (sessionId) => { current(); return ctx.sessions.deleteSession(sessionId) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
+      current()
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },
-    createWorkspace: input => ctx.workspaces.create(input),
+    createWorkspace: (input) => { current(); return ctx.workspaces.create(input) },
     hooks: { directoryFlow: browserFlowSource },
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
-    createWorkspace: input => ctx.workspaces.create(input),
+    createWorkspace: (input) => { current(); return ctx.workspaces.create(input) },
     hooks: { directoryFlow: pickerFlowSource },
   })
   // Each registration declares its directory-flow child in the same call;
   // slot injection follows both the owner and declaration HMR lifetimes.
-  ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
+  yield ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
     {
       name: 'sidebar.workspaces',
-      children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
-      store: createWorkspaceViewStore(),
+      children: {
+        'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' },
+        'sidebar.workspaces.machine': { kind: 'single', scope: 'root' },
+      },
+      store: createWorkspaceViewStore(machineKey),
       inject: browserInjected,
       locale: NS,
     },
     WorkspaceBrowser,
   ))
-  ctx.slots.inject('conversation.hero.workspace', () => ctx.slots.register(
+  yield ctx.slots.inject('conversation.hero.workspace', () => ctx.slots.register(
     {
       name: 'conversation.hero.workspace',
       children: { 'conversation.hero.workspace.directoryFlow': { kind: 'single', scope: 'root' } },
@@ -138,15 +168,18 @@ export function apply(ctx: ClientContext): void {
   const workbenchInjected = (): WorkspaceWorkbenchInjected => ({
     openWorkbench: () => { ctx.layout.openWorkbench() },
     closeWorkbench: () => { ctx.layout.closeWorkbench() },
-    listFiles: (workspaceId, path, signal) => ctx.workspaces.listFiles(workspaceId, path, signal),
-    searchFiles: (workspaceId, query, filters, signal) => ctx.workspaces.searchFiles(workspaceId, query, filters, signal),
-    readFile: (workspaceId, path, signal) => ctx.workspaces.readFile(workspaceId, path, signal),
-    readBinaryFile: (workspaceId, path, signal) => ctx.workspaces.readBinaryFile(workspaceId, path, signal),
-    gitStatus: (workspaceId, signal) => ctx.workspaces.gitStatus(workspaceId, signal),
-    gitCommits: (workspaceId, limit, signal) => ctx.workspaces.gitCommits(workspaceId, limit, signal),
-    gitDiff: (workspaceId, path, staged, signal) => ctx.workspaces.gitDiff(workspaceId, path, staged, signal),
+    listFiles: (workspaceId, path, signal) => { current(); return ctx.workspaces.listFiles(workspaceId, path, signal) },
+    searchFiles: (workspaceId, query, filters, signal) => {
+      current()
+      return ctx.workspaces.searchFiles(workspaceId, query, filters, signal)
+    },
+    readFile: (workspaceId, path, signal) => { current(); return ctx.workspaces.readFile(workspaceId, path, signal) },
+    readBinaryFile: (workspaceId, path, signal) => { current(); return ctx.workspaces.readBinaryFile(workspaceId, path, signal) },
+    gitStatus: (workspaceId, signal) => { current(); return ctx.workspaces.gitStatus(workspaceId, signal) },
+    gitCommits: (workspaceId, limit, signal) => { current(); return ctx.workspaces.gitCommits(workspaceId, limit, signal) },
+    gitDiff: (workspaceId, path, staged, signal) => { current(); return ctx.workspaces.gitDiff(workspaceId, path, staged, signal) },
   })
-  ctx.slots.inject('workbench', () => ctx.slots.register(
+  yield ctx.slots.inject('workbench', () => ctx.slots.register(
     {
       name: 'workbench',
       store: workbenchStore,
@@ -164,7 +197,7 @@ export function apply(ctx: ClientContext): void {
   // The preview surface is a second registration over the SAME store handle:
   // it lives in the frame-wide overlay layer so it can slide over the
   // conversation, which the workbench column (overflow-clipped) cannot do.
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+  yield ctx.slots.inject('shell.overlay', () => ctx.slots.register(
     {
       name: 'shell.overlay',
       id: 'workspace-workbench-preview',
@@ -174,7 +207,7 @@ export function apply(ctx: ClientContext): void {
     },
     WorkspaceWorkbenchPreviewOverlay,
   ))
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
+  yield ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
     {
       name: 'conversation.session.header.utilities',
       id: 'workspace-workbench',
