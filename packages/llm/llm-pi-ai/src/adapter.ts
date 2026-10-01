@@ -207,16 +207,17 @@ function describableReasoningLevel(
 /**
  * Implicit thinking level for a reasoning-capable model when neither the
  * request nor the profile names one: the middle level `medium`, clamped to
- * the model's nearest supported level. A model whose reasoning capability is
- * described but whose only supported level is `off` gets no implicit default.
+ * the model's nearest supported level. A reasoning-capable model always
+ * exposes a level beyond `off` — the config layer refuses a hand-declared
+ * dict without one, and shipped catalog entries agree — so the clamp lands
+ * on a real level.
  * @param model - the resolved model descriptor.
  * @returns the level an unspecified request will send, or `undefined` for
- *   models without a usable reasoning level.
+ *   models without a described reasoning capability.
  */
 function implicitThinkingLevel(model: Model<Api>): ModelThinkingLevel | undefined {
   if (!model.reasoning) return undefined
-  const clamped = clampThinkingLevel(model, 'medium')
-  return clamped === 'off' ? undefined : clamped
+  return clampThinkingLevel(model, 'medium')
 }
 
 /**
