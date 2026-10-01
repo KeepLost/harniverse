@@ -194,11 +194,47 @@ describe('PiAiAdapter provider routing', () => {
       reasoningEffort: ReasoningEffortId('xhigh'),
       messages: [],
     })
-    expect(unsupported.finish).toMatchObject({
-      kind: 'error',
-      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
-    })
+    expect(unsupported.finish).toMatchObject({ kind: 'error', failure: { code: 'UNSUPPORTED_REASONING_EFFORT' } })
     expect(server.requests).toHaveLength(2)
+  })
+
+  it('clamps an unspecified request to the nearest supported thinking level', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url)
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    // The catalog model supports only high and max; the implicit middle level
+    // clamps to high instead of riding a provider default that inlines the
+    // chain of thought into the visible text.
+    expect(server.requests[0]).toMatchObject({
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'high',
+    })
+  })
+
+  it('keeps an explicit defaultReasoningEffort pin off the wire', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: null, low: 'low', medium: 'medium' },
+            defaultReasoningEffort: 'default',
+          }],
+        },
+      },
+    })
+
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-think', messages: [] })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
   })
 
   it('preserves omitted profile options when constructing the adapter directly', async () => {
@@ -575,8 +611,7 @@ describe('provider profile lifecycle', () => {
     })
   })
 
-  it('prefers the model default effort over the route default and can pin none', async () => {
-    const ctx = new Context()
+  it('prefers the model default effort over the route default and can pin none', async () => {    const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
       providers: {
@@ -1024,17 +1059,18 @@ describe('protocol-owned request assembly', () => {
     return Object.fromEntries(Object.entries(providers).map(([route, profile]) => [route, { ...profile, baseURL }]))
   }
 
-  it('keeps an unselected adaptive-thinking Anthropic model on its provider default', async () => {
+  it('sends an implicit middle thinking level for an unselected adaptive-thinking Anthropic model', async () => {
     const { body } = await oneWireRequest({
       anthropic: { apiKeyEnv: 'PI_TEST_KEY' },
     }, { provider: 'anthropic', model: 'claude-sonnet-5', messages: [], temperature: 0.5 })
 
-    // No thinking field at all: the model thinks by its own default, and the
-    // temperature a thinking turn would refuse waits rather than failing.
-    expect(body).not.toHaveProperty('thinking')
+    // Without an explicit thinking request, gateways and hybrid models
+    // inline the chain of thought into the visible text; an unspecified
+    // request therefore names the implicit middle level instead of riding
+    // the provider default, and the temperature a thinking turn would
+    // refuse keeps waiting.
+    expect(body).toMatchObject({ model: 'claude-sonnet-5', max_tokens: 128000, thinking: { type: 'adaptive' } })
     expect(body).not.toHaveProperty('temperature')
-    // `max_tokens` is required on this protocol, so the capability stands in.
-    expect(body).toMatchObject({ model: 'claude-sonnet-5', max_tokens: 128000 })
   })
 
   it('disables Anthropic thinking explicitly for off', async () => {
@@ -1112,11 +1148,15 @@ describe('protocol-owned request assembly', () => {
       ])
 
     const unselected = await responses(undefined, 0.5)
-    expect(unselected.body).toMatchObject({ model: 'gpt-5.5', temperature: 0.5 })
-    // Unselected dispatches as an explicit `effort: none`, so the temperature
-    // is safe there; a selected effort drops it instead of failing the request.
-    expect(unselected.body).toMatchObject({ reasoning: { effort: 'none' } })
+    // Unselected now names the implicit middle level (an unspecified request
+    // must not ride the provider default into inlined thinking text), so the
+    // temperature a thinking turn would refuse stays off the wire.
+    expect(unselected.body).toMatchObject({ model: 'gpt-5.5', reasoning: { effort: 'medium' } })
+    expect(unselected.body).not.toHaveProperty('temperature')
     expect(unselected.body).not.toHaveProperty('max_output_tokens')
+
+    const off = await responses(ReasoningEffortId('off'), 0.5)
+    expect(off.body).toMatchObject({ reasoning: { effort: 'none' }, temperature: 0.5 })
 
     const thinking = await responses(ReasoningEffortId('high'), 0.5)
     expect(thinking.body).toMatchObject({ reasoning: { effort: 'high' } })

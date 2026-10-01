@@ -21,7 +21,7 @@
  * @module dsh-llm-pi-ai/adapter
  */
 
-import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
+import { clampThinkingLevel, createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   Model,
@@ -204,7 +204,46 @@ function describableReasoningLevel(
     : undefined
 }
 
-/** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
+/**
+ * Implicit thinking level for a reasoning-capable model when neither the
+ * request nor the profile names one: the middle level `medium`, clamped to
+ * the model's nearest supported level. A model whose reasoning capability is
+ * described but whose only supported level is `off` gets no implicit default.
+ * @param model - the resolved model descriptor.
+ * @returns the level an unspecified request will send, or `undefined` for
+ *   models without a usable reasoning level.
+ */
+function implicitThinkingLevel(model: Model<Api>): ModelThinkingLevel | undefined {
+  if (!model.reasoning) return undefined
+  const clamped = clampThinkingLevel(model, 'medium')
+  return clamped === 'off' ? undefined : clamped
+}
+
+/**
+ * The effort an unspecified request starts from: the model's configured
+ * default, else the route's. An explicit `default` pin returns
+ * `'pinned-none'`: naming no effort is that model's configured answer, and
+ * neither the route default nor the implicit middle level crosses it. The
+ * implicit level for reasoning-capable models is layered on by the callers,
+ * who hold the resolved model descriptor.
+ * @param profile - the provider profile the request resolved through.
+ * @param model - the model id the profile resolved.
+ * @returns the pre-validation level, `'pinned-none'`, or `undefined` when
+ *   nothing applies.
+ */
+function effectiveDefaultEffort(
+  profile: ResolvedPiAiProviderProfile,
+  model: string,
+): ModelThinkingLevel | 'pinned-none' | undefined {
+  const configuredDefault = profile.configuredDefaultEffort.get(model)
+  if (configuredDefault === 'default') return 'pinned-none'
+  if (configuredDefault !== undefined) return configuredDefault
+  return profile.reasoning
+}
+
+/**
+ * Validate an explicit Harness/profile effort without invoking pi-ai's clamp.
+ */
 function resolveReasoningLevel(
   model: Model<Api>,
   effort: ReasoningEffortIdType | ModelThinkingLevel | undefined,
@@ -345,11 +384,15 @@ export class PiAiAdapter extends LlmAdapter {
       const profile = this.profileOf(snapshot, provider)
       const resolvedModel = this.modelOf(snapshot, provider, model)
       // A model-level default wins over the route's; "default" is the model's
-      // explicit "send no effort", which the route default cannot cross.
-      const configuredDefault = profile.configuredDefaultEffort.get(model)
-      const defaultLevel = configuredDefault === 'default'
-        ? undefined
-        : describableReasoningLevel(resolvedModel, configuredDefault ?? profile.reasoning)
+      // explicit "send no effort", which neither default crosses. A model
+      // that describes reasoning but no configured default still reports the
+      // implicit middle level, because that is what an unspecified request
+      // sends.
+      const configuredDefault = effectiveDefaultEffort(profile, model)
+      const defaultLevel = describableReasoningLevel(
+        resolvedModel,
+        configuredDefault === 'pinned-none' ? undefined : configuredDefault ?? implicitThinkingLevel(resolvedModel),
+      )
       // Only a cap the deployment configured is a request default; the
       // catalog's `maxTokens` sizes the model and stops there.
       const configuredMaxTokens = profile.configuredMaxTokens.get(model)
@@ -378,9 +421,15 @@ export class PiAiAdapter extends LlmAdapter {
     const snapshot = this.current()
     const profile = this.profileOf(snapshot, options.provider)
     const model = this.modelOf(snapshot, options.provider, options.model)
+    // An unspecified request on a reasoning-capable model still sends an
+    // explicit level: without one, gateways and hybrid models inline their
+    // chain of thought into the visible text instead of a thinking block.
+    const configuredDefault = effectiveDefaultEffort(profile, model.id)
     const reasoning = resolveReasoningLevel(
       model,
-      options.reasoningEffort ?? profile.reasoning,
+      options.reasoningEffort ?? (configuredDefault === 'pinned-none'
+        ? undefined
+        : configuredDefault ?? implicitThinkingLevel(model)),
     )
     const resolvedCredential = await this.config.resolveApiKey(options.provider, profile)
     const credential = typeof resolvedCredential === 'string'
