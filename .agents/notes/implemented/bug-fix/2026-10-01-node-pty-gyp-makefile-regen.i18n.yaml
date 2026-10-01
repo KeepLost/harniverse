@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-01-node-pty-gyp-makefile-regen.md
+2026-10-01-node-pty-gyp-makefile-regen.md: f82e454b8f850e58e6f5c277c10e1b83792ecb89
+2026-10-01-node-pty-gyp-makefile-regen.zh.md: 7dbd2bd323d8d0012ec3eb81899c5266ea3a518f

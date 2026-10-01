@@ -1,5 +1,5 @@
 diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
-index 1ec12f796a822c78fba9ad7f6448c3987e325c23..5cd6b7d635f4752be5a6c5ff9cf9edf988cf94c5 100644
+index 1ec12f7..08d2eb6 100644
 --- a/lib/unixTerminal.js
 +++ b/lib/unixTerminal.js
 @@ -26,10 +26,23 @@ var terminal_1 = require("./terminal");
@@ -30,8 +30,21 @@ index 1ec12f796a822c78fba9ad7f6448c3987e325c23..5cd6b7d635f4752be5a6c5ff9cf9edf9
  var DEFAULT_FILE = 'sh';
  var DEFAULT_NAME = 'xterm';
  var DESTROY_SOCKET_TIMEOUT_MS = 200;
+diff --git a/package.json b/package.json
+index 94a2c14..81ab445 100644
+--- a/package.json
++++ b/package.json
+@@ -38,7 +38,7 @@
+     "build": "tsc -b ./src/tsconfig.json",
+     "watch": "tsc -b -w ./src/tsconfig.json",
+     "lint": "eslint -c .eslintrc.js --ext .ts src/",
+-    "install": "node scripts/prebuild.js || node-gyp rebuild",
++    "install": "node scripts/prebuild.js || (node-gyp configure && touch build/Makefile && node-gyp build)",
+     "postinstall": "node scripts/post-install.js",
+     "compileCommands": "node scripts/gen-compile-commands.js",
+     "test": "cross-env NODE_ENV=test mocha -R spec --exit lib/*.test.js",
 diff --git a/src/unixTerminal.ts b/src/unixTerminal.ts
-index 98733dc0cd752b554bd94e45904ca341ad141bba..fa234291206617ae5a6d8605abf9771220392d17 100644
+index 98733dc..e19f46a 100644
 --- a/src/unixTerminal.ts
 +++ b/src/unixTerminal.ts
 @@ -14,10 +14,21 @@ import { assign, loadNativeModule } from './utils';
