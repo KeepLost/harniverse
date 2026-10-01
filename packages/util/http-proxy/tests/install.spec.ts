@@ -731,6 +731,29 @@ describe('proxyRouteFor', () => {
 })
 
 describe('installing over an existing installation', () => {
+  it('clears the dispatcher symbol when the displaced one was Node\'s own default', async () => {
+    const previous = currentDispatcher()
+    setDispatcher(undefined)
+    const outer = await install(proxyAll())
+    try {
+      const agent = currentDispatcher()
+      expect(agent).toBeInstanceOf(ProxyDispatcher)
+      const off = await install(env({}))
+      try {
+        // The proxied install displaced no dispatcher, so the direct window clears the symbol
+        // rather than restoring a stale one; Node re-materializes its own default Agent on the
+        // next read, which is exactly the fresh-process behavior this window restores.
+        expect(currentDispatcher()).not.toBeInstanceOf(ProxyDispatcher)
+      } finally {
+        await off.dispose()
+      }
+      expect(currentDispatcher()).toBe(agent)
+    } finally {
+      await outer.dispose()
+      setDispatcher(previous)
+    }
+  })
+
   it('stops proxying when the mounted policy proxies nothing', async () => {
     const outer = await install(proxyAll())
     try {
