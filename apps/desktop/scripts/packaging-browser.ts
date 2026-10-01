@@ -2,11 +2,11 @@
 import assert from 'node:assert/strict'
 import { fork, spawnSync, type ChildProcess } from 'node:child_process'
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
-import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { constants, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { copyFile, link, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { checkRuntime, type RuntimeInput } from './packaging-runtime.ts'
@@ -56,49 +56,46 @@ function qualificationPage(): string {
 
 /**
  * Snapshot a checked, immutable runtime; only the policy file gets a writable private inode.
+ * Every platform hardlinks the sealed payload — a bulk copy cannot be interrupted by the
+ * preparation deadline and Windows runners have exceeded it — so the snapshot root must sit
+ * on the same volume as the payload wherever links are attempted.
  * @param app - sealed physical payload already validated by checkRuntime.
  * @param runtime - fresh disposable destination; removed on failure.
  * @param signal - preparation lifetime; all in-flight filesystem work settles before rejection.
- * @returns hardlink and copy counts, including whether the Windows-compatible bulk copy was used.
+ * @returns hardlink and copy counts (copies are the per-file fallback and the private policy inode).
  */
 export async function prepareBrowserSnapshot(
   app: string, runtime: string, signal: AbortSignal,
-): Promise<{ linkedFiles: number; copiedFiles: number; bulkCopied: boolean }> {
+): Promise<{ linkedFiles: number; copiedFiles: number }> {
   signal.throwIfAborted()
   await mkdir(runtime, { mode: 0o700 })
   const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
-  const evidence = { linkedFiles: 0, copiedFiles: 0, bulkCopied: false }
+  const evidence = { linkedFiles: 0, copiedFiles: 0 }
   try {
-    if (process.platform === 'win32') {
-      // Keep the Windows qualification copy independent of the sealed payload's inodes.
-      cpSync(app, runtime, { recursive: true, mode: constants.COPYFILE_FICLONE })
-      evidence.bulkCopied = true
-    } else {
-      const entries = await readdir(app, { recursive: true, withFileTypes: true })
-      const files: string[] = []
-      for (const entry of entries) {
+    const entries = await readdir(app, { recursive: true, withFileTypes: true })
+    const files: string[] = []
+    for (const entry of entries) {
+      signal.throwIfAborted()
+      const path = relative(app, join(entry.parentPath, entry.name)).replaceAll('\\', '/')
+      if (entry.isDirectory()) await mkdir(join(runtime, path), { recursive: true })
+      else if (entry.isFile()) files.push(path)
+      else throw new Error(`Browser qualification requires a physical sealed file: ${path}`)
+    }
+    for (let index = 0; index < files.length; index += 32) {
+      signal.throwIfAborted()
+      const outcomes = await Promise.allSettled(files.slice(index, index + 32).map(async (path) => {
         signal.throwIfAborted()
-        const path = relative(app, join(entry.parentPath, entry.name)).replaceAll('\\', '/')
-        if (entry.isDirectory()) await mkdir(join(runtime, path), { recursive: true })
-        else if (entry.isFile()) files.push(path)
-        else throw new Error(`Browser qualification requires a physical sealed file: ${path}`)
-      }
-      for (let index = 0; index < files.length; index += 32) {
-        signal.throwIfAborted()
-        const outcomes = await Promise.allSettled(files.slice(index, index + 32).map(async (path) => {
-          signal.throwIfAborted()
-          const source = join(app, path)
-          const destination = join(runtime, path)
-          if (path !== policy) {
-            try { await link(source, destination); evidence.linkedFiles++; return } catch (error) {
-              if (!['EXDEV', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EACCES', 'EMLINK'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
-            }
+        const source = join(app, path)
+        const destination = join(runtime, path)
+        if (path !== policy) {
+          try { await link(source, destination); evidence.linkedFiles++; return } catch (error) {
+            if (!['EXDEV', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EACCES', 'EMLINK'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
           }
-          await copyFile(source, destination, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL)
-          evidence.copiedFiles++
-        }))
-        for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason
-      }
+        }
+        await copyFile(source, destination, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL)
+        evidence.copiedFiles++
+      }))
+      for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason
     }
     signal.throwIfAborted()
     const patch = join(runtime, policy)
@@ -289,7 +286,14 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
   }
   const checked = checkRuntime(app, process.platform, process.arch)
   assert.deepEqual(checked.errors, [])
-  const root = mkdtempSync(join(tmpdir(), 'harniverse-browser-'))
+  // On Windows the system temp directory can sit on another volume, which would
+  // degrade every snapshot link into a full cross-volume copy (the unkillable
+  // bulk copy that outran the preparation deadline); scratch beside the payload
+  // is same-volume by construction. Other platforms keep the temp scratch —
+  // their temp and payload already share a volume, and a macOS scratch must not
+  // land inside the sealed app bundle.
+  const scratchBase = process.platform === 'win32' ? dirname(app) : tmpdir()
+  const root = mkdtempSync(join(scratchBase, 'harniverse-browser-'))
   const runtime = join(root, 'runtime')
   const home = join(root, 'home')
   let child: ChildProcess | undefined
