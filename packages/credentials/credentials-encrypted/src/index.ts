@@ -166,8 +166,9 @@ export class EncryptedCredentialProvider extends CredentialProvider implements E
       const candidate = decodeKey(key)
       let keep = false
       try {
-        if (this.session?.values !== undefined) {
-          if (timingSafeEqual(candidate, this.session.key)) return
+        const active = this.session
+        if (active?.values !== undefined) {
+          if (timingSafeEqual(candidate, active.key)) return
           this.erase()
         }
         await removeDocument(this.filename)

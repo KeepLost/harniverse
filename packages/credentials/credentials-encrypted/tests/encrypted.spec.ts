@@ -69,6 +69,24 @@ describe('encrypted credential authority', () => {
     expect(await provider.resolve(MODEL)).toBeUndefined()
   })
 
+  it('takes over a locked provider without reading the stored document', async () => {
+    const path = await filename()
+    const { provider } = await boot(path)
+    const stale = randomBytes(32).toString('base64url')
+    await provider.unlock(stale)
+    await provider.replace({ MODEL_KEY: 'stale-authority' })
+    await provider.lock()
+    const next = randomBytes(32).toString('base64url')
+    await provider.takeover(next)
+    expect(provider.status()).toEqual({ locked: false })
+    expect(await provider.resolve(MODEL)).toBeUndefined()
+    await provider.replace({ MODEL_KEY: 'locked-takeover' })
+    expect(await provider.resolve(MODEL)).toEqual({ value: 'locked-takeover', source: 'encrypted' })
+    await provider.lock()
+    await provider.unlock(next)
+    expect(await provider.resolve(MODEL)).toEqual({ value: 'locked-takeover', source: 'encrypted' })
+  })
+
   it('takes over the mirror for a different authority and rebuilds it with the next replace', async () => {
     const path = await filename()
     const { provider, events } = await boot(path)
