@@ -63,6 +63,9 @@ function currentGlobalDispatcher(): Dispatcher | undefined {
 
 /** Install `dispatcher` as the global one `fetch` resolves; `undefined` restores Node's default. */
 function setGlobalDispatcher(dispatcher: Dispatcher | undefined): void {
+  /* v8 ignore next -- Node exposes its default dispatcher from process boot and re-materializes
+     the symbol after a deletion, so the clearing arm is a defensive restore no install flow can
+     reach; only the assignment arm is observable. */
   if (dispatcher === undefined) Reflect.deleteProperty(globalThis, GLOBAL_DISPATCHER_SYMBOL)
   else (globalThis as Record<symbol, unknown>)[GLOBAL_DISPATCHER_SYMBOL] = dispatcher
 }

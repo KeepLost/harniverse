@@ -125,7 +125,10 @@ void test('browser discovery fails with an actionable provision command and leav
 
 void test('native qualification refuses system Node before loading a runtime', () => {
   const probe = fileURLToPath(new URL('../scripts/packaging-native-probe.cjs', import.meta.url))
-  const result = spawnSync(process.execPath, [probe, '/nonexistent-runtime', process.platform, process.arch, '43.4.0'], {
+  const electronVersion = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    devDependencies: { electron: string }
+  }).devDependencies.electron
+  const result = spawnSync(process.execPath, [probe, '/nonexistent-runtime', process.platform, process.arch, electronVersion], {
     encoding: 'utf8', env: { PATH: '' },
   })
   assert.equal(result.status, 1)

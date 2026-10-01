@@ -49,7 +49,12 @@ export class DesktopCleanInstallSmoke {
 
   constructor(private readonly report: string, runtimeRoot: string) {
     assertEmptyCommandPath(process.env.PATH)
-    if (process.versions.electron !== '43.4.0') throw new Error('Clean-install smoke requires Electron 43.4.0.')
+    // The pinned runtime the packaging checks provisioned; derived from the manifest so a bump
+    // cannot leave the smoke asserting a version that no longer ships.
+    const expectedElectron = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      devDependencies: { electron: string }
+    }).devDependencies.electron
+    if (process.versions.electron !== expectedElectron) throw new Error(`Clean-install smoke requires Electron ${expectedElectron}.`)
     this.inventorySha256 = createHash('sha256').update(readFileSync(join(runtimeRoot, 'offline-assets.json'))).digest('hex')
     const profile = mkdtempSync(join(dirname(report), 'profile-'))
     app.setPath('userData', profile)

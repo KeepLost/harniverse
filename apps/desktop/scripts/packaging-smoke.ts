@@ -110,7 +110,10 @@ async function smoke(): Promise<void> {
       verifySmokeReceipt(receipt)
       const evidence = (receipt as { evidence?: Record<string, unknown> }).evidence
       const inventorySha256 = createHash('sha256').update(readFileSync(join(runtimeRoot, 'offline-assets.json'))).digest('hex')
-      if (evidence?.inventorySha256 !== inventorySha256 || evidence.electron !== '43.4.0') {
+      const expectedElectron = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+        devDependencies: { electron: string }
+      }).devDependencies.electron
+      if (evidence?.inventorySha256 !== inventorySha256 || evidence.electron !== expectedElectron) {
         throw new Error('smoke receipt did not identify the verified runtime inventory and Electron version')
       }
       console.log('Clean-install smoke passed with a fresh profile and an empty system command path.')
