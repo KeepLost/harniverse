@@ -79,6 +79,39 @@ describe('deriveRequestContext', () => {
       { kind: 'summary', seq: 2, role: 'compaction' },
     ])
   })
+
+  it('represents the replacement checkpoint through its marker, not a duplicate block', () => {
+    // The checkpoint lands as a plugin-sourced user/message (a context node) at the same seq the
+    // marker occupies: the model reads it as the summary itself, so the strip shows it once.
+    const nodes: readonly ConversationNode[] = [
+      node({ kind: 'user', seq: 1 }),
+      node({ kind: 'assistant', seq: 2 }),
+      node({
+        kind: 'compaction', seq: 3, summary: 'summarized',
+        summaryEventSeq: 2, shadowedItemCount: 2, shadowedTokenCount: 10,
+      }),
+      node({ kind: 'context', seq: 3 }),
+      node({ kind: 'user', seq: 4 }),
+    ]
+    expect(deriveRequestContext(nodes, 5)).toEqual([
+      { kind: 'summary', seq: 3, role: 'compaction', shadowedItemCount: 2, shadowedTokenCount: 10 },
+      { kind: 'message', seq: 4, role: 'user' },
+    ])
+  })
+
+  it('keeps only the latest summary after repeated compactions', () => {
+    const nodes: readonly ConversationNode[] = [
+      node({ kind: 'user', seq: 1 }),
+      node({ kind: 'compaction', seq: 2, summary: 'first', summaryEventSeq: 1, shadowedItemCount: 1, shadowedTokenCount: 1 }),
+      node({ kind: 'user', seq: 3 }),
+      node({ kind: 'compaction', seq: 4, summary: 'second', summaryEventSeq: 3, shadowedItemCount: 2, shadowedTokenCount: 2 }),
+      node({ kind: 'user', seq: 5 }),
+    ]
+    expect(deriveRequestContext(nodes, 6)).toEqual([
+      { kind: 'summary', seq: 4, role: 'compaction', shadowedItemCount: 2, shadowedTokenCount: 2 },
+      { kind: 'message', seq: 5, role: 'user' },
+    ])
+  })
 })
 
 describe('ContextStrip', () => {

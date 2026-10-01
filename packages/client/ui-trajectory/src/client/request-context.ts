@@ -32,9 +32,12 @@ function surfaceRole(node: ConversationNode): string | null {
 
 /**
  * Derive the model-visible context composition for the request anchored at
- * `startSeq`: surface nodes before it, with each landed compaction absorbing
- * the live items it replaced into one summary segment. `undefined` startSeq
- * (the currently streaming request) takes every node.
+ * `startSeq`: surface nodes before it, with each landed compaction replacing
+ * everything it shadowed — earlier summaries included, since a later round
+ * re-summarizes them — with one summary segment. `undefined` startSeq
+ * (the currently streaming request) takes every node. The replacement
+ * checkpoint shares the marker's seq; it is the summary the model reads, so
+ * the marker represents it and the checkpoint's own surface node is skipped.
  * @param nodes - Assembled conversation nodes in log order.
  * @param startSeq - Anchor event seq of the request, or undefined for streaming.
  * @returns Segments in model-visible order.
@@ -44,12 +47,13 @@ export function deriveRequestContext(
   startSeq: number | undefined,
 ): RequestContextSegment[] {
   const segments: RequestContextSegment[] = []
-  /** Output length after the last landed summary; its live items get absorbed. */
-  let liveBase = 0
+  /** Seqs carrying a landed marker: the checkpoint's surface node is the marker itself. */
+  const markerSeqs = new Set<number>()
   for (const node of nodes) {
     if (startSeq !== undefined && node.seq >= startSeq) continue
     if (node.kind === 'compaction') {
-      segments.length = liveBase
+      markerSeqs.add(node.seq)
+      segments.length = 0
       segments.push({
         kind: 'summary',
         seq: node.seq,
@@ -57,11 +61,11 @@ export function deriveRequestContext(
         ...(node.shadowedItemCount === null ? {} : { shadowedItemCount: node.shadowedItemCount }),
         ...(node.shadowedTokenCount === null ? {} : { shadowedTokenCount: node.shadowedTokenCount }),
       })
-      liveBase = segments.length
       continue
     }
     const role = surfaceRole(node)
     if (role === null) continue
+    if (markerSeqs.has(node.seq)) continue
     segments.push({ kind: 'message', seq: node.seq, role })
   }
   return segments

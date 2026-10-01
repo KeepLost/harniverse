@@ -227,6 +227,13 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
       }
       if (data.kind === 'compaction') {
         requests.push(data.request)
+        // The marker rides eventNodes at the checkpoint's own position: the context strip
+        // absorbs everything a landed compaction shadowed, while the ledger's compaction
+        // section (from the request above) keeps owning its visible cell.
+        if (data.marker !== undefined) {
+          finalized.push(data.marker)
+          eventLocations.set(data.marker.seq, contribution.location)
+        }
         continue
       }
       if (data.kind === 'session-end') {

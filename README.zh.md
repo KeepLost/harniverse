@@ -1,6 +1,6 @@
-# Harniverse
+<p align="center"><img src="assets/whale-logo.png" width="220" alt="Harniverse whale logo"></p>
 
-<p align="center"><img src="assets/whale-logo.png" width="160" alt="Harniverse whale logo"></p>
+<h1 align="center">Harniverse</h1>
 
 [English](README.md) | 中文
 

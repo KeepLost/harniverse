@@ -294,6 +294,17 @@ describe('Trajectory conversation Definitions', () => {
         completedAt: 1_700_000_000_006,
       },
     ])
+    // The landed compaction rides its marker on eventNodes at the checkpoint's own seq; the
+    // interrupted one never landed a checkpoint and contributes no marker.
+    expect(current.eventNodes.filter(node => node.kind === 'compaction')).toEqual([{
+      kind: 'compaction',
+      seq: 3,
+      time: 1_700_000_000_003,
+      summary: null,
+      summaryEventSeq: 2,
+      shadowedItemCount: null,
+      shadowedTokenCount: null,
+    }])
   })
 
   it('classifies claimed inbox input as steering and consumes one inherited prompt change', () => {

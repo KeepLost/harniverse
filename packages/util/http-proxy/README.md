@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **process-wide outbound proxy policy** for the harness: resolve one policy from the launch environment (`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`, either casing), install it behind the dispatcher symbol Node's global `fetch` and `WebSocket` resolve, and hand every other surface — spawned children, the web-fetch transport — the same routing answer.
+The **process-wide outbound proxy policy** for the harness: resolve one policy from the launch environment (`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`, either casing), install it behind the dispatcher symbol Node's global `fetch` and `WebSocket` resolve, and hand every in-process surface — the web-fetch transport included — the same routing answer. Spawned children never see a derived value: the process environment keeps the user's own spellings untouched, and the scrubbed child base removes every proxy name.
 
 Node's built-in `fetch` ignores the proxy environment on its own, so every harness request would connect directly no matter what the user exported. One install covers LLM adapters, web search, and any plain `fetch()` caller without touching their code: the launcher (`dsh` profile boot) resolves and installs the policy before the first plugin mounts, resolving from the launch-environment snapshot rather than `process.env`, which is what lets a proxy declared in a `.env` layer work — `NODE_USE_ENV_PROXY` cannot, because Node samples the environment at process start.
 
@@ -14,7 +14,6 @@ This is a **library, not a plugin**: transport policy has one answer per process
 import {
   clearedProxyEnv,
   installProxyFromEnvironment,
-  proxyEnvironmentForChild,
   proxyRouteFor,
   requestViaProxy,
 } from '@deepseek-ai/dsh-http-proxy'
@@ -22,18 +21,17 @@ import {
 
 | Export | Role |
 |---|---|
-| `installProxyFromEnvironment(env, report)` | Resolve the policy from the launch environment, report every rejected value, and install it behind the global-fetch dispatcher. Returns a disposer restoring the previous dispatcher, policy, and environment. |
+| `installProxyFromEnvironment(env, report)` | Resolve the policy from the launch environment, report every rejected value, and install it behind the global-fetch dispatcher. Returns a disposer restoring the previous dispatcher and policy; `process.env` is never rewritten. |
 | `proxyRouteFor(url)` | How one request must be sent, answered from a single read of the active policy: `{ proxied: true, proxy }` or `{ proxied: false }`. |
 | `requestViaProxy(proxyUrl, url, options)` | The one shared proxy hop: absolute-form request for `http:` targets, `CONNECT` + TLS for `https:`. Returns the final response and the handle that aborts the whole hop. |
-| `proxyEnvironmentForChild()` | The overlay a spawned child needs: the resolved proxy names plus `NODE_USE_ENV_PROXY`, restoring user-written values so `curl` keeps the SOCKS proxy this package refused. |
-| `clearedProxyEnv()` | One `undefined` entry per proxy name, for a replay that must reach its own fixture server. |
+| `clearedProxyEnv()` | One `undefined` entry per proxy name, for the isolated child base and for a replay that must reach its own fixture server. |
 
 ## Policy semantics
 
 - **Resolution order**: a scheme's own variable wins, then `ALL_PROXY`, then — for HTTPS only — the HTTP proxy. A rejected slot (malformed URL, SOCKS, unsupported scheme) keeps that scheme direct; the diagnostic and the route agree, and no fallback routes a request somewhere the user never asked for.
 - **Diagnostics never carry values**: a proxy URL may embed `user:password`, so messages name the variable only.
 - **Loopback is never proxied** (`localhost`, `127.0.0.0/8`, `::1`, IPv4-mapped forms), and every bypass list is merged with those entries.
-- **`NO_PROXY` matching**: comma/space-separated; an entry matches the host and every subdomain; an optional `:port` must equal the effective port; `*` bypasses everything; CIDR is not matched.
+- **`NO_PROXY` matching**: comma/space-separated; an entry matches the host and every subdomain; an optional `:port` must equal the effective port; `*` bypasses everything; CIDR is not matched. The merged loopback-augmented list exists only inside the policy object; it is never exported as an environment value.
 - **WebSocket routing**: Node's global `WebSocket` uses the HTTP policy for `ws:` and the HTTPS policy for `wss:`. Loopback and bypassed upgrades go to the displaced dispatcher, or a native direct connection when none exists. Proxied upgrades use `CONNECT`; `wss:` adds origin TLS with normal certificate verification. Proxy credentials are sent only to the proxy. Handshake failures and cancellation close the pending connections; disposal waits for pending handshakes, while callers own and close successfully upgraded sockets.
 - **No proxy exported**: nothing is installed and no environment name is touched — global `fetch` keeps Node's internal default transport byte-for-byte.
 
@@ -41,7 +39,7 @@ import {
 
 - `dsh` profile boot installs the policy at launch and disposes it at shutdown.
 - `dsh-web-fetch-http` consults `proxyRouteFor` and routes proxied URLs through `requestViaProxy` (no local DNS pinning — the proxy resolves); loopback and bypassed URLs keep the pinned direct transport.
-- `dsh-subprocess` overlays `proxyEnvironmentForChild()` in `scrubbedParentEnv()`, so child Node processes inherit the parent's routing.
+- `dsh-subprocess` removes every proxy name (`clearedProxyEnv()`) in `scrubbedParentEnv()`, so the scrubbed child base is isolated from the user's routing; the full-access base (`ambientEnv: 'full'`) copies `process.env`, which this package never rewrites, so those children keep the user's own variables verbatim.
 - LLM adapters (`dsh-llm-pi-ai`, discovery and provider streams) need no change: their `fetch()` calls resolve through the installed dispatcher.
 
 ## Model Experience

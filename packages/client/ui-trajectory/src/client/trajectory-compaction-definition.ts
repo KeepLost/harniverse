@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeDefinition, RequestView,
+  CompactionSummaryNode, ConversationMatch, ConversationNodeDefinition, RequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-compaction/types'
 import { trajectoryNode } from './trajectory-definition-common.ts'
@@ -77,6 +77,47 @@ function requestFromState(
   }
 }
 
+/**
+ * Build the landed marker from the replacement checkpoint and the summary evidence.
+ *
+ * @param state - the compaction's assembled matches.
+ * @returns the marker at the checkpoint's own log position, or undefined before the checkpoint landed.
+ */
+function compactionMarker(state: CompactionState): CompactionSummaryNode | undefined {
+  const checkpoint = state.checkpoint?.event
+  if (checkpoint?.type !== 'user/message') return undefined
+  const summary = state.summary?.event
+  let summaryText: string | null = null
+  let shadowedItemCount: number | null = null
+  let shadowedTokenCount: number | null = null
+  if (summary?.type === 'compaction/summary') {
+    const data = summary.data
+    if (Array.isArray(data.summary)) {
+      const text = data.summary
+        .map(block => block.type === 'text' ? block.text : '')
+        .join('')
+      summaryText = text.trim() === '' ? null : text
+    }
+    shadowedItemCount = Array.isArray(data.shadowedSeqs)
+      && data.shadowedSeqs.every(seq => Number.isSafeInteger(seq) && seq >= 0)
+      ? data.shadowedSeqs.length
+      : null
+    shadowedTokenCount = Number.isSafeInteger(data.shadowedTokenCount)
+      && data.shadowedTokenCount >= 0
+      ? data.shadowedTokenCount
+      : null
+  }
+  return {
+    kind: 'compaction',
+    seq: checkpoint.seq,
+    time: checkpoint.time,
+    summary: summaryText,
+    summaryEventSeq: summary?.seq ?? null,
+    shadowedItemCount,
+    shadowedTokenCount,
+  }
+}
+
 const trajectoryCompactionDefinition: ConversationNodeDefinition<CompactionState> = {
   kind: 'trajectory-compaction',
   target: 'trajectory',
@@ -104,9 +145,13 @@ const trajectoryCompactionDefinition: ConversationNodeDefinition<CompactionState
   buildViewNode: (context) => {
     if (context.state === undefined) return null
     const request = requestFromState(context.state)
-    return request === undefined
-      ? null
-      : trajectoryNode(context, request.startSeq, { kind: 'compaction', request })
+    if (request === undefined) return null
+    const marker = compactionMarker(context.state)
+    return trajectoryNode(context, request.startSeq, {
+      kind: 'compaction',
+      request,
+      ...(marker === undefined ? {} : { marker }),
+    })
   },
 }
 
