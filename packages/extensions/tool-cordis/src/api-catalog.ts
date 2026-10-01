@@ -1777,7 +1777,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async unlock(key: string): Promise<void>',
-        description: 'Unlock the encrypted credential provider for this process.',
+        description: 'Adopt the coordinator\'s session key: a repeat is a no-op, a different key takes over the stored mirror.',
         parameters: [{ name: 'key', description: 'canonical base64url encoding of 32 random bytes from the local authority.' }],
       },
       {

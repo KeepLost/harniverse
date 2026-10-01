@@ -47,7 +47,7 @@ interface RemoteHostProgress {
 }
 ```
 
-Synchronization sends complete host-only materialized settings snapshots (`ctx.settings.materialize(ns)`, owner hooks resolving host-environment facts such as ambient credential references) with schema-selected credential references resolved through the credential service; the host process environment is never copied, and provider-native credential systems beyond a referenceable key do not cross. The [coordinator README](../../packages/ssh/remote-hosts/README.md) owns the deployment, grant, and synchronization contracts.
+Synchronization sends complete host-only materialized settings snapshots (`ctx.settings.materialize(ns)`, owner hooks resolving host-environment facts such as ambient credential references) with schema-selected credential references resolved through the credential service; the host process environment is never copied, and provider-native credential systems beyond a referenceable key do not cross. The remote credential store is the connecting coordinator's mirror, not an exclusive lease: a reconnecting or successor coordinator that presents a different session key takes the mirror over, and its complete snapshot rebuilds it, so a crashed coordinator never locks later instances out of the remote home. The [coordinator README](../../packages/ssh/remote-hosts/README.md) owns the deployment, grant, and synchronization contracts.
 
 ## Connection API
 
@@ -270,7 +270,7 @@ Remote control provider. Browser and SSH connections never own its decrypted lif
  */
 @Remote({ requiredCapability: 'harniverse.observe' }) status(): RemoteRuntimeStatus
 
-/** Unlock the encrypted credential provider for this process.
+/** Adopt the coordinator's session key: a repeat is a no-op, a different key takes over the stored mirror.
  * @param key - canonical base64url encoding of 32 random bytes from the local authority.
  */
 @Remote({ requiredCapability: 'harniverse.administer' }) async unlock(key: string): Promise<void>

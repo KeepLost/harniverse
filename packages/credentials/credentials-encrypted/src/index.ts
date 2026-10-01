@@ -11,7 +11,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { timingSafeEqual } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { decodeKey, decrypt, encrypt, snapshot } from './format.ts'
-import { readDocument, UncertainCommitError, writeDocument } from './storage.ts'
+import { readDocument, removeDocument, UncertainCommitError, writeDocument } from './storage.ts'
 
 /** Default encrypted document basename under the harness home. */
 export const CREDENTIALS_FILENAME = '.credentials.encrypted.json'
@@ -152,6 +152,31 @@ export class EncryptedCredentialProvider extends CredentialProvider implements E
     } finally {
       if (this.session?.values !== next) next.clear()
     }
+  }
+
+  /**
+   * Adopt `key` as the active authority: repeating it is a no-op, any other key discards the
+   * active session and the stored document so the next `replace` rebuilds the mirror from the
+   * new authority. Reserved for stored mirrors whose authoritative copy lives with a coordinator.
+   * @param key - canonical unpadded base64url encoding of 32 random bytes supplied over the authorized channel.
+   */
+  async takeover(key: string): Promise<void> {
+    this.assertOpen()
+    await this.enqueue(async () => {
+      const candidate = decodeKey(key)
+      let keep = false
+      try {
+        if (this.session?.values !== undefined) {
+          if (timingSafeEqual(candidate, this.session.key)) return
+          this.erase()
+        }
+        await removeDocument(this.filename)
+        this.session = { key: candidate, values: new Map() }
+        keep = true
+      } finally {
+        if (!keep) candidate.fill(0)
+      }
+    })
   }
 
   /**

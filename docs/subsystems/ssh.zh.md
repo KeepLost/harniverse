@@ -47,7 +47,7 @@ interface RemoteHostProgress {
 }
 ```
 
-同步发送完整的仅限 Host 物化设置快照（`ctx.settings.materialize(ns)`，owner 钩子解析诸如环境凭据引用之类的主机环境事实），并经凭据服务解析 schema 选中的凭据引用；主机进程环境绝不复制，超出可引用密钥形态的提供方原生凭据体系也不会跨过该边界。部署、授权与同步的完整契约见[协调器 README](../../packages/ssh/remote-hosts/README.md)。
+同步发送完整的仅限 Host 物化设置快照（`ctx.settings.materialize(ns)`，owner 钩子解析诸如环境凭据引用之类的主机环境事实），并经凭据服务解析 schema 选中的凭据引用；主机进程环境绝不复制，超出可引用密钥形态的提供方原生凭据体系也不会跨过该边界。远端凭据存储是当前连接协调方的镜像而非独占租约：重连或后继协调方呈上不同会话密钥即接管镜像，并由其完整快照重建，因此崩溃的协调方绝不会把后来的实例锁在远端 home 之外。部署、授权与同步的完整契约见[协调器 README](../../packages/ssh/remote-hosts/README.md)。
 
 ## 连接 API
 
@@ -270,7 +270,7 @@ Remote control provider. Browser and SSH connections never own its decrypted lif
  */
 @Remote({ requiredCapability: 'harniverse.observe' }) status(): RemoteRuntimeStatus
 
-/** Unlock the encrypted credential provider for this process.
+/** Adopt the coordinator's session key: a repeat is a no-op, a different key takes over the stored mirror.
  * @param key - canonical base64url encoding of 32 random bytes from the local authority.
  */
 @Remote({ requiredCapability: 'harniverse.administer' }) async unlock(key: string): Promise<void>

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { randomBytes } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import EncryptedCredentialProvider from '../src/index.ts'
@@ -67,6 +67,30 @@ describe('encrypted credential authority', () => {
     await provider.replace({})
     expect(events).toEqual(['MODEL_KEY'])
     expect(await provider.resolve(MODEL)).toBeUndefined()
+  })
+
+  it('takes over the mirror for a different authority and rebuilds it with the next replace', async () => {
+    const path = await filename()
+    const { provider, events } = await boot(path)
+    const first = randomBytes(32).toString('base64url')
+    const second = randomBytes(32).toString('base64url')
+    await provider.unlock(first)
+    await provider.replace({ MODEL_KEY: 'first-authority' })
+    events.length = 0
+    await provider.takeover(second)
+    expect(provider.status()).toEqual({ locked: false })
+    expect(await provider.resolve(MODEL)).toBeUndefined()
+    expect(events).toEqual([])
+    await expect(access(path)).rejects.toThrow(/ENOENT/)
+    await provider.replace({ SEARCH_KEY: 'second-authority' })
+    expect(await provider.resolve(SEARCH)).toEqual({ value: 'second-authority', source: 'encrypted' })
+    await provider.takeover(second)
+    expect(await provider.resolve(SEARCH)).toEqual({ value: 'second-authority', source: 'encrypted' })
+    await provider.lock()
+    await provider.unlock(second)
+    expect(await provider.resolve(SEARCH)).toEqual({ value: 'second-authority', source: 'encrypted' })
+    await provider.lock()
+    await expect(provider.unlock(first)).rejects.toThrow('credentials-encrypted: unlock failed')
   })
 
   it.each(['wrong-version', 'tampered', 'malformed', 'oversized'])('denies %s files without exposing their contents', async (fault) => {

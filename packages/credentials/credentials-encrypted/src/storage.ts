@@ -45,6 +45,14 @@ export async function readDocument(path: string): Promise<string | undefined> {
 }
 
 /**
+ * Remove the stored document; an absent document is already removed.
+ * @param path - configured encrypted document location.
+ */
+export async function removeDocument(path: string): Promise<void> {
+  await rm(path, { force: true })
+}
+
+/**
  * Persist ciphertext using a private exclusive sibling; errors before rename preserve the old file.
  * @param path - configured encrypted document location with an owner-only parent.
  * @param content - complete bounded ciphertext envelope.

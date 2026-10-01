@@ -15,7 +15,7 @@ The generated Remote namespace is `remoteRuntime`. `./typert` supplies Host meta
 | `replaceCredentials(snapshot)` | `{ snapshot }` | `harniverse.administer` | void |
 | `syncSettings(snapshot)` | `{ snapshot }` | `harniverse.administer` | void |
 
-`key` is the encrypted provider's canonical unpadded base64url encoding of 32 random bytes. The credential snapshot is `Record<string, string>`: replacement deletes omitted references, including every reference for `{}`. Settings use the existing Session `JsonValue` type rather than `unknown`, so Typert emits strict recursive JSON schemas. Unlock first, then replace credentials and synchronize settings; begin agent work after both synchronization calls succeed. A rejected key leaves the provider locked, or preserves an already unlocked session as specified by the provider.
+`key` is the encrypted provider's canonical unpadded base64url encoding of 32 random bytes. The credential snapshot is `Record<string, string>`: replacement deletes omitted references, including every reference for `{}`. Settings use the existing Session `JsonValue` type rather than `unknown`, so Typert emits strict recursive JSON schemas. Unlock first, then replace credentials and synchronize settings; begin agent work after both synchronization calls succeed. The remote store is the connecting coordinator's mirror, not an exclusive lease: repeating the active key is a no-op, and a different key takes the session over — the previous mirror is discarded and the caller's complete snapshot rebuilds it — so a crashed coordinator's successor always gets in.
 
 ## Ownerless exit
 

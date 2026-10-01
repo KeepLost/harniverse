@@ -91,13 +91,13 @@ export class RemoteRuntime extends TypertRemoteService {
     return { locked: this.provider().status().locked, bootId: this.bootId, platform: process.platform, arch: process.arch }
   }
 
-  /** Unlock the encrypted credential provider for this process.
+  /** Adopt the coordinator's session key: a repeat is a no-op, a different key takes over the stored mirror.
    * @param key - canonical base64url encoding of 32 random bytes from the local authority.
    */
   @Remote({ requiredCapability: 'harniverse.administer' })
   async unlock(key: string): Promise<void> {
     this.touch()
-    await this.provider().unlock(key)
+    await this.provider().takeover(key)
   }
 
   /** Replace the complete encrypted credential map.

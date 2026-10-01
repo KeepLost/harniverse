@@ -15,7 +15,7 @@
 | `replaceCredentials(snapshot)` | `{ snapshot }` | `harniverse.administer` | void |
 | `syncSettings(snapshot)` | `{ snapshot }` | `harniverse.administer` | void |
 
-`key` 是加密提供者要求的 32 字节随机密钥，采用无填充的规范 base64url 编码。凭据快照类型为 `Record<string, string>`，替换会删除未包含的引用；`{}` 删除全部引用。设置使用现有 Session `JsonValue` 类型，而不是 `unknown`，因此 Typert 能生成严格的递归 JSON schema。先解锁，再替换凭据并同步设置；两项同步均成功后才开始 Agent 工作。错误密钥会保持锁定，或按照提供者契约保留已经解锁的会话。
+`key` 是加密提供者要求的 32 字节随机密钥，采用无填充的规范 base64url 编码。凭据快照类型为 `Record<string, string>`，替换会删除未包含的引用；`{}` 删除全部引用。设置使用现有 Session `JsonValue` 类型，而不是 `unknown`，因此 Typert 能生成严格的递归 JSON schema。先解锁，再替换凭据并同步设置；两项同步均成功后才开始 Agent 工作。远端存储是当前连接协调方的镜像而非独占租约：重复当前密钥为 no-op，换密钥即接管——旧镜像被丢弃，由调用方的完整快照重建——因此崩溃协调方的后继者总能登入。
 
 `assertUnlocked(): void` 是同进程消费者可调用的实际准入检查，在锁定或已释放时抛错，不等待重连。插件通过 `ctx.agents.registerAdmission()` 注册该检查，卸载插件会移除策略。新建、恢复和分叉均受驱动的准入检查约束。浏览器或 SSH 连接断开不会锁定凭据或释放 Agent。加密提供者在自身释放时擦除密钥；即使已有加密文件，新进程仍从锁定状态启动。
 
