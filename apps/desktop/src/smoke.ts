@@ -49,12 +49,15 @@ export class DesktopCleanInstallSmoke {
 
   constructor(private readonly report: string, runtimeRoot: string) {
     assertEmptyCommandPath(process.env.PATH)
-    // The pinned runtime the packaging checks provisioned; derived from the manifest so a bump
-    // cannot leave the smoke asserting a version that no longer ships.
-    const expectedElectron = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
-      devDependencies: { electron: string }
-    }).devDependencies.electron
-    if (process.versions.electron !== expectedElectron) throw new Error(`Clean-install smoke requires Electron ${expectedElectron}.`)
+    // The pinned runtime the packaging checks provisioned, handed in by the smoke driver; the
+    // adjacent manifest read covers source-checkout runs where no driver supplied it.
+    const expectedElectron = process.env.HARNIVERSE_DESKTOP_SMOKE_ELECTRON
+      ?? (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+        devDependencies?: { electron?: string }
+      }).devDependencies?.electron
+    if (expectedElectron !== undefined && process.versions.electron !== expectedElectron) {
+      throw new Error(`Clean-install smoke requires Electron ${expectedElectron}.`)
+    }
     this.inventorySha256 = createHash('sha256').update(readFileSync(join(runtimeRoot, 'offline-assets.json'))).digest('hex')
     const profile = mkdtempSync(join(dirname(report), 'profile-'))
     app.setPath('userData', profile)

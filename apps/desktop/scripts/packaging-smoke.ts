@@ -58,6 +58,9 @@ async function smoke(): Promise<void> {
       XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'),
       APPDATA: join(home, 'config'), LOCALAPPDATA: join(home, 'local'),
       HARNIVERSE_DESKTOP_SMOKE_REPORT: report,
+      HARNIVERSE_DESKTOP_SMOKE_ELECTRON: (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+        devDependencies: { electron: string }
+      }).devDependencies.electron,
       DSH_DESKTOP_DIAGNOSTICS: '1',
       ...(entry === undefined ? {} : { DSH_DESKTOP_RUNTIME_ROOT: runtimeRoot }),
     }
