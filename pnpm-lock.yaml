@@ -25,7 +25,7 @@ overrides:
   vitepress>vite: 6.4.3
 
 patchedDependencies:
-  node-pty@1.1.0: 8064d8ecde9141969a08acbf8fc2819c3f07158433c4b1d4bfa9fdaf42301cf5
+  node-pty@1.1.0: bc10e7a69abe47a94dcb3c4d7f7b3204fb18842daf1a925455fb5c3b657d0eae
 
 importers:
 
@@ -10261,7 +10261,7 @@ importers:
         version: 3.1.1
       node-pty:
         specifier: ^1.1.0
-        version: 1.1.0(patch_hash=8064d8ecde9141969a08acbf8fc2819c3f07158433c4b1d4bfa9fdaf42301cf5)
+        version: 1.1.0(patch_hash=bc10e7a69abe47a94dcb3c4d7f7b3204fb18842daf1a925455fb5c3b657d0eae)
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -22991,7 +22991,7 @@ snapshots:
 
   node-int64@0.4.0: {}
 
-  node-pty@1.1.0(patch_hash=8064d8ecde9141969a08acbf8fc2819c3f07158433c4b1d4bfa9fdaf42301cf5):
+  node-pty@1.1.0(patch_hash=bc10e7a69abe47a94dcb3c4d7f7b3204fb18842daf1a925455fb5c3b657d0eae):
     dependencies:
       node-addon-api: 7.1.1
 

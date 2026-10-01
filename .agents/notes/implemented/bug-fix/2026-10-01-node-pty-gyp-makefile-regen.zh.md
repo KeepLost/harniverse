@@ -10,13 +10,14 @@ Linux performance lane 在安装期从源码构建 `node-pty`（上游不发 Lin
 
 ## Decision
 
-既有的 `patches/node-pty@1.1.0.patch` 同时把安装脚本从 `node scripts/prebuild.js || node-gyp rebuild` 改写为 `node scripts/prebuild.js || (node-gyp configure && touch build/Makefile && node-gyp build)`。`configure` 落定后钉住所生成 `Makefile` 的 mtime，使所有 gyp 输入严格更旧，make 永不执行再生配方，缺失的可执行位不再重要。该分支仅在无 prebuild 的平台（Linux）执行；Windows 与 macOS lane 保持 prebuild 路径。
+既有的 `patches/node-pty@1.1.0.patch` 同时把安装脚本从 `node scripts/prebuild.js || node-gyp rebuild` 改写为 `node scripts/prebuild.js || (node-gyp configure && make -C build -o Makefile BUILDTYPE=Release)`。再生规则的前置条件是共享的 gyp 输入（header 缓存中的 `common.gypi`、pnpm dist 内的 `addon.gypi`、邻居 `node-addon-api` 的 gyp 文件）；并行原生构建（如 `cpu-features`）可在我们的 configure 与 make 之间触碰其中任一文件，因此对生成的 `Makefile` 做任何 mtime 钉住都无法裁决该竞态——第一版尝试（`touch build/Makefile`）正是在 CI 上以此方式落败。`make --old-file Makefile` 把该裁决从 mtime 比较中彻底移除：Makefile 被声明为最新，再生配方永不执行，缺失的可执行位不再重要。该分支仅在无 prebuild 的平台（Linux）执行；Windows 与 macOS lane 保持 prebuild 路径。
 
 ## Alternatives considered
 
 - **升级 pnpm** —— 暂拒：上游 issue 未解决，已发布 pnpm 均未带可执行入口文件。
+- **configure 后钉住所生成 Makefile 的 mtime** —— 拒绝：钉住之后并行构建者仍可触碰共享 gyp 输入（CI 上已观察到）。
 - **在 CI 中对内置 `gyp_main.py` 执行 `chmod +x`** —— 拒绝：按 workflow 修补 runner 工具链，其余消费者（开发者、其他 lane）仍暴露于同一竞态。
 
 ## Consequences
 
-Linux 安装确定性地构建 node-pty 而不再触发再生配方；`pnpm-lock.yaml` 中的 patch hash 随之变化。以全新本地安装（`gyp info ok`）和经 `subprocess-local` 的功能性 pty spawn 往返验证。
+Linux 安装确定性地构建 node-pty 而不再触发再生配方；`pnpm-lock.yaml` 中的 patch hash 随之变化。验证包括本地复现竞态（全新 `node-gyp configure`、`touch common.gypi` 后 plain `make` 再生并死于 Error 126，`make -o Makefile` 干净构建）、经补丁行的全新本地安装，以及经 `subprocess-local` 的功能性 pty spawn 往返。
