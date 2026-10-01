@@ -92,6 +92,47 @@ function harnessApiKeyAuth(name: string, mode: 'api-key' | 'bearer' = 'api-key',
   }
 }
 
+/** Anthropic's bearer-token variable, sent as `Authorization: Bearer`. */
+const ANTHROPIC_BEARER_ENV = 'ANTHROPIC_AUTH_TOKEN'
+
+/** Anthropic's key variables, sent as `x-api-key`, in pi-ai's own order. */
+const ANTHROPIC_KEY_ENVS = ['ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'] as const
+
+/**
+ * Ambient credential names in harness precedence: Anthropic's bearer token ranks after every key
+ * name, as in the official SDK and OpenCode, so an environment exporting both authenticates with
+ * the key wherever the same environment authenticates other clients.
+ * @param names - a provider's ambient names in pi-ai's order.
+ * @returns the same names with the Anthropic bearer token last.
+ */
+export function ambientNamesInPrecedence(names: readonly string[]): string[] {
+  return [...names.filter(name => name !== ANTHROPIC_BEARER_ENV), ...names.filter(name => name === ANTHROPIC_BEARER_ENV)]
+}
+
+/**
+ * pi-ai's Anthropic resolver with {@link ambientNamesInPrecedence}: the bearer token is invisible
+ * to it while any key name is exported, and still authenticates alone.
+ * @param auth - the catalog provider's api-key auth.
+ * @returns the auth resolving the key first.
+ */
+function anthropicKeyFirst(auth: ApiKeyAuth): ApiKeyAuth {
+  return {
+    ...auth,
+    resolve: async (input) => {
+      const { ctx } = input
+      for (const name of ANTHROPIC_KEY_ENVS) {
+        if (await ctx.env(name)) {
+          return await auth.resolve({
+            ...input,
+            ctx: { ...ctx, env: key => key === ANTHROPIC_BEARER_ENV ? Promise.resolve(undefined) : ctx.env(key) },
+          })
+        }
+      }
+      return await auth.resolve(input)
+    },
+  }
+}
+
 /** The resolved route facts provider construction reads. */
 export interface ProviderSpec {
   /** Provider route key; also the `Models` collection key and each model's `provider`. */
@@ -150,6 +191,9 @@ function routeAuth(spec: ProviderSpec, catalog: Provider | undefined): Provider[
   if (catalog === undefined) return { apiKey: harnessApiKeyAuth(spec.displayName, spec.authMode === 'bearer' ? 'bearer' : 'api-key', spec.credentialRef) }
   if (spec.disableAmbientAuth === true) return { apiKey: harnessApiKeyAuth(spec.displayName) }
   if (spec.authMode === 'bearer') return { ...catalog.auth, apiKey: harnessApiKeyAuth(spec.displayName, 'bearer', spec.credentialRef) }
+  if (catalog.id === 'anthropic' && catalog.auth.apiKey !== undefined) {
+    return { ...catalog.auth, apiKey: anthropicKeyFirst(catalog.auth.apiKey) }
+  }
   if (catalog.auth.apiKey !== undefined || !spec.namesCredential) return catalog.auth
   return { ...catalog.auth, apiKey: harnessApiKeyAuth(spec.displayName) }
 }

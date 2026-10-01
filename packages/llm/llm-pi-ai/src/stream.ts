@@ -50,6 +50,9 @@ function classifyPiAiError(message: string): string {
   // finish_reason`). The connection dropped mid-response, so this is a transport
   // truncation, not a model-level error.
   if (/stream ended (?:before|without)\b/i.test(message)) return 'TRANSPORT'
+  // A response body whose frames do not parse — an upstream that broke SSE framing, a gateway page
+  // in place of the stream — corrupted a valid request in transit, so a retry may reach a healthy path.
+  if (/\bJSON at position \d+|end of JSON input|is not valid JSON/.test(message)) return 'TRANSPORT'
   if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b/i.test(message)
     || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)
     // undici renders a mid-stream socket drop as a bare `terminated` (its
