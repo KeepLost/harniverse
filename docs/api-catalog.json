@@ -14,6 +14,30 @@
       "stability": "stable"
     },
     {
+      "method": "jobs.follow",
+      "requiredCapability": "harniverse.operate",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "jobs.kill",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "speech.transcribe",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "speech.prepare",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
       "method": "session.list",
       "requiredCapability": "harniverse.observe",
       "effect": "read",
@@ -522,6 +546,9 @@
     "remote-host-failed",
     "internal",
     "idempotency-key-reused",
-    "operation-not-found"
+    "operation-not-found",
+    "job-unavailable",
+    "speech-unavailable",
+    "speech-transcription-failed"
   ]
 }
