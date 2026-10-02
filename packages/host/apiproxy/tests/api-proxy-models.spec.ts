@@ -285,11 +285,11 @@ describe('Web session model selection', () => {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
     })
-    // An ignorable plugin event whose data happens to carry a content array
+    // An unrecognized plugin event whose data happens to carry a content array
     // with an image-looking attachment must not authorize a storage read.
-    agent.session.append('plugin/custom-note', {
+    agent.session.append('plugin/custom-note' as 'turn/start', {
       content: [{ type: 'image', attachment: ref }],
-    } as never, { ignorable: true })
+    } as never)
 
     const denied = await api.sessions.attachment(request({
       sessionId, attachmentId: 'att-ghost' as never,

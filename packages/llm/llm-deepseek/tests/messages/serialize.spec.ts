@@ -312,7 +312,7 @@ describe('Messages images', () => {
 
   it('resolves file representations through the shared upload seam', async () => {
     const resolveFileId = vi.fn(async () => 'file-9')
-    const request = await imageBody([createMessage({ role: 'user', source: { kind: 'user' }, content: [image] })], withImages({ kind: 'file', resolveFileId }))
+    const request = await imageBody([createMessage({ role: 'user', source: { kind: 'user' }, content: [image] })], withImages({ kind: 'file', used: [], resolveFileId }))
     expect(request.messages[0]?.content[1]).toEqual({ type: 'image', source: { type: 'file', file_id: 'file-9' } })
     expect(resolveFileId).toHaveBeenCalledExactlyOnceWith(version, { message: 1, image: 1 })
   })

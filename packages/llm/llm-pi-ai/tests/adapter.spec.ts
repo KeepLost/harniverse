@@ -45,15 +45,19 @@ class ProjectingStubStore extends AttachmentStore {
     mediaTypes: ['image/png'],
   }
 
-  validateImage(_input: SaveImageAttachment): Promise<void> {
+  override validateImage(_input: SaveImageAttachment): Promise<void> {
     return Promise.reject(new Error('not used'))
   }
 
-  saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+  override saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
     return Promise.reject(new Error('not used'))
   }
 
-  readImageRequest(_value: ImageAttachmentRef): Promise<RequestImageAttachment> {
+  override readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
+    throw new Error('request dispatch must not read the stored original')
+  }
+
+  override readImageRequest(_value: ImageAttachmentRef): Promise<RequestImageAttachment> {
     return Promise.resolve({
       attachment: IMAGE_REF,
       variantId: ImageVariantId(`sha256:${'e'.repeat(64)}`),
@@ -350,19 +354,19 @@ describe('PiAiAdapter provider routing', () => {
         mediaTypes: ['image/png'],
       }
 
-      validateImage(_input: SaveImageAttachment): Promise<void> {
+      override validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.reject(new Error('not used'))
       }
 
-      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+      override saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
         return Promise.reject(new Error('not used'))
       }
 
-      readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
+      override readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('request dispatch must not read the stored original')
       }
 
-      readImageRequest(value: ImageAttachmentRef, policy: ImageRequestPolicy): Promise<RequestImageAttachment> {
+      override readImageRequest(value: ImageAttachmentRef, policy: ImageRequestPolicy): Promise<RequestImageAttachment> {
         policies.push(policy)
         return Promise.resolve({
           attachment: value,
@@ -417,7 +421,7 @@ describe('PiAiAdapter provider routing', () => {
       width: 1,
       height: 1,
     }
-    const readImageRequest = vi.fn((_ref: ImageAttachmentRef): Promise<RequestImageAttachment> =>
+    const readImageRequest = vi.fn((_ref: ImageAttachmentRef, _policy: ImageRequestPolicy): Promise<RequestImageAttachment> =>
       Promise.resolve({
         attachment: ref,
         variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
@@ -440,15 +444,19 @@ describe('PiAiAdapter provider routing', () => {
         mediaTypes: ['image/png'],
       }
 
-      validateImage(_input: SaveImageAttachment): Promise<void> {
+      override validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.reject(new Error('not used'))
       }
 
-      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+      override saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
         return Promise.reject(new Error('not used'))
       }
 
-      readImageRequest(value: ImageAttachmentRef, policy: ImageRequestPolicy): Promise<RequestImageAttachment> {
+      override readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
+        throw new Error('request dispatch must not read the stored original')
+      }
+
+      override readImageRequest(value: ImageAttachmentRef, policy: ImageRequestPolicy): Promise<RequestImageAttachment> {
         return readImageRequest(value, policy)
       }
     }

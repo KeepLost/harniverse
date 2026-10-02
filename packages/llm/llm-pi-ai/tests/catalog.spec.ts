@@ -11,7 +11,7 @@ import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
-import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
+import type { Api, Model, OpenAICompletionsCompat, Provider, TranscriptContext } from '@earendil-works/pi-ai'
 import { resolveProfiles } from '../src/config.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
@@ -353,7 +353,7 @@ describe('hand-declared providers', () => {
       models: [{ id: 'm', api: 'openai-completions' } as Model<Api>],
       namesCredential: true,
     })
-    expect(() => provider.stream({ id: 'other', api: 'openai-completions' } as Model<Api>, { messages: [] }, {}))
+    expect(() => provider.stream({ id: 'other', api: 'openai-completions' } as Model<Api>, { messages: [] } as unknown as TranscriptContext, {}))
       .toThrow(/has no protocol for model "other"/)
   })
 
@@ -533,7 +533,8 @@ describe('catalog routes with per-model configuration', () => {
     if (built === undefined) throw new Error('the deepseek route built no provider')
     const [model] = built.getModels()
     if (model === undefined) throw new Error('the deepseek route resolved no models')
-    const context = { messages: [{ role: 'user' as const, content: 'hi', timestamp: 0 }] }
+    // TranscriptContext is branded in 0.87; a bare literal satisfies it only through the declared type.
+    const context = { messages: [{ role: 'user' as const, content: 'hi', timestamp: 0 }] } as TranscriptContext
 
     // `stream` is interface-required and unused by the harness adapter, which
     // only calls `streamSimple`; both must still reach the catalog provider.

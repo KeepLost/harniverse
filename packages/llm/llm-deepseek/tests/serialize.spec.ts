@@ -204,6 +204,7 @@ describe('serializeMessages', () => {
     ], {
       representation: {
         kind: 'file',
+        used: [],
         resolveFileId: async (_version, location) => {
           locations.push(location)
           return 'file-1'

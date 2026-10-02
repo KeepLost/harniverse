@@ -41,7 +41,6 @@ const attachments = { readImageRequest: async () => version } as unknown as Atta
 const imageAdapter = (url: string, files = new DeepSeekFileStore()) => new DeepSeekAdapter({
   options: () => resolveAdapterOptions({ protocol: 'messages', baseURL: url, models: [{ id: MODEL, inputModalities: ['text', 'image'] }] }),
   resolveApiKey: () => Promise.resolve('test-key'),
-  resolveUserId: () => TEST_USER_ID,
   resolveAttachments: () => attachments,
   resolveFiles: () => files,
 })
