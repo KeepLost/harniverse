@@ -22,6 +22,8 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { DeepSeekAdapterOptions, DeepSeekConnectionOptions as Connection } from '../../common/types.ts'
 import { catalogModelInfo, modelInfo } from '../../common/model-info.ts'
 import type { DeepSeekFileStore } from '../../common/file-store.ts'
+import { DeepSeekFileId } from '../../common/file-id.ts'
+import type { ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import { deepSeekFileScope } from '../../common/upload-index.ts'
 import { MESSAGES_FILES_BETA, messagesApiRoot } from '../../common/messages-api.ts'
 import {
@@ -263,7 +265,12 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
           code: providerError(raw, response.status).code,
           status: response.status,
         })
-        await this.files.clear(deepSeekFileScope(connection.baseURL, apiKey, 'messages'))
+        // Invalidate exactly the generations this attempt used; a stale-id
+        // response must not discard other variants' healthy mappings.
+        const usedGenerations = images?.representation.kind === 'file' ? images.representation.used : []
+        await this.files.invalidate(deepSeekFileScope(connection.baseURL, apiKey, 'messages'), usedGenerations
+          .map((generation: { variantId: ImageVariantId; fileId: string }) => (
+            { ...generation, fileId: DeepSeekFileId(generation.fileId) })))
         selectImages(prepared, 'base64')
         body = await serialize(options, connection, connection.defaults, options.messages, images, onReplayDegrade)
         sent = await send(body)

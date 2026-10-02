@@ -3,7 +3,6 @@
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { DeepSeekFilesClient, isFilesQuotaError } from './files-api.ts'
-import type { DeepSeekFileId } from './file-id.ts'
 import type { DeepSeekProtocol } from './types.ts'
 import { deepSeekFileScope, DeepSeekUploadIndex } from './upload-index.ts'
 import type { DeepSeekUploadRecord } from './upload-index.ts'
@@ -176,13 +175,15 @@ export class DeepSeekFileStore {
     }
   }
 
-  /** Remove one matching provider mapping from the local index.
+  /** Invalidate exact local mappings in one index update after a model request rejects their remote ids.
    * @param scope - endpoint/API-key scope.
-   * @param variantId - request-image variant.
-   * @param fileId - provider file id.
+   * @param generations - request-image variants with the exact file id the request used for each.
    */
-  async invalidate(scope: ReturnType<typeof deepSeekFileScope>, variantId: RequestImageAttachment['variantId'], fileId: DeepSeekFileId): Promise<void> {
-    await this.index.remove(scope, variantId, fileId)
+  async invalidate(
+    scope: ReturnType<typeof deepSeekFileScope>,
+    generations: readonly Pick<DeepSeekUploadRecord, 'variantId' | 'fileId'>[],
+  ): Promise<void> {
+    await this.index.remove(scope, generations)
   }
 
   /** Remove all local mappings for one endpoint/API-key scope.

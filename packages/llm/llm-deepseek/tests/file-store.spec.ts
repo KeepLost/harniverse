@@ -379,7 +379,7 @@ describe('DeepSeek file store', () => {
     const policy = { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 }
     const result = await store.ensureUploaded(image(), connection, policy)
     const scope = deepSeekFileScope(connection.baseURL, connection.apiKey, 'chat-completions')
-    await store.invalidate(scope, image().variantId, result.record.fileId)
+    await store.invalidate(scope, [{ variantId: image().variantId, fileId: result.record.fileId }])
     await expect(index.get(scope, image().variantId, Date.now(), 0)).resolves.toBeUndefined()
     await store.clear(scope)
   })

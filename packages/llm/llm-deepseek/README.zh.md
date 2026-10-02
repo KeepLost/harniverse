@@ -72,7 +72,7 @@ Messages 请求携带原生思考重放：每个响应在持久助手内容旁�
 
 插件还在可配置提供方目录（`ctx.llm.listConfigurableProviders()`）中声明自己的路由：提供方 `deepseek-official`、设置命名空间 `llm-deepseek`、空设置路径 —— 整个小节即 profile。配置面利用该条目把本适配器与休眠的 pi-ai 提供方并列展示。
 
-DeepSeek Files 映射是提供方本地且按协议作用域的。它们以端点/API key/协议作用域哈希与请求图片变体为键，存放在 `DSH_HOME/llm-deepseek` 之下并仅限属主权限，绝不进入 Session 事件或通用附件引用。两种协议共享同一 Files API 表面但各有线风格：chat-completions 使用 OpenAI 形状对象与 `purpose: user_data`；Messages 使用 Anthropic 形状对象（`x-api-key`、`anthropic-beta: files-api-2025-04-14`），从请求的生存期合成过期时间，并在文件操作上始终发送 beta 头。引用文件 id 的会话请求只在请求体确实携带文件引用图片时附带该 beta 头。缓存映射在过期前刷新；配额响应只删除 harness 拥有的文件后重试一次，指名过期文件 id 的响应对该作用域清空并以内联形式重试同一请求。
+DeepSeek Files 映射是提供方本地且按协议作用域的。它们以端点/API key/协议作用域哈希与请求图片变体为键，存放在 `DSH_HOME/llm-deepseek` 之下并仅限属主权限，绝不进入 Session 事件或通用附件引用。两种协议共享同一 Files API 表面但各有线风格：chat-completions 使用 OpenAI 形状对象与 `purpose: user_data`；Messages 使用 Anthropic 形状对象（`x-api-key`、`anthropic-beta: files-api-2025-04-14`），从请求的生存期合成过期时间，并在文件操作上始终发送 beta 头。引用文件 id 的会话请求只在请求体确实携带文件引用图片时附带该 beta 头。缓存映射在过期前刷新；配额响应只删除 harness 拥有的文件后重试一次，指名过期文件 id 的响应只作废该请求使用过的精确代际——其他变体的健康映射保留——并以内联形式重试同一请求一次。成功但 body 不是 JSON 的 Files 响应以 `INVALID_RESPONSE` 失败并点名操作，与元数据校验失败区分。
 
 ## 应用归因
 
@@ -111,7 +111,7 @@ Messages：
 
 #### 模型看到的内容
 
-选定的 DeepSeek 模型收到 harness 系统提示、消息历史、工具 schema、停止序列与调用配置，没有适配器自撰的提示散文。chat-completions 把每个先前带推理的助手回合的推理内容逐字回传；Messages 在这些块旁重放原生思考签名，并把请求图片渲染为内容部件。具备图片能力的路由还把持久用户与嵌套工具结果图片作为有界内容部件发送。每张图片前置其附件 id 与请求尺寸；提供方看到 Files API 文件引用或内联数据，而 Session 历史只保留持久附件引用。
+选定的 DeepSeek 模型收到 harness 系统提示、消息历史、工具 schema、停止序列与调用配置，没有适配器自撰的提示散文。Messages 会省略用户与工具结果内容中的 `reasoning` 与 `tool-call` 块（回放的子代理通知会把这些块带到这里；线上格式无法表示），跳过全部块都转换为空的用户轮次，并保留空工具结果的调用 id 与错误标记。chat-completions 把每个先前带推理的助手回合的推理内容逐字回传；Messages 在这些块旁重放原生思考签名，并把请求图片渲染为内容部件。具备图片能力的路由还把持久用户与嵌套工具结果图片作为有界内容部件发送。每张图片前置其附件 id 与请求尺寸；提供方看到 Files API 文件引用或内联数据，而 Session 历史只保留持久附件引用。
 
 #### Token 影响
 

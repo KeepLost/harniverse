@@ -15,6 +15,12 @@ import type { DeepSeekFilePolicy } from './file-store.ts'
 import type { DeepSeekProtocol } from './types.ts'
 import { DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET, DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './defaults.ts'
 
+/** One request-image version with the exact remote id a model request used. */
+export interface UsedFileGeneration {
+  variantId: RequestImageAttachment['variantId']
+  fileId: string
+}
+
 /** Provider representation for one retained request image. */
 export type ImageRequestRepresentation =
   | {
@@ -23,6 +29,8 @@ export type ImageRequestRepresentation =
       version: RequestImageAttachment,
       location: ImageWireLocation,
     ) => Promise<string>
+    /** Generations this representation resolved so far, in resolution order; exact invalidation reads them. */
+    readonly used: readonly UsedFileGeneration[]
   }
   | { kind: 'base64' }
 
@@ -175,16 +183,21 @@ export function imageSerialization(
     omittedOccurrences: limited.omittedOccurrences,
     representation: representation === 'base64'
       ? { kind: 'base64' }
-      : {
-        kind: 'file',
-        resolveFileId: async (version, location) => {
-          void location
-          const timeout = AbortSignal.timeout(connection.filesApiTimeoutMs)
-          const uploadSignal = AbortSignal.any([signal, timeout])
-          const file = await files.ensureUploaded(version, { baseURL: connection.baseURL, apiKey, protocol }, filePolicy, uploadSignal)
-          return String(file.record.fileId)
-        },
-      },
+      : (() => {
+        const used: UsedFileGeneration[] = []
+        return {
+          kind: 'file' as const,
+          used,
+          resolveFileId: async (version: RequestImageAttachment, location: ImageWireLocation) => {
+            void location
+            const timeout = AbortSignal.timeout(connection.filesApiTimeoutMs)
+            const uploadSignal = AbortSignal.any([signal, timeout])
+            const file = await files.ensureUploaded(version, { baseURL: connection.baseURL, apiKey, protocol }, filePolicy, uploadSignal)
+            used.push({ variantId: version.variantId, fileId: String(file.record.fileId) })
+            return String(file.record.fileId)
+          },
+        }
+      })(),
   }
 }
 

@@ -72,7 +72,7 @@ export { DeepSeekFileId } from './common/file-id.ts'
 export type { DeepSeekFileId as DeepSeekFileIdType } from './common/file-id.ts'
 export { DeepSeekUploadIndex, deepSeekFileScope } from './common/upload-index.ts'
 export type { DeepSeekUploadRecord } from './common/upload-index.ts'
-export type { ImageRequestRepresentation, ImageSerializationOptions, ImageWireLocation } from './common/request-images.ts'
+export type { ImageRequestRepresentation, ImageSerializationOptions, ImageWireLocation, UsedFileGeneration } from './common/request-images.ts'
 
 export const name = 'llm-deepseek'
 export const inject = ['llm']
