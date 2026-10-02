@@ -548,7 +548,7 @@ export class PiAiAdapter extends LlmAdapter {
           ...options.temperature === undefined ? {} : { temperature: options.temperature },
           ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         })
-      const iterator = toStreamChunks(events, model.contextWindow)[Symbol.asyncIterator]()
+      const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {

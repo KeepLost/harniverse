@@ -1,17 +1,11 @@
 diff --git a/core/streaming.js b/core/streaming.js
-index 14eac991eb14b5270b39696d0be80e30bf1fe406..5aaa2f21b4982d3e02d0b24d1c0c037c274355f4 100644
+index 14eac991eb14b5270b39696d0be80e30bf1fe406..49907d49a499ad422c65081762d20b0b2d949e54 100644
 --- a/core/streaming.js
 +++ b/core/streaming.js
-@@ -3,6 +3,30 @@ var _Stream_client;
+@@ -3,6 +3,24 @@ var _Stream_client;
  Object.defineProperty(exports, "__esModule", { value: true });
  exports.Stream = void 0;
  exports._iterSSEMessages = _iterSSEMessages;
-+/**
-+ * Gateways behind lossy buffering can drop the blank line between two SSE
-+ * events, leaving one event whose data payload carries several complete JSON
-+ * documents. Parse each non-empty line separately so every event is
-+ * delivered; a payload that still fails rethrows the original error.
-+ */
 +function parseJSONDocuments(data) {
 +    try {
 +        return [JSON.parse(data)];
@@ -33,7 +27,7 @@ index 14eac991eb14b5270b39696d0be80e30bf1fe406..5aaa2f21b4982d3e02d0b24d1c0c037c
  const tslib_1 = require("../internal/tslib.js");
  const error_1 = require("./error.js");
  const shims_1 = require("../internal/shims.js");
-@@ -37,35 +61,39 @@ class Stream {
+@@ -37,35 +55,39 @@ class Stream {
                          continue;
                      }
                      if (sse.event === null || !sse.event.startsWith('thread.')) {
@@ -85,19 +79,10 @@ index 14eac991eb14b5270b39696d0be80e30bf1fe406..5aaa2f21b4982d3e02d0b24d1c0c037c
                  }
                  done = true;
 diff --git a/core/streaming.mjs b/core/streaming.mjs
-index b581b939c87ecfd85e86631a2259c136f617bae9..c3dc8df8dc6f1f81711c0721978b29d5688328fd 100644
+index b581b939c87ecfd85e86631a2259c136f617bae9..da2f447e9886454c6c5bd683a114078a4b6271c4 100644
 --- a/core/streaming.mjs
 +++ b/core/streaming.mjs
-@@ -8,6 +8,30 @@ import { isAbortError } from "../internal/errors.mjs";
- import { encodeUTF8 } from "../internal/utils/bytes.mjs";
- import { loggerFor } from "../internal/utils/log.mjs";
- import { APIError } from "./error.mjs";
-+/**
-+ * Gateways behind lossy buffering can drop the blank line between two SSE
-+ * events, leaving one event whose data payload carries several complete JSON
-+ * documents. Parse each non-empty line separately so every event is
-+ * delivered; a payload that still fails rethrows the original error.
-+ */
+@@ -1,3 +1,21 @@
 +function parseJSONDocuments(data) {
 +    try {
 +        return [JSON.parse(data)];
@@ -116,10 +101,10 @@ index b581b939c87ecfd85e86631a2259c136f617bae9..c3dc8df8dc6f1f81711c0721978b29d5
 +        throw e;
 +    }
 +}
- export class Stream {
-     constructor(iterator, controller, client) {
-         this.iterator = iterator;
-@@ -33,35 +57,39 @@ export class Stream {
+ var _Stream_client;
+ import { __classPrivateFieldGet, __classPrivateFieldSet } from "../internal/tslib.mjs";
+ import { OpenAIError } from "./error.mjs";
+@@ -33,35 +51,39 @@ export class Stream {
                          continue;
                      }
                      if (sse.event === null || !sse.event.startsWith('thread.')) {

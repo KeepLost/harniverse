@@ -318,7 +318,7 @@ describe('draft-provider model discovery', () => {
       body: JSON.stringify({
         models: {
           'lobechat-deepseek-chat': {
-            id: 'deepseek/deepseek-v4-flash',
+            id: 'deepseek/deepseek-flash',
             name: 'DeepSeek V4 Flash',
             limit: { context: 1_048_576, output: 384_000 },
           },

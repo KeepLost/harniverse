@@ -86,9 +86,12 @@ type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 /**
  * pi-ai thinking formats a profile cannot name: `qwen-chat-template` drives
  * the request through pi-ai's own fixed `enable_thinking` /
- * `preserve_thinking` kwargs, which need no per-deployment spelling.
+ * `preserve_thinking` kwargs, which need no per-deployment spelling, and
+ * `baseten` (added 0.84) has no Harniverse deployment asking for its
+ * `chat_template_args` surface — a route that needs it carries the format in
+ * its own catalog entry until one does.
  */
-type WithheldThinkingFormat = 'qwen-chat-template'
+type WithheldThinkingFormat = 'qwen-chat-template' | 'baseten'
 
 /** One reasoning-dispatch wire format a profile may name. */
 export type PiAiThinkingFormat = Exclude<PiThinkingFormat, WithheldThinkingFormat>

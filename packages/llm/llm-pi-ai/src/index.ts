@@ -115,6 +115,8 @@ async function ambientCredential(ctx: Context, provider: string): Promise<Pick<P
         /* v8 ignore next -- API-key environment providers do not inspect files. */
         fileExists: () => Promise.resolve(false),
       },
+      // Config materialization is not cancellable; the env read it guards is local.
+      signal: new AbortController().signal,
     })
     if (resolved === undefined) continue
     const bearer = Object.entries(resolved.auth.headers ?? {})

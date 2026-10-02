@@ -25,7 +25,7 @@ function assistant(overrides: Partial<AssistantMessage> = {}): AssistantMessage 
     content: [],
     api: 'openai-completions',
     provider: 'deepseek',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-flash',
     usage: usage(),
     stopReason: 'stop',
     timestamp: 0,
@@ -47,7 +47,7 @@ describe('toPiContext', () => {
   it('maps system prompt, user text, and tools', () => {
     const context = toPiContext({
       provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       system: 'be helpful',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
@@ -400,7 +400,7 @@ describe('toPiContext', () => {
         ],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState: state },
         },
       })],
     })
@@ -455,7 +455,7 @@ describe('toPiContext', () => {
         content: [{ type: 'reasoning', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState: state },
         },
       })],
     }, reason => reasons.push(reason))
@@ -474,7 +474,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState: state },
         },
       })],
     }, reason => reasons.push(reason))
@@ -488,7 +488,7 @@ describe('toPiContext', () => {
       version: 2,
       api: 'openai-completions',
       provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       stopReason: 'stop',
     },
     blocks: [{ type: 'text' }],
@@ -507,7 +507,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState },
         },
       })],
     }, reason => reasons.push(reason))
@@ -546,7 +546,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState },
         },
       })],
     }, reason => reasons.push(reason))
@@ -583,7 +583,7 @@ describe('toStreamChunks', () => {
             version: 2,
             api: 'openai-completions',
             provider: 'deepseek',
-            model: 'deepseek-v4-flash',
+            model: 'deepseek-flash',
             stopReason: 'stop',
           },
           blocks: [{ type: 'text' }],
@@ -708,7 +708,7 @@ describe('toStreamChunks', () => {
             version: 2,
             api: 'openai-completions',
             provider: 'deepseek',
-            model: 'deepseek-v4-flash',
+            model: 'deepseek-flash',
             stopReason: 'toolUse',
           },
           blocks: [{ type: 'tool-call' }],
@@ -775,7 +775,7 @@ describe('mapStopReason / mapUsage', () => {
     expect(mapStopReason(assistant({ stopReason: 'stop' }))).toEqual({
       kind: 'error',
       failure: {
-        message: 'model "deepseek-v4-flash" returned a completed response with no content',
+        message: 'model "deepseek-flash" returned a completed response with no content',
         code: EMPTY_RESPONSE_CODE,
       },
     })
@@ -864,7 +864,7 @@ describe('mapStopReason / mapUsage', () => {
     expect(mapStopReason(silent, 100)).toEqual({
       kind: 'error',
       failure: {
-        message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
+        message: 'pi-ai detected context overflow for model "deepseek-flash"',
         code: CONTEXT_WINDOW_EXCEEDED_CODE,
       },
     })
