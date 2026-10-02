@@ -52,7 +52,10 @@ void test('offline check reports missing local prerequisites without claiming a 
   try {
     const result = spawnSync(process.execPath, [cli, 'check', '--electron-dist', missing, '--stage-dir', missing], { encoding: 'utf8' })
     assert.equal(result.status, 1)
-    assert.match(result.stderr, /Electron 43\.4\.0 binary unavailable/)
+    const electronVersion = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      devDependencies: { electron: string }
+    }).devDependencies.electron
+    assert.match(result.stderr, new RegExp(`Electron ${electronVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} binary unavailable`))
     assert.match(result.stderr, /No staged runtime/)
     assert.doesNotMatch(result.stdout, /verified|Prepared/)
   } finally { rmSync(missing, { recursive: true, force: true }) }
@@ -122,7 +125,10 @@ void test('browser discovery fails with an actionable provision command and leav
 
 void test('native qualification refuses system Node before loading a runtime', () => {
   const probe = fileURLToPath(new URL('../scripts/packaging-native-probe.cjs', import.meta.url))
-  const result = spawnSync(process.execPath, [probe, '/nonexistent-runtime', process.platform, process.arch, '43.4.0'], {
+  const electronVersion = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    devDependencies: { electron: string }
+  }).devDependencies.electron
+  const result = spawnSync(process.execPath, [probe, '/nonexistent-runtime', process.platform, process.arch, electronVersion], {
     encoding: 'utf8', env: { PATH: '' },
   })
   assert.equal(result.status, 1)

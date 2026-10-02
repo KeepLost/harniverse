@@ -1,5 +1,5 @@
 import type {
-  AssistantMessageNode, ConversationLocation, ConversationNode,
+  AssistantMessageNode, CompactionSummaryNode, ConversationLocation, ConversationNode,
   ConversationPromptSnapshot, ConversationViewNode, PartialAssistant,
   RequestPromptChange, RequestView, RunningToolCall, ToolCallBlock,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -36,6 +36,8 @@ export type TrajectoryContribution =
   | {
     readonly kind: 'compaction'
     readonly request: Extract<RequestView, { purpose: 'compaction' }>
+    /** The landed marker at the checkpoint's own position; present only once the checkpoint landed. */
+    readonly marker?: CompactionSummaryNode
   }
   | {
     readonly kind: 'session-end'

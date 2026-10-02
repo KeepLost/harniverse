@@ -49,7 +49,15 @@ export class DesktopCleanInstallSmoke {
 
   constructor(private readonly report: string, runtimeRoot: string) {
     assertEmptyCommandPath(process.env.PATH)
-    if (process.versions.electron !== '43.4.0') throw new Error('Clean-install smoke requires Electron 43.4.0.')
+    // The pinned runtime the packaging checks provisioned, handed in by the smoke driver; the
+    // adjacent manifest read covers source-checkout runs where no driver supplied it.
+    const expectedElectron = process.env.HARNIVERSE_DESKTOP_SMOKE_ELECTRON
+      ?? (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+        devDependencies?: { electron?: string }
+      }).devDependencies?.electron
+    if (expectedElectron !== undefined && process.versions.electron !== expectedElectron) {
+      throw new Error(`Clean-install smoke requires Electron ${expectedElectron}.`)
+    }
     this.inventorySha256 = createHash('sha256').update(readFileSync(join(runtimeRoot, 'offline-assets.json'))).digest('hex')
     const profile = mkdtempSync(join(dirname(report), 'profile-'))
     app.setPath('userData', profile)
@@ -101,6 +109,23 @@ export class DesktopCleanInstallSmoke {
     })
   }
 
+  /**
+   * Race one renderer probe against a short bound: an executeJavaScript
+   * issued into a frame that is navigating or being destroyed can hang
+   * forever, and a single hung await would freeze a polling loop past its
+   * own deadline (observed as the clean-install smoke's outer kill).
+   * @param script - JavaScript to evaluate in the sole window's main frame.
+   * @param boundMs - probe budget; resolution to `undefined` means "not
+   *   answerable right now", never a failed qualification on its own.
+   * @returns the script's value, or `undefined` when the bound expired.
+   */
+  private async probeRenderer<T>(script: string, boundMs: number): Promise<T | undefined> {
+    return await Promise.race([
+      onlyWindow().webContents.executeJavaScript(script) as Promise<T>,
+      delay(boundMs).then(() => undefined),
+    ])
+  }
+
   private async waitForRenderer(): Promise<void> {
     const deadline = Date.now() + 25_000
     let observed: unknown
@@ -108,7 +133,7 @@ export class DesktopCleanInstallSmoke {
       const contents = onlyWindow().webContents
       if (!contents.isLoadingMainFrame() && new URL(contents.getURL()).origin === this.origin) {
         try {
-          observed = await contents.executeJavaScript(`(() => {
+          observed = await this.probeRenderer(`(() => {
             const frame = document.querySelector('[data-viewport]');
             const rect = frame?.getBoundingClientRect();
             return {
@@ -116,7 +141,7 @@ export class DesktopCleanInstallSmoke {
               criticalPluginsReady: performance.getEntriesByName('dsh:critical-entry-end').length > 0,
               rendered: !!rect && rect.width > 0 && rect.height > 0 && frame.querySelectorAll('button').length > 0
             };
-          })()`)
+          })()`, 2000)
         } catch { /* Normal authentication reload destroys the first document's execution context. */ }
         if (rendererReady(observed) && ['/auth/challenge', '/auth/exchange', '/plugins/bootstrap.js'].every(path => this.completed.has(path))) return
       }
@@ -126,7 +151,7 @@ export class DesktopCleanInstallSmoke {
   }
 
   private async authenticatedApi(): Promise<void> {
-    const result: unknown = await onlyWindow().webContents.executeJavaScript(`(async () => {
+    const result = await this.probeRenderer(`(async () => {
       const status = await fetch('/auth/status');
       const authentication = await status.json();
       const response = await fetch('/api/session.list', {
@@ -137,7 +162,8 @@ export class DesktopCleanInstallSmoke {
       return authentication.mode === 'authenticated' && authentication.authenticated === true
         && response.status === 200 && body.rpcId === 'desktop-smoke' && body.result?.ok === true
         && Array.isArray(body.result.value?.items);
-    })()`)
+    })()`, 10_000)
+    if (result === undefined) throw new Error('The authenticated renderer probe did not answer within its budget.')
     if (result !== true) throw new Error('The normal authenticated HTTP session.list request failed.')
   }
 
@@ -190,7 +216,9 @@ export class DesktopCleanInstallSmoke {
     const deadline = Date.now() + 30_000
     let activity: Awaited<ReturnType<OwnedDesktopHost['activity']>> | undefined
     while (Date.now() < deadline) {
-      activity = await this.host?.activity()
+      // Bounded like the renderer probes: one hung activity RPC must not
+      // freeze this loop past its deadline.
+      activity = await Promise.race([this.host?.activity(), delay(2000).then(() => undefined)])
       if (activity?.status === 'idle' && activity.sessions === 0 && activity.tasks === 0) return
       await delay(100)
     }

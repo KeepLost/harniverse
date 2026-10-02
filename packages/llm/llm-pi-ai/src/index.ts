@@ -69,6 +69,7 @@ import { assertServiceable, Config as PiAiConfig, resolveProfiles } from './conf
 import type { Config, PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
+import { ambientNamesInPrecedence } from './provider.ts'
 
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
@@ -101,9 +102,9 @@ async function ambientCredential(ctx: Context, provider: string): Promise<Pick<P
   if (auth === undefined) return undefined
   const environment = launchEnvironmentOf(ctx)
   const credentials = ctx.get('credentials')
-  const names = findEnvKeys(provider, new Proxy(Object.create(null) as Record<string, string>, {
+  const names = ambientNamesInPrecedence(findEnvKeys(provider, new Proxy(Object.create(null) as Record<string, string>, {
     get: () => 'configured',
-  })) ?? []
+  })) ?? [])
   for (const name of names) {
     const stored = credentials === undefined ? undefined : await credentials.resolve(credentialRef(name))
     const available = credentials === undefined ? environment.get(name)?.value : stored?.value

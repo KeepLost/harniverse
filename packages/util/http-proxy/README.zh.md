@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Harness 的**进程级出站代理策略**：从启动环境（`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`，任意大小写）解析出唯一一份策略，安装到 Node 全局 `fetch` 与 `WebSocket` 所解析的 dispatcher 符号之后，并向其余所有表面——子进程、web-fetch 传输——给出同一个路由答案。
+Harness 的**进程级出站代理策略**：从启动环境（`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`，任意大小写）解析出唯一一份策略，安装到 Node 全局 `fetch` 与 `WebSocket` 所解析的 dispatcher 符号之后，并向进程内所有表面——包括 web-fetch 传输——给出同一个路由答案。派生子进程永远看不到派生值：进程环境保持用户自己的拼写原样不动，隔离子进程基底则移除全部代理变量名。
 
 Node 内置的 `fetch` 自身忽略代理环境变量，因此无论用户导出什么，每个 harness 请求都会直连。一次安装即可覆盖 LLM 适配器、web 搜索以及任何普通的 `fetch()` 调用者，而无需改动它们的代码：启动器（`dsh` profile boot）在第一个插件挂载之前完成解析与安装，且从启动环境快照而非 `process.env` 解析——这正是让声明在 `.env` 层中的代理得以生效的原因；`NODE_USE_ENV_PROXY` 做不到这一点，因为 Node 在进程启动时就采样了环境。
 
@@ -14,7 +14,6 @@ Node 内置的 `fetch` 自身忽略代理环境变量，因此无论用户导出
 import {
   clearedProxyEnv,
   installProxyFromEnvironment,
-  proxyEnvironmentForChild,
   proxyRouteFor,
   requestViaProxy,
 } from '@deepseek-ai/dsh-http-proxy'
@@ -22,18 +21,17 @@ import {
 
 | 导出 | 职责 |
 |---|---|
-| `installProxyFromEnvironment(env, report)` | 从启动环境解析策略、上报每一个被拒绝的值，并安装到全局 fetch 的 dispatcher 之后。返回恢复先前 dispatcher、策略与环境的处置函数。 |
+| `installProxyFromEnvironment(env, report)` | 从启动环境解析策略、上报每一个被拒绝的值，并安装到全局 fetch 的 dispatcher 之后。返回恢复先前 dispatcher 与策略的处置函数；`process.env` 从不被改写。 |
 | `proxyRouteFor(url)` | 单个请求应如何发送，从当前策略的一次读取作答：`{ proxied: true, proxy }` 或 `{ proxied: false }`。 |
 | `requestViaProxy(proxyUrl, url, options)` | 唯一的共享代理跳：`http:` 目标用绝对形式请求，`https:` 目标走 `CONNECT` + TLS。返回最终响应与可中止整跳的句柄。 |
-| `proxyEnvironmentForChild()` | 子进程所需的叠加层：已解析的代理变量名加上 `NODE_USE_ENV_PROXY`，并恢复用户手写的值，使 `curl` 保住本包拒绝的 SOCKS 代理。 |
-| `clearedProxyEnv()` | 每个代理变量名一条 `undefined` 记录，供必须直连自身夹具服务器的回放使用。 |
+| `clearedProxyEnv()` | 每个代理变量名一条 `undefined` 记录，供隔离子进程基底以及必须直连自身夹具服务器的回放使用。 |
 
 ## 策略语义
 
 - **解析顺序**：scheme 自身的变量优先，然后是 `ALL_PROXY`，最后——仅对 HTTPS——回退到 HTTP 代理。被拒绝的槽位（非法 URL、SOCKS、不支持的协议）让该 scheme 保持直连；诊断与路由保持一致，任何回退都不会把请求发往用户从未指定的位置。
 - **诊断不携带值**：代理 URL 可能内嵌 `user:password`，因此消息只点名变量。
 - **回环永不走代理**（`localhost`、`127.0.0.0/8`、`::1`、IPv4 映射形式），且每份旁路名单都会并入这些条目。
-- **`NO_PROXY` 匹配**：逗号/空白分隔；条目匹配主机及其全部子域；可选的 `:port` 必须等于有效端口；`*` 旁路一切；不匹配 CIDR。
+- **`NO_PROXY` 匹配**：逗号/空白分隔；条目匹配主机及其全部子域；可选的 `:port` 必须等于有效端口；`*` 旁路一切；不匹配 CIDR。并入回环条目后的合并名单只存在于策略对象内部，绝不作为环境值导出。
 - **WebSocket 路由**：Node 全局 `WebSocket` 对 `ws:` 使用 HTTP 策略，对 `wss:` 使用 HTTPS 策略。回环与旁路升级交给被替换的 dispatcher；若不存在，则使用原生直连。代理升级使用 `CONNECT`；`wss:` 另加源站 TLS，并正常校验证书。代理凭据仅发送给代理。握手失败或取消会关闭尚未交付的连接；dispose（资源释放）等待未完成的握手，成功升级后的 socket 由调用者拥有并关闭。
 - **未导出任何代理**：不安装任何东西、不触碰任何环境变量名——全局 `fetch` 逐字节保持 Node 内部默认传输。
 
@@ -41,7 +39,7 @@ import {
 
 - `dsh` profile boot 在启动时安装策略，并在关机时处置。
 - `dsh-web-fetch-http` 咨询 `proxyRouteFor` 并让代理 URL 走 `requestViaProxy`（不做本地 DNS 固定——由代理解析）；回环与旁路 URL 保持固定的直连传输。
-- `dsh-subprocess` 在 `scrubbedParentEnv()` 中叠加 `proxyEnvironmentForChild()`，使子 Node 进程继承父进程的路由。
+- `dsh-subprocess` 在 `scrubbedParentEnv()` 中移除全部代理变量名（`clearedProxyEnv()`），隔离子进程基底与用户路由隔离；完全信任基底（`ambientEnv: 'full'`）复制 `process.env`——本包从不改写它——因此这些子进程逐字保留用户自己的变量。
 - LLM 适配器（`dsh-llm-pi-ai`，discovery 与 provider 流）无需改动：其 `fetch()` 调用经由已安装的 dispatcher 解析。
 
 ## Model Experience

@@ -5,16 +5,24 @@
   "author": "Harniverse contributors",
   "desktopName": "harniverse.desktop",
   "license": "MIT",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
     "directory": "apps/desktop"
   },
   "type": "module",
-  "files": ["lib/*.js", "lib/*.cjs", "renderer"],
+  "files": [
+    "lib/*.js",
+    "lib/*.cjs",
+    "renderer"
+  ],
   "main": "lib/entry.js",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown",
     "prepare:desktop": "node scripts/packaging.ts prepare",
@@ -25,7 +33,7 @@
     "typecheck:packaging": "tsc -p tsconfig.packaging.json"
   },
   "devDependencies": {
-    "electron": "43.4.0",
+    "electron": "43.5.0",
     "electron-builder": "26.15.7",
     "fake-indexeddb": "^6.2.5",
     "sharp": "^0.35.4",
@@ -40,12 +48,33 @@
     "asar": false,
     "npmRebuild": false,
     "nodeGypRebuild": false,
-    "electronFuses": { "runAsNode": true },
+    "electronFuses": {
+      "runAsNode": true
+    },
     "publish": null,
-    "files": ["**/*", "!**/*.map", "!**/*.d.ts", "!**/.DS_Store"],
+    "files": [
+      "**/*",
+      "!**/*.map",
+      "!**/*.d.ts",
+      "!**/.DS_Store"
+    ],
     "icon": "icon.png",
-    "linux": { "target": ["AppImage", "dir"], "category": "Development", "icon": "icons", "syncDesktopName": true },
-    "win": { "target": ["nsis", "dir"], "icon": "icon.ico" },
+    "linux": {
+      "target": [
+        "AppImage",
+        "dir"
+      ],
+      "category": "Development",
+      "icon": "icons",
+      "syncDesktopName": true
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "dir"
+      ],
+      "icon": "icon.ico"
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -54,7 +83,10 @@
       "artifactName": "Harniverse-${version}-${arch}-Setup.${ext}"
     },
     "mac": {
-      "target": ["dmg", "dir"],
+      "target": [
+        "dmg",
+        "dir"
+      ],
       "icon": "icon.icns",
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true

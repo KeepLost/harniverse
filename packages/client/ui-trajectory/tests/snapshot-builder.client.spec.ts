@@ -209,6 +209,37 @@ describe('TrajectorySnapshotBuilder', () => {
     ])
   })
 
+  it('rides the landed compaction marker on eventNodes at the checkpoint position', () => {
+    const marker = {
+      kind: 'compaction' as const,
+      seq: 11,
+      time: 11,
+      summary: 'summarized',
+      summaryEventSeq: 10,
+      shadowedItemCount: 3,
+      shadowedTokenCount: 900,
+    }
+    const nodes: TrajectoryConversationViewNode[] = [
+      contribution('assistant:1', 1, {
+        kind: 'assistant', partial: null, request: assistantRequest(1, 1),
+      }),
+      // Still running: the request is visible, but no checkpoint has landed to absorb with.
+      contribution('compact:9', 9, {
+        kind: 'compaction',
+        request: compactionRequest(9),
+      }),
+      contribution('compact:10', 10, {
+        kind: 'compaction',
+        request: { ...compactionRequest(10), status: 'complete' as const, completedAt: 11 },
+        marker,
+      }),
+    ]
+    const snapshot = new TrajectorySnapshotBuilder().replace({ nodes })
+    expect(snapshot.eventNodes).toEqual([marker])
+    expect(snapshot.eventLocations.get(11)).toEqual({ kind: 'session' })
+    expect(snapshot.requests.filter(request => request.purpose === 'compaction')).toHaveLength(2)
+  })
+
   it('keeps cached contribution order across content updates and structural inserts', () => {
     const builder = new TrajectorySnapshotBuilder()
     const first = contribution('assistant:1', 1, {

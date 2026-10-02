@@ -26,6 +26,13 @@ import { HostToWorkerType, WorkerToHostType } from './protocol.ts'
 import type { HostToWorkerPayloads, WorkerToHostMessage } from './protocol.ts'
 import type { ChildResult, ChildStartRequest, WorkerInit } from './types.ts'
 
+/**
+ * Longest a requested kill waits for a worker still booting (cold tsx
+ * transform on a contended CI runner can take seconds) before treating the
+ * boot as wedged and terminating despite the module-load abort hazard.
+ */
+const BOOT_KILL_BACKSTOP_MS = 30_000
+
 /** One published child and its shared quiescent-disposal transaction. */
 interface ChildRecord {
   readonly run: SubagentRun
@@ -131,6 +138,13 @@ export class WorkerRun implements WorkflowRun {
   private inputSignal: AbortSignal | undefined
   private inputSignalAbort: (() => void) | undefined
   private disposed: Promise<void> | undefined
+  /**
+   * Resolves when the worker finished booting (its Ready handshake) or its
+   * thread exited. A terminate() landing inside the worker's synchronous
+   * module load can abort the whole process (the V8 cjs-lexer parse window,
+   * nodejs/node#63323), so every kill queues behind this barrier.
+   */
+  private readonly bootSettled = Promise.withResolvers<void>()
 
   constructor(
     private readonly ctx: Context,
@@ -156,6 +170,7 @@ export class WorkerRun implements WorkflowRun {
     this.worker.on('messageerror', (error) => { this.onWorkerDeath(`workflow worker message failed to deserialize: ${renderThrown(error)}`, false) })
     this.worker.on('exit', (code) => {
       this.workerGone = true
+      this.bootSettled.resolve()
       this.onWorkerDeath(`workflow worker exited before the run settled (exit code ${code})`, true)
     })
     if (signal?.aborted) {
@@ -200,7 +215,7 @@ export class WorkerRun implements WorkflowRun {
       // workflow/end.
       this.endStrandedAgents()
       this.settleResult(this.cancelledResult(this.hostStarted))
-      void this.worker.terminate()
+      void this.terminateWorker()
     }, this.disposeGraceMs)
     // unref'd: an armed grace timer must never hold the process open.
     this.graceTimer.unref()
@@ -214,8 +229,9 @@ export class WorkerRun implements WorkflowRun {
    * the disposals still in flight — so child disposal overlaps the same
    * grace the worker gets to settle (the worker's own dispose RPCs join the
    * shared per-child disposal). Waits (at most the grace) for the result and
-   * child quiescence, then terminates the worker unconditionally — the
-   * thread never outlives its run — and reaps whatever children remain
+   * child quiescence, then terminates the worker unconditionally — the kill
+   * queues behind the worker's bootstrap (see {@link terminateWorker}) but
+   * the thread never outlives its run — and reaps whatever children remain
    * (their disposal is contained, not awaited past the grace, the same
    * abandonment the seam documents for a slow-disposing child). Idempotent;
    * safe on every path.
@@ -244,7 +260,7 @@ export class WorkerRun implements WorkflowRun {
         })(),
         sleep(this.disposeGraceMs),
       ])
-      await this.worker.terminate()
+      await this.terminateWorker()
       this.reapChildren('workflow disposed')
     })().then(
       () => { claimed.resolve(undefined) },
@@ -252,6 +268,21 @@ export class WorkerRun implements WorkflowRun {
       (error: unknown) => { claimed.reject(error) },
     )
     return this.disposed
+  }
+
+  /**
+   * Drive `worker.terminate()`, never inside the worker's synchronous
+   * bootstrap: a kill landing in the module-load window can abort the whole
+   * process (see {@link WorkerRun.bootSettled}), so the kill queues behind
+   * the Ready handshake or the thread's own exit. A worker still loading
+   * {@link BOOT_KILL_BACKSTOP_MS} after the kill was requested is treated as
+   * wedged and terminated anyway — last-resort liveness over the abort
+   * hazard; the timer is unref'd, so the wait never holds the process open.
+   * @returns resolves once terminate() has been driven either way.
+   */
+  private async terminateWorker(): Promise<void> {
+    await Promise.race([this.bootSettled.promise, sleep(BOOT_KILL_BACKSTOP_MS)])
+    await this.worker.terminate()
   }
 
   /** Post one message to the worker (payload looked up from the tag's map entry), tolerating a thread that is already gone. */
@@ -276,6 +307,7 @@ export class WorkerRun implements WorkflowRun {
     if (this.workerDeathObserved) return
     switch (message.type) {
       case WorkerToHostType.Ready:
+        this.bootSettled.resolve()
         this.post(HostToWorkerType.Go, {})
         break
       case WorkerToHostType.Phase:
@@ -521,6 +553,10 @@ export class WorkerRun implements WorkflowRun {
 
   /** Process an error/messageerror/exit signal; `exit` also performs the final disposal sweep. */
   private onWorkerDeath(message: string, isExit: boolean): void {
+    // Any death signal also releases a queued kill: past this point the
+    // worker is no longer inside its synchronous bootstrap (and admission
+    // gating below can keep a late Ready from ever reaching its own release).
+    this.bootSettled.resolve()
     if (!this.workerDeathObserved) {
       // Close message admission BEFORE cleanup callbacks: Node can deliver a
       // message queued before the crash after its `error` event. Treating the

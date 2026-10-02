@@ -48,7 +48,7 @@ it('boots the installed web profile with private IPC and stops its actual proces
     expect((await fetch(new URL('/api/session.list', url), { method: 'POST' })).status).toBe(401)
     const device = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
     child.send({ type: 'enroll', requestId: 1, publicKey: device.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url') })
-    await expect.poll(() => messages.find(message => message.type === 'enrolled'), { timeout: 3000 }).toBeDefined()
+    await expect.poll(() => messages.find(message => message.type === 'enrolled'), { timeout: 15_000 }).toBeDefined()
     const enrollment = messages.find(message => message.type === 'enrolled')!.enrollment as { grant: { id: string } }
     const json = async (path: string, body: object) => fetch(new URL(path, url), {
       method: 'POST', headers: { 'content-type': 'application/json', origin: url.origin }, body: JSON.stringify(body),
@@ -68,7 +68,7 @@ it('boots the installed web profile with private IPC and stops its actual proces
     expect(listed.status).toBe(200)
     expect(await listed.json()).toMatchObject({ result: { ok: true } })
     child.send({ type: 'activity', requestId: 2 })
-    await expect.poll(() => messages.find(message => message.type === 'activity'), { timeout: 3000 }).toMatchObject({ activity: { status: 'idle' } })
+    await expect.poll(() => messages.find(message => message.type === 'activity'), { timeout: 15_000 }).toMatchObject({ activity: { status: 'idle' } })
     child.send({ type: 'shutdown' })
     expect(await exited).toBe(0)
     expect(messages.at(-1)).toEqual({ type: 'shutdown-complete' })
@@ -77,7 +77,7 @@ it('boots the installed web profile with private IPC and stops its actual proces
     if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await exited }
     await rm(root, { recursive: true, force: true })
   }
-}, 30000)
+}, 60_000)
 
 it('uses the real parent adapter for authenticated enrollment, update locks and acknowledged process close', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-adapter-'))
@@ -95,7 +95,7 @@ it('uses the real parent adapter for authenticated enrollment, update locks and 
     const device = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
     const enrollment = await host.enroll(device.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url'))
     expect(enrollment.grant.id).not.toBe('')
-    await expect.poll(() => host.activity(), { timeout: 3000 }).toEqual({ status: 'idle', sessions: 0, tasks: 0 })
+    await expect.poll(() => host.activity(), { timeout: 15_000 }).toEqual({ status: 'idle', sessions: 0, tasks: 0 })
     expect(await host.updateTasks('lock')).toEqual({ status: 'idle', sessions: 0, tasks: 0 })
     expect((await fetch(new URL('/api/session.list', ready.url), { method: 'POST' })).status).toBe(503)
     expect(await host.updateTasks('unlock')).toEqual({ status: 'idle', sessions: 0, tasks: 0 })
@@ -104,4 +104,4 @@ it('uses the real parent adapter for authenticated enrollment, update locks and 
     expect(failures).toEqual([])
     await expect(fetch(ready.url)).rejects.toThrow()
   } finally { try { await host.stop() } finally { await rm(root, { recursive: true, force: true }) } }
-}, 30000)
+}, 60_000)

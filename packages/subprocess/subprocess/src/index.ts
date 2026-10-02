@@ -9,7 +9,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import { proxyEnvironmentForChild } from '@deepseek-ai/dsh-http-proxy'
+import { clearedProxyEnv } from '@deepseek-ai/dsh-http-proxy'
 import { DSH_ENV_PREFIX } from './types.ts'
 import type { SubprocessCorrelation, SubprocessHandle, SubprocessOutcome, SubprocessSpawnSpec } from './types.ts'
 import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from './types.ts'
@@ -47,20 +47,18 @@ export type {
 export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 
 /**
- * The ambient parent environment minus credential-shaped names and minus all
- * `DSH_*` names — the canonical base every harness child starts from. `PATH`,
- * `HOME`, locale, and proxy variables survive, so child CLIs run normally;
- * harness identity never leaks implicitly (a deliberately forwarded
- * credential or current `DSH_*` fact goes through the spec's explicit `env`,
- * which merges after this scrub). Both scrubs match case-insensitively:
- * Windows environment names are case-insensitive, so a parent `dsh_*` entry
- * would otherwise survive and read back as `$env:DSH_*` in the child;
- * deliberate lowercase `dsh_*` names on POSIX are implausible. Exported as a plain function so spawners
- * that cannot route through the service (node-pty backends, SDK-managed
- * transports) share the one scrub definition.
- *
- * When a proxy is active the result also carries the resolved proxy names and the flag a child Node
- * needs to honor them, so a child inherits the same routing as its parent.
+ * The ambient parent environment minus credential-shaped names, minus all `DSH_*` names, and
+ * minus every proxy name — the canonical isolated base a harness child starts from. `PATH`,
+ * `HOME`, and locale survive, so child CLIs run normally; harness identity never leaks
+ * implicitly, and the child's network routing is severed from the user's proxy configuration:
+ * a value this process derived (the merged loopback bypass among other normalizations) is not a
+ * value the user exported, so no child consumer ever has to parse it. A deliberately forwarded
+ * credential or proxy fact goes through the spec's explicit `env`, which merges after this
+ * scrub. Both scrubs match case-insensitively: Windows environment names are case-insensitive,
+ * so a parent `dsh_*` entry would otherwise survive and read back as `$env:DSH_*` in the child;
+ * deliberate lowercase `dsh_*` names on POSIX are implausible. Exported as a plain function so
+ * spawners that cannot route through the service (node-pty backends, SDK-managed transports)
+ * share the one scrub definition.
  * @returns a fresh environment object safe to hand to a child spawn.
  */
 export function scrubbedParentEnv(): Record<string, string> {
@@ -68,9 +66,8 @@ export function scrubbedParentEnv(): Record<string, string> {
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = value
   }
-  for (const [name, value] of Object.entries(proxyEnvironmentForChild())) {
-    if (value === undefined) Reflect.deleteProperty(env, name)
-    else env[name] = value
+  for (const name of Object.keys(clearedProxyEnv())) {
+    Reflect.deleteProperty(env, name)
   }
   return env
 }

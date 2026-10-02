@@ -68,24 +68,27 @@ describe.skipIf(MODE === 'record')('web e2e: declared reasoning efforts reach th
     await trigger.click()
     await page.getByRole('menuitem', { name: /推理等级/ }).click()
 
-    // Declared levels, nothing else: the provider-default entry (the route
-    // configures no `reasoning`), then Off/High/Max — minimal, low, medium,
-    // and xhigh were not declared and must not be offered.
+    // Declared levels, nothing else: unspecified requests send the implicit
+    // middle level, so the adapter reports a default effort and no
+    // provider-default row is offered — Off/High/Max, while minimal, low,
+    // medium, and xhigh were not declared and must not be offered.
     const levels = page.getByRole('menuitemradio')
     await expect.poll(async () => levels.allTextContents(), { timeout: 10_000 })
-      .toEqual(['Default', 'Off', 'High', 'Max'])
+      .toEqual(['Off', 'High', 'Max'])
     const snapshot = await captureStableAria(page, '[role="menu"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
 
     // Picking a level is the same gesture that saves the default selection, so
     // the effort lands in the Agent default Settings section beside provider/model.
-    await page.getByRole('menuitemradio', { name: 'High' }).click()
+    // High is the effective implicit default already, so the pick that changes
+    // state is Max.
+    await page.getByRole('menuitemradio', { name: 'Max' }).click()
     await expect.poll(
       async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'),
       { timeout: 10_000 },
-    ).toContain('reasoningEffort: high')
+    ).toContain('reasoningEffort: max')
     await expect.poll(() => trigger.getAttribute('aria-label'), { timeout: 10_000 })
-      .toBe('选择模型，当前 Acme Think，推理等级 High')
+      .toBe('选择模型，当前 Acme Think，推理等级 Max')
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

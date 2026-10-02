@@ -58,6 +58,8 @@ worker 仍提供实用的隔离：
 
 `WorkflowRun.cancel()` 会记录第一个原因、通知 worker 取消、中止每个待处理及已发布子 agent 共享的唯一信号，并启动 `disposeGraceMs` 定时器。worker 钩子会在下次 await 时抛出 `CANCELLED`。如果运行到期限仍未结算，宿主会将其以已取消状态兑现、为悬空的子 agent 生命周期事件配对，并终止 worker。
 
+每次终止都排队在 worker 引导之后：落在同步模块加载窗口内的 terminate 可能使整个进程中止（V8 cjs-lexer 解析窗口），因此宿主只在 worker 的 Ready 握手或其自身退出之后才终止，并以 30 秒兜底覆盖僵死的引导。
+
 subagent seam 只有一个取消通道：请求信号。不存在单独的子 agent 取消 RPC。已发布子 agent 使用 `run.dispose()` 清理；待处理的提供方启动在其 promise 拒绝或兑现前仍由提供方负责。
 
 正常结算也会中止待处理启动，并在结果对外结算前开始 dispose 所有已发布但无需等待的子 agent。宿主的完全停稳条件同时包括待处理启动和已发布子 agent 的 dispose，因此清理不会遗漏异步启动事务。

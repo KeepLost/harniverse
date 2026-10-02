@@ -27,19 +27,19 @@ linkWorkspacePackages: true
 overrides:
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
-  'brace-expansion@2': '2.1.4'
-  'brace-expansion@5': '5.0.9'
+  'brace-expansion@2': '2.1.7'
+  'brace-expansion@5': '5.0.12'
   browserslist@4: 4.28.7
-  dompurify: '3.4.13'
-  fast-uri@3: 3.1.6
-  hono@4: 4.13.5
+  dompurify: '3.4.16'
+  fast-uri@3: 3.1.8
+  hono@4: 4.13.7
   js-yaml: '4.3.2'
   smol-toml: '1.7.1'
   nanoid: '3.3.18'
   postcss: '8.5.26'
   protobufjs: '7.6.5'
   qs@6: 6.16.0
-  'undici@7': '7.29.0'
+  'undici@7': '7.29.1'
   'undici@8': 8.9.0
   undici8: 'undici@8.9.0'
   'vitepress>vite': '6.4.3'
@@ -92,4 +92,6 @@ minimumReleaseAgeExclude:
   - node-addon-require-builtin@0.1.4
 
 patchedDependencies:
+  '@earendil-works/pi-ai@0.82.1': patches/@earendil-works__pi-ai@0.82.1.patch
   node-pty@1.1.0: patches/node-pty@1.1.0.patch
+  openai@6.26.0: patches/openai@6.26.0.patch

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-01-anthropic-ambient-key-precedence.md
+2026-10-01-anthropic-ambient-key-precedence.md: 93a23d1f45215b96c976e61f0bfd92137747a33a
+2026-10-01-anthropic-ambient-key-precedence.zh.md: ea730d60e6f6030e21d40f3713fec8f3a19d43ad

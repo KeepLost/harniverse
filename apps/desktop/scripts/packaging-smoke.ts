@@ -58,6 +58,9 @@ async function smoke(): Promise<void> {
       XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'),
       APPDATA: join(home, 'config'), LOCALAPPDATA: join(home, 'local'),
       HARNIVERSE_DESKTOP_SMOKE_REPORT: report,
+      HARNIVERSE_DESKTOP_SMOKE_ELECTRON: (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+        devDependencies: { electron: string }
+      }).devDependencies.electron,
       DSH_DESKTOP_DIAGNOSTICS: '1',
       ...(entry === undefined ? {} : { DSH_DESKTOP_RUNTIME_ROOT: runtimeRoot }),
     }
@@ -110,7 +113,10 @@ async function smoke(): Promise<void> {
       verifySmokeReceipt(receipt)
       const evidence = (receipt as { evidence?: Record<string, unknown> }).evidence
       const inventorySha256 = createHash('sha256').update(readFileSync(join(runtimeRoot, 'offline-assets.json'))).digest('hex')
-      if (evidence?.inventorySha256 !== inventorySha256 || evidence.electron !== '43.4.0') {
+      const expectedElectron = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+        devDependencies: { electron: string }
+      }).devDependencies.electron
+      if (evidence?.inventorySha256 !== inventorySha256 || evidence.electron !== expectedElectron) {
         throw new Error('smoke receipt did not identify the verified runtime inventory and Electron version')
       }
       console.log('Clean-install smoke passed with a fresh profile and an empty system command path.')

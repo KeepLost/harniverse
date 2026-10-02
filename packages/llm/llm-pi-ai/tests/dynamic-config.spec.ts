@@ -103,6 +103,47 @@ describe('request-level dynamic profiles', () => {
     expect(anthropic.headers[0]?.['x-api-key']).toBe('fake-anthropic-key')
   })
 
+  it('authenticates an ambient Anthropic route with its API key when a bearer token is also exported', async () => {
+    vi.stubEnv('ANTHROPIC_OAUTH_TOKEN', '')
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'fake-anthropic-bearer-token')
+    vi.stubEnv('ANTHROPIC_API_KEY', 'fake-anthropic-key')
+    const server = await mockServer([{ events: anthropicTextEvents }])
+    const ctx = await boot(await home(), {
+      providers: {
+        anthropic: {
+          api: 'anthropic-messages',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'fake-anthropic', contextWindow: 200_000, maxTokens: 4096 }],
+        },
+      },
+    })
+    const result = await assemble(ctx, { provider: 'anthropic', model: 'fake-anthropic', messages: [] })
+    if (result.finish.kind !== 'stop') throw new Error(JSON.stringify(result.finish))
+    expect(server.headers[0]?.['x-api-key']).toBe('fake-anthropic-key')
+    expect(server.headers[0]?.authorization).toBeUndefined()
+  })
+
+  it('materializes the Anthropic API key over a co-exported bearer token', async () => {
+    vi.stubEnv('ANTHROPIC_OAUTH_TOKEN', '')
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', '')
+    vi.stubEnv('ANTHROPIC_API_KEY', '')
+    const local = await boot(await home(), {
+      providers: {
+        anthropic: {
+          api: 'anthropic-messages',
+          baseURL: 'http://127.0.0.1:9/v1',
+          models: [{ id: 'fake-anthropic', contextWindow: 200_000, maxTokens: 4096 }],
+        },
+      },
+    }, createLaunchEnvironmentSnapshot([{ source: 'process', values: {
+      ANTHROPIC_AUTH_TOKEN: 'fake-anthropic-bearer-token',
+      ANTHROPIC_API_KEY: 'fake-anthropic-key',
+    } }]))
+    const materialized = await local.settings.materialize(NS) as LlmPiAi.Config
+    expect(materialized.providers?.anthropic?.apiKeyEnv).toBe('ANTHROPIC_API_KEY')
+    expect(materialized.providers?.anthropic?.authMode).toBe('api-key')
+  })
+
   it('preserves Anthropic provider-selected bearer authentication across sync', async () => {
     vi.stubEnv('ANTHROPIC_AUTH_TOKEN', '')
     vi.stubEnv('ANTHROPIC_API_KEY', '')
