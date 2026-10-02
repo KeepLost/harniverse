@@ -66,7 +66,7 @@ describe('web e2e: /feedback command acknowledgement', () => {
     }
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('records feedback and renders the acknowledgement with session id and sharing status', async () => {
+  it.skipIf(MODE === 'record')('records feedback and renders the acknowledgement with the session id', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-feedback-command'))
     // The drive test settled the recorded turn: the transcript is active (a
     // command row does not render while a fresh session is still blank) and

@@ -34,10 +34,8 @@
 - button "Branch into a new conversation":
   - img
 - text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
-- 'button "feedback Feedback recorded for session session-{{uuid}}"':
-  - img
-  - img
-  - text: "feedback Feedback recorded for session session-{{uuid}}"
+- img
+- text: feedback Feedback recorded for session session-{{uuid}}
 - textbox "Message the agent"
 - button "Commands":
   - img
