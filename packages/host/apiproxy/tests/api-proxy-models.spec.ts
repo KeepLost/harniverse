@@ -273,6 +273,34 @@ describe('Web session model selection', () => {
     expect(readImage).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
   })
+
+  it('denies attachment authorization claimed only by an ignorable plugin payload', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const ref = {
+      attachmentId: 'att-ghost', mediaType: 'image/png' as const, bytes: 2, width: 1, height: 1,
+    }
+    const readImage = vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1, 2) }))
+    ctx.provide('attachments', { readImage } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    // An ignorable plugin event whose data happens to carry a content array
+    // with an image-looking attachment must not authorize a storage read.
+    agent.session.append('plugin/custom-note', {
+      content: [{ type: 'image', attachment: ref }],
+    } as never, { ignorable: true })
+
+    const denied = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-ghost' as never,
+    }))
+    expect(denied.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
+    })
+    expect(readImage).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
   it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',

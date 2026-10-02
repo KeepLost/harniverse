@@ -345,30 +345,39 @@ function imageBlockIn(content: unknown, match: (ref: ImageAttachmentRef) => bool
   return undefined
 }
 
-/** Search every durable event carrier that can own model-visible content. */
+/** Search declared first-party content carriers for an image reference. */
 function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
   const data = event.data as {
     content?: unknown
     message?: { content?: unknown }
-    inserted?: Array<{ content?: unknown }>
+    inserted?: unknown
     chunk?: { type?: unknown; block?: unknown }
   }
-  const direct = imageBlockIn(data.content, match)
-  if (direct !== undefined) return direct
-  if (data.message !== undefined) {
-    const wrapped = imageBlockIn(data.message.content, match)
-    if (wrapped !== undefined) return wrapped
-  }
-  if (data.inserted !== undefined) {
-    for (const message of data.inserted) {
-      const inserted = imageBlockIn(message.content, match)
-      if (inserted !== undefined) return inserted
+  switch (event.type) {
+    // `user/message` data is the message itself, so its content is direct.
+    case 'user/message':
+      return imageBlockIn(data.content, match)
+    // Tool results keep their v0 shape: user-role messages whose tool-result
+    // blocks nest the attachment-bearing content.
+    case 'tool/result':
+    case 'assistant/message':
+      return imageBlockIn(data.message?.content, match)
+    case 'agent/inbox/spliced': {
+      const messages = data.inserted
+      if (!Array.isArray(messages)) return undefined
+      for (const message of messages as readonly unknown[]) {
+        if (typeof message !== 'object' || message === null || Array.isArray(message)) continue
+        const inserted = imageBlockIn((message as { readonly content?: unknown }).content, match)
+        if (inserted !== undefined) return inserted
+      }
+      return undefined
     }
+    case 'assistant/chunk':
+      if (data.chunk?.type === 'block-end') return imageBlockIn([data.chunk.block], match)
+      return undefined
+    default:
+      return undefined
   }
-  if (event.type === 'assistant/chunk' && data.chunk?.type === 'block-end') {
-    return imageBlockIn([data.chunk.block], match)
-  }
-  return undefined
 }
 
 /** True when the current model-visible surface contains an image. */

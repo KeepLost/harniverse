@@ -133,27 +133,50 @@ function collectImageRefs(content: unknown, refs: Map<string, ImageAttachmentRef
 }
 
 /**
- * Collect every image reference one session event carries, across the same
- * carriers the live attachment route scans (direct content, message content,
- * inserted messages, and completed assistant chunk blocks).
+ * Collect image references only from the content fields declared by each
+ * built-in event type. Unknown events and unrelated same-named payload fields
+ * stay opaque, so an ignorable plugin payload cannot authorize a media read;
+ * the logical log still exports verbatim.
  * @param event - one parsed JSONL event object.
  * @param refs - the dedupe map being filled (keyed by attachment id).
  */
 function collectEventImageRefs(event: unknown, refs: Map<string, ImageAttachmentRef>): void {
-  const data = (event as { data?: unknown }).data
+  if (typeof event !== 'object' || event === null || Array.isArray(event)) return
+  const row = event as { type?: unknown; data?: unknown }
+  const data = row.data
   if (typeof data !== 'object' || data === null) return
   const carrier = data as {
     content?: unknown
     message?: { content?: unknown }
-    inserted?: Array<{ content?: unknown }>
+    inserted?: unknown
     chunk?: { type?: unknown; block?: unknown }
   }
-  collectImageRefs(carrier.content, refs)
-  if (carrier.message !== undefined) collectImageRefs(carrier.message.content, refs)
-  if (carrier.inserted !== undefined) {
-    for (const message of carrier.inserted) collectImageRefs(message.content, refs)
+  switch (row.type) {
+    // `user/message` data is the message itself, so its content is direct.
+    case 'user/message':
+      collectImageRefs(carrier.content, refs)
+      return
+    // Tool results keep their v0 shape: user-role messages whose tool-result
+    // blocks nest the attachment-bearing content.
+    case 'tool/result':
+    case 'assistant/message':
+      collectImageRefs(carrier.message?.content, refs)
+      return
+    case 'agent/inbox/spliced': {
+      const messages = carrier.inserted
+      if (!Array.isArray(messages)) return
+      for (const message of messages as readonly unknown[]) {
+        if (typeof message !== 'object' || message === null || Array.isArray(message)) continue
+        collectImageRefs((message as { readonly content?: unknown }).content, refs)
+      }
+      return
+    }
+    case 'assistant/chunk':
+      if (carrier.chunk?.type === 'block-end') collectImageRefs([carrier.chunk.block], refs)
+      return
+    default:
+      return
   }
-  if (carrier.chunk?.type === 'block-end') collectImageRefs([carrier.chunk.block], refs)
 }
 
 /**
