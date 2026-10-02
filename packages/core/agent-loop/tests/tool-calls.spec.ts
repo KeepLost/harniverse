@@ -819,6 +819,71 @@ describe('tool-call scheduler: failure quiescence', () => {
   })
 })
 
+describe('failed-step recovery boundaries', () => {
+  it('recovery ignores events dispatched from another session entered through the same agent scope', async () => {
+    const adapter = new MockAdapter([multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }])])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('recovery-sibling-scope'), { provider: 'mock', model: 'mock' })
+    const sibling = agent.ctx.sessions.create(SessionId('recovery-sibling-session'))
+    ctx.tools.register(defineContentToolFixture({
+      name: 'p', description: 'exclusive', parameters: { id: { type: 'string', required: true } },
+      async execute() { return [{ type: 'text', text: 'done-1' }] },
+    }))
+    const failure = new Error('prepare failed after a sibling append')
+    const scheduler = ctx.tools[TOOL_RUNTIME_SCHEDULER]
+    scheduler.prepare = async () => {
+      // A sibling turn/start would clear the pending call if observed.
+      sibling.append('turn/start', { turn: 1 })
+      throw failure
+    }
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const results = events(agent).filter(event => event.type === 'tool/result')
+    expect(results.map(event => event.data.message.source.callId)).toEqual([CallId('c1')])
+    expect(results[0]?.data.error).toEqual({ name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN })
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'error', error: { message: failure.message, code: 'UNKNOWN' } } },
+    })
+    expect([...sibling.events].map(event => event.type)).toEqual(['turn/start'])
+  })
+
+  it('a failed step whose recovery append fails surfaces an AggregateError with both failures', async () => {
+    const adapter = new MockAdapter([multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }])])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'p', description: 'exclusive', parameters: { id: { type: 'string', required: true } },
+      async execute() { return [{ type: 'text', text: 'done-1' }] },
+    }))
+    const failure = new Error('prepare failed before recovery')
+    const scheduler = ctx.tools[TOOL_RUNTIME_SCHEDULER]
+    scheduler.prepare = async () => { throw failure }
+    const recoveryFailure = new Error('recovery append rejected')
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as SessionEvent
+      if (event.type === 'tool/result' && String(event.data.message.id).startsWith('interrupted-tool-result')) throw recoveryFailure
+    })
+    const errors: unknown[] = []
+    ctx.on('agent/error', ({ error }) => void errors.push(error))
+    const agent = ctx.agentLoop.create(SessionId('recovery-append-vetoed'), { provider: 'mock', model: 'mock' })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const aggregate = errors.find(error => error instanceof AggregateError)
+    expect(aggregate?.message).toBe('Step failed and its pending tool results could not be recorded')
+    expect(aggregate?.errors[0]).toBe(failure)
+    expect(aggregate?.errors[1]).toBe(recoveryFailure)
+    expect(aggregate?.cause).toBe(failure)
+    expect(events(agent).some(event => event.type === 'tool/result')).toBe(false)
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'error', error: { code: 'UNKNOWN' } } },
+    })
+  })
+})
+
 describe('PTC native-tool denial through the agent loop', () => {
   /** A minimal in-process code runtime for test purposes — never actually runs. */
   class FakePtcRuntime extends PtcRuntime {

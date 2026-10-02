@@ -764,3 +764,59 @@ describe('session.export download endpoint', () => {
     expect(await response.text()).toContain('attachments')
   })
 })
+
+describe('session export adversarial carriers', () => {
+  it('exports despite event lines that are not objects and non-array content fields', async () => {
+    const root = artifact('session-root', undefined, [
+      '42',
+      '"one bare string line"',
+      'null',
+      '[1,2]',
+      '{"type":"user/message","seq":1,"time":1000,"data":{"content":"plain text"}}',
+      '{"type":"assistant/message","seq":2,"time":2000,"data":{"message":{"content":null}}}',
+      '{"type":"tool/result","seq":3,"time":3000,"data":{"message":{}}}',
+      imageEventLine('kept-img'),
+    ].join('\n') + '\n')
+    const reads: string[] = []
+    const api = await buildApi({ 'session-root': root }, [], {
+      attachments: async (ref) => {
+        reads.push(String(ref.attachmentId))
+        return storedImage(String(ref.attachmentId), ref.mediaType)
+      },
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+    expect(response.status).toBe(200)
+    const files = unzipSync(await responseBytes(response))
+    expect(reads).toEqual(['kept-img'])
+    expect(Object.keys(files).sort()).toEqual(['media/kept-img.png', 'session.jsonl'])
+    expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(root.content)
+  })
+
+  it('exports despite malformed spliced carriers and non-block-end chunks', async () => {
+    const block = (id: string) =>
+      `{"type":"image","attachment":{"attachmentId":"${id}","mediaType":"image/png","bytes":4,"width":2,"height":2}}`
+    const root = artifact('session-root', undefined, [
+      '{"type":"agent/inbox/spliced","seq":1,"time":1000,"data":{"inserted":"not an array"}}',
+      `{"type":"agent/inbox/spliced","seq":2,"time":2000,"data":{"inserted":["not an object",null,[],{"content":[${block('spliced-img')}]}]}}`,
+      `{"type":"assistant/chunk","seq":3,"time":3000,"data":{"chunk":{"type":"text-start","block":${block('ghost-chunk-img')}}}}`,
+      '{"type":"assistant/chunk","seq":4,"time":4000,"data":{}}',
+    ].join('\n') + '\n')
+    const reads: string[] = []
+    const api = await buildApi({ 'session-root': root }, [], {
+      attachments: async (ref) => {
+        reads.push(String(ref.attachmentId))
+        return storedImage(String(ref.attachmentId), ref.mediaType)
+      },
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+    expect(response.status).toBe(200)
+    const files = unzipSync(await responseBytes(response))
+    expect(reads).toEqual(['spliced-img'])
+    expect(Object.keys(files).sort()).toEqual(['media/spliced-img.png', 'session.jsonl'])
+    expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(root.content)
+  })
+})

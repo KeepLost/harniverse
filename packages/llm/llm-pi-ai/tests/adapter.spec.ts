@@ -1034,11 +1034,26 @@ describe('provider profile lifecycle', () => {
   })
 
   it('rejects unsupported or unresolved image input before provider I/O', async () => {
-    const adapter = adapterOf({ openai: {}, deepseek: {} })
+    const adapter = adapterOf({
+      openai: {},
+      deepseek: {},
+      'text-gateway': { api: 'openai-completions', baseURL: 'https://text.test/v1', models: [{ id: 'words-only' }] },
+    })
     const drain = async (options: Parameters<PiAiAdapter['stream']>[0]): Promise<void> => {
       for await (const _chunk of adapter.stream(options)) { /* drain */ }
     }
 
+    await expect(drain({
+      provider: 'text-gateway',
+      model: 'words-only',
+      messages: [createUserMessage({
+        content: [{ type: 'image', attachment: IMAGE_REF }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })).rejects.toMatchObject({
+      code: 'UNSUPPORTED_CONTENT',
+      message: 'pi-ai model "words-only" does not support image input',
+    })
     await expect(drain({
       provider: 'deepseek',
       model: 'deepseek-flash',

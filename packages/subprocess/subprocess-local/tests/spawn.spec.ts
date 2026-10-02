@@ -8,7 +8,7 @@ import {
   spawnSubprocess,
   taskkillProcessTree,
 } from '../src/spawn.ts'
-import { OutputCollector, prepareManagedProcessBinding } from '../src/output.ts'
+import { OutputCollector, prepareManagedProcessBinding, reportSpillFailureToStderr } from '../src/output.ts'
 import type { SpillOptions } from '../src/output.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -545,6 +545,20 @@ describe('OutputCollector', () => {
       expect(prepareManagedProcessBinding().spillDir).toBe(bound)
     } finally {
       rmSync(explicit, { recursive: true, force: true })
+    }
+  })
+
+  it('reportSpillFailureToStderr writes one labeled diagnostic line', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    try {
+      reportSpillFailureToStderr(Object.assign(new Error('spill open failed'), { code: 'ENOENT' }), 'stdout')
+      expect(write).toHaveBeenCalledOnce()
+      const line = String(write.mock.calls[0]![0])
+      expect(line).toContain('dsh-subprocess-local: stdout spill failed; only the in-memory tail is retained:')
+      expect(line).toContain('spill open failed')
+      expect(line.endsWith('\n')).toBe(true)
+    } finally {
+      write.mockRestore()
     }
   })
 

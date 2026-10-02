@@ -167,7 +167,7 @@ function createEnvironmentProbeProfile(home: string, project: string): void {
     "    let text = ''",
     '    for await (const chunk of ctx.llm.stream({',
     "      provider: 'deepseek',",
-    "      model: 'deepseek-v4-flash',",
+    "      model: 'deepseek-flash',",
     '      messages: [],',
     '      maxTokens: 32,',
     '    })) {',
@@ -206,7 +206,7 @@ function configureDeepSeekProvider(home: string, baseURL: string): void {
   writeFileSync(join(home, 'settings.yaml'), [
     'agent-default-model:',
     '  provider: deepseek',
-    '  model: deepseek-v4-flash',
+    '  model: deepseek-flash',
     'llm-pi-ai:',
     '  providers:',
     '    deepseek:',

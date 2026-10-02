@@ -186,6 +186,22 @@ describe('hand-declared providers', () => {
     expect(resolved.get('acme-gateway')?.configuredMaxTokens.get('sized')).toBe(512)
   })
 
+  it('materializes a per-model image budget from either field alone', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'byte-capped', imageMaxBytes: 2048 },
+          { id: 'pixel-capped', imagePixelBudget: 1_048_576 },
+        ],
+      },
+    })
+
+    expect(resolved.get('acme-gateway')?.configuredImageBudgets.get('byte-capped')).toEqual({ maxBytes: 2048 })
+    expect(resolved.get('acme-gateway')?.configuredImageBudgets.get('pixel-capped')).toEqual({ pixelBudget: 1_048_576 })
+  })
+
   it('takes a model’s declared modalities, then the catalog’s, then the route’s', () => {
     const vision = getBuiltinModels('anthropic').find(model => model.input.includes('image'))
     if (vision === undefined) throw new Error('the installed catalog ships no anthropic vision model')

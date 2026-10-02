@@ -568,6 +568,66 @@ describe('tool-bash-persistent', () => {
     expect(ctx.terminals.list(owner)).toEqual([])
   })
 
+  it('settles a caller-aborted call as ABORTED when cancellation reaches the shared init promise', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(TerminalSessionService)
+    const spawnStarted = Promise.withResolvers<undefined>()
+    const spawnAborted = Promise.withResolvers<unknown>()
+    ctx.terminals.registerBackend({
+      type: 'slow',
+      spawn: spec => new Promise((_resolve, reject) => {
+        spawnStarted.resolve(undefined)
+        spec.signal?.addEventListener('abort', () => {
+          const reason: unknown = spec.signal?.reason
+          spawnAborted.resolve(reason)
+          reject(reason instanceof Error
+            ? reason
+            : new Error('slow PTY spawn aborted', { cause: reason }))
+        }, { once: true })
+      }),
+    })
+    await ctx.plugin(ToolBashPersistent, { backendType: 'slow' })
+    const owner = agent(ctx, '/workspace')
+    const controller = new AbortController()
+    const running = call(ctx, owner, 'pwd', controller.signal)
+    await spawnStarted.promise
+    const cancellation = new Error('caller stopped during init')
+    controller.abort(cancellation)
+    await expect(spawnAborted.promise).resolves.toBe(cancellation)
+    const cancelled = await running
+    expect(cancelled.isError).toBe(true)
+    expect('error' in cancelled && cancelled.error.info?.code).toBe('ABORTED')
+    expect(text(cancelled)).toBe('Error: tool call aborted')
+    expect(ctx.terminals.list(owner)).toEqual([])
+  })
+
+  it('skips a queued call whose signal aborted while it waited for the owner lock', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', timeoutMs: 5_000 })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'wait-for-abort'
+    const hanging = new AbortController()
+    const queued = new AbortController()
+    const first = call(ctx, owner, 'hang', hanging.signal)
+    while (session.sends < 2) await new Promise(resolve => setTimeout(resolve, 1))
+    const second = call(ctx, owner, 'after hang', queued.signal)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    queued.abort(new Error('queued caller stopped'))
+    hanging.abort(new Error('hanging caller stopped'))
+    const cancelled = await first
+    expect(cancelled.isError).toBe(true)
+    expect('error' in cancelled && cancelled.error.info?.code).toBe('ABORTED')
+    const skipped = await second
+    expect(skipped.isError).toBe(true)
+    expect('error' in skipped && skipped.error.info?.code).toBe('ABORTED')
+    expect(text(skipped)).toBe('Error: tool call aborted')
+    expect(stub.sessions).toHaveLength(1)
+  })
+
   it('rejects invalid config and invalid calls', async () => {
     const { ctx, owner, stub } = await setup()
     expect((await call(ctx, undefined, 'pwd')).isError).toBe(true)

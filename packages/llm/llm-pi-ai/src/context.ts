@@ -199,6 +199,16 @@ export function toPiContext(
   attachments: AttachmentStore,
   onReplayDegrade?: ReplayDegradeHandler,
 ): Promise<PiContext>
+/**
+ * Convert harness history to a pi-ai Context while resolving durable images
+ * through the per-model {@link ImageRequestPolicy} projection budget.
+ * Tool result names are recovered from preceding assistant tool calls.
+ * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
+ * @param attachments - durable byte resolver for image references.
+ * @param policy - projection budget applied by `attachments.readImageRequest`.
+ * @param onReplayDegrade - called when one assistant message falls back to neutral history.
+ * @returns the asynchronously resolved pi-ai context.
+ */
 export function toPiContext(
   options: GenerateOptions,
   attachments: AttachmentStore,

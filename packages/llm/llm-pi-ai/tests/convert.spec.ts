@@ -746,6 +746,19 @@ describe('toStreamChunks', () => {
     })
   })
 
+  it.each([
+    ['pending', 'pi-ai stream for model "deepseek-flash" ended pending'],
+    ['deferred', 'pi-ai deferred response for model "deepseek-flash" is not supported'],
+  ] as const)('maps a terminal %s message to a PI_AI_ERROR finish', async (stopReason, message) => {
+    const chunks = await collect(toStreamChunks(feed(
+      { type: 'done', reason: 'stop', message: assistant({ stopReason }) },
+    )))
+    expect(chunks.at(-1)).toMatchObject({
+      type: 'finish',
+      reason: { kind: 'error', failure: { message, code: 'PI_AI_ERROR' } },
+    })
+  })
+
   it('rejects a stream that ends without done or error', async () => {
     await expect(collect(toStreamChunks(feed({ type: 'start', partial: assistant() }))))
       .rejects.toThrow(/without done\/error/)
