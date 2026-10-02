@@ -628,6 +628,29 @@ describe('sandbox escalation through the generic task producer', () => {
     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
   })
 
+  it.each([undefined, '', ' \t\n'])('runs without escalation for justification %j', async (justification) => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const prompted = vi.fn()
+    ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+    const result = await call(ctx, 'bash', {
+      command: 'true', description: 'ordinary', ...justification === undefined ? {} : { justification },
+    }, sandboxAgent('workspace-write'))
+    expect(result.isError, text(result)).toBe(false)
+    expect(bash.modes).toEqual(['workspace-write'])
+    expect(prompted).not.toHaveBeenCalled()
+  })
+
+  it.each(['', ' \t\n'])('rejects an explicit mode with blank justification %j before execution', async (justification) => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const prompted = vi.fn()
+    ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+    const result = await call(ctx, 'bash', { ...escalate, justification }, sandboxAgent())
+    expect(text(result)).toContain('invalid justification: expected a non-empty sentence')
+    expect(result.isError).toBe(true)
+    expect(bash.modes).toEqual([])
+    expect(prompted).not.toHaveBeenCalled()
+  })
+
   it('runs a redundant same-mode request with an empty reason under the standing policy', async () => {
     const { ctx, bash } = await setupSandboxed(true)
     const prompted = vi.fn()

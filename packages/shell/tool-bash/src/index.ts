@@ -62,9 +62,12 @@ function validateBashArgs(args: BashToolArgs): void {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
-  // the shared rule both enforcing families validate identically.
-  validateEscalationArgs(args.sandbox_permissions, args.justification)
+  // A blank justification without a requested mode is an omitted reason, not a
+  // malformed escalation; a non-empty reason still requires its mode.
+  const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
+    ? undefined
+    : args.justification
+  validateEscalationArgs(args.sandbox_permissions, justification)
 }
 
 function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
