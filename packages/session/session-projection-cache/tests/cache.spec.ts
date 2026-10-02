@@ -12,11 +12,12 @@ import { z } from 'zod'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { JsonValue, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import SessionProjectionCache from '../src/index.ts'
+import { checkpointRecord } from '../src/spec.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
@@ -441,5 +442,30 @@ describe('SessionProjectionCache cold read', () => {
     await expect(ctx.sessionProjectionCache.coldSnapshot(SessionId('absent'))).rejects.toThrow('not found')
     await expect(ctx.sessionProjectionCache.coldSnapshot(SessionId('bare')))
       .resolves.toEqual({ asOfSeq: 2, values: {} })
+  })
+})
+
+describe('SessionProjectionCache durable-boundary validation', () => {
+  it('preserves own prototype-named JSON keys in checkpoint state', () => {
+    // JSON.parse creates a genuine own "__proto__" key exactly like the
+    // lossless checkpoint writer stores it; a reader that rebuilds objects
+    // would silently change projection state across a domain reopen.
+    const val = JSON.parse('{"__proto__":{"kept":true},"nested":[{"constructor":1}],"plain":2}') as JsonValue
+    const parsed = checkpointRecord.parse({
+      identity: { createdAt: 0 },
+      rows: { 'cache-test/marks': { ver: 1, seq: 1, val } },
+    })
+    const stored = (parsed.rows['cache-test/marks'] as { val: unknown }).val as Record<string, unknown>
+    expect(Object.getOwnPropertyDescriptor(stored, '__proto__')).toMatchObject({ value: { kept: true }, enumerable: true })
+    expect((stored['nested'] as Array<Record<string, unknown>>)[0]).toMatchObject({ constructor: 1 })
+    expect(Object.getOwnPropertyDescriptor((stored['nested'] as Array<Record<string, unknown>>)[0], 'constructor'))
+      .toMatchObject({ enumerable: true })
+    expect(stored['plain']).toBe(2)
+  })
+
+  it('still rejects state that cannot survive a lossless JSON round trip', () => {
+    const row = { ver: 1, seq: 1, val: new Map([['k', 'v']]) }
+    expect(() => checkpointRecord.parse({ identity: { createdAt: 0 }, rows: { 'cache-test/marks': row } }))
+      .toThrow(/losslessly JSON-serializable|invalid/i)
   })
 })
