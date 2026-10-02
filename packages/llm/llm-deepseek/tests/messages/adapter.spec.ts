@@ -1,3 +1,4 @@
+/* oxlint-disable typescript/no-unsafe-assignment -- Vitest matchers are typed as any. */
 /** Messages HTTP lifecycle: routing, headers, retries, wire attempts, and disposal. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +10,7 @@ import type { AttachmentStore, RequestImageAttachment } from '@deepseek-ai/dsh-a
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
+import { deepSeekFileScope } from '../../src/common/upload-index.ts'
 import { chunks, messagesAdapter, messagesServer, MODEL, options, sse, textEvents, user } from './helpers.ts'
 import { closeMessagesServers } from './helpers.ts'
 
@@ -194,6 +196,30 @@ describe('direct Messages HTTP', () => {
     expect(http.requests[0]?.headers['anthropic-beta']).toBe('files-api-2025-04-14')
     expect(JSON.stringify(http.requests[1]?.body)).toContain('"base64"')
     expect(records.map(record => record.outcome)).toEqual(['http-error', 'success'])
+    stale = false
+  })
+
+  it('invalidates no generations when a stale rejection follows the inline fallback', async () => {
+    let stale = true
+    const http = await messagesServer((response, count) => {
+      if (stale && count === 1) {
+        response.writeHead(400, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: { type: 'invalid_request_error', message: 'file id not found or expired' } }))
+        return
+      }
+      response.end(sse(textEvents))
+    })
+    const invalidate = vi.fn(async () => {})
+    const files = {
+      ensureUploaded: async () => { throw new Error('files unavailable') },
+      invalidate,
+    } as unknown as DeepSeekFileStore
+    await chunks(imageAdapter(http.url, files).stream(options({
+      messages: [{ ...user(), content: [{ type: 'image', attachment: ref }] }],
+    })))
+    expect(http.requests).toHaveLength(2)
+    expect(JSON.stringify(http.requests[0]?.body)).toContain('"base64"')
+    expect(invalidate).toHaveBeenCalledWith(deepSeekFileScope(http.url, 'test-key', 'messages'), [])
     stale = false
   })
 

@@ -197,12 +197,11 @@ export class ChatCompletionsAdapter extends LlmAdapter {
       return images
     }
     let body: WireRequest
-    let fileImages: ImageSerializationOptions | undefined
+    let images: ImageSerializationOptions | undefined
     if (prepared === undefined) {
       body = serializeRequest(options, connection.defaults)
     } else {
-      const images = selectImages(prepared, 'file')
-      fileImages = images
+      images = selectImages(prepared, 'file')
       try {
         body = await serializeRequest(
           options,
@@ -214,11 +213,11 @@ export class ChatCompletionsAdapter extends LlmAdapter {
         // Files API resolution is an optimization. The same request is retried
         // with one consistent inline representation instead of mixing ids and
         // data URLs from two attempts.
-        const fallbackImages = selectImages(prepared, 'base64')
+        images = selectImages(prepared, 'base64')
         body = await serializeRequest(
           options,
           connection.defaults,
-          fallbackImages,
+          images,
         )
       }
     }
@@ -320,9 +319,7 @@ export class ChatCompletionsAdapter extends LlmAdapter {
         })
         // Invalidate exactly the generations this attempt used; a stale-id
         // response must not discard other variants' healthy mappings.
-        const usedGenerations = fileImages !== undefined && fileImages.representation.kind === 'file'
-          ? fileImages.representation.used
-          : []
+        const usedGenerations = images?.representation.kind === 'file' ? images.representation.used : []
         await this.files.invalidate(deepSeekFileScope(connection.baseURL, apiKey, 'chat-completions'), usedGenerations
           .map((generation: { variantId: ImageVariantId; fileId: string }) => (
             { ...generation, fileId: DeepSeekFileId(generation.fileId) })))

@@ -204,6 +204,21 @@ describe('DeepSeek Files API client', () => {
     }
   })
 
+  it('retains the identity of a body transport failure', async () => {
+    const failure = new TypeError('socket died')
+    const broken = new DeepSeekFilesClient({
+      baseURL: 'https://example.test',
+      apiKey: 'secret',
+      protocol: 'chat-completions',
+      fetch: async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.error(failure) },
+      }), { status: 200 }),
+    })
+
+    // A failing body stream is a transport fact, not malformed provider JSON.
+    await expect(broken.list()).rejects.toBe(failure)
+  })
+
   describe('provider status classification', () => {
     /** A client whose every request fails with one provider status and body. */
     function failing(status: number, body: unknown = { error: { message: 'refused' } }) {
