@@ -218,6 +218,33 @@ describe('QueueDock', () => {
       .toBe('包含非文本内容，暂不支持编辑')
   })
 
+  it('keeps line breaks while re-editing a multiline queued message', async () => {
+    const text = 'line one\n  line two\n\nline four'
+    const snap = snapshotWith([row('i-lines', text)])
+    const source = liveSession(snap)
+    const updateQueue = vi.fn(() => Promise.resolve())
+    const { getByLabelText } = render(
+      <QueueDock {...kitFor(snap, { updateQueue })} useSession={source.useSession} />,
+    )
+
+    fireEvent.click(getByLabelText('编辑排队消息'))
+    const editor = getByLabelText('编辑排队消息') as HTMLTextAreaElement
+    expect(editor.value).toBe(text)
+
+    // Shift+Enter breaks the line instead of saving.
+    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })
+    expect(updateQueue).not.toHaveBeenCalled()
+
+    fireEvent.change(editor, { target: { value: `${text}\nline five` } })
+    fireEvent.keyDown(editor, { key: 'Enter' })
+    await waitFor(() => {
+      expect(updateQueue).toHaveBeenCalledWith(iid('i-lines'), {
+        kind: 'edit',
+        content: [{ type: 'text', text: `${text}\nline five` }],
+      })
+    })
+  })
+
   it('edits text inline with save and cancel controls, then saves with the same item identity', async () => {
     const snap = snapshotWith([row('i-edit', 'before')])
     const source = liveSession(snap)
