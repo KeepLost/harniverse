@@ -98,7 +98,7 @@ describe.skipIf(MODE === 'record')('web e2e: background job list', () => {
 
   it('flips the open list to the cancelled outcome when the registry settles it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-background-job-settled'))
-    expect(scaffold.ctx.jobs.kill(jobId, agent, 'web e2e cancellation')).toBe('requested')
+    expect(scaffold.ctx.jobs.kill(jobId, agent, { reason: 'web e2e cancellation' })).toBe('requested')
 
     // The trigger drops its live count once the task leaves running/stopping,
     // which is also the proof that settlement reached the browser unprompted.

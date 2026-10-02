@@ -4,6 +4,8 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { WorkflowRunId, WorkflowEngine } from '@deepseek-ai/dsh-workflow'
 import type {
@@ -11,6 +13,8 @@ import type {
   WorkflowRunId as WorkflowRunIdType, WorkflowStartRequest,
 } from '@deepseek-ai/dsh-workflow'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import { JobId } from '@deepseek-ai/dsh-jobs'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import WorkerThreadWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as toolWorkflow from '../src/index.ts'
@@ -79,11 +83,24 @@ async function setup(config?: { toolName?: string; maxResultChars?: number }) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(StubEngine)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(LocalJobRegistry)
+  ctx.jobs.attachController('test-controller')
   await ctx.plugin(toolWorkflow, config ?? {})
   const engine = ctx.workflowEngine as StubEngine
   const session = Session.create(SessionId('caller'))
-  const parent = { id: session.id, options: {}, session } as unknown as Agent
-  return { ctx, engine, parent, session }
+  const agentKey = {}
+  const agentScope = createScope(ctx, agentKey)
+  const parent = {
+    id: session.id,
+    options: {},
+    session,
+    ctx: agentScope.ctx,
+    inject: () => {},
+    followup: () => {},
+    status: 'idle',
+  } as unknown as Agent
+  return { ctx, engine, parent, session, agentKey }
 }
 
 const SCRIPT = 'return 1'
@@ -106,6 +123,27 @@ function execute(ctx: Context, args: unknown, extra?: {
 }
 
 describe('dsh-tool-workflow', () => {
+  it('registers a background workflow job and returns immediately', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.settlements.get(WorkflowRunId('run-1'))!({ value: { findings: [] }, stopReason: 'completed', agentsStarted: 3 })
+      const result = await pending
+      // Keyless snapshot: ids ride the result; the script's value does not.
+      const view = result.content.filter(block => block.type === 'text').map(block => block.type === 'text' ? block.text : '').join('')
+      expect(view).toContain('started workflow job workflow-1 (run run-1)')
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'completed', detail: 'agents: 3' })
+      })
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
   it('starts a run with the script/args/parent/signal and renders the completed value', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()

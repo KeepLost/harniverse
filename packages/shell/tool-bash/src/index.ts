@@ -25,6 +25,7 @@ import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX, defaultShellName } from '@deepseek-ai/dsh-shell'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
 import { processJob } from './background.ts'
+import { runPromotableForeground } from './promotable.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
 
 export const name = 'tool-bash'
@@ -34,11 +35,18 @@ export const inject = ['tools', 'shell', 'systemPrompt', 'shellEnv']
 export interface Config {
   /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
+  /**
+   * Keep an explicitly timed-out foreground command running as a background
+   * job and return its id instead of killing it (default true). The command
+   * then settles through the ordinary job completion notice.
+   */
+  promoteOnTimeout?: boolean
 }
 
 /** Runtime configuration schema for the bash tool plugin. */
 export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
+  promoteOnTimeout: z.boolean().default(true),
 })
 
 /** Parsed tool args; execute validates value constraints absent from ParameterSchemaSpec. */
@@ -275,7 +283,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           + '5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; '
           + '"git status" → "Show working tree status"; "npm install" → "Install package dependencies".',
       },
-      timeoutMs: { type: 'number', description: 'Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry.' },
+      timeoutMs: { type: 'number', description: 'Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command keeps running as a background job and this call returns its job id (unless promoteOnTimeout is disabled, which kills it).' },
       workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
       ...backgroundEnabled ? {
         run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies.' },
@@ -299,6 +307,15 @@ export function apply(ctx: Context, config: Config = {}): void {
             type: 'object',
             additionalProperties: false,
             properties: BACKGROUND_OUTPUT_PROPERTIES,
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              kind: { type: 'string', required: true, const: 'timeout-background' },
+              jobId: { type: 'string', required: true },
+              timeoutMs: { type: 'number', required: true },
+            },
           },
           {
             type: 'object',
@@ -357,11 +374,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         type: 'text',
         text: value.kind === 'background'
           ? `started background job ${value.jobId}`
-          : renderResult(
-            value as { kind: 'foreground' } & ShellRunResult,
-            escalationModes,
-            (value as { governor?: import('./render.ts').GovernorBreachInfo }).governor,
-          ),
+          : value.kind === 'timeout-background'
+            ? `timed out after ${value.timeoutMs}ms; the command keeps running as background job ${value.jobId}`
+            : renderResult(
+              value as { kind: 'foreground' } & ShellRunResult,
+              escalationModes,
+              (value as { governor?: import('./render.ts').GovernorBreachInfo }).governor,
+            ),
       }],
     },
     async execute(args: BashToolArgs, exec) {
@@ -421,6 +440,28 @@ export function apply(ctx: Context, config: Config = {}): void {
           ),
         })
         return { kind: 'background' as const, jobId: id }
+      }
+      // An explicitly timed-out command can outlive its budget: with the jobs
+      // service present and promotion enabled, the executor gets no fused
+      // timeout and the tool races its own deadline instead — expiry adopts
+      // the live process as a background job rather than killing it.
+      const jobsService = ctx.get('jobs')
+      if (call.timeoutMs !== undefined && config.promoteOnTimeout !== false && jobsService !== undefined) {
+        return await runPromotableForeground({
+          shell: ctx.shell,
+          request,
+          signal: exec.signal,
+          jobs: jobsService,
+          command: call.command,
+          agent: exec.agent,
+          escalationModes,
+          abortedError: () => {
+            const error = new HarnessError('tool call aborted', TOOL_ABORTED)
+            error.name = 'AbortError'
+            return error
+          },
+          breach: correlation === undefined ? undefined : governor?.breachFor(correlation.commandId),
+        })
       }
       const result = await ctx.shell.run(ctx.shell.resolve({
         ...request,

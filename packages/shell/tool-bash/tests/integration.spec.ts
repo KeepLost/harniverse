@@ -10,6 +10,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import { JobId } from '@deepseek-ai/dsh-jobs'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -123,6 +124,38 @@ describe('bash tool through the agent loop', () => {
     expect(existsSync(location!.path)).toBe(true)
     const header = JSON.parse(readFileSync(location!.path, 'utf8').split('\n')[0]!) as { type: string; id: string }
     expect(header).toMatchObject({ type: 'session', id: 'session-env-id' })
+    await handle.dispose()
+  })
+
+  it('promotes an explicitly timed-out foreground command to a background job instead of killing it', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('call-promote', 'bash', {
+        command: 'sleep 1; echo promoted-done',
+        description: 'sleep past the tool timeout',
+        timeoutMs: 60,
+      }),
+      textResponse('acknowledged the promoted job.'),
+    ])
+    const ctx = await harness(adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('session-promote'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const agent = handle.agent
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run the long command' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // Keyless snapshot of the model-visible timeout result: the command id,
+    // not a kill marker, rides the tool result.
+    const result = findEvent(events(agent), 'tool/result')
+    expect(JSON.parse(findEvent(events(agent), 'tool/call').data.arguments)).toMatchObject({ timeoutMs: 60 })
+    expect(resultText(result)).toContain('timed out after 60ms; the command keeps running as background job bash-1')
+    expect(resultText(result)).not.toContain('exit code')
+
+    // The promoted process keeps running and settles through the job system.
+    await pollUntil(() => ctx.jobs.get(JobId('bash-1'), agent).status === 'completed')
+    expect(ctx.jobs.get(JobId('bash-1'), agent).detail).toBe('exit code: 0')
+    expect(ctx.jobs.read(JobId('bash-1'), agent).text).toContain('promoted-done')
     await handle.dispose()
   })
 

@@ -11042,6 +11042,9 @@ importers:
 
   packages/workflow/tool-workflow:
     dependencies:
+      '@deepseek-ai/dsh-jobs':
+        specifier: workspace:^
+        version: link:../../jobs/jobs
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
