@@ -102,6 +102,9 @@
       "path": "../../jobs/jobs"
     },
     {
+      "path": "../../speech/speech"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {

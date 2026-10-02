@@ -55,7 +55,7 @@ import type {
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, HoldStreamFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
-  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
+  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, SpeechPrepareView, ToolEventView,
   SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, TerminalStreamFrame, WorkspaceId, WorkspaceView,
   ApiContractDescription, OperationView, OperationStatus,
 } from './api/index.ts'
@@ -83,6 +83,10 @@ import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 import { JobId } from '@deepseek-ai/dsh-jobs/brand'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
+// The speech seam: the resolver reads the settings-selected recognizer; the
+// value import carries canonical WAV intake validation to this wire boundary.
+import type {} from '@deepseek-ai/dsh-speech'
+import { validateWav } from '@deepseek-ai/dsh-speech'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
@@ -217,10 +221,15 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
  * is deferred work.
  */
 const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'compaction', 'governor', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
+  'agent-loop', 'compaction', 'governor', 'shell', 'locale', 'permission', 'speech', 'ui-conversation', 'ui-theme',
   'web', 'web-search-deepseek', 'web-search-exa', 'web-search-perplexity',
   'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-firecrawl',
 ] as const
+
+/** Maximum decoded WAV bytes admitted by one speech.transcribe request. */
+const SPEECH_MAX_AUDIO_BYTES = 4 * 1024 * 1024
+/** Maximum recording duration admitted by one speech.transcribe request. */
+const SPEECH_MAX_DURATION_SECONDS = 120
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
@@ -3963,6 +3972,94 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           return err(request, {
             code: 'job-unavailable',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+    },
+
+    // Voice input over the speech seam. The settings namespace owns the
+    // recognizer selection; this surface resolves it per request and enforces
+    // the wire intake limits before any provider sees audio.
+    speech: {
+      async transcribe(request, signal) {
+        const speech = ctx.get('speech')
+        if (speech === undefined) {
+          return err(request, {
+            code: 'speech-unavailable',
+            message: 'speech recognition is unavailable in this deployment',
+            details: {},
+          })
+        }
+        const { wavBase64, language } = request.payload
+        if (wavBase64.length > Math.ceil(SPEECH_MAX_AUDIO_BYTES / 3) * 4) {
+          return err(request, {
+            code: 'speech-transcription-failed',
+            message: 'Audio exceeds the configured byte limit',
+            details: {},
+          })
+        }
+        let wav: Uint8Array
+        try {
+          const decoded = Buffer.from(wavBase64, 'base64')
+          if (decoded.toString('base64') !== wavBase64) throw new Error('Audio must use canonical base64 encoding')
+          if (decoded.byteLength > SPEECH_MAX_AUDIO_BYTES) throw new Error('Audio exceeds the configured byte limit')
+          wav = new Uint8Array(decoded)
+          validateWav(wav, { maxDurationSeconds: SPEECH_MAX_DURATION_SECONDS })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'speech-transcription-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+        try {
+          const result = await speech.transcribe(
+            { wav, ...(language === undefined ? {} : { language }) },
+            signal,
+          )
+          return ok(request, { text: result.text })
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'speech transcription was cancelled', details: {} })
+          }
+          return err(request, {
+            code: 'speech-transcription-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+
+      async prepare(request) {
+        const speech = ctx.get('speech')
+        if (speech === undefined) {
+          return err(request, {
+            code: 'speech-unavailable',
+            message: 'speech recognition is unavailable in this deployment',
+            details: {},
+          })
+        }
+        try {
+          const preparation = await speech.prepare()
+          if (!('ok' in preparation)) {
+            const view: SpeechPrepareView = {
+              status: preparation.status,
+              ...preparation.detail === undefined ? {} : { detail: preparation.detail },
+            }
+            return ok(request, view)
+          }
+          return err(request, {
+            code: 'speech-unavailable',
+            message: preparation.reason === 'disabled'
+              ? 'voice input is disabled (the recognizer is off)'
+              : `speech recognizer "${preparation.recognizer}" is not registered`,
+            details: {},
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'speech-transcription-failed',
             message: error instanceof Error ? error.message : String(error),
             details: {},
           })

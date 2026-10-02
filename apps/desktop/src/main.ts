@@ -459,8 +459,14 @@ export class DesktopShell {
     contents.on('will-attach-webview', (event) => { event.preventDefault() })
     if (!this.securedSessions.has(contents.session)) {
       this.securedSessions.add(contents.session)
-      contents.session.setPermissionRequestHandler((_contents, _permission, callback) => { callback(false) })
-      contents.session.setPermissionCheckHandler(() => false)
+      // Voice input is the one media consumer: the microphone is granted only
+      // while the window shows the connected Host's loopback Web origin, so
+      // the renderer shell (file origin) and any future page stay denied.
+      contents.session.setPermissionRequestHandler((requesting, permission, callback) => {
+        callback(permission === 'media' && this.isLoopbackWebAuthority(requesting.getURL()))
+      })
+      contents.session.setPermissionCheckHandler((_checking, permission, requestingOrigin) =>
+        permission === 'media' && this.isLoopbackWebAuthority(requestingOrigin))
       contents.session.on('will-download', (event) => { event.preventDefault() })
     }
     window.on('close', (event) => {
@@ -477,6 +483,21 @@ export class DesktopShell {
     })
     contents.on('unresponsive', () => { this.tray?.setToolTip(this.copy.tooltipUnresponsive) })
     contents.on('responsive', () => { this.tray?.setToolTip('Harniverse') })
+  }
+
+  /** Whether a page URL belongs to the connected Host's loopback Web origin. */
+  private isLoopbackWebAuthority(pageUrl: string): boolean {
+    const authority = this.authority
+    if (authority?.kind !== 'web') return false
+    let parsed: URL
+    try {
+      parsed = new URL(pageUrl)
+    } catch {
+      return false
+    }
+    if (parsed.origin !== authority.origin) return false
+    const host = parsed.hostname.toLowerCase()
+    return host === '127.0.0.1' || host === 'localhost' || host === '[::1]'
   }
 
   private createTray(): void {

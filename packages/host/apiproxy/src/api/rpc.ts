@@ -151,6 +151,10 @@ export interface RpcErrorDetailsMap {
   'operation-not-found': { operationId: string }
   /** The job registry is absent or rejected the job read/stop (unknown or foreign id). */
   'job-unavailable': {}
+  /** The speech seam is absent, disabled, or selected to an unknown recognizer. */
+  'speech-unavailable': {}
+  /** Audio intake or recognizer execution failed. */
+  'speech-transcription-failed': {}
 }
 
 /** Closed error-code union (the keys of RpcErrorDetailsMap). */
@@ -225,6 +229,8 @@ export const RPC_ERROR_CODES = [
   'idempotency-key-reused',
   'operation-not-found',
   'job-unavailable',
+  'speech-unavailable',
+  'speech-transcription-failed',
 ] as const satisfies readonly RpcErrorCode[]
 
 /** Compile-time exhaustiveness: a missing registry entry names itself here. */

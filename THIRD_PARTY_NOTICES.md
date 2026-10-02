@@ -79,6 +79,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`react`](https://github.com/facebook/react) | MIT |
 | [`react-dom`](https://github.com/facebook/react) | MIT |
 | [`sharp`](https://github.com/lovell/sharp) | Apache-2.0 |
+| [`sherpa-onnx-node`](https://github.com/csukuangfj/sherpa-onnx) | Apache-2.0 |
 | [`shiki`](https://github.com/shikijs/shiki) | MIT |
 | [`ssh2`](https://github.com/mscdex/ssh2) | MIT |
 | [`supports-color`](https://github.com/chalk/supports-color) | MIT |
@@ -194,6 +195,16 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 | Package | License | Role |
 | --- | --- | --- |
 | [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT | invoked by `scripts/build-exe-for-python-sdk.ts` to assemble the single-file SDK runtime executable |
+
+## Downloaded model assets
+
+Files the local speech recognizer downloads at runtime. They are pinned by sha256 in packages/speech/speech-sensevoice/src/assets.ts, verified before use, and stored under the user's $DSH_HOME; they are not redistributed inside any published artifact.
+
+| Asset | License | Role |
+| --- | --- | --- |
+| [`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 (model.int8.onnx, model.onnx, tokens.txt)`](https://github.com/csukuangfj/sherpa-onnx) | Apache-2.0 | local SenseVoice speech-recognition weights downloaded on demand into `$DSH_HOME/speech/sensevoice` |
+| [`silero_vad.onnx`](https://github.com/snakers4/silero-vad) | MIT | Silero voice-activity detector downloaded on demand for speech segmentation |
+| [`onnxruntime (bundled inside sherpa-onnx-node)`](https://github.com/microsoft/onnxruntime) | MIT | CPU inference engine shipped inside the `sherpa-onnx-node` native binding |
 
 ## First-party native packages
 

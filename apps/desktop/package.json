@@ -89,7 +89,10 @@
       ],
       "icon": "icon.icns",
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Harniverse uses the microphone only when you start voice input in a session connected to your own Host."
+      }
     }
   }
 }

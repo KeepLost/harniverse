@@ -20,6 +20,7 @@ import type { ClientResponse, RpcReceipt } from './rpc.ts'
 import type { ApiApi } from './contract.ts'
 import type { OperationsApi } from './operations.ts'
 import type { JobsApi } from './jobs.ts'
+import type { SpeechApi } from './speech.ts'
 import type { WorkspaceFilesApi } from './workspace-files.ts'
 import type { WorkspaceGitApi } from './workspace-git.ts'
 
@@ -30,6 +31,8 @@ export interface ApiProxy {
   operations?: OperationsApi
   /** Optional only for compositions without the job registry; the Host service always provides it. */
   jobs?: JobsApi
+  /** Optional only for compositions without the speech seam; the Host service always provides it. */
+  speech?: SpeechApi
   sessions: SessionsApi
   subagents: SubagentsApi
   host: HostApi
@@ -70,6 +73,7 @@ export type {
   SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
 export type { JobFollowView, JobView, JobsApi } from './jobs.ts'
+export type { SpeechApi, SpeechPrepareView } from './speech.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { WorkspaceFileEntry, WorkspaceFilesApi } from './workspace-files.ts'
 export type { WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitStatusEntry } from './workspace-git.ts'
