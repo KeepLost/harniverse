@@ -45,6 +45,8 @@ describe('image-offload durable invariants', () => {
     ['self reference', 1, { targets: [{ messageSeq: 1, imageIndex: 0 }] }, /must reference an earlier event/],
     ['unknown event kind', 2, { targets: [{ messageSeq: 1, imageIndex: 0 }] }, /must reference a user\/message or tool\/result event/],
     ['image index out of bounds', 1, { targets: [{ messageSeq: 0, imageIndex: 2 }] }, /image index 2 does not exist on event 0/],
+    ['empty stub', 1, { targets: [{ messageSeq: 0, imageIndex: 0, stub: '' }] }, /stub.*nonempty string/s],
+    ['non-string stub', 1, { targets: [{ messageSeq: 0, imageIndex: 0, stub: 42 }] }, /stub.*nonempty string/s],
   ])('rejects an incoherent durable decision (%s)', async (_label, seq, data, message) => {
     const bench = await setup()
     expect(() => { bench.ctx.emit('session/event', bench.session, offload(seq, data)) }).toThrow(message)

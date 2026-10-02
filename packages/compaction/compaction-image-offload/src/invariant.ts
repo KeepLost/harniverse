@@ -46,10 +46,13 @@ function validateOffload(event: SessionEvent, events: readonly SessionEvent[], f
   }
   const seen = new Set<string>()
   for (const target of targets) {
-    const { messageSeq, imageIndex } = target as { messageSeq?: unknown; imageIndex?: unknown }
+    const { messageSeq, imageIndex, stub } = target as { messageSeq?: unknown; imageIndex?: unknown; stub?: unknown }
     if (!isIndex(messageSeq) || !isIndex(imageIndex)) {
       fail('image/offload targets must carry non-negative safe-integer messageSeq and imageIndex')
       continue
+    }
+    if (stub !== undefined && (typeof stub !== 'string' || stub.length === 0)) {
+      fail('image/offload target stubs must be nonempty strings when present')
     }
     const key = `${messageSeq}:${imageIndex}`
     if (seen.has(key)) fail(`image/offload duplicate target ${key}`)

@@ -17,11 +17,12 @@ function isIndex(value: unknown): value is number {
 /**
  * Validate the durable payload shape of one `image/offload` event.
  * @param data - the raw event payload.
- * @returns the validated targets.
+ * @returns the validated targets, each an image index paired with the
+ * verbatim stub text that replaces it when the decision minted one.
  * @throws when the payload is not exactly a non-empty targets array of
- * `{messageSeq, imageIndex}` pairs.
+ * `{messageSeq, imageIndex, stub?}` entries.
  */
-function validateTargets(data: unknown): { messageSeq: number; imageIndex: number }[] {
+function validateTargets(data: unknown): { messageSeq: number; imageIndex: number; stub?: string }[] {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     throw new Error('image/offload: data must be an object')
   }
@@ -30,32 +31,41 @@ function validateTargets(data: unknown): { messageSeq: number; imageIndex: numbe
     throw new Error('image/offload: data must contain a nonempty targets array')
   }
   const seen = new Set<string>()
-  const parsed: { messageSeq: number; imageIndex: number }[] = []
+  const parsed: { messageSeq: number; imageIndex: number; stub?: string }[] = []
   for (const target of targets) {
     if (typeof target !== 'object' || target === null || Array.isArray(target)) {
       throw new Error('image/offload: each target must be an object')
     }
-    const { messageSeq, imageIndex } = target as Record<string, unknown>
+    const { messageSeq, imageIndex, stub } = target as Record<string, unknown>
     if (!isIndex(messageSeq) || !isIndex(imageIndex)) {
       throw new Error('image/offload: each target must carry a messageSeq and imageIndex')
+    }
+    if (stub !== undefined && (typeof stub !== 'string' || stub.length === 0)) {
+      throw new Error('image/offload: a target stub must be a nonempty string when present')
     }
     const key = `${messageSeq}:${imageIndex}`
     if (seen.has(key)) throw new Error(`image/offload: duplicate target ${key}`)
     seen.add(key)
-    parsed.push({ messageSeq, imageIndex })
+    parsed.push(stub === undefined ? { messageSeq, imageIndex } : { messageSeq, imageIndex, stub })
   }
   return parsed
 }
 
 /** Group one decision's targets by their carrying event seq, keeping image indexes ascending. */
-function groupByMessage(targets: readonly { messageSeq: number; imageIndex: number }[]): Map<number, number[]> {
-  const grouped = new Map<number, number[]>()
-  for (const { messageSeq, imageIndex } of targets) {
+type TargetEntry = { messageSeq: number; imageIndex: number; stub?: string }
+type IndexedEntry = { imageIndex: number; stub?: string }
+
+function groupByMessage(targets: readonly TargetEntry[]): Map<number, IndexedEntry[]> {
+  const grouped = new Map<number, { imageIndex: number; stub?: string }[]>()
+  for (const { messageSeq, imageIndex, stub } of targets) {
     const indexes = grouped.get(messageSeq)
-    if (indexes === undefined) grouped.set(messageSeq, [imageIndex])
-    else indexes.push(imageIndex)
+    const entry: { imageIndex: number; stub?: string } = stub === undefined
+      ? { imageIndex }
+      : { imageIndex, stub }
+    if (indexes === undefined) grouped.set(messageSeq, [entry])
+    else indexes.push(entry)
   }
-  for (const indexes of grouped.values()) indexes.sort((a, b) => a - b)
+  for (const indexes of grouped.values()) indexes.sort((a, b) => a.imageIndex - b.imageIndex)
   return grouped
 }
 
@@ -73,7 +83,7 @@ export const imageOffloadProjection: SessionMessageProjection<'image/offload'> =
     const targets = validateTargets(data)
     const grouped = groupByMessage(targets)
     const updates = new Map<number, Message>()
-    for (const [messageSeq, indexes] of grouped) {
+    for (const [messageSeq, entries] of grouped) {
       if (messageSeq >= event.seq) {
         throw new Error(`image/offload: target seq ${messageSeq} must reference an earlier event`)
       }
@@ -84,14 +94,18 @@ export const imageOffloadProjection: SessionMessageProjection<'image/offload'> =
       }
       const carrier = imageCarrier(source)
       const images = carrier?.filter(block => block.type === 'image').length ?? 0
-      for (const index of indexes) {
-        if (index >= images) {
-          throw new Error(`image/offload: image index ${index} does not exist on event ${messageSeq}`)
+      const indexes: number[] = []
+      const texts = new Map<number, string>()
+      for (const entry of entries) {
+        if (entry.imageIndex >= images) {
+          throw new Error(`image/offload: image index ${entry.imageIndex} does not exist on event ${messageSeq}`)
         }
+        indexes.push(entry.imageIndex)
+        if (entry.stub !== undefined) texts.set(entry.imageIndex, entry.stub)
       }
       const current = context.messages.get(messageSeq)
       if (current === undefined) continue
-      updates.set(messageSeq, stubEventImages(source, current, indexes))
+      updates.set(messageSeq, stubEventImages(source, current, indexes, texts))
     }
     return updates
   },

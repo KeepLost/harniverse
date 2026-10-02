@@ -4330,6 +4330,9 @@ importers:
 
   packages/compaction/compaction-image-offload:
     dependencies:
+      '@deepseek-ai/dsh-attachment':
+        specifier: workspace:^
+        version: link:../../attachment/attachment
       '@deepseek-ai/dsh-compaction-settings':
         specifier: workspace:^
         version: link:../compaction-settings
@@ -4352,9 +4355,6 @@ importers:
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
-      '@deepseek-ai/dsh-attachment':
-        specifier: workspace:^
-        version: link:../../attachment/attachment
       '@deepseek-ai/dsh-attachment-local':
         specifier: workspace:^
         version: link:../../attachment/attachment-local
@@ -4379,6 +4379,12 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../llm/llm-deepseek
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../../core/model-policy
+      '@deepseek-ai/dsh-model-policy-fallback':
+        specifier: workspace:^
+        version: link:../../core/model-policy-fallback
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session

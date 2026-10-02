@@ -59,6 +59,13 @@ export interface ImageOffloadOptions {
    * demand). Defaults to 0 — no pressure-driven offload.
    */
   readonly pressureCount?: number
+  /**
+   * Whether the model the next request routes to accepts image input.
+   * Defaults to `true`. When `false`, every active occurrence unloads with
+   * reason `'modality'` — a request-boundary settlement that keeps the
+   * whole retained image history model-requestable on a text-only route.
+   */
+  readonly routeAcceptsImages?: boolean
 }
 
 /**
@@ -76,8 +83,11 @@ export interface ImageOffloadOptions {
  * never chosen again. Compaction replaces without `sourceEventSeqs` cite
  * nothing and settle no occurrences. A same-message rewrite inherits surviving
  * occurrences' ages; only a newly identified read starts at age zero.
+ * `routeAcceptsImages: false` bypasses both rules and settles every active
+ * occurrence with reason `'modality'` — the routed model accepts no image
+ * input, so the whole retained image history unloads at this boundary.
  * @param events - the durable session log, in seq order.
- * @param options - the setting and optional pressure demand for this decision.
+ * @param options - the setting, optional pressure demand, and route modality for this decision.
  * @returns the decisions to append as one `image/offload` event, oldest
  * (smallest message seq, then image index) first; empty when nothing unloads.
  */
@@ -132,6 +142,14 @@ export function resolveImageOffloadDecisions(
   }
   const active = occurrences.filter(occurrence => occurrence.active)
   const decisions: ImageOffloadDecision[] = []
+  if (options.routeAcceptsImages === false) {
+    // A text-only route settles the entire retained image history at once:
+    // age and pressure are moot when nothing may ride the request.
+    for (const occurrence of active) {
+      decisions.push({ target: occurrence.target, reason: 'modality' })
+    }
+    return decisions.sort((a, b) => a.target.messageSeq - b.target.messageSeq || a.target.imageIndex - b.target.imageIndex)
+  }
   const limit = options.setting === 'unlimited' ? Number.POSITIVE_INFINITY : options.setting
   for (const occurrence of active) {
     if (occurrence.age >= limit) decisions.push({ target: occurrence.target, reason: 'age' })

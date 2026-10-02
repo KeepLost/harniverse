@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The contract for age-based image offload. It owns the global `imageOffloadAfterUserTurns` setting shape (`'unlimited'`, the default, or a positive integer), the pure decision rules that choose which image occurrences unload at one request-assembly point, the durable `image/offload` session event those decisions are appended as, and the canonical offload stub text the model sees in place of an offloaded image.
+The contract for image offload. It owns the global `imageOffloadAfterUserTurns` setting shape (`'unlimited'`, the default, or a positive integer), the pure decision rules that choose which image occurrences unload at one request-assembly point (`'age'`, provider `'pressure'`, or a `'modality'` settlement that unloads every active occurrence when the routed model accepts no image input), the durable `image/offload` session event those decisions are appended as — whose targets may carry a verbatim `stub` text minted by the runtime — and the canonical offload stub text the model sees in place of an offloaded image.
 
 Aging counts later `user/message` events per image occurrence — assistant messages, tool traffic, and context snapshots never increment it. With a limit of four, an image unloads when the fourth later user turn is assembled, unless provider pressure or compaction has already handled it; an occurrence already recorded by an earlier `image/offload`, or whose carrying event a compaction replacement shadowed, is finished and is never chosen again. The original attachment stays retained for replay and authorized re-reads; nothing here deletes attachment bytes.
 

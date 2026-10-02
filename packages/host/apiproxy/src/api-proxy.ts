@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-supervision'
 import { isArchivalSession } from '@deepseek-ai/dsh-session-import'
 import { AttachmentError, AttachmentId, fileHandleText } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, LlmCallConfig, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isJsonValue } from '@deepseek-ai/dsh-session'
@@ -378,11 +378,6 @@ function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => b
     default:
       return undefined
   }
-}
-
-/** True when the current model-visible surface contains an image. */
-function messagesHaveImage(messages: readonly { content: readonly ContentBlock[] }[]): boolean {
-  return messages.some(message => contentHasImage(message.content))
 }
 
 /** Resolve the first reference matching one opaque id. */
@@ -1522,7 +1517,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   ctx.on('settings/description-changed', announceSettingsExposure)
   ctx.on('capabilities/change', announceSettingsExposure)
   ctx.on('llm/adapters-updated', announceSettingsExposure)
-  const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
 
   /** Read one operation without exposing the underlying job or session record. */
   async function operationGet(request: RpcRequest<{ operationId: string; sessionId?: SessionId }>): Promise<RpcResponse<OperationView>> {
@@ -1606,13 +1600,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     void tail.finally(() => {
       if (sessionLineageChains.get(parentId) === tail) sessionLineageChains.delete(parentId)
     })
-    return result
-  }
-
-  /** Serialize image admission with model selection for one agent. */
-  function serializeImageAdmission<T>(agent: Agent, operation: () => Promise<T>): Promise<T> {
-    const result = (imageAdmissionChains.get(agent) ?? Promise.resolve()).then(operation)
-    imageAdmissionChains.set(agent, result.then(() => undefined, () => undefined))
     return result
   }
 
@@ -2073,7 +2060,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       || agent.status !== 'idle' || queueItems(agent).length > 0
       || pendingInteractions(sessionId).length > 0) return
     const closing = (async () => {
-      await (imageAdmissionChains.get(agent) ?? Promise.resolve())
       await ctx.get('subagents')?.drainContinuableDescendants([agent])
       const result = await ctx.agents.closeIfIdle(sessionId)
       if (result === 'closed') {
@@ -3276,7 +3262,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, provider, model, reasoningEffort } = request.payload
         const found = await activeAgentFor(sessionId)
         if ('error' in found) return err(request, found.error)
-        return serializeImageAdmission(found.agent, async () => {
+        return (async () => {
           try {
             const resolved = await ctx.llm.resolveCallConfig({
               provider,
@@ -3285,18 +3271,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 ? {}
                 : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
             })
-            const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
-              .some(message => contentHasImage(message.content))
-            if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
-              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
-              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'model-unavailable',
-                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
-                  details: { provider, model },
-                })
-              }
-            }
             const selected: ModelSelection = {
               provider: resolved.provider,
               model: resolved.model,
@@ -3328,7 +3302,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { provider, model },
             })
           }
-        })
+        })()
       },
 
       async selectModelTarget(request) {
@@ -3339,7 +3313,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (policy === undefined) {
           return err(request, { code: 'internal', message: 'model policy is not configured', details: {} })
         }
-        return serializeImageAdmission(found.agent, async () => {
+        return (async () => {
           try {
             const selected = policy.concreteTarget(found.agent.session, target)
             if (selected === undefined) {
@@ -3354,18 +3328,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               model: selected.model,
               ...selected.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selected.reasoningEffort) },
             })
-            const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
-              .some(message => contentHasImage(message.content))
-            if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
-              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
-              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'model-unavailable',
-                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
-                  details: { provider: selected.provider, model: selected.model },
-                })
-              }
-            }
             const normalized: ModelSelection = {
               provider: resolved.provider,
               model: resolved.model,
@@ -3396,7 +3358,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { provider: '', model: '' },
             })
           }
-        })
+        })()
       },
 
       async selectModelProfile(request) {
@@ -3617,20 +3579,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           rpcId: request.rpcId,
           ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
         }
-        const hasImage = content.some(part => part.type === 'image')
         const admit = async (): Promise<RpcResponse<PromptReceipt>> => {
           try {
-            if (hasImage) {
-              const current = selectionFor(agent).current
-              const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model)
-              if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'attachment-error',
-                  message: `Model "${current.model}" does not support image input.`,
-                  details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
-                })
-              }
-            }
             const durable = await durablePromptContent(ctx, content)
             const message: UserMessage = createUserMessage({
               content: durable.blocks,
@@ -3665,7 +3615,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         }
-        return hasImage ? serializeImageAdmission(agent, admit) : admit()
+        return admit()
       },
 
       async attachment(request) {
@@ -3818,7 +3768,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let closing = sessionClosures.get(sessionId)
         if (closing === undefined) {
           closing = (async () => {
-            await (imageAdmissionChains.get(agent) ?? Promise.resolve())
             await ctx.subagents.drainContinuableDescendants([agent])
             if (!await ctx.agents.close(sessionId)) {
               throw new Error(`agent "${sessionId}" detached before close acquired its lifecycle`)
@@ -4309,7 +4258,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 }
               }
               try {
-                await (imageAdmissionChains.get(agent) ?? Promise.resolve())
                 await ctx.get('subagents')?.drainContinuableDescendants([agent])
                 const closed = await ctx.agents.closeIfIdle(sessionId)
                 if (closed !== 'closed') {

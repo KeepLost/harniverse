@@ -58,17 +58,23 @@ function imagePositions(carrier: readonly ContentBlock[], indexes: readonly numb
  * Replace the blocks at the given positions with the offload stub.
  * @param blocks - the current (possibly already-stubbed) block list.
  * @param positions - ascending positions to replace.
+ * @param texts - verbatim stub text by carrier position; positions absent
+ * from the map render the canonical constant stub.
  * @returns the new block list, or the input when nothing changed.
  * @throws when a targeted position does not currently hold an image.
  */
-function stubAtPositions(blocks: readonly ContentBlock[], positions: readonly number[]): ContentBlock[] {
+function stubAtPositions(
+  blocks: readonly ContentBlock[],
+  positions: readonly number[],
+  texts: ReadonlyMap<number, string>,
+): ContentBlock[] {
   let next: ContentBlock[] | undefined
   let selected = 0
   for (const [position, block] of blocks.entries()) {
     let projected = block
     if (selected < positions.length && position === positions[selected]) {
       if (block.type !== 'image') throw new Error('image/offload: target image was already offloaded')
-      projected = { type: 'text', text: OFFLOADED_IMAGE_STUB_TEXT }
+      projected = { type: 'text', text: texts.get(position) ?? OFFLOADED_IMAGE_STUB_TEXT }
       selected += 1
     }
     if (projected !== block) next ??= blocks.slice(0, position)
@@ -83,21 +89,37 @@ function stubAtPositions(blocks: readonly ContentBlock[], positions: readonly nu
  * @param event - the image-carrying surface event (the counting base).
  * @param message - the message as currently projected.
  * @param indexes - strictly increasing original image indexes to stub.
+ * @param texts - verbatim stub text by original image index; a target absent
+ * from the map renders the canonical constant stub.
  * @returns a new frozen message with the targeted images stubbed.
  */
-export function stubEventImages(event: SessionEvent, message: Message, indexes: readonly number[]): Message {
+export function stubEventImages(
+  event: SessionEvent,
+  message: Message,
+  indexes: readonly number[],
+  texts: ReadonlyMap<number, string> = new Map(),
+): Message {
   const carrier = imageCarrier(event)
   if (carrier === undefined) throw new Error(`image/offload: event at seq ${event.seq} carries no image blocks`)
   const positions = imagePositions(carrier, indexes)
+  // Key the verbatim texts by carrier position: consecutive decisions
+  // compose over already-stubbed messages, where walking current blocks no
+  // longer reveals original image indexes.
+  const textByPosition = new Map<number, string>()
+  for (const [order, position] of positions.entries()) {
+    const index = indexes[order]
+    const text = index === undefined ? undefined : texts.get(index)
+    if (text !== undefined) textByPosition.set(position, text)
+  }
   if (event.type === 'user/message') {
-    const content = stubAtPositions(message.content, positions)
+    const content = stubAtPositions(message.content, positions, textByPosition)
     return content === message.content ? message : deepFreeze({ ...message, content })
   }
   const [first, ...rest] = message.content
   if (first?.type !== 'tool-result') {
     throw new Error(`image/offload: event at seq ${event.seq} has no tool-result block to stub`)
   }
-  const nested = stubAtPositions(first.content, positions)
+  const nested = stubAtPositions(first.content, positions, textByPosition)
   if (nested === first.content) return message
   return deepFreeze({ ...message, content: [{ ...first, content: nested }, ...rest] })
 }
