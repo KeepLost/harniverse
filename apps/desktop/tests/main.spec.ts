@@ -57,6 +57,7 @@ const electron = vi.hoisted(() => {
   const app = Object.assign(new Events(), {
     quit: vi.fn(), whenReady: vi.fn(async () => {}), requestSingleInstanceLock: vi.fn(() => true),
     setName: vi.fn(), setAppUserModelId: vi.fn(), getPath: vi.fn(() => '/data/harniverse'), getVersion: vi.fn(() => '1.0.0'), isPackaged: false,
+    getLocale: vi.fn(() => 'en-US'),
   })
   return {
     app, windows, trays, handlers, BrowserWindow: Window, Tray,

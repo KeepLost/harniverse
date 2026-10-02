@@ -9,6 +9,7 @@ import {
   assertShellSender, DESKTOP_IPC, parseConnectionProfile, quitWarning, validateHostUrl,
   type AuthWebReply, type ConnectionProfile, type DirectorySelection, type RendererAuthority, type ShellActivity, type ShellState,
 } from './ipc.ts'
+import { shellCopy } from './locale.ts'
 
 /** Ready data stays in the main process; the URL may contain a short-lived browser bootstrap. */
 export interface DesktopHostReady { url: string; authWeb?: string }
@@ -85,6 +86,11 @@ export class DesktopShell {
 
   constructor(private readonly options: DesktopShellOptions) {}
 
+  /** Locale-picked copy for dialogs, menus, and surfaced state messages. */
+  private get copy(): ReturnType<typeof shellCopy> {
+    return shellCopy(app.getLocale())
+  }
+
   /** Create the shell window and retained tray after Electron readiness. */
   async start(): Promise<void> {
     this.registerIpc()
@@ -92,7 +98,7 @@ export class DesktopShell {
     await this.showLauncher()
     const updates = this.options.updates ?? createDesktopUpdates()
     try { await updates.recover(); this.updates = updates }
-    catch { dialog.showErrorBox('Harniverse update recovery', 'An interrupted update could not be recovered. Updates are disabled for this launch. Keep the update journal and retained executable for recovery.') }
+    catch { dialog.showErrorBox(this.copy.updateRecoveryTitle, this.copy.updateRecoveryBody) }
     this.refreshMenu()
     app.on('activate', () => { this.show() })
     app.on('second-instance', () => { this.show() })
@@ -144,7 +150,7 @@ export class DesktopShell {
       this.tray?.destroy()
       app.quit()
     }).catch(async () => {
-      await dialog.showMessageBox({ type: 'error', title: 'Harniverse', message: 'The local Host could not be stopped.', detail: 'The shell stays open so you can retry. Active work may still be running.', buttons: ['OK'] })
+      await dialog.showMessageBox({ type: 'error', title: 'Harniverse', message: this.copy.stopFailedMessage, detail: this.copy.stopFailedDetail, buttons: [this.copy.ok] })
     }).finally(() => { this.quitPending = undefined })
     return this.quitPending
   }
@@ -228,32 +234,32 @@ export class DesktopShell {
         webUrl = profile.url
         connection.origin = new URL(webUrl).origin
       }
-      if (this.connectionFailed(connection)) throw new Error('The Host stopped during startup.')
+      if (this.connectionFailed(connection)) throw new Error(this.copy.errorStartupStopped)
       connection.webUrl = `${connection.origin}/`
       const partition = profile.kind === 'local' ? 'persist:harniverse-owned'
         : `persist:harniverse-external-${createHash('sha256').update(connection.origin).digest('hex')}`
       this.ensureWindow(partition)
       this.authority = { kind: 'web', origin: connection.origin }
       await this.window?.loadURL(webUrl)
-      if (this.connectionFailed(connection)) throw new Error('The Host stopped during startup.')
+      if (this.connectionFailed(connection)) throw new Error(this.copy.errorStartupStopped)
       this.state = { ...this.state, phase: 'ready' }
       this.refreshMenu()
       this.show()
     } catch {
       connection.failed = true
-      this.state = { ...this.state, phase: 'failed', message: 'The Host connection failed. Check the Host and retry.', activity: { status: 'unknown' } }
+      this.state = { ...this.state, phase: 'failed', message: this.copy.stateConnectionFailed, activity: { status: 'unknown' } }
       await this.showLauncher()
       // Ownership remains attached until stop settles, including failed startup.
-      throw new Error('The Host connection failed. Disconnect before retrying.')
+      throw new Error(this.copy.errorRetryAfterFailure)
     }
   }
 
   private hostFailed(connection: Connection): void {
     if (connection !== this.connection || connection.stopping || this.quitting) return
     connection.failed = true
-    this.state = { ...this.state, phase: 'failed', activity: { status: 'unknown' }, message: 'The local Host stopped unexpectedly. Disconnect and reconnect to start it again.' }
+    this.state = { ...this.state, phase: 'failed', activity: { status: 'unknown' }, message: this.copy.stateHostStopped }
     void this.serialize(async () => { if (connection === this.connection) await this.showLauncher() }).catch(() => {
-      dialog.showErrorBox('Harniverse', 'The Host stopped and the recovery page could not load. Use the tray menu to quit.')
+      dialog.showErrorBox('Harniverse', this.copy.recoveryUnavailable)
     })
   }
 
@@ -279,12 +285,13 @@ export class DesktopShell {
       try { activity = await connection.host.activity() } catch { /* Unavailable observation requires a conservative warning. */ }
     }
     this.state = { ...this.state, activity }
-    const warning = quitWarning(connection.profile.kind === 'local' ? 'owned' : 'external', activity)
+    const warning = quitWarning(connection.profile.kind === 'local' ? 'owned' : 'external', activity, this.copy)
     if (warning === undefined) return true
     this.show()
+    const actionLabel = action === 'Quit' ? this.copy.actionQuit : this.copy.actionDisconnect
     const result = await dialog.showMessageBox({
-      type: 'warning', title: 'Harniverse', message: `${action} Harniverse?`, detail: warning,
-      buttons: ['Keep running', action], defaultId: 0, cancelId: 0, noLink: true,
+      type: 'warning', title: 'Harniverse', message: this.copy.quitMessage.replace('{action}', actionLabel), detail: warning,
+      buttons: [this.copy.keepRunning, actionLabel], defaultId: 0, cancelId: 0, noLink: true,
     })
     return result.response === 1
   }
@@ -298,7 +305,7 @@ export class DesktopShell {
     if (window === undefined || window.isDestroyed()) throw new Error('The desktop window is unavailable.')
     this.picking = true
     try {
-      const selection = await dialog.showOpenDialog(window, { title: 'Choose a local workspace', properties: ['openDirectory', 'createDirectory'] })
+      const selection = await dialog.showOpenDialog(window, { title: this.copy.chooseWorkspace, properties: ['openDirectory', 'createDirectory'] })
       if (!this.connectionUsable(connection) || selection.canceled || selection.filePaths[0] === undefined) return { kind: 'cancelled' }
       return { kind: 'selected', path: selection.filePaths[0] }
     } finally { this.picking = false }
@@ -316,7 +323,7 @@ export class DesktopShell {
     this.picking = true
     try {
       const selection = await dialog.showOpenDialog(window, {
-        title: request.title ?? 'Choose a file',
+        title: request.title ?? this.copy.chooseFile,
         properties: ['openFile'],
         ...(request.defaultDirectory === undefined ? {} : { defaultPath: request.defaultDirectory }),
       })
@@ -463,12 +470,12 @@ export class DesktopShell {
     })
     contents.on('render-process-gone', () => {
       if (this.quitting || window !== this.window) return
-      this.state = { ...this.state, phase: 'failed', message: 'The window stopped unexpectedly. The Host may still be running. Reopen the app or disconnect safely.' }
+      this.state = { ...this.state, phase: 'failed', message: this.copy.stateWindowStopped }
       void this.serialize(async () => { await this.showLauncher() }).catch(() => {
-        dialog.showErrorBox('Harniverse', 'The window could not recover. Use the tray menu to quit.')
+        dialog.showErrorBox('Harniverse', this.copy.windowRecoveryUnavailable)
       })
     })
-    contents.on('unresponsive', () => { this.tray?.setToolTip('Harniverse — window is not responding') })
+    contents.on('unresponsive', () => { this.tray?.setToolTip(this.copy.tooltipUnresponsive) })
     contents.on('responsive', () => { this.tray?.setToolTip('Harniverse') })
   }
 
@@ -485,27 +492,31 @@ export class DesktopShell {
   private refreshMenu(): void {
     if (this.quitting) return
     const safe = (action: () => Promise<void>) => () => {
-      void action().catch(() => { dialog.showErrorBox('Harniverse', 'The requested operation failed. The Host remains attached; retry from the connection page.') })
+      void action().catch(() => { dialog.showErrorBox('Harniverse', this.copy.menuOperationFailed) })
     }
     const items: Electron.MenuItemConstructorOptions[] = [
-      { label: 'Show Harniverse', click: () => { this.show() } },
-      { label: 'Open connected app', enabled: this.connection?.webUrl !== undefined && !this.connection.failed, click: safe(() => this.serialize(async () => {
-        const connection = this.connection
-        if (connection?.webUrl === undefined || connection.origin === undefined || connection.failed) return
-        this.authority = { kind: 'web', origin: connection.origin }
-        await this.window?.loadURL(connection.webUrl)
-        this.state = { ...this.state, phase: 'ready' }
-        this.show()
-      })) },
-      { label: 'Connection settings', click: safe(() => this.serialize(() => this.showLauncher())) },
-      { label: 'Disconnect Host', enabled: this.connection !== undefined, click: safe(() => this.disconnect()) },
-      { label: 'Install update…', enabled: this.updates !== undefined && !this.updating, click: () => {
+      { label: this.copy.menuShow, click: () => { this.show() } },
+      {
+        label: this.copy.menuOpenApp,
+        enabled: this.connection?.webUrl !== undefined && !this.connection.failed,
+        click: safe(() => this.serialize(async () => {
+          const connection = this.connection
+          if (connection?.webUrl === undefined || connection.origin === undefined || connection.failed) return
+          this.authority = { kind: 'web', origin: connection.origin }
+          await this.window?.loadURL(connection.webUrl)
+          this.state = { ...this.state, phase: 'ready' }
+          this.show()
+        })),
+      },
+      { label: this.copy.menuSettings, click: safe(() => this.serialize(() => this.showLauncher())) },
+      { label: this.copy.disconnectButton, enabled: this.connection !== undefined, click: safe(() => this.disconnect()) },
+      { label: this.copy.menuInstallUpdate, enabled: this.updates !== undefined && !this.updating, click: () => {
         void this.installUpdate().catch((error: unknown) => {
-          dialog.showErrorBox('Harniverse update', error instanceof Error ? error.message : 'The update did not finish.')
+          dialog.showErrorBox(this.copy.updateTitle, error instanceof Error ? error.message : this.copy.updateFailed)
         })
       } },
       { type: 'separator' },
-      { label: 'Quit Harniverse', click: () => { void this.requestQuit() } },
+      { label: this.copy.quitButton, click: () => { void this.requestQuit() } },
     ]
     this.tray?.setContextMenu(Menu.buildFromTemplate(items))
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'Harniverse', submenu: items }, { role: 'editMenu' }]))

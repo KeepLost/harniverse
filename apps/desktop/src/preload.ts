@@ -2,6 +2,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { DESKTOP_IPC, type DesktopBridge, type DesktopDirectoryBridge } from './ipc.ts'
 import { bootstrapOwnedBrowser } from './preload-web.ts'
+import { shellCopy } from './locale.ts'
 
 if (window === window.top) {
   if (window.location.protocol === 'file:') {
@@ -12,6 +13,7 @@ if (window === window.top) {
       quit: () => ipcRenderer.invoke(DESKTOP_IPC.quit),
     }
     contextBridge.exposeInMainWorld('harniverseDesktop', bridge)
+    contextBridge.exposeInMainWorld('harniverseShellCopy', shellCopy(navigator.language))
   } else if (window.location.protocol === 'https:' || window.location.protocol === 'http:') {
     const directory: DesktopDirectoryBridge = { pickDirectory: () => ipcRenderer.invoke(DESKTOP_IPC.pickDirectory) }
     contextBridge.exposeInMainWorld('harniverseDirectory', directory)
