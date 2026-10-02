@@ -1,6 +1,8 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { basename, dirname, relative, resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import type { SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -483,6 +485,33 @@ describe('LocalSubprocessRuntime', () => {
     const result = await handle.done
     expect(result.exitCode).toBe(0)
     expect(handle.collected.stdout!.readFrom(0).text).toBe('managed\n')
+    await fiber.dispose()
+  })
+
+  it('reports a spill failure through the plugin logger when the spill directory is gone', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const logged: unknown[][] = []
+    fiber.ctx.logger.error = ((...args: unknown[]) => { logged.push(args) }) as typeof ctx.logger.error
+    const removed = mkdtempSync(join(tmpdir(), 'dsh-gone-spill-'))
+    rmSync(removed, { recursive: true, force: true })
+    ;(ctx.subprocess as LocalSubprocessRuntime).internals.spillDir = removed
+    const handle = ctx.subprocess.spawn(spec('echo hello-spill', {
+      stdio: {
+        stdin: 'ignore',
+        stdout: { maxBytes: 4, spill: { maxBytes: 64 * 1024 * 1024 } },
+        stderr: { maxBytes: 64_000, spill: { maxBytes: 64 * 1024 * 1024 } },
+      },
+    }))
+    const outcome = await handle.done
+    expect(outcome.exitCode).toBe(0)
+    expect(logged).toHaveLength(1)
+    expect(String(logged[0]![0])).toContain('could not write the complete stdout stream to its spill file')
+    expect((logged[0]![1] as NodeJS.ErrnoException).code).toBe('ENOENT')
+    const read = handle.collected.stdout!.readFrom(0)
+    expect(read.text).toBe('ill\n')
+    expect(read.lossy).toBe(true)
+    expect(read.spillPath).toBeUndefined()
     await fiber.dispose()
   })
 

@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -8,13 +8,15 @@ import {
   spawnSubprocess,
   taskkillProcessTree,
 } from '../src/spawn.ts'
-import { OutputCollector, prepareManagedProcessBinding } from '../src/output.ts'
+import { OutputCollector, prepareManagedProcessBinding, reportSpillFailureToStderr } from '../src/output.ts'
+import type { SpillOptions } from '../src/output.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
-const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
+const { failNextClose, failNextUnlink, failNextWrite } = vi.hoisted(() => ({
   failNextClose: { value: false },
   failNextUnlink: { value: false },
+  failNextWrite: { value: false },
 }))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
@@ -34,10 +36,23 @@ vi.mock('node:fs', async (importOriginal) => {
       }
       actual.unlinkSync(path)
     },
+    writeSync(...args: Parameters<typeof actual.writeSync>): number {
+      if (failNextWrite.value) {
+        failNextWrite.value = false
+        throw Object.assign(new Error('simulated ENOSPC on write'), { code: 'ENOSPC' })
+      }
+      return actual.writeSync(...args)
+    },
   }
 })
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-spec-'))
+
+/** Spill options for one collector test; failures are collected for assertions. */
+function spillOptions(maxBytes: number, dir = spillDir): { options: SpillOptions; failures: { error: unknown; label: string }[] } {
+  const failures: { error: unknown; label: string }[] = []
+  return { options: { maxBytes, dir, onFailure: (error, label) => { failures.push({ error, label }) } }, failures }
+}
 
 type SpecOverrides = Partial<Parameters<typeof spawnSubprocess>[0]> & {
   stdoutMaxBytes?: number
@@ -460,7 +475,7 @@ describe('output truncation and spill', () => {
 
 describe('OutputCollector', () => {
   it('keeps the tail of a single oversized chunk', () => {
-    const collector = new OutputCollector(10, 100, 'test', spillDir)
+    const collector = new OutputCollector(10, 'test', spillOptions(100).options)
     collector.push(Buffer.from('0123456789abcdef'))
     const out = collector.finalize()
     expect(out.text).toBe('6789abcdef')
@@ -471,7 +486,7 @@ describe('OutputCollector', () => {
   it('retains a byte-exact tail across uneven chunk boundaries', () => {
     // A diagnostic tail must be exactly the LAST maxBytes regardless of
     // chunking; dropping only whole chunks would under-retain.
-    const collector = new OutputCollector(10, undefined, 'exact-tail', spillDir)
+    const collector = new OutputCollector(10, 'exact-tail', undefined)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbbbb'))
     collector.push(Buffer.from('cc'))
@@ -482,7 +497,7 @@ describe('OutputCollector', () => {
   })
 
   it('readFrom returns increments and flags lossy reads', () => {
-    const collector = new OutputCollector(10, 100, 'test', spillDir)
+    const collector = new OutputCollector(10, 'test', spillOptions(100).options)
     collector.push(Buffer.from('aaaaa'))
     const first = collector.readFrom(0)
     expect(first.text).toBe('aaaaa')
@@ -503,7 +518,7 @@ describe('OutputCollector', () => {
   })
 
   it('snapshot copies the retained raw tail with its whole-stream position', () => {
-    const collector = new OutputCollector(10, undefined, 'snapshot', spillDir)
+    const collector = new OutputCollector(10, 'snapshot', undefined)
     collector.push(Buffer.from('aaaaa'))
     collector.push(Buffer.from('bbbbb'))
     collector.push(Buffer.from('cc'))
@@ -533,8 +548,22 @@ describe('OutputCollector', () => {
     }
   })
 
+  it('reportSpillFailureToStderr writes one labeled diagnostic line', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    try {
+      reportSpillFailureToStderr(Object.assign(new Error('spill open failed'), { code: 'ENOENT' }), 'stdout')
+      expect(write).toHaveBeenCalledOnce()
+      const line = String(write.mock.calls[0]![0])
+      expect(line).toContain('dsh-subprocess-local: stdout spill failed; only the in-memory tail is retained:')
+      expect(line).toContain('spill open failed')
+      expect(line.endsWith('\n')).toBe(true)
+    } finally {
+      write.mockRestore()
+    }
+  })
+
   it('contains close failures and drops the spill path', () => {
-    const collector = new OutputCollector(4, 100, 'closefail', spillDir)
+    const collector = new OutputCollector(4, 'closefail', spillOptions(100).options)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
     expect(collector.readFrom(0).spillPath).toBeDefined()
@@ -550,7 +579,7 @@ describe('OutputCollector', () => {
   })
 
   it('discards a spill that exceeds its configured cap', () => {
-    const collector = new OutputCollector(4, 8, 'bounded', spillDir)
+    const collector = new OutputCollector(4, 'bounded', spillOptions(8).options)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
     const spillPath = collector.readFrom(0).spillPath!
@@ -566,7 +595,7 @@ describe('OutputCollector', () => {
   })
 
   it('does not create a spill when the first overflowing chunk exceeds the cap', () => {
-    const collector = new OutputCollector(4, 4, 'no-spill', spillDir)
+    const collector = new OutputCollector(4, 'no-spill', spillOptions(4).options)
     collector.push(Buffer.from('abcdefgh'))
     const out = collector.finalize()
     expect(out.text).toBe('efgh')
@@ -575,7 +604,7 @@ describe('OutputCollector', () => {
   })
 
   it('contains cleanup failures while disabling an oversize spill', () => {
-    const collector = new OutputCollector(4, 8, 'cleanup-fail', spillDir)
+    const collector = new OutputCollector(4, 'cleanup-fail', spillOptions(8).options)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
     const spillPath = collector.readFrom(0).spillPath!
@@ -587,6 +616,61 @@ describe('OutputCollector', () => {
     expect(failNextUnlink.value).toBe(false)
     expect(collector.finalize().spillPath).toBeUndefined()
     unlinkSync(spillPath)
+  })
+
+  it('keeps collecting when the spill directory was removed (ENOENT on open)', () => {
+    const removed = join(spillDir, `removed-${Date.now()}`)
+    mkdirSync(removed)
+    rmSync(removed, { recursive: true })
+    const { options, failures } = spillOptions(100, removed)
+    const collector = new OutputCollector(4, 'enoent', options)
+    collector.push(Buffer.from('aaaa'))
+    expect(() => { collector.push(Buffer.from('bbbb')) }).not.toThrow()
+    expect(failures).toHaveLength(1)
+    expect((failures[0]!.error as NodeJS.ErrnoException).code).toBe('ENOENT')
+    expect(failures[0]!.label).toBe('enoent')
+    const out = collector.finalize()
+    expect(out.text).toBe('bbbb')
+    expect(out.truncated).toBe(true)
+    expect(out.spillPath).toBeUndefined()
+
+    collector.push(Buffer.from('cc'))
+    expect(failures).toHaveLength(1)
+  })
+
+  it('keeps collecting when the spill directory is a file (ENOTDIR on open)', () => {
+    const fileAsDir = join(spillDir, `not-a-dir-${Date.now()}`)
+    writeFileSync(fileAsDir, '')
+    const { options, failures } = spillOptions(100, fileAsDir)
+    const collector = new OutputCollector(4, 'enotdir', options)
+    collector.push(Buffer.from('aaaa'))
+    expect(() => { collector.push(Buffer.from('bbbb')) }).not.toThrow()
+    expect(failures).toHaveLength(1)
+    expect(['ENOTDIR', 'ENOENT']).toContain((failures[0]!.error as NodeJS.ErrnoException).code)
+    expect(collector.finalize()).toEqual({ text: 'bbbb', truncated: true })
+  })
+
+  it('withdraws a spill whose append fails after the file exists (ENOSPC on write)', () => {
+    const { options, failures } = spillOptions(100)
+    const collector = new OutputCollector(4, 'enospc', options)
+    collector.push(Buffer.from('aaaa'))
+    collector.push(Buffer.from('bbbb'))
+    const spillPath = collector.readFrom(0).spillPath!
+    expect(readFileSync(spillPath, 'utf8')).toBe('aaaabbbb')
+
+    failNextWrite.value = true
+    expect(() => { collector.push(Buffer.from('cccc')) }).not.toThrow()
+    expect(failNextWrite.value).toBe(false)
+    expect(failures).toHaveLength(1)
+    expect((failures[0]!.error as NodeJS.ErrnoException).code).toBe('ENOSPC')
+    expect(() => readFileSync(spillPath)).toThrow()
+
+    collector.push(Buffer.from('dd'))
+    expect(failures).toHaveLength(1)
+    const out = collector.finalize()
+    expect(out.text).toBe('ccdd')
+    expect(out.truncated).toBe(true)
+    expect(out.spillPath).toBeUndefined()
   })
 })
 

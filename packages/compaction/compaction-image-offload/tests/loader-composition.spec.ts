@@ -13,7 +13,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { AttachmentId, ImageVariantId, type AttachmentStore, type RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { DeepSeekAdapter, DeepSeekFileStore, DeepSeekUploadIndex, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
-import { TEST_USER_ID, sse, textEvents } from '../../../llm/llm-deepseek/tests/messages/helpers.ts'
+import { sse, textEvents } from '../../../llm/llm-deepseek/tests/messages/helpers.ts'
 import LlmRuntime, { createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -201,7 +201,7 @@ describe('compaction-image-offload real Loader composition through cordis.yml', 
     })
     const files = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(root, 'files.json')) })
     ctx.llm.registerAdapter(['pressure'], new DeepSeekAdapter({
-      options: () => config, resolveApiKey: async () => 'test-key', resolveUserId: () => TEST_USER_ID,
+      options: () => config, resolveApiKey: async () => 'test-key',
       resolveAttachments: () => ({ readImageRequest: async () => version }) as unknown as AttachmentStore,
       resolveFiles: () => files,
     }))
@@ -242,7 +242,7 @@ describe('compaction-image-offload real Loader composition through cordis.yml', 
     const files = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(root, 'files.json')) })
     ctx.llm.registerAdapter(['pressure'], new DeepSeekAdapter({
       options: () => resolveAdapterOptions({ protocol, baseURL: 'https://image-policy.invalid', models: [{ id: 'vision', inputModalities: ['text', 'image'] }] }),
-      resolveApiKey: async () => 'test-key', resolveUserId: () => TEST_USER_ID,
+      resolveApiKey: async () => 'test-key',
       resolveAttachments: () => ({ readImageRequest: reads }) as unknown as AttachmentStore,
       resolveFiles: () => files,
     }))

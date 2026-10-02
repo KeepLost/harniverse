@@ -101,7 +101,7 @@ type StubMode =
   | 'paged-scrollback'
 
 class StubPtySession implements TerminalBackendSession {
-  readonly motd = '__DSH_PERSISTENT_BASH_PROMPT__ '
+  readonly motd = 'stub> '
   readonly pid = 123
   statusValue: TerminalSessionStatus = { kind: 'running' }
   scrollback = this.motd
@@ -110,6 +110,7 @@ class StubPtySession implements TerminalBackendSession {
   sends = 0
   pendingText = ''
   historyTruncated = false
+  largeOutput = 'x'.repeat(100)
 
   constructor(mode: StubMode) {
     this.mode = mode
@@ -189,7 +190,7 @@ class StubPtySession implements TerminalBackendSession {
       return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
     }
     const commandOutput = this.mode === 'large'
-      ? 'x'.repeat(100)
+      ? this.largeOutput
       : this.mode === 'nonzero' ? '' : 'hello from stub'
     const exitCode = this.mode === 'nonzero' ? 7 : 0
     const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
@@ -339,7 +340,7 @@ describe('tool-bash-persistent', () => {
 
     session.mode = 'incremental-fallback'
     session.scrollback = ''
-    expect(text(await call(ctx, owner, 'incremental fallback'))).toBe('increment')
+    expect(text(await call(ctx, owner, 'incremental fallback'))).toContain('increment')
 
     session.mode = 'prompt-only'
     const promptFallback = text(await call(ctx, owner, 'bad {'))
@@ -387,6 +388,21 @@ describe('tool-bash-persistent', () => {
     await ctx.terminals.kill(owner, externallyClosed!, 'external cleanup')
     await fiber.dispose()
     expect(stub.sessions[2]?.closed).toEqual(['external cleanup'])
+  })
+
+  it('clips a split surrogate pair instead of leaving a lone half', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 10 })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'large'
+    // The tenth code unit is the emoji's high surrogate, so the clip drops the
+    // unpaired half instead of emitting it.
+    session.largeOutput = `${'x'.repeat(9)}😀tail`
+
+    const rendered = text(await call(ctx, owner, 'emoji'))
+
+    expect(rendered.startsWith(`${'x'.repeat(9)}<response clipped>`)).toBe(true)
+    expect(rendered).not.toContain('\uD83D')
   })
 
   it('waits for status digits after a torn completion marker', async () => {
@@ -483,7 +499,12 @@ describe('tool-bash-persistent', () => {
         controller.abort(new Error('caller stopped'))
       }, 5)
 
-      expect((await cancelled).isError).toBe(true)
+      const failed = await cancelled
+      expect(failed.isError).toBe(true)
+      // Cancellation settles as the runtime's ABORTED publication, never as a
+      // thrown caller reason escaping the tool body.
+      expect('error' in failed && failed.error.info?.code).toBe('ABORTED')
+      expect(text(failed)).toBe('Error: tool call aborted')
       expect(text(await queued)).toBe('hello from stub')
       expect(stub.sessions[0]?.closed).toContain('persistent bash command aborted')
       expect(stub.sessions).toHaveLength(2)
@@ -545,6 +566,66 @@ describe('tool-bash-persistent', () => {
     await spawnAborted.promise
     expect((await running).isError).toBe(true)
     expect(ctx.terminals.list(owner)).toEqual([])
+  })
+
+  it('settles a caller-aborted call as ABORTED when cancellation reaches the shared init promise', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(TerminalSessionService)
+    const spawnStarted = Promise.withResolvers<undefined>()
+    const spawnAborted = Promise.withResolvers<unknown>()
+    ctx.terminals.registerBackend({
+      type: 'slow',
+      spawn: spec => new Promise((_resolve, reject) => {
+        spawnStarted.resolve(undefined)
+        spec.signal?.addEventListener('abort', () => {
+          const reason: unknown = spec.signal?.reason
+          spawnAborted.resolve(reason)
+          reject(reason instanceof Error
+            ? reason
+            : new Error('slow PTY spawn aborted', { cause: reason }))
+        }, { once: true })
+      }),
+    })
+    await ctx.plugin(ToolBashPersistent, { backendType: 'slow' })
+    const owner = agent(ctx, '/workspace')
+    const controller = new AbortController()
+    const running = call(ctx, owner, 'pwd', controller.signal)
+    await spawnStarted.promise
+    const cancellation = new Error('caller stopped during init')
+    controller.abort(cancellation)
+    await expect(spawnAborted.promise).resolves.toBe(cancellation)
+    const cancelled = await running
+    expect(cancelled.isError).toBe(true)
+    expect('error' in cancelled && cancelled.error.info?.code).toBe('ABORTED')
+    expect(text(cancelled)).toBe('Error: tool call aborted')
+    expect(ctx.terminals.list(owner)).toEqual([])
+  })
+
+  it('skips a queued call whose signal aborted while it waited for the owner lock', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', timeoutMs: 5_000 })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'wait-for-abort'
+    const hanging = new AbortController()
+    const queued = new AbortController()
+    const first = call(ctx, owner, 'hang', hanging.signal)
+    while (session.sends < 2) await new Promise(resolve => setTimeout(resolve, 1))
+    const second = call(ctx, owner, 'after hang', queued.signal)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    queued.abort(new Error('queued caller stopped'))
+    hanging.abort(new Error('hanging caller stopped'))
+    const cancelled = await first
+    expect(cancelled.isError).toBe(true)
+    expect('error' in cancelled && cancelled.error.info?.code).toBe('ABORTED')
+    const skipped = await second
+    expect(skipped.isError).toBe(true)
+    expect('error' in skipped && skipped.error.info?.code).toBe('ABORTED')
+    expect(text(skipped)).toBe('Error: tool call aborted')
+    expect(stub.sessions).toHaveLength(1)
   })
 
   it('rejects invalid config and invalid calls', async () => {

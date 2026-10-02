@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-07-23-session-telemetry-otel-revival.zh.md)
 
+Session telemetry was later retired wholesale; see the [telemetry retirement note](2026-10-02-telemetry-retirement.md).
+
 ## Problem
 
 Every deployment that wants harness sessions in an observability stack must hand-roll a session-log consumer: subscription, lifecycle handoff, and — hardest — redaction, since the raw log carries file contents and command output that may embed credentials. A telemetry seam and OTel backend shipped once on the `session-telemetry-otlp-rfc` branch (PR #222/#231) but never reached master: the proposal exported raw session events verbatim, which legal review declined. The capture-side design (backend contract, coordinator, handoff cursor, chunk projection) was sound and reviewed; the export-side stance was the blocker.

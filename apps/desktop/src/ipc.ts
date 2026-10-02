@@ -1,4 +1,5 @@
 /** Narrow desktop contracts; Host business capabilities remain in the shared Web client. */
+import type { ShellCopy } from './locale.ts'
 
 /** The local profile is fixed by the distribution; renderer input cannot configure a process. */
 export type ConnectionProfile = { kind: 'local' } | { kind: 'existingHost'; url: string }
@@ -119,11 +120,12 @@ export function assertShellSender(
  * Explain activity loss without claiming that an external Host stops with the shell.
  * @param ownership - lifecycle authority of the active connection.
  * @param activity - latest Host observation.
+ * @param copy - the locale-picked shell copy.
  * @returns a confirmation detail, or undefined for a known idle connection.
  */
-export function quitWarning(ownership: HostOwnership, activity: ShellActivity): string | undefined {
+export function quitWarning(ownership: HostOwnership, activity: ShellActivity, copy: ShellCopy): string | undefined {
   if (activity.status === 'idle') return undefined
-  if (ownership === 'external') return 'The connected Host continues running after this window closes. Active work stays on that Host.'
-  if (activity.status === 'unknown') return 'Activity information is unavailable. Quitting will stop the local Host and may interrupt active work.'
-  return `The local Host has ${String(activity.sessions)} active sessions and ${String(activity.tasks)} running tasks. Quitting will stop the Host and interrupt that work.`
+  if (ownership === 'external') return copy.warnExternal
+  if (activity.status === 'unknown') return copy.warnUnknown
+  return copy.warnActive.replace('{sessions}', String(activity.sessions)).replace('{tasks}', String(activity.tasks))
 }

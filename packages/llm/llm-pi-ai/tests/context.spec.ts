@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { CallId, createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
@@ -15,7 +15,18 @@ const ref: ImageAttachmentRef = {
 }
 
 const attachments = {
-  readImage: vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1) })),
+  readImageRequest: vi.fn((value: ImageAttachmentRef) => Promise.resolve({
+    attachment: value,
+    variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+    data: Uint8Array.of(1),
+    mediaType: value.mediaType,
+    bytes: 1,
+    width: 1,
+    height: 1,
+    depth: 'uchar',
+    space: 'srgb',
+    hasAlpha: false,
+  })),
 } as unknown as AttachmentStore
 
 function request(messages: GenerateOptions['messages']): GenerateOptions {

@@ -88,6 +88,19 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     return await this.resolveExecutable('prlimit').then(() => true, () => false)
   }
 
+  /**
+   * Log one spill failure through the plugin logger. The collector keeps only
+   * its in-memory tail afterwards, so the model sees a truncated result with
+   * no spill path; the log line is the only trace of why.
+   */
+  private readonly reportSpillFailure = (error: unknown, label: string): void => {
+    this.ctx.logger.error(
+      `subprocess-local could not write the complete ${label} stream to its spill file; the tool result keeps only the in-memory tail and reports no full-output path. `
+      + 'A removed private spill directory under the OS temp dir (ENOENT) points at a temporary-file cleaner.',
+      error,
+    )
+  }
+
   private terminateForHostExit(): void {
     for (const handle of this.live) {
       try {
@@ -179,7 +192,10 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       // reads the cached boot probe result.
       prlimitAvailable: this.internals.prlimitAvailable ?? this.prlimitAvailable,
     })
-    const handle = spawnSubprocess(argv === spec.argv ? spec : { ...spec, argv }, this.internals)
+    const handle = spawnSubprocess(argv === spec.argv ? spec : { ...spec, argv }, {
+      ...this.internals,
+      onSpillFailure: this.reportSpillFailure,
+    })
     this.live.add(handle)
     // Release ownership only once the whole TREE is gone, not at direct-child
     // settlement — a TERM-trapping helper that outlives the leader must stay

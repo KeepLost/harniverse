@@ -86,9 +86,6 @@ flowchart LR
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
-  pkg_session_telemetry["session-telemetry"]
-  svc_sessionTelemetry["ctx.sessionTelemetry<br/>Session telemetry seam"]
-  pkg_session_telemetry_otel["session-telemetry-otel"]
   pkg_notification["notification"]
   svc_notification["ctx.notification<br/>Outbound notification seam"]
   pkg_notification_http["notification-http"]
@@ -354,8 +351,6 @@ flowchart LR
   pkg_session_query --> svc_sessionQuery
   pkg_session_query_sqlite --> svc_sessionQuery
   pkg_session_reference --> svc_sessionReferenceResolver
-  pkg_session_telemetry --> svc_sessionTelemetry
-  pkg_session_telemetry_otel --> svc_sessionTelemetry
   pkg_session_title --> svc_sessionTitle
   pkg_session_title_all_prompts_llm --> svc_sessionTitle
   pkg_session_title_first_prompt_llm --> svc_sessionTitle
@@ -478,7 +473,6 @@ flowchart LR
   svc_sessionProjections --> pkg_tool_todo
   svc_sessionQuery --> pkg_session_reference
   svc_sessionQuery --> pkg_tool_session_query
-  svc_sessionTelemetry --> pkg_session_telemetry
   svc_sessions --> pkg_agent
   svc_sessions --> pkg_agent_loop
   svc_sessions --> pkg_invariants
@@ -579,7 +573,6 @@ flowchart LR
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | host 拥有并验证用户 MCP server 列表；Profile consumer 在不将工具全局化的前提下协调隔离的 mcp-client 子插件。 |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | 服务将 Profile 授权和逻辑目标快照写入每个 Session；Host 与辅助消费方执行该快照，fallback consumer 记录有序的跨模型转移。 |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | 配置携带对机密信息的引用；提供方拥有实际值。消费方按操作解析，因此轮换后的凭据会在紧接着的下一次请求中生效；Web 网关提供不含实际值的视图和只写存储。 |
-| `ctx.sessionTelemetry` | `seam` | [`session-telemetry`](../packages/session/session-telemetry) | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | [`session-telemetry`](../packages/session/session-telemetry) | - | Definition 包还内置 coordinator Consumer，在把会话记录交给一个后端之前捕获并脱敏；其输出会离开进程。 |
 | `ctx.notification` | `seam` | [`notification`](../packages/notification/notification) | [`notification-http`](../packages/notification/notification-http) | [`notification`](../packages/notification/notification) | - | Definition 包还内置 coordinator Consumer，将选定的生命周期元数据投影为稳定外部协议；默认不启用的 HTTP Provider 持久化端点投递并将其发送到进程外。 |
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | 各后端以不同名称并列注册；数据形态（领域优先）挂载到枢纽上，并将类型化操作转换为不透明的 KV 单元原语。 |
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace), [`message-feedback`](../packages/feedback/message-feedback), [`notification-http`](../packages/notification/notification-http) | - | 等待所有已配置后端就绪，然后将领域形态发布为一个受生命周期约束的服务，用于类型化持久状态。 |

@@ -33,7 +33,7 @@
 
 #### 模型看到什么
 
-命令共享每个 Agent 的一个 shell，因此 cwd、`$env:` 变量、函数和后台任务跨调用保留。结果排除私有完成标记、shell 提示符与回显的输入行。非零包装命令追加 `[exit code: N]`：原生程序使用精确退出码，PowerShell 终止性错误使用 `1`。shell 在报告状态前退出时，结果追加 `[shell exited: code N]`、`[shell killed by signal: SIG]` 或 `[shell exited]`，随后重置并告知模型下一次调用从全新 shell 开始。长输出保留最早的前缀并附裁剪提示；若 terminal 已丢弃该前缀，结果会明确说明。超时返回有界的部分输出、关闭状态不确定的 shell 并报告重置。
+命令共享每个 Agent 的一个 shell，因此 cwd、`$env:` 变量、函数和后台任务跨调用保留。初始化不再发送任何内容：提示符保持后端自己的受控提示符，后端基于提示符的就绪检测继续生效，发送在精确的 stdin-read 层结算，而不是等满静默时限。结果排除私有完成标记与回显的输入行；部分输出可能携带后端自己的尾部提示符。非零包装命令追加 `[exit code: N]`：原生程序使用精确退出码，PowerShell 终止性错误使用 `1`。shell 在报告状态前退出时，结果追加 `[shell exited: code N]`、`[shell killed by signal: SIG]` 或 `[shell exited]`，随后重置并告知模型下一次调用从全新 shell 开始。长输出保留最早的前缀并附裁剪提示；若 terminal 已丢弃该前缀，结果会明确说明。超时返回有界的部分输出、关闭状态不确定的 shell 并报告重置。
 
 #### Token 影响
 
@@ -49,6 +49,6 @@
 - 在声明 Windows 平台验证之前，必须由原生 Windows CI 覆盖 ConPTY、Toolhelp32 进程所有权、Ctrl-C 投递与 taskkill 拆卸；非 Windows 测试使用模拟 native bridge。
 - PowerShell 的 PSReadLine 会回显提交输入，且没有 `stty -echo` 对应物。marker 锚定提取会移除完整回显，但跨 terminal 宽度折行的回显可能在部分输出中留下有界片段。
 - 模型命令中的裸 ESC 字符不受支持，因为 PSReadLine 会在执行前吞掉它们。
-- 重定义 `prompt` 函数会移除就绪 marker；shell 随后通过静默档结算。
+- 在命令内部重定义 `prompt` 函数会移除就绪 marker；后续发送通过静默档结算。
 - 命令没有交互 stdin；读取输入的前台命令会阻塞到超时并重置 shell。
 - SIGTSTP 与 SIGHUP 在 Windows 不可用；SIGINT 以控制台级 Ctrl-C 输入投递。

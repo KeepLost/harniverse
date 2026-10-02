@@ -86,9 +86,12 @@ type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 /**
  * pi-ai thinking formats a profile cannot name: `qwen-chat-template` drives
  * the request through pi-ai's own fixed `enable_thinking` /
- * `preserve_thinking` kwargs, which need no per-deployment spelling.
+ * `preserve_thinking` kwargs, which need no per-deployment spelling, and
+ * `baseten` (added 0.84) has no Harniverse deployment asking for its
+ * `chat_template_args` surface — a route that needs it carries the format in
+ * its own catalog entry until one does.
  */
-type WithheldThinkingFormat = 'qwen-chat-template'
+type WithheldThinkingFormat = 'qwen-chat-template' | 'baseten'
 
 /** One reasoning-dispatch wire format a profile may name. */
 export type PiAiThinkingFormat = Exclude<PiThinkingFormat, WithheldThinkingFormat>
@@ -244,6 +247,17 @@ export interface PiAiModelProfile {
    * mid-turn.
    */
   input?: PiAiModality[]
+  /**
+   * Encoded-byte cap one request image may occupy after projection, before
+   * base64 expansion. Absent uses the adapter default (1 MiB).
+   */
+  imageMaxBytes?: number
+  /**
+   * Total pixel budget request images project under, aspect-preserving, or
+   * `'low'` for the low-detail budget (512²). Absent uses the adapter
+   * default (2048²).
+   */
+  imagePixelBudget?: number | 'low'
   /**
    * Selectable reasoning efforts. Absent inherits the installed catalog
    * entry's capability (a hand-declared model has none and does not reason);
@@ -495,6 +509,11 @@ export interface RouteCatalog {
    * selection on that model starts from.
    */
   configuredDefaultEffort: ReadonlyMap<string, ModelThinkingLevel | 'default'>
+  /**
+   * Per-model request-image budgets this profile explicitly configured, by
+   * model id. Absent fields fall back to the adapter defaults at dispatch.
+   */
+  configuredImageBudgets: ReadonlyMap<string, { maxBytes?: number; pixelBudget?: number | 'low' }>
 }
 
 /**
@@ -571,6 +590,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     || declaredKwargs(request.compat?.chatTemplateKwargs) !== undefined
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
+  const configuredImageBudgets = new Map<string, { maxBytes?: number; pixelBudget?: number | 'low' }>()
   const configuredDefaultEffort = new Map<string, ModelThinkingLevel | 'default'>()
   const models = entries.map((entry) => {
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
@@ -605,6 +625,12 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     // Only a value the profile named is a deployment choice; the catalog's is
     // the model's capability and stays out of request defaults.
     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
+    if (entry.imageMaxBytes !== undefined || entry.imagePixelBudget !== undefined) {
+      configuredImageBudgets.set(entry.id, {
+        ...entry.imageMaxBytes === undefined ? {} : { maxBytes: entry.imageMaxBytes },
+        ...entry.imagePixelBudget === undefined ? {} : { pixelBudget: entry.imagePixelBudget },
+      })
+    }
     if (entry.defaultReasoningEffort !== undefined) {
       const efforts = entry.reasoningEfforts
       // A default selects among the declared levels, so it means nothing on a
@@ -645,5 +671,5 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     invalid(provider, 'sets compat reasoning switches, but no model on the route speaks openai-completions;'
       + ' thinkingFormat and supportsReasoningEffort exist only on that protocol')
   }
-  return { models, configuredMaxTokens, configuredDefaultEffort }
+  return { models, configuredMaxTokens, configuredDefaultEffort, configuredImageBudgets }
 }

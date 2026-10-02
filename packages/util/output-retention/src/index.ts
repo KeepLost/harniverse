@@ -441,3 +441,20 @@ export function formatRetentionNotice(
     .filter(part => part.length > 0)
     .join(' ')
 }
+
+/**
+ * Cap `text` at `maxChars` UTF-16 code units without ending in a lone high
+ * surrogate: a cut that lands inside a surrogate pair drops the unpaired half,
+ * so the result is one code unit shorter than the cap. An unpaired surrogate is
+ * not well-formed text — a strict JSON reader rejects a durable Session log that
+ * carries one.
+ *
+ * @param text - the text to cap.
+ * @param maxChars - the maximum number of UTF-16 code units to retain.
+ * @returns a prefix of `text` no longer than `maxChars`, never ending in a lone high surrogate.
+ */
+export function truncateWithoutSplittingSurrogatePair(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  const capped = text.slice(0, maxChars)
+  return /[\uD800-\uDBFF]$/.test(capped) ? capped.slice(0, -1) : capped
+}

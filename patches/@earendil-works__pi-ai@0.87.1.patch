@@ -1,0 +1,117 @@
+diff --git a/dist/api/anthropic-messages.js b/dist/api/anthropic-messages.js
+index 5dd85f19db51b73dcd0c5c4cd8c28ad99e09ee6f..c6d860a22f2674c268b6da8716211dacd3839fd3 100644
+--- a/dist/api/anthropic-messages.js
++++ b/dist/api/anthropic-messages.js
+@@ -312,14 +312,37 @@ async function* iterateAnthropicEvents(response, signal) {
+             continue;
+         }
+         try {
+-            const event = parseJsonWithRepair(sse.data);
+-            if (event.type === "message_start") {
+-                sawMessageStart = true;
++            let events;
++            try {
++                events = [parseJsonWithRepair(sse.data)];
+             }
+-            else if (event.type === "message_stop") {
+-                sawMessageEnd = true;
++            catch (error) {
++                // Gateways behind lossy buffering can drop the blank line
++                // between two events, leaving one event whose data payload
++                // carries several complete JSON documents; parse each
++                // non-empty line so every event is delivered, rethrowing the
++                // original error when the split does not repair the payload.
++                const lines = sse.data.split("\n");
++                if (lines.length <= 1) {
++                    throw error;
++                }
++                events = [];
++                for (const line of lines) {
++                    if (line.trim() === "") {
++                        continue;
++                    }
++                    events.push(parseJsonWithRepair(line));
++                }
++            }
++            for (const event of events) {
++                if (event.type === "message_start") {
++                    sawMessageStart = true;
++                }
++                else if (event.type === "message_stop") {
++                    sawMessageEnd = true;
++                }
++                yield event;
+             }
+-            yield event;
+         }
+         catch (error) {
+             const message = error instanceof Error ? error.message : String(error);
+@@ -507,7 +530,6 @@ export const stream = (model, context, options) => {
+                         const block = blocks[index];
+                         if (block && block.type === "toolCall") {
+                             block.partialJson += event.delta.partial_json;
+-                            block.arguments = parseStreamingJson(block.partialJson);
+                             stream.push({
+                                 type: "toolcall_delta",
+                                 contentIndex: index,
+diff --git a/dist/api/bedrock-converse-stream.js b/dist/api/bedrock-converse-stream.js
+index 44e3f13e808f0665a44e34437e173743f81bd51f..6c4899b29efeec46a67e1b9c1403677c66200a81 100644
+--- a/dist/api/bedrock-converse-stream.js
++++ b/dist/api/bedrock-converse-stream.js
+@@ -459,7 +459,6 @@ function handleContentBlockDelta(event, blocks, output, stream) {
+     }
+     else if (delta?.toolUse && block?.type === "toolCall") {
+         block.partialJson = (block.partialJson || "") + (delta.toolUse.input || "");
+-        block.arguments = parseStreamingJson(block.partialJson);
+         stream.push({ type: "toolcall_delta", contentIndex: index, delta: delta.toolUse.input || "", partial: output });
+     }
+     else if (delta?.reasoningContent) {
+diff --git a/dist/api/mistral-conversations.js b/dist/api/mistral-conversations.js
+index 3106c5d470dc3610c05d8ee153026df20f86f66e..c54c1b5dc525715c7b9dc4e780cd74b497f0671d 100644
+--- a/dist/api/mistral-conversations.js
++++ b/dist/api/mistral-conversations.js
+@@ -541,7 +541,6 @@ async function consumeChatStream(model, output, stream, mistralStream) {
+                 ? toolCall.function.arguments
+                 : JSON.stringify(toolCall.function.arguments || {});
+             block.partialArgs = (block.partialArgs || "") + argsDelta;
+-            block.arguments = parseStreamingJson(block.partialArgs);
+             stream.push({
+                 type: "toolcall_delta",
+                 contentIndex: toolBlocksByKey.get(key),
+diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
+index fc8e89382b75f259eb4f041b522840b0d603c033..f5acd00ff7c0e4db054abfcd1b9e5ac4a6005959 100644
+--- a/dist/api/openai-completions.js
++++ b/dist/api/openai-completions.js
+@@ -437,7 +437,6 @@ export const stream = (model, context, options) => {
+                             if (toolCall.function?.arguments) {
+                                 delta = toolCall.function.arguments;
+                                 block.partialArgs = (block.partialArgs ?? "") + toolCall.function.arguments;
+-                                block.arguments = parseStreamingJson(block.partialArgs);
+                             }
+                             else if (toolCall.custom?.input) {
+                                 const nextInput = getCustomToolCallInput(block) + toolCall.custom.input;
+diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
+index 53597d2c3becdd2c03d4fd265c213a36b403f26b..0aa5752a3e4bad3c0c5aa04d0405448e0fa488be 100644
+--- a/dist/api/openai-responses-shared.js
++++ b/dist/api/openai-responses-shared.js
+@@ -546,7 +546,6 @@ export async function processResponsesStream(openaiStream, output, stream, model
+             if (!slot || slot.block.partialJson === undefined)
+                 continue;
+             slot.block.partialJson += event.delta;
+-            slot.block.arguments = parseStreamingJson(slot.block.partialJson);
+             pushToolCallDelta(slot, event.delta);
+         }
+         else if (event.type === "response.function_call_arguments.done") {
+diff --git a/dist/api/pi-messages.js b/dist/api/pi-messages.js
+index ad5f4605e8e157f12b8948e88e0c66e8a5494fc4..5609d61b49264b26fc86a787ec19780d29cdfcab 100644
+--- a/dist/api/pi-messages.js
++++ b/dist/api/pi-messages.js
+@@ -155,8 +155,6 @@ function createEventConverter(model) {
+             case "toolcall_delta": {
+                 const json = `${toolJson.get(event.contentIndex) ?? ""}${event.delta}`;
+                 toolJson.set(event.contentIndex, json);
+-                partial.content[event.contentIndex].arguments =
+-                    parseStreamingJson(json);
+                 break;
+             }
+             case "toolcall_end":

@@ -908,12 +908,13 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
       JSON.stringify({ type: 'turn/start' }),
       '',
     ].join('\n')))
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/first frame is not exactly one header line/)
     await expect(ctx.sessionPersistence.load(SessionId('two-lines')))
       .rejects.toThrow(/first frame is not exactly one header line/)
+    // Discovery omits the malformed header instead of failing the listing.
+    expect(await ctx.sessionPersistence.list()).toEqual([])
   })
 
-  it('rejects missing, empty, and checksum-corrupt header frames on targeted reads', async () => {
+  it('rejects missing, empty, and checksum-corrupt header frames on targeted reads while list isolates the damage', async () => {
     const root = await freshRoot()
     for (const id of ['partial-only', 'empty-header', 'bad-checksum']) {
       await mkdir(sessionDir(root, undefined, SessionId(id)), { recursive: true })
@@ -929,7 +930,30 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
       .rejects.toThrow(/empty or header-less Zstandard session log/)
     await expect(ctx.sessionPersistence.load(SessionId('empty-header')))
       .rejects.toThrow(/first frame is not exactly one header line/)
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/header frame failed validation/)
+    // Discovery omits the corrupt header instead of failing the whole listing.
+    expect(await ctx.sessionPersistence.list()).toEqual([])
+    await expect(ctx.sessionPersistence.load(SessionId('bad-checksum')))
+      .rejects.toThrow(/failed validation/)
+  })
+
+  it('omits a session with a corrupt compressed header from list while keeping others listable', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const healthy = meta('healthy-header', '/work')
+    const damaged = meta('corrupt-header', '/work')
+    await ctx.sessionPersistence.create(healthy)
+    await ctx.sessionPersistence.append(healthy.id, oneTurnLog())
+    await ctx.sessionPersistence.create(damaged)
+    await ctx.sessionPersistence.append(damaged.id, oneTurnLog())
+    const path = logPath(root, '/work', damaged.id, 'zstd')
+    const damagedBytes = Buffer.from(await readFile(path))
+    damagedBytes[0] = damagedBytes[0]! ^ 0xFF
+    await writeFile(path, damagedBytes)
+
+    expect((await ctx.sessionPersistence.list()).map(item => item.id)).toEqual([healthy.id])
+    await expect(ctx.sessionPersistence.load(damaged.id)).rejects.toThrow()
+    // Direct access reports corruption and never rewrites the damaged bytes.
+    expect(await readFile(path)).toEqual(damagedBytes)
   })
 })
 

@@ -37,7 +37,7 @@ Every setting is optional. Top-level policy fields are defaults for every routed
 | `retainTokens` | no | Absolute recent surface budget kept verbatim; mutually exclusive with `retainRatio` and must be below the resolved threshold. |
 | `summarizationProvider` | no (default `''`) | Set together with `summarizationModel`; an empty pair resolves the latest logged request target, then the `AgentOptions` pair. |
 | `summarizationModel` | no (default `''`) | Set together with `summarizationProvider`; an empty pair resolves the latest logged request target, then the `AgentOptions` pair. |
-| `maxTokens` | no (default `8192`) | Upper bound for the summarization call; matching request policy, model output capacity, and Provider-anchored safe context space can reduce it. May include reasoning tokens. |
+| `maxTokens` | no (default `32768`) | Upper bound for the summarization call; matching request policy, model output capacity, and Provider-anchored safe context space can reduce it. May include reasoning tokens. |
 | `compactionRetries` | no (default `1`) | Extra attempts after the first when pressure remains above threshold. |
 | `maxOverflowRetries` | no (default `1`) | Maximum retries after canonical context-window overflow; `0` disables recovery only. |
 | `modelPolicies` | no (default `[]`) | Exact `{ provider, model, ...partialPolicy }` overrides; matching uses both fields and does not depend on `listModels()`. |

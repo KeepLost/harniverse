@@ -37,9 +37,6 @@ export function composeRemoteServer(anchor: string = INSTALL_ANCHOR): PatchOptio
       roots: [{ path: presets, trust: 'system' }],
     },
   })
-  if (process.env.DSH_TELEMETRY_DISABLED && rows.has('session-telemetry-otel')) {
-    patches.push({ id: 'session-telemetry-otel', disabled: true })
-  }
   patches.push({ id: 'remote-hosts', config: { dshHome: dshHomePath(), artifactsRoot: dshHomePath('artifacts') } })
   return patches
 }

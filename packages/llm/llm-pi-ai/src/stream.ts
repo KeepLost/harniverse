@@ -71,7 +71,8 @@ function classifyPiAiError(message: string): string {
  * @returns the mapped harness reason. Recognized error text, `stop` usage above
  *   `contextWindow`, and zero-output `length` usage that fills the window map
  *   to `CONTEXT_WINDOW_EXCEEDED`; a `stop` with no content blocks maps to an
- *   `EMPTY_RESPONSE` error.
+ *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
+ *   to non-retryable `PI_AI_ERROR` failures.
  */
 export function mapStopReason(message: AssistantMessage, contextWindow?: number): FinishReason {
   const piAiOverflow = isContextOverflow(message, contextWindow)
@@ -104,6 +105,14 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
       return { kind: 'stop' }
     case 'length': return { kind: 'max-tokens' }
     case 'toolUse': return { kind: 'tool-calls' }
+    case 'pending': return {
+      kind: 'error',
+      failure: { message: `pi-ai stream for model "${message.model}" ended pending`, code: 'PI_AI_ERROR' },
+    }
+    case 'deferred': return {
+      kind: 'error',
+      failure: { message: `pi-ai deferred response for model "${message.model}" is not supported`, code: 'PI_AI_ERROR' },
+    }
     case 'aborted': return {
       kind: 'aborted',
       failure: { message: message.errorMessage ?? 'pi-ai stream aborted', code: 'ABORTED' },
@@ -154,15 +163,19 @@ function reasoningBlock(index: number, text: string, message: AssistantMessage):
 /**
  * Translate the pi-ai event stream into StreamChunks. pi-ai never throws
  * mid-stream — failures arrive as `error` events, which become error/aborted
- * `finish` chunks (the harness protocol's other error-delivery style).
+ * `finish` chunks (the harness protocol's other error-delivery style). An
+ * `error` event that arrives while the caller's signal is already aborted is
+ * the caller's own cancellation surfaced by pi-ai, so it maps to `aborted`.
  * @param events - one assistant turn's pi-ai event stream.
  * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
+ * @param callerSignal - the caller's cancellation signal, when one was given.
  * @returns the harness chunks, ending with `usage` then `finish`; throws
  *   `LlmError` (`STREAM_CLOSED`) if the source ends without a terminal event.
  */
 export async function* toStreamChunks(
   events: AsyncIterable<AssistantMessageEvent>,
   contextWindow?: number,
+  callerSignal?: AbortSignal,
 ): AsyncGenerator<StreamChunk> {
   // pi-ai contentIndex ↔ our block index map 1:1 (both count blocks from 0
   // in stream order), but we track ids per index for tool calls.
@@ -247,7 +260,13 @@ export async function* toStreamChunks(
         // Open thinking blocks assemble from their accumulated deltas.
         openThinking.clear()
         yield { type: 'usage', usage: mapUsage(event.error.usage) }
-        yield { type: 'finish', reason: mapStopReason(event.error, contextWindow) }
+        yield {
+          type: 'finish',
+          reason: mapStopReason(
+            callerSignal?.aborted ? { ...event.error, stopReason: 'aborted' } : event.error,
+            contextWindow,
+          ),
+        }
         return
       // no default: AssistantMessageEvent is pi-ai's closed union; a new
       // event type should fail compilation here via tsc's exhaustiveness

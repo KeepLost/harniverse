@@ -30,15 +30,17 @@ import type {
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { DeepSeekAdapterOptions, DeepSeekConnectionOptions as Connection } from '../../common/types.ts'
 import { catalogModelInfo, modelInfo } from '../../common/model-info.ts'
 import type { DeepSeekFileStore } from '../../common/file-store.ts'
+import { DeepSeekFileId } from '../../common/file-id.ts'
+import type { ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import { deepSeekFileScope } from '../../common/upload-index.ts'
 import {
   collectRequestImages,
   imageSerialization,
+  type ImageSerializationOptions,
   projectImageOmissions,
   staleFileDetail,
 } from '../../common/request-images.ts'
@@ -134,7 +136,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     // The key resolves *from this snapshot*, so an endpoint and the secret
     // sent to it can never come from different configuration generations.
     const apiKey = await this.config.resolveApiKey(connection)
-    const userId = this.config.resolveUserId()
     const consumer = new AbortController()
     const upstream = options.signal === undefined
       ? consumer.signal
@@ -145,7 +146,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
       watchdog.signal,
       connection,
       apiKey,
-      userId,
       () => { watchdog.pulse() },
     )[Symbol.asyncIterator]()
     let exhausted = false
@@ -188,7 +188,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     signal: AbortSignal,
     connection: Connection,
     apiKey: string,
-    userId: AnonymousUserId,
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
@@ -198,10 +197,11 @@ export class ChatCompletionsAdapter extends LlmAdapter {
       return images
     }
     let body: WireRequest
+    let images: ImageSerializationOptions | undefined
     if (prepared === undefined) {
       body = serializeRequest(options, connection.defaults)
     } else {
-      const images = selectImages(prepared, 'file')
+      images = selectImages(prepared, 'file')
       try {
         body = await serializeRequest(
           options,
@@ -213,11 +213,11 @@ export class ChatCompletionsAdapter extends LlmAdapter {
         // Files API resolution is an optimization. The same request is retried
         // with one consistent inline representation instead of mixing ids and
         // data URLs from two attempts.
-        const fallbackImages = selectImages(prepared, 'base64')
+        images = selectImages(prepared, 'base64')
         body = await serializeRequest(
           options,
           connection.defaults,
-          fallbackImages,
+          images,
         )
       }
     }
@@ -228,10 +228,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
       'content-type': 'application/json',
       'accept': 'text/event-stream',
       ...attributionHeaders(),
-      'x-deepseek-harness-user-id': String(userId),
-      ...options.sessionId !== undefined
-        ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
-        : {},
       ...options.purpose === 'compaction'
         ? { 'x-deepseek-harness-compact': '1' }
         : {},
@@ -321,7 +317,12 @@ export class ChatCompletionsAdapter extends LlmAdapter {
           code: httpErrorCode(response.status, parsedError),
           status: response.status,
         })
-        await this.files.clear(deepSeekFileScope(connection.baseURL, apiKey, 'chat-completions'))
+        // Invalidate exactly the generations this attempt used; a stale-id
+        // response must not discard other variants' healthy mappings.
+        const usedGenerations = images?.representation.kind === 'file' ? images.representation.used : []
+        await this.files.invalidate(deepSeekFileScope(connection.baseURL, apiKey, 'chat-completions'), usedGenerations
+          .map((generation: { variantId: ImageVariantId; fileId: string }) => (
+            { ...generation, fileId: DeepSeekFileId(generation.fileId) })))
         const fallbackImages = selectImages(prepared, 'base64')
         body = await serializeRequest(
           options,

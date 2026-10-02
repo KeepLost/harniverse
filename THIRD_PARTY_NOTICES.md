@@ -39,12 +39,6 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
 | [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) | MIT |
-| [`@opentelemetry/api`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
-| [`@opentelemetry/api-logs`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
-| [`@opentelemetry/exporter-logs-otlp-http`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
-| [`@opentelemetry/otlp-exporter-base`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
-| [`@opentelemetry/resources`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
-| [`@opentelemetry/sdk-logs`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
@@ -99,9 +93,9 @@ External packages that a workspace package resolves at runtime. The tier covers 
 
 pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
 
-- `@earendil-works/pi-ai@0.82.1` — [`patches/@earendil-works__pi-ai@0.82.1.patch`](patches/@earendil-works__pi-ai@0.82.1.patch)
+- `@earendil-works/pi-ai@0.87.1` — [`patches/@earendil-works__pi-ai@0.87.1.patch`](patches/@earendil-works__pi-ai@0.87.1.patch)
 - `node-pty@1.1.0` — [`patches/node-pty@1.1.0.patch`](patches/node-pty@1.1.0.patch)
-- `openai@6.26.0` — [`patches/openai@6.26.0.patch`](patches/openai@6.26.0.patch)
+- `openai@6.40.0` — [`patches/openai@6.40.0.patch`](patches/openai@6.40.0.patch)
 
 ## Official Claude Code platform payloads
 

@@ -2,12 +2,7 @@
 // shipped Web bundles and the real host wire. The command plane settles
 // without a model turn: the host appends the log-only command/run +
 // feedback/record + command/done lifecycle, and the transcript renders the
-// acknowledgement — the recorded session id plus the session-sharing
-// disclosure — as a persistent command row. The scaffold mounts the shipped
-// telemetry row in FULL mode against a local dead endpoint (no record leaves
-// the process), so the golden pins the shipped default sentence
-// `Session sharing is enabled.`; the per-status sentences are pinned by the
-// package and OTel unit tests.
+// acknowledgement — the recorded session id — as a persistent command row.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -25,10 +20,6 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/feedback-command', impor
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const ACK_EXPECTED = join(SNAPSHOT_DIR, 'ack.expected.md')
 const MODE = webSnapshotMode()
-// Discard port: loopback listener never binds, so FULL telemetry discloses
-// the shipped default policy without any record reaching a collector.
-const TELEMETRY_URL = 'http://127.0.0.1:9/v1/logs'
-
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
 
 describe('web e2e: /feedback command acknowledgement', () => {
@@ -39,7 +30,6 @@ describe('web e2e: /feedback command acknowledgement', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({
-      telemetryUrl: TELEMETRY_URL,
       ...(MODE === 'record' ? {} : { replayFixture: FIXTURE }),
     })
     browser = await chromium.launch()
@@ -76,7 +66,7 @@ describe('web e2e: /feedback command acknowledgement', () => {
     }
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('records feedback and renders the acknowledgement with session id and sharing status', async () => {
+  it.skipIf(MODE === 'record')('records feedback and renders the acknowledgement with the session id', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-feedback-command'))
     // The drive test settled the recorded turn: the transcript is active (a
     // command row does not render while a fresh session is still blank) and
@@ -86,9 +76,8 @@ describe('web e2e: /feedback command acknowledgement', () => {
     await input.fill('/feedback the diff view is unreadable')
     await input.press('Enter')
     // The command plane settles without a model turn: the ack row names the
-    // recorded session and the mounted FULL backend's disclosure.
+    // recorded session.
     await page.getByText(/Feedback recorded for session/).waitFor({ timeout: 10_000 })
-    expect(await page.getByText(/Session sharing is enabled/).count()).toBe(1)
     await waitForAgentPresetLabel(page)
     await compareGoldenWhenSettled(
       ACK_EXPECTED,

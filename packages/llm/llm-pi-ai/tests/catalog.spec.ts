@@ -11,7 +11,7 @@ import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
-import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
+import type { Api, Model, OpenAICompletionsCompat, Provider, TranscriptContext } from '@earendil-works/pi-ai'
 import { resolveProfiles } from '../src/config.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
@@ -186,6 +186,22 @@ describe('hand-declared providers', () => {
     expect(resolved.get('acme-gateway')?.configuredMaxTokens.get('sized')).toBe(512)
   })
 
+  it('materializes a per-model image budget from either field alone', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'byte-capped', imageMaxBytes: 2048 },
+          { id: 'pixel-capped', imagePixelBudget: 1_048_576 },
+        ],
+      },
+    })
+
+    expect(resolved.get('acme-gateway')?.configuredImageBudgets.get('byte-capped')).toEqual({ maxBytes: 2048 })
+    expect(resolved.get('acme-gateway')?.configuredImageBudgets.get('pixel-capped')).toEqual({ pixelBudget: 1_048_576 })
+  })
+
   it('takes a model’s declared modalities, then the catalog’s, then the route’s', () => {
     const vision = getBuiltinModels('anthropic').find(model => model.input.includes('image'))
     if (vision === undefined) throw new Error('the installed catalog ships no anthropic vision model')
@@ -353,7 +369,7 @@ describe('hand-declared providers', () => {
       models: [{ id: 'm', api: 'openai-completions' } as Model<Api>],
       namesCredential: true,
     })
-    expect(() => provider.stream({ id: 'other', api: 'openai-completions' } as Model<Api>, { messages: [] }, {}))
+    expect(() => provider.stream({ id: 'other', api: 'openai-completions' } as Model<Api>, { messages: [] } as unknown as TranscriptContext, {}))
       .toThrow(/has no protocol for model "other"/)
   })
 
@@ -533,7 +549,8 @@ describe('catalog routes with per-model configuration', () => {
     if (built === undefined) throw new Error('the deepseek route built no provider')
     const [model] = built.getModels()
     if (model === undefined) throw new Error('the deepseek route resolved no models')
-    const context = { messages: [{ role: 'user' as const, content: 'hi', timestamp: 0 }] }
+    // TranscriptContext is branded in 0.87; a bare literal satisfies it only through the declared type.
+    const context = { messages: [{ role: 'user' as const, content: 'hi', timestamp: 0 }] } as TranscriptContext
 
     // `stream` is interface-required and unused by the harness adapter, which
     // only calls `streamSimple`; both must still reach the catalog provider.
@@ -730,7 +747,7 @@ describe('per-model reasoning efforts', () => {
   it('narrows a catalog model’s levels in place', () => {
     const [catalogModel] = getBuiltinModels('deepseek')
     if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
-    expect(getSupportedThinkingLevels(catalogModel as Model<Api>)).toEqual(['off', 'high', 'max'])
+    expect(getSupportedThinkingLevels(catalogModel as Model<Api>)).toEqual(['off', 'low', 'high', 'max'])
 
     const model = modelOf({
       deepseek: { models: [{ id: catalogModel.id, reasoningEfforts: { off: null, high: 'high' } }] },
@@ -981,22 +998,22 @@ describe('reasoning-dispatch compat switches', () => {
   })
 
   it('skips models of other protocols on a mixed route instead of failing them', () => {
-    // xai ships both completions and responses models, so a route-level switch
-    // must land on the former without invalidating the latter.
-    const catalog = getBuiltinModels('xai') as readonly Model<Api>[]
+    // openrouter ships both completions and anthropic models, so a route-level
+    // switch must land on the former without invalidating the latter.
+    const catalog = getBuiltinModels('openrouter') as readonly Model<Api>[]
     const completions = catalog.find(model => model.api === 'openai-completions')
-    const responses = catalog.find(model => model.api === 'openai-responses')
-    if (completions === undefined || responses === undefined) throw new Error('xai no longer ships a mixed catalog')
+    const other = catalog.find(model => model.api === 'anthropic-messages')
+    if (completions === undefined || other === undefined) throw new Error('openrouter no longer ships a mixed catalog')
 
     const models = modelsOf({
-      xai: {
+      openrouter: {
         compat: { supportsReasoningEffort: false },
-        models: [{ id: completions.id }, { id: responses.id }],
+        models: [{ id: completions.id }, { id: other.id }],
       },
-    }, 'xai')
+    }, 'openrouter')
 
     expect((models.get(completions.id)?.compat as OpenAICompletionsCompat).supportsReasoningEffort).toBe(false)
-    expect(models.get(responses.id)?.compat).toEqual(responses.compat)
+    expect(models.get(other.id)?.compat).toEqual(other.compat)
   })
 
   it('rejects a model-level switch on a protocol that has no such field', () => {
@@ -1064,7 +1081,7 @@ describe('resolution snapshots', () => {
     const inFlight = (async () => {
       for await (const chunk of adapter.stream({
         provider: 'deepseek',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-flash',
         messages: [],
       })) chunks.push(chunk)
     })()
@@ -1089,7 +1106,7 @@ describe('resolution snapshots', () => {
     const adapter = new PiAiAdapter({ profiles: () => current, resolveApiKey: () => Promise.resolve('k') })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
-        provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],
+        provider: 'deepseek', model: 'deepseek-flash', messages: [],
       })) { /* drain */ }
     }
 

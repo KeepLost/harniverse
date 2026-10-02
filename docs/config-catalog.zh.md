@@ -673,7 +673,7 @@ export interface CompactionPolicyConfig {
   summarizationProvider?: string
   /** Summary model; set together with `summarizationProvider`, or inherit the conversation target. */
   summarizationModel?: string
-  /** Upper bound for summarization output; model cap and remaining context may reduce it. Defaults to `8192`. */
+  /** Upper bound for summarization output; model cap and remaining context may reduce it. Defaults to `32768`. */
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
@@ -1275,7 +1275,7 @@ export interface DeepSeekCatalogModel {
 
 依赖：[`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/llm/llm-deepseek/src/index.ts:94`](../packages/llm/llm-deepseek/src/index.ts)
+来源：[`packages/llm/llm-deepseek/src/index.ts:93`](../packages/llm/llm-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
@@ -1411,6 +1411,17 @@ export interface PiAiModelProfile {
    */
   input?: PiAiModality[]
   /**
+   * Encoded-byte cap one request image may occupy after projection, before
+   * base64 expansion. Absent uses the adapter default (1 MiB).
+   */
+  imageMaxBytes?: number
+  /**
+   * Total pixel budget request images project under, aspect-preserving, or
+   * `'low'` for the low-detail budget (512²). Absent uses the adapter
+   * default (2048²).
+   */
+  imagePixelBudget?: number | 'low'
+  /**
    * Selectable reasoning efforts. Absent inherits the installed catalog
    * entry's capability (a hand-declared model has none and does not reason);
    * `false` declares a non-reasoning model, which is how a profile strips
@@ -1485,14 +1496,17 @@ type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 /**
  * pi-ai thinking formats a profile cannot name: `qwen-chat-template` drives
  * the request through pi-ai's own fixed `enable_thinking` /
- * `preserve_thinking` kwargs, which need no per-deployment spelling.
+ * `preserve_thinking` kwargs, which need no per-deployment spelling, and
+ * `baseten` (added 0.84) has no Harniverse deployment asking for its
+ * `chat_template_args` surface — a route that needs it carries the format in
+ * its own catalog entry until one does.
  */
-type WithheldThinkingFormat = 'qwen-chat-template'
+type WithheldThinkingFormat = 'qwen-chat-template' | 'baseten'
 ```
 
 依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`）
 
-来源：[`packages/llm/llm-pi-ai/src/config.ts:183`](../packages/llm/llm-pi-ai/src/config.ts)
+来源：[`packages/llm/llm-pi-ai/src/config.ts:185`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 
@@ -2383,7 +2397,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-来源：[`packages/session/session-persistence-jsonl/src/index.ts:170`](../packages/session/session-persistence-jsonl/src/index.ts)
+来源：[`packages/session/session-persistence-jsonl/src/index.ts:172`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-persistence-sqlite"></a>
 
@@ -2518,52 +2532,6 @@ export interface Config {
 ```
 
 来源：[`packages/context/session-reference/src/config.ts:11`](../packages/context/session-reference/src/config.ts)
-
-<a id="deepseek-aidsh-session-telemetry-otel"></a>
-
-## `@deepseek-ai/dsh-session-telemetry-otel`
-
-需要：`sessions`
-
-```ts config-catalog
-/**
- * Plugin configuration: one sharing policy, two verbatim SDK option objects,
- * and one DSH-owned shutdown bound. Uploading modes validate their endpoint
- * and shutdown deadline at plugin load; `DISABLED` reads neither.
- */
-export interface Config {
-  /** Sharing policy; defaults to local-only `DISABLED` behavior. */
-  mode?: SessionTelemetryMode
-  /**
-   * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
-   * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
-   * `compression`, `keepAlive`, …), owned and documented by the SDK. `url`
-   * is the one field this package requires and validates itself.
-   */
-  exporter?: OTLPExporterNodeConfigBase & {
-    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required outside `DISABLED`; validated at load. */
-    url?: string
-  }
-  /**
-   * Passed verbatim to `BatchLogRecordProcessor` (minus the exporter slot,
-   * which this plugin fills); the SDK owns and documents these knobs.
-   */
-  processor?: Omit<BatchLogRecordProcessorOptions, 'exporter'>
-  /** Maximum time spent awaiting the SDK provider's complete shutdown path. */
-  shutdownTimeoutMillis?: number
-}
-
-/** Session-sharing policy selected by {@link Config.mode}. */
-export enum SessionTelemetryMode {
-  FULL = 'FULL',
-  FEEDBACK_ONLY = 'FEEDBACK_ONLY',
-  DISABLED = 'DISABLED',
-}
-```
-
-依赖：`BatchLogRecordProcessorOptions`（`@opentelemetry/sdk-logs`）· `OTLPExporterNodeConfigBase`（`@opentelemetry/otlp-exporter-base`）
-
-来源：[`packages/session/session-telemetry-otel/src/index.ts:91`](../packages/session/session-telemetry-otel/src/index.ts)
 
 <a id="deepseek-aidsh-session-title"></a>
 
@@ -3134,6 +3102,14 @@ export interface Config {
    * regain the foreground before `inferred_idle` settles; at least one `pollIntervalMs`.
    */
   handoffGraceMs?: number
+  /**
+   * Extra wait beyond `idleSilenceMs` and `handoffGraceMs`, once a prompt marker was seen but
+   * its printable tail has not arrived, before `inferred_idle` settles. The marker is written
+   * by the shell's own prompt function and the tail by the same render, so a missing tail is a
+   * delivery delay on a contended host rather than an absent prompt. Zero keeps the bound at
+   * `idleSilenceMs + handoffGraceMs`; a nonzero tolerance always contains a readiness poll.
+   */
+  promptTailGraceMs?: number
   /** Absolute send wait bound. */
   timeoutMs?: number
   /** Grace before teardown escalates to `SIGKILL`. */
@@ -3141,7 +3117,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/terminal/terminal-bash/src/config.ts:6`](../packages/terminal/terminal-bash/src/config.ts)
+来源：[`packages/terminal/terminal-bash/src/config.ts:9`](../packages/terminal/terminal-bash/src/config.ts)
 
 <a id="deepseek-aidsh-time-context"></a>
 
@@ -4194,7 +4170,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 
 - `@deepseek-ai/dsh-acp-snapshot`（[`packages/test-support/acp-snapshot/src/index.ts`](../packages/test-support/acp-snapshot/src/index.ts)）
 - `@deepseek-ai/dsh-agent-loop-testkit`（[`packages/test-support/agent-loop-testkit/src/index.ts`](../packages/test-support/agent-loop-testkit/src/index.ts)）
-- `@deepseek-ai/dsh-anonymous-user-id`（[`packages/identity/anonymous-user-id/src/index.ts`](../packages/identity/anonymous-user-id/src/index.ts)）
 - `@deepseek-ai/dsh-app-boot`（[`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts)）
 - `@deepseek-ai/dsh-atomic-write`（[`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts)）
 - `@deepseek-ai/dsh-base`（[`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts)）
@@ -4230,7 +4205,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-sdk-jsonrpc-demo`（[`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts)）
 - `@deepseek-ai/dsh-sdk-protocol`（[`packages/sdk/protocol/src/index.ts`](../packages/sdk/protocol/src/index.ts)）
 - `@deepseek-ai/dsh-session-import`（[`packages/session/session-import/src/index.ts`](../packages/session/session-import/src/index.ts)）
-- `@deepseek-ai/dsh-session-telemetry`（[`packages/session/session-telemetry/src/index.ts`](../packages/session/session-telemetry/src/index.ts)）
 - `@deepseek-ai/dsh-session-title-llm`（[`packages/session/session-title-llm/src/index.ts`](../packages/session/session-title-llm/src/index.ts)）
 - `@deepseek-ai/dsh-subagent-in-process-driver`（[`packages/subagent/subagent-in-process-driver/src/index.ts`](../packages/subagent/subagent-in-process-driver/src/index.ts)）
 - `@deepseek-ai/dsh-timeout`（[`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts)）

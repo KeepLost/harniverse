@@ -10,7 +10,8 @@ import type { AttachmentStore, RequestImageAttachment } from '@deepseek-ai/dsh-a
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
-import { chunks, messagesAdapter, messagesServer, MODEL, options, sse, TEST_USER_ID, textEvents, user } from './helpers.ts'
+import { deepSeekFileScope } from '../../src/common/upload-index.ts'
+import { chunks, messagesAdapter, messagesServer, MODEL, options, sse, textEvents, user } from './helpers.ts'
 import { closeMessagesServers } from './helpers.ts'
 
 afterEach(async () => {
@@ -42,7 +43,6 @@ const attachments = { readImageRequest: async () => version } as unknown as Atta
 const imageAdapter = (url: string, files = new DeepSeekFileStore()) => new DeepSeekAdapter({
   options: () => resolveAdapterOptions({ protocol: 'messages', baseURL: url, models: [{ id: MODEL, inputModalities: ['text', 'image'] }] }),
   resolveApiKey: () => Promise.resolve('test-key'),
-  resolveUserId: () => TEST_USER_ID,
   resolveAttachments: () => attachments,
   resolveFiles: () => files,
 })
@@ -55,8 +55,8 @@ describe('direct Messages HTTP', () => {
     expect(output.at(-2)).toEqual({ type: 'usage', usage: { inputTokens: 12, outputTokens: 5 } })
     expect(http.requests[0]).toMatchObject({ path: '/v1/messages', headers: {
       'x-api-key': 'test-key', 'anthropic-version': '2023-06-01',
-      'x-deepseek-harness-user-id': expect.any(String),
     }, body: { thinking: { type: 'enabled' }, output_config: { effort: 'high' } } })
+    expect(http.requests[0]?.headers).not.toHaveProperty('x-deepseek-harness-user-id')
     expect(http.requests[0]?.headers['anthropic-beta']).toBeUndefined()
     expect(llm.providerInfo('deepseek-official')).toEqual({ id: 'deepseek-official', name: 'DeepSeek' })
     expect((await llm.listModels('deepseek-official')).map(model => model.id)).toEqual(['deepseek-flash', 'deepseek-v4-pro'])
@@ -67,14 +67,15 @@ describe('direct Messages HTTP', () => {
     expect(llm.providerRetryPolicy('deepseek-official')).toMatchObject({ mode: expect.any(String) })
   })
 
-  it('carries session and compaction headers when the request names them', async () => {
+  it('marks compaction and carries no session identity when the request names them', async () => {
     const http = await messagesServer()
     const { SessionId } = await import('@deepseek-ai/dsh-session')
     await chunks(messagesAdapter({ baseURL: http.url }).stream(options({ sessionId: SessionId('session-test'), purpose: 'compaction' })))
     expect(http.requests[0]?.headers).toMatchObject({
-      'x-deepseek-harness-session-id': 'session-test',
       'x-deepseek-harness-compact': '1',
     })
+    expect(http.requests[0]?.headers).not.toHaveProperty('x-deepseek-harness-session-id')
+    expect(http.requests[0]?.headers).not.toHaveProperty('x-deepseek-harness-user-id')
   })
 
   it.each([
@@ -198,13 +199,36 @@ describe('direct Messages HTTP', () => {
     stale = false
   })
 
+  it('invalidates no generations when a stale rejection follows the inline fallback', async () => {
+    let stale = true
+    const http = await messagesServer((response, count) => {
+      if (stale && count === 1) {
+        response.writeHead(400, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: { type: 'invalid_request_error', message: 'file id not found or expired' } }))
+        return
+      }
+      response.end(sse(textEvents))
+    })
+    const invalidate = vi.fn(async () => {})
+    const files = {
+      ensureUploaded: async () => { throw new Error('files unavailable') },
+      invalidate,
+    } as unknown as DeepSeekFileStore
+    await chunks(imageAdapter(http.url, files).stream(options({
+      messages: [{ ...user(), content: [{ type: 'image', attachment: ref }] }],
+    })))
+    expect(http.requests).toHaveLength(2)
+    expect(JSON.stringify(http.requests[0]?.body)).toContain('"base64"')
+    expect(invalidate).toHaveBeenCalledWith(deepSeekFileScope(http.url, 'test-key', 'messages'), [])
+    stale = false
+  })
+
   it('resolves connection facts and the credential exactly once per stream call', async () => {
     const http = await messagesServer()
     const resolved = vi.fn(() => resolveAdapterOptions({ protocol: 'messages', baseURL: http.url }))
     const adapter = new DeepSeekAdapter({
       options: resolved,
       resolveApiKey: () => Promise.resolve('per-request-key'),
-      resolveUserId: () => TEST_USER_ID,
     })
     for await (const _chunk of adapter.stream(options())) { /* drain */ }
     expect(resolved).toHaveBeenCalledTimes(1)
@@ -252,7 +276,6 @@ describe('direct Messages HTTP', () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({ protocol: 'messages', baseURL: http.url, models: [{ id: MODEL, inputModalities: ['text', 'image'] }] }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
       resolveAttachments: () => broken,
     })
     await expect(chunks(adapter.stream(options({
@@ -297,7 +320,6 @@ describe('direct Messages HTTP', () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({ protocol: 'messages', baseURL: http.url, models: [{ id: MODEL, inputModalities: ['text', 'image'] }] }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
       resolveAttachments: () => attachments,
       resolveFiles: () => hanging,
     })

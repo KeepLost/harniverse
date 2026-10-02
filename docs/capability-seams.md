@@ -84,9 +84,6 @@ flowchart LR
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
-  pkg_session_telemetry["session-telemetry"]
-  svc_sessionTelemetry["ctx.sessionTelemetry<br/>Session telemetry seam"]
-  pkg_session_telemetry_otel["session-telemetry-otel"]
   pkg_notification["notification"]
   svc_notification["ctx.notification<br/>Outbound notification seam"]
   pkg_notification_http["notification-http"]
@@ -352,8 +349,6 @@ flowchart LR
   pkg_session_query --> svc_sessionQuery
   pkg_session_query_sqlite --> svc_sessionQuery
   pkg_session_reference --> svc_sessionReferenceResolver
-  pkg_session_telemetry --> svc_sessionTelemetry
-  pkg_session_telemetry_otel --> svc_sessionTelemetry
   pkg_session_title --> svc_sessionTitle
   pkg_session_title_all_prompts_llm --> svc_sessionTitle
   pkg_session_title_first_prompt_llm --> svc_sessionTitle
@@ -476,7 +471,6 @@ flowchart LR
   svc_sessionProjections --> pkg_tool_todo
   svc_sessionQuery --> pkg_session_reference
   svc_sessionQuery --> pkg_tool_session_query
-  svc_sessionTelemetry --> pkg_session_telemetry
   svc_sessions --> pkg_agent
   svc_sessions --> pkg_agent_loop
   svc_sessions --> pkg_invariants
@@ -577,7 +571,6 @@ flowchart LR
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |
-| `ctx.sessionTelemetry` | `seam` | [`session-telemetry`](../packages/session/session-telemetry) | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | [`session-telemetry`](../packages/session/session-telemetry) | - | The Definition package also bundles the coordinator Consumer that captures and redacts session records before handing them to one backend; its output leaves the process. |
 | `ctx.notification` | `seam` | [`notification`](../packages/notification/notification) | [`notification-http`](../packages/notification/notification-http) | [`notification`](../packages/notification/notification) | - | The Definition package also bundles the coordinator Consumer that projects selected lifecycle metadata into a stable external protocol; the opt-in HTTP provider persists endpoint deliveries and sends them outside the process. |
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace), [`message-feedback`](../packages/feedback/message-feedback), [`notification-http`](../packages/notification/notification-http) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |

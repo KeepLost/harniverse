@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assertShellSender, parseConnectionProfile, validateHostUrl, quitWarning } from '../src/ipc.ts'
+import { en, zh } from '../src/locale.ts'
 
 describe('desktop connection trust', () => {
   it.each(['https://example.org/', 'http://127.0.0.1:4921/', 'http://localhost:4921/', 'http://[::1]:4921/'])('accepts a protected Host URL %s', (url) => {
@@ -43,9 +44,10 @@ describe('desktop IPC ownership', () => {
 
 describe('desktop quit explanation', () => {
   it('warns when owned activity is active or unknown and explains external ownership', () => {
-    expect(quitWarning('owned', { status: 'active', sessions: 1, tasks: 2 })).toContain('stop')
-    expect(quitWarning('owned', { status: 'unknown' })).toContain('unavailable')
-    expect(quitWarning('external', { status: 'active', sessions: 1, tasks: 2 })).toContain('continues')
-    expect(quitWarning('owned', { status: 'idle', sessions: 0, tasks: 0 })).toBeUndefined()
+    expect(quitWarning('owned', { status: 'active', sessions: 1, tasks: 2 }, en)).toContain('stop')
+    expect(quitWarning('owned', { status: 'unknown' }, en)).toContain('unavailable')
+    expect(quitWarning('external', { status: 'active', sessions: 1, tasks: 2 }, en)).toContain('continues')
+    expect(quitWarning('owned', { status: 'idle', sessions: 0, tasks: 0 }, en)).toBeUndefined()
+    expect(quitWarning('owned', { status: 'active', sessions: 2, tasks: 3 }, zh)).toContain('2')
   })
 })

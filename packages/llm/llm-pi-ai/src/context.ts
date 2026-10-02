@@ -6,7 +6,7 @@
 
 import { CallId, contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore, ImageRequestPolicy } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
 
@@ -29,6 +29,7 @@ function toolResultText(blocks: readonly ContentBlock[]): string {
 async function userContent(
   blocks: readonly ContentBlock[],
   attachments: AttachmentStore,
+  policy: ImageRequestPolicy,
 ): Promise<string | (TextContent | ImageContent)[]> {
   const content: (TextContent | ImageContent)[] = []
   for (const block of blocks) {
@@ -37,17 +38,19 @@ async function userContent(
         if (block.text.length > 0) content.push({ type: 'text', text: block.text })
         break
       case 'image': {
-        const stored = await attachments.readImage(block.attachment)
+        // Request images project under the routed model's budgets instead of
+        // shipping stored originals; the attachment service owns the scaling.
+        const projected = await attachments.readImageRequest(block.attachment, policy)
         content.push({
           type: 'image',
-          data: Buffer.from(stored.data).toString('base64'),
-          mimeType: stored.ref.mediaType,
+          data: Buffer.from(projected.data).toString('base64'),
+          mimeType: projected.mediaType,
         })
         break
       }
       case 'tool-result':
         {
-          const nested = await userContent(block.content, attachments)
+          const nested = await userContent(block.content, attachments, policy)
           if (typeof nested === 'string') {
             if (nested.length > 0) content.push({ type: 'text', text: nested })
           } else {
@@ -196,25 +199,45 @@ export function toPiContext(
   attachments: AttachmentStore,
   onReplayDegrade?: ReplayDegradeHandler,
 ): Promise<PiContext>
+/**
+ * Convert harness history to a pi-ai Context while resolving durable images
+ * through the per-model {@link ImageRequestPolicy} projection budget.
+ * Tool result names are recovered from preceding assistant tool calls.
+ * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
+ * @param attachments - durable byte resolver for image references.
+ * @param policy - projection budget applied by `attachments.readImageRequest`.
+ * @param onReplayDegrade - called when one assistant message falls back to neutral history.
+ * @returns the asynchronously resolved pi-ai context.
+ */
+export function toPiContext(
+  options: GenerateOptions,
+  attachments: AttachmentStore,
+  policy: ImageRequestPolicy,
+  onReplayDegrade?: ReplayDegradeHandler,
+): Promise<PiContext>
 export function toPiContext(
   options: GenerateOptions,
   attachmentsOrReplayDegrade?: AttachmentStore | ReplayDegradeHandler,
+  policyOrReplayDegrade?: ImageRequestPolicy | ReplayDegradeHandler,
   onReplayDegrade?: ReplayDegradeHandler,
 ): PiContext | Promise<PiContext> {
   const attachments = typeof attachmentsOrReplayDegrade === 'function' ? undefined : attachmentsOrReplayDegrade
+  const policy = typeof policyOrReplayDegrade === 'function' ? undefined : policyOrReplayDegrade
   const replayDegrade = typeof attachmentsOrReplayDegrade === 'function'
     ? attachmentsOrReplayDegrade
-    : onReplayDegrade
+    : typeof policyOrReplayDegrade === 'function' ? policyOrReplayDegrade : onReplayDegrade
   return attachments === undefined
     ? textOnlyContext(options, replayDegrade)
-    : toPiContextWithImages(options, attachments, replayDegrade)
+    : toPiContextWithImages(options, attachments, policy, replayDegrade)
 }
 
 async function toPiContextWithImages(
   options: GenerateOptions,
   attachments: AttachmentStore,
+  policy: ImageRequestPolicy | undefined,
   onReplayDegrade?: ReplayDegradeHandler,
 ): Promise<PiContext> {
+  const requestPolicy: ImageRequestPolicy = policy ?? { maxPixels: 2_048 * 2_048, maxBytes: 1024 * 1024 }
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
   let degradedReasoning = false
@@ -242,13 +265,13 @@ async function toPiContextWithImages(
     }
     // user role: text + tool results (each result becomes its own message).
     const regular = message.content.filter(block => block.type !== 'tool-result')
-    const content = await userContent(regular, attachments)
+    const content = await userContent(regular, attachments, requestPolicy)
     const results = message.content.filter(block => block.type === 'tool-result')
     // Results first, for the same reason as the text-only path: a user message
     // between an assistant tool call and its result makes pi-ai answer the
     // call synthetically before the real result arrives.
     for (const result of results) {
-      const resultContent = await userContent(result.content, attachments)
+      const resultContent = await userContent(result.content, attachments, requestPolicy)
       messages.push({
         role: 'toolResult',
         toolCallId: result.toolCallId,

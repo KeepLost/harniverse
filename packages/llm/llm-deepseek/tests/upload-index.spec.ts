@@ -46,9 +46,17 @@ describe('DeepSeek upload index', () => {
     await expect(index.get(candidate.scope, candidate.variantId, 9_500, 1_000)).resolves.toBeUndefined()
     await expect(index.commit({ ...candidate, fileId: DeepSeekFileId('file-2') }, 2_000, 1_000))
       .resolves.toEqual({ record: candidate, accepted: false })
-    await index.remove(candidate.scope, candidate.variantId, candidate.fileId)
+    await index.remove(candidate.scope, [{ variantId: candidate.variantId, fileId: candidate.fileId }])
     await expect(index.get(candidate.scope, candidate.variantId, 2_000, 1_000)).resolves.toBeUndefined()
-    await index.remove(candidate.scope, candidate.variantId, candidate.fileId)
+    // Absent pairs are ignored, and a batch rewrite keeps unrelated variants.
+    const sibling = { ...record('file-sibling'), scope: candidate.scope }
+    await index.commit(sibling, 2_000, 1_000)
+    await index.remove(candidate.scope, [
+      { variantId: candidate.variantId, fileId: candidate.fileId },
+      { variantId: sibling.variantId, fileId: DeepSeekFileId('file-elsewhere') },
+    ])
+    await expect(index.get(candidate.scope, sibling.variantId, 2_000, 1_000)).resolves.toMatchObject({ fileId: 'file-sibling' })
+    await index.remove(candidate.scope, [{ variantId: sibling.variantId, fileId: sibling.fileId }])
     await index.clear(DeepSeekFileScope('f'.repeat(64)))
   })
 

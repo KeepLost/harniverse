@@ -4,7 +4,7 @@
 // The 'conversation.input.dock' SlotMap declaration lives in
 // ../contract/slots.ts beside the other input-region slots.
 import type { Context } from '@deepseek-ai/cordis'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
@@ -19,6 +19,53 @@ import css from './QueueDock.module.css'
 export interface QueueDockInjected {
   updateQueue: (itemId: QueueItemId, action: QueueAction) => Promise<void>
   notify: (level: 'info' | 'error', text: string) => void
+}
+
+/**
+ * Inline editor for one queued row. A textarea rather than an input: HTML
+ * strips newlines from single-line input values, so editing a multi-line
+ * queued message through one rewrites it as a single line. It grows with its
+ * content up to the CSS cap, then scrolls. Enter saves, Shift+Enter breaks the
+ * line, Escape cancels.
+ */
+function QueueEditor({ text, label, onChange, onSave, onCancel }: {
+  text: string
+  label: string
+  onChange: (text: string) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useLayoutEffect(() => {
+    const node = ref.current
+    /* v8 ignore next -- the ref is attached before layout effects run. */
+    if (node === null) return
+    node.style.height = 'auto'
+    // scrollHeight excludes the border that the border-box height includes.
+    node.style.height = `${node.scrollHeight + node.offsetHeight - node.clientHeight}px`
+  }, [text])
+
+  return (
+    <textarea
+      ref={ref}
+      autoFocus
+      rows={1}
+      className={css.editor}
+      aria-label={label}
+      value={text}
+      onChange={(event) => { onChange(event.currentTarget.value) }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          onCancel()
+          return
+        }
+        if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+        event.preventDefault()
+        onSave()
+      }}
+    />
+  )
 }
 
 /** Full props of a dock entry: InputZone owner share + session standard kit + global seat + the locale seat. */
@@ -101,22 +148,12 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
               {queue.length === 1 && <span className={css.lead} aria-hidden><IconQueueOutline14 /></span>}
               {editing?.id === row.id
                 ? (
-                  <input
-                    autoFocus
-                    className={css.editor}
-                    aria-label={t('queue.edit')}
-                    value={editing.text}
-                    onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        setEditing(null)
-                        return
-                      }
-                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                        event.preventDefault()
-                        void saveEdit()
-                      }
-                    }}
+                  <QueueEditor
+                    text={editing.text}
+                    label={t('queue.edit')}
+                    onChange={(text) => { setEditing({ id: row.id, text }) }}
+                    onSave={() => { void saveEdit() }}
+                    onCancel={() => { setEditing(null) }}
                   />
                 )
                 : <span className={css.preview}>{row.preview}</span>}

@@ -6,12 +6,14 @@
  * up with exactly the stated mode. `withFileLock` serializes cross-process
  * writers of one file through a `wx`-created `<file>.lock` sibling, so a
  * read-modify-write cycle can never resurrect a state another writer just
- * replaced; readers stay lock-free because the rename commit is atomic.
+ * replaced; readers stay lock-free because the rename commit is atomic. A lock
+ * whose recorded holder process no longer exists on this host is taken over.
  * @module @deepseek-ai/dsh-atomic-write
  */
 
-import { randomBytes } from 'node:crypto'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { createHash, randomBytes } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { dirname } from 'node:path'
 
 const WINDOWS_TRANSIENT_RENAME_ERRORS: ReadonlySet<string> = new Set(['EACCES', 'EBUSY', 'EPERM'])
@@ -116,14 +118,104 @@ const LOCK_RETRY_INITIAL_MS = 20
 const LOCK_RETRY_MAX_MS = 200
 const LOCK_TIMEOUT_MS = 2_000
 
+/** The process a lock record names; a record without a hostname predates hostnames and was written on this host. */
+interface LockHolder {
+  pid: number
+  hostname?: string
+}
+
+/** The record a new lock carries: the holder process, its host, and a nonce that keeps each record unique. */
+function lockRecord(): string {
+  return `${JSON.stringify({ pid: process.pid, hostname: hostname(), nonce: randomBytes(8).toString('hex') })}\n`
+}
+
+/** The holder a lock record names, or undefined for a record this protocol did not write completely. */
+function parseLockHolder(record: string): LockHolder | undefined {
+  // Earlier releases recorded only the PID.
+  if (/^\d+\n$/.test(record)) return { pid: Number(record.trim()) }
+  let value: unknown
+  try {
+    value = JSON.parse(record)
+  } catch {
+    // An unparsable record is being written or was cut short; neither proves its holder stopped.
+    return undefined
+  }
+  if (typeof value !== 'object' || value === null) return undefined
+  const { pid, hostname } = value as { pid?: unknown; hostname?: unknown }
+  if (typeof pid !== 'number' || typeof hostname !== 'string') return undefined
+  return { pid, hostname }
+}
+
+/** Whether the holder's process is proven gone: it ran on this host and a signal probe finds no such process. */
+function holderExited(holder: LockHolder): boolean {
+  // PID 0 and negative PIDs address process groups, which prove nothing about one holder.
+  if (!Number.isSafeInteger(holder.pid) || holder.pid <= 0) return false
+  if (holder.hostname !== undefined && holder.hostname !== hostname()) return false
+  try {
+    process.kill(holder.pid, 0)
+    return false
+  } catch (error) {
+    // EPERM means the process exists under another user.
+    return (error as NodeJS.ErrnoException).code === 'ESRCH'
+  }
+}
+
+/** The lock file's content, or undefined when it cannot be read. */
+async function readLockRecord(lockPath: string): Promise<string | undefined> {
+  try {
+    return await readFile(lockPath, 'utf8')
+  } catch (error) {
+    // A lock that vanished, or that Windows is still deleting, proves nothing about a holder.
+    void error
+    return undefined
+  }
+}
+
+/**
+ * Remove the lock when its recorded holder exited. Contenders that read the
+ * same record serialize on a claim file named after it, and the claimant
+ * removes the lock only while it still holds that record: no other contender
+ * can replace the record without the claim, so a removal never deletes a lock
+ * another contender acquired after the dead holder's.
+ * @returns Whether this call removed the dead holder's lock.
+ */
+async function takeOverExitedLock(lockPath: string): Promise<boolean> {
+  const record = await readLockRecord(lockPath)
+  if (record === undefined) return false
+  const holder = parseLockHolder(record)
+  if (holder === undefined || !holderExited(holder)) return false
+  const claim = `${lockPath}.takeover-${createHash('sha256').update(record).digest('hex').slice(0, 16)}`
+  try {
+    await writeFile(claim, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+  } catch (error) {
+    // Another contender owns the claim for this record, or Windows still deletes the claim it released.
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'EEXIST' || code === 'EPERM') return false
+    throw error
+  }
+  try {
+    if (await readLockRecord(lockPath) !== record) return false
+    await rm(lockPath, { force: true })
+    return true
+  } finally {
+    await rm(claim, { force: true }).catch((error: unknown) => {
+      // A claim left behind names a record that is no longer the lock, so it blocks no later takeover.
+      void error
+    })
+  }
+}
+
 /**
  * Hold the cross-process writer lock for `filename` around one operation. The
  * lock is a `wx`-created sibling (`<filename>.lock`); paired with the
  * rename-based commit of {@link writeFileAtomic}, readers stay lock-free and
- * only writers contend. Contention backs off exponentially and fails with a
- * timed-out error after the deadline. The contender never removes an existing
- * lock because file age cannot prove that its owner stopped; orphan recovery
- * is an operator action. The parent directory must exist.
+ * only writers contend. The lock records its holder's PID and hostname. A
+ * contender removes the lock and retries at once when that holder ran on
+ * this host and its process no longer exists; any other lock, including one
+ * whose record is incomplete or names another host, is waited for. Contention
+ * backs off exponentially and fails with a timed-out error after the deadline.
+ * A holder whose PID a live process reused keeps its lock until an operator
+ * removes it. The parent directory must exist.
  * @param filename - the file whose writers this lock serializes.
  * @param operation - the read-render-commit cycle to run while holding the lock.
  * @returns the operation's result; the lock releases on both outcomes.
@@ -137,10 +229,11 @@ export async function withFileLock<T>(
   let delay = LOCK_RETRY_INITIAL_MS
   for (;;) {
     try {
-      await writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+      await writeFile(lockPath, lockRecord(), { mode: 0o600, flag: 'wx' })
       break
     } catch (error) {
       if (!isLockCreateContention(error)) throw error
+      if (await takeOverExitedLock(lockPath)) continue
     }
     if (Date.now() >= deadline) {
       throw new Error(`atomic-write: timed out waiting for the writer lock at ${lockPath}`)

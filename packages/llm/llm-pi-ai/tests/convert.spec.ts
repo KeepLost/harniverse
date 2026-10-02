@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -25,7 +25,7 @@ function assistant(overrides: Partial<AssistantMessage> = {}): AssistantMessage 
     content: [],
     api: 'openai-completions',
     provider: 'deepseek',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-flash',
     usage: usage(),
     stopReason: 'stop',
     timestamp: 0,
@@ -47,7 +47,7 @@ describe('toPiContext', () => {
   it('maps system prompt, user text, and tools', () => {
     const context = toPiContext({
       provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       system: 'be helpful',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
@@ -76,7 +76,7 @@ describe('toPiContext', () => {
       width: 1,
       height: 1,
     }
-    const readImage = vi.fn().mockResolvedValue({ ref: attachment, data: Uint8Array.of(1, 2, 3) })
+    const readImageRequest = vi.fn().mockResolvedValue({ attachment: attachment, variantId: ImageVariantId(`sha256:${'a'.repeat(64)}`), data: Uint8Array.of(1, 2, 3), mediaType: attachment.mediaType, bytes: Uint8Array.of(1, 2, 3).length, width: 1, height: 1, depth: 'uchar', space: 'srgb', hasAlpha: false })
     const context = await toPiContext({
       provider: 'openai',
       model: 'gpt-4.1',
@@ -84,9 +84,9 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'describe' }, { type: 'image', attachment }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
-    }, { readImage } as unknown as AttachmentStore)
+    }, { readImageRequest } as unknown as AttachmentStore)
 
-    expect(readImage).toHaveBeenCalledWith(attachment)
+    expect(readImageRequest).toHaveBeenCalledWith(attachment, expect.anything())
     expect(context.messages[0]).toEqual({
       role: 'user',
       content: [
@@ -105,7 +105,7 @@ describe('toPiContext', () => {
       width: 1,
       height: 1,
     }
-    const readImage = vi.fn().mockResolvedValue({ ref: attachment, data: Uint8Array.of(1, 2, 3) })
+    const readImageRequest = vi.fn().mockResolvedValue({ attachment: attachment, variantId: ImageVariantId(`sha256:${'a'.repeat(64)}`), data: Uint8Array.of(1, 2, 3), mediaType: attachment.mediaType, bytes: Uint8Array.of(1, 2, 3).length, width: 1, height: 1, depth: 'uchar', space: 'srgb', hasAlpha: false })
     const context = await toPiContext({
       provider: 'openai',
       model: 'gpt-4.1',
@@ -129,7 +129,7 @@ describe('toPiContext', () => {
         }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
-    }, { readImage } as unknown as AttachmentStore)
+    }, { readImageRequest } as unknown as AttachmentStore)
 
     expect(context.messages).toEqual([{
       role: 'toolResult',
@@ -400,7 +400,7 @@ describe('toPiContext', () => {
         ],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState: state },
         },
       })],
     })
@@ -455,7 +455,7 @@ describe('toPiContext', () => {
         content: [{ type: 'reasoning', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState: state },
         },
       })],
     }, reason => reasons.push(reason))
@@ -474,7 +474,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState: state },
         },
       })],
     }, reason => reasons.push(reason))
@@ -488,7 +488,7 @@ describe('toPiContext', () => {
       version: 2,
       api: 'openai-completions',
       provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       stopReason: 'stop',
     },
     blocks: [{ type: 'text' }],
@@ -507,7 +507,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState },
         },
       })],
     }, reason => reasons.push(reason))
@@ -546,7 +546,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'done' }],
         source: {
           kind: 'model',
-          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+          ...{ provider: 'deepseek', model: 'deepseek-flash', replayState },
         },
       })],
     }, reason => reasons.push(reason))
@@ -583,7 +583,7 @@ describe('toStreamChunks', () => {
             version: 2,
             api: 'openai-completions',
             provider: 'deepseek',
-            model: 'deepseek-v4-flash',
+            model: 'deepseek-flash',
             stopReason: 'stop',
           },
           blocks: [{ type: 'text' }],
@@ -708,7 +708,7 @@ describe('toStreamChunks', () => {
             version: 2,
             api: 'openai-completions',
             provider: 'deepseek',
-            model: 'deepseek-v4-flash',
+            model: 'deepseek-flash',
             stopReason: 'toolUse',
           },
           blocks: [{ type: 'tool-call' }],
@@ -746,6 +746,19 @@ describe('toStreamChunks', () => {
     })
   })
 
+  it.each([
+    ['pending', 'pi-ai stream for model "deepseek-flash" ended pending'],
+    ['deferred', 'pi-ai deferred response for model "deepseek-flash" is not supported'],
+  ] as const)('maps a terminal %s message to a PI_AI_ERROR finish', async (stopReason, message) => {
+    const chunks = await collect(toStreamChunks(feed(
+      { type: 'done', reason: 'stop', message: assistant({ stopReason }) },
+    )))
+    expect(chunks.at(-1)).toMatchObject({
+      type: 'finish',
+      reason: { kind: 'error', failure: { message, code: 'PI_AI_ERROR' } },
+    })
+  })
+
   it('rejects a stream that ends without done or error', async () => {
     await expect(collect(toStreamChunks(feed({ type: 'start', partial: assistant() }))))
       .rejects.toThrow(/without done\/error/)
@@ -775,7 +788,7 @@ describe('mapStopReason / mapUsage', () => {
     expect(mapStopReason(assistant({ stopReason: 'stop' }))).toEqual({
       kind: 'error',
       failure: {
-        message: 'model "deepseek-v4-flash" returned a completed response with no content',
+        message: 'model "deepseek-flash" returned a completed response with no content',
         code: EMPTY_RESPONSE_CODE,
       },
     })
@@ -864,7 +877,7 @@ describe('mapStopReason / mapUsage', () => {
     expect(mapStopReason(silent, 100)).toEqual({
       kind: 'error',
       failure: {
-        message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
+        message: 'pi-ai detected context overflow for model "deepseek-flash"',
         code: CONTEXT_WINDOW_EXCEEDED_CODE,
       },
     })

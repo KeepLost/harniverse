@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Host-owned editable feedback for one finalized assistant message. The package registers `ctx.messageFeedback`, persists one lifecycle-bound sidecar row per Session in storage-domain, and publishes the Host `messageFeedback.list`, `messageFeedback.put`, and `messageFeedback.delete` unary Remote contract. It is separate from the immutable Session-level `feedback/record` event and performs no telemetry handoff. The [message-feedback sidecar Agent Note](../../../.agents/notes/implemented/architecture/2026-08-10-message-feedback-sidecar.md) owns the design boundary.
+Host-owned editable feedback for one finalized assistant message. The package registers `ctx.messageFeedback`, persists one lifecycle-bound sidecar row per Session in storage-domain, and publishes the Host `messageFeedback.list`, `messageFeedback.put`, and `messageFeedback.delete` unary Remote contract. It is separate from the immutable Session-level `feedback/record` event. The [message-feedback sidecar Agent Note](../../../.agents/notes/implemented/architecture/2026-08-10-message-feedback-sidecar.md) owns the design boundary.
 
 Public request, value, version, and failure types are exported from the package root and `@deepseek-ai/dsh-message-feedback/types`; [`src/types.ts`](src/types.ts) is their source.
 
@@ -33,7 +33,7 @@ Each stored row carries the inspected Session header identity `{createdAt, cwd}`
 
 After initial validation, `put` establishes a durability barrier before writing the sidecar. A matching live Session commits through the canonical `ctx.sessions.flush` checkpoint, then both live and cold paths are physically read from sequence zero through `SessionPersistence.readFrom`. The resulting observation's header identity and target are validated again. A missing flush participant, changed identity, vanished target, or physical-read failure prevents the sidecar commit, so durable feedback never precedes the durable target message.
 
-Message feedback is not Session-log content or a Session projection. It emits no `feedback/record` event, does not enter model history, and does not trigger `FEEDBACK_ONLY` telemetry release.
+Message feedback is not Session-log content or a Session projection. It emits no `feedback/record` event and does not enter model history.
 
 ## Service and Host Remote contract
 

@@ -115,6 +115,8 @@ function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. '
     + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. '
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
+    + 'Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. '
+    + 'Do not assign to automatic variables such as `$HOME`; variable names are case-insensitive, so `$home` is the same read-only variable. '
     + 'On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. '
     + background
   if (escalationModes.length === 0) return base

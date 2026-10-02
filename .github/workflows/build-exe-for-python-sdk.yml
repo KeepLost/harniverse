@@ -48,10 +48,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # CI runs must never report to the production telemetry endpoint baked
-  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
-  DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
   # Job-level conditions cannot inspect `matrix`, so validate target names and
@@ -335,7 +331,7 @@ jobs:
             echo "docker pull $image failed (attempt $attempt); retrying in 20s"
             sleep 20
           done
-          docker run --rm -e VERSION -e DSH_TELEMETRY_DISABLED -v "$PWD:/work" -w /work "$image" bash -euxo pipefail -c '
+          docker run --rm -e VERSION -v "$PWD:/work" -w /work "$image" bash -euxo pipefail -c '
             /opt/python/cp310-cp310/bin/python -m venv /tmp/dsh-sdk
             /tmp/dsh-sdk/bin/python -m pip install --find-links /work/dist-python deepseek-harness-sdk=="$VERSION"
             /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-default

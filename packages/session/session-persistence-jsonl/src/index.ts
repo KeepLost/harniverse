@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, SessionFormatUnsupportedError,
+  SessionPersistenceCorruptionError,
   paginateRawEventPage, paginateSessionHistory, replacementCheckpointStart, CHECKPOINT_SEARCH_MESSAGE_BUDGET,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type SessionRawArtifact,
@@ -800,9 +801,17 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
         signal?.throwIfAborted()
         if (!pathExists) continue
         // Read only headers so listing scales with session count, not log size.
-        const first = this.compression === 'zstd'
-          ? await this.readFirstZstdLine(path, signal)
-          : await this.readFirstLine(path, signal)
+        // A corrupt compressed header frame isolates to this Session: omit it
+        // from discovery while header I/O errors and cancellation propagate.
+        let first: string | undefined
+        try {
+          first = this.compression === 'zstd'
+            ? await this.readFirstZstdLine(path, signal)
+            : await this.readFirstLine(path, signal)
+        } catch (error: unknown) {
+          if (error instanceof SessionPersistenceCorruptionError) continue
+          throw error
+        }
         signal?.throwIfAborted()
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
@@ -1045,7 +1054,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     }
   }
 
-  /** Read and validate only the independently compressed header frame. */
+  /** Read only the header frame; compression failures reject as corruption, while I/O and cancellation propagate. */
   private async readFirstZstdLine(path: string, signal?: AbortSignal): Promise<string | undefined> {
     signal?.throwIfAborted()
     const handle = await open(path, 'r')
@@ -1061,21 +1070,21 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
         signal?.throwIfAborted()
         content = Buffer.concat([content, chunk.subarray(0, bytesRead)])
         signal?.throwIfAborted()
-        const first = scanZstdFrames(content, 1).frames[0]
-        signal?.throwIfAborted()
-        if (first === undefined) continue
-        let plaintext: Buffer
         try {
+          const first = scanZstdFrames(content, 1).frames[0]
+          if (first === undefined) continue
+          const plaintext = await decompressZstdFrame(content.subarray(first.start, first.end))
           signal?.throwIfAborted()
-          plaintext = await decompressZstdFrame(content.subarray(first.start, first.end))
+          assertZstdHeaderFrame(plaintext)
+          return plaintext.subarray(0, -1).toString('utf8')
         } catch (error) {
           /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
           if (signal?.aborted) signal.throwIfAborted()
-          throw new Error('corrupt Zstandard session log: header frame failed validation', { cause: error })
+          throw new SessionPersistenceCorruptionError(
+            `corrupt Zstandard session log: header frame failed validation: ${String(error)} (raw log: ${path})`,
+            { cause: error },
+          )
         }
-        signal?.throwIfAborted()
-        assertZstdHeaderFrame(plaintext)
-        return plaintext.subarray(0, -1).toString('utf8')
       }
     } finally {
       await handle.close()

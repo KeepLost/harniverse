@@ -101,6 +101,7 @@ async function sample(index: number): Promise<TerminalSample> {
     exactProbeAfterMs: 50,
     idleSilenceMs: 25,
     handoffGraceMs: 25,
+    promptTailGraceMs: 25,
     timeoutMs: 30_000,
     disposeGraceMs: 1_000,
   })

@@ -1,7 +1,7 @@
 /**
  * Shared profile boot for every `dsh` surface: resolve the profile, stack its
  * patch layers (bundle layers in `dsh.profile.bundles` order, the profile's
- * own `cordis.patch.yml`, `--patch` overlays, the telemetry switch), mount the
+ * own `cordis.patch.yml`, `--patch` overlays), mount the
  * tree over the profile's empty root config, keep the profile patch layer
  * live, and wire fail-loud plus bounded shutdown.
  *
@@ -56,9 +56,6 @@ export function homePatchPath(): string {
 /** Absolute path of this dsh installation's package.json (both anchors: src/ and lib/ sit one level under apps/cli). */
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
 
-/** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
-const TELEMETRY_ROW_ID = 'session-telemetry-otel'
-
 /** The empty root entry list every profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches:
 # each bundle in package.json's dsh.profile.bundles, then cordis.patch.yml, then any
@@ -68,22 +65,6 @@ const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tre
 
 /** Root config filename inside a profile directory. */
 export const PROFILE_ROOT_FILENAME = 'cordis.yml'
-
-/**
- * Resolve the telemetry opt-out switch into its boot patch. ANY non-empty
- * value (including `'0'`/`'false'`) disables: a privacy switch prefers
- * off-by-mistake over on-by-mistake. A composition without the telemetry row
- * exports nothing, so the switch is then trivially satisfied and no patch is
- * generated — custom profiles need not mount telemetry to run with the
- * switch set.
- * @param disabledEnv - the raw `DSH_TELEMETRY_DISABLED` value (`undefined` when unset).
- * @param hasRow - whether the composition carries the telemetry row.
- * @returns the disable patch, or `undefined` when no hard-disable patch is required.
- */
-export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: boolean): PatchOptions | undefined {
-  if ((disabledEnv ?? '') === '' || !hasRow) return undefined
-  return { id: TELEMETRY_ROW_ID, disabled: true }
-}
 
 /**
  * Load a resolved profile for `name`: heal the shared module fallback, then
@@ -116,7 +97,7 @@ interface ComposedProfile {
   bundlePatches: PatchOptions[]
   /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
   homePatches: PatchOptions[]
-  /** Layers above the user layers on a live reload: `--patch` overlays and the telemetry switch. */
+  /** Layers above the user layers on a live reload: `--patch` overlays. */
   overlays: PatchOptions[]
   /**
    * id → row of the composed tree (bundles + user layers + overlays), for the
@@ -173,8 +154,6 @@ function composeProfile(
       },
     })
   }
-  const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
-  if (telemetryPatch !== undefined) composedOverlays.push(telemetryPatch)
   return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }
 }
 

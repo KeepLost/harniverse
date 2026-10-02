@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-10-telemetry-default-off.md) | 中文
 
+会话遥测其后被整体退役，见[遥测退役注](2026-10-02-telemetry-retirement.md)。
+
 ## 问题
 
 DeepSeek Harness 有两路出站遥测数据流。在内测阶段，共享基础配置挂载了带内建生产 endpoint 的遥测，两路数据流默认上报以帮助诊断上报的问题：会话 OTel 后端在省略 `mode` 时可能导出完整会话内容、工具数据、提示词和工作区路径，而 dsh-sdk 启动器数据流则无条件外发。因此，全新安装无需部署方明确选择便允许向外上报。

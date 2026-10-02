@@ -1,0 +1,157 @@
+diff --git a/core/streaming.js b/core/streaming.js
+index 14eac991eb14b5270b39696d0be80e30bf1fe406..49907d49a499ad422c65081762d20b0b2d949e54 100644
+--- a/core/streaming.js
++++ b/core/streaming.js
+@@ -3,6 +3,24 @@ var _Stream_client;
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.Stream = void 0;
+ exports._iterSSEMessages = _iterSSEMessages;
++function parseJSONDocuments(data) {
++    try {
++        return [JSON.parse(data)];
++    }
++    catch (e) {
++        const lines = data.split('\n');
++        if (lines.length > 1) {
++            const parsed = [];
++            for (const line of lines) {
++                if (line.trim() === '')
++                    continue;
++                parsed.push(JSON.parse(line));
++            }
++            return parsed;
++        }
++        throw e;
++    }
++}
+ const tslib_1 = require("../internal/tslib.js");
+ const error_1 = require("./error.js");
+ const shims_1 = require("../internal/shims.js");
+@@ -37,35 +55,39 @@ class Stream {
+                         continue;
+                     }
+                     if (sse.event === null || !sse.event.startsWith('thread.')) {
+-                        let data;
++                        let documents;
+                         try {
+-                            data = JSON.parse(sse.data);
++                            documents = parseJSONDocuments(sse.data);
+                         }
+                         catch (e) {
+                             logger.error(`Could not parse message into JSON:`, sse.data);
+                             logger.error(`From chunk:`, sse.raw);
+                             throw e;
+                         }
+-                        if (data && data.error) {
+-                            throw new error_2.APIError(undefined, data.error, undefined, response.headers);
++                        for (const data of documents) {
++                            if (data && data.error) {
++                                throw new error_2.APIError(undefined, data.error, undefined, response.headers);
++                            }
++                            yield synthesizeEventData ? { event: sse.event, data } : data;
+                         }
+-                        yield synthesizeEventData ? { event: sse.event, data } : data;
+                     }
+                     else {
+-                        let data;
++                        let documents;
+                         try {
+-                            data = JSON.parse(sse.data);
++                            documents = parseJSONDocuments(sse.data);
+                         }
+                         catch (e) {
+                             console.error(`Could not parse message into JSON:`, sse.data);
+                             console.error(`From chunk:`, sse.raw);
+                             throw e;
+                         }
+-                        // TODO: Is this where the error should be thrown?
+-                        if (sse.event == 'error') {
+-                            throw new error_2.APIError(undefined, data.error, data.message, undefined);
++                        for (const data of documents) {
++                            // TODO: Is this where the error should be thrown?
++                            if (sse.event == 'error') {
++                                throw new error_2.APIError(undefined, data.error, data.message, undefined);
++                            }
++                            yield { event: sse.event, data: data };
+                         }
+-                        yield { event: sse.event, data: data };
+                     }
+                 }
+                 done = true;
+diff --git a/core/streaming.mjs b/core/streaming.mjs
+index b581b939c87ecfd85e86631a2259c136f617bae9..da2f447e9886454c6c5bd683a114078a4b6271c4 100644
+--- a/core/streaming.mjs
++++ b/core/streaming.mjs
+@@ -1,3 +1,21 @@
++function parseJSONDocuments(data) {
++    try {
++        return [JSON.parse(data)];
++    }
++    catch (e) {
++        const lines = data.split('\n');
++        if (lines.length > 1) {
++            const parsed = [];
++            for (const line of lines) {
++                if (line.trim() === '')
++                    continue;
++                parsed.push(JSON.parse(line));
++            }
++            return parsed;
++        }
++        throw e;
++    }
++}
+ var _Stream_client;
+ import { __classPrivateFieldGet, __classPrivateFieldSet } from "../internal/tslib.mjs";
+ import { OpenAIError } from "./error.mjs";
+@@ -33,35 +51,39 @@ export class Stream {
+                         continue;
+                     }
+                     if (sse.event === null || !sse.event.startsWith('thread.')) {
+-                        let data;
++                        let documents;
+                         try {
+-                            data = JSON.parse(sse.data);
++                            documents = parseJSONDocuments(sse.data);
+                         }
+                         catch (e) {
+                             logger.error(`Could not parse message into JSON:`, sse.data);
+                             logger.error(`From chunk:`, sse.raw);
+                             throw e;
+                         }
+-                        if (data && data.error) {
+-                            throw new APIError(undefined, data.error, undefined, response.headers);
++                        for (const data of documents) {
++                            if (data && data.error) {
++                                throw new APIError(undefined, data.error, undefined, response.headers);
++                            }
++                            yield synthesizeEventData ? { event: sse.event, data } : data;
+                         }
+-                        yield synthesizeEventData ? { event: sse.event, data } : data;
+                     }
+                     else {
+-                        let data;
++                        let documents;
+                         try {
+-                            data = JSON.parse(sse.data);
++                            documents = parseJSONDocuments(sse.data);
+                         }
+                         catch (e) {
+                             console.error(`Could not parse message into JSON:`, sse.data);
+                             console.error(`From chunk:`, sse.raw);
+                             throw e;
+                         }
+-                        // TODO: Is this where the error should be thrown?
+-                        if (sse.event == 'error') {
+-                            throw new APIError(undefined, data.error, data.message, undefined);
++                        for (const data of documents) {
++                            // TODO: Is this where the error should be thrown?
++                            if (sse.event == 'error') {
++                                throw new APIError(undefined, data.error, data.message, undefined);
++                            }
++                            yield { event: sse.event, data: data };
+                         }
+-                        yield { event: sse.event, data: data };
+                     }
+                 }
+                 done = true;

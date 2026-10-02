@@ -45,6 +45,46 @@ describe('Messages request conversion', () => {
     expect(JSON.stringify(second)).toBe(saved)
   })
 
+  it('omits reasoning and tool-call blocks from user content and skips converted-empty user turns', async () => {
+    // A replayed subagent notice carries the child's assistant blocks beside
+    // its text; Messages cannot represent them in user content, and skipping
+    // them (not failing) matches the Chat Completions adapter.
+    const notice = createMessage({
+      role: 'user',
+      source: { kind: 'plugin', plugin: 'subagent' },
+      content: [
+        { type: 'text', text: 'Background subagent finished.' },
+        { type: 'reasoning', text: 'child thought' },
+        call('unforwarded'),
+      ],
+    })
+    const request = await body([user('before'), notice, user('after')])
+    // Adjacent user turns merge (existing adapter semantics); the child's
+    // reasoning and tool-call blocks contribute nothing to the wire content.
+    expect(request.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'before' },
+          { type: 'text', text: 'Background subagent finished.' },
+          { type: 'text', text: 'after' },
+        ],
+      },
+    ])
+
+    // A user turn that converts to nothing is dropped entirely rather than
+    // sent as an empty content array.
+    const onlyThoughts = createMessage({
+      role: 'user',
+      source: { kind: 'plugin', plugin: 'subagent' },
+      content: [{ type: 'reasoning', text: 'only thought' }],
+    })
+    const dropped = await body([user('before'), onlyThoughts, user('after')])
+    expect(dropped.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'before' }, { type: 'text', text: 'after' }] },
+    ])
+  })
+
   it('places system updates after all parallel tool results and before the next assistant', async () => {
     const history = [system('original'), user(), assistant([call(), call('b')]),
       system('first update'), result(), system('second update'), result('b'),
@@ -272,7 +312,7 @@ describe('Messages images', () => {
 
   it('resolves file representations through the shared upload seam', async () => {
     const resolveFileId = vi.fn(async () => 'file-9')
-    const request = await imageBody([createMessage({ role: 'user', source: { kind: 'user' }, content: [image] })], withImages({ kind: 'file', resolveFileId }))
+    const request = await imageBody([createMessage({ role: 'user', source: { kind: 'user' }, content: [image] })], withImages({ kind: 'file', used: [], resolveFileId }))
     expect(request.messages[0]?.content[1]).toEqual({ type: 'image', source: { type: 'file', file_id: 'file-9' } })
     expect(resolveFileId).toHaveBeenCalledExactlyOnceWith(version, { message: 1, image: 1 })
   })
@@ -306,8 +346,6 @@ describe('Messages images', () => {
     await expect(imageBody([createMessage({ role: 'user', source: { kind: 'user' }, content: [image] })], undefined))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
     await expect(imageBody([assistant([image as ContentBlock])], withImages({ kind: 'base64' })))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
-    await expect(imageBody([result('a', [{ type: 'reasoning', text: 'bad' }])], undefined))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
     await expect(imageBody([result('a', [{ type: 'tool-result', toolCallId: CallId('x'), content: [] }])], undefined))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })

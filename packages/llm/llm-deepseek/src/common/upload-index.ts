@@ -179,17 +179,20 @@ export class DeepSeekUploadIndex {
     })
   }
 
-  /** Remove one exact mapping under the index lock.
+  /** Remove exact mappings in one locked rewrite without deleting concurrently installed successors.
    * @param scope - endpoint/API-key scope.
-   * @param variantId - request-image variant.
-   * @param fileId - provider file id.
+   * @param generations - exact remote generations being invalidated; pairs absent from the index are ignored.
    */
-  async remove(scope: DeepSeekFileScopeType, variantId: ImageVariantIdType, fileId: DeepSeekFileIdType): Promise<void> {
+  async remove(
+    scope: DeepSeekFileScopeType,
+    generations: readonly Pick<DeepSeekUploadRecord, 'variantId' | 'fileId'>[],
+  ): Promise<void> {
+    const invalidated = new Set(generations.map(generation => `${generation.variantId}\0${generation.fileId}`))
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
     await withFileLock(this.path, async () => {
       const index = await this.load()
       const records = index.records.filter(record => !(
-        record.scope === scope && record.variantId === variantId && record.fileId === fileId
+        record.scope === scope && invalidated.has(`${record.variantId}\0${record.fileId}`)
       ))
       if (records.length !== index.records.length) await this.save({ formatVersion: 1, records })
     })

@@ -153,7 +153,14 @@ describe('terminal-bash real shell', () => {
   }, 10_000)
 
   it('signals a foreground command and kills a TERM-ignoring background descendant', async () => {
-    const { ctx, agent } = await harness('danger-full-access')
+    // The backgrounded fork plus `echo CHILD=$!` must print before any settle:
+    // a settled operation drops later output, and loaded macOS fork latency can
+    // exceed the shared harness's silence bound, so this test owns enough slack
+    // for the prompt-return settle to carry the child pid.
+    const { ctx, agent } = await harness('danger-full-access', {
+      idleSilenceMs: 10_000,
+      timeoutMs: 15_000,
+    })
     const created = await ctx.terminals.spawn(agent, { type: 'shell' })
 
     const foreground = ctx.terminals.startSend(agent, created.sessionId, { text: 'sleep 60', submit: true })
@@ -172,7 +179,7 @@ describe('terminal-bash real shell', () => {
     expect(() => process.kill(pid, 0)).not.toThrow()
     await ctx.terminals.kill(agent, created.sessionId)
     expect(() => process.kill(pid, 0)).toThrow()
-  }, 10_000)
+  }, 35_000)
 
   it('quiesces a disowned same-session descendant after the shell exits naturally', async () => {
     const { ctx, root, agent } = await harness('danger-full-access')

@@ -103,6 +103,10 @@ describe('desktop context bridge', () => {
     const [name, bridge] = electron.contextBridge.exposeInMainWorld.mock.calls[0] as [string, DesktopBridge]
     expect(name).toBe('harniverseDesktop')
     expect(Object.keys(bridge)).toEqual(['state', 'connect', 'disconnect', 'quit'])
+    // The same preload publishes the locale-picked renderer copy beside the bridge.
+    const [copyName, copy] = electron.contextBridge.exposeInMainWorld.mock.calls[1] as [string, { htmlLang: string }]
+    expect(copyName).toBe('harniverseShellCopy')
+    expect(typeof copy.htmlLang).toBe('string')
     await bridge.connect({ kind: 'local' })
     expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_IPC.connect, { kind: 'local' })
     expect(bridge).not.toHaveProperty('invoke')

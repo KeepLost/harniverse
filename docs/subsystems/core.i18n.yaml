@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/core.md
-core.md: 6d05d9c2a5759f4199b40a55da3c0c4d10bbb24e
-core.zh.md: e29a2109eaec0c5ecba9ee75af8a33ee922c9ec0
+core.md: c47e867c8ab4d6873f485ab1d0e555f31bd6919e
+core.zh.md: eb0ed1faa34597be3d4c2a86ba483a0483d68919

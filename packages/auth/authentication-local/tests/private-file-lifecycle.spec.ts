@@ -16,6 +16,7 @@ const failures = vi.hoisted(() => ({
   statMode: undefined as { path: string; mode: number } | undefined,
   statFailure: undefined as { path: string; code: string } | undefined,
   readdirFailure: undefined as { path: string; code: string; once: boolean } | undefined,
+  readCountPath: undefined as string | undefined,
   readdirHits: 0,
 }))
 
@@ -48,6 +49,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       await actual.rm(path, options)
     },
     readdir: async (...args: Parameters<typeof actual.readdir>): Promise<ReturnType<typeof actual.readdir>> => {
+      if (failures.readCountPath === String(args[0])) failures.readdirHits += 1
       const failure = failures.readdirFailure
       if (failure && failure.path === String(args[0])) {
         failures.readdirHits += 1
@@ -88,6 +90,7 @@ afterEach(async () => {
   failures.statMode = undefined
   failures.statFailure = undefined
   failures.readdirFailure = undefined
+  failures.readCountPath = undefined
   failures.readdirHits = 0
   Object.defineProperty(process, 'platform', platformDescriptor)
   vi.restoreAllMocks()
@@ -252,8 +255,16 @@ describe('stale writer lock reclamation', () => {
     const target = join(root, 'value.json')
     const lockPath = `${target}.lock`
     await craftLock(lockPath, { pid: process.pid, nonce: hex('a') })
+    // Count the waiter's owner reads so the release waits until the waiter has
+    // completed one full wait iteration (deadline re-check plus retry sleep);
+    // a fixed sleep races against runner speed and can skip the retry arm.
+    failures.readCountPath = lockPath
     const acquisition = withPrivateFileLock(target, async () => 'waited out')
-    await new Promise(resolve => setTimeout(resolve, 5))
+    const releaseDeadline = Date.now() + 5_000
+    while (failures.readdirHits < 2) {
+      if (Date.now() >= releaseDeadline) throw new Error('waiter never reached the retry arm of the wait loop')
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
     // Release the way a real owner does: owner file first, then the now-empty
     // directory. An ENOTEMPTY on the rmdir means the waiter's rename took the
     // empty-directory window — the acquisition under test — not a failed

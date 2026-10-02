@@ -11,12 +11,11 @@ import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
-import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import type { LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { DeepSeekAdapter, DeepSeekFileStore, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter, DeepSeekFileStore, DeepSeekFileId, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekUploadIndex, deepSeekFileScope } from '../src/common/upload-index.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
-const TEST_USER_ID = '00000000-0000-4000-8000-000000000001' as AnonymousUserId
 let testHome: string
 
 beforeEach(() => {
@@ -81,7 +80,6 @@ function boundedAdapter(options: BoundedOptions): DeepSeekAdapter {
   return new DeepSeekAdapter({
     options: () => connection,
     resolveApiKey: () => Promise.resolve('test-key'),
-    resolveUserId: () => TEST_USER_ID,
     resolveAttachments: () => attachments,
   })
 }
@@ -309,7 +307,6 @@ describe('bounded multi-image requests', () => {
     const adapter = new DeepSeekAdapter({
       options: () => connection,
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
       resolveAttachments: () => attachments,
     })
 
@@ -333,7 +330,6 @@ describe('bounded multi-image requests', () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({ baseURL: server.url }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
       resolveAttachments: () => ({} as unknown as AttachmentStore),
     })
 
@@ -359,7 +355,6 @@ describe('bounded multi-image requests', () => {
         models: [{ id: 'vision', inputModalities: ['text', 'image'] }],
       }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
     })
 
     await expect((async () => {
@@ -381,7 +376,6 @@ describe('bounded multi-image requests', () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({ baseURL: 'http://127.0.0.1:1' }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
     })
 
     await expect((async () => {
@@ -407,7 +401,6 @@ describe('bounded multi-image requests', () => {
     const stream = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({ baseURL }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
     }).stream({
       provider: 'deepseek-official',
       model: 'deepseek-flash',
@@ -458,7 +451,6 @@ describe('bounded multi-image requests', () => {
     const adapter = new DeepSeekAdapter({
       options: () => connection,
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
       resolveAttachments: () => attachments,
       resolveFiles: () => files,
     })
@@ -475,6 +467,62 @@ describe('bounded multi-image requests', () => {
       })) { /* cancellation arrives before any chunk */ }
     })()).rejects.toThrow(/aborted by caller/)
     expect(server.requests).toHaveLength(0)
+  })
+
+  it('invalidates only the rejected file mappings, not the whole scope', async () => {
+    const server = await mockServer([
+      { kind: 'http-error', status: 400, body: '{"error":{"code":"file_expired"}}' },
+      { kind: 'sse', events: textEvents },
+    ])
+    const stale = imageOf('a', 10)
+    const healthy = imageOf('b', 10)
+    const connection = resolveAdapterOptions({
+      baseURL: server.url,
+      models: [{ id: 'vision', inputModalities: ['text', 'image'], imageMaxBytes: 10_000, imagePixelBudget: 10_000 }],
+    })
+    const index = new DeepSeekUploadIndex(join(testHome, 'files-v1.json'))
+    // A custom base URL routes through chat-completions, whose scope the seed must share.
+    const seedScope = deepSeekFileScope(connection.baseURL, 'test-key', 'chat-completions')
+    // A different variant's mapping in the same scope is healthy and must
+    // survive the stale-file recovery of this request.
+    await index.commit({
+      scope: seedScope,
+      attachmentId: healthy.attachment.attachmentId,
+      variantId: healthy.variantId,
+      fileId: DeepSeekFileId('file-healthy'),
+      bytes: 10,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 2_592_000_000,
+    }, Date.now(), 1_000)
+    const files = new DeepSeekFileStore({
+      index,
+      fetch: async () => new Response(JSON.stringify({
+        id: 'file-stale', object: 'file', bytes: 10, created_at: 1, filename: 'dsh-image.png',
+        purpose: 'user_data', expires_at: 1e12,
+      }), { status: 200 }),
+    })
+    const attachments = { readImageRequest: async () => stale } as unknown as AttachmentStore
+    const adapter = new DeepSeekAdapter({
+      options: () => connection,
+      resolveApiKey: () => Promise.resolve('test-key'),
+      resolveAttachments: () => attachments,
+      resolveFiles: () => files,
+    })
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.stream({
+      provider: 'deepseek-official',
+      model: 'vision',
+      messages: [createUserMessage({
+        content: [{ type: 'image', attachment: stale.attachment }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish' })
+    expect(server.requests).toHaveLength(2)
+    const surviving = await index.get(seedScope, healthy.variantId, Date.now(), 1_000)
+    expect(surviving).toMatchObject({ fileId: 'file-healthy' })
   })
 
   it('keeps the status line when a stale-file rejection carries no message', async () => {
@@ -499,7 +547,6 @@ describe('bounded multi-image requests', () => {
     const adapter = new DeepSeekAdapter({
       options: () => connection,
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
       resolveAttachments: () => attachments,
       resolveFiles: () => files,
     })
@@ -529,7 +576,6 @@ describe('bounded multi-image requests', () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({ baseURL: server.url }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
     })
 
     await expect((async () => {
@@ -557,7 +603,6 @@ describe('bounded multi-image requests', () => {
         models: [{ id: 'bare-model' }],
       }),
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
     })
 
     await expect(adapter.listModels('deepseek-official')).resolves.toEqual([
@@ -582,7 +627,6 @@ describe('bounded multi-image requests', () => {
     const adapter = new DeepSeekAdapter({
       options: () => connection,
       resolveApiKey: () => Promise.resolve('test-key'),
-      resolveUserId: () => TEST_USER_ID,
       resolveAttachments: () => attachments,
     })
 

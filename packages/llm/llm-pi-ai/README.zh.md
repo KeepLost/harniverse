@@ -81,7 +81,7 @@
 
 ## Catalog 解析
 
-profile 的 `models` 列表是*替换*该路由已安装 catalog，而不是扩充它；省略它（或留空）则原样服务该 catalog。每个条目都会从同 `id` 的已安装模型继承自身未设置的字段，因此把 catalog 路由收窄到两个模型、更正某个容量，或加入一个比已安装 catalog 更新的模型，都是一行编辑——但一旦声明了 `models` 列表，该路由要继续服务的每个模型就都必须出现在其中，条目哪怕只写一个 `id` 也足够。可配置的条目字段是 `id`、`name`、`api`、`contextWindow`、`maxTokens`、`input`、`reasoningEfforts`、`defaultReasoningEffort` 与 `compat`。定价沿用已安装条目或直接缺席；`input` 声明端点接受的请求模态，而图像准入门（`read_image`、含图消息预检）读的正是这份声明。
+profile 的 `models` 列表是*替换*该路由已安装 catalog，而不是扩充它；省略它（或留空）则原样服务该 catalog。每个条目都会从同 `id` 的已安装模型继承自身未设置的字段，因此把 catalog 路由收窄到两个模型、更正某个容量，或加入一个比已安装 catalog 更新的模型，都是一行编辑——但一旦声明了 `models` 列表，该路由要继续服务的每个模型就都必须出现在其中，条目哪怕只写一个 `id` 也足够。可配置的条目字段是 `id`、`name`、`api`、`contextWindow`、`maxTokens`、`input`、`reasoningEfforts`、`defaultReasoningEffort`、`compat`、`imageMaxBytes` 与 `imagePixelBudget`。定价沿用已安装条目或直接缺席；`input` 声明端点接受的请求模态，而图像准入门（`read_image`、含图消息预检）读的正是这份声明。请求图像不再以存储原件发送：分派时会按所路由模型的预算投影每一张——`imagePixelBudget` 总像素（保持纵横比，`'low'` 即 512² 低细节预算）、`imageMaxBytes` 投影后的编码字节——默认 2048² 像素与 1 MiB，与 `llm-deepseek` 的默认值相同。
 
 `modelOverrides` 无需这份代价就能就地重塑单个已安装 catalog 模型：每个键是一个 catalog 模型 id，每个值可写 `models` 条目接受的同一批字段，只是 id 落在键上，而 catalog 的其余部分原样继续服务——「改一个模型、其余三十七个原样保留」只是一次三行编辑。一条覆盖会成为该 catalog 条目的配置，因此容量、档位、协议与 compat 沿与 `models` 条目相同的路径解析，携带相同的诊断与相同的请求默认值语义。覆盖只在正服务自身 catalog 的 catalog 路由上才有意义：与 `models` 列表并存的一份（该列表本就替换了 catalog）、落在手工声明路由上的一份（其模型已在 `models` 中完整写出），或点名了 catalog 未描述模型的一份，都会被拒绝而非跳过，因为一个静默保持原样的模型，就是一个否则要有人费力追查的笔误。
 

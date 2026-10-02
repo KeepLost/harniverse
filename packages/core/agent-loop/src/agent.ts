@@ -20,6 +20,7 @@ import type { GenerateOptions, LlmCallConfig, LlmWireAttempt, Message, PreparedL
 import {
   BlockAssembler,
   LlmError,
+  assertNever,
   createAssistantMessage,
   deepFreeze,
   errorChain,
@@ -28,7 +29,7 @@ import {
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
-import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
+import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type { Context } from '@deepseek-ai/cordis'
@@ -57,6 +58,31 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
   if (header.adapterDefaults.reasoningEffort === true) delete proposal.reasoningEffort
   if (header.adapterDefaults.maxTokens === true) delete proposal.maxTokens
   return proposal
+}
+
+/**
+ * Read the cause {@link ReactLoopAgent.cancel} aborted a loop-owned signal
+ * with, copying the fields `turn/end` records. The live reason stays the
+ * caller's object, and Node's fetch assigns a `stack` onto it that
+ * `Session.append` would either log or reject as data JSON cannot hold.
+ * @param signal - a turn or maintenance signal this loop owns.
+ * @returns the copied cause, or undefined while the signal is still live.
+ */
+function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
+  if (!signal.aborted) return undefined
+  // `cancel()` is the only aborter of the signals this loop owns.
+  const cause = signal.reason as AgentCancelCause
+  switch (cause.kind) {
+    case 'user':
+    case 'parent':
+    case 'disposed':
+      return { kind: cause.kind }
+    case 'hook':
+      return { kind: 'hook', reason: cause.reason }
+    /* v8 ignore next -- cancel accepts the closed AgentCancelCause union */
+    default:
+      return assertNever(cause)
+  }
 }
 
 /** Drives one session through turn and step boundaries. */
@@ -190,7 +216,7 @@ export class ReactLoopAgent implements Agent {
       // Maintenance and aborted drivers cannot deliver the wake: latch it for
       // replay at convergence. Live drivers claim queued work themselves;
       // disposal never latches, so teardown waits on no model turn.
-      const reason = this.phase.abort.signal.reason as AgentCancelCause | undefined
+      const reason = abortedCancelCause(this.phase.abort.signal)
       if (reason?.kind !== 'disposed' && (this.phase.kind === 'maintenance' || wakeAfterAbort)) {
         this.phase.wakeRequested = true
       }
@@ -292,6 +318,10 @@ export class ReactLoopAgent implements Agent {
         signal.throwIfAborted()
         this.session.append('step/start', { turn, step })
         phase.step = step
+        const toolRecovery = new ToolCallRecovery()
+        const stopRecovery = this.ctx.on('session/event', (session, event) => {
+          if (session === this.session) toolRecovery.observe(event)
+        })
         try {
           for (const message of decision.messages) {
             if (message.source.kind === 'user' && message.source.files !== undefined && message.source.files.length > 0) {
@@ -305,7 +335,20 @@ export class ReactLoopAgent implements Agent {
           // max-tokens stays sticky: a later completed step must not
           // downgrade the turn outcome.
           if (turnEnds === null || turnEnds.kind !== 'max-tokens') turnEnds = stepEnd
+        } catch (error: unknown) {
+          try {
+            for (const event of toolRecovery.results()) {
+              this.session.append('tool/result', event.data, {
+                surfaceOp: 'append',
+                ...event.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: event.sourceEventSeqs },
+              })
+            }
+          } catch (recoveryError: unknown) {
+            throw new AggregateError([error, recoveryError], 'Step failed and its pending tool results could not be recorded', { cause: error })
+          }
+          throw error
         } finally {
+          stopRecovery()
           this.session.append('step/end', { turn, step })
         }
         signal.throwIfAborted()
@@ -317,8 +360,10 @@ export class ReactLoopAgent implements Agent {
         target = 'next-step'
       }
     } catch (error: unknown) {
-      if (signal.aborted) {
-        turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
+      // A cause is present exactly while the signal is aborted.
+      const cause = abortedCancelCause(signal)
+      if (cause !== undefined) {
+        turnEnds = { kind: 'aborted', reason: cause }
         throw error
       }
       // Every failure is structured: an `LlmError` keeps its facts, anything

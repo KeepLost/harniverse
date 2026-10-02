@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
-import { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '../src/index.ts'
+import { interruptedTurnClosers, ToolCallRecovery, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '../src/index.ts'
 import type { SessionEvent, SurfaceEvent } from '../src/index.ts'
 
 /**
@@ -271,5 +271,11 @@ describe('interruptedTurnClosers', () => {
     const closers = interruptedTurnClosers(events)
     // No pending calls → no synthetic tool/result, just step/end + turn/end.
     expect(closers.map(e => e.type)).toEqual(['step/end', 'turn/end'])
+  })
+})
+
+describe('ToolCallRecovery', () => {
+  it('results() returns nothing before any event is observed', () => {
+    expect(new ToolCallRecovery().results()).toEqual([])
   })
 })

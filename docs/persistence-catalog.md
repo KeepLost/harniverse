@@ -410,7 +410,7 @@ Source: [`packages/deliverables/tool-present/src/types.ts:15`](../packages/deliv
 'feedback/record': { text: string }
 ```
 
-Source: [`packages/feedback/command-feedback/src/index.ts:62`](../packages/feedback/command-feedback/src/index.ts)
+Source: [`packages/feedback/command-feedback/src/index.ts:24`](../packages/feedback/command-feedback/src/index.ts)
 
 ### `goal/*`
 

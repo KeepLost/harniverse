@@ -1,6 +1,3 @@
 - id: skill-filesystem
   config:
     watch: false
-
-- id: session-telemetry-otel
-  disabled: true

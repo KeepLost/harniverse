@@ -177,6 +177,48 @@ describe('DeepSeek Files API client', () => {
     await expect(malformed.list()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
   })
 
+  it('classifies a successful response whose body is not JSON', async () => {
+    const html = new DeepSeekFilesClient({
+      baseURL: 'https://example.test',
+      apiKey: 'secret',
+      protocol: 'chat-completions',
+      fetch: async () => new Response('<html>gateway page</html>', { status: 200 }),
+    })
+    for (const operation of [
+      () => html.upload({
+        data: Uint8Array.of(1), filename: 'a.png', mediaType: 'image/png', expiresAfterSeconds: 3_600,
+      }),
+      () => html.list(),
+      () => html.retrieve(DeepSeekFileId('file-m1')),
+      () => html.delete(DeepSeekFileId('file-m1')),
+    ]) {
+      // Body decoding is distinguished from metadata validation: the failure
+      // names the operation and retains the HTTP status and cause.
+      await expect(operation()).rejects.toMatchObject({
+        code: 'INVALID_RESPONSE',
+        failure: {
+          status: 200,
+          message: expect.stringContaining('invalid JSON') as unknown as string,
+        },
+      })
+    }
+  })
+
+  it('retains the identity of a body transport failure', async () => {
+    const failure = new TypeError('socket died')
+    const broken = new DeepSeekFilesClient({
+      baseURL: 'https://example.test',
+      apiKey: 'secret',
+      protocol: 'chat-completions',
+      fetch: async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.error(failure) },
+      }), { status: 200 }),
+    })
+
+    // A failing body stream is a transport fact, not malformed provider JSON.
+    await expect(broken.list()).rejects.toBe(failure)
+  })
+
   describe('provider status classification', () => {
     /** A client whose every request fails with one provider status and body. */
     function failing(status: number, body: unknown = { error: { message: 'refused' } }) {

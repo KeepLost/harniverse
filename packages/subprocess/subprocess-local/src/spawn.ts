@@ -19,7 +19,8 @@ import type {
   SubprocessOutputMode,
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
-import { OutputCollector, privateSpillDir } from './output.ts'
+import { OutputCollector, privateSpillDir, reportSpillFailureToStderr } from './output.ts'
+import type { SpillFailureReporter } from './output.ts'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
 import { taskkillTree } from './windows-inspector.ts'
 
@@ -58,6 +59,8 @@ export interface SpawnInternals {
   spawn?: SpawnProcess
   /** Directory for spill files (defaults to the OS temp dir). */
   spillDir?: string
+  /** Receives spill open/write failures; the runtime supplies its plugin logger, bare callers get a stderr line. */
+  onSpillFailure?: SpillFailureReporter
   /** Windows tree-termination runner (defaults to `taskkill /PID <pid> /T /F`). */
   taskkill?: (pid: number) => void
   /** Host platform override for signalling decisions. */
@@ -164,6 +167,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   const spillDir = internals.spillDir ?? privateSpillDir()
+  const onSpillFailure = internals.onSpillFailure ?? reportSpillFailureToStderr
   const platform = internals.platform ?? process.platform
   const spawnProcess = internals.spawn ?? spawn
   const taskkill = internals.taskkill ?? taskkillProcessTree
@@ -200,7 +204,11 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
 
   const collectStream = (mode: SubprocessOutputMode, stream: Readable | null, label: string): OutputCollector | undefined => {
     if (!isCollect(mode) || stream === null) return undefined
-    const collector = new OutputCollector(mode.maxBytes, mode.spill?.maxBytes, label, spillDir)
+    const collector = new OutputCollector(
+      mode.maxBytes,
+      label,
+      mode.spill === undefined ? undefined : { maxBytes: mode.spill.maxBytes, dir: spillDir, onFailure: onSpillFailure },
+    )
     stream.on('data', (chunk: Buffer) => { collector.push(chunk) })
     return collector
   }
