@@ -28,11 +28,21 @@ Each settled image's token cost is replaced by the stub's short text cost; nothi
 
 #### KV Cache effect
 
-Stubs replace images in place without shifting any other block, so the request prefix up to the first settled image stays reusable; reuse invalidates only from the first replaced position, exactly like any other committed history edit. A `modality` settlement deliberately ignores this prefix stability on its first request: the route's model changed, so the provider prefix is already cold.
+Stubs replace images in place without shifting any other block, so the request prefix up to the first settled image stays reusable; reuse invalidates only from the first replaced position, exactly like any other committed history edit.
 
 ### Modality settlement on text-only routes
 
+#### What the model sees
+
 When the config the whole `agent/request` waterfall settled on routes to a model whose resolved `inputModalities` exclude `image` (unknown modalities or a missing llm/attachment service skip the settlement silently, leaving the adapter's own image guard as the loud safety net), every still-active occurrence settles at once with reason `modality`. Each minted stub is formatted like the attachment service's file handle — name, size, digest prefix, and a read-only hard-link path — and states that the current model cannot view images; the stub text rides the durable decision and replays verbatim, because the minted path is machine-local. Images produced later in the same session settle at the next request boundary the same way. Switching back to a vision model keeps the stubs (model-visible ⇔ logged); the model re-views an image through `read_image` on the named path.
+
+#### Token effect
+
+Each settled image's token cost is replaced by the short stub's text cost; the path-bearing stub is a few lines longer than the constant one.
+
+#### KV Cache effect
+
+The settlement deliberately ignores prefix stability on its first request: the route's model changed, so the provider prefix is already cold.
 
 ## Known Limitations and Deferred Work
 

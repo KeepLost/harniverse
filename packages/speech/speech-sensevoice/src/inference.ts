@@ -89,7 +89,17 @@ export function senseVoiceLanguage(language: string | undefined): string {
  * @param binding - already-loaded native binding.
  * @returns the transcriber: WAV bytes plus a language hint in, text out.
  */
-export function createTranscriber(files: InferenceFiles, options: InferenceOptions, binding: SherpaBinding) {
+/** The transcriber closure returned by {@link createTranscriber}. */
+export type SpeechTranscriber = (wav: Uint8Array, language: string | undefined) => { text: string; audioSeconds: number }
+
+/**
+ * Build the transcriber closure over already-validated inference files.
+ * @param files - absolute asset paths from a completed preparation.
+ * @param options - CPU/VAD limits.
+ * @param binding - already-loaded native binding.
+ * @returns the transcriber: WAV bytes plus a language hint in, text out.
+ */
+export function createTranscriber(files: InferenceFiles, options: InferenceOptions, binding: SherpaBinding): SpeechTranscriber {
   const nativeConfig = {
     featConfig: { sampleRate: 16_000, featureDim: 80 },
     modelConfig: {

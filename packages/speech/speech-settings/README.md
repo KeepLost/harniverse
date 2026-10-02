@@ -20,11 +20,19 @@ The web client reaches this namespace through `settings.describe` / `settings.mu
 
 ## Model Experience
 
-None; preferences never enter a model request.
+### Recognizer preference persistence
+
+#### What the model sees
+
+The namespace stores which `recognizer` answers `speech.transcribe`; the model never reads the setting.
+
+#### Token effect
+
+None; the recognizer contributes no tokens — only its returned text can reach a draft.
 
 #### KV Cache effect
 
-None.
+None; the package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 

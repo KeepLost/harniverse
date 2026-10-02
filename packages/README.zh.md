@@ -28,12 +28,12 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`skill/`](skill/README.md) | skill（技能）能力系列：提供方注册表、本地提供方和面向模型的目录／loader | 产品：稳定 API |
 | [`compaction/`](compaction/README.md) | 压缩（compaction）能力系列：Definition、Provider、全局设置与用户／模型 Consumer | 产品：稳定 API |
 | [`context/`](context/README.md) | 模型可见请求上下文，包括 workspace 指令和时间上下文 | 产品：稳定 API |
-| [`subagent/`](subagent/README.md) | subagent 能力系列：提供方注册表约定和面向模型的委托工具 | 产品：稳定 API |
-| [`jobs/`](jobs/README.md) | 通用后台任务运行时和面向模型的 `job_*` 控制工具 | 产品：稳定 API |
-| [`speech/`](speech/README.md) | 语音输入：识别器 seam、本机 SenseVoice 与 OpenAI 兼容云端提供方、设置命名空间 | 产品：稳定 API |
+| [`subagent/`](subagent/README.md) | subagent 能力系列与面向模型的委托工具 | 产品：稳定 API |
+| [`jobs/`](jobs/README.md) | 后台任务运行时与模型可见 `job_*` 工具 | 产品：稳定 API |
+| [`speech/`](speech/README.md) | 语音输入：识别器 seam 与提供方 | 产品：稳定 API |
 | [`workflow/`](workflow/README.md) | 工作流 seam、worker 线程引擎和面向模型的 `workflow`/`ralph` 工具 | 产品：稳定 API |
 | [`notification/`](notification/README.md) | 带版本的外发生命周期事件和显式投递后端 | 产品：稳定 API |
-| [`web/`](web/README.md) | Web 能力系列：seam、搜索／获取提供方实现和面向模型的 Web 工具 | 产品：稳定 API |
+| [`web/`](web/README.md) | Web 能力系列与面向模型的 Web 工具 | 产品：稳定 API |
 | [`attachment/`](attachment/README.md) | 持久附件标识、校验、本地内容寻址存储 | 产品：稳定 API |
 | [`spill/`](spill/README.md) | spill 能力系列：存储 seam、本地实现、工具结果 spill 策略 | 产品：稳定 API |
 | [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定 API |

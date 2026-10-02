@@ -16,7 +16,15 @@
 
 ## Model Experience
 
-间接生效：转写结果成为用户审阅后发送的普通输入框草稿文本；本包不新增任何提示词内容或会话事件。
+### 语音转写即草稿文本
+
+#### What the model sees
+
+`speech.transcribe` 的转写结果成为用户审阅后发送的普通输入框草稿文本；本包不新增任何提示词内容或会话事件。
+
+#### Token effect
+
+无；除用户选择发送的草稿文本外，本包不产生任何 token。
 
 #### KV Cache effect
 

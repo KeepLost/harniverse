@@ -71,7 +71,11 @@ export interface AssetManifest {
   }
 }
 
-/** The pinned manifest for one precision variant. */
+/**
+ * The pinned manifest for one precision variant.
+ * @param variant - int8 or fp32 asset selection.
+ * @returns the pinned model, tokens, and VAD assets with sizes and digests.
+ */
 export function pinnedManifest(variant: SenseVoiceVariant): AssetManifest {
   return {
     version: ASSET_MANIFEST_VERSION,

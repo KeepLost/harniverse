@@ -16,7 +16,15 @@ Recognizer selection (`off` / SenseVoice local / OpenAI-compatible cloud), langu
 
 ## Model Experience
 
-Indirectly: a transcript becomes ordinary composer draft text the user reviews and sends; nothing here adds prompt content or session events of its own.
+### Voice transcripts as draft text
+
+#### What the model sees
+
+A transcript of `speech.transcribe` becomes ordinary composer draft text the user reviews and sends; nothing here adds prompt content or session events of its own.
+
+#### Token effect
+
+None; the package produces no tokens of its own beyond the draft text the user chooses to send.
 
 #### KV Cache effect
 

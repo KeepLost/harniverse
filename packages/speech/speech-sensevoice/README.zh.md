@@ -18,11 +18,19 @@
 
 ## Model Experience
 
-间接生效，经由 `speech.transcribe` Remote 方法与输入框麦克风控件；转写结果是普通草稿文本。
+### 本地转写结果
+
+#### What the model sees
+
+离线 SenseVoice 推理经 `speech` 缝返回纯文本；不直接进入任何模型请求。
+
+#### Token effect
+
+无；识别器不贡献任何 token——只有其返回文本可能进入草稿。
 
 #### KV Cache effect
 
-无；识别不进入模型请求。
+无；本包不组装也不发送提供方请求。
 
 ## Known Limitations and Deferred Work
 

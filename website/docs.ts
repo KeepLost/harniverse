@@ -289,6 +289,7 @@ const subsystemGroups = [
     ['web.md', 'Web 访问', 'Web access'],
     ['skills.md', '技能', 'Skills'],
     ['workflow.md', '工作流', 'Workflows'],
+    ['speech.md', '语音输入', 'Speech input'],
     ['subagent.md', '子代理', 'Subagents'],
   ]],
   ['策略与交互', 'Policy and interaction', [

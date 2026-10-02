@@ -203,7 +203,7 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
     },
     "timeoutMs": {
       "type": "number",
-      "description": "Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry."
+      "description": "Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command keeps running as a background job and this call returns its job id (unless promoteOnTimeout is disabled, which kills it)."
     },
     "workdir": {
       "type": "string",
@@ -2211,6 +2211,10 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
       "type": "object",
       "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
       "additionalProperties": true
+    },
+    "run_in_background": {
+      "type": "boolean",
+      "description": "Register the run as a workflow job and return its ids immediately; collect output with job_output and stop with job_kill. The parent turn does not wait for the script."
     }
   },
   "required": [

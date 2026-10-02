@@ -17,11 +17,19 @@
 
 ## Model Experience
 
-间接生效，经由输入框麦克风控件（[`dsh-client-ui-voice-input`](../../client/ui-voice-input/README.md)）与 API 网关的 `speech.transcribe` / `speech.prepare` Remote 方法：转写结果成为普通输入框草稿文本，本包不新增任何提示词内容或会话事件。
+### 缝自有转写契约
+
+#### What the model sees
+
+`ctx.speech.transcribe` 返回解析出的识别器的纯文本；调用方决定去向，缝本身不添加任何提示词内容。
+
+#### Token effect
+
+无；缝不贡献任何 token——只有返回文本可能进入调用方草稿。
 
 #### KV Cache effect
 
-无；转写不直接进入模型请求。
+无；缝不组装也不发送提供方请求。
 
 ## Known Limitations and Deferred Work
 

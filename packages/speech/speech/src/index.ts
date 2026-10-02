@@ -74,7 +74,10 @@ export class SpeechService extends Service {
     return () => { void dispose() }
   }
 
-  /** @returns every registered recognizer in registration order. */
+  /**
+   * List every registered recognizer.
+   * @returns every registered recognizer in registration order.
+   */
   listRecognizers(): readonly SpeechRecognizer[] {
     return [...this.recognizers.values()]
   }
@@ -97,7 +100,10 @@ export class SpeechService extends Service {
     this.preferences = preferences
   }
 
-  /** @returns the current resolved preferences (defaults while no bridge is loaded). */
+  /**
+   * Read the current resolved preferences.
+   * @returns the current resolved preferences (defaults while no bridge is loaded).
+   */
   currentPreferences(): SpeechPreferences {
     return this.preferences
   }

@@ -17,11 +17,19 @@ Shipped recognizers: [`@deepseek-ai/dsh-speech-sensevoice`](../speech-sensevoice
 
 ## Model Experience
 
-Indirectly, through the composer microphone control ([`dsh-client-ui-voice-input`](../../client/ui-voice-input/README.md)) and the `speech.transcribe` / `speech.prepare` Remote methods in the API gateway: a transcript becomes ordinary composer draft text, and nothing here adds prompt content or session events of its own.
+### Seam-owned transcription contract
+
+#### What the model sees
+
+`ctx.speech.transcribe` returns plain text from the resolved recognizer; the caller decides where it lands, and the seam adds no prompt content of its own.
+
+#### Token effect
+
+None; the seam contributes no tokens — only returned text can reach a caller's draft.
 
 #### KV Cache effect
 
-None; transcription never enters a model request directly.
+None; the seam neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 

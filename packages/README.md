@@ -28,12 +28,12 @@ Groups hold `packages/<group>/<pkg>/`; names stay `@deepseek-ai/dsh-<pkg>`. **Gr
 | [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable API |
 | [`compaction/`](compaction/README.md) | Compaction capability family: Definition, Providers, global settings, and human/model Consumers | Product — stable API |
 | [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable API |
-| [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry contract and the model-facing delegation tool | Product — stable API |
-| [`jobs/`](jobs/README.md) | Generic background-job runtime and model-facing `job_*` control tools | Product — stable API |
-| [`speech/`](speech/README.md) | Voice input: recognizer seam, local SenseVoice and OpenAI-compatible cloud providers, settings namespace | Product — stable API |
+| [`subagent/`](subagent/README.md) | Subagent capability family and delegation tool | Product — stable API |
+| [`jobs/`](jobs/README.md) | Background-job runtime and model-facing `job_*` tools | Product — stable API |
+| [`speech/`](speech/README.md) | Voice input: recognizer seam and providers | Product — stable API |
 | [`workflow/`](workflow/README.md) | Workflow seam, worker-thread engine, and model-facing `workflow`/`ralph` tools | Product — stable API |
-| [`notification/`](notification/README.md) | Versioned outbound lifecycle events and explicit delivery backends | Product — stable API |
-| [`web/`](web/README.md) | Web capability family: seam, search/fetch provider impls, and the model-facing web tools | Product — stable API |
+| [`notification/`](notification/README.md) | Versioned outbound lifecycle events, delivery backends | Product — stable API |
+| [`web/`](web/README.md) | Web capability family and model-facing web tools | Product — stable API |
 | [`attachment/`](attachment/README.md) | Durable attachment identity, validation, local content-addressed storage | Product — stable API |
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable API |
 | [`todo/`](todo/README.md) | The model-facing `todo_write` tool | Product — stable API |

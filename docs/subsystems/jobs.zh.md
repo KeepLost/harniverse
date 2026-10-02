@@ -217,15 +217,27 @@ abstract get(id: JobId, caller?: Agent): JobSnapshot
 abstract read(id: JobId, caller?: Agent): JobRead
 
 /**
- * Request cancellation, then mark the job stopping and reported. A producer
- * throw propagates without changing job state. Throws for an unknown or
- * foreign job.
+ * Non-consumingly read one job's retained output ring. Never marks the job
+ * reported and never disturbs the model's consuming {@link read} cursor;
+ * ideal for a human live viewer. Throws for an unknown or foreign job.
+ * @param id - job to follow.
+ * @param offsetBytes - ring offset to read from (default 0, the start).
+ * @param caller - following agent checked against the owner.
+ * @returns the ring window, the next offset, and the snapshot.
+ */
+abstract follow(id: JobId, offsetBytes?: number, caller?: Agent): JobFollow
+
+/**
+ * Request cancellation, then mark the job stopping and reported unless the
+ * caller passes `{ reported: false }` (a human stop: the ordinary
+ * completion notice still flows). A producer throw propagates without
+ * changing job state. Throws for an unknown or foreign job.
  * @param id - job to cancel.
  * @param caller - killing agent checked against the owner.
- * @param reason - logged reason forwarded to the producer.
+ * @param options - optional reason and report-claim override.
  * @returns `requested` for live work, otherwise `already-finished`.
  */
-abstract kill(id: JobId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
+abstract kill(id: JobId, caller?: Agent, options?: JobKillOptions): 'requested' | 'already-finished'
 
 /**
  * Wait for settlement or timeout without cancelling the job. Caller abort

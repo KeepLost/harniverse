@@ -36,6 +36,12 @@
         "scripts/**/*.ts",
         "scripts/**/*.mjs",
         "scripts/**/*.cjs"
+      ],
+      "ignore": [
+        "packages/speech/speech-sensevoice/tests/real-transcribe.e2e.ts"
+      ],
+      "ignoreDependencies": [
+        "sherpa-onnx-node"
       ]
     },
     "examples": {
@@ -799,12 +805,25 @@
         "tests/**/*.spec.ts",
         "tests/**/*.test.ts"
       ],
-      "project": ["src/**/*.ts", "scripts/**/*.{ts,cjs}", "renderer/*.js", "tests/**/*.ts"]
+      "project": [
+        "src/**/*.ts",
+        "scripts/**/*.{ts,cjs}",
+        "renderer/*.js",
+        "tests/**/*.ts"
+      ]
     },
     "apps/desktop-host": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["@deepseek-ai/dsh"]
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh"
+      ]
     },
     "apps/web": {
       "entry": [

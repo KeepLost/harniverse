@@ -18,11 +18,19 @@ Assets live under `$DSH_HOME/speech/sensevoice/` (`dataRoot` + `sensevoice/`): t
 
 ## Model Experience
 
-Indirectly, through the `speech.transcribe` Remote method and the composer microphone control; transcripts are ordinary draft text.
+### Local transcription results
+
+#### What the model sees
+
+Offline SenseVoice inference returns plain text over the `speech` seam; nothing enters a model request directly.
+
+#### Token effect
+
+None; the recognizer contributes no tokens — only its returned text can reach a draft.
 
 #### KV Cache effect
 
-None; recognition never enters a model request.
+None; the package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
