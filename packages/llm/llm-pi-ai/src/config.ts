@@ -177,6 +177,8 @@ export interface ResolvedPiAiProviderProfile
    * that model starts from.
    */
   configuredDefaultEffort: ReadonlyMap<string, ModelThinkingLevel | 'default'>
+  /** Per-model request-image budgets this profile explicitly configured, by model id. */
+  configuredImageBudgets: ReadonlyMap<string, { maxBytes?: number; pixelBudget?: number | 'low' }>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -233,6 +235,8 @@ const modelFields = {
   name: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
+  imageMaxBytes: z.number().step(1).min(1),
+  imagePixelBudget: z.union([z.number().step(1).min(1), z.const('low')]),
   // No explicit default, unlike the route's `defaultInput`: schemastery
   // materializes `[]` for an absent array, and resolution reads that as "no
   // answer here" so the catalog entry below still applies.
@@ -415,6 +419,7 @@ export function resolveProfiles(
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog.configuredMaxTokens,
       configuredDefaultEffort: catalog.configuredDefaultEffort,
+      configuredImageBudgets: catalog.configuredImageBudgets,
       piProvider: buildProvider({
         provider,
         displayName,

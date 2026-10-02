@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId, AttachmentStore, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
+  ImageRequestPolicy,
+  RequestImageAttachment,
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
@@ -31,6 +33,40 @@ const IMAGE_REF: ImageAttachmentRef = {
   bytes: 1,
   width: 1,
   height: 1,
+}
+
+/** Attachment store stub whose request path always projects IMAGE_REF unchanged. */
+class ProjectingStubStore extends AttachmentStore {
+  readonly imageLimits: ImageAttachmentLimits = {
+    maxImageBytes: 1024,
+    maxImagesPerMessage: 4,
+    maxMessageImageBytes: 4096,
+    maxImagePixels: 1024,
+    mediaTypes: ['image/png'],
+  }
+
+  validateImage(_input: SaveImageAttachment): Promise<void> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  readImageRequest(_value: ImageAttachmentRef): Promise<RequestImageAttachment> {
+    return Promise.resolve({
+      attachment: IMAGE_REF,
+      variantId: ImageVariantId(`sha256:${'e'.repeat(64)}`),
+      data: Uint8Array.of(1),
+      mediaType: IMAGE_REF.mediaType,
+      bytes: 1,
+      width: 1,
+      height: 1,
+      depth: 'uchar',
+      space: 'srgb',
+      hasAlpha: false,
+    })
+  }
 }
 
 async function harness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
@@ -295,6 +331,82 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/v1/responses'])
   })
 
+  it('projects request images through readImageRequest with per-model budgets', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ref: ImageAttachmentRef = {
+      attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+      mediaType: 'image/png',
+      bytes: 4096,
+      width: 4096,
+      height: 4096,
+    }
+    const policies: ImageRequestPolicy[] = []
+    class ProjectingStore extends AttachmentStore {
+      readonly imageLimits: ImageAttachmentLimits = {
+        maxImageBytes: 5 * 1024 * 1024,
+        maxImagesPerMessage: 20,
+        maxMessageImageBytes: 20 * 5 * 1024 * 1024,
+        maxImagePixels: 40 * 1000 * 1000,
+        mediaTypes: ['image/png'],
+      }
+
+      validateImage(_input: SaveImageAttachment): Promise<void> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
+        throw new Error('request dispatch must not read the stored original')
+      }
+
+      readImageRequest(value: ImageAttachmentRef, policy: ImageRequestPolicy): Promise<RequestImageAttachment> {
+        policies.push(policy)
+        return Promise.resolve({
+          attachment: value,
+          variantId: ImageVariantId(`sha256:${'d'.repeat(64)}`),
+          data: Uint8Array.of(7, 7, 7),
+          mediaType: 'image/png',
+          bytes: 3,
+          width: 4,
+          height: 4,
+          depth: 'uchar',
+          space: 'srgb',
+          hasAlpha: false,
+        })
+      }
+    }
+
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        openai: {
+          apiKeyEnv: 'PI_TEST_KEY',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'gpt-vision', api: 'openai-completions', input: ['text', 'image'], imageMaxBytes: 2048, imagePixelBudget: 'low' }],
+        },
+      },
+    })
+    await ctx.plugin(ProjectingStore)
+
+    const result = await assemble(ctx, {
+      provider: 'openai',
+      model: 'gpt-vision',
+      messages: [createUserMessage({
+        content: [{ type: 'image', attachment: ref }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
+
+    expect(result.finish.kind).toBe('stop')
+    expect(policies).toEqual([{ maxPixels: 512 * 512, maxBytes: 2048 }])
+    expect(JSON.stringify(server.requests[0])).toContain('BwcH')
+    expect(JSON.stringify(server.requests[0])).not.toContain('readImage')
+  })
+
   it('resolves an attachment service mounted after the adapter when dispatching an image', async () => {
     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
     const attachmentId = AttachmentId(`sha256:${'a'.repeat(64)}`)
@@ -305,8 +417,19 @@ describe('PiAiAdapter provider routing', () => {
       width: 1,
       height: 1,
     }
-    const readImage = vi.fn((_ref: ImageAttachmentRef): Promise<StoredImageAttachment> =>
-      Promise.resolve({ ref, data: Uint8Array.of(1) }))
+    const readImageRequest = vi.fn((_ref: ImageAttachmentRef): Promise<RequestImageAttachment> =>
+      Promise.resolve({
+        attachment: ref,
+        variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+        data: Uint8Array.of(1),
+        mediaType: ref.mediaType,
+        bytes: 1,
+        width: 1,
+        height: 1,
+        depth: 'uchar',
+        space: 'srgb',
+        hasAlpha: false,
+      }))
 
     class LateAttachmentStore extends AttachmentStore {
       readonly imageLimits: ImageAttachmentLimits = {
@@ -325,8 +448,8 @@ describe('PiAiAdapter provider routing', () => {
         return Promise.reject(new Error('not used'))
       }
 
-      readImage(value: ImageAttachmentRef): Promise<StoredImageAttachment> {
-        return readImage(value)
+      readImageRequest(value: ImageAttachmentRef, policy: ImageRequestPolicy): Promise<RequestImageAttachment> {
+        return readImageRequest(value, policy)
       }
     }
 
@@ -347,7 +470,7 @@ describe('PiAiAdapter provider routing', () => {
     })
 
     expect(result.finish.kind).toBe('error')
-    expect(readImage).toHaveBeenCalledWith(ref)
+    expect(readImageRequest).toHaveBeenCalledWith(ref, expect.anything())
     expect(server.paths).toEqual(['/v1/responses'])
   })
 
@@ -1397,27 +1520,7 @@ describe('PiAiAdapter wire and replay boundaries', () => {
 
   it('converts an image request with no replay observer installed', async () => {
     const server = await mockServer([{ events: textEvents }])
-    class PlainAttachmentStore extends AttachmentStore {
-      readonly imageLimits: ImageAttachmentLimits = {
-        maxImageBytes: 1024,
-        maxImagesPerMessage: 4,
-        maxMessageImageBytes: 4096,
-        maxImagePixels: 1024,
-        mediaTypes: ['image/png'],
-      }
-
-      validateImage(_input: SaveImageAttachment): Promise<void> {
-        return Promise.reject(new Error('not used'))
-      }
-
-      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
-        return Promise.reject(new Error('not used'))
-      }
-
-      readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
-        return Promise.resolve({ ref: IMAGE_REF, data: Uint8Array.of(1) })
-      }
-    }
+    class PlainAttachmentStore extends ProjectingStubStore {}
     const storeCtx = new Context()
     await storeCtx.plugin(PlainAttachmentStore)
     // No `onReplayDegrade`, so the attachment-resolving conversion is handed no
@@ -1444,27 +1547,7 @@ describe('PiAiAdapter wire and replay boundaries', () => {
   it('reports an unusable replay state on the image-bearing path too', async () => {
     const server = await mockServer([{ events: textEvents }])
     const degrades: { provider: string; model: string; reason: string }[] = []
-    class DegradeAttachmentStore extends AttachmentStore {
-      readonly imageLimits: ImageAttachmentLimits = {
-        maxImageBytes: 1024,
-        maxImagesPerMessage: 4,
-        maxMessageImageBytes: 4096,
-        maxImagePixels: 1024,
-        mediaTypes: ['image/png'],
-      }
-
-      validateImage(_input: SaveImageAttachment): Promise<void> {
-        return Promise.reject(new Error('not used'))
-      }
-
-      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
-        return Promise.reject(new Error('not used'))
-      }
-
-      readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
-        return Promise.resolve({ ref: IMAGE_REF, data: Uint8Array.of(1) })
-      }
-    }
+    class DegradeAttachmentStore extends ProjectingStubStore {}
     const storeCtx = new Context()
     await storeCtx.plugin(DegradeAttachmentStore)
     const adapter = new PiAiAdapter({

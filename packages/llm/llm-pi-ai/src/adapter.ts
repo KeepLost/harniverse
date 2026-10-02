@@ -54,6 +54,7 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import type { ImageRequestPolicy } from '@deepseek-ai/dsh-attachment'
 import { piStreamOptions } from './request-options.ts'
 import { toStreamChunks } from './stream.ts'
 
@@ -505,6 +506,13 @@ export class PiAiAdapter extends LlmAdapter {
       if (containsImage && attachments === undefined) {
         throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
       }
+      // Request images project under this model's configured budgets, falling
+      // back to the shared defaults (2048² pixels, 1 MiB; 512² low detail).
+      const budget = profile.configuredImageBudgets.get(options.model)
+      const imagePolicy: ImageRequestPolicy = {
+        maxPixels: budget?.pixelBudget === 'low' ? 512 * 512 : budget?.pixelBudget ?? 2_048 * 2_048,
+        maxBytes: budget?.maxBytes ?? 1024 * 1024,
+      }
       const context = attachments === undefined
         ? toPiContext(options, this.config.onReplayDegrade === undefined ? undefined : (reason) => {
           this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
@@ -512,6 +520,7 @@ export class PiAiAdapter extends LlmAdapter {
         : await toPiContext(
           options,
           attachments,
+          imagePolicy,
           this.config.onReplayDegrade === undefined ? undefined : (reason) => {
             this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
           },
