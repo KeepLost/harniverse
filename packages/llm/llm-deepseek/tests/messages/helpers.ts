@@ -5,14 +5,12 @@ import type { IncomingHttpHeaders, Server, ServerResponse } from 'node:http'
 import { once } from 'node:events'
 import { BlockAssembler, createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import { resolveAdapterOptions } from '../../src/index.ts'
 import type { Config } from '../../src/index.ts'
 import { DeepSeekMessagesAdapter } from '../../src/protocols/messages/adapter.ts'
 import { DeepSeekFileStore } from '../../src/common/file-store.ts'
 import { object } from '../../src/protocols/messages/replay.ts'
 
-export const TEST_USER_ID = '00000000-0000-4000-8000-000000000001' as AnonymousUserId
 export const MODEL = 'deepseek-flash'
 export const user = (text = 'hello') => createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
 export const options = (overrides: Partial<GenerateOptions> = {}): GenerateOptions => ({ provider: 'deepseek-official', model: MODEL, messages: [user()], ...overrides })
@@ -43,7 +41,6 @@ export function messagesAdapter(config: Partial<Config> = {}) {
   return new DeepSeekMessagesAdapter({
     options: () => resolveAdapterOptions({ protocol: 'messages', ...config }),
     resolveApiKey: () => Promise.resolve('test-key'),
-    resolveUserId: () => TEST_USER_ID,
     resolveAttachments: () => undefined,
   }, new DeepSeekFileStore())
 }

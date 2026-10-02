@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-07-31-web-telemetry-default-mount.zh.md)
 
+Session telemetry was later retired wholesale; see the [telemetry retirement note](2026-10-02-telemetry-retirement.md).
+
 ## Problem
 
 The telemetry seam and OTel backend ([revival Note](2026-07-23-session-telemetry-otel-revival.md)) had never been wired into any deployment composition since completion: no roster row, no switch, no cadence ruling, and zero observability over user sessions for the internal deployment. A deployment decision was needed: which surfaces report, to where, on what cadence, how to opt out, and how CI stays isolated.

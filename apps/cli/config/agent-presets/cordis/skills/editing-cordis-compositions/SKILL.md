@@ -17,7 +17,7 @@ To change what a shipped preset does, copy it and edit the copy. Locally authore
 
 Two planes, and the choice is not about how "agent-related" something feels — it is about whether the thing must be shared.
 
-**Host composition.** The registries themselves (`tools`, `systemPrompt`, `agents`, `agent-loop`, `sessions`), anything crossing sessions (persistence, session query, storage, settings, credentials, telemetry), the sandbox and approval stack, the model route, and the subagent registry with its spawn/fork backends. One instance for the process.
+**Host composition.** The registries themselves (`tools`, `systemPrompt`, `agents`, `agent-loop`, `sessions`), anything crossing sessions (persistence, session query, storage, settings, credentials), the sandbox and approval stack, the model route, and the subagent registry with its spawn/fork backends. One instance for the process.
 
 **Agent preset.** What one session contributes to those registries: its tool plugins, its persona and prompt sections, its compaction policy. One instance per session, mounted under that session's scope and unwound with it.
 

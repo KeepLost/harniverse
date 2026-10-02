@@ -3,7 +3,6 @@
 import type { ModelModality, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
-import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import type { DeepSeekFileStore } from './file-store.ts'
 
 /** Supported wire implementations. */
@@ -101,8 +100,6 @@ export interface DeepSeekAdapterOptions {
    * `MISSING_CREDENTIAL` when no key is available anywhere.
    */
   resolveApiKey: (connection: DeepSeekConnectionOptions) => Promise<string>
-  /** Resolve the harness-home anonymous id shared with telemetry and feedback. */
-  resolveUserId: () => AnonymousUserId
   /** Resolve durable attachments only for image-bearing requests. */
   resolveAttachments?: () => AttachmentStore | undefined
   /** Resolve the provider-local remote file cache. */

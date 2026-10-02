@@ -56,7 +56,7 @@ it.skipIf(artifact === undefined)('boots the deployed closure with plain Node, r
       } finally { await second.fiber.dispose(); }
     `], {
       cwd: join(directory, 'app'), timeout: 60_000,
-      env: { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1', NODE_OPTIONS: '', NODE_PATH: '' },
+      env: { ...process.env, DSH_HOME: home, NODE_OPTIONS: '', NODE_PATH: '' },
       maxBuffer: 1024 * 1024,
     })
     expect(stdout).toContain('REMOTE_BUILT_SMOKE_OK')

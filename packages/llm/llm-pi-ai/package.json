@@ -55,7 +55,6 @@
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-http-proxy": "workspace:^",
-    "@earendil-works/pi-ai": "^0.87.1"
+    "@deepseek-ai/dsh-http-proxy": "workspace:^"
   }
 }

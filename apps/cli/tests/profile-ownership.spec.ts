@@ -70,7 +70,6 @@ async function invoke(home: string, args: string[]) {
     env: {
       DSH_HOME: home, DSH_AGENTS_HOME: join(home, '.agents'),
       TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json'),
-      DSH_TELEMETRY_DISABLED: '1',
     },
     input: '', timeout: 20_000, killSignal: 'SIGKILL', reject: false,
   })

@@ -21,12 +21,6 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../identity/anonymous-user-id"
-    },
-    {
-      "path": "../../session/session-telemetry"
-    },
-    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

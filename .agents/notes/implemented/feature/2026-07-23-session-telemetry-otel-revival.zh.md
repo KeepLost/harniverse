@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-07-23-session-telemetry-otel-revival.md) | 中文
 
+会话遥测其后被整体退役，见[遥测退役注](2026-10-02-telemetry-retirement.md)。
+
 ## 问题
 
 每个想把 harness 会话接入可观测性体系的部署方都得手写一个会话日志消费方：订阅、生命周期交接、以及最难的脱敏——原始日志携带文件内容与命令输出，可能内嵌凭据。遥测 seam 和 OTel 后端曾在 `session-telemetry-otlp-rfc` 分支（PR #222/#231）上完成过一版，但从未进入 master：该提案将原始会话事件原样导出，法务评审未予通过。捕获侧设计（后端约定、coordinator、handoff 游标、分片投影）本身合理且经过评审；导出侧的立场才是阻塞点。

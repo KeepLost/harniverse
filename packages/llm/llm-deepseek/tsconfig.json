@@ -43,9 +43,6 @@
     },
     {
       "path": "../../util/timeout"
-    },
-    {
-      "path": "../../identity/anonymous-user-id"
     }
   ]
 }

@@ -87,7 +87,6 @@ const GROUP_ORDER = [
   'session-persistence',
   'session-query',
   'session-title',
-  'telemetry',
   'notification',
   'storage',
   'workspace',
@@ -277,15 +276,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['credentials-local'],
     consumers: ['llm-deepseek', 'llm-pi-ai', 'apiproxy'],
     note: 'Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage.',
-  },
-  {
-    key: 'sessionTelemetry',
-    pkg: 'session-telemetry',
-    title: 'Session telemetry seam',
-    mode: 'seam',
-    implementations: ['session-telemetry-otel'],
-    consumers: ['session-telemetry'],
-    note: 'The Definition package also bundles the coordinator Consumer that captures and redacts session records before handing them to one backend; its output leaves the process.',
   },
   {
     key: 'notification',

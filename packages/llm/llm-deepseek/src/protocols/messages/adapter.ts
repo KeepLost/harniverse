@@ -17,7 +17,6 @@ import type {
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { DeepSeekAdapterOptions, DeepSeekConnectionOptions as Connection } from '../../common/types.ts'
 import { catalogModelInfo, modelInfo } from '../../common/model-info.ts'
@@ -81,7 +80,6 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
 
   private async * generate(options: GenerateOptions, connection: Connection): AsyncGenerator<StreamChunk> {
     const apiKey = await this.config.resolveApiKey(connection)
-    const userId = this.config.resolveUserId()
     const consumer = new AbortController()
     const upstream = options.signal === undefined
       ? consumer.signal
@@ -92,7 +90,6 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
       watchdog.signal,
       connection,
       apiKey,
-      userId,
       () => { watchdog.pulse() },
     )[Symbol.asyncIterator]()
     let exhausted = false
@@ -135,7 +132,6 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
     signal: AbortSignal,
     connection: Connection,
     apiKey: string,
-    userId: AnonymousUserId,
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
@@ -219,10 +215,6 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
         'anthropic-version': '2023-06-01',
         ...images?.representation.kind === 'file' && requestBody.messages.some(message => message.content.some(block => block.type === 'image' && block.source.type === 'file'))
           ? { 'anthropic-beta': MESSAGES_FILES_BETA }
-          : {},
-        'x-deepseek-harness-user-id': String(userId),
-        ...options.sessionId !== undefined
-          ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
           : {},
         ...options.purpose === 'compaction'
           ? { 'x-deepseek-harness-compact': '1' }

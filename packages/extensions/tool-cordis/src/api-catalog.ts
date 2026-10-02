@@ -2373,34 +2373,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'sessionTelemetry',
-    summary: 'Loadable form of the backend contract: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis\' standard behavior.',
-    description: 'Loadable form of the backend contract: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis\' standard behavior. A backend composes a SessionTelemetryCoordinator in its constructor to install the capture side.',
-    methods: [
-      {
-        signature: 'abstract readonly sharing: SessionTelemetrySharingStatus',
-        description: 'Deployment-selected session-sharing policy, disclosed for acknowledgement surfaces that report whether recorded feedback leaves the process. Every backend must disclose its policy; a consumer renders "not configured" only when no telemetry service is mounted. The seam owns this vocabulary so the disclosure is backend-independent.',
-        parameters: [],
-      },
-      {
-        signature: 'abstract emit(record: SessionTelemetryRecord): void',
-        description: 'See SessionTelemetrySink.emit — that declaration is the contract\'s one home.',
-        parameters: [{ name: 'record', description: 'the logical record to report; owned by the backend after the call.' }],
-      },
-      {
-        signature: 'flush?(): void',
-        description: 'See SessionTelemetrySink.flush.',
-        parameters: [],
-      },
-      {
-        signature: 'abstract shutdown(): Promise<void>',
-        description: 'See SessionTelemetrySink.shutdown.',
-        parameters: [],
-        returns: 'resolves when the backend\'s pipeline has quiesced.',
-      },
-    ],
-  },
-  {
     key: 'sessionTitle',
     summary: 'Log-backed title fold plus asynchronous fallback generation.',
     description: 'Log-backed title fold plus asynchronous fallback generation.',
@@ -3758,14 +3730,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Emitted once per starvation episode when no owner RPC arrived within the configured exit window; a later owner contact re-arms the next one.',
     description: 'Emitted once per starvation episode when no owner RPC arrived within the configured exit window; a later owner contact re-arms the next one.',
     parameters: [],
-  },
-  {
-    name: 'session-telemetry/record',
-    mode: 'waterfall',
-    signature: '\'session-telemetry/record\'(record: SessionTelemetryRecord, next: () => SessionTelemetryRecord): SessionTelemetryRecord',
-    summary: 'Transform one outbound record before it reaches the backend.',
-    description: 'Transform one outbound record before it reaches the backend. This waterfall is the Service Definition\'s redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`\'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator\'s containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.',
-    parameters: [{ name: 'record', description: 'the candidate record, already the coordinator\'s own deep copy; listeners return a (possibly new) record and must not mutate it.' }],
   },
   {
     name: 'session/closed',
@@ -6178,18 +6142,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSurfaceSnapshot',
     declaration: 'export interface SessionSurfaceSnapshot {\n    session: SessionHeader;\n    capturedThroughSeq: number | null;\n    events: SurfaceEvent[];\n}',
-  },
-  {
-    name: 'SessionTelemetryRecord',
-    declaration: 'export interface SessionTelemetryRecord {\n    channel: \'ledger\' | \'ops\';\n    time: number;\n    severity: SessionTelemetrySeverity;\n    attributes: Record<string, string | number>;\n    body: unknown;\n}',
-  },
-  {
-    name: 'SessionTelemetrySeverity',
-    declaration: 'export type SessionTelemetrySeverity = \'info\' | \'warn\' | \'error\';',
-  },
-  {
-    name: 'SessionTelemetrySharingStatus',
-    declaration: 'export type SessionTelemetrySharingStatus = \'full\' | \'feedback-only\' | \'disabled\';',
   },
   {
     name: 'SessionTitleAutomaticMode',

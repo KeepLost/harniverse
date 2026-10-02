@@ -78,7 +78,7 @@ DeepSeek Files 映射是提供方本地且按协议作用域的。它们以端�
 
 每个请求都携带来自 dsh-llm `attributionHeaders()` 的共享归因头 —— 标识 harness 的强制 `User-Agent` 基线（见 [dsh-llm § 应用归因](../llm/README.md#app-attribution-attributionts)）。直接 DeepSeek 请求与 OpenAI 兼容网关请求在本适配器契约下不携带提供方特定的应用归因头；OpenRouter 应用归因推迟到未来显式的 OpenRouter 适配器或模式。`GenerateOptions.purpose` 为 `compaction` 的请求（dsh-compaction-basic 的辅助摘要调用）额外携带 `x-deepseek-harness-compact: 1`，宿主因此能把压缩流量与会话请求区分开。
 
-DeepSeek 请求标识独立于应用归因。凭据解析后，每个提供方请求都携带来自 [`@deepseek-ai/dsh-anonymous-user-id`](../../identity/anonymous-user-id/README.md) 的稳定匿名 id 作为 `x-deepseek-harness-user-id`；携带 `GenerateOptions.sessionId` 的请求还把该值原样作为 `x-deepseek-harness-session-id` 发送，无会话的直接调用则省略会话头。两个头都发往解析后的 `baseURL`（含配置的网关），且保持在请求体与模型可见内容之外。
+请求不再携带任何 harness 身份头。已退役的 `x-deepseek-harness-user-id` 与 `x-deepseek-harness-session-id` 随其携带的匿名 id 一并移除；命名了 `GenerateOptions.sessionId` 的请求也不再转发它，线路上只保留应用归因。辅助压缩标记 `x-deepseek-harness-compact` 保留。
 
 ## 协议格式说明
 

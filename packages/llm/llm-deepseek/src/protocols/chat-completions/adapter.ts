@@ -30,7 +30,6 @@ import type {
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { DeepSeekAdapterOptions, DeepSeekConnectionOptions as Connection } from '../../common/types.ts'
 import { catalogModelInfo, modelInfo } from '../../common/model-info.ts'
@@ -137,7 +136,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     // The key resolves *from this snapshot*, so an endpoint and the secret
     // sent to it can never come from different configuration generations.
     const apiKey = await this.config.resolveApiKey(connection)
-    const userId = this.config.resolveUserId()
     const consumer = new AbortController()
     const upstream = options.signal === undefined
       ? consumer.signal
@@ -148,7 +146,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
       watchdog.signal,
       connection,
       apiKey,
-      userId,
       () => { watchdog.pulse() },
     )[Symbol.asyncIterator]()
     let exhausted = false
@@ -191,7 +188,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     signal: AbortSignal,
     connection: Connection,
     apiKey: string,
-    userId: AnonymousUserId,
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
@@ -233,10 +229,6 @@ export class ChatCompletionsAdapter extends LlmAdapter {
       'content-type': 'application/json',
       'accept': 'text/event-stream',
       ...attributionHeaders(),
-      'x-deepseek-harness-user-id': String(userId),
-      ...options.sessionId !== undefined
-        ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
-        : {},
       ...options.purpose === 'compaction'
         ? { 'x-deepseek-harness-compact': '1' }
         : {},
