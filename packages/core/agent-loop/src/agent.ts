@@ -20,6 +20,7 @@ import type { GenerateOptions, LlmCallConfig, LlmWireAttempt, Message, PreparedL
 import {
   BlockAssembler,
   LlmError,
+  assertNever,
   createAssistantMessage,
   deepFreeze,
   errorChain,
@@ -57,6 +58,31 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
   if (header.adapterDefaults.reasoningEffort === true) delete proposal.reasoningEffort
   if (header.adapterDefaults.maxTokens === true) delete proposal.maxTokens
   return proposal
+}
+
+/**
+ * Read the cause {@link ReactLoopAgent.cancel} aborted a loop-owned signal
+ * with, copying the fields `turn/end` records. The live reason stays the
+ * caller's object, and Node's fetch assigns a `stack` onto it that
+ * `Session.append` would either log or reject as data JSON cannot hold.
+ * @param signal - a turn or maintenance signal this loop owns.
+ * @returns the copied cause, or undefined while the signal is still live.
+ */
+function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
+  if (!signal.aborted) return undefined
+  // `cancel()` is the only aborter of the signals this loop owns.
+  const cause = signal.reason as AgentCancelCause
+  switch (cause.kind) {
+    case 'user':
+    case 'parent':
+    case 'disposed':
+      return { kind: cause.kind }
+    case 'hook':
+      return { kind: 'hook', reason: cause.reason }
+    /* v8 ignore next -- cancel accepts the closed AgentCancelCause union */
+    default:
+      return assertNever(cause)
+  }
 }
 
 /** Drives one session through turn and step boundaries. */
@@ -190,7 +216,7 @@ export class ReactLoopAgent implements Agent {
       // Maintenance and aborted drivers cannot deliver the wake: latch it for
       // replay at convergence. Live drivers claim queued work themselves;
       // disposal never latches, so teardown waits on no model turn.
-      const reason = this.phase.abort.signal.reason as AgentCancelCause | undefined
+      const reason = abortedCancelCause(this.phase.abort.signal)
       if (reason?.kind !== 'disposed' && (this.phase.kind === 'maintenance' || wakeAfterAbort)) {
         this.phase.wakeRequested = true
       }
@@ -317,8 +343,10 @@ export class ReactLoopAgent implements Agent {
         target = 'next-step'
       }
     } catch (error: unknown) {
-      if (signal.aborted) {
-        turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
+      // A cause is present exactly while the signal is aborted.
+      const cause = abortedCancelCause(signal)
+      if (cause !== undefined) {
+        turnEnds = { kind: 'aborted', reason: cause }
         throw error
       }
       // Every failure is structured: an `LlmError` keeps its facts, anything
