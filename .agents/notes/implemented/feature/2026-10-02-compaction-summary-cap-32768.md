@@ -16,7 +16,11 @@ Raise the default to `32768`, and only that:
 - `compaction-lossless` states the same default in its README row because it reuses `BasicCompactionConfig` — there is no separate lossless default to move.
 - Documentation (`compaction-basic` README pair, `compaction-lossless` README pair, config catalog pair) records the new number.
 
-Rejected: a 65536 headroom default (a summary that large consumes the very context the compaction is trying to free) and any change to reasoning-token handling on the summarization call (reasoning stays on, as today).
+## Alternatives considered
+
+**A 65536 headroom default.** Rejected: a summary that large consumes the very context the compaction is trying to free.
+
+**Changing reasoning-token handling on the summarization call.** Rejected: reasoning stays on, as today; only the default bound moves.
 
 ## Consequences
 

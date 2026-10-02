@@ -16,7 +16,11 @@ Status: implemented
 - `compaction-lossless` 的 README 行写明相同默认值，因为它复用 `BasicCompactionConfig` —— 不存在需要移动的独立 lossless 默认值。
 - 文档（`compaction-basic` README 对、`compaction-lossless` README 对、config catalog 对）记录新数值。
 
-否决：65536 的余量式默认（那样大的摘要会吃掉压缩本要释放的上下文），以及摘要调用上推理 token 行为的任何改变（推理保持开启，与今天一致）。
+## 备选方案（Alternatives considered）
+
+**65536 的余量式默认。** 否决：那样大的摘要会吃掉压缩本要释放的上下文。
+
+**改变摘要调用上的推理 token 处理。** 否决：推理保持开启，与今天一致；只移动默认上限。
 
 ## 后果
 
