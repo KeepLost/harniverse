@@ -18,9 +18,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # CI runs must never report to the production telemetry endpoint baked
-  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
 
 jobs:
   # Keyless real-kernel sandbox proofs (sandbox Agent Note § Testing): each ladder

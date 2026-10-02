@@ -48,9 +48,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # CI runs must never report to the production telemetry endpoint baked
-  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
 
 jobs:
   # Job-level conditions cannot inspect `matrix`, so validate target names and
