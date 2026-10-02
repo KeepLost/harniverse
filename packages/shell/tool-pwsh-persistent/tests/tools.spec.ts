@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -89,6 +89,8 @@ type StubMode =
   | 'nonzero'
   | 'torn-status'
   | 'finish-torn-status'
+  | 'status-tail'
+  | 'continue-status-tail'
   | 'end-only'
   | 'spawn-error'
   | 'send-error'
@@ -114,6 +116,8 @@ class StubTerminalSession implements TerminalBackendSession {
   pendingText = ''
   historyTruncated = false
   throwOnSend = false
+  statusChunks: string[] = []
+  largeOutput = 'x'.repeat(100)
 
   constructor(mode: StubMode) {
     this.mode = mode
@@ -180,6 +184,15 @@ class StubTerminalSession implements TerminalBackendSession {
       const incremental = `${start ?? ''}\nincrement\n${this.motd}`
       return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')), incremental)
     }
+    if (this.mode === 'status-tail' || this.mode === 'continue-status-tail') {
+      const prefix = this.mode === 'status-tail' ? `${start ?? ''}\nkept  \n${this.motd}\n${end ?? ''}` : ''
+      const fragment = this.statusChunks.shift()
+      if (fragment === undefined) throw new Error('missing scripted completion fragment')
+      const output = prefix + fragment
+      this.mode = this.statusChunks.length > 0 ? 'continue-status-tail' : 'send-error'
+      this.scrollback += output
+      return this.operation(Promise.resolve(this.result(output, 'inferred_idle')))
+    }
     if (this.mode === 'torn-status') {
       const output = `${start ?? ''}\nhello from stub\n${end ?? ''}`
       this.scrollback += output
@@ -197,7 +210,7 @@ class StubTerminalSession implements TerminalBackendSession {
       return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
     }
     const commandOutput = this.mode === 'large'
-      ? 'x'.repeat(100)
+      ? this.largeOutput
       : this.mode === 'nonzero' ? ''
         : this.mode === 'prompt-collision' ? this.motd
           : 'hello from stub'
@@ -355,6 +368,54 @@ describe('tool-pwsh-persistent', () => {
     expect(text(await call(ctx, owner, 'complete prompt collision'))).toBe(session.motd)
   })
 
+  it.each([
+    ['0  \r\n', 0],
+    ['7  \r\n', 7],
+    ['0 \n', 0],
+    ['7    \n', 7],
+  ] as const)('accepts ASCII-padded completion status %j without changing output', async (tail, exitCode) => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'status-tail'
+    session.statusChunks = [tail]
+
+    const result = await call(ctx, owner, 'padded completion')
+    expect(result.isError).not.toBe(true)
+    expect(text(result)).toBe('kept  \n' + session.motd + (exitCode === 0 ? '' : `\n[exit code: ${exitCode}]`))
+    expect(session.sends).toBe(2)
+  })
+
+  it.each([0, 1, 2, 3, 4])('waits for the complete padded status newline at split %i', async (split) => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'status-tail'
+    const tail = '7  \r\n'
+    session.statusChunks = [tail.slice(0, split), tail.slice(split)]
+    const send = vi.spyOn(session, 'startSend')
+
+    expect(text(await call(ctx, owner, 'split completion'))).toBe('kept  \n' + session.motd + '\n[exit code: 7]')
+
+    // The first send returned without the newline, so the poll re-sent empty text.
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send.mock.calls[1]?.[0]).toMatchObject({ text: '', submit: false })
+  })
+
+  it.each(['0\t\n', '0\u00a0\n', '0\v\n', '0  ', '0  \r', '0junk\n', ' 0\n', '-1\n', '+1\n'])(
+    'does not accept unsupported completion status %j', async (tail) => {
+      const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+      await call(ctx, owner, 'warm up')
+      const session = stub.sessions[0]!
+      session.mode = 'status-tail'
+      session.statusChunks = [tail]
+
+      const result = await call(ctx, owner, 'invalid completion')
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('stub send failed')
+    },
+  )
+
   it('reports the exit path when the shell exits between send settlement and the next poll', async () => {
     const { ctx, owner, stub } = await setup({ backendType: 'stub' })
     await call(ctx, owner, 'warm up')
@@ -427,6 +488,21 @@ describe('tool-pwsh-persistent', () => {
     await ctx.terminals.kill(owner, externallyClosed!, 'external cleanup')
     await fiber.dispose()
     expect(stub.sessions[2]?.closed).toEqual(['external cleanup'])
+  })
+
+  it('clips a split surrogate pair instead of leaving a lone half', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 10 })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'large'
+    // The tenth code unit is the emoji's high surrogate, so the clip drops the
+    // unpaired half instead of emitting it.
+    session.largeOutput = `${'x'.repeat(9)}😀tail`
+
+    const rendered = text(await call(ctx, owner, 'emoji'))
+
+    expect(rendered.startsWith(`${'x'.repeat(9)}<response clipped>`)).toBe(true)
+    expect(rendered).not.toContain('\uD83D')
   })
 
   it('waits for status digits after a torn completion marker', async () => {

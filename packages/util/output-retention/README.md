@@ -27,6 +27,7 @@ import type {
 | `TextRetainer` | Bounds a byte-oriented text stream. `head` / `tail` / `headTail`, UTF-8 boundaries preserved at `finish()`. `push()` → `PushDecision`; `finish()` → `RetainedText`. |
 | `describeOmitted(omitted, unit)` | Standardized omission clause (`exact` prints a count; `unknown` does not). |
 | `formatRetentionNotice(notice, recovery)` | Joins the standardized omission clause with the tool's own recovery guidance. |
+| `truncateWithoutSplittingSurrogatePair(text, maxChars)` | Caps text at UTF-16 code units without ending in a lone high surrogate; a cut inside a surrogate pair drops the unpaired half. |
 | `Omitted` | `none` / `exact` / `unknown` — how much was omitted. |
 | `PushDecision` | `{ kept, truncated }` — the per-push retention result. |
 

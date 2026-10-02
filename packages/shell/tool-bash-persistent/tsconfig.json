@@ -12,6 +12,7 @@
     { "path": "../../shell/shell" },
     { "path": "../../terminal/terminal" },
     { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../util/output-retention" },
     { "path": "../../util/timeout" }
   ]
 }

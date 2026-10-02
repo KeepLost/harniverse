@@ -27,6 +27,7 @@ import type {
 | `TextRetainer` | 限制面向字节的文本流。`head` / `tail` / `headTail`，并在 `finish()` 时保留 UTF-8 边界。`push()` → `PushDecision`；`finish()` → `RetainedText`。 |
 | `describeOmitted(omitted, unit)` | 标准化的省略子句（`exact` 输出数量；`unknown` 不输出）。 |
 | `formatRetentionNotice(notice, recovery)` | 将标准化的省略子句与工具自有的恢复指引连接起来。 |
+| `truncateWithoutSplittingSurrogatePair(text, maxChars)` | 以 UTF-16 码元为单位截断文本，且不以孤立的高位代理结尾；落在代理对内部的截断会丢弃未配对的一半。 |
 | `Omitted` | `none` / `exact` / `unknown`：省略了多少内容。 |
 | `PushDecision` | `{ kept, truncated }`：每次 push 的保留结果。 |
 
