@@ -2,17 +2,43 @@
 
 [English](speech.md) | 中文
 
-语音缝把一段录音转成输入框文本。识别器提供方在 [`ctx.speech`](#ctxspeech--speechservice-abstract-seam) 上注册；服务校验 WAV 输入、按 `speech` 设置命名空间解析已配置的提供方并返回转写文本。本缝不接触麦克风：客户端采集音频，缝本身不携带传输。
+语音缝把一段录音转成输入框文本。识别器提供方在 `ctx.speech` 上注册；服务校验 WAV 输入、按 `speech` 设置命名空间解析已配置的提供方并返回转写文本。本缝不接触麦克风：客户端采集音频，缝本身不携带传输。
 
 Source: [`packages/speech/speech/src/index.ts`](../../packages/speech/speech/src/index.ts)
 
 ## 服务面
 
 ```ts type-equiv
-/** One registered recognizer behind the speech seam. */
+/**
+ * One replaceable recognizer. Implementations own preparation, execution,
+ * and cancellation; the binding loads native code lazily at first use.
+ */
 interface SpeechRecognizer {
-  /** Registry id, e.g. 'sensevoice' or 'openai-compatible'. */
-  id: string
+  /** Registration id; consumers select this exact id (`'sensevoice'`, `'openai-compatible'`, …). */
+  readonly id: string
+  /** One-line human label for settings surfaces. */
+  readonly label: string
+  /** Where inference runs; guides setup guidance. */
+  readonly location: 'host-local' | 'cloud'
+  /**
+   * Verify local resources without downloading. Absent means the recognizer
+   * needs no preparation and reports ready implicitly.
+   * @returns the settled readiness observation.
+   */
+  inspect?(): Promise<SpeechPreparation>
+  /**
+   * Download and verify every missing local resource, then report readiness.
+   * @param signal - preparation cancellation.
+   * @returns the settled readiness observation.
+   */
+  prepare?(signal?: AbortSignal): Promise<SpeechPreparation>
+  /**
+   * Recognize one complete recording.
+   * @param input - WAV bytes and optional language hint.
+   * @param signal - caller cancellation; rejection follows resource cleanup.
+   * @returns final text; empty when no speech was recognized.
+   */
+  transcribe(input: SpeechTranscribeInput, signal?: AbortSignal): Promise<SpeechTranscribeResult>
 }
 ```
 

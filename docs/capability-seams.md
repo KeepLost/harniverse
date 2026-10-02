@@ -11,6 +11,12 @@ flowchart LR
   svc_authentication["ctx.authentication<br/>Inbound network authentication"]
   pkg_authentication_local["authentication-local"]
   pkg_client_connection["client-connection"]
+  pkg_speech["speech"]
+  svc_speech["ctx.speech<br/>Speech recognition"]
+  pkg_speech_sensevoice["speech-sensevoice"]
+  pkg_speech_openai["speech-openai"]
+  pkg_speech_settings["speech-settings"]
+  pkg_host_apiproxy["host-apiproxy"]
   pkg_attachment["attachment"]
   svc_attachments["ctx.attachments<br/>Durable binary attachment storage"]
   pkg_attachment_local["attachment-local"]
@@ -138,7 +144,6 @@ flowchart LR
   svc_commands["ctx.commands<br/>Human command registry"]
   pkg_session_projection["session-projection"]
   svc_sessionProjections["ctx.sessionProjections<br/>Session projection units"]
-  pkg_host_apiproxy["host-apiproxy"]
   pkg_session_projection_cache["session-projection-cache"]
   svc_sessionProjectionCache["ctx.sessionProjectionCache<br/>Persisted projection cache"]
   pkg_skill["skill"]
@@ -359,6 +364,9 @@ flowchart LR
   pkg_skill --> svc_skills
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
+  pkg_speech --> svc_speech
+  pkg_speech_openai --> svc_speech
+  pkg_speech_sensevoice --> svc_speech
   pkg_spill --> svc_spillStore
   pkg_spill_local --> svc_spillStore
   pkg_ssh --> svc_ssh
@@ -490,6 +498,8 @@ flowchart LR
   svc_shellEnv --> pkg_tool_bash
   svc_shellEnv --> pkg_tool_pwsh
   svc_skills --> pkg_tool_skill
+  svc_speech --> pkg_host_apiproxy
+  svc_speech --> pkg_speech_settings
   svc_spillStore --> pkg_spill_policy
   svc_spillStore --> pkg_tool_result_artifacts
   svc_ssh --> pkg_fs_ssh
@@ -551,6 +561,7 @@ flowchart LR
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.authentication` | `seam` | [`authentication`](../packages/auth/authentication) | [`authentication-local`](../packages/auth/authentication-local) | [`client-connection`](../packages/client/connection) | - | The provider owns admission state, token revisions, browser sessions, lease, and records; Connection owns HTTP and WebSocket protocol enforcement. |
+| `ctx.speech` | `seam` | [`speech`](../packages/speech/speech) | [`speech-sensevoice`](../packages/speech/speech-sensevoice), [`speech-openai`](../packages/speech/speech-openai) | [`speech-settings`](../packages/speech/speech-settings), [`host-apiproxy`](../packages/host/apiproxy) | - | The seam owns WAV validation and provider resolution; recognizers own preparation and inference; the apiproxy exposes transcribe/prepare to clients. |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | `host-runtime`, [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileReferences` | `seam` | [`file-reference`](../packages/context/file-reference) | [`file-reference-local`](../packages/context/file-reference-local) | [`client-ui-reference`](../packages/client/ui-reference) | - | The abstract service returns path-only candidates in the addressed Agent workspace; the local provider owns bounded indexing and the browser consumer renders capability-gated completion without reading file contents. |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic), [`compaction-lossless`](../packages/compaction/compaction-lossless) | - | Adapters register provider implementations; the loop and compaction call the provider-neutral stream service. |

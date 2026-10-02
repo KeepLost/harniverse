@@ -2,17 +2,43 @@
 
 English | [中文](speech.zh.md)
 
-The speech seam turns a recorded utterance into text for the composer. A recognizer provider registers itself on [`ctx.speech`](#ctxspeech--speechservice-abstract-seam); the service validates WAV input, resolves the configured provider from the `speech` settings namespace, and returns the transcription. Nothing here touches the microphone: clients capture audio and the seam stays transport-free.
+The speech seam turns a recorded utterance into text for the composer. A recognizer provider registers itself on `ctx.speech`; the service validates WAV input, resolves the configured provider from the `speech` settings namespace, and returns the transcription. Nothing here touches the microphone: clients capture audio and the seam stays transport-free.
 
 Source: [`packages/speech/speech/src/index.ts`](../../packages/speech/speech/src/index.ts)
 
 ## Service surface
 
 ```ts type-equiv
-/** One registered recognizer behind the speech seam. */
+/**
+ * One replaceable recognizer. Implementations own preparation, execution,
+ * and cancellation; the binding loads native code lazily at first use.
+ */
 interface SpeechRecognizer {
-  /** Registry id, e.g. 'sensevoice' or 'openai-compatible'. */
-  id: string
+  /** Registration id; consumers select this exact id (`'sensevoice'`, `'openai-compatible'`, …). */
+  readonly id: string
+  /** One-line human label for settings surfaces. */
+  readonly label: string
+  /** Where inference runs; guides setup guidance. */
+  readonly location: 'host-local' | 'cloud'
+  /**
+   * Verify local resources without downloading. Absent means the recognizer
+   * needs no preparation and reports ready implicitly.
+   * @returns the settled readiness observation.
+   */
+  inspect?(): Promise<SpeechPreparation>
+  /**
+   * Download and verify every missing local resource, then report readiness.
+   * @param signal - preparation cancellation.
+   * @returns the settled readiness observation.
+   */
+  prepare?(signal?: AbortSignal): Promise<SpeechPreparation>
+  /**
+   * Recognize one complete recording.
+   * @param input - WAV bytes and optional language hint.
+   * @param signal - caller cancellation; rejection follows resource cleanup.
+   * @returns final text; empty when no speech was recognized.
+   */
+  transcribe(input: SpeechTranscribeInput, signal?: AbortSignal): Promise<SpeechTranscribeResult>
 }
 ```
 

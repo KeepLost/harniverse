@@ -53,7 +53,7 @@
     },
     {
       "doc": "docs/subsystems/browser-controller.md",
-      "symbol": "HostBrowserPageInfo",
+      "symbol": "BrowserCreateRequest",
       "source": "packages/api/browser-controller/src/types.ts"
     },
     {
@@ -68,12 +68,7 @@
     },
     {
       "doc": "docs/subsystems/browser-controller.md",
-      "symbol": "BrowserCreateRequest",
-      "source": "packages/api/browser-controller/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/browser-controller.md",
-      "symbol": "HostBrowserEnvironment",
+      "symbol": "BrowserInputEvent",
       "source": "packages/api/browser-controller/src/types.ts"
     },
     {
@@ -83,7 +78,12 @@
     },
     {
       "doc": "docs/subsystems/browser-controller.md",
-      "symbol": "BrowserInputEvent",
+      "symbol": "HostBrowserEnvironment",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "HostBrowserPageInfo",
       "source": "packages/api/browser-controller/src/types.ts"
     },
     {
@@ -95,41 +95,6 @@
       "doc": "docs/subsystems/client-modules.md",
       "symbol": "WebBootGraph",
       "source": "packages/client/modules/src/client/manifest.ts"
-    },
-    {
-      "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeBindingErrorClass",
-      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeBindingFunction",
-      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeBindingNamespace",
-      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeJsonValue",
-      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeRunFailure",
-      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeRunRequest",
-      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeRunResult",
-      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",
@@ -835,6 +800,41 @@
       "source": "packages/plan/plan-mode/src/index.ts"
     },
     {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "CodeBindingErrorClass",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "CodeBindingFunction",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "CodeBindingNamespace",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "CodeJsonValue",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "CodeRunFailure",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "CodeRunRequest",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "CodeRunResult",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/queue.md",
       "symbol": "QueueMessageState",
       "source": "packages/queue/queue/src/types.ts"
@@ -1371,6 +1371,11 @@
       "source": "packages/skill/skill/src/index.ts"
     },
     {
+      "doc": "docs/subsystems/speech.md",
+      "symbol": "SpeechRecognizer",
+      "source": "packages/speech/speech/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/spill.md",
       "symbol": "ReadTextSpill",
       "source": "packages/spill/spill/src/types.ts"
@@ -1404,6 +1409,32 @@
       "doc": "docs/subsystems/spill.md",
       "symbol": "SpillSource",
       "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ssh.md",
+      "symbol": "Config",
+      "source": "packages/ssh/ssh/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/ssh.md",
+      "symbol": "RemoteHostProgress",
+      "source": "packages/ssh/remote-hosts/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ssh.md",
+      "symbol": "RemoteHostProgressPhase",
+      "source": "packages/ssh/remote-hosts/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ssh.md",
+      "symbol": "SshConnection",
+      "source": "packages/ssh/ssh/src/index.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/subsystems/ssh.md",
+      "symbol": "WorldDescription",
+      "source": "packages/ssh/ssh/src/world.ts"
     },
     {
       "doc": "docs/subsystems/storage.md",
@@ -1609,6 +1640,31 @@
       "doc": "docs/subsystems/system-prompt.md",
       "symbol": "ToolProviderResult",
       "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalCreateRequest",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalEnvironment",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalFrame",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalShell",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "WebTerminalInfo",
+      "source": "packages/api/terminal-controller/src/types.ts"
     },
     {
       "doc": "docs/subsystems/terminal.md",
@@ -1969,57 +2025,6 @@
       "doc": "docs/subsystems/workspace.md",
       "symbol": "WorkspaceId",
       "source": "packages/workspace/workspace/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ssh.md",
-      "symbol": "Config",
-      "source": "packages/ssh/ssh/src/index.ts"
-    },
-    {
-      "doc": "docs/subsystems/ssh.md",
-      "symbol": "WorldDescription",
-      "source": "packages/ssh/ssh/src/world.ts"
-    },
-    {
-      "doc": "docs/subsystems/ssh.md",
-      "symbol": "SshConnection",
-      "source": "packages/ssh/ssh/src/index.ts",
-      "projection": "public-api"
-    },
-    {
-      "doc": "docs/subsystems/ssh.md",
-      "symbol": "RemoteHostProgressPhase",
-      "source": "packages/ssh/remote-hosts/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/ssh.md",
-      "symbol": "RemoteHostProgress",
-      "source": "packages/ssh/remote-hosts/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/terminal-controller.md",
-      "symbol": "WebTerminalInfo",
-      "source": "packages/api/terminal-controller/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/terminal-controller.md",
-      "symbol": "TerminalFrame",
-      "source": "packages/api/terminal-controller/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/terminal-controller.md",
-      "symbol": "TerminalCreateRequest",
-      "source": "packages/api/terminal-controller/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/terminal-controller.md",
-      "symbol": "TerminalShell",
-      "source": "packages/api/terminal-controller/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/terminal-controller.md",
-      "symbol": "TerminalEnvironment",
-      "source": "packages/api/terminal-controller/src/types.ts"
     }
   ]
 }
