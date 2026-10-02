@@ -940,11 +940,13 @@ export function WorkspaceBrowser({
 
   // Archive is dialog-free: not destructive (the log and the accounting slot
   // remain), so the menu action commits directly; the row disappears when the
-  // archive-set echo lands. Failures are non-fatal console diagnostics, the
-  // same posture as reorder rejections.
+  // archive-set echo lands. A rejection surfaces as an inline alert and the
+  // row stays until a successful retry clears it.
+  const [sessionArchiveError, setSessionArchiveError] = useState<string | null>(null)
   const onSessionArchive = (sessionId: SessionNode['id']) => {
+    setSessionArchiveError(null)
     archiveSession(sessionId).catch((reason: unknown) => {
-      console.warn('session archive rejected:', reason)
+      setSessionArchiveError(reason instanceof Error ? reason.message : String(reason))
     })
   }
 
@@ -1133,6 +1135,9 @@ export function WorkspaceBrowser({
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
       <div className={css.listArea}>
+        {wide && !archiveMode && sessionArchiveError !== null && (
+          <div className={css.renameError} role="alert">{sessionArchiveError}</div>
+        )}
         {wide && (archiveMode
           ? (
             <ArchivePanel
