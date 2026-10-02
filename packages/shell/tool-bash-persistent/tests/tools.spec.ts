@@ -101,7 +101,7 @@ type StubMode =
   | 'paged-scrollback'
 
 class StubPtySession implements TerminalBackendSession {
-  readonly motd = '__DSH_PERSISTENT_BASH_PROMPT__ '
+  readonly motd = 'stub> '
   readonly pid = 123
   statusValue: TerminalSessionStatus = { kind: 'running' }
   scrollback = this.motd
@@ -339,7 +339,7 @@ describe('tool-bash-persistent', () => {
 
     session.mode = 'incremental-fallback'
     session.scrollback = ''
-    expect(text(await call(ctx, owner, 'incremental fallback'))).toBe('increment')
+    expect(text(await call(ctx, owner, 'incremental fallback'))).toContain('increment')
 
     session.mode = 'prompt-only'
     const promptFallback = text(await call(ctx, owner, 'bad {'))
@@ -483,7 +483,12 @@ describe('tool-bash-persistent', () => {
         controller.abort(new Error('caller stopped'))
       }, 5)
 
-      expect((await cancelled).isError).toBe(true)
+      const failed = await cancelled
+      expect(failed.isError).toBe(true)
+      // Cancellation settles as the runtime's ABORTED publication, never as a
+      // thrown caller reason escaping the tool body.
+      expect('error' in failed && failed.error.info?.code).toBe('ABORTED')
+      expect(text(failed)).toBe('Error: tool call aborted')
       expect(text(await queued)).toBe('hello from stub')
       expect(stub.sessions[0]?.closed).toContain('persistent bash command aborted')
       expect(stub.sessions).toHaveLength(2)

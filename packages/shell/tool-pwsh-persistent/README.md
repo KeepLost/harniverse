@@ -33,7 +33,7 @@ Prefix-stable while the configured description and schema remain unchanged.
 
 #### What the model sees
 
-Commands share one shell per Agent, so cwd, `$env:` variables, functions, and background jobs persist across calls. Results exclude private completion markers, the shell prompt, and the echoed input line. A nonzero wrapped command appends `[exit code: N]`: the exact native exit code for a native program, or `1` for a terminating PowerShell error. A shell that exits before reporting status appends `[shell exited: code N]`, `[shell killed by signal: SIG]`, or `[shell exited]`, then resets and tells the model that the next call starts fresh. Long output keeps the earliest retained prefix plus a clipping notice; if the terminal dropped that prefix, the result says so explicitly. Timeout returns bounded partial output, closes the uncertain shell, and reports the reset.
+Commands share one shell per Agent, so cwd, `$env:` variables, functions, and background jobs persist across calls. Initialization sends nothing: the prompt stays the backend's own controlled prompt, so the backend's prompt-based readiness detection keeps working and sends settle on the exact stdin-read tier instead of waiting out the silence bound. Results exclude private completion markers and the echoed input line; partial output can carry the backend's own trailing prompt. A nonzero wrapped command appends `[exit code: N]`: the exact native exit code for a native program, or `1` for a terminating PowerShell error. A shell that exits before reporting status appends `[shell exited: code N]`, `[shell killed by signal: SIG]`, or `[shell exited]`, then resets and tells the model that the next call starts fresh. Long output keeps the earliest retained prefix plus a clipping notice; if the terminal dropped that prefix, the result says so explicitly. Timeout returns bounded partial output, closes the uncertain shell, and reports the reset.
 
 #### Token effect
 
@@ -49,6 +49,6 @@ Append-only tool results follow the reusable request prefix.
 - Native Windows CI must exercise ConPTY, Toolhelp32 process ownership, Ctrl-C delivery, and taskkill teardown before Windows platform validation can be claimed; non-Windows tests mock the native bridge.
 - PowerShell's PSReadLine echoes submitted input and has no `stty -echo` equivalent. Marker-anchored extraction removes complete echoes, but a terminal-width-wrapped echo can leave bounded fragments in partial output.
 - Raw ESC characters inside model commands are unsupported because PSReadLine consumes them before execution.
-- Redefining the `prompt` function removes the readiness marker; the shell settles on the silence tier instead.
+- Redefining the `prompt` function from inside a command removes the readiness marker; later sends settle on the silence tier instead.
 - Commands have no interactive stdin; input-reading foreground commands block until timeout resets the shell.
 - SIGTSTP and SIGHUP are unavailable on Windows. SIGINT is delivered as console-wide Ctrl-C input.
