@@ -303,7 +303,7 @@ describe('compact configuration and defaults', () => {
       retainRatio: 0.16,
       summarizationProvider: '',
       summarizationModel: '',
-      maxTokens: 8192,
+      maxTokens: 32_768,
       compactionRetries: 1,
       maxOverflowRetries: 1,
       modelPolicies: [],
