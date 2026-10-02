@@ -57,8 +57,11 @@ async function input(
       if (block.text) parts.push({ type: 'text', text: block.text })
       continue
     }
+    // Reasoning and tool-call blocks in user content are replayed assistant
+    // output (a forwarded subagent notice); Messages cannot represent them
+    // there, so they are omitted like the Chat Completions adapter does.
+    if (block.type === 'reasoning' || block.type === 'tool-call') continue
     if (block.type === 'tool-result') return unsupported('nested tool result')
-    if (block.type !== 'image') return unsupported(`user content ${block.type}`)
     if (images === undefined) return unsupported('unprepared user image')
     if (images.omittedImages?.has(block.attachment.attachmentId)) {
       parts.push({ type: 'text', text: `[image omitted: ${block.attachment.attachmentId}]` })
@@ -147,6 +150,10 @@ export async function serialize(
     const content: WireBlock[] = message.role === 'assistant'
       ? assistant(message, options.model, onReplayDegrade)
       : await userBlocks(message.content, images, { message: messages.length + 1, image: ++imageIndex })
+    // A user turn whose blocks all converted to nothing is dropped rather
+    // than sent as an empty content array; an empty tool result keeps its
+    // call id and error flag inside `userBlocks`.
+    if (message.role === 'user' && content.length === 0) continue
     const previous = messages.at(-1)
     if (previous?.role === message.role) previous.content.push(...content)
     else messages.push({ role: message.role, content })
