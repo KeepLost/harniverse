@@ -1,17 +1,30 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { JobView } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
+import { JobOutputPane } from './JobOutputPane.tsx'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import css from './JobListAction.module.css'
 
+/** Injected dependencies of the header job list (slot `inject`). */
+export interface JobListActionInjected {
+  /** Wire face carrying the human follow/stop verbs. */
+  api: Pick<IApiClient, 'jobs'>
+}
+
 /** Full props for the session-header background-job action. */
 export type JobListActionProps =
-  PropsRuntime<'conversation.session.header.actions'> & PropsLocale<typeof NS>
+  PropsRuntime<'conversation.session.header.actions'>
+  & InjectFace<JobListActionInjected>
+  & PropsLocale<typeof NS>
 
 /** Stable empty list so a session with no jobs keeps one array identity. */
 const NO_TASKS: readonly JobView[] = []
+
+/** How long the stop control stays in its confirm posture, in milliseconds. */
+const STOP_CONFIRM_MS = 2_500
 
 /** A job the registry still holds open, and whose duration therefore ticks. */
 function isLive(job: JobView): boolean {
@@ -84,14 +97,113 @@ function ordered(jobs: readonly JobView[]): JobView[] {
   })
 }
 
+/** Props of one list row: the wire view, the clock sample, and the verbs' shares. */
+interface JobRowProps {
+  job: JobView
+  now: number
+  api: Pick<IApiClient, 'jobs'>
+  sessionId: SessionId
+  t: TranslateNS<typeof NS>
+}
+
+/**
+ * One job row: status dot, kind, label, detail, duration, and — while the job
+ * is live — the expand and two-step stop controls. The stop's first press only
+ * arms a confirmation that reverts on its own timeout; the second press sends
+ * the human kill, which leaves the owner's completion notice intact. An
+ * expanded output pane survives settlement, because the registry retains the
+ * ring either way.
+ * @param props - the wire view plus the row's shares.
+ * @returns the list item with its optional output pane.
+ */
+function JobRow({ job, now, api, sessionId, t }: JobRowProps) {
+  const live = isLive(job)
+  const [expanded, setExpanded] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [stopError, setStopError] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (!confirming) return
+    const timer = setTimeout(() => { setConfirming(false) }, STOP_CONFIRM_MS)
+    return () => { clearTimeout(timer) }
+  }, [confirming])
+
+  const elapsed = live ? now - job.startedAt : (job.finishedAt ?? job.startedAt) - job.startedAt
+  const duration = formatDuration(elapsed, t)
+  const status = statusLabel(job.status, t)
+  const stopLabel = confirming ? t('row.stopConfirm') : t('row.stop')
+
+  const onStop = (): void => {
+    if (!confirming) {
+      setConfirming(true)
+      setStopError(undefined)
+      return
+    }
+    setConfirming(false)
+    void api.jobs.kill({ sessionId, jobId: job.id }).then((response) => {
+      if (response.result.ok) return
+      setStopError(response.result.error.message)
+    }, (error: unknown) => {
+      setStopError(error instanceof Error ? error.message : String(error))
+    })
+  }
+
+  return (
+    <li className={live ? css.row : `${css.row} ${css.rowSettled}`}>
+      <StateDot state={dotState(job.status)} className={css.rowDot} />
+      <span className={css.kind}>{job.kind}</span>
+      <span className={css.label} title={job.label}>{job.label}</span>
+      <span className={css.status} title={job.detail ?? status}>{job.detail ?? status}</span>
+      <span
+        className={css.duration}
+        title={t(live ? 'duration.title.live' : 'duration.title.done', { duration })}
+      >
+        {duration}
+      </span>
+      {live || expanded
+        ? (
+          <button
+            type="button"
+            className={css.rowButton}
+            aria-expanded={expanded}
+            aria-label={expanded ? t('row.collapse') : t('row.expand')}
+            title={expanded ? t('row.collapse') : t('row.expand')}
+            onClick={() => { setExpanded(current => !current) }}
+          >
+            <IconChevronDownOutline14 className={expanded ? css.chevronOpen : undefined} />
+          </button>
+        )
+        : null}
+      {live
+        ? (
+          <button
+            type="button"
+            className={confirming ? `${css.rowButton} ${css.stopConfirm}` : css.rowButton}
+            aria-label={stopLabel}
+            onClick={onStop}
+          >
+            {stopLabel}
+          </button>
+        )
+        : null}
+      {stopError !== undefined
+        ? <p className={css.stopError} role="alert">{t('row.stopFailed', { message: stopError })}</p>
+        : null}
+      {expanded
+        ? <JobOutputPane api={api} sessionId={sessionId} jobId={job.id} live={live} t={t} />
+        : null}
+    </li>
+  )
+}
+
 /**
  * Session-header entry point for this session's background jobs. It renders
  * nothing at all until the session has at least one job, so an ordinary
  * conversation never grows a control for a capability it is not using.
- * @param props - runtime slot currency plus the namespace translator.
+ * @param props - runtime slot currency, the follow/stop wire face, and the translator.
  * @returns the trigger and its popover list, or null when there is nothing to show.
  */
-export function JobListAction({ sessionId, useSessions, t }: JobListActionProps) {
+export function JobListAction({ sessionId, useSessions, api, t }: JobListActionProps) {
   const jobs = useSessions(state => state.jobsBySession[sessionId]) ?? NO_TASKS
   const [open, setOpen] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -164,26 +276,9 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
       {open
         ? (
           <ul className={css.menu} aria-label={t('list.aria')}>
-            {rows.map((job) => {
-              const live = isLive(job)
-              const elapsed = live ? now - job.startedAt : (job.finishedAt ?? job.startedAt) - job.startedAt
-              const duration = formatDuration(elapsed, t)
-              const status = statusLabel(job.status, t)
-              return (
-                <li key={job.id} className={live ? css.row : `${css.row} ${css.rowSettled}`}>
-                  <StateDot state={dotState(job.status)} className={css.rowDot} />
-                  <span className={css.kind}>{job.kind}</span>
-                  <span className={css.label} title={job.label}>{job.label}</span>
-                  <span className={css.status} title={job.detail ?? status}>{job.detail ?? status}</span>
-                  <span
-                    className={css.duration}
-                    title={t(live ? 'duration.title.live' : 'duration.title.done', { duration })}
-                  >
-                    {duration}
-                  </span>
-                </li>
-              )
-            })}
+            {rows.map(job => (
+              <JobRow key={job.id} job={job} now={now} api={api} sessionId={sessionId} t={t} />
+            ))}
           </ul>
         )
         : null}

@@ -19,6 +19,7 @@ import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 import type { ApiApi } from './contract.ts'
 import type { ApiMethodDescription } from './contract.ts'
 import type { OperationsApi } from './operations.ts'
+import type { JobsApi } from './jobs.ts'
 import type { WorkspaceFilesApi } from './workspace-files.ts'
 import type { WorkspaceGitApi } from './workspace-git.ts'
 
@@ -30,6 +31,8 @@ import type { WorkspaceGitApi } from './workspace-git.ts'
 export interface RpcMethodMap {
   'api.describe': ApiApi['describe']
   'operation.get': OperationsApi['get']
+  'jobs.follow': JobsApi['follow']
+  'jobs.kill': JobsApi['kill']
   'session.list': SessionsApi['list']
   'session.search': SessionsApi['search']
   'session.create': SessionsApi['create']
@@ -102,6 +105,8 @@ export interface RpcMethodMap {
 export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: AuthenticationCapability } = {
   'api.describe': 'harniverse.observe',
   'operation.get': 'harniverse.observe',
+  'jobs.follow': 'harniverse.operate',
+  'jobs.kill': 'harniverse.operate',
   'session.list': 'harniverse.observe',
   'session.search': 'harniverse.observe',
   'session.create': 'harniverse.operate',
@@ -174,6 +179,8 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
 export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 'mutate' } = {
   'api.describe': 'read',
   'operation.get': 'read',
+  'jobs.follow': 'read',
+  'jobs.kill': 'mutate',
   'session.list': 'read',
   'session.search': 'read',
   'session.create': 'mutate',

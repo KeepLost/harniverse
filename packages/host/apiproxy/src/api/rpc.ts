@@ -149,6 +149,8 @@ export interface RpcErrorDetailsMap {
   'idempotency-key-reused': { key: string }
   /** No operation with that id is visible in this Host process. */
   'operation-not-found': { operationId: string }
+  /** The job registry is absent or rejected the job read/stop (unknown or foreign id). */
+  'job-unavailable': {}
 }
 
 /** Closed error-code union (the keys of RpcErrorDetailsMap). */
@@ -222,6 +224,7 @@ export const RPC_ERROR_CODES = [
   'internal',
   'idempotency-key-reused',
   'operation-not-found',
+  'job-unavailable',
 ] as const satisfies readonly RpcErrorCode[]
 
 /** Compile-time exhaustiveness: a missing registry entry names itself here. */

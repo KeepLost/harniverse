@@ -3910,6 +3910,66 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    // Human follow/stop over the live registry. The Agent fence mirrors the
+    // model-facing verbs: the owner's session decides servability, and the
+    // registry enforces job ownership beyond it.
+    jobs: {
+      async follow(request) {
+        const { sessionId, jobId, offsetBytes } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const jobs = ctx.get('jobs')
+        if (jobs === undefined) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: 'background jobs are unavailable in this deployment',
+            details: {},
+          })
+        }
+        try {
+          const view = jobs.follow(JobId(jobId), offsetBytes ?? 0, found.agent)
+          return ok(request, {
+            text: view.text,
+            nextOffsetBytes: view.nextOffsetBytes,
+            truncated: view.truncated,
+            totalBytes: view.totalBytes,
+            status: view.snapshot.status,
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+
+      async kill(request) {
+        const { sessionId, jobId } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const jobs = ctx.get('jobs')
+        if (jobs === undefined) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: 'background jobs are unavailable in this deployment',
+            details: {},
+          })
+        }
+        try {
+          // A human stop does not claim the terminal report: the owner's
+          // ordinary completion notice still flows.
+          return ok(request, { result: jobs.kill(JobId(jobId), found.agent, { reported: false }) })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+    },
+
     subagents: {
       async list(request, signal) {
         try {

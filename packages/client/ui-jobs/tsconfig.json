@@ -12,6 +12,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../connection/tsconfig.client.json"
+    },
+    {
       "path": "../locale"
     },
     {

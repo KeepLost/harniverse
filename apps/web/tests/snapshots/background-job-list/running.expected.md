@@ -1,2 +1,6 @@
 - list "Background jobs":
-  - listitem: bash sleep 45 running {{duration}}
+  - listitem:
+    - text: bash sleep 45 running {{duration}}
+    - button "Show output":
+      - img
+    - button "Stop"

@@ -19,6 +19,7 @@ import type { DownloadsApi } from './downloads.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
 import type { ApiApi } from './contract.ts'
 import type { OperationsApi } from './operations.ts'
+import type { JobsApi } from './jobs.ts'
 import type { WorkspaceFilesApi } from './workspace-files.ts'
 import type { WorkspaceGitApi } from './workspace-git.ts'
 
@@ -27,6 +28,8 @@ export interface ApiProxy {
   /** Contract discovery is optional on legacy hand-built test implementations. */
   api?: ApiApi
   operations?: OperationsApi
+  /** Optional only for compositions without the job registry; the Host service always provides it. */
+  jobs?: JobsApi
   sessions: SessionsApi
   subagents: SubagentsApi
   host: HostApi
@@ -66,7 +69,7 @@ export type {
   SubagentAddress, SubagentCatalog, SubagentInterruptReceipt, SubagentListEntry,
   SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
-export type { JobView } from './jobs.ts'
+export type { JobFollowView, JobView, JobsApi } from './jobs.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { WorkspaceFileEntry, WorkspaceFilesApi } from './workspace-files.ts'
 export type { WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitStatusEntry } from './workspace-git.ts'

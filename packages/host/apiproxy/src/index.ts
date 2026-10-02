@@ -87,6 +87,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly sessions: ApiProxy['sessions']
   readonly api: NonNullable<ApiProxy['api']>
   readonly operations: NonNullable<ApiProxy['operations']>
+  readonly jobs: NonNullable<ApiProxy['jobs']>
   readonly subagents: ApiProxy['subagents']
   readonly workspace: ApiProxy['workspace']
   readonly workspaceFiles: NonNullable<ApiProxy['workspaceFiles']>
@@ -123,6 +124,8 @@ export class ApiProxyService extends Service implements ApiProxy {
     if (api.api === undefined || api.operations === undefined) throw new Error('api-proxy: contract and operation surfaces were not created')
     this.api = api.api
     this.operations = api.operations
+    if (api.jobs === undefined) throw new Error('api-proxy: the job follow/stop surface was not created')
+    this.jobs = api.jobs
     this.subagents = api.subagents
     this.workspace = api.workspace
     if (api.workspaceFiles === undefined || api.workspaceGit === undefined) {
