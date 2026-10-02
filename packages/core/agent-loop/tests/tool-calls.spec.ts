@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionEvent, SessionId, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import ToolRuntime, { defineContentToolFixture, ToolOutputError, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -728,6 +728,93 @@ describe('tool-call scheduler: failure quiescence', () => {
     expect(gated.pending()).toEqual([])
     expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
       data: { reason: { kind: 'error', error: { message: schedulerError.message, code: 'UNKNOWN' } } },
+    })
+  })
+
+  it.each(['execution-mode', 'prepare', 'finalize'] as const)('pairs outstanding requests after %s fails and preserves committed results', async (phase) => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'p', args: { id: '1' } },
+        { id: 'c2', name: 'p', args: { id: '2' } },
+        { id: 'c3', name: 'p', args: { id: '3' } },
+      ]),
+      textResponse('continued'),
+    ])
+    const ctx = await harness(adapter)
+    const executed: string[] = []
+    ctx.tools.register(defineContentToolFixture({
+      name: 'p', description: 'exclusive', parameters: { id: { type: 'string', required: true } },
+      async execute(args) {
+        executed.push(args.id)
+        return [{ type: 'text', text: `done-${args.id}` }]
+      },
+    }))
+    const scheduler = ctx.tools[TOOL_RUNTIME_SCHEDULER]
+    const executionMode = ctx.tools.executionMode.bind(ctx.tools)
+    const prepare = scheduler.prepare.bind(scheduler)
+    const finalize = scheduler.finalize.bind(scheduler)
+    const failure = new Error(`${phase} failed`)
+    if (phase === 'execution-mode') {
+      ctx.tools.executionMode = (exec) => {
+        if (exec.callId === CallId('c2')) throw failure
+        return executionMode(exec)
+      }
+    } else if (phase === 'prepare') {
+      scheduler.prepare = (exec) => {
+        if (exec.callId === CallId('c2')) throw failure
+        return prepare(exec)
+      }
+    } else {
+      scheduler.finalize = (exec, result) => {
+        if (exec.callId === CallId('c2')) throw failure
+        return finalize(exec, result)
+      }
+    }
+    const agent = ctx.agentLoop.create(SessionId(`failure-${phase}`), { provider: 'mock', model: 'mock' })
+    const failedTurn = waitForIdle(ctx, agent)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await failedTurn
+
+    const failedEvents = events(agent)
+    const calls = failedEvents.filter(event => event.type === 'tool/call')
+    const results = failedEvents.filter(event => event.type === 'tool/result')
+    expect(executed).toEqual(phase === 'finalize' ? ['1', '2'] : ['1'])
+    expect(results.map(event => [event.data.message.source.callId, event.data.error?.code])).toEqual([
+      [CallId('c1'), undefined],
+      [CallId('c2'), phase === 'execution-mode' ? TOOL_NOT_STARTED : TOOL_OUTCOME_UNKNOWN],
+      [CallId('c3'), TOOL_NOT_STARTED],
+    ])
+    expect(results[0]?.data.message.content[0]).toMatchObject({
+      type: 'tool-result', toolCallId: CallId('c1'), isError: false, content: [{ type: 'text', text: 'done-1' }],
+    })
+    expect(results.slice(1).map(event => event.data.message.content[0]?.isError)).toEqual([true, true])
+    expect(results.map(event => event.sourceEventSeqs)).toEqual([
+      [calls[0]?.seq],
+      phase === 'execution-mode' ? undefined : [calls[1]?.seq],
+      undefined,
+    ])
+    expect(failedEvents.slice(-3).map(event => event.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
+    expect(failedEvents.at(-1)).toMatchObject({
+      type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'UNKNOWN', message: `${phase} failed` } } },
+    })
+
+    // The failed turn stays usable: the next request carries paired calls and
+    // results, and a follow-up turn completes normally.
+    const continued = waitForIdle(ctx, agent)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+    await continued
+    expect(adapter.requests[1]?.messages.flatMap((message): string[] => {
+      if (message.role === 'assistant') {
+        return message.content.flatMap((block): string[] => block.type === 'tool-call' ? [`call:${block.id}`] : [])
+      }
+      return message.content.flatMap((block): string[] => {
+        if (block.type === 'tool-result') return [`result:${block.toolCallId}`]
+        if (block.type === 'text') return [`user:${block.text}`]
+        return []
+      })
+    })).toEqual(['user:go', 'call:c1', 'call:c2', 'call:c3', 'result:c1', 'result:c2', 'result:c3', 'user:continue'])
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'completed' } },
     })
   })
 })

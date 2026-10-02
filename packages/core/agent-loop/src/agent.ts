@@ -29,7 +29,7 @@ import {
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
-import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
+import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type { Context } from '@deepseek-ai/cordis'
@@ -318,6 +318,10 @@ export class ReactLoopAgent implements Agent {
         signal.throwIfAborted()
         this.session.append('step/start', { turn, step })
         phase.step = step
+        const toolRecovery = new ToolCallRecovery()
+        const stopRecovery = this.ctx.on('session/event', (session, event) => {
+          if (session === this.session) toolRecovery.observe(event)
+        })
         try {
           for (const message of decision.messages) {
             if (message.source.kind === 'user' && message.source.files !== undefined && message.source.files.length > 0) {
@@ -331,7 +335,20 @@ export class ReactLoopAgent implements Agent {
           // max-tokens stays sticky: a later completed step must not
           // downgrade the turn outcome.
           if (turnEnds === null || turnEnds.kind !== 'max-tokens') turnEnds = stepEnd
+        } catch (error: unknown) {
+          try {
+            for (const event of toolRecovery.results()) {
+              this.session.append('tool/result', event.data, {
+                surfaceOp: 'append',
+                ...event.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: event.sourceEventSeqs },
+              })
+            }
+          } catch (recoveryError: unknown) {
+            throw new AggregateError([error, recoveryError], 'Step failed and its pending tool results could not be recorded', { cause: error })
+          }
+          throw error
         } finally {
+          stopRecovery()
           this.session.append('step/end', { turn, step })
         }
         signal.throwIfAborted()
