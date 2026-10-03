@@ -53,6 +53,7 @@
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - 'button "Supervision mode: Supervised"': Supervised
 - button "Plan mode on, press to turn off": Plan
+- button "Start voice input"
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

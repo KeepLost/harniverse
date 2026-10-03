@@ -43,7 +43,7 @@ interface ToolArgsMap {
     command: string;
     /** Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; "git status" → "Show working tree status"; "npm install" → "Install package dependencies". */
     description: string;
-    /** Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry. */
+    /** Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command keeps running as a background job and this call returns its job id (unless promoteOnTimeout is disabled, which kills it). */
     timeoutMs?: number;
     /** Working directory for this command. Defaults to the session workspace; a relative path is resolved against it. */
     workdir?: string;
@@ -231,6 +231,8 @@ interface ToolArgsMap {
     } & Record<string, JsonValue>;
     /** Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}). */
     args?: Record<string, JsonValue>;
+    /** Register the run as a workflow job and return its ids immediately; collect output with job_output and stop with job_kill. The parent turn does not wait for the script. */
+    run_in_background?: boolean;
   } & Record<string, JsonValue>;
   /** Create or fully replace a UTF-8 text file. */
   write: {
@@ -249,6 +251,10 @@ interface ToolOutputMap {
   bash: {
     kind: "background";
     jobId: string;
+  } | {
+    kind: "timeout-background";
+    jobId: string;
+    timeoutMs: number;
   } | {
     kind: "foreground";
     exitCode: number | null;
@@ -469,6 +475,10 @@ interface ToolOutputMap {
     activation: "armed" | "disarmed";
   };
   workflow: {
+    kind: "background";
+    jobId: string;
+    runId: string;
+  } | {
     runId: string;
     agentsStarted: number;
     result: JsonValue;

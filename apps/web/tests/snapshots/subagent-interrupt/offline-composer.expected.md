@@ -29,5 +29,6 @@
   - img
 - 'button "Access mode, current: Custom" [disabled]': Custom
 - 'button "Supervision mode: Supervised" [disabled]': Supervised
+- button "Start voice input"
 - button "Stop generating"
 - button "Send message" [disabled]

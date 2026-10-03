@@ -112,6 +112,8 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
   z.object({ code: z.literal('idempotency-key-reused'), message: z.string(), details: z.object({ key: z.string().min(1) }) }),
   z.object({ code: z.literal('operation-not-found'), message: z.string(), details: z.object({ operationId: z.string().min(1) }) }),
   z.object({ code: z.literal('job-unavailable'), message: z.string(), details: z.object({}) }),
+  z.object({ code: z.literal('speech-unavailable'), message: z.string(), details: z.object({}) }),
+  z.object({ code: z.literal('speech-transcription-failed'), message: z.string(), details: z.object({}) }),
 ]) as unknown as z.ZodType<RpcError>
 
 /**
