@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { bytesToBase64, downmixToMono, encodeWav16kMono, resampleTo16k } from '../src/client/wav.ts'
+import { bytesToBase64, downmixToMono, encodeWav16kMono, resampleTo16k, wavAmplitudeStats } from '../src/client/wav.ts'
 
 function ascii(bytes: Uint8Array, start: number, length: number): string {
   let out = ''
@@ -43,6 +43,19 @@ describe('encodeWav16kMono', () => {
     expect(view.getInt16(48, true)).toBe(-16_384)
     expect(view.getInt16(50, true)).toBe(32_767)
     expect(view.getInt16(52, true)).toBe(-32_768)
+  })
+})
+
+describe('wavAmplitudeStats', () => {
+  it('summarizes duration, peak, and rms over the PCM payload', () => {
+    const stats = wavAmplitudeStats(encodeWav16kMono(Float32Array.from([0.5, -0.25, 0.25, -0.5])))
+    expect(stats).toMatchObject({ durationMs: 0.25, peak: 0.5 })
+    // RMS over the quantized samples: (0.25 + 0.0625 + 0.0625 + 0.25) / 4.
+    expect(stats.rms).toBeCloseTo(Math.sqrt(0.15625), 2)
+  })
+
+  it('answers a payload-less recording with zeroed stats', () => {
+    expect(wavAmplitudeStats(encodeWav16kMono(new Float32Array(0)))).toEqual({ durationMs: 0, peak: 0, rms: 0 })
   })
 })
 

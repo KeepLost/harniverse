@@ -113,7 +113,7 @@ export function VoiceMicControl({
     if (phase !== 'recording') return
     setLevels([])
     const timer = window.setInterval(() => {
-      /* v8 ignore next 1 -- the interval tears down with this phase effect; the guard only keeps a late tick total. */
+      /* v8 ignore next 2 -- the interval tears down with this phase effect; the guard only keeps a late tick total. */
       const capture = recordingRef.current
       if (capture === undefined) return
       setLevels(previous => [...previous.slice(1 - LEVEL_BARS), capture.level()])
