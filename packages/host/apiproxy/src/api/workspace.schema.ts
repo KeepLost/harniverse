@@ -29,6 +29,7 @@ export const workspaceListRequestSchema = z.object({}) satisfies z.ZodType<Wire<
 export const workspaceListValueSchema = z.object({
   items: z.array(workspaceViewSchema),
   archivedSessionIds: z.array(sessionIdSchema),
+  pinnedSessionIds: z.array(sessionIdSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.list'>>>
 
 /** workspace.create request payload: the existing directory to adopt. */
@@ -92,6 +93,7 @@ export const workspaceInsertSessionBeforeValueSchema = z.object({
 /** workspace.archiveSession request payload. */
 export const workspaceArchiveSessionRequestSchema = z.object({
   sessionId: sessionIdSchema,
+  stopActivity: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'workspace.archiveSession'>>>
 
 /** workspace.archiveSession response value: the full updated archive set. */
@@ -103,6 +105,26 @@ export const workspaceArchiveSessionValueSchema = z.object({
 export const workspaceUnarchiveSessionRequestSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<RequestPayload<'workspace.unarchiveSession'>>>
+
+/** workspace.pinSession request payload. */
+export const workspacePinSessionRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.pinSession'>>>
+
+/** workspace.pinSession response value: the full updated pin set. */
+export const workspacePinSessionValueSchema = z.object({
+  pinnedSessionIds: z.array(sessionIdSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.pinSession'>>>
+
+/** workspace.unpinSession request payload. */
+export const workspaceUnpinSessionRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.unpinSession'>>>
+
+/** workspace.unpinSession response value: the full updated pin set. */
+export const workspaceUnpinSessionValueSchema = z.object({
+  pinnedSessionIds: z.array(sessionIdSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.unpinSession'>>>
 
 /** workspace.unarchiveSession response value: the full updated archive set. */
 export const workspaceUnarchiveSessionValueSchema = z.object({

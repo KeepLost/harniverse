@@ -115,6 +115,10 @@ Independently, `listChildren()` enumerates the live-preferred merge of the live 
 
 Continuable Activations await a best-effort final session flush without treating listener participation as durability confirmation. One-shot runs retain best-effort session checkpointing, so a completed one-shot child is discoverable after disposal only when its session actually reached persistence; the service does not invent a catalog entry from Task history when that checkpoint is absent.
 
+## Archive admission
+
+The runtime merges the `subagent` family of `workspace/session-activity`: descendants still inside a turn hold their ancestor, found by durable lineage — a header naming its `parentSession` and carrying the subagent origin, at any depth — so a plain archive of the ancestor session refuses with one activity entry listing each running descendant's id. A fork shares the lineage field without the origin and is an independent conversation, so it never holds its source. A `workspace/session-stop` archive cancels each running descendant with `{ kind: 'parent' }` — the same cancel a parent uses; one child refusing its cancel is logged and its siblings still cancel.
+
 ## Model Experience
 
 ### Settlement notice

@@ -78,7 +78,7 @@ function mountWorkbench(
     ...overrides,
   }
   const workspaceState = (): WorkspaceListState => ({
-    items: workspaces, archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+    items: workspaces, archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     baselinesReady: options.baselinesReady ?? true, recentWorkspaceId: workspaces[0]?.workspaceId,
   })
   const sessionState = (): SessionListState => ({

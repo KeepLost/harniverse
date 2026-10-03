@@ -20,6 +20,7 @@ import SubagentRuntime, {
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { runningDescendants } from '../src/list-children.ts'
 
 function fakeParent(id = 'parent-1'): Agent {
   return { id: SessionId(id) } as unknown as Agent
@@ -581,5 +582,116 @@ describe('subagent descriptors', () => {
     }, 'toolFilter.deny must be an array of strings'],
   ])('rejects a malformed persisted descriptor: %s', (_case, data, detail) => {
     expect(() => foldSubagentDescriptor([event(data)])).toThrow(detail)
+  })
+})
+
+describe('archive admission over running descendants', () => {
+  interface NodeSpec {
+    readonly id: string
+    readonly parent?: string
+    readonly status?: 'running' | 'idle'
+    /** Omit for a fork: it shares the lineage field without the origin. */
+    readonly fork?: boolean
+    readonly cancel?: ReturnType<typeof vi.fn>
+  }
+
+  /** A lineage-carrying agent stub: header parent/origin, status, and a cancel spy. */
+  function node(spec: NodeSpec): Agent {
+    return {
+      id: SessionId(spec.id),
+      status: spec.status ?? 'idle',
+      session: {
+        header: {
+          id: SessionId(spec.id),
+          parentSession: spec.parent === undefined ? undefined : SessionId(spec.parent),
+          origin: spec.fork === true ? undefined : ('subagent' as const),
+        },
+      },
+      cancel: spec.cancel ?? vi.fn(),
+    } as unknown as Agent
+  }
+
+  /** Ancestor-provided agents registry plus the runtime, the shape the archive-admission listeners read. */
+  async function admissionHarness(agents: Agent[]): Promise<Context> {
+    const ctx = new Context()
+    ctx.provide('agents', {
+      list: () => agents,
+      get: (id: string) => agents.find(agent => agent.id === id),
+    } as never)
+    await ctx.plugin(SubagentRuntime)
+    return ctx
+  }
+
+  it('collects running descendants at depth and excludes forks and idle children', async () => {
+    const kidA = node({ id: 'kid-a', parent: 'root', status: 'running' })
+    const kidB = node({ id: 'kid-b', parent: 'root' })
+    const grandA = node({ id: 'grand-a', parent: 'kid-a', status: 'running' })
+    const grandB = node({ id: 'grand-b', parent: 'kid-b', status: 'running' })
+    const idleGrand = node({ id: 'idle-grand', parent: 'kid-a' })
+    const fork = node({ id: 'fork', parent: 'root', status: 'running', fork: true })
+    const underFork = node({ id: 'under-fork', parent: 'fork', status: 'running' })
+    const ctx = await admissionHarness([
+      node({ id: 'root' }),
+      kidA,
+      kidB,
+      grandA,
+      grandB,
+      idleGrand,
+      fork,
+      underFork,
+    ])
+
+    const running = runningDescendants(ctx, SessionId('root'))
+
+    // An idle child is no activity itself, but its running descendant below still holds the root.
+    expect(running).toEqual([kidA, grandA, grandB])
+    expect(running).not.toContain(fork)
+    expect(running).not.toContain(underFork)
+    expect(runningDescendants(ctx, SessionId('lonely-root'))).toEqual([])
+  })
+
+  it('visits a cyclic header chain once and terminates', async () => {
+    const first = node({ id: 'loop-a', parent: 'loop-b', status: 'running' })
+    const second = node({ id: 'loop-b', parent: 'loop-a', status: 'running' })
+    const ctx = await admissionHarness([first, second])
+
+    expect(runningDescendants(ctx, SessionId('loop-a'))).toEqual([second, first])
+    expect(runningDescendants(ctx, SessionId('loop-b'))).toEqual([first, second])
+  })
+
+  it('reports running descendants as the subagent activity family', async () => {
+    const kidA = node({ id: 'kid-a', parent: 'root', status: 'running' })
+    const kidB = node({ id: 'kid-b', parent: 'root' })
+    const grand = node({ id: 'grand', parent: 'kid-b', status: 'running' })
+    const ctx = await admissionHarness([node({ id: 'root' }), kidA, kidB, grand])
+
+    const activities = await ctx.waterfall(
+      'workspace/session-activity', { sessionId: SessionId('root') }, () => Promise.resolve([]),
+    )
+    expect(activities).toEqual([{ kind: 'subagent', items: [{ id: kidA.id }, { id: grand.id }] }])
+    expect(await ctx.waterfall(
+      'workspace/session-activity', { sessionId: SessionId('unknown-session') }, () => Promise.resolve([]),
+    )).toEqual([])
+  })
+
+  it('stops each running descendant as its parent would and contains one failing cancel', async () => {
+    const failingCancel = vi.fn(() => { throw new Error('cancel refused') })
+    const siblingCancel = vi.fn()
+    const grandCancel = vi.fn()
+    const idleCancel = vi.fn()
+    const failing = node({ id: 'kid-a', parent: 'root', status: 'running', cancel: failingCancel })
+    const sibling = node({ id: 'kid-b', parent: 'root', status: 'running', cancel: siblingCancel })
+    const grand = node({ id: 'grand', parent: 'kid-a', status: 'running', cancel: grandCancel })
+    const idle = node({ id: 'idle-kid', parent: 'root', cancel: idleCancel })
+    const ctx = await admissionHarness([node({ id: 'root' }), failing, sibling, grand, idle])
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+
+    await ctx.parallel('workspace/session-stop', { sessionId: SessionId('root') })
+
+    expect(failingCancel).toHaveBeenCalledWith({ kind: 'parent' })
+    expect(grandCancel).toHaveBeenCalledWith({ kind: 'parent' })
+    expect(siblingCancel).toHaveBeenCalledWith({ kind: 'parent' })
+    expect(idleCancel).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cancelling "kid-a" for an archived session failed'))
   })
 })

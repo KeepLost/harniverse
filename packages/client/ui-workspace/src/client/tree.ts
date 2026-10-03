@@ -29,6 +29,8 @@ export interface SessionNode {
   runningSubagentCount: number
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
+  /** Registry-global pin: the row leads its section while pinned. */
+  pinned: boolean
   updatedAt: number
 }
 
@@ -214,6 +216,7 @@ function groupByWorkspace(
 function sessionNode(
   s: SessionSummary,
   descendants: ReadonlyMap<SessionId, SubagentDescendantSummary>,
+  pinned = false,
 ): SessionNode {
   return {
     id: s.id,
@@ -222,9 +225,24 @@ function sessionNode(
     running: s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
     completed: s.completed === true,
+    pinned,
     updatedAt: s.updatedAt,
     ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
   }
+}
+
+/**
+ * Partition one group's visible members: pinned sessions lead the section in
+ * pin order (most recently pinned first), unpinned sessions keep their
+ * existing order behind them, so unpinning restores a row's kept slot.
+ */
+function partitionPinned(members: readonly SessionSummary[], pinned: ReadonlySet<SessionId>): SessionSummary[] {
+  if (pinned.size === 0) return [...members]
+  const leading = [...pinned].map(id => members.find(member => member.id === id))
+    .filter((member): member is SessionSummary => member !== undefined)
+  if (leading.length === 0) return [...members]
+  const leadingIds = new Set(leading.map(member => member.id))
+  return [...leading, ...members.filter(member => !leadingIds.has(member.id))]
 }
 
 /**
@@ -245,9 +263,11 @@ export function deriveGroups(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archivedSessionIds: readonly SessionId[],
+  pinnedSessionIds: readonly SessionId[],
   view: TreeView,
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
+  const pinned = new Set(pinnedSessionIds)
   const expandedGroups = new Set(view.expandedGroups)
   const descendants = indexSubagentDescendants(list.byId)
   const currentGroup = list.current === undefined
@@ -257,6 +277,7 @@ export function deriveGroups(
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
+    const ordered = partitionPinned(g.sessions, pinned)
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
@@ -266,7 +287,7 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
-      sessions: expanded ? g.sessions.map(session => sessionNode(session, descendants)) : [],
+      sessions: expanded ? ordered.map(session => sessionNode(session, descendants, pinned.has(session.id))) : [],
     })
   }
   return groups
@@ -284,8 +305,10 @@ export function deriveGroups(
 export function deriveFlat(
   list: SessionListState,
   archivedSessionIds: readonly SessionId[],
+  pinnedSessionIds: readonly SessionId[] = [],
 ): SessionNode[] {
   const archived = new Set(archivedSessionIds)
+  const pinned = new Set(pinnedSessionIds)
   const descendants = indexSubagentDescendants(list.byId)
   const rows: SessionSummary[] = []
   for (const id of list.ids) {
@@ -294,7 +317,8 @@ export function deriveFlat(
     rows.push(s)
   }
   rows.sort(byRecency)
-  return rows.map(session => sessionNode(session, descendants))
+  const ordered = partitionPinned(rows, pinned)
+  return ordered.map(session => sessionNode(session, descendants, pinned.has(session.id)))
 }
 
 /** Relative-time bucket of a session row's trailing label. */

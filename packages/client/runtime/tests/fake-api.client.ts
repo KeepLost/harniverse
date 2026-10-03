@@ -299,6 +299,11 @@ export class FakeApiClient implements IApiClient {
       this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
     unarchiveSession: (payload: unknown) =>
       this.record('workspace.unarchiveSession', payload, this.onWorkspaceUnarchiveSession(payload)),
+    pinSession: (payload: unknown) =>
+      this.record('workspace.pinSession', payload,
+        Promise.resolve(ok({ pinnedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))),
+    unpinSession: (payload: unknown) =>
+      this.record('workspace.unpinSession', payload, Promise.resolve(ok({ pinnedSessionIds: [] }))),
   }
 
   // Payloads stay `unknown` (lint-lane note above); response rows are the real

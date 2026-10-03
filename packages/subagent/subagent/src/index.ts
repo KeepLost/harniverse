@@ -71,7 +71,17 @@ import type {
 } from './continuation.ts'
 import SubagentActivationSetupRegistry from './activation-setup-registry.ts'
 import type { ContinuableSetupContribution } from './activation-setup-registry.ts'
-import { listChildren as listSubagentChildren, listDescendants as listSubagentDescendants } from './list-children.ts'
+import type { SessionActivity } from '@deepseek-ai/dsh-workspace'
+import {
+  listChildren as listSubagentChildren, listDescendants as listSubagentDescendants, runningDescendants,
+} from './list-children.ts'
+
+declare module '@deepseek-ai/dsh-workspace' {
+  interface SessionActivityKindMap {
+    /** The Subagent runtime's family: descendants still inside a turn. */
+    subagent: 'subagent'
+  }
+}
 import type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
 import { assertResolvedChildProfile, childProfileToolFilter, resolveChildProfile } from './profile.ts'
@@ -218,6 +228,26 @@ export class SubagentRuntime extends Service {
       if (status === 'running') this.activeProfileAgents.set(agent, this.profilePriorities.get(agent) as number)
       else this.activeProfileAgents.delete(agent)
       for (const wake of this.priorityWaiters) wake()
+    })
+    // Archive admission, `subagent` family: descendants still inside a turn
+    // hold their ancestor, and the stop cancels each of them as their parent
+    // would.
+    ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
+      const rest = await next()
+      const running = runningDescendants(this.ctx, sessionId)
+      if (running.length === 0) return rest
+      const own: SessionActivity = { kind: 'subagent', items: running.map(agent => ({ id: agent.id })) }
+      return [own, ...rest]
+    })
+    ctx.on('workspace/session-stop', ({ sessionId }) => {
+      for (const agent of runningDescendants(this.ctx, sessionId)) {
+        try {
+          agent.cancel({ kind: 'parent' })
+        } catch (error: unknown) {
+          // One child refusing its cancel must not keep its siblings running for an archived ancestor.
+          this.ctx.logger.warn(`subagent: cancelling "${agent.id}" for an archived session failed: ${String(error)}`)
+        }
+      }
     })
     ctx.inject(['agents'], (childCtx: Context) => {
       const manager = new SubagentContinuationManager(childCtx, {

@@ -17,6 +17,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
@@ -449,4 +450,43 @@ function assertListingNotCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new SubagentError('subagent listing was cancelled', 'CANCELLED')
   }
+}
+
+/**
+ * Live subagent descendants of a root still inside a turn, by durable
+ * lineage: an agent whose header names its parent and carries the subagent
+ * origin this package records, at any depth. A fork shares the lineage field
+ * without the origin and is an independent conversation, so it never holds
+ * its source. Lineage is read as data, so a damaged header chain that loops
+ * is visited once.
+ * @param ctx - Host context carrying the Agent registry.
+ * @param rootId - Session whose descendant turns are collected.
+ * @returns running descendant agents in registry order.
+ */
+export function runningDescendants(ctx: Context, rootId: SessionId): Agent[] {
+  // The registry may be sibling-provided (loader composition), so read it
+  // through the global store rather than the inject-gated property proxy.
+  const agents = ctx.get('agents')
+  if (agents === undefined) return []
+  const childrenOf = new Map<SessionId, Agent[]>()
+  for (const agent of agents.list()) {
+    const { parentSession, origin } = agent.session.header
+    if (parentSession === undefined || origin !== 'subagent') continue
+    const siblings = childrenOf.get(parentSession) ?? []
+    siblings.push(agent)
+    childrenOf.set(parentSession, siblings)
+  }
+  const running: Agent[] = []
+  const pending = [rootId]
+  const visited = new Set<SessionId>()
+  while (pending.length > 0) {
+    const parentId = pending.shift() as SessionId
+    if (visited.has(parentId)) continue
+    visited.add(parentId)
+    for (const child of childrenOf.get(parentId) ?? []) {
+      if (child.status === 'running') running.push(child)
+      pending.push(child.id)
+    }
+  }
+  return running
 }

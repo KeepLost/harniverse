@@ -113,7 +113,7 @@ describe('render branch tails', () => {
     const emptyList = createSnapshotStore<SessionListState>(
       { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0 })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     const view = render(
@@ -171,7 +171,7 @@ describe('render branch tails', () => {
     const emptyList = createSnapshotStore<SessionListState>(
       { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0 })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     const owners: DetailsToolOwnerProps[] = []

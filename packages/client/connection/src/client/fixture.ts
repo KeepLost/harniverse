@@ -1635,6 +1635,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // Registry-global archive set mirroring the host: archived sessions keep
   // their workspace accounting slot and only grouping surfaces hide them.
   const archivedSessionIds: SessionId[] = []
+  const pinnedSessionIds: SessionId[] = []
 
   // In-memory browse tree behind the fixture's `browse` picker capability —
   // deterministic content mirroring the design mock so assembled Web tests
@@ -2844,6 +2845,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       list: request => ok(request, {
         items: workspaces.map(w => ({ ...w })),
         archivedSessionIds: [...archivedSessionIds],
+        pinnedSessionIds: [],
       }),
       create: (request) => {
         const { path } = request.payload
@@ -2976,6 +2978,27 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (index !== -1) archivedSessionIds.splice(index, 1)
         emitHost({ type: 'host/archived-sessions-changed', archivedSessionIds: [...archivedSessionIds] })
         return ok(request, { archivedSessionIds: [...archivedSessionIds] })
+      },
+      pinSession: (request) => {
+        const { sessionId } = request.payload
+        if (archivedSessionIds.includes(sessionId)) {
+          return err(request, {
+            code: 'agent-busy',
+            message: `session "${sessionId}" is archived and read-only`,
+            details: { reason: 'SESSION_ARCHIVED' },
+          })
+        }
+        const index = pinnedSessionIds.indexOf(sessionId)
+        if (index !== -1) pinnedSessionIds.splice(index, 1)
+        pinnedSessionIds.unshift(sessionId)
+        emitHost({ type: 'host/pinned-sessions-changed', pinnedSessionIds: [...pinnedSessionIds] })
+        return ok(request, { pinnedSessionIds: [...pinnedSessionIds] })
+      },
+      unpinSession: (request) => {
+        const index = pinnedSessionIds.indexOf(request.payload.sessionId)
+        if (index !== -1) pinnedSessionIds.splice(index, 1)
+        emitHost({ type: 'host/pinned-sessions-changed', pinnedSessionIds: [...pinnedSessionIds] })
+        return ok(request, { pinnedSessionIds: [...pinnedSessionIds] })
       },
     },
     workspaceFiles: {
@@ -3533,6 +3556,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.insertSessionBefore': return this.fixtureApi.workspace.insertSessionBefore(request)
       case 'workspace.archiveSession': return this.fixtureApi.workspace.archiveSession(request)
       case 'workspace.unarchiveSession': return this.fixtureApi.workspace.unarchiveSession(request)
+      case 'workspace.pinSession': return this.fixtureApi.workspace.pinSession(request)
+      case 'workspace.unpinSession': return this.fixtureApi.workspace.unpinSession(request)
       case 'workspace.files.list': return this.fixtureApi.workspaceFiles?.list(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
       case 'workspace.files.search': return this.fixtureApi.workspaceFiles?.search(request, signal)

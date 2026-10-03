@@ -220,11 +220,22 @@ completeSessionDeletion(sessionId: SessionId): Promise<void>
 /**
  * Archive one session durably. The session must exist (live or in session
  * persistence); its workspace accounting — or lack of one — is irrelevant.
- * An already archived id resolves without writing.
+ * Without `stopActivity` the session must also be inactive: the
+ * `workspace/session-activity` waterfall is asked once, and any reported
+ * activity rejects with {@link WorkspaceActiveSessionError} before anything
+ * is written. With `stopActivity` the archive is written without an
+ * activity check, and the `workspace/session-stop` providers are then asked
+ * to stop the session's work: the durable archive set is what the
+ * `agent/pre-step` gate reads, so every wake a stop induces — a cancelled
+ * child's settlement, a queued follow-up — is already blocked. Archiving
+ * drops the session's pin in the same durable write (pinning and archival
+ * are mutually exclusive). An already archived id resolves without writing,
+ * asking, or stopping.
  * @param sessionId - The session to archive.
- * @returns resolution after durability.
+ * @param options - Whether running work is stopped instead of refusing.
+ * @returns resolution after durability and, with `stopActivity`, after every stop request was issued.
  */
-archiveSession(sessionId: SessionId): Promise<void>
+archiveSession(sessionId: SessionId, options: ArchiveSessionOptions = {}): Promise<void>
 
 /**
  * Remove one Session from the registry-global archive set. The operation is
@@ -233,6 +244,23 @@ archiveSession(sessionId: SessionId): Promise<void>
  * @returns resolution after durability.
  */
 unarchiveSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Pin one session durably, prepending it to the registry-global pin set.
+ * The session must exist (live or in session persistence) and must not be
+ * archived. An already pinned id resolves without writing or reordering.
+ * @param sessionId - The session to pin.
+ * @returns resolution after durability.
+ */
+pinSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Remove one Session from the registry-global pin set. The operation is
+ * idempotent so a stale browser can safely repair its pin projection.
+ * @param sessionId - The Session to unpin.
+ * @returns resolution after durability.
+ */
+unpinSession(sessionId: SessionId): Promise<void>
 
 /**
  * Remove one deleted session from every workspace account and the archive set.
@@ -254,5 +282,58 @@ async resolveByPath(path: string): Promise<Workspace | undefined>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/workspace/workspace/src/index.ts:97`](../../packages/workspace/workspace/src/index.ts)
+Source: [`packages/workspace/workspace/src/index.ts:167`](../../packages/workspace/workspace/src/index.ts)
+
+<a id="workspace-events"></a>
+
+### `workspace/*` events
+
+<a id="workspacesession-activity--waterfall"></a>
+
+#### `workspace/session-activity` — waterfall
+
+Ask the composed providers what still runs for a session before it is archived. A listener prepends its own SessionActivity entries to the result of `next()`; the registry's innermost callback returns an empty list, so a composition without providers archives freely. Any non-empty result refuses the archive without a write.
+
+```ts cordis-catalog
+/**
+ * Ask the composed providers what still runs for a session before it is
+ * archived. A listener prepends its own {@link SessionActivity} entries to
+ * the result of `next()`; the registry's innermost callback returns an
+ * empty list, so a composition without providers archives freely. Any
+ * non-empty result refuses the archive without a write.
+ * @param request - the session about to be archived.
+ * @param next - delegate to the remaining providers.
+ * @mode waterfall
+ */
+'workspace/session-activity'( request: SessionActivityRequest, next: () => Promise<readonly SessionActivity[]>, ): Promise<readonly SessionActivity[]>
+```
+
+Source: [`packages/workspace/workspace/src/index.ts:125`](../../packages/workspace/workspace/src/index.ts)
+
+<a id="workspacesession-stop--parallel"></a>
+
+#### `workspace/session-stop` — parallel
+
+Stop a session's running work because the caller archived it with `stopActivity`; the archive set is durable when this dispatches. Each provider stops its own families — cancelling a turn, its subagent descendants, or owned jobs — through the same cancel paths the user's own stop actions use, so the session log ends every open turn regularly and a later unarchive can continue the conversation. Active schedules are kept, not stopped: the scheduler skips delivery to archived sessions and keeps the plan. Listeners issue their stop requests without waiting for running work to settle; a listener may await its own durability barrier. A rejection is logged by the registry and does not undo the archive.
+
+```ts cordis-catalog
+/**
+ * Stop a session's running work because the caller archived it with
+ * `stopActivity`; the archive set is durable when this dispatches. Each
+ * provider stops its own families — cancelling a turn, its subagent
+ * descendants, or owned jobs — through the same cancel paths the user's
+ * own stop actions use, so the session log ends every open turn regularly
+ * and a later unarchive can continue the conversation. Active schedules
+ * are kept, not stopped: the scheduler skips delivery to archived
+ * sessions and keeps the plan. Listeners issue their stop requests
+ * without waiting for running work to settle; a listener may await its
+ * own durability barrier. A rejection is logged by the registry and does
+ * not undo the archive.
+ * @param request - the session being archived.
+ * @mode parallel
+ */
+'workspace/session-stop'(request: SessionActivityRequest): Promise<void> | void
+```
+
+Source: [`packages/workspace/workspace/src/index.ts:144`](../../packages/workspace/workspace/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -215,5 +215,5 @@ async remove(id: string, by?: SessionId): Promise<boolean>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/schedule/scheduler/src/index.ts:94`](../../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:109`](../../packages/schedule/scheduler/src/index.ts)
 <!-- END GENERATED cordis-surface -->

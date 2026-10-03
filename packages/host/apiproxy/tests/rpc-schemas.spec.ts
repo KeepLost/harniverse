@@ -30,7 +30,9 @@ import {
   workspaceInsertBeforeRequestSchema, workspaceInsertBeforeValueSchema,
   workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
   workspaceListRequestSchema, workspaceListValueSchema,
+  workspacePinSessionRequestSchema, workspacePinSessionValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
+  workspaceUnpinSessionRequestSchema, workspaceUnpinSessionValueSchema,
 } from '../src/api/workspace.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
 import {
@@ -460,12 +462,17 @@ describe('workspace domain schemas', () => {
     expect(workspaceViewSchema.parse(view).sessionIds).toEqual(['s1'])
     expect(() => workspaceViewSchema.parse({ ...view, sessionIds: 's1' })).toThrow()
     expect(workspaceListRequestSchema.parse({})).toEqual({})
-    expect(workspaceListValueSchema.parse({ items: [view], archivedSessionIds: ['s1'] }).items).toHaveLength(1)
+    expect(workspaceListValueSchema.parse({
+      items: [view], archivedSessionIds: ['s1'], pinnedSessionIds: ['s2'],
+    }).pinnedSessionIds).toEqual(['s2'])
+    expect(() => workspaceListValueSchema.parse({ items: [view], archivedSessionIds: ['s1'] })).toThrow()
     expect(() => workspaceListValueSchema.parse({ items: [view] })).toThrow()
   })
 
-  it('archiveSession request/value carry the id and the full updated set', () => {
+  it('archiveSession request/value carry the id, the optional stop flag, and the full updated set', () => {
     expect(workspaceArchiveSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(workspaceArchiveSessionRequestSchema.parse({ sessionId: 's1', stopActivity: true }).stopActivity).toBe(true)
+    expect(workspaceArchiveSessionRequestSchema.parse({ sessionId: 's1' }).stopActivity).toBeUndefined()
     expect(() => workspaceArchiveSessionRequestSchema.parse({})).toThrow()
     expect(workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: ['s1', 's2'] }).archivedSessionIds)
       .toEqual(['s1', 's2'])
@@ -476,6 +483,17 @@ describe('workspace domain schemas', () => {
     expect(workspaceUnarchiveSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(workspaceUnarchiveSessionValueSchema.parse({ archivedSessionIds: ['s2'] }).archivedSessionIds)
       .toEqual(['s2'])
+  })
+
+  it('pinSession/unpinSession request/value carry the id and the full updated set', () => {
+    expect(workspacePinSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(() => workspacePinSessionRequestSchema.parse({})).toThrow()
+    expect(workspacePinSessionValueSchema.parse({ pinnedSessionIds: ['s1', 's2'] }).pinnedSessionIds)
+      .toEqual(['s1', 's2'])
+    expect(() => workspacePinSessionValueSchema.parse({ pinnedSessionIds: 's1' })).toThrow()
+    expect(workspaceUnpinSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(workspaceUnpinSessionValueSchema.parse({ pinnedSessionIds: [] }).pinnedSessionIds).toEqual([])
+    expect(() => workspaceUnpinSessionValueSchema.parse({})).toThrow()
   })
 
   it('insertSessionBefore accepts an anchored and an anchorless move', () => {
@@ -641,6 +659,8 @@ describe('events frame schemas', () => {
         createdAt: '0', updatedAt: '0',
       } },
       { type: 'host/workspace-removed', workspaceId: 'w' },
+      { type: 'host/archived-sessions-changed', archivedSessionIds: ['s'] },
+      { type: 'host/pinned-sessions-changed', pinnedSessionIds: ['s'] },
       { type: 'host/remote-event', event: 'commands/change', args: [] },
       { type: 'host/remote-event', event: 'settings/document-updated', args: ['ns', 3] },
       { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },

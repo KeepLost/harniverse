@@ -39,6 +39,9 @@
       "path": "../../preset/agent-presets"
     },
     {
+      "path": "../../workspace/workspace"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

@@ -151,12 +151,21 @@ export interface IWorkspaces {
   /**
    * Archive a session into the registry-global set (hidden from grouping
    * surfaces; session log and accounting slot remain). Archiving the current
-   * session clears the selection into the New Session view state.
+   * session clears the selection into the New Session view state. Without
+   * options a session with running work rejects with the workspace
+   * service's `SessionArchiveActiveError` carrying the host-reported activities;
+   * `stopActivity` archives first and stops the reported work afterwards.
+   * Archiving drops the session's pin.
    * @param sessionId - session to archive.
+   * @param options - whether running work is stopped instead of refusing.
    */
-  archiveSession(sessionId: SessionId): Promise<void>
-  /** Remove a Session from the archive set without resuming it. */
+  archiveSession(sessionId: SessionId, options?: { stopActivity?: boolean }): Promise<void>
+  /** Remove one Session from the archive set without resuming it. */
   unarchiveSession(sessionId: SessionId): Promise<void>
+  /** Prepend one session to the registry-global pin set (most recently pinned first). */
+  pinSession(sessionId: SessionId): Promise<void>
+  /** Remove one session from the registry-global pin set. */
+  unpinSession(sessionId: SessionId): Promise<void>
 }
 
 /** Monotone workspace-list arrival lifecycle. */
@@ -173,6 +182,11 @@ export interface WorkspaceListState {
    * build their own transient Set.
    */
   archivedSessionIds: readonly SessionId[]
+  /**
+   * Registry-global pin set in Host order (most recently pinned first):
+   * grouping surfaces surface these sessions ahead of unpinned ones.
+   */
+  pinnedSessionIds: readonly SessionId[]
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null

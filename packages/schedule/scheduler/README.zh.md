@@ -22,6 +22,8 @@
 
 规则沿用官方词表：`after`（一次性延迟）、`at`（一次性时刻，逾期补跑一次）、`every`（锚定周期，最短五分钟，错过跳至最近槽位）。失败的一次性任务十分钟后重试并记录 `lastError`；失败的 `every` 在下一槽位继续。`fresh` 投递先经 `ctx.contextReset` 重置目标表面。每次派发追加一条 log-only 的 `schedule/dispatch` 溯源事件与一条 plugin source 为 `schedule` 的 `user/message`，随后 flush。
 
+向某会话投递的活跃记录通过 `workspace/session-activity` 的 `schedule` 家族上报（记录 id 加截断的 prompt 标签），归档该会话因此会点名该计划；调度器不注册停止监听——计划保留。送达会话已归档的到期槽位按成功推进，并记录一条状态为 `skipped`、无错误的运行，取消归档后在下一个到期时刻恢复投递。
+
 ## 组合
 
 ```yaml

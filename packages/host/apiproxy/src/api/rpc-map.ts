@@ -72,6 +72,8 @@ export interface RpcMethodMap {
   'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
   'workspace.archiveSession': WorkspaceApi['archiveSession']
   'workspace.unarchiveSession': WorkspaceApi['unarchiveSession']
+  'workspace.pinSession': WorkspaceApi['pinSession']
+  'workspace.unpinSession': WorkspaceApi['unpinSession']
   'workspace.files.list': WorkspaceFilesApi['list']
   'workspace.files.search': WorkspaceFilesApi['search']
   'workspace.files.read': WorkspaceFilesApi['read']
@@ -148,6 +150,8 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'workspace.insertSessionBefore': 'harniverse.operate',
   'workspace.archiveSession': 'harniverse.operate',
   'workspace.unarchiveSession': 'harniverse.operate',
+  'workspace.pinSession': 'harniverse.operate',
+  'workspace.unpinSession': 'harniverse.operate',
   'workspace.files.list': 'harniverse.observe',
   'workspace.files.search': 'harniverse.observe',
   'workspace.files.read': 'harniverse.observe',
@@ -224,6 +228,8 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'workspace.insertSessionBefore': 'mutate',
   'workspace.archiveSession': 'mutate',
   'workspace.unarchiveSession': 'mutate',
+  'workspace.pinSession': 'mutate',
+  'workspace.unpinSession': 'mutate',
   'workspace.files.list': 'read',
   'workspace.files.search': 'read',
   'workspace.files.read': 'read',

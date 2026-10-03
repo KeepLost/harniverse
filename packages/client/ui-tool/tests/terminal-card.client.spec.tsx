@@ -458,7 +458,7 @@ describe('DetailsPanel Output section', () => {
         currentAddress: undefined, selectionSeq: 0,
       })
     const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     return render(
@@ -653,7 +653,7 @@ describe('DetailsPanel Output section', () => {
             subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
           }))}
         useWorkspaces={bindSnapshotSelector(createSnapshotStore<WorkspaceListState>({
-          items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+          items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
           baselinesReady: true, recentWorkspaceId: undefined,
         }))}
         useInput={(() => { throw new Error('unused') })}

@@ -128,11 +128,19 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   /**
    * Archive a Session into the registry-global set: hidden from grouping
    * surfaces, log and accounting slot retained. Archiving the current
-   * session clears the selection into the New Session view state.
+   * session clears the selection into the New Session view state. Without
+   * options a session with running work rejects with the workspace
+   * service's `SessionArchiveActiveError` carrying the host-reported
+   * activities; `stopActivity` archives first and stops the reported work
+   * afterwards. Archiving drops the session's pin.
    */
-  archiveSession: (sessionId: SessionId) => Promise<void>
+  archiveSession: (sessionId: SessionId, options?: { stopActivity?: boolean }) => Promise<void>
   /** Remove a Session from the archive set without resuming it. */
   unarchiveSession: (sessionId: SessionId) => Promise<void>
+  /** Prepend one session to the registry-global pin set (pinned rows lead their section). */
+  pinSession: (sessionId: SessionId) => Promise<void>
+  /** Remove one session from the registry-global pin set. */
+  unpinSession: (sessionId: SessionId) => Promise<void>
   /** Open one archived Session for a read-only history preview. */
   openArchive: (sessionId: SessionId) => Promise<RpcResult<{ snapshot: ConversationSnapshot }>>
   /** Load one older page for an already-open archived preview. */

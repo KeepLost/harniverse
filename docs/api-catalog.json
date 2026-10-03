@@ -254,6 +254,18 @@
       "stability": "stable"
     },
     {
+      "method": "workspace.pinSession",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.unpinSession",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
       "method": "workspace.files.list",
       "requiredCapability": "harniverse.observe",
       "effect": "read",
