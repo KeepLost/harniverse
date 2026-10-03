@@ -7,7 +7,7 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { createContextFixture, officialArtifact } from './import-fixture.ts'
 
 describe('archival import settlement', () => {
-  it.each([1, 2, 3] as const)('imports the frozen official v%i recording and cold-reloads it', async (version) => {
+  it.each([1, 2, 3, 4] as const)('imports the frozen official v%i recording and cold-reloads it', async (version) => {
     const f = await createContextFixture()
     const source = Buffer.from(await officialArtifact(version))
     const reopened = new Context()
@@ -26,14 +26,14 @@ describe('archival import settlement', () => {
       const messages = session.deriveMessages()
       expect(messages.at(-1)).toMatchObject({ source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-session-import' } })
       expect(JSON.stringify(messages.at(-1))).toContain(`official-v${version}`)
-      expect(JSON.stringify(messages)).toContain(version === 1 ? 'PONG' : 'dsh-sdk-proof-7391')
-      expect(messages.some(message => message.source.kind === 'plugin' && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(true)
+      expect(JSON.stringify(messages)).toContain(version === 1 ? 'PONG' : version === 4 ? 'TERMINAL_OK' : 'dsh-sdk-proof-7391')
+      expect(messages.some(message => message.source.kind === 'plugin'
+        && message.source.plugin === (version === 4 ? 'runtime-context' : '@deepseek-ai/dsh-system-prompt'))).toBe(true)
       if (version !== 1) {
         const resultMessage = messages.find(message => message.source.kind === 'tool')
-        expect(resultMessage?.content).toEqual([{
-          type: 'tool-result', toolCallId: 'call_00_Ry17evSfTr0uJnHhg3X93070',
-          content: [{ type: 'text', text: 'dsh-sdk-proof-7391\n' }], isError: false,
-        }])
+        expect(resultMessage?.content).toEqual(version === 4
+          ? [{ type: 'tool-result', toolCallId: 'call_00_fkbBRJsUrGKd1pWVc4Gn8233', content: [{ type: 'text', text: 'TERMINAL_OK\n' }], isError: false }]
+          : [{ type: 'tool-result', toolCallId: 'call_00_Ry17evSfTr0uJnHhg3X93070', content: [{ type: 'text', text: 'dsh-sdk-proof-7391\n' }], isError: false }])
       }
       expect((await reopened.sessionPersistence.list()).map(header => header.id)).toContain(result.sessionId)
       expect(reopened.sessions.list()).toEqual([])

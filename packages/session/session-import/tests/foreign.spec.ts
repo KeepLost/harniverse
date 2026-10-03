@@ -12,7 +12,7 @@ describe('foreign JSONL framing', () => {
 
   it.each([
     { type: 'other' }, { id: '' }, { id: 1 }, { createdAt: -1 }, { createdAt: 0.5 },
-    { createdAt: '0' }, { delegationDepth: -1 }, { cwd: null }, { isSeeded: 'false' },
+    { createdAt: '0' }, { delegationDepth: -1 }, { cwd: null },
   ])('rejects invalid header fields %j', (patch) => {
     expect(() => parseForeignSessionLog(artifact({ ...header, ...patch }))).toThrow('invalid foreign session header')
   })
@@ -31,7 +31,7 @@ describe('foreign JSONL framing', () => {
     },
   )
 
-  it.each([2, 3])('refuses packed chunks in v%i', (version) => {
+  it.each([2, 3, 4])('refuses packed chunks in v%i', (version) => {
     expect(() => parseForeignSessionLog(artifact({ ...header, version }, { type: 'text-chunks' }))).toThrow('packed chunk rows require official v1')
   })
 
@@ -55,11 +55,20 @@ describe('foreign JSONL framing', () => {
     expect(() => parseForeignSessionLog(artifact(header, event, { ...event, seq: 1, sourceEventSeqs }))).toThrow(ForeignLogError)
   })
 
-  it.each([1, 2, 3])('normalizes v%i replacements and preserves valid provenance framing', (version) => {
-    const surfaceOp = version === 3 ? { op: 'replace', startSeq: 0, endSeq: 0 } : { op: 'replace', start: 0, end: 0 }
+  it.each([2, 3, 4])('requires a boolean isSeeded in v%i', (version) => {
+    expect(() => parseForeignSessionLog(artifact({ ...header, version, isSeeded: 'false' }))).toThrow('invalid foreign session header')
+  })
+
+  it.each([1, 2, 3, 4])('normalizes v%i replacements and preserves valid provenance framing', (version) => {
+    const surfaceOp = version >= 3 ? { op: 'replace', startSeq: 0, endSeq: 0 } : { op: 'replace', start: 0, end: 0 }
     const parsed = parseForeignSessionLog('\n' + artifact({ ...header, version }, event,
       { ...event, seq: 1, surfaceOp, sourceEventSeqs: [0, [0, 0]] }) + '\n\n')
     expect(parsed.header).toEqual({ id: 'foreign', version, createdAt: 0, cwd: undefined })
     expect(parsed.events).toEqual([event, { ...event, seq: 1, surfaceOp: { op: 'replace', start: 0, end: 0 } }])
+  })
+
+  it('refuses v1/v2-style replacement endpoints in a v4 log', () => {
+    expect(() => parseForeignSessionLog(artifact({ ...header, version: 4 }, event,
+      { ...event, seq: 1, surfaceOp: { op: 'replace', start: 0, end: 0 } }))).toThrow('invalid foreign surface replacement')
   })
 })

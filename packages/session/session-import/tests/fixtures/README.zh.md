@@ -7,5 +7,6 @@
 - `official-v1.jsonl`：`snapshots/session/text-turn/session.v1.jsonl`
 - `official-v2.jsonl`：`snapshots/sdk/bash-tool/session.v2.jsonl`
 - `official-v3.jsonl`：`snapshots/sdk/bash-tool/session.v3.jsonl`
+- `official-v4.jsonl`：`snapshots/session/bash-tool-turn/session.v4.jsonl`（上游 `639ed01539`）
 
 这些是上游规范化的快照记录，不是物理持久化文件。`officialArtifact()` 恢复被省略的事件序号和时间戳；v1 打包行的每个增量占用一个序号。该函数不改变载荷、来源引用、标识或已记录的工具结果结构。

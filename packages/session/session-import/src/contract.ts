@@ -12,7 +12,7 @@ import type { ForeignSessionFormat, ImportRecordEventData } from './types.ts'
 
 /**
  * Classify one stored session header's `version` for import. Pure and total;
- * the official v1/v2/v3 generations name their lossy import classes, this
+ * the official v1/v2/v3/v4 generations name their lossy import classes, this
  * build's own version names `'current'`, and everything else is `'unknown'`
  * and must be refused rather than guessed.
  * @param version - the `version` field read from a stored foreign header, unvalidated.
@@ -21,7 +21,7 @@ import type { ForeignSessionFormat, ImportRecordEventData } from './types.ts'
 export function classifyForeignSessionFormatVersion(version: unknown): ForeignSessionFormat {
   if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 0) return 'unknown'
   if (version === SESSION_FORMAT_VERSION) return 'current'
-  if (version === 1 || version === 2 || version === 3) return `official-v${version}`
+  if (version === 1 || version === 2 || version === 3 || version === 4) return `official-v${version}`
   return 'unknown'
 }
 

@@ -18,9 +18,9 @@ function record(format: ImportRecordEventData['source']['format'], artifactName:
 }
 
 describe('session-import invariants', () => {
-  it('accepts a well-formed marker as the first event', async () => {
+  it.each(['official-v1', 'official-v2', 'official-v3', 'official-v4'] as const)('accepts a well-formed %s marker as the first event', async (format) => {
     const { session } = await setup()
-    expect(() => session.append('import/record', record('official-v3', 'source.jsonl'))).not.toThrow()
+    expect(() => session.append('import/record', record(format, 'source.jsonl'))).not.toThrow()
     expect(() => session.append('turn/start', { turn: 1 })).not.toThrow()
   })
 

@@ -34,7 +34,8 @@ describe('classifyForeignSessionFormatVersion', () => {
     expect(classifyForeignSessionFormatVersion(1)).toBe('official-v1')
     expect(classifyForeignSessionFormatVersion(2)).toBe('official-v2')
     expect(classifyForeignSessionFormatVersion(3)).toBe('official-v3')
-    for (const refused of [4, 100, -1, 1.5, '3', null, undefined, true]) {
+    expect(classifyForeignSessionFormatVersion(4)).toBe('official-v4')
+    for (const refused of [5, 100, -1, 1.5, '3', null, undefined, true]) {
       expect(classifyForeignSessionFormatVersion(refused)).toBe('unknown')
     }
   })

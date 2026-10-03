@@ -1,9 +1,10 @@
 /**
  * Lossy foreign-event mapping into current native session events. Only the
  * display-bearing vocabulary maps — user and assistant messages, tool calls
- * and results, and the turn/step markers whose payloads are shape-identical.
- * Everything else is skipped and counted; mapped messages carry fresh local
- * identities and truthful placeholders for unsupported blocks.
+ * and results (including official v4's first-class tool-role results), and
+ * the turn/step markers whose payloads are shape-identical. Everything else
+ * is skipped and counted; mapped messages carry fresh local identities and
+ * truthful placeholders for unsupported blocks.
  *
  * @module @deepseek-ai/dsh-session-import
  */
@@ -104,6 +105,7 @@ function mapMarkerEvent(raw: ForeignRawEvent, time: number): PendingImportEvent 
           ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'interrupted' } } }
       }
       if (typeof kind !== 'string') return undefined
+      // Official v4 fork closers (`forked`) and unknown kinds settle as interrupted.
       if (!SIMPLE_TURN_END_REASONS.has(kind)) {
         return { type: 'turn/end', time, data: { turn, reason: { kind: 'interrupted' } } }
       }
@@ -118,7 +120,25 @@ function mapMarkerEvent(raw: ForeignRawEvent, time: number): PendingImportEvent 
     : { type: 'step/end', time, data: { turn, step } }
 }
 
-function mapUserMessage(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
+/**
+ * Attribute one foreign user message lossily: human prompts stay user-owned
+ * and every producer-supplied context becomes plugin output. Official v4
+ * names each producer by its source `kind` (for example `runtime-context`
+ * or `plugin:acme`), which is kept verbatim as the plugin name.
+ * @param source - the foreign message's `source` field, unvalidated.
+ * @param v4 - whether the foreign log is an official v4 export.
+ * @returns the native user-message source.
+ */
+function mapUserMessageSource(source: unknown, v4: boolean): { kind: 'user' } | { kind: 'plugin'; plugin: string } {
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
+  if (!isRecord(source)) return { kind: 'plugin', plugin: '@deepseek-ai/dsh-session-import' }
+  if (source.kind === 'user') return { kind: 'user' }
+  if (v4 && typeof source.kind === 'string' && source.kind.length > 0) return { kind: 'plugin', plugin: source.kind }
+  if (typeof source.plugin === 'string') return { kind: 'plugin', plugin: source.plugin }
+  return { kind: 'plugin', plugin: '@deepseek-ai/dsh-session-import' }
+}
+
+function mapUserMessage(raw: ForeignRawEvent, time: number, v4: boolean): PendingImportEvent | undefined {
   if (raw.type !== 'user/message') return undefined
   /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   const message = isRecord(raw.data) ? raw.data : undefined
@@ -128,10 +148,7 @@ function mapUserMessage(raw: ForeignRawEvent, time: number): PendingImportEvent 
     type: 'user/message',
     time,
     surfaceOp: 'append',
-    data: createUserMessage({ content: mapBlocks(message.content), source:
-      isRecord(message.source) && message.source.kind === 'user' ? { kind: 'user' }
-        : { kind: 'plugin', plugin: isRecord(message.source) && typeof message.source.plugin === 'string'
-          ? message.source.plugin : '@deepseek-ai/dsh-session-import' } }),
+    data: createUserMessage({ content: mapBlocks(message.content), source: mapUserMessageSource(message.source, v4) }),
   }
 }
 
@@ -186,7 +203,7 @@ function mapToolCall(raw: ForeignRawEvent, time: number): PendingImportEvent | u
   }
 }
 
-function mapToolResult(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
+function mapToolResult(raw: ForeignRawEvent, time: number, v4: boolean): PendingImportEvent | undefined {
   if (raw.type !== 'tool/result') return undefined
   /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   const data = isRecord(raw.data) ? raw.data : undefined
@@ -199,9 +216,35 @@ function mapToolResult(raw: ForeignRawEvent, time: number): PendingImportEvent |
   if (turn === undefined || step === undefined) return undefined
   /* v8 ignore next -- parsed tool results always carry an object source. */
   const source = isRecord(message.source) ? message.source : undefined
+  if (source?.kind !== 'tool' || typeof source.callId !== 'string') return undefined
+  if (v4) {
+    // Official v4 lifts the result into a first-class tool-role message: the
+    // call id sits on the message itself and the content is the direct block list.
+    if (typeof message.toolCallId !== 'string' || message.toolCallId.length === 0
+      || message.toolCallId !== source.callId) return undefined
+    const isError = message.isError === true
+    const error = isError && isRecord(data.error) && typeof data.error.name === 'string' && typeof data.error.code === 'string'
+      ? { name: data.error.name, code: data.error.code }
+      : undefined
+    return {
+      type: 'tool/result',
+      time,
+      surfaceOp: 'append',
+      data: {
+        turn,
+        step,
+        message: createToolResultMessage({
+          callId: CallId(source.callId),
+          content: mapBlocks(message.content),
+          isError,
+        }),
+        ...error === undefined ? {} : { error },
+      },
+    }
+  }
   const block = Array.isArray(message.content) && message.content.length === 1 && isRecord(message.content[0])
     ? message.content[0] : undefined
-  if (source?.kind !== 'tool' || typeof source.callId !== 'string' || block?.type !== 'tool-result'
+  if (block?.type !== 'tool-result'
     || block.toolCallId !== source.callId || !Array.isArray(block.content)) return undefined
   const error = block.isError === true && isRecord(data.error) && typeof data.error.name === 'string' && typeof data.error.code === 'string'
     ? { name: data.error.name, code: data.error.code }
@@ -232,6 +275,7 @@ const MAPPERS = [mapMarkerEvent, mapUserMessage, mapAssistantMessage, mapToolCal
  * @returns the mapped events plus the count of foreign events that mapped to nothing.
  */
 export function mapForeignSessionEvents(log: ForeignSessionLog, defaultTime: number): ForeignMapping {
+  const v4 = log.header.version === 4
   const events: PendingImportEvent[] = []
   let skipped = 0
   let turn: number | undefined
@@ -254,13 +298,16 @@ export function mapForeignSessionEvents(log: ForeignSessionLog, defaultTime: num
     if (['user/message', 'assistant/message', 'tool/result'].includes(String(raw.type))) {
       const data = isRecord(raw.data) ? raw.data : {}
       const message = raw.type === 'user/message' ? data : isRecord(data.message) ? data.message : {}
+      // Official v4 carries tool results as first-class tool-role messages.
+      const role = raw.type === 'assistant/message' ? 'assistant'
+        : raw.type === 'tool/result' && v4 ? 'tool' : 'user'
       if (typeof message.id !== 'string' || message.id.length === 0 || !Array.isArray(message.content)
-        || message.role !== (raw.type === 'assistant/message' ? 'assistant' : 'user') || !isRecord(message.source)) {
+        || message.role !== role || !isRecord(message.source)) {
         throw new ForeignLogError(`invalid foreign message at ${raw.seq}`)
       }
     }
     const mapped = MAPPERS.some((mapper) => {
-      const event = mapper(raw, time)
+      const event = mapper(raw, time, v4)
       if (event === undefined) return false
       if (event.type === 'turn/start') {
         closeTurn(time)
