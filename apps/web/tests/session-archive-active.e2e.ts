@@ -145,7 +145,7 @@ describe.skipIf(MODE === 'record')('web e2e: stop-and-archive confirmation and s
       page.getByRole('dialog').getByText(pattern)
     await expect.poll(() => dialogText('Stop and archive session').isVisible(), { timeout: 10_000 }).toBe(true)
     await expect.poll(() => dialogText('Background jobs').isVisible()).toBe(true)
-    await expect.poll(() => dialogText(/Stream while archive admission asks/).isVisible()).toBe(true)
+    await expect.poll(() => dialogText(/archive-active tick/).isVisible()).toBe(true)
     // Nothing stopped or archived yet: cancel keeps the row and the job.
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
     await expect.poll(() => page.getByRole('dialog').isVisible()).toBe(false)

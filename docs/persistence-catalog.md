@@ -534,7 +534,7 @@ Source: [`packages/compaction/image-offload-policy/src/types.ts:79`](../packages
 /**
  * Marks this session as imported archival data: the first event of a
  * session mapped lossily from a foreign session log (an official DSH
- * v1/v2/v3 export). The mapped history is displayable, saveable, and
+ * v1/v2/v3/v4 export). The mapped history is displayable, saveable, and
  * searchable, and the preserved source artifact is named by
  * `source.artifactName`. Live machinery must treat a session carrying
  * this marker as settled: never resumed, queued, approved, or steered —
@@ -543,7 +543,7 @@ Source: [`packages/compaction/image-offload-policy/src/types.ts:79`](../packages
 'import/record': ImportRecordEventData
 ```
 
-Source: [`packages/session/session-import/src/types.ts:49`](../packages/session/session-import/src/types.ts)
+Source: [`packages/session/session-import/src/types.ts:50`](../packages/session/session-import/src/types.ts)
 
 ### `llm/*`
 
@@ -743,7 +743,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'schedule/dispatch': ScheduleDispatchEventData
 ```
 
-Source: [`packages/schedule/scheduler/src/index.ts:36`](../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:44`](../packages/schedule/scheduler/src/index.ts)
 
 ### `session/*`
 

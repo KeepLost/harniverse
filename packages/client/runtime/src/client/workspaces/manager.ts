@@ -248,6 +248,7 @@ export class WorkspaceManager {
    * Archive one session in the registry-global set, then install the
    * returned full set without waiting for the changed frame.
    * @param sessionId - session to archive.
+   * @param options - whether running work is stopped instead of refusing.
    * @returns the wire result.
    */
   async archiveSession(

@@ -94,7 +94,7 @@ const COMMANDS: FakeCommand[] = [
 async function scopedBench(register?: (inputTriggers: InputTriggerService) => void) {
   const ctx = new Context()
   const api = new FakeApiClient()
-  api.onWorkspaceList = () => Promise.resolve(ok({ items: [] }))
+  api.onWorkspaceList = () => Promise.resolve(ok({ items: [], pinnedSessionIds: [] }))
   const sessionId = 'scenario-s1' as Parameters<SessionRuntime['open']>[0]
   api.onList = () => Promise.resolve(ok({
     items: [{ sessionId, updatedAt: 1, running: false, blank: false, cwd: '/w/a' }],

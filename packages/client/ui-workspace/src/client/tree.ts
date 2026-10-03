@@ -254,6 +254,7 @@ function partitionPinned(members: readonly SessionSummary[], pinned: ReadonlySet
  * Content search lives outside this derivation
  * (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
+ * @param pinnedSessionIds - registry-global pin set (leading rows).
  * @param workspaces - real workspaces in stable Host order.
  * @param archivedSessionIds - registry-global archive set.
  * @param view - local expansion arrays.
@@ -300,6 +301,7 @@ export function deriveGroups(
  * (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot.
  * @param archivedSessionIds - registry-global archive set.
+ * @param pinnedSessionIds - registry-global pin set (leading rows).
  * @returns flat rows in render order.
  */
 export function deriveFlat(
