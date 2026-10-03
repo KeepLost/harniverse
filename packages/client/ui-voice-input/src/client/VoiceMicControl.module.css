@@ -21,7 +21,7 @@
 }
 
 .mic:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover));
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .mic[aria-pressed='true'] {
@@ -47,7 +47,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  border: 1px solid var(--dsw-alias-border-l2));
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   background: transparent;
   padding: 0 6px;
