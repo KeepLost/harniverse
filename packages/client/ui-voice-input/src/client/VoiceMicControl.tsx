@@ -113,9 +113,10 @@ export function VoiceMicControl({
     if (phase !== 'recording') return
     setLevels([])
     const timer = window.setInterval(() => {
-      /* v8 ignore next 2 -- the interval tears down with this phase effect; the guard only keeps a late tick total. */
-      const capture = recordingRef.current
-      if (capture === undefined) return
+      // This effect lives exactly while phase === 'recording', and every path
+      // that clears the recording leaves that phase in the same batch, so the
+      // ref is always set here; the cast states that state-machine invariant.
+      const capture = recordingRef.current as Recording
       setLevels(previous => [...previous.slice(1 - LEVEL_BARS), capture.level()])
     }, LEVEL_TICK_MS)
     return () => { window.clearInterval(timer) }
