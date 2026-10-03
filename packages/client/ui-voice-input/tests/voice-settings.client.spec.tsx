@@ -155,7 +155,7 @@ describe('VoiceSettingsSection reactivity', () => {
   it('re-renders through the scope subscription when the section changes', async () => {
     const listeners: (() => void)[] = []
     const scope = scopeFixture({ recognizer: 'off' })
-    const snapshot = { status: 'ready' as const, value: { recognizer: 'off' as const }, user: undefined, writable: true }
+    const snapshot: ScopeSnapshot = { status: 'ready', value: { recognizer: 'off' }, user: undefined, writable: true }
     scope.getSnapshot = () => snapshot
     scope.subscribe = (listener: () => void) => {
       listeners.push(listener)

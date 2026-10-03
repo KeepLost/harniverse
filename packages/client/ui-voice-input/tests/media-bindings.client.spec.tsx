@@ -130,7 +130,7 @@ describe('ui-voice-input browser bindings', () => {
         numberOfChannels: 1,
         sampleRate: 16_000,
         getChannelData: () => new Float32Array(8).fill(0.1),
-      } as AudioBuffer)
+      } as unknown as AudioBuffer)
     })
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,

@@ -377,7 +377,7 @@ describe('VoiceMicControl state machine', () => {
   it('drops a recorder that settles after the session changed', async () => {
     let resolveStart: (() => void) | undefined
     const container = mediaContainer()
-    container.getUserMedia = () => new Promise<void>((resolve) => { resolveStart = resolve })
+    container.getUserMedia = () => new Promise<MediaStream>((resolve) => { resolveStart = () => { resolve({} as MediaStream) } })
     const face = injected({ createRecording: () => createRecording(container) })
     const view = mount(face, inputSnapshot())
     fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
