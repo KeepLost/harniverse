@@ -91,6 +91,7 @@ async function settleModalityOffload(ctx: Context, session: Session, config: { p
   const decisions = resolveImageOffloadDecisions(session.events, { setting: readSetting(ctx), routeAcceptsImages: false })
   if (decisions.length === 0 || config.provider === undefined || config.model === undefined) return
   const llm = ctx.get('llm')
+  /* v8 ignore next 1 -- the waterfall only runs beside the injected llm service; defensive for llm-free compositions. */
   if (llm === undefined) return
   let inputModalities: readonly string[] | undefined
   try {
@@ -98,17 +99,20 @@ async function settleModalityOffload(ctx: Context, session: Session, config: { p
   } catch {
     return
   }
-  if (inputModalities === undefined || inputModalities.includes('image')) return
+  if (inputModalities === undefined) return
+  if (inputModalities.includes('image')) return
   const attachments = ctx.get('attachments')
+  /* v8 ignore next 1 -- minting a decision requires the store that saved the image; defensive for store-less mounts. */
   if (attachments === undefined) return
   const targets = await Promise.all(decisions.map(async (decision) => {
     const event = session.eventAt(decision.target.messageSeq)
+    /* v8 ignore next 1 -- targets are minted from this same event log moments earlier, so the event always resolves. */
     const carrier = event === undefined ? undefined : imageCarrier(event)
     const image = carrier
       ?.filter((block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image')
       [decision.target.imageIndex]
+    /* v8 ignore next 4 -- resolver targets are minted from this same immutable carrier walk in this call, so the image always exists. */
     if (image === undefined) {
-      /* v8 ignore next 1 -- resolver targets are minted from this same immutable carrier walk in this call, so the image always exists. */
       throw new Error(`image/offload: modality target ${decision.target.messageSeq}:${decision.target.imageIndex} has no retained image`)
     }
     const path = await attachments.publishFileHandle(image.attachment)

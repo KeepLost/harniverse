@@ -81,6 +81,7 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
   const [prepareStatus, setPrepareStatus] = useState<{ status: 'ready' | 'unprepared' | 'failed'; detail?: string } | null>(null)
   const [prepareError, setPrepareError] = useState<string | null>(null)
   const onPrepare = (): void => {
+    /* v8 ignore next 1 -- the prepare button disables itself while preparing; the guard keeps the handler total. */
     if (preparing) return
     setPreparing(true)
     setPrepareError(null)

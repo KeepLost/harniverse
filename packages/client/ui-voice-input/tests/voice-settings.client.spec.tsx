@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { VoiceSettingsSection } from '../src/client/VoiceSettingsSection.tsx'
 import type { VoiceSettingsInjected, VoiceSettingsSectionProps, VoiceSection } from '../src/client/VoiceSettingsSection.tsx'
 import { en } from '../src/client/locales.ts'
@@ -148,5 +148,77 @@ describe('VoiceSettingsSection preparation', () => {
     expect(select.value).toBe('int8')
     fireEvent.change(select, { target: { value: 'fp32' } })
     expect(scope.writes).toEqual([{ field: 'modelVariant', value: 'fp32' }])
+  })
+})
+
+describe('VoiceSettingsSection reactivity', () => {
+  it('re-renders through the scope subscription when the section changes', async () => {
+    const listeners: (() => void)[] = []
+    const scope = scopeFixture({ recognizer: 'off' })
+    const snapshot = { status: 'ready' as const, value: { recognizer: 'off' as const }, user: undefined, writable: true }
+    scope.getSnapshot = () => snapshot
+    scope.subscribe = (listener: () => void) => {
+      listeners.push(listener)
+      return () => {}
+    }
+    const view = mount({ scope, api: speechFixture().api })
+    expect((view.getByLabelText(t('settings.recognizer')) as HTMLSelectElement).value).toBe('off')
+    snapshot.value = { recognizer: 'sensevoice', language: 'zh' }
+    act(() => { for (const listener of listeners) listener() })
+    expect((view.getByLabelText(t('settings.recognizer')) as HTMLSelectElement).value).toBe('sensevoice')
+  })
+
+  it('renders the empty section while no value resolved yet', () => {
+    const scope = scopeFixture()
+    scope.getSnapshot = () => ({ status: 'ready', value: undefined, user: undefined, writable: true })
+    const view = mount({ scope, api: speechFixture().api })
+    expect((view.getByLabelText(t('settings.recognizer')) as HTMLSelectElement).value).toBe('off')
+  })
+
+  it('ignores a second prepare click while one is in flight', async () => {
+    const speech = speechFixture()
+    let release: (() => void) | undefined
+    speech.api.speech.prepare = () => new Promise((resolve) => { release = () => { resolve({ rpcId: 'r', result: { ok: true, value: { status: 'ready' } } }) } })
+    const view = mount({ scope: scopeFixture(), api: speech.api })
+    const button = view.getByRole('button', { name: t('settings.prepare') })
+    fireEvent.click(button)
+    await vi.waitFor(() => { expect(view.getAllByText(t('settings.preparing')).length).toBeGreaterThan(0) })
+    fireEvent.click(button)
+    release?.()
+    await vi.waitFor(() => { expect(view.getByText(t('settings.prepare.ready'))).toBeTruthy() })
+  })
+
+  it('stringifies a non-Error prepare rejection into the detail', async () => {
+    const api: VoiceSettingsInjected['api'] = {
+      speech: {
+        // oxlint-disable-next-line prefer-promise-reject-errors -- the string rejection is the case under test
+        prepare: () => Promise.reject('carrier dropped'),
+      },
+    }
+    const view = mount({ scope: scopeFixture(), api })
+    fireEvent.click(view.getByRole('button', { name: t('settings.prepare') }))
+    await vi.waitFor(() => { expect(view.getByText(`${t('settings.prepare.failed')}carrier dropped`)).toBeTruthy() })
+  })
+
+  it('clears the push-to-talk key when only whitespace was entered', () => {
+    const scope = scopeFixture({ pushToTalkKey: 'shift' })
+    const view = mount({ scope, api: speechFixture().api })
+    fireEvent.change(view.getByLabelText(t('settings.pushToTalkKey')), { target: { value: '   ' } })
+    expect(scope.clears).toEqual(['pushToTalkKey'])
+  })
+
+  it('renders the unprepared observation and a detail-less failure', async () => {
+    const unprepared = speechFixture()
+    unprepared.setAnswer({ rpcId: 'r', result: { ok: true, value: { status: 'unprepared' } } })
+    const view = mount({ scope: scopeFixture(), api: unprepared.api })
+    fireEvent.click(view.getByRole('button', { name: t('settings.prepare') }))
+    await vi.waitFor(() => { expect(view.getByText(t('settings.prepare.unprepared'))).toBeTruthy() })
+    cleanup()
+
+    const bare = speechFixture()
+    bare.setAnswer({ rpcId: 'r', result: { ok: true, value: { status: 'failed' } } })
+    const second = mount({ scope: scopeFixture(), api: bare.api })
+    fireEvent.click(second.getByRole('button', { name: t('settings.prepare') }))
+    await vi.waitFor(() => { expect(second.container.textContent).toContain(t('settings.prepare.failed').trim()) })
   })
 })

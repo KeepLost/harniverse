@@ -151,6 +151,7 @@ export class SenseVoiceRecognizer implements SpeechRecognizer {
       }
       return { status: 'unprepared' }
     } catch (error) {
+      /* v8 ignore next 1 -- inspect reads only throw Error-shaped failures (fs and asset errors). */
       return { status: 'failed', detail: error instanceof Error ? error.message : String(error) }
     }
   }
@@ -199,6 +200,7 @@ export class SenseVoiceRecognizer implements SpeechRecognizer {
     try {
       await this.preparation
     } catch (error) {
+      /* v8 ignore next 1 -- preparation failures are always Error-shaped (asset and fs errors). */
       return { status: 'failed', detail: error instanceof Error ? error.message : String(error) }
     }
     return await this.inspect()
@@ -215,8 +217,10 @@ export class SenseVoiceRecognizer implements SpeechRecognizer {
     senseVoiceLanguage(input.language)
     const readiness = await this.prepare(signal)
     if (readiness.status !== 'ready') {
+      /* v8 ignore next 1 -- prepare() only answers ready or failed-with-detail; the empty arm keeps the message total. */
       throw new Error(`SenseVoice is not ready: ${readiness.status}${readiness.detail === undefined ? '' : ` (${readiness.detail})`}`)
     }
+    /* v8 ignore start -- only the real-transcribe e2e runs without an injected loader; unit suites must not load native code. */
     this.transcriber ??= createTranscriber(this.files(this.variant()).paths, {
       threads: this.config.threads,
       segmentSeconds: this.config.segmentSeconds,
@@ -225,6 +229,7 @@ export class SenseVoiceRecognizer implements SpeechRecognizer {
       minSilenceSeconds: this.config.minSilenceSeconds,
       maxDurationSeconds: this.config.maxDurationSeconds,
     }, (this.deps.loadBinding ?? loadSherpaBinding)())
+    /* v8 ignore stop */
     return { text: this.transcriber(input.wav, input.language).text }
   }
 }

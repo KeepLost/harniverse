@@ -110,6 +110,7 @@ export async function downloadAsset(
     try {
       await pipeline(response.body, hashing, createWriteStream(partial, { flags: 'wx', mode: 0o600 }), { signal })
     } catch (error) {
+      /* v8 ignore next 1 -- this Node's pipeline never rejects a converted web stream on abort; the wrap names the cancellation. */
       if (signal?.aborted === true) throw new SpeechAssetError(asset.name, 'aborted', 'download cancelled')
       if (error instanceof SpeechAssetError) throw error
       throw new SpeechAssetError(asset.name, 'network', error instanceof Error ? error.message : String(error), { cause: error })

@@ -107,6 +107,24 @@ describe('runPromotableForeground', () => {
     await expect(pending).rejects.toThrow('tool call aborted')
   })
 
+  it('renders the foreground result without a governor entry when unconfined', async () => {
+    const { process } = deferredProcess({ delta: 'plain', lossy: false })
+    process.settle('completed', 0, null)
+    const shell = fakeShell(process, 10_000)
+    const { registry } = fakeJobs()
+    const result = await runPromotableForeground(inputs(shell, registry, new AbortController().signal))
+    expect(result).toEqual({
+      kind: 'foreground',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: 10_000,
+      stdout: { text: 'plain', truncated: false },
+      stderr: { text: '', truncated: false },
+    })
+  })
+
   it('renders the ordinary foreground result for an in-budget completion', async () => {
     const { process } = deferredProcess({ delta: 'quick', lossy: false })
     process.settle('completed', 0, null)

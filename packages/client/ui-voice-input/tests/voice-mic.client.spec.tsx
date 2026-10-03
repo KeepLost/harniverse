@@ -204,6 +204,198 @@ describe('VoiceMicControl state machine', () => {
     expect(face.insertions).toHaveLength(0)
   })
 
+  it('maps an unsupported capture through its own guidance key', async () => {
+    const container = mediaContainer()
+    container.getUserMedia = async () => { throw new Error('no hardware') }
+    const face = injected({ createRecording: () => createRecording(container) })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    await vi.waitFor(() => { expect(view.getByText(t('mic.unsupported'))).toBeTruthy() })
+  })
+
+  it('maps a decode failure while stopping through the generic failure key', async () => {
+    const container = mediaContainer()
+    container.decode = async () => { throw new Error('corrupt blob') }
+    const face = injected({ createRecording: () => createRecording(container) })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(view.container.textContent).toContain(t('mic.failed').trim()) })
+  })
+
+  it('renders a non-Error transcription rejection through its string form', async () => {
+    const face = injected({
+      api: {
+        speech: {
+          transcribe: () => { throw 'carrier gone' },
+        },
+      },
+    })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(view.getByText(`${t('mic.failed')}carrier gone`)).toBeTruthy() })
+  })
+
+  it('ignores further clicks while a transcription is in flight', async () => {
+    let release: (() => void) | undefined
+    const face = injected({
+      api: {
+        speech: {
+          transcribe: () => new Promise((_resolve, reject) => { release = () => { reject(new Error('late')) } }),
+        },
+      } as never,
+    })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(view.getByText(t('mic.transcribing'))).toBeTruthy() })
+    await vi.waitFor(() => { expect(release).toBeDefined() })
+    release?.()
+    await vi.waitFor(() => { expect(view.getByText(`${t('mic.failed')}late`)).toBeTruthy() })
+  })
+
+  it('drops a late transcription rejection after the session changed', async () => {
+    let rejectTranscribe: ((error: Error) => void) | undefined
+    const face = injected({
+      api: {
+        speech: {
+          transcribe: () => new Promise((_resolve, reject) => { rejectTranscribe = reject }),
+        },
+      } as never,
+    })
+    const view = mount(face, inputSnapshot())
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(rejectTranscribe).toBeDefined() })
+    view.rerender(<VoiceMicControl
+      input={inputSnapshot()}
+      sessionId={'s2' as SessionId}
+      t={t}
+      api={face.api}
+      createRecording={face.createRecording}
+      insertText={face.insertText}
+      usePreferences={selector => selector(face.preferencesRef.current)}
+    />)
+    rejectTranscribe?.(new Error('too late'))
+    await act(async () => {})
+    expect(view.queryByText(/too late/)).toBeNull()
+    expect(face.insertions).toHaveLength(0)
+  })
+
+  it('drops a late transcription result after the session changed', async () => {
+    let resolveTranscribe: ((value: { text: string }) => void) | undefined
+    const face = injected({
+      api: {
+        speech: {
+          transcribe: () => new Promise((resolve) => { resolveTranscribe = resolve }),
+        },
+      } as never,
+    })
+    const view = mount(face, inputSnapshot())
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(resolveTranscribe).toBeDefined() })
+    view.rerender(<VoiceMicControl
+      input={inputSnapshot()}
+      sessionId={'s2' as SessionId}
+      t={t}
+      api={face.api}
+      createRecording={face.createRecording}
+      insertText={face.insertText}
+      usePreferences={selector => selector(face.preferencesRef.current)}
+    />)
+    resolveTranscribe?.({ text: 'late text' })
+    await act(async () => {})
+    expect(face.insertions).toHaveLength(0)
+    expect(view.queryByRole('button', { name: 'late text' })).toBeNull()
+  })
+
+  it('surfaces a refused transcription through its wire message', async () => {
+    const face = injected({
+      api: {
+        speech: {
+          transcribe: async () => ({ rpcId: 'r', result: { ok: false, error: { code: 'speech-unavailable', message: 'voice input is disabled', details: {} } } }),
+        },
+      } as never,
+    })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(view.getByText(`${t('mic.failed')}voice input is disabled`)).toBeTruthy() })
+    expect(face.insertions).toHaveLength(0)
+  })
+
+  it('drops a recorder settlement that lands after the session changed', async () => {
+    let resolveStop: ((blob: Blob) => void) | undefined
+    const container = mediaContainer()
+    container.createRecorder = () => ({
+      stop: () => new Promise<Blob>((resolve) => { resolveStop = resolve }),
+      destroy: () => {},
+    })
+    const face = injected({ createRecording: () => createRecording(container) })
+    const view = mount(face, inputSnapshot())
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(resolveStop).toBeDefined() })
+    view.rerender(<VoiceMicControl
+      input={inputSnapshot()}
+      sessionId={'s2' as SessionId}
+      t={t}
+      api={face.api}
+      createRecording={face.createRecording}
+      insertText={face.insertText}
+      usePreferences={selector => selector(face.preferencesRef.current)}
+    />)
+    resolveStop?.(new Blob([new Uint8Array(8)]))
+    await act(async () => {})
+    expect(face.calls).toHaveLength(0)
+    expect(face.insertions).toHaveLength(0)
+  })
+
+  it('drops a late capture failure after the session changed', async () => {
+    let rejectStart: ((error: Error) => void) | undefined
+    const container = mediaContainer()
+    container.getUserMedia = () => new Promise((_resolve, reject) => { rejectStart = reject })
+    const face = injected({ createRecording: () => createRecording(container) })
+    const view = mount(face, inputSnapshot())
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    view.rerender(<VoiceMicControl
+      input={inputSnapshot()}
+      sessionId={'s2' as SessionId}
+      t={t}
+      api={face.api}
+      createRecording={face.createRecording}
+      insertText={face.insertText}
+      usePreferences={selector => selector(face.preferencesRef.current)}
+    />)
+    rejectStart?.(new Error('denied late'))
+    await act(async () => {})
+    expect(view.queryByText(/denied late/)).toBeNull()
+  })
+
+  it('drops a recorder that settles after the session changed', async () => {
+    let resolveStart: (() => void) | undefined
+    const container = mediaContainer()
+    container.getUserMedia = () => new Promise<void>((resolve) => { resolveStart = resolve })
+    const face = injected({ createRecording: () => createRecording(container) })
+    const view = mount(face, inputSnapshot())
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    view.rerender(<VoiceMicControl
+      input={inputSnapshot()}
+      sessionId={'s2' as SessionId}
+      t={t}
+      api={face.api}
+      createRecording={face.createRecording}
+      insertText={face.insertText}
+      usePreferences={selector => selector(face.preferencesRef.current)}
+    />)
+    resolveStart?.()
+    await act(async () => {})
+    expect(view.getByRole('button', { name: t('mic.start') })).toBeTruthy()
+    expect(face.calls).toHaveLength(0)
+  })
+
   it('forwards the configured language hint with the transcription request', async () => {
     const face = injected({}, { recognizer: 'sensevoice', language: 'zh' })
     const view = mount(face)
@@ -215,6 +407,68 @@ describe('VoiceMicControl state machine', () => {
 })
 
 describe('VoiceMicControl push-to-talk', () => {
+  it('accepts the control-key spellings for push-to-talk', async () => {
+    const face = injected({}, { recognizer: 'sensevoice', pushToTalkKey: 'ctrl' })
+    const view = mount(face)
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', bubbles: true }))
+    })
+    await vi.waitFor(() => { expect(view.getByRole('button', { name: t('mic.stop') })).toBeTruthy() })
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control', bubbles: true }))
+    })
+    await vi.waitFor(() => { expect(face.insertions).toEqual([{ text: 'recognized text' }]) })
+  })
+
+  it('accepts the full control spelling against the abbreviated event key', async () => {
+    const face = injected({}, { recognizer: 'sensevoice', pushToTalkKey: 'control' })
+    const view = mount(face)
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Ctrl', bubbles: true }))
+    })
+    await vi.waitFor(() => { expect(view.getByRole('button', { name: t('mic.stop') })).toBeTruthy() })
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Ctrl', bubbles: true }))
+    })
+    await vi.waitFor(() => { expect(face.insertions).toEqual([{ text: 'recognized text' }]) })
+  })
+
+  it('ignores a push-to-talk press while a transcription is in flight', async () => {
+    let release: (() => void) | undefined
+    const face = injected({
+      api: {
+        speech: {
+          transcribe: () => new Promise((_resolve, reject) => { release = () => { reject(new Error('late')) } }),
+        },
+      } as never,
+    }, { recognizer: 'sensevoice', pushToTalkKey: 'shift' })
+    const view = mount(face)
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }))
+    })
+    await vi.waitFor(() => { expect(view.getByRole('button', { name: t('mic.stop') })).toBeTruthy() })
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true }))
+    })
+    await vi.waitFor(() => { expect(release).toBeDefined() })
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }))
+    })
+    expect(view.getByText(t('mic.transcribing'))).toBeTruthy()
+    release?.()
+    await vi.waitFor(() => { expect(view.getByText(`${t('mic.failed')}late`)).toBeTruthy() })
+  })
+
+  it('ignores a release with no matching capture in flight', async () => {
+    const face = injected({}, { recognizer: 'sensevoice', pushToTalkKey: 'shift' })
+    const view = mount(face)
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true }))
+    })
+    expect(view.getByRole('button', { name: t('mic.start') })).toBeTruthy()
+    expect(face.calls).toHaveLength(0)
+  })
+
   it('holds the configured key to talk and releases to transcribe', async () => {
     const face = injected({}, { recognizer: 'sensevoice', pushToTalkKey: 'shift' })
     const view = mount(face)
@@ -264,6 +518,24 @@ describe('createRecording failure kinds', () => {
     const container = mediaContainer()
     container.getUserMedia = async () => { throw new Error('no audio hardware') }
     await expect(createRecording(container).start()).rejects.toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('maps a security denial to the denied guidance', async () => {
+    const container = mediaContainer()
+    container.getUserMedia = async () => { throw new DOMException('blocked', 'SecurityError') }
+    await expect(createRecording(container).start()).rejects.toMatchObject({ kind: 'denied' })
+  })
+
+  it('rejects a stop before any start and an empty recording distinctly', async () => {
+    const container = mediaContainer()
+    await expect(createRecording(container).stop()).rejects.toMatchObject({ kind: 'stopped' })
+    container.createRecorder = () => ({
+      stop: async () => new Blob([new Uint8Array(0)]),
+      destroy: () => {},
+    })
+    const capture = createRecording(container)
+    await capture.start()
+    await expect(capture.stop()).rejects.toMatchObject({ kind: 'no-data' })
   })
 
   it('maps a decode failure while stopping to decode', async () => {

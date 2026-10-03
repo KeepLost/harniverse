@@ -445,4 +445,70 @@ describe('JobListAction two-step stop', () => {
     await act(async () => { vi.advanceTimersByTime(500) })
     expect(pane.textContent).toContain('tick 2\n')
   })
+
+  it('stops pinning to the bottom once the user scrolled away', async () => {
+    const { api } = fakeJobs(['tick 1\n', 'tick 2\n'])
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    const pane = screen.getByRole('log', { name: zh['output.aria'] }) as HTMLDivElement
+    await act(async () => {})
+    Object.defineProperty(pane, 'scrollTop', { configurable: true, value: 0 })
+    Object.defineProperty(pane, 'clientHeight', { configurable: true, value: 10 })
+    Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 100 })
+    fireEvent.scroll(pane)
+    await act(async () => { vi.advanceTimersByTime(500) })
+    expect(pane.textContent).toContain('tick 2\n')
+    expect(pane.scrollTop).toBe(0)
+  })
+
+  it('drops a follow settlement that lands after the pane collapsed', async () => {
+    const deferred = Promise.withResolvers<unknown>()
+    const api = {
+      jobs: {
+        follow: vi.fn(() => deferred.promise),
+        kill: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { result: 'requested' as const } } }),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await act(async () => {})
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.collapse'] }))
+    deferred.resolve({ rpcId: 'r', result: { ok: true, value: { text: 'late\n', nextOffsetBytes: 5, truncated: false, totalBytes: 5, status: 'running' as const } } })
+    await act(async () => {})
+    expect(screen.queryByRole('log', { name: zh['output.aria'] })).toBeNull()
+  })
+
+  it('drops a follow rejection that lands after the pane collapsed', async () => {
+    const deferred = Promise.withResolvers<unknown>()
+    const api = {
+      jobs: {
+        follow: vi.fn(() => deferred.promise),
+        kill: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { result: 'requested' as const } } }),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await act(async () => {})
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.collapse'] }))
+    deferred.reject(new Error('late failure'))
+    await act(async () => {})
+    expect(screen.queryByRole('log', { name: zh['output.aria'] })).toBeNull()
+  })
+
+  it('renders a non-Error follow rejection through its string form', async () => {
+    const api = {
+      jobs: {
+        // oxlint-disable-next-line prefer-promise-reject-errors -- the string rejection is the case under test
+        follow: vi.fn(() => Promise.reject('carrier dropped')),
+        kill: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { result: 'requested' as const } } }),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await vi.waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('输出读取失败：carrier dropped') })
+  })
 })

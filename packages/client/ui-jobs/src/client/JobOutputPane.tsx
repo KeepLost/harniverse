@@ -73,6 +73,7 @@ export function JobOutputPane({ api, sessionId, jobId, live, t }: JobOutputPaneP
   /** A view the user scrolled away from the bottom stays where they left it. */
   const onScroll = (): void => {
     const node = scrollRef.current
+    /* v8 ignore next 1 -- the handler only fires while the pane is mounted, so the ref is never null here. */
     if (node === null) return
     pinnedRef.current = node.scrollTop + node.clientHeight >= node.scrollHeight - 4
   }

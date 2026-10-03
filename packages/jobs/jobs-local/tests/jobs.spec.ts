@@ -514,6 +514,29 @@ describe('LocalJobRegistry.kill', () => {
     expect(ctx.jobs.get(id2)).toMatchObject({ status: 'stopping', reported: true })
     second.settle({ status: 'killed', detail: 'signal: SIGTERM' })
     await tick()
+
+    // A human kill of an already-settled job leaves the report unclaimed,
+    // and an owned job's kill walks that owner's listener scope.
+    expect(ctx.jobs.kill(id, undefined, { reported: false })).toBe('already-finished')
+    expect(ctx.jobs.get(id)).toMatchObject({ status: 'killed', reported: false })
+    // The owner's notice walks that owner's scoped listener layer, not the global one.
+    const standing = createScope(ctx, {})
+    const ownedDone: JobSnapshot[] = []
+    await standing.ctx.plugin({
+      inject: ['jobs'],
+      apply(pluginCtx: Context) {
+        pluginCtx.jobs.onJobDone((snapshot) => { ownedDone.push(snapshot) })
+      },
+    })
+    const owner = stubAgent(ctx, 'kill-owner', scopeOf(standing.ctx))
+    const disposeOwner = ctx.agents.register(owner)
+    const third = producer({ owner })
+    const id3 = ctx.jobs.start(third.spec)
+    expect(ctx.jobs.kill(id3, owner)).toBe('requested')
+    third.settle({ status: 'killed', detail: 'signal: SIGTERM' })
+    await tick()
+    expect(ownedDone.map(snapshot => snapshot.id)).toEqual(['bash-3'])
+    disposeOwner()
     await ctx.fiber.dispose()
   })
   it('cancels a live job with the forwarded reason and suppresses the notice', async () => {

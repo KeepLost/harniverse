@@ -52,6 +52,7 @@ class OutputRing {
     this.chunkBytes += text.length
     while (this.chunkBytes > this.capacity) {
       const head = this.chunks[0]
+      /* v8 ignore next 1 -- chunkBytes over capacity implies a retained chunk exists, so the head is never undefined here. */
       if (head === undefined) break
       const excess = this.chunkBytes - this.capacity
       if (head.length > excess) {

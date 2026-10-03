@@ -245,6 +245,25 @@ describe('modality offload at the request boundary', () => {
     expect(imageCount(bench.adapter.requests[0]!)).toBe(1)
   })
 
+  it('skips the settlement when the resolved request carries no provider or model', async () => {
+    const bench = await harness([textResponse('one'), textResponse('two')])
+    let model = 'vision'
+    const disposeSwitch = bench.ctx.on('agent/request', async (_payload, next) => {
+      const config = await next()
+      return { ...config, ...model === 'text-only' ? {} : { model } }
+    })
+    const idle1 = waitForIdle(bench.ctx, bench.agent)
+    send(bench.agent, { type: 'text', text: 'keep' }, imageBlock(bench.ref))
+    await idle1
+    model = 'text-only'
+    const idle2 = waitForIdle(bench.ctx, bench.agent)
+    send(bench.agent, { type: 'text', text: 'describe' })
+    await idle2
+    expect(bench.agent.session.events.some(event => event.type === 'image/offload')).toBe(false)
+    expect(imageCount(bench.adapter.requests[1]!)).toBe(1)
+    disposeSwitch()
+  })
+
   it('skips the settlement when model resolution fails', async () => {
     const bench = await harness([textResponse('one'), textResponse('two')])
     let model = 'vision'

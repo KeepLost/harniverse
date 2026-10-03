@@ -80,26 +80,28 @@ class StubEngine extends WorkflowEngine {
   phase(id: WorkflowRunIdType, title: string): void {
     this.emitWorkflowEvent('workflow/phase', {
       id,
-      meta: this.requests[Number(String(id).slice(4)) - 1]!.meta,
+      meta: this.requests[Number(String(id).slice(4)) - 1]?.meta ?? META,
     }, title)
   }
 
   log(id: WorkflowRunIdType, message: string): void {
     this.emitWorkflowEvent('workflow/log', {
       id,
-      meta: this.requests[Number(String(id).slice(4)) - 1]!.meta,
+      meta: this.requests[Number(String(id).slice(4)) - 1]?.meta ?? META,
     }, message)
   }
 }
 
-async function setup(config?: { toolName?: string; maxResultChars?: number }) {
+async function setup(config?: { toolName?: string; maxResultChars?: number }, options: { jobs?: boolean } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(StubEngine)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(LocalJobRegistry)
-  ctx.jobs.attachController('test-controller')
+  if (options.jobs !== false) {
+    await ctx.plugin(LocalJobRegistry)
+    ctx.jobs.attachController('test-controller')
+  }
   await ctx.plugin(toolWorkflow, config ?? {})
   const engine = ctx.workflowEngine as StubEngine
   const session = Session.create(SessionId('caller'))
@@ -177,6 +179,59 @@ describe('dsh-tool-workflow', () => {
         expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'killed' })
       })
       expect(engine.cancels).toContain('stop requested')
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects run_in_background when the job runtime is not loaded', async () => {
+    const { ctx, parent } = await setup(undefined, { jobs: false })
+    const result = await execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('run_in_background is unavailable')
+    await ctx.fiber.dispose()
+  })
+
+  it('ignores events of other runs and caps the tail at fifty lines', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.phase(WorkflowRunId('run-99'), 'foreign phase')
+      engine.log(WorkflowRunId('run-99'), 'foreign run output')
+      for (let index = 0; index < 52; index += 1) engine.log(WorkflowRunId('run-1'), `line ${index}`)
+      const followed = ctx.jobs.follow(JobId('workflow-1'), 0, parent)
+      expect(followed.text).not.toContain('foreign run output')
+      expect(followed.text).toContain('line 51')
+      expect(followed.text).not.toContain('line 0\n')
+      ctx.jobs.kill(JobId('workflow-1'), parent)
+      await pending
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'killed' })
+      })
+      // A kill without a reason forwards the job_kill default to the engine.
+      expect(engine.cancels).toContain('killed by job_kill')
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
+  it('settles a failed background workflow distinctly from a cancelled one', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.settle({ value: null, stopReason: 'error', error: 'engine exploded', agentsStarted: 2 })
+      await pending
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'failed', detail: 'workflow run failed: engine exploded' })
+      })
     } finally {
       disposeAgent()
     }

@@ -86,6 +86,36 @@ describe('downloadAsset', () => {
     })))
     await expect(downloadAsset(asset, directory, { fetchImpl })).rejects.toMatchObject({ reason: 'network' })
   })
+
+  it('stringifies a non-Error fetch rejection into the network detail', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-dl-'))
+    const asset = pinned(new Uint8Array(8))
+    // oxlint-disable-next-line prefer-promise-reject-errors -- the wrap must render non-Error rejections through their string form
+    const fetchImpl: FetchLike = vi.fn(async () => Promise.reject('offline'))
+    await expect(downloadAsset(asset, directory, { fetchImpl })).rejects.toThrow('network: offline')
+  })
+
+  it('carries the caller signal into the request and the stream pipeline', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-dl-'))
+    const content = new Uint8Array(32).fill(5)
+    const asset = pinned(content)
+    let sawSignal = false
+    const fetchImpl: FetchLike = vi.fn(async (_url: string, init?: RequestInit) => {
+      sawSignal = init?.signal !== undefined
+      return response(content)
+    })
+    await expect(downloadAsset(asset, directory, { fetchImpl, signal: new AbortController().signal })).resolves.toBe(join(directory, 'file.bin'))
+    expect(sawSignal).toBe(true)
+  })
+
+  it('stringifies a non-Error stream failure into the network detail', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-dl-'))
+    const asset = pinned(new Uint8Array(64).fill(1))
+    const fetchImpl: FetchLike = vi.fn(async () => new Response(new ReadableStream({
+      start(controller) { controller.error('socket vanished') },
+    })))
+    await expect(downloadAsset(asset, directory, { fetchImpl })).rejects.toThrow('network: socket vanished')
+  })
 })
 
 describe('orderSources', () => {
@@ -118,5 +148,19 @@ describe('orderSources', () => {
     await expect(orderSources(assetUrl, ['https://huggingface.co', 'https://hf-mirror.com'], 1_000, new AbortController().signal, fetchImpl))
       .resolves.toEqual(['https://huggingface.co/repo/resolve/abc/file.bin', 'https://hf-mirror.com/repo/resolve/abc/file.bin'])
     expect(fetchImpl).toHaveBeenCalled()
+  })
+
+  it('fires the probe deadline when no origin answers in time', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl: FetchLike = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => { reject(new Error('probe aborted')) })
+      }))
+      const pending = orderSources(assetUrl, ['https://huggingface.co', 'https://hf-mirror.com'], 10, undefined, fetchImpl)
+      await vi.advanceTimersByTimeAsync(20)
+      await expect(pending).resolves.toEqual(['https://huggingface.co/repo/resolve/abc/file.bin', 'https://hf-mirror.com/repo/resolve/abc/file.bin'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

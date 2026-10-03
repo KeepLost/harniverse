@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -160,6 +160,89 @@ describe('SenseVoiceRecognizer preparation', () => {
     const provider = recognizer(directory, release)
     await expect(provider.prepare()).resolves.toMatchObject({ status: 'failed' })
     expect((await readdir(join(directory, 'sensevoice'))).filter(name => name.endsWith('.part'))).toEqual([])
+  })
+
+  it('treats an unparsable manifest as unprepared and repairable', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-sv-'))
+    const release = fixtureRelease('int8')
+    const provider = recognizer(directory, release)
+    await expect(provider.prepare()).resolves.toEqual({ status: 'ready' })
+    await writeFile(join(directory, 'sensevoice', 'manifest.json'), 'not json')
+    await expect(provider.inspect()).resolves.toEqual({ status: 'failed', detail: 'the asset manifest does not match the pinned release; run preparation to repair it' })
+    await expect(provider.prepare()).resolves.toEqual({ status: 'ready' })
+  })
+
+  it('surfaces an unreadable asset as a failed inspection', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-sv-'))
+    const release = fixtureRelease('int8')
+    const provider = recognizer(directory, release)
+    await expect(provider.prepare()).resolves.toEqual({ status: 'ready' })
+    await rm(join(directory, 'sensevoice', 'model.int8.onnx'))
+    await mkdir(join(directory, 'sensevoice', 'model.int8.onnx'))
+    await expect(provider.inspect()).resolves.toMatchObject({ status: 'failed' })
+  })
+
+  it('falls back to the second origin when the first serves a retriable failure', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-sv-'))
+    const release = fixtureRelease('int8')
+    const provider = new SenseVoiceRecognizer({
+      dataRoot: directory,
+      origins: ['https://a.example', 'https://b.example'],
+      probeTimeoutMs: 100,
+      threads: 1,
+      segmentSeconds: 30,
+      vadThreshold: 0.5,
+      minSpeechSeconds: 0.25,
+      minSilenceSeconds: 0.5,
+      maxDurationSeconds: 10,
+    }, {
+      preferences: () => ({}),
+      fetchImpl: vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'HEAD') return new Response(null, { status: 200 })
+        if (url.startsWith('https://a.example')) return new Response('busy', { status: 503 })
+        const name = url.split('/').at(-1) ?? ''
+        const content = name === 'model.int8.onnx' ? release.manifest.assets.model : name === 'tokens.txt' ? release.manifest.assets.tokens : release.manifest.assets.vad
+        const served = name === 'model.int8.onnx' ? new Uint8Array(1_024).fill(1) : content === release.manifest.assets.tokens ? new Uint8Array(64).fill(2) : new Uint8Array(32).fill(3)
+        return new Response(new Blob([served]), { status: 200 })
+      }),
+      assets: () => release.manifest,
+    })
+    await expect(provider.prepare(new AbortController().signal)).resolves.toEqual({ status: 'ready' })
+  })
+
+  it('joins a second concurrent preparation into the in-flight task', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-sv-'))
+    const release = fixtureRelease('int8')
+    let releaseFetch: (() => void) | undefined
+    release.fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response(null, { status: 200 })
+      if (releaseFetch === undefined && url.endsWith('model.int8.onnx')) {
+        await new Promise<void>((resolve) => { releaseFetch = resolve })
+      }
+      const name = url.split('/').at(-1) ?? ''
+      const served: Record<string, Uint8Array> = {
+        'model.int8.onnx': new Uint8Array(1_024).fill(1),
+        'tokens.txt': new Uint8Array(64).fill(2),
+        'silero_vad.onnx': new Uint8Array(32).fill(3),
+      }
+      const content = served[name]
+      return content === undefined ? new Response('not found', { status: 404 }) : new Response(new Blob([content.slice()]), { status: 200 })
+    })
+    const provider = recognizer(directory, release)
+    const first = provider.prepare()
+    const second = provider.prepare()
+    await vi.waitFor(() => { expect(releaseFetch).toBeDefined() })
+    releaseFetch?.()
+    await expect(first).resolves.toEqual({ status: 'ready' })
+    await expect(second).resolves.toEqual({ status: 'ready' })
+    expect(release.fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it('refuses transcription with the failure detail when preparation cannot ready', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-sv-'))
+    const release = fixtureRelease('int8', true)
+    const provider = recognizer(directory, release)
+    await expect(provider.transcribe({ wav: wav(16) })).rejects.toThrow(/SenseVoice is not ready: failed/)
   })
 })
 

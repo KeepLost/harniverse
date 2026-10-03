@@ -62,10 +62,11 @@ export type SherpaBinding = Sherpa
  * JSDoc but no type declarations). Called at most once per recognizer.
  * @returns the binding's OfflineRecognizer and Vad constructors.
  */
+/* v8 ignore start -- only the real-transcribe e2e loads the native binding; unit suites must not initialize ONNX Runtime. */
 export function loadSherpaBinding(): SherpaBinding {
-  /* v8 ignore next 1 -- only the real-transcribe e2e loads the native binding; unit suites must not initialize ONNX Runtime. */
   return createRequire(import.meta.url)('sherpa-onnx-node') as Sherpa
 }
+/* v8 ignore stop */
 
 /** Languages SenseVoice trained on; `auto` lets the model decide. */
 const LANGUAGES = new Set(['auto', 'zh', 'en', 'ja', 'ko', 'yue'])
@@ -77,6 +78,7 @@ const LANGUAGES = new Set(['auto', 'zh', 'en', 'ja', 'ko', 'yue'])
  * @throws `Error` for a hint outside the trained set.
  */
 export function senseVoiceLanguage(language: string | undefined): string {
+  /* v8 ignore next 1 -- split on a string always yields a first element; the default keeps the narrowing total. */
   const code = (language ?? 'auto').toLowerCase().split('-')[0] ?? 'auto'
   if (!LANGUAGES.has(code)) throw new Error(`Unsupported SenseVoice language: ${String(language)}`)
   return code

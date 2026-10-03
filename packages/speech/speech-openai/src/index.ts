@@ -122,6 +122,7 @@ export async function transcribeThroughChain(
       clearTimeout(timer)
     }
   }
+  /* v8 ignore next 1 -- Config requires at least one endpoint, so an exhausted chain always carries an unavailability. */
   throw lastUnavailable ?? new Error('every configured endpoint failed')
 }
 
