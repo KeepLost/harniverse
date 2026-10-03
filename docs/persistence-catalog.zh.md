@@ -536,7 +536,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 /**
  * Marks this session as imported archival data: the first event of a
  * session mapped lossily from a foreign session log (an official DSH
- * v1/v2/v3 export). The mapped history is displayable, saveable, and
+ * v1/v2/v3/v4 export). The mapped history is displayable, saveable, and
  * searchable, and the preserved source artifact is named by
  * `source.artifactName`. Live machinery must treat a session carrying
  * this marker as settled: never resumed, queued, approved, or steered —
@@ -545,7 +545,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'import/record': ImportRecordEventData
 ```
 
-来源：[`packages/session/session-import/src/types.ts:49`](../packages/session/session-import/src/types.ts)
+来源：[`packages/session/session-import/src/types.ts:50`](../packages/session/session-import/src/types.ts)
 
 ### `llm/*`
 
@@ -746,7 +746,7 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 'schedule/dispatch': ScheduleDispatchEventData
 ```
 
-来源：[`packages/schedule/scheduler/src/index.ts:36`](../packages/schedule/scheduler/src/index.ts)
+来源：[`packages/schedule/scheduler/src/index.ts:44`](../packages/schedule/scheduler/src/index.ts)
 
 ### `session/*`
 

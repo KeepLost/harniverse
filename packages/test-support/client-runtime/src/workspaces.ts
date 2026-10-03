@@ -318,7 +318,9 @@ export class TestWorkspaces implements IWorkspaces {
       return
     }
     await this.update((draft) => {
-      draft.pinnedSessionIds = [sessionId, ...draft.pinnedSessionIds.filter(id => id !== sessionId)]
+      // An already pinned id resolves without reordering, mirroring the Host.
+      if (draft.pinnedSessionIds.includes(sessionId)) return
+      draft.pinnedSessionIds = [sessionId, ...draft.pinnedSessionIds]
     })
   }
 

@@ -99,6 +99,15 @@ describe('ScheduleEditorDrawer', () => {
     expect(input?.rule.kind).toBe('at')
   })
 
+  it('renders a skipped run with its archived-target label', () => {
+    const run = {
+      id: 'run-1', scheduleId: 'sched-1', ownerSessionId: 'session-a' as SessionId, targetSessionId: 'session-b' as SessionId,
+      dueAt: 1, attemptedAt: 2, status: 'skipped' as const,
+    }
+    mount({ record: record(), runs: [run] })
+    expect(screen.getAllByText(/已跳过（目标会话已归档）/).length).toBeGreaterThan(0)
+  })
+
   it('falls back to an empty target session when creation has no owner or sessions', () => {
     mount({ ownerSessionId: undefined, sessionIds: [] })
     fireEvent.change(screen.getByLabelText(zh['editor.target']), { target: { value: 'session' } })

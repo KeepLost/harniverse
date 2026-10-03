@@ -650,6 +650,11 @@ describe('archive admission over running descendants', () => {
     expect(runningDescendants(ctx, SessionId('lonely-root'))).toEqual([])
   })
 
+  it('answers an empty list when no agents registry is provided', async () => {
+    const ctx = new Context()
+    expect(runningDescendants(ctx, SessionId('root'))).toEqual([])
+  })
+
   it('visits a cyclic header chain once and terminates', async () => {
     const first = node({ id: 'loop-a', parent: 'loop-b', status: 'running' })
     const second = node({ id: 'loop-b', parent: 'loop-a', status: 'running' })

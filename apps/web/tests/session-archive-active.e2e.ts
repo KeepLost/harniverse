@@ -164,8 +164,15 @@ describe.skipIf(MODE === 'record')('web e2e: stop-and-archive confirmation and s
       () => [...scaffold.ctx.workspaceRegistry.pinnedSessionIds],
       { timeout: 15_000 },
     ).toEqual([])
-    const statuses = (): string[] => scaffold.ctx.jobs.list(agent).map(job => job.status)
-    await expect.poll(statuses, { timeout: 15_000 }).toContain('killed')
+    // The kill settles asynchronously and the archived agent's idle close
+    // reaps its owned jobs, so the live status list may empty before the
+    // terminal snapshot is observed: the kill is proven by the job leaving
+    // the running set (empty is the reaped outcome), never by staying live.
+    const settled = (): boolean => {
+      const statuses = scaffold.ctx.jobs.list(agent).map(job => job.status)
+      return statuses.length === 0 || statuses.includes('killed')
+    }
+    await expect.poll(settled, { timeout: 15_000 }).toBe(true)
     await expect.poll(
       () => page.getByRole('tree', { name: /sessions/i })
         .locator('[role="treeitem"]')

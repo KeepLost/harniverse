@@ -120,6 +120,34 @@ describe('TestWorkspaces file and git verbs', () => {
   })
 })
 
+describe('TestWorkspaces pin verbs', () => {
+  it('prepends pins, drops them on unpin, and leaves the set untouched when stubbed', async () => {
+    const runtime = await SlotTestRuntime.create()
+    const workspaces = runtime.workspaces
+
+    await workspaces.pinSession(sid('a'))
+    await workspaces.pinSession(sid('b'))
+    expect(workspaces.list.getSnapshot().pinnedSessionIds).toEqual([sid('b'), sid('a')])
+
+    // Re-pinning an existing id is inert in the double, mirroring the Host.
+    await workspaces.pinSession(sid('a'))
+    expect(workspaces.list.getSnapshot().pinnedSessionIds).toEqual([sid('b'), sid('a')])
+
+    await workspaces.unpinSession(sid('b'))
+    expect(workspaces.list.getSnapshot().pinnedSessionIds).toEqual([sid('a')])
+    expect(workspaces.calls).toEqual([
+      { method: 'pinSession', args: [sid('a')] },
+      { method: 'pinSession', args: [sid('b')] },
+      { method: 'pinSession', args: [sid('a')] },
+      { method: 'unpinSession', args: [sid('b')] },
+    ])
+
+    workspaces.stub('unpinSession', () => Promise.resolve())
+    await workspaces.unpinSession(sid('a'))
+    expect(workspaces.list.getSnapshot().pinnedSessionIds).toEqual([sid('a')])
+  })
+})
+
 describe('TestSessions archive verbs', () => {
   it('serves fixture snapshots for archive reads and echoes deletion', async () => {
     const runtime = await SlotTestRuntime.create()
