@@ -114,6 +114,8 @@ describe('dsh-tool-present', () => {
     const schema = ctx.tools.schemas().find(s => s.name === 'present')
     expect(schema).toBeDefined()
     expect(schema!.description).toContain('final deliverables')
+    expect(schema!.description).toContain('including files created through Bash or code execution')
+    expect(schema!.description).toContain('Requested files must be presented: usually 1-2 files, at most 4 files per call, with the most important files first')
     expect(schema!.description).toContain('must already exist')
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
     expect(Object.keys(props)).toEqual(['files'])
@@ -217,10 +219,10 @@ describe('dsh-tool-present', () => {
     expect(presentedEvents(agent.session)).toHaveLength(0)
   })
 
-  it('defaults maxFiles to 8', async () => {
+  it('defaults maxFiles to 4', async () => {
     const ctx = await setup({ config: {} })
     const names: string[] = []
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       const name = `f${index}.txt`
       names.push(name)
       await writeFile(join(root, name), String(index))
@@ -228,12 +230,28 @@ describe('dsh-tool-present', () => {
     const agent = agentWithSession(ctx, 'default-cap')
     openTurn(agent.session)
 
-    const eight = await callPresent(ctx, { files: names.slice(0, 8).map(path => ({ path })) }, { agent })
-    expect(eight.isError).toBe(false)
+    const four = await callPresent(ctx, { files: names.slice(0, 4).map(path => ({ path })) }, { agent })
+    expect(four.isError).toBe(false)
 
-    const nine = await callPresent(ctx, { files: names.map(path => ({ path })) }, { agent })
-    expect(nine.isError).toBe(true)
-    expect(text(nine)).toContain('present accepts 1 to 8 files')
+    const five = await callPresent(ctx, { files: names.map(path => ({ path })) }, { agent })
+    expect(five.isError).toBe(true)
+    expect(text(five)).toContain('present accepts 1 to 4 files')
+  })
+
+  it('accepts a five-file call when maxFiles overrides the default', async () => {
+    const ctx = await setup({ config: { maxFiles: 5 } })
+    const names: string[] = []
+    for (let index = 0; index < 5; index += 1) {
+      const name = `f${index}.txt`
+      names.push(name)
+      await writeFile(join(root, name), String(index))
+    }
+    const agent = agentWithSession(ctx, 'override-cap')
+    openTurn(agent.session)
+
+    const five = await callPresent(ctx, { files: names.map(path => ({ path })) }, { agent })
+    expect(five.isError).toBe(false)
+    expect(presentedEvents(agent.session)).toHaveLength(1)
   })
 
   it('rejects a non-positive or fractional maxFiles at load', async () => {

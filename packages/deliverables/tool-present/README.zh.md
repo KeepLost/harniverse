@@ -14,7 +14,7 @@
 
 ## 配置
 
-`maxFiles`（默认 8）限制一次调用的文件数。非正数或非整数在加载时以 `present requires a positive integer maxFiles` 失败；超出上限的调用以 `present accepts 1 to <maxFiles> files` 失败。
+`maxFiles`（默认 4）限制一次调用的文件数。非正数或非整数在加载时以 `present requires a positive integer maxFiles` 失败；超出上限的调用以 `present accepts 1 to <maxFiles> files` 失败。
 
 ## 验证
 
@@ -36,7 +36,7 @@
 
 #### 模型看到的内容
 
-模型会看到生成的 [`present` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-present)。
+模型会看到生成的 [`present` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-present)。描述把交付义务与固定的批量指引合并——用户要求的文件必须通过 present 声明，通常 1-2 个文件、每次调用至多 4 个，最重要的文件排在最前——而实际执行的上限跟随 `maxFiles`。
 
 #### Token 影响
 
