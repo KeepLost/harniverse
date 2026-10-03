@@ -74,7 +74,7 @@ export class FakeApiClient implements IApiClient {
   readonly calls: { method: string; payload: unknown }[] = []
 
   // Programmable slots (defaults answer OK-empty); reassign per case.
-  onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
+  onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [], pinnedSessionIds: [] }))
   onSearch: (payload: unknown) => Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>> =
     () => Promise.resolve(ok({ items: [], hasMore: false }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
@@ -260,8 +260,9 @@ export class FakeApiClient implements IApiClient {
 
   // The archive-set field defaults at the binding below so list stubs keep
   // the pre-archive `{ items }` shape; a stub carrying the field wins.
-  onWorkspaceList: (payload: unknown) => Promise<RpcResponse<{ items: never[]; archivedSessionIds?: never[] }>> =
-    () => Promise.resolve(ok({ items: [] }))
+  onWorkspaceList: (payload: unknown) =>
+  Promise<RpcResponse<{ items: never[]; archivedSessionIds?: never[]; pinnedSessionIds: never[] }>> =
+    () => Promise.resolve(ok({ items: [], pinnedSessionIds: [] }))
   onWorkspaceCreate: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>> =
     () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws'), created: true }))
 
@@ -299,6 +300,11 @@ export class FakeApiClient implements IApiClient {
       this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
     unarchiveSession: (payload: unknown) =>
       this.record('workspace.unarchiveSession', payload, this.onWorkspaceUnarchiveSession(payload)),
+    pinSession: (payload: unknown) =>
+      this.record('workspace.pinSession', payload,
+        Promise.resolve(ok({ pinnedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))),
+    unpinSession: (payload: unknown) =>
+      this.record('workspace.unpinSession', payload, Promise.resolve(ok({ pinnedSessionIds: [] }))),
   }
 
   // Payloads stay `unknown` (lint-lane note above); response rows are the real

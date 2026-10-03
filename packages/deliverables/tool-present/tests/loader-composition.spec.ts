@@ -118,6 +118,7 @@ describe('tool-present real Loader composition through cordis.yml', () => {
     const ctx = await boot(['    maxFiles: 1'])
     const description = ctx.tools.schemas().find(s => s.name === 'present')?.description ?? ''
     expect(description).toContain('final deliverables')
+    expect(description).toContain('at most 4 files per call')
 
     await writeFile(join(root, 'a.txt'), 'A')
     await writeFile(join(root, 'b.txt'), 'B')

@@ -310,8 +310,35 @@ export class TestWorkspaces implements IWorkspaces {
    * observable effect: the id joins the list state's archive set.
    * @param sessionId - session to archive.
    */
-  async archiveSession(sessionId: SessionId): Promise<void> {
-    this.calls.push({ method: 'archiveSession', args: [sessionId] })
+  async pinSession(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'pinSession', args: [sessionId] })
+    const stub = this.stubs.get('pinSession')
+    if (stub !== undefined) {
+      await (stub(sessionId) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      // An already pinned id resolves without reordering, mirroring the Host.
+      if (draft.pinnedSessionIds.includes(sessionId)) return
+      draft.pinnedSessionIds = [sessionId, ...draft.pinnedSessionIds]
+    })
+  }
+
+  /** Remove a session from the recorded pin set. */
+  async unpinSession(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'unpinSession', args: [sessionId] })
+    const stub = this.stubs.get('unpinSession')
+    if (stub !== undefined) {
+      await (stub(sessionId) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      draft.pinnedSessionIds = draft.pinnedSessionIds.filter(id => id !== sessionId)
+    })
+  }
+
+  async archiveSession(sessionId: SessionId, options?: { stopActivity?: boolean }): Promise<void> {
+    this.calls.push({ method: 'archiveSession', args: [sessionId, options] })
     const stub = this.stubs.get('archiveSession')
     if (stub !== undefined) {
       await (stub(sessionId) as Promise<void>)

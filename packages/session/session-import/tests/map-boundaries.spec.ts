@@ -92,7 +92,7 @@ describe('foreign mapping boundaries', () => {
     for (const data of [null, {}, { message: null }]) {
       expect(() => map([{ ...raw, data }])).toThrow('invalid foreign message')
     }
-    for (const patch of [{ id: '' }, { id: 1 }, { content: null }, { role: 'system' }, { source: null }]) {
+    for (const patch of [{ id: '' }, { id: 1 }, { content: null }, { role: 'system' }, { role: 'tool' }, { source: null }]) {
       expect(() => map(index === 1 ? edited(index, patch) : messagePatch(index, patch))).toThrow('invalid foreign message')
     }
   })

@@ -15,7 +15,15 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AnonymousEntries, ScopedLayers, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { ScopeLayer } from '@deepseek-ai/dsh-scope'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import type { SessionActivity } from '@deepseek-ai/dsh-workspace'
 import { JobRegistry, JobId } from '@deepseek-ai/dsh-jobs'
+
+declare module '@deepseek-ai/dsh-workspace' {
+  interface SessionActivityKindMap {
+    /** The job registry's family: background jobs owned by the session's agent. */
+    job: 'job'
+  }
+}
 import type {
   JobDoneListener, JobFollow, JobId as _JobId, JobKillOptions, JobKind, JobOutcome, JobRead,
   JobSnapshot, JobStart, JobStatus, JobsChangedListener,
@@ -206,6 +214,36 @@ export class LocalJobRegistry extends JobRegistry {
     this.followRingBytes = (config as Required<Config>).followRingBytes
     this.selfCtx = ctx
     ctx.effect(() => () => this.disposeAll(), 'jobs teardown')
+    // Archive admission, `job` family: the owner's running and stopping jobs
+    // hold the session, and the stop kills them the way the UI's two-step
+    // stop does — a human kill keeps the owner's completion notice.
+    ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
+      const rest = await next()
+      // A sibling-provided registry (the shipped composition loads this
+      // service beside dsh-agent) is readable only through the global store;
+      // the property proxy would demand an inject this service never owns.
+      const agent = ctx.get('agents')?.get(sessionId)
+      if (agent === undefined) return rest
+      const active = this.list(agent).filter(job => job.status === 'running' || job.status === 'stopping')
+      if (active.length === 0) return rest
+      const own: SessionActivity = {
+        kind: 'job',
+        items: active.map(job => ({ id: job.id, label: job.label })),
+      }
+      return [own, ...rest]
+    })
+    ctx.on('workspace/session-stop', ({ sessionId }) => {
+      const agent = ctx.get('agents')?.get(sessionId)
+      if (agent === undefined) return
+      for (const job of this.list(agent)) {
+        if (job.status !== 'running' && job.status !== 'stopping') continue
+        try {
+          this.kill(job.id, agent, { reason: 'session archived', reported: false })
+        } catch (error: unknown) {
+          ctx.logger.warn(`jobs: killing "${job.id}" for an archived session failed: ${String(error)}`)
+        }
+      }
+    })
   }
 
   start(spec: JobStart): JobId {

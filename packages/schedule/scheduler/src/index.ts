@@ -21,7 +21,15 @@ import { foldRequestHeader, SessionId, type Session } from '@deepseek-ai/dsh-ses
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-context-reset'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type { SessionActivity } from '@deepseek-ai/dsh-workspace'
 import { schedulerDomainSpec } from './spec.ts'
+
+declare module '@deepseek-ai/dsh-workspace' {
+  interface SessionActivityKindMap {
+    /** The scheduler's family: active schedules delivering into the session. */
+    schedule: 'schedule'
+  }
+}
 import { scheduledDeliveryMessage } from './envelope.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -87,6 +95,13 @@ interface DeliveryTarget {
   readonly resumedHere: boolean
 }
 
+/** The session one record currently delivers into: its named target, its job session, or its creator fallback. */
+function deliverySessionId(record: ScheduleRecord): SessionId {
+  if (record.target.kind === 'session') return record.target.sessionId
+  if (record.target.kind === 'job') return record.jobSessionId ?? record.createdBy.sessionId
+  return record.createdBy.sessionId
+}
+
 /**
  * Durable scheduled prompts over the central scheduler store. One instance
  * owns the timer, per-record dispatch chains, and cold-session recycling.
@@ -105,6 +120,24 @@ export class SchedulerService extends TypertRemoteService {
   constructor(ctx: Context) {
     super(ctx, 'scheduler')
     this.ownerCtx = ctx
+    // Archive admission, `schedule` family: active records delivering into
+    // the session are reported so archiving names them, but never stopped —
+    // the plan is kept and the dispatch skip holds it while the target stays
+    // archived.
+    ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
+      const rest = await next()
+      const active = this.records().filter(record => record.status === 'active'
+        && deliverySessionId(record) === sessionId)
+      if (active.length === 0) return rest
+      const own: SessionActivity = {
+        kind: 'schedule',
+        items: active.map(record => ({
+          id: record.id,
+          label: record.prompt.length > 80 ? `${record.prompt.slice(0, 79)}…` : record.prompt,
+        })),
+      }
+      return [own, ...rest]
+    })
   }
 
   protected async [Service.init](): Promise<void> {
@@ -463,6 +496,14 @@ export class SchedulerService extends TypertRemoteService {
       || fresh.nextDue === undefined || fresh.nextDue > now) return
     const planned = fresh.nextDue
     const due = latestMissedDue(fresh.rule, planned, now)
+    if (this.targetArchived(fresh)) {
+      // An archived target never receives delivery: the slot is skipped and
+      // advances like a success, the plan stays active, and an unarchive
+      // resumes delivery at the next due moment.
+      await this.advance(fresh, { lastDue: due, lastRunAt: now, lastError: undefined })
+      await this.recordRun(fresh, due, now, deliverySessionId(fresh), undefined, true)
+      return
+    }
     let target: DeliveryTarget | undefined
     let failure: string | undefined
     try {
@@ -497,6 +538,7 @@ export class SchedulerService extends TypertRemoteService {
     attemptedAt: number,
     targetSessionId: SessionId,
     error: string | undefined,
+    skipped = false,
   ): Promise<void> {
     const id = randomUUID()
     await this.requireRuns().put(id, {
@@ -507,7 +549,7 @@ export class SchedulerService extends TypertRemoteService {
       dueAt,
       attemptedAt,
       ...(record.promptRevision === undefined ? {} : { promptRevision: record.promptRevision }),
-      status: error === undefined ? 'succeeded' : 'failed',
+      status: skipped ? 'skipped' : error === undefined ? 'succeeded' : 'failed',
       ...(error === undefined ? {} : { error }),
     })
   }
@@ -539,6 +581,13 @@ export class SchedulerService extends TypertRemoteService {
       ...(nextDue === undefined ? {} : { nextDue }),
       ...outcome.lastError === undefined ? {} : { lastError: outcome.lastError },
     })
+  }
+
+  /** Whether the record's delivery target session is currently archived. */
+  private targetArchived(record: ScheduleRecord): boolean {
+    const registry = this.ctx.get('workspaceRegistry')
+    if (registry === undefined) return false
+    return registry.archivedSessionIds.includes(deliverySessionId(record))
   }
 
   /** Resolve (and for job targets create) the delivery destination. */

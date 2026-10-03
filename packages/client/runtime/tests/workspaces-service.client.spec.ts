@@ -27,13 +27,14 @@ describe('WorkspaceManager', () => {
       rpcId: 'changed' as never,
       payload: { type: 'host/workspace-changed', workspace: workspace('new') },
     })
-    gate.resolve(ok({ items: [workspace('old')] as never[] }))
+    gate.resolve(ok({ items: [workspace('old')] as never[], pinnedSessionIds: [] }))
     await hydration
     expect(manager.getSnapshot()).toMatchObject({ phase: 'ready', state: 'idle' })
     expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['new', 'old'])
 
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('old'), workspace('new')] as never[],
+      pinnedSessionIds: [],
     }))
     await manager.refresh()
     expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['old', 'new'])
@@ -47,7 +48,7 @@ describe('WorkspaceManager', () => {
     const first = manager.refresh()
     const second = manager.refresh()
     expect(manager.getSnapshot().state).toBe('loading')
-    gate.resolve(ok({ items: [] }))
+    gate.resolve(ok({ items: [], pinnedSessionIds: [] }))
     await Promise.all([first, second])
     expect(api.callsOf('workspace.list')).toHaveLength(1)
 
@@ -81,6 +82,7 @@ describe('WorkspaceManager', () => {
     const api = new FakeApiClient()
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('one'), workspace('two'), workspace('three')] as never[],
+      pinnedSessionIds: [],
     }))
     const manager = new WorkspaceManager(api)
     await manager.refresh()
@@ -119,6 +121,7 @@ describe('WorkspaceManager', () => {
     const api = new FakeApiClient()
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('one'), workspace('two'), workspace('three')] as never[],
+      pinnedSessionIds: [],
     }))
     const manager = new WorkspaceManager(api)
     await manager.refresh()
@@ -154,7 +157,7 @@ describe('WorkspaceManager', () => {
       rpcId: 'removed' as never,
       payload: { type: 'host/workspace-removed', workspaceId: wid('gone') },
     })
-    gate.resolve(ok({ items: [workspace('gone'), workspace('kept')] as never[] }))
+    gate.resolve(ok({ items: [workspace('gone'), workspace('kept')] as never[] , pinnedSessionIds: [] as never[] }))
     await hydration
     expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['kept'])
 
@@ -171,7 +174,7 @@ describe('WorkspaceManager', () => {
 
   it('removes from the unary delete echo while a refresh is in flight', async () => {
     const api = new FakeApiClient()
-    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('gone')] as never[] }))
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('gone')] as never[] , pinnedSessionIds: [] as never[] }))
     const manager = new WorkspaceManager(api)
     await manager.refresh()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
@@ -181,7 +184,7 @@ describe('WorkspaceManager', () => {
     await expect(manager.delete(wid('gone'))).resolves.toMatchObject({ ok: true })
     expect(api.callsOf('workspace.delete')).toEqual([{ workspaceId: 'gone' }])
     expect(manager.getSnapshot().items).toEqual([])
-    gate.resolve(ok({ items: [workspace('gone')] as never[] }))
+    gate.resolve(ok({ items: [workspace('gone')] as never[] , pinnedSessionIds: [] as never[] }))
     await refresh
     expect(manager.getSnapshot().items).toEqual([])
   })
@@ -219,7 +222,7 @@ describe('WorkspaceRuntime', () => {
     const api = new FakeApiClient()
     const sessions = new SessionRuntime(ctx, api, fakeRemote())
     const workspaces = new WorkspaceRuntime(ctx, api, sessions)
-    api.onWorkspaceList = () => Promise.resolve(ok({ items: [] }))
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [], pinnedSessionIds: [] }))
     api.onList = () => Promise.resolve(ok({ items: [] }))
 
     await Promise.all([workspaces.refresh(), sessions.refresh()])
@@ -239,6 +242,7 @@ describe('WorkspaceRuntime', () => {
         workspace('stable-first', [], '2026-01-03T00:00:00.000Z'),
         workspace('active', [sid('s-active')], '2026-01-01T00:00:00.000Z'),
       ] as never[],
+      pinnedSessionIds: [],
     }))
     await workspaces.refresh()
     await Promise.resolve()
@@ -264,6 +268,7 @@ describe('WorkspaceRuntime', () => {
     const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('alpha', [sid('s-blank')]), workspace('beta'), workspace('gamma')] as never[],
+      pinnedSessionIds: [],
     }))
     api.onList = () => Promise.resolve(ok({
       items: [
@@ -285,6 +290,7 @@ describe('WorkspaceRuntime', () => {
         // a fresh accounted one instead.
         { sessionId: sid('s-stray'), updatedAt: 4, running: false, blank: true, cwd: '/w/gamma' },
       ] as never[],
+      pinnedSessionIds: [],
     }))
     await Promise.all([workspaces.refresh(), sessions.refresh()])
     await Promise.resolve()
@@ -337,7 +343,7 @@ describe('WorkspaceRuntime', () => {
     const api = new FakeApiClient()
     const sessions = new SessionRuntime(ctx, api, fakeRemote())
     const workspaces = new WorkspaceRuntime(ctx, api, sessions)
-    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha', [sid('s-blank')])] as never[] }))
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha', [sid('s-blank')])] as never[], pinnedSessionIds: [] }))
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' }] as never[],
     }))
@@ -422,7 +428,7 @@ describe('WorkspaceRuntime', () => {
     const api = new FakeApiClient()
     const sessions = new SessionRuntime(ctx, api, fakeRemote())
     const workspaces = new WorkspaceRuntime(ctx, api, sessions)
-    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] , pinnedSessionIds: [] as never[] }))
     await workspaces.refresh()
     await expect(workspaces.delete(wid('alpha'))).resolves.toBeUndefined()
     expect(workspaces.list.getSnapshot().items).toEqual([])
@@ -439,6 +445,7 @@ describe('WorkspaceRuntime', () => {
     const workspaces = new WorkspaceRuntime(ctx, api, new SessionRuntime(ctx, api, fakeRemote()))
     api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('one'), workspace('two')] as never[],
+      pinnedSessionIds: [],
     }))
     await workspaces.refresh()
     api.onWorkspaceInsertBefore = () => Promise.resolve(ok({
@@ -466,6 +473,7 @@ describe('WorkspaceRuntime', () => {
         workspace('current-home', [sid('current')]),
         workspace('recent-home', [sid('recent')]),
       ] as never[],
+      pinnedSessionIds: [],
     }))
     api.onList = () => Promise.resolve(ok({ items: [
       { sessionId: sid('current'), updatedAt: 1, running: false, blank: false },
@@ -572,7 +580,7 @@ describe('WorkspaceRuntime', () => {
     } as never)
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(sessions.list.getSnapshot().current).toBeUndefined()
-    gate.resolve(ok({ items: [], archivedSessionIds: [] }))
+    gate.resolve(ok({ items: [], archivedSessionIds: [], pinnedSessionIds: [] }))
     await hydration
     expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
     // The next (fresh) baseline is authoritative again.
@@ -599,6 +607,7 @@ describe('startInitialSelection', () => {
 
     b.api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('recent', [], '2026-01-02T00:00:00.000Z')] as never[],
+      pinnedSessionIds: [],
     }))
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-new') }))
     await b.workspaces.refresh()
@@ -617,7 +626,7 @@ describe('startInitialSelection', () => {
     }))
     await withCurrent.sessions.refresh()
     withCurrent.sessions.open(sid('s1'))
-    withCurrent.api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('w1', [sid('s1')])] as never[] }))
+    withCurrent.api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('w1', [sid('s1')])] as never[], pinnedSessionIds: [] }))
     const stopCurrent = withCurrent.workspaces.startInitialSelection()
     await withCurrent.workspaces.refresh()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -638,6 +647,7 @@ describe('startInitialSelection', () => {
     const b = bench()
     b.api.onWorkspaceList = () => Promise.resolve(ok({
       items: [workspace('recent', [], '2026-01-02T00:00:00.000Z')] as never[],
+      pinnedSessionIds: [],
     }))
     b.api.onCreate = () => Promise.resolve(err({ code: 'internal', message: 'attach exploded', details: {} }))
     const stop = b.workspaces.startInitialSelection()

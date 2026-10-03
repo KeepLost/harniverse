@@ -1,5 +1,4 @@
 /** WorkspaceRuntime projects the Workspace object manager for UI consumers. */
-
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   DirectoryListing, IApiClient, RpcError, WorkspaceFileEntry, WorkspaceGitCommit,
@@ -11,6 +10,27 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
 import type { IWorkspaces, WorkspaceListState, WorkspaceSearchFilters } from '../contract/workspaces.ts'
 import { WorkspaceManager } from './manager.ts'
+
+/**
+ * A plain archive refused because the Host reported running work: the
+ * carried activities are the host's answer (family keys plus per-item
+ * identity), and the caller may stop them by retrying with
+ * `stopActivity`.
+ */
+export class SessionArchiveActiveError extends Error {
+  /**
+   * @param sessionId - the refused session.
+   * @param activities - what the host reported as running.
+   */
+  constructor(
+    readonly sessionId: SessionId,
+    readonly activities: readonly { kind: string; items?: { id: string; label?: string }[] }[],
+  ) {
+    super(`session "${sessionId}" is active and cannot be archived`)
+    this.name = 'SessionArchiveActiveError'
+  }
+}
+
 
 /** Structured create failure for UI flows that distinguish Host business errors. */
 export class WorkspaceCreateError extends Error {
@@ -51,7 +71,7 @@ export class WorkspaceRuntime implements IWorkspaces {
   constructor(private readonly ctx: Context, private api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
+      items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
     this.unsubscribeManager = this.manager.subscribe(() => { this.project() })
@@ -398,15 +418,35 @@ export class WorkspaceRuntime implements IWorkspaces {
    * echo and a remote tab's frame alike).
    * @param sessionId - session to archive.
    */
-  async archiveSession(sessionId: SessionId): Promise<void> {
-    const result = await this.manager.archiveSession(sessionId)
-    if (!result.ok) throw new Error(`session archive failed: ${result.error.code}: ${result.error.message}`)
+  async archiveSession(sessionId: SessionId, options: { stopActivity?: boolean } = {}): Promise<void> {
+    const result = await this.manager.archiveSession(sessionId, options)
+    if (!result.ok) {
+      if (result.error.code === 'agent-busy' && result.error.details.reason === 'SESSION_ACTIVE') {
+        throw new SessionArchiveActiveError(sessionId, result.error.details.activities ?? [])
+      }
+      throw new Error(`session archive failed: ${result.error.code}: ${result.error.message}`)
+    }
   }
 
   /** Remove one Session from the archive set without resuming it. */
   async unarchiveSession(sessionId: SessionId): Promise<void> {
     const result = await this.manager.unarchiveSession(sessionId)
     if (!result.ok) throw new Error(`session unarchive failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
+   * Prepend one session to the registry-global pin set.
+   * @param sessionId - session to pin.
+   */
+  async pinSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.pinSession(sessionId)
+    if (!result.ok) throw new Error(`session pin failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /** Remove one session from the registry-global pin set. */
+  async unpinSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.unpinSession(sessionId)
+    if (!result.ok) throw new Error(`session unpin failed: ${result.error.code}: ${result.error.message}`)
   }
 
   /**
@@ -463,6 +503,7 @@ export class WorkspaceRuntime implements IWorkspaces {
     this.list.set({
       items: workspace.items,
       archivedSessionIds: workspace.archivedSessionIds,
+      pinnedSessionIds: workspace.pinnedSessionIds,
       state: workspace.state,
       phase: workspace.phase,
       error: workspace.error,

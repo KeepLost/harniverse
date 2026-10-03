@@ -643,9 +643,154 @@ describe('Host Workspace increments', () => {
 
     expect(response.result).toMatchObject({
       ok: false,
-      error: { code: 'agent-busy', details: { reason: 'SESSION_ACTIVE' } },
+      // The turn-family provider reports the running turn as the activity
+      // that keeps the session out of the cold-archive admission.
+      error: { code: 'agent-busy', details: { reason: 'SESSION_ACTIVE', activities: [{ kind: 'turn' }] } },
     })
     expect(ctx.agents.get(sessionId)).toBe(agent)
     expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([])
+  })
+
+  it('stops the running turn and commits the archive when stopActivity is set', async () => {
+    const { api, ctx, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'stop-archive-home') }))).workspace
+    const sessionId = SessionId('session-stopped-on-archive')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    const agent = ctx.agents.get(sessionId)
+    if (agent === undefined) throw new Error('test session did not publish an Agent')
+    ;(agent as unknown as { status: 'idle' | 'running' }).status = 'running'
+    const cancel = vi.spyOn(agent, 'cancel')
+
+    const response = await api.workspace.archiveSession(request({ sessionId, stopActivity: true }))
+
+    expect(expectOk(response).archivedSessionIds).toEqual([sessionId])
+    // The stop rides the same path as the user's own stop action: a
+    // user-origin cancellation that preserves the inbox for a later unarchive.
+    expect(cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
+    // The still-settling Agent is left attached: with stopActivity the
+    // archived-agent idle close owns the detach, not a closeIfIdle rollback.
+    expect(ctx.agents.get(sessionId)).toBe(agent)
+    expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([sessionId])
+  })
+
+  it('streams the full pin set once per committed pin change', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'pin-stream-home') }))).workspace
+    const first = SessionId('session-pin-stream-first')
+    const second = SessionId('session-pin-stream-second')
+    const third = SessionId('session-pin-stream-third')
+    for (const sessionId of [first, second, third]) {
+      expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    }
+    expectOk(await api.workspace.pinSession(request({ sessionId: first })))
+    expectOk(await api.workspace.pinSession(request({ sessionId: second })))
+
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const changed = nextHostFrame(stream)
+    expect(expectOk(await api.workspace.pinSession(request({ sessionId: third }))).pinnedSessionIds)
+      .toEqual([third, second, first])
+    expect(await changed).toMatchObject({
+      payload: { type: 'host/pinned-sessions-changed', pinnedSessionIds: [third, second, first] },
+    })
+
+    // The idempotent repeat writes nothing: the next observed frame is the
+    // unpin's own snapshot, not a repeat echo of the earlier set.
+    const after = nextHostFrame(stream)
+    expectOk(await api.workspace.pinSession(request({ sessionId: third })))
+    expect(expectOk(await api.workspace.unpinSession(request({ sessionId: third }))).pinnedSessionIds)
+      .toEqual([second, first])
+    expect(await after).toMatchObject({
+      payload: { type: 'host/pinned-sessions-changed', pinnedSessionIds: [second, first] },
+    })
+    abort.abort()
+  })
+})
+
+describe('agent/pre-step archive gate', () => {
+  /** Propose one step for a session's Agent exactly as the loop's driver does. */
+  function propose(ctx: Context, session: Session) {
+    return ctx.waterfall(
+      'agent/pre-step',
+      { agent: stubAgent(session), messages: [], turn: 1, step: 1, signal: new AbortController().signal },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
+  }
+
+  it('rejects archived sessions and their subagent lineage, admits forks, and unarchive lifts the gate', async () => {
+    const { api, ctx, root } = await harness()
+    const archived = ctx.sessions.create(SessionId('session-gate-archived'), { meta: { cwd: root } })
+    const middle = ctx.sessions.create(SessionId('session-gate-middle'), {
+      meta: { cwd: root, parentSession: archived.id, origin: 'subagent' },
+    })
+    const child = ctx.sessions.create(SessionId('session-gate-child'), {
+      meta: { cwd: root, parentSession: middle.id, origin: 'subagent' },
+    })
+    const fork = ctx.sessions.create(SessionId('session-gate-fork'), {
+      meta: { cwd: root, parentSession: archived.id },
+    })
+    expectOk(await api.workspace.archiveSession(request({ sessionId: archived.id })))
+
+    expect(await propose(ctx, archived)).toEqual({ kind: 'reject' })
+    expect(await propose(ctx, middle)).toEqual({ kind: 'reject' })
+    // The gate walks the whole subagent lineage: the grandchild is rejected
+    // through its unarchived parent's header chain.
+    expect(await propose(ctx, child)).toEqual({ kind: 'reject' })
+    // A fork is an independent conversation, not a descendant.
+    expect(await propose(ctx, fork)).toEqual({ kind: 'enter', messages: [] })
+
+    expectOk(await api.workspace.unarchiveSession(request({ sessionId: archived.id })))
+    expect(await propose(ctx, archived)).toEqual({ kind: 'enter', messages: [] })
+    expect(await propose(ctx, child)).toEqual({ kind: 'enter', messages: [] })
+  })
+})
+
+describe('workspace.pinSession / workspace.unpinSession', () => {
+  it('prepends pins, keeps repeats stable, and mirrors the set through workspace.list', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'pin-home') }))).workspace
+    const first = SessionId('session-pin-first')
+    const second = SessionId('session-pin-second')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId: first })))
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId: second })))
+    expect(expectOk(await api.workspace.list(request({}))).pinnedSessionIds).toEqual([])
+
+    expect(expectOk(await api.workspace.pinSession(request({ sessionId: first }))).pinnedSessionIds)
+      .toEqual([first])
+    expect(expectOk(await api.workspace.pinSession(request({ sessionId: second }))).pinnedSessionIds)
+      .toEqual([second, first])
+    // An already pinned id resolves without reordering the set.
+    expect(expectOk(await api.workspace.pinSession(request({ sessionId: first }))).pinnedSessionIds)
+      .toEqual([second, first])
+    expect(expectOk(await api.workspace.list(request({}))).pinnedSessionIds).toEqual([second, first])
+
+    expect(expectOk(await api.workspace.unpinSession(request({ sessionId: second }))).pinnedSessionIds)
+      .toEqual([first])
+    expect(expectOk(await api.workspace.unpinSession(request({ sessionId: first }))).pinnedSessionIds)
+      .toEqual([])
+  })
+
+  it('refuses to pin an archived session and reports unknown ids', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'pin-refusal-home') }))).workspace
+    const sessionId = SessionId('session-archived-pin-refused')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    expectOk(await api.workspace.pinSession(request({ sessionId })))
+    // Archiving and pinning are mutually exclusive: the archive drops the pin.
+    expectOk(await api.workspace.archiveSession(request({ sessionId })))
+    expect(expectOk(await api.workspace.list(request({}))).pinnedSessionIds).toEqual([])
+
+    const pinned = await api.workspace.pinSession(request({ sessionId }))
+    expect(pinned.result).toMatchObject({
+      ok: false,
+      error: { code: 'agent-busy', details: { reason: 'SESSION_ARCHIVED' } },
+    })
+
+    const unknown = await api.workspace.pinSession(request({ sessionId: SessionId('session-ghost-pin') }))
+    expect(unknown.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-not-found', details: { sessionId: 'session-ghost-pin' } },
+    })
   })
 })

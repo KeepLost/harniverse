@@ -25,7 +25,7 @@ import type { ForeignSessionFormat, ImportRecordEventData } from './types.ts'
 
 /** One import request: the artifact to read plus optional target and posture. */
 export interface ImportForeignSessionOptions {
-  /** Filesystem path to the foreign artifact (an official v1/v2/v3 JSONL export). */
+  /** Filesystem path to the foreign artifact (an official v1/v2/v3/v4 JSONL export). */
   readonly artifactPath?: string
   /** Exact uploaded source bytes; mutually exclusive with artifactPath. */
   readonly artifact?: Uint8Array

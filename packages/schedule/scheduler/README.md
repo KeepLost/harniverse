@@ -22,6 +22,8 @@ Targets follow the official vocabulary plus one downstream extension: `current` 
 
 Rules follow the official vocabulary: `after` (one-shot delay), `at` (one-shot instant, firing late once when overdue), `every` (anchored recurrence, minimum five minutes, skipping missed slots to the latest). A failed one-shot retries after ten minutes with the recorded `lastError`; a failed `every` continues at its next slot. `fresh` deliveries reset the target surface through `ctx.contextReset` before the prompt lands. Dispatch appends one log-only `schedule/dispatch` provenance event and one plugin-source `user/message` per run, then flushes.
 
+An active record delivering into a session reports through the `schedule` family of `workspace/session-activity` (record id plus a truncated prompt label), so archiving that session names the plan; the scheduler registers no stop listener — the plan is kept. A due slot whose delivery session is archived advances like a success and records a run with status `skipped` and no error, so delivery resumes at the next due moment after an unarchive.
+
 ## Composition
 
 ```yaml

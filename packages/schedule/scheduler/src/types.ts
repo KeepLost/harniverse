@@ -51,7 +51,7 @@ export interface ScheduleRun {
   readonly dueAt: number
   readonly attemptedAt: number
   readonly promptRevision?: number
-  readonly status: 'succeeded' | 'failed'
+  readonly status: 'succeeded' | 'skipped' | 'failed'
   readonly error?: string
 }
 

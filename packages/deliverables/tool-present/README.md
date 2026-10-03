@@ -14,7 +14,7 @@ A call requires its ONE owning agent session (`exec.agent`), an open turn in the
 
 ## Configuration
 
-`maxFiles` (default 8) bounds one call's file count. Non-positive or non-integer values fail at load with `present requires a positive integer maxFiles`; a call outside the bound fails with `present accepts 1 to <maxFiles> files`.
+`maxFiles` (default 4) bounds one call's file count. Non-positive or non-integer values fail at load with `present requires a positive integer maxFiles`; a call outside the bound fails with `present accepts 1 to <maxFiles> files`.
 
 ## Validation
 
@@ -36,7 +36,7 @@ A function/namespace plugin: it exports `name` / `inject` / `apply` and NO defau
 
 #### What the model sees
 
-The model sees the generated [`present` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-present).
+The model sees the generated [`present` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-present). The description merges the delivery obligation with fixed batching guidance — requested files must be presented, usually 1-2 files and at most 4 per call, with the most important files first — while the enforced bound follows `maxFiles`.
 
 #### Token effect
 

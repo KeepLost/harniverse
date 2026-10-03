@@ -34,11 +34,19 @@ import { paginateSessionHistory, type SessionPersistence } from '@deepseek-ai/ds
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
-import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
+import type { SessionActivity, Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceOrderInvalidError, WorkspaceUnknownSessionError,
+  WorkspaceActiveSessionError, WorkspaceArchivedSessionPinError, WorkspaceMoveInvalidError,
+  WorkspaceOrderInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
+
+declare module '@deepseek-ai/dsh-workspace' {
+  interface SessionActivityKindMap {
+    /** The API proxy's family: the running turn, queued prompts, and pending approvals. */
+    turn: 'turn'
+  }
+}
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
   InvalidPresetIdError, PresetExistsError, PresetMountError,
@@ -724,6 +732,48 @@ export function assertJsonArgs(event: string, args: readonly unknown[]): JsonVal
 /** Queue the subscription baseline frame. */
 function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Session): void {
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+}
+
+/**
+ * Project one archive-admission activity onto its wire view: the family key
+ * stays opaque so merged families surface without a contract change.
+ * @param activity - the host-reported activity.
+ * @returns the wire projection.
+ */
+function sessionActivityView(activity: SessionActivity): { kind: string; items?: { id: string; label?: string }[] } {
+  return {
+    kind: activity.kind,
+    ...activity.items === undefined ? {} : {
+      items: activity.items.map(item => ({
+        id: item.id,
+        ...item.label === undefined ? {} : { label: item.label },
+      })),
+    },
+  }
+}
+
+/**
+ * Whether the Agent's session, or a session above it in its subagent lineage,
+ * is archived. Lineage follows the durable header fields through
+ * subagent-origin sessions only: a fork of an archived session is an
+ * independent conversation.
+ * @param ctx - Host context.
+ * @param agent - the Agent proposing a step.
+ * @returns whether an archived session owns the step.
+ */
+function underArchivedSession(ctx: Context, agent: Agent): boolean {
+  const archived = ctx.workspaceRegistry.archivedSessionIds
+  let header = agent.session.header
+  const visited = new Set<SessionId>()
+  while (!visited.has(header.id)) {
+    if (archived.includes(header.id)) return true
+    visited.add(header.id)
+    if (header.origin !== 'subagent' || header.parentSession === undefined) return false
+    const parent = ctx.sessions.get(header.parentSession)
+    if (parent === undefined) return archived.includes(header.parentSession)
+    header = parent.header
+  }
+  return false
 }
 
 /**
@@ -2106,6 +2156,38 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       })
     }
   })
+
+  // Archive admission, `turn` family: the running turn, queued prompts, and
+  // pending approvals are the API proxy's activity, and the stop cancels the
+  // turn through the same path the user's own stop action uses.
+  ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
+    const rest = await next()
+    const agent = ctx.agents.get(sessionId)
+    if (agent === undefined) return rest
+    if (agent.status !== 'running' && queueItems(agent).length === 0
+      && pendingInteractions(sessionId).length === 0) return rest
+    return [{ kind: 'turn' as const }, ...rest]
+  })
+
+  ctx.on('workspace/session-stop', ({ sessionId }) => {
+    const agent = ctx.agents.get(sessionId)
+    if (agent === undefined || agent.status !== 'running') return
+    try {
+      agent.cancel({ kind: 'user' }, { keepInbox: true })
+    } catch (error: unknown) {
+      ctx.logger.warn(`api-proxy: cancelling the turn of archived session "${sessionId}" failed: ${String(error)}`)
+    }
+  })
+
+  // The archived-session admission gate: an archived session, or a subagent
+  // descendant of one, never runs a model step until it is restored. A late
+  // waking delivery a stop induces — a cancelled child's settlement, a queued
+  // follow-up — proposes a step the gate rejects, which the loop ends
+  // without a request; unarchiving lifts the gate for the whole lineage.
+  ctx.on('agent/pre-step', ({ agent }, next) =>
+    underArchivedSession(ctx, agent)
+      ? Promise.resolve({ kind: 'reject' as const })
+      : next())
 
   /** Sample live fields synchronously so the returned values share one JavaScript turn. */
   const attachedStatus = (session: Session): SessionStatusSnapshot => {
@@ -4269,6 +4351,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return Promise.resolve(ok(request, {
           items: ctx.workspaceRegistry.list().map(workspaceView),
           archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds],
+          pinnedSessionIds: [...ctx.workspaceRegistry.pinnedSessionIds],
         }))
       },
 
@@ -4368,7 +4451,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async archiveSession(request) {
-        const { sessionId } = request.payload
+        const { sessionId, stopActivity } = request.payload
         if (ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)) {
           return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
         }
@@ -4377,6 +4460,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let archive = sessionArchives.get(sessionId)
         if (archive === undefined) {
           archive = serializeSessionLineage(sessionId, async (): Promise<{ error?: RpcError }> => {
+            const archiveError = (error: unknown): RpcError => {
+              if (error instanceof WorkspaceActiveSessionError) {
+                return {
+                  code: 'agent-busy',
+                  message: `session "${sessionId}" is active and cannot be archived`,
+                  details: {
+                    reason: 'SESSION_ACTIVE',
+                    activities: error.activities.map(sessionActivityView),
+                  },
+                }
+              }
+              if (error instanceof WorkspaceUnknownSessionError) {
+                return { code: 'session-not-found', message: error.message, details: { sessionId } }
+              }
+              return {
+                code: 'internal',
+                message: `failed to archive session "${sessionId}": ${String(error)}`,
+                details: {},
+              }
+            }
             const session = ctx.sessions.get(sessionId)
             const agent = ctx.agents.get(sessionId)
             let archiveCommitted = false
@@ -4384,35 +4487,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               if (hasSubagentOwner(session, agent)) {
                 return { error: subagentOwnershipError(sessionId) }
               }
-              if (agent.status === 'running' || queueItems(agent).length > 0 || pendingInteractions(sessionId).length > 0) {
-                return {
-                  error: {
-                    code: 'agent-busy',
-                    message: `session "${sessionId}" is active and cannot be archived`,
-                    details: { reason: 'SESSION_ACTIVE' },
-                  },
-                }
-              }
               try {
-                await ctx.workspaceRegistry.archiveSession(sessionId)
+                await ctx.workspaceRegistry.archiveSession(
+                  sessionId,
+                  stopActivity === true ? { stopActivity: true } : {},
+                )
                 archiveCommitted = true
               } catch (error: unknown) {
-                if (error instanceof WorkspaceUnknownSessionError) {
-                  return {
-                    error: {
-                      code: 'session-not-found',
-                      message: error.message,
-                      details: { sessionId },
-                    },
-                  }
-                }
-                return {
-                  error: {
-                    code: 'internal',
-                    message: `failed to archive session "${sessionId}": ${String(error)}`,
-                    details: {},
-                  },
-                }
+                return { error: archiveError(error) }
+              }
+              if (stopActivity === true) {
+                // The registry dispatched the stops with the durable archive
+                // set already written; the cancelled work settles through the
+                // pre-step gate, and the archived-agent idle close owns the
+                // detach and its closed notification, so an explicit close
+                // here would only race that path.
+                return {}
               }
               try {
                 await ctx.get('subagents')?.drainContinuableDescendants([agent])
@@ -4455,25 +4545,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }
             }
             if (!archiveCommitted) try {
-              await ctx.workspaceRegistry.archiveSession(sessionId)
+              await ctx.workspaceRegistry.archiveSession(
+                sessionId,
+                stopActivity === true ? { stopActivity: true } : {},
+              )
               return {}
             } catch (error: unknown) {
-              if (error instanceof WorkspaceUnknownSessionError) {
-                return {
-                  error: {
-                    code: 'session-not-found',
-                    message: error.message,
-                    details: { sessionId },
-                  },
-                }
-              }
-              return {
-                error: {
-                  code: 'internal',
-                  message: `failed to archive session "${sessionId}": ${String(error)}`,
-                  details: {},
-                },
-              }
+              return { error: archiveError(error) }
             }
             return {}
           })
@@ -4508,6 +4586,44 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
+      },
+
+      async pinSession(request) {
+        const { sessionId } = request.payload
+        try {
+          await ctx.workspaceRegistry.pinSession(sessionId)
+        } catch (error: unknown) {
+          if (error instanceof WorkspaceArchivedSessionPinError) {
+            return err(request, {
+              code: 'agent-busy',
+              message: error.message,
+              details: { reason: 'SESSION_ARCHIVED' },
+            })
+          }
+          if (error instanceof WorkspaceUnknownSessionError) {
+            return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `failed to pin session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+        return ok(request, { pinnedSessionIds: [...ctx.workspaceRegistry.pinnedSessionIds] })
+      },
+
+      async unpinSession(request) {
+        const { sessionId } = request.payload
+        try {
+          await ctx.workspaceRegistry.unpinSession(sessionId)
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to unpin session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+        return ok(request, { pinnedSessionIds: [...ctx.workspaceRegistry.pinnedSessionIds] })
       },
     },
 
@@ -5263,6 +5379,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // stream opens against the current set; workspace.list re-baselines
         // reconnecting clients, so only later changes need frames.
         let archivedSessionIds = ctx.workspaceRegistry.archivedSessionIds
+        let pinnedSessionIds = ctx.workspaceRegistry.pinnedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             if (session.header.origin === 'subagent') return
@@ -5320,6 +5437,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 queue.push(frame({
                   type: 'host/archived-sessions-changed',
                   archivedSessionIds: [...state.archivedSessionIds],
+                }))
+              }
+              if (state.pinnedSessionIds.length !== pinnedSessionIds.length
+                || state.pinnedSessionIds.some((id, index) => id !== pinnedSessionIds[index])) {
+                pinnedSessionIds = state.pinnedSessionIds
+                queue.push(frame({
+                  type: 'host/pinned-sessions-changed',
+                  pinnedSessionIds: [...state.pinnedSessionIds],
                 }))
               }
               return

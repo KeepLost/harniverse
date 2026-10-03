@@ -350,7 +350,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }: {
+export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onPinToggle, drag, flat = false, t }: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -359,8 +359,13 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onRename: (id: SessionNode['id'], currentTitle: string) => void
   /** Fork a session at its last completed turn (row menu action). */
   onFork: (id: SessionNode['id']) => void
-  /** Archive this session (row menu action; commits without a dialog). */
+  /** Archive this session (row menu action; a running row opens the stop-and-archive confirmation). */
   onArchive: (id: SessionNode['id']) => void
+  /**
+   * Pin or unpin this session (row menu action; pinned rows lead their
+   * section). Absent on rows whose surface owns no pin order (search).
+   */
+  onPinToggle?: (id: SessionNode['id'], pinned: boolean) => void
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
   /** The row is rendered without a parent Workspace header. */
@@ -380,6 +385,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
+    ...(onPinToggle === undefined
+      ? []
+      : [{ id: 'pin', label: node.pinned ? t('menu.unpinSession') : t('menu.pinSession') }]),
     ...archiveable
       ? [{ id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> }]
       : [],
@@ -444,6 +452,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
               setMenuOpen(false)
               if (id === 'rename') onRename(node.id, row.title)
               if (id === 'fork') onFork(node.id)
+              if (id === 'pin') onPinToggle?.(node.id, node.pinned)
               if (id === 'archive') onArchive(node.id)
             }}
             portal

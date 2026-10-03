@@ -20,6 +20,10 @@
 
 控制器与监听器按注册方所在的 scope 分层，形状与 tools 注册表一致：一次注册归档到其注册上下文的 scope，一次读取则把全局层与所有者的 scope 链求并集。因此一个进程级注册表能逐所有者地回答逐所有者的问题——对自身组合未附加任何控制器的所有者，无论其他组合附加了多少，`start()` 都会拒绝并抛出 `background jobs unavailable: no job controller serves this agent (load @deepseek-ai/dsh-tool-jobs in its composition)`；一次结算也只会抵达其所有者所属组合注册的监听器。
 
+## 归档准入
+
+注册表合并 `workspace/session-activity` 的 `job` 家族：owner 的 `running` 与 `stopping` 任务会占住其会话，直接归档该会话即被拒绝，并携带逐任务 id 与 label 的活动条目。`workspace/session-stop` 归档通过与人工两步停止相同的 `kill()` 路径（`{ reason: 'session archived', reported: false }`）杀死这些任务，owner 的完成通知因此保留；单个 kill 失败只记录日志，其余任务照常终止。
+
 ## 模型体验
 
 通过生产方插件和 [`dsh-tool-jobs`](../tool-jobs/README.md) 间接影响；它们会呈现 job id、输出、状态、取消和完成通知。

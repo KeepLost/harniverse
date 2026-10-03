@@ -18,9 +18,9 @@ export { WorkspaceMoveInvalidError } from './entity.ts'
 import { defaultWorkspaceTitle, realpathNormalize } from './paths.ts'
 import { workspaceDeletionDomainSpec, workspaceDomainSpec } from './spec.ts'
 import type { WorkspaceDeletionDomainState, WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
-import type { Workspace, WorkspaceId as WorkspaceIdBrand } from './types.ts'
+import type { Workspace, WorkspaceId as WorkspaceIdBrand, SessionActivity, SessionActivityRequest } from './types.ts'
 
-export type { Workspace } from './types.ts'
+export type { Workspace, SessionActivity, SessionActivityItem, SessionActivityKind, SessionActivityKindMap, SessionActivityRequest } from './types.ts'
 export {
   workspaceDeletionDomainSpec,
   workspaceDeletionDomainState,
@@ -68,10 +68,80 @@ export class WorkspaceOrderInvalidError extends Error {
   }
 }
 
+/**
+ * An archiveSession request without `stopActivity` named a session that at
+ * least one `workspace/session-activity` listener reported active. Nothing
+ * was written; the carried activities are what the caller may stop to
+ * proceed.
+ */
+export class WorkspaceActiveSessionError extends Error {
+  /**
+   * @param sessionId - The refused session.
+   * @param activities - What the composed providers reported as running.
+   */
+  constructor(
+    readonly sessionId: SessionId,
+    readonly activities: readonly SessionActivity[],
+  ) {
+    super(`session '${sessionId}' is active and cannot be archived without stopping its work`)
+    this.name = 'WorkspaceActiveSessionError'
+  }
+}
+
+/** A pinSession request named a session the registry already archived. */
+export class WorkspaceArchivedSessionPinError extends Error {
+  /**
+   * @param sessionId - The archived session a pin named.
+   */
+  constructor(readonly sessionId: SessionId) {
+    super(`cannot pin session '${sessionId}': it is archived`)
+    this.name = 'WorkspaceArchivedSessionPinError'
+  }
+}
+
+/** Caller choices for {@link WorkspaceRegistry.archiveSession}. */
+export interface ArchiveSessionOptions {
+  /** Stop the session's reported running work instead of refusing the archive. */
+  stopActivity?: boolean
+}
+
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     workspaceRegistry: WorkspaceRegistry
+  }
+
+  interface Events {
+    /**
+     * Ask the composed providers what still runs for a session before it is
+     * archived. A listener prepends its own {@link SessionActivity} entries to
+     * the result of `next()`; the registry's innermost callback returns an
+     * empty list, so a composition without providers archives freely. Any
+     * non-empty result refuses the archive without a write.
+     * @param request - the session about to be archived.
+     * @param next - delegate to the remaining providers.
+     * @mode waterfall
+     */
+    'workspace/session-activity'(
+      request: SessionActivityRequest,
+      next: () => Promise<readonly SessionActivity[]>,
+    ): Promise<readonly SessionActivity[]>
+    /**
+     * Stop a session's running work because the caller archived it with
+     * `stopActivity`; the archive set is durable when this dispatches. Each
+     * provider stops its own families — cancelling a turn, its subagent
+     * descendants, or owned jobs — through the same cancel paths the user's
+     * own stop actions use, so the session log ends every open turn regularly
+     * and a later unarchive can continue the conversation. Active schedules
+     * are kept, not stopped: the scheduler skips delivery to archived
+     * sessions and keeps the plan. Listeners issue their stop requests
+     * without waiting for running work to settle; a listener may await its
+     * own durability barrier. A rejection is logged by the registry and does
+     * not undo the archive.
+     * @param request - the session being archived.
+     * @mode parallel
+     */
+    'workspace/session-stop'(request: SessionActivityRequest): Promise<void> | void
   }
 }
 
@@ -290,11 +360,22 @@ export class WorkspaceRegistry extends Service {
   /**
    * Archive one session durably. The session must exist (live or in session
    * persistence); its workspace accounting — or lack of one — is irrelevant.
-   * An already archived id resolves without writing.
+   * Without `stopActivity` the session must also be inactive: the
+   * `workspace/session-activity` waterfall is asked once, and any reported
+   * activity rejects with {@link WorkspaceActiveSessionError} before anything
+   * is written. With `stopActivity` the archive is written without an
+   * activity check, and the `workspace/session-stop` providers are then asked
+   * to stop the session's work: the durable archive set is what the
+   * `agent/pre-step` gate reads, so every wake a stop induces — a cancelled
+   * child's settlement, a queued follow-up — is already blocked. Archiving
+   * drops the session's pin in the same durable write (pinning and archival
+   * are mutually exclusive). An already archived id resolves without writing,
+   * asking, or stopping.
    * @param sessionId - The session to archive.
-   * @returns resolution after durability.
+   * @param options - Whether running work is stopped instead of refusing.
+   * @returns resolution after durability and, with `stopActivity`, after every stop request was issued.
    */
-  archiveSession(sessionId: SessionId): Promise<void> {
+  archiveSession(sessionId: SessionId, options: ArchiveSessionOptions = {}): Promise<void> {
     return this.enqueueOperation(async () => {
       // The chain slot serializes against every other registry write, so this
       // check-then-write pair cannot interleave with another archive.
@@ -302,8 +383,19 @@ export class WorkspaceRegistry extends Service {
       if (!(await this.sessionKnown(sessionId))) {
         throw new WorkspaceUnknownSessionError(sessionId)
       }
+      if (options.stopActivity !== true) {
+        const activity = await this.ctx.waterfall(
+          'workspace/session-activity', { sessionId }, () => Promise.resolve<SessionActivity[]>([]),
+        )
+        if (activity.length > 0) throw new WorkspaceActiveSessionError(sessionId, activity)
+      }
       const state = this.requireState()
-      await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+      await this.setState({
+        ...state,
+        archivedSessionIds: [...state.archivedSessionIds, sessionId],
+        pinnedSessionIds: state.pinnedSessionIds.filter(id => id !== sessionId),
+      })
+      if (options.stopActivity === true) await this.stopSessionActivity(sessionId)
     })
   }
 
@@ -325,6 +417,75 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * The registry-global pin set: sessions surfaced ahead of every unpinned
+   * session on grouping surfaces. Pinning never touches workspace accounting.
+   * @returns Session ids in pin order (most recently pinned first).
+   */
+  get pinnedSessionIds(): readonly SessionId[] {
+    return this.requireState().pinnedSessionIds
+  }
+
+  /**
+   * Pin one session durably, prepending it to the registry-global pin set.
+   * The session must exist (live or in session persistence) and must not be
+   * archived. An already pinned id resolves without writing or reordering.
+   * @param sessionId - The session to pin.
+   * @returns resolution after durability.
+   */
+  pinSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      // The chain slot serializes against every other registry write, so this
+      // check-then-write pair cannot interleave with another pin or archive.
+      if (this.requireState().pinnedSessionIds.includes(sessionId)) return
+      if (this.requireState().archivedSessionIds.includes(sessionId)) {
+        throw new WorkspaceArchivedSessionPinError(sessionId)
+      }
+      if (!(await this.sessionKnown(sessionId))) {
+        throw new WorkspaceUnknownSessionError(sessionId)
+      }
+      const state = this.requireState()
+      await this.setState({ ...state, pinnedSessionIds: [sessionId, ...state.pinnedSessionIds] })
+    })
+  }
+
+  /**
+   * Remove one Session from the registry-global pin set. The operation is
+   * idempotent so a stale browser can safely repair its pin projection.
+   * @param sessionId - The Session to unpin.
+   * @returns resolution after durability.
+   */
+  unpinSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (!state.pinnedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        pinnedSessionIds: state.pinnedSessionIds.filter(id => id !== sessionId),
+      })
+    })
+  }
+
+  /**
+   * Dispatch `workspace/session-stop` for an archived session. A rejection is
+   * contained here: the archive is already durable, so a provider that fails
+   * to stop its work is a logged warning, not a reason to undo the write.
+   * @param sessionId - The session whose work is being stopped.
+   * @returns resolution after every provider's stop request was issued.
+   */
+  private async stopSessionActivity(sessionId: SessionId): Promise<void> {
+    try {
+      await this.ctx.parallel('workspace/session-stop', { sessionId })
+    } catch (error: unknown) {
+      // ctx.parallel settles every listener and rejects with one AggregateError.
+      /* v8 ignore next -- the plain arm guards a rethrowing dispatcher; the contract rejects with one AggregateError. */
+      const failures = error instanceof AggregateError ? error.errors : [error]
+      for (const failure of failures) {
+        this.ctx.logger.warn(`workspace: stopping session '${sessionId}' for archive failed: ${String(failure)}`)
+      }
+    }
+  }
+
+  /**
    * Remove one deleted session from every workspace account and the archive set.
    * The operation is idempotent; the caller commits authoritative Session
    * deletion first so a failed metadata write can converge on retry.
@@ -337,10 +498,11 @@ export class WorkspaceRegistry extends Service {
       this.invalidSessionPaths.delete(sessionId)
       for (const entity of this.entities.values()) await entity.detachSession(sessionId)
       const state = this.requireState()
-      if (!state.archivedSessionIds.includes(sessionId)) return
+      if (!state.archivedSessionIds.includes(sessionId) && !state.pinnedSessionIds.includes(sessionId)) return
       await this.setState({
         ...state,
         archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+        pinnedSessionIds: state.pinnedSessionIds.filter(id => id !== sessionId),
       })
     })
   }

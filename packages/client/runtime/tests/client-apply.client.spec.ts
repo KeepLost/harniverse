@@ -217,6 +217,7 @@ describe('runtime client apply', () => {
         workspaceId: 'w-recent', path: '/w/recent', title: 'recent', sessionIds: [],
         createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
       }] as never[],
+      pinnedSessionIds: [],
     }))
     bench.api.onList = () => Promise.resolve(ok({ items: [] }))
 

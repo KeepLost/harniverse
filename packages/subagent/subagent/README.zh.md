@@ -115,6 +115,10 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 可继续 Activation 会等待 best-effort 的最终会话 flush，但不会把 listener 参与视为持久性确认。一次性运行保留尽力执行的会话检查点，因此已完成的一次性 child 只有在其会话确实进入持久化存储时，才可在 dispose 后继续被发现；如果该检查点缺失，服务不会根据 Task 历史虚构目录条目。
 
+## 归档准入
+
+运行时合并 `workspace/session-activity` 的 `subagent` 家族：仍在轮次中的后代会占住其祖先——按持久血缘（header 指名 `parentSession` 且携带 subagent origin，任意深度）查找——因此直接归档祖先会话即被拒绝，并携带列出每个运行中后代 id 的活动条目。fork 共享血缘字段但没有该 origin，属于独立会话，绝不占住其来源。`workspace/session-stop` 归档以 `{ kind: 'parent' }` 取消每个运行中的后代——与父级自己的取消相同；单个 child 拒绝取消只记录日志，其余兄弟照常取消。
+
 ## 模型体验
 
 ### 结算通知

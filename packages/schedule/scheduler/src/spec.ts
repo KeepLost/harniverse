@@ -60,7 +60,7 @@ const scheduleRunSchema = z.object({
   dueAt: z.number().int().nonnegative(),
   attemptedAt: z.number().int().nonnegative(),
   promptRevision: z.number().int().positive().optional(),
-  status: z.enum(['succeeded', 'failed']),
+  status: z.enum(['succeeded', 'skipped', 'failed']),
   error: z.string().optional(),
 }) as unknown as z.ZodType<ScheduleRun>
 

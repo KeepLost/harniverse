@@ -12,6 +12,11 @@ function mutate(edit: (records: Record<string, unknown>[]) => void): string {
   edit(records)
   return records.map((record: unknown) => JSON.stringify(record)).join('\n')
 }
+async function mutateOfficial4(edit: (records: Record<string, unknown>[]) => void): Promise<string> {
+  const records = (await officialArtifact(4)).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+  edit(records)
+  return records.map(record => JSON.stringify(record)).join('\n')
+}
 
 describe('official foreign parsing and native display mapping', () => {
   it('refuses a normalized snapshot with omitted physical packed envelopes', async () => {
@@ -28,18 +33,112 @@ describe('official foreign parsing and native display mapping', () => {
     expect(() => parseForeignSessionLog(lines.join('\n'))).toThrow(ForeignLogError)
   })
 
-  it.each([1, 2, 3] as const)('maps official v%i recordings with no foreign control events', async (version) => {
+  it.each([1, 2, 3, 4] as const)('maps official v%i recordings with no foreign control events', async (version) => {
     const log = parseForeignSessionLog(await officialArtifact(version))
     const mapped = mapForeignSessionEvents(log, 1)
     expect(mapped.skipped).toBeGreaterThan(0)
     const session = Session.create(SessionId(`v${version}`), scheduleImportEvents(marker, mapped.events))
-    expect(JSON.stringify(session.deriveMessages())).toContain(version === 1 ? 'PONG' : 'dsh-sdk-proof-7391')
+    const transcript = JSON.stringify(session.deriveMessages())
+    expect(transcript).toContain(version === 1 ? 'PONG' : version === 4 ? 'TERMINAL_OK' : 'dsh-sdk-proof-7391')
     expect(mapped.events.some(event => event.type.startsWith('agent/inbox'))).toBe(false)
     expect(mapped.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
     if (version === 1) {
       expect(log.events.filter(event => event.type === 'assistant/chunk').length).toBeGreaterThan(20)
       expect(mapped.events.some(event => event.type === 'assistant/chunk')).toBe(false)
     }
+  })
+
+  it('rebuilds official v4 tool-role results and producer sources in the native vocabulary', async () => {
+    const mapped = mapForeignSessionEvents(parseForeignSessionLog(await officialArtifact(4)), 1)
+    const session = Session.create(SessionId('official-v4'), scheduleImportEvents(marker, mapped.events))
+    const messages = session.deriveMessages()
+    const result = messages.find(message => message.source.kind === 'tool')
+    expect(result?.content).toEqual([{
+      type: 'tool-result', toolCallId: 'call_00_fkbBRJsUrGKd1pWVc4Gn8233',
+      content: [{ type: 'text', text: 'TERMINAL_OK\n' }], isError: false,
+    }])
+    expect(messages.some(message => message.source.kind === 'plugin' && message.source.plugin === 'runtime-context')).toBe(true)
+  })
+
+  it('drops official v4 developer messages and closes forked turns as interrupted', async () => {
+    const text = await mutateOfficial4((rows) => {
+      rows[12] = { seq: 11, type: 'developer/message', time: rows[12]!.time,
+        data: { turn: 1, step: 1, headerSeq: 10, message: { role: 'developer', id: 'dev-1', source: { kind: 'tool-registry' }, content: [{ type: 'tool-addition', toolName: 'snapshot_ping' }] } },
+        surfaceOp: 'append' }
+      ;(rows[21]!.data as Record<string, unknown>).reason = { kind: 'forked' }
+    })
+    const mapped = mapForeignSessionEvents(parseForeignSessionLog(text), 1)
+    expect(mapped.events.some(event => (event.type as string) === 'developer/message')).toBe(false)
+    expect(mapped.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'interrupted' } } })
+  })
+
+  it.each([{}, { kind: '' }])('attributes an official v4 user message with source %j to the importer', async (source) => {
+    const text = await mutateOfficial4((rows) => {
+      ;(rows[10]!.data as Record<string, unknown>).source = source
+    })
+    const mapped = mapForeignSessionEvents(parseForeignSessionLog(text), 1)
+    const session = Session.create(SessionId('v4-unattributed'), scheduleImportEvents(marker, mapped.events))
+    const context = session.deriveMessages().find(message => JSON.stringify(message.content).includes('Current runtime context'))
+    expect(context?.source).toEqual({ kind: 'plugin', plugin: '@deepseek-ai/dsh-session-import' })
+  })
+
+  it('keeps official v4 failure identity while dropping its user-facing reason', async () => {
+    const text = await mutateOfficial4((rows) => {
+      const data = rows[16]!.data as { message: Record<string, unknown>; error: unknown }
+      data.message.isError = true
+      data.message.content = [{ type: 'text', text: 'failed' }]
+      data.error = { name: 'ToolFailure', code: 'TOOL_FAILED', reason: 'boom' }
+    })
+    const mapped = mapForeignSessionEvents(parseForeignSessionLog(text), 1)
+    const event = mapped.events.find(event => event.type === 'tool/result')
+    expect(event && 'error' in event.data ? event.data.error : undefined).toEqual({ name: 'ToolFailure', code: 'TOOL_FAILED' })
+  })
+
+  it.each([undefined, { name: 'ToolFailure' }])('omits absent or incomplete official v4 error metadata %j without dropping the result', async (error) => {
+    const text = await mutateOfficial4((rows) => {
+      const data = rows[16]!.data as { message: Record<string, unknown>; error: unknown }
+      data.message.isError = true
+      if (error !== undefined) data.error = error
+    })
+    const mapped = mapForeignSessionEvents(parseForeignSessionLog(text), 1)
+    expect(mapped.events.find(event => event.type === 'tool/result')!.data).not.toHaveProperty('error')
+  })
+
+  it.each([{ toolCallId: 'wrong' }, { toolCallId: '' }, { toolCallId: 1 }])(
+    'refuses an official v4 tool result with call identity %j', async (patch) => {
+      const text = await mutateOfficial4((rows) => {
+        const data = rows[16]!.data as { message: Record<string, unknown> }
+        data.message = { ...data.message, ...patch }
+      })
+      expect(() => mapForeignSessionEvents(parseForeignSessionLog(text), 1)).toThrow('malformed supported foreign event tool/result')
+    },
+  )
+
+  it('rejects a v1/v2/v3-style user-role tool result in an official v4 log', async () => {
+    const text = await mutateOfficial4((rows) => {
+      ;(rows[16]!.data as { message: Record<string, unknown> }).message.role = 'user'
+    })
+    expect(() => mapForeignSessionEvents(parseForeignSessionLog(text), 1)).toThrow('invalid foreign message')
+  })
+
+  it('remaps official v4 tool-result replacements without nesting results or duplicating identities', async () => {
+    const text = await mutateOfficial4((rows) => {
+      const replacement = structuredClone(rows[16]!)
+      replacement.seq = 16
+      replacement.surfaceOp = { op: 'replace', startSeq: 15, endSeq: 15 }
+      replacement.sourceEventSeqs = [15]
+      const data = replacement.data as { message: { content: { text: string }[] } }
+      data.message.content[0]!.text = 'rewritten'
+      rows.splice(17, 0, replacement)
+      rows.slice(18).forEach((row) => { row.seq = (row.seq as number) + 1 })
+    })
+    const mapped = mapForeignSessionEvents(parseForeignSessionLog(text), 1)
+    const messages = Session.create(SessionId('v4-replacement'), scheduleImportEvents(marker, mapped.events)).deriveMessages()
+    const results = messages.filter(message => message.source.kind === 'tool')
+    expect(results).toHaveLength(1)
+    expect(results[0]!.content).toEqual([{
+      type: 'tool-result', toolCallId: 'call_00_fkbBRJsUrGKd1pWVc4Gn8233', content: [{ type: 'text', text: 'rewritten' }], isError: false,
+    }])
   })
 
   it('closes a missing step boundary and interrupted turns before the synthetic origin tail', () => {

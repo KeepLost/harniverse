@@ -51,6 +51,8 @@ import {
   workspaceListValueSchema,
   workspaceRenameValueSchema,
   workspaceUnarchiveSessionValueSchema,
+  workspacePinSessionValueSchema,
+  workspaceUnpinSessionValueSchema,
 } from '../api/workspace.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
@@ -166,6 +168,8 @@ export interface IApiClient {
     insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
     archiveSession(payload: RequestPayload<'workspace.archiveSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.archiveSession'>>>
     unarchiveSession(payload: RequestPayload<'workspace.unarchiveSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.unarchiveSession'>>>
+    pinSession(payload: RequestPayload<'workspace.pinSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.pinSession'>>>
+    unpinSession(payload: RequestPayload<'workspace.unpinSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.unpinSession'>>>
   }
   workspaceFiles: {
     list(payload: RequestPayload<'workspace.files.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.list'>>>
@@ -271,6 +275,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
   'workspace.archiveSession': workspaceArchiveSessionValueSchema,
   'workspace.unarchiveSession': workspaceUnarchiveSessionValueSchema,
+  'workspace.pinSession': workspacePinSessionValueSchema,
+  'workspace.unpinSession': workspaceUnpinSessionValueSchema,
   'workspace.files.list': workspaceFilesListValueSchema,
   'workspace.files.search': workspaceFilesSearchValueSchema,
   'workspace.files.read': workspaceFilesReadValueSchema,
@@ -617,6 +623,8 @@ export abstract class AbstractApiClient implements IApiClient {
     insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
     archiveSession: (payload, signal) => this.callUnary('workspace.archiveSession', payload, signal),
     unarchiveSession: (payload, signal) => this.callUnary('workspace.unarchiveSession', payload, signal),
+    pinSession: (payload, signal) => this.callUnary('workspace.pinSession', payload, signal),
+    unpinSession: (payload, signal) => this.callUnary('workspace.unpinSession', payload, signal),
   }
 
   readonly workspaceFiles: IApiClient['workspaceFiles'] = {

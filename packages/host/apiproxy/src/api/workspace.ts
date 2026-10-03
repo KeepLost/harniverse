@@ -35,15 +35,32 @@ export interface WorkspaceView {
   updatedAt: string
 }
 
+/**
+ * One host-reported reason a session counts as active for archive admission:
+ * a family key (`turn`, `job`, `subagent`, `schedule`, or any merged family)
+ * plus the family's active items when it has per-item identity. The wire
+ * keeps the kind opaque so merged families surface without a contract
+ * change; consumers fall through to a generic line for unknown keys.
+ */
+export interface SessionActivityView {
+  kind: string
+  items?: { id: string; label?: string }[]
+}
+
 /** Workspace-domain unary methods (the map keys workspace.* of RpcMethodMap). */
 export interface WorkspaceApi {
   /**
    * Lists all workspaces in the registry's durable display order, plus the
-   * registry-global archive set (the reconnect baseline of
-   * `host/archived-sessions-changed`). Archived sessions stay in their
-   * workspace's `sessionIds` account; grouping surfaces hide them.
+   * registry-global archive and pin sets (the reconnect baselines of
+   * `host/archived-sessions-changed` and `host/pinned-sessions-changed`).
+   * Archived sessions stay in their workspace's `sessionIds` account;
+   * grouping surfaces hide them.
    */
-  list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: WorkspaceView[]; archivedSessionIds: SessionId[] }>>
+  list(request: RpcRequest<{}>): Promise<RpcResponse<{
+    items: WorkspaceView[]
+    archivedSessionIds: SessionId[]
+    pinnedSessionIds: SessionId[]
+  }>>
 
   /**
    * Creates (or idempotently resolves) a workspace over an EXISTING directory
@@ -101,13 +118,35 @@ export interface WorkspaceApi {
    * disappears from every grouping surface but keeps its session log and its
    * workspace accounting slot (a future unarchive restores its position).
    * Idempotent for an already archived id. A session neither live nor in
-   * session persistence fails with `session-not-found`. Returns the full
-   * updated set (same snapshot the changed frame carries).
+   * session persistence fails with `session-not-found`. Without
+   * `stopActivity` a session with running work (a turn, queued prompts,
+   * pending approvals, subagent descendants, owned jobs, or schedules
+   * delivering into it) fails with `agent-busy` reason `SESSION_ACTIVE`,
+   * carrying the host-reported `activities` list; with `stopActivity` the
+   * archive is written first and the reported work is then stopped through
+   * the same paths the user's own stop actions use (schedules are kept and
+   * skip delivery instead). Archiving drops the session's pin. Returns the
+   * full updated set (same snapshot the changed frame carries).
    */
-  archiveSession(request: RpcRequest<{ sessionId: SessionId }>):
+  archiveSession(request: RpcRequest<{ sessionId: SessionId; stopActivity?: boolean }>):
   Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>>
 
   /** Removes one session from the archive set without resuming it. */
   unarchiveSession(request: RpcRequest<{ sessionId: SessionId }>):
   Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>>
+
+  /**
+   * Prepends one session to the registry-global pin set (most recently pinned
+   * first); grouping surfaces surface pinned sessions ahead of unpinned ones.
+   * An archived session fails with `agent-busy` reason `SESSION_ARCHIVED`; an
+   * unknown one fails with `session-not-found`. Idempotent for an already
+   * pinned id. Returns the full updated set (same snapshot the changed frame
+   * carries).
+   */
+  pinSession(request: RpcRequest<{ sessionId: SessionId }>):
+  Promise<RpcResponse<{ pinnedSessionIds: SessionId[] }>>
+
+  /** Removes one session from the pin set. Idempotent; returns the full updated set. */
+  unpinSession(request: RpcRequest<{ sessionId: SessionId }>):
+  Promise<RpcResponse<{ pinnedSessionIds: SessionId[] }>>
 }

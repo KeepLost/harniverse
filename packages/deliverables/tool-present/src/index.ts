@@ -31,7 +31,7 @@ export interface Config {
 
 /** Validated delivery limit. */
 export const Config: z<Config> = z.object({
-  maxFiles: z.number().default(8),
+  maxFiles: z.number().default(4),
 })
 
 /** Services used by the scoped delivery tool. */
@@ -51,7 +51,8 @@ export function apply(ctx: Context, config: Config): void {
     name: 'present',
     description: 'Declare existing files accessible through the Session filesystem as final deliverables. '
       + 'When a file you create or update is an output the user asked to receive, you must call present after writing it and before your final response, including files created through Bash or code execution. '
-      + 'Mentioning its path in your reply does not replace this call. The files must already exist. '
+      + 'Requested files must be presented: usually 1-2 files, at most 4 files per call, with the most important files first. '
+      + 'Mentioning a path in your reply does not replace this call. The files must already exist. '
       + 'The user opens the current source files; their contents are not copied or preserved.',
     parameters: {
       files: {
