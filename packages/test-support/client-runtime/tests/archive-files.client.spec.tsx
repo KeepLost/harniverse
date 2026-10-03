@@ -145,6 +145,10 @@ describe('TestWorkspaces pin verbs', () => {
     workspaces.stub('unpinSession', () => Promise.resolve())
     await workspaces.unpinSession(sid('a'))
     expect(workspaces.list.getSnapshot().pinnedSessionIds).toEqual([sid('a')])
+
+    workspaces.stub('pinSession', () => Promise.resolve())
+    await workspaces.pinSession(sid('c'))
+    expect(workspaces.list.getSnapshot().pinnedSessionIds).toEqual([sid('a')])
   })
 })
 
