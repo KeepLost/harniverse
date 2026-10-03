@@ -1183,7 +1183,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/jobs/jobs-local/src/index.ts:94`](../packages/jobs/jobs-local/src/index.ts)
+Source: [`packages/jobs/jobs-local/src/index.ts:95`](../packages/jobs/jobs-local/src/index.ts)
 
 <a id="deepseek-aidsh-llm-deepseek"></a>
 
