@@ -66,7 +66,7 @@ describe('transcribeThroughChain', () => {
 
   it('fails the chain when an endpoint hangs past its deadline', async () => {
     const shortDeadline = speechOpenai.Config({ endpoints: ['https://official.example/v1'], timeoutMs: 50 })
-    const fetchImpl: FetchLike = vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+    const fetchImpl: FetchLike = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => {
         // oxlint-disable-next-line prefer-promise-reject-errors -- the abort reason is the case under test
         reject(init.signal?.reason ?? new Error('aborted'))
@@ -78,7 +78,7 @@ describe('transcribeThroughChain', () => {
   })
 
   it('rethrows immediately when the caller signal is already aborted', async () => {
-    const fetchImpl: FetchLike = vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+    const fetchImpl: FetchLike = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       const signal = init?.signal
       if (signal?.aborted) {
         // oxlint-disable-next-line prefer-promise-reject-errors -- the abort reason is the case under test
