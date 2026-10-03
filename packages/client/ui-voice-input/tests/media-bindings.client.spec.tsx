@@ -131,6 +131,12 @@ describe('ui-voice-input browser bindings', () => {
         sampleRate: 16_000,
         getChannelData: () => new Float32Array(8).fill(0.1),
       } as unknown as AudioBuffer)
+      createMediaStreamSource = () => ({ connect: vi.fn() })
+      createAnalyser = () => ({
+        fftSize: 0,
+        getFloatTimeDomainData: (target: Float32Array) => { target.fill(0.25) },
+      })
+      close = vi.fn()
     })
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
@@ -146,13 +152,16 @@ describe('ui-voice-input browser bindings', () => {
       abandoned.dispose()
       expect(track.stop).toHaveBeenCalled()
 
-      // Non-empty chunks survive the funnel; empty ones drop out.
+      // Non-empty chunks survive the funnel; empty ones drop out. The live
+      // level tap rides the same stream and reports the analyser's frames.
       const capture = face.createRecording()
       await capture.start()
+      expect(capture.level()).toBeCloseTo(0.25)
       recorder?.emit(8)
       recorder?.emit(0)
       const wav = await capture.stop()
       expect(wav).toBeInstanceOf(Uint8Array)
+      expect(capture.level()).toBe(0)
       // Stopping already released the tracks; a second destroy stays inert.
       capture.dispose()
     } finally {

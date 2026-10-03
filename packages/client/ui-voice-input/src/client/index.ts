@@ -91,7 +91,27 @@ const browserContainer = {
       },
     }
   },
-  decode: (data: ArrayBuffer) => new AudioContext({ sampleRate: 16_000 }).decodeAudioData(data),
+  decode: async (data: ArrayBuffer) => {
+    // One short-lived context per recording: browsers cap live AudioContexts,
+    // so the decode context closes as soon as the bytes are decoded.
+    const context = new AudioContext({ sampleRate: 16_000 })
+    try {
+      return await context.decodeAudioData(data)
+    } finally {
+      void context.close()
+    }
+  },
+  createAnalyser: (stream: MediaStream) => {
+    const context = new AudioContext()
+    const source = context.createMediaStreamSource(stream)
+    const analyser = context.createAnalyser()
+    analyser.fftSize = 2_048
+    source.connect(analyser)
+    return {
+      read: (target: Float32Array<ArrayBuffer>) => { analyser.getFloatTimeDomainData(target) },
+      dispose: () => { void context.close() },
+    }
+  },
 }
 
 /** Required services: the seat's slot registry, settings scope, sessions, wire face, and copy. */

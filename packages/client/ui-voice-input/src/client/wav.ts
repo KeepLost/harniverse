@@ -41,6 +41,35 @@ export function encodeWav16kMono(samples: Float32Array): Uint8Array {
   return bytes
 }
 
+/** Amplitude summary of one canonical WAV recording, for capture diagnostics. */
+export interface WavAmplitudeStats {
+  /** Recording length in milliseconds. */
+  readonly durationMs: number
+  /** Loudest sample magnitude in [0, 1]. */
+  readonly peak: number
+  /** Root-mean-square amplitude in [0, 1]. */
+  readonly rms: number
+}
+
+/**
+ * Summarize the amplitude of one canonical 16 kHz mono PCM16 WAV recording.
+ * @param wav - complete WAV bytes as produced by `encodeWav16kMono`.
+ * @returns duration plus peak/rms amplitude over the PCM payload.
+ */
+export function wavAmplitudeStats(wav: Uint8Array): WavAmplitudeStats {
+  const samples = Math.max(0, Math.floor((wav.byteLength - WAV_HEADER_BYTES) / 2))
+  const view = new DataView(wav.buffer, wav.byteOffset + WAV_HEADER_BYTES, samples * 2)
+  let peak = 0
+  let energy = 0
+  for (let index = 0; index < samples; index += 1) {
+    const sample = view.getInt16(index * 2, true) / 32_768
+    const magnitude = Math.abs(sample)
+    if (magnitude > peak) peak = magnitude
+    energy += sample * sample
+  }
+  return { durationMs: (samples / 16_000) * 1_000, peak, rms: samples === 0 ? 0 : Math.sqrt(energy / samples) }
+}
+
 /**
  * Base64 of binary data without growth beyond what the output needs.
  * @param bytes - binary data.

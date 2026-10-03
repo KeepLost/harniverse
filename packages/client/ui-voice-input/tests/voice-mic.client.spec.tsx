@@ -21,8 +21,9 @@ const t: VoiceMicControlProps['t'] = makeTranslate(en)
 const SESSION = 's1' as SessionId
 
 /** Scripted media container: one track of PCM samples per capture. */
-function mediaContainer(options: { deny?: boolean } = {}) {
-  const container: MediaContainer = {
+function mediaContainer(options: { deny?: boolean; silent?: boolean; level?: number } = {}) {
+  let disposed = false
+  const container: MediaContainer & { tapDisposed: () => boolean } = {
     getUserMedia: async () => {
       if (options.deny) throw new DOMException('denied', 'NotAllowedError')
       return {} as MediaStream
@@ -36,10 +37,20 @@ function mediaContainer(options: { deny?: boolean } = {}) {
       length: 16,
       numberOfChannels: 1,
       sampleRate: 16_000,
-      getChannelData: () => new Float32Array(16).fill(0.1),
+      getChannelData: () => new Float32Array(16).fill(options.silent === true ? 0 : 0.1),
       copyFromChannel: () => {},
       copyToChannel: () => {},
     }),
+    tapDisposed: () => disposed,
+  }
+  if (options.level !== undefined) {
+    container.createAnalyser = () => ({
+      read: (target: Float32Array) => {
+        target.fill(options.level as number)
+        target[0] = -(options.level as number)
+      },
+      dispose: () => { disposed = true },
+    })
   }
   return container
 }
@@ -145,6 +156,58 @@ describe('VoiceMicControl state machine', () => {
     fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
     await vi.waitFor(() => { expect(view.getByText(t('mic.empty'))).toBeTruthy() })
     expect(face.insertions).toHaveLength(0)
+  })
+
+  it('names a near-silent capture separately from an empty transcript', async () => {
+    const face = injected({
+      createRecording: () => createRecording(mediaContainer({ silent: true })),
+    })
+    face.setAnswer({ text: '' })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => {
+      const status = view.getByRole('status')
+      expect(status.textContent).toContain(t('mic.silence'))
+      expect(status.textContent).toMatch(/peak 0\.000/)
+    })
+    expect(face.insertions).toHaveLength(0)
+  })
+
+  it('renders live level bars while recording and drops them after', async () => {
+    const face = injected({
+      createRecording: () => createRecording(mediaContainer({ level: 0.5 })),
+    })
+    const view = mount(face)
+    expect(view.container.querySelector('span[aria-hidden="true"]')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    await view.findByRole('button', { name: t('mic.stop') })
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 150) }) })
+    const heights = Array.from(view.container.querySelectorAll<HTMLElement>('span[aria-hidden="true"] > span')).map(bar => bar.style.height)
+    expect(heights.length).toBeGreaterThan(0)
+    expect(heights).toContain('11px')
+    fireEvent.click(view.getByRole('button', { name: t('mic.stop') }))
+    await vi.waitFor(() => { expect(view.container.querySelector('span[aria-hidden="true"]')).toBeNull() })
+  })
+
+  it('reports the capture level through the container tap and releases it on stop', async () => {
+    const container = mediaContainer({ level: 0.75 })
+    const capture = createRecording(container)
+    expect(capture.level()).toBe(0)
+    await capture.start()
+    expect(capture.level()).toBeCloseTo(0.75)
+    await capture.stop()
+    expect(container.tapDisposed()).toBe(true)
+    expect(capture.level()).toBe(0)
+  })
+
+  it('releases the tap when an abandoned capture is disposed', async () => {
+    const container = mediaContainer({ level: 0.5 })
+    const capture = createRecording(container)
+    await capture.start()
+    capture.dispose()
+    expect(container.tapDisposed()).toBe(true)
+    expect(capture.level()).toBe(0)
   })
 
   it('offers the transcript for manual insertion when the draft CAS misses', async () => {

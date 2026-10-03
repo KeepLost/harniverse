@@ -13,9 +13,16 @@ import type { TokenSpan } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Recording } from './audio.ts'
 import { RecordingError } from './audio.ts'
-import { bytesToBase64 } from './wav.ts'
+import { bytesToBase64, wavAmplitudeStats } from './wav.ts'
 import { NS, type VoiceKey } from './locales.ts'
 import css from './VoiceMicControl.module.css'
+
+/** Peak below this reads as digital silence in the captured WAV (≈ −46 dBFS). */
+const SILENT_PEAK = 0.005
+/** Live level bars kept on screen while recording (one per 100 ms tick). */
+const LEVEL_BARS = 32
+/** Polling cadence of the live level meter, in milliseconds. */
+const LEVEL_TICK_MS = 100
 
 /** Speech wire face plus creation and draft-insertion verbs, injected by apply. */
 export interface VoiceMicInjected {
@@ -78,6 +85,7 @@ export function VoiceMicControl({
   const [phase, setPhase] = useState<Phase>('idle')
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
+  const [levels, setLevels] = useState<number[]>([])
   const recordingRef = useRef<Recording | undefined>(undefined)
   const abortRef = useRef<AbortController | undefined>(undefined)
   // Generation guard: cancel and unmount invalidate an in-flight stop chain,
@@ -98,6 +106,20 @@ export function VoiceMicControl({
   }, [])
 
   useEffect(() => cancel, [cancel, sessionId])
+
+  // Live input meter: while recording, sample the capture's peak level so the
+  // user can see the microphone is actually picking sound up.
+  useEffect(() => {
+    if (phase !== 'recording') return
+    setLevels([])
+    const timer = window.setInterval(() => {
+      /* v8 ignore next 1 -- the interval tears down with this phase effect; the guard only keeps a late tick total. */
+      const capture = recordingRef.current
+      if (capture === undefined) return
+      setLevels(previous => [...previous.slice(1 - LEVEL_BARS), capture.level()])
+    }, LEVEL_TICK_MS)
+    return () => { window.clearInterval(timer) }
+  }, [phase])
 
   const guidance = useCallback((key: VoiceKey): void => {
     setPending(null)
@@ -130,6 +152,12 @@ export function VoiceMicControl({
         return
       }
       if (response.result.value.text === '') {
+        const stats = wavAmplitudeStats(wav)
+        if (stats.peak < SILENT_PEAK) {
+          setPending(null)
+          setNotice(`${t('mic.silence')}（${Math.round(stats.durationMs)} ms, peak ${stats.peak.toFixed(3)}）`)
+          return
+        }
         guidance('mic.empty')
         return
       }
@@ -229,6 +257,13 @@ export function VoiceMicControl({
           />
         </svg>
       </button>
+      {phase === 'recording' && (
+        <span className={css.wave} aria-hidden="true">
+          {levels.map((level, index) => (
+            <span key={index} className={css.waveBar} style={{ height: `${Math.round(2 + level * 18)}px` }} />
+          ))}
+        </span>
+      )}
       {(phase === 'recording' || phase === 'transcribing' || phase === 'requesting') && (
         <span className={css.state} role="status">
           {phase === 'recording' ? t('mic.recording') : phase === 'transcribing' ? t('mic.transcribing') : t('mic.requesting')}

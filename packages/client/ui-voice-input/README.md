@@ -10,6 +10,8 @@ A small always-visible button beside the composer chrome. Click starts a recordi
 
 Readiness guidance is locale-owned (`voice` dictionary, zh/en): a disabled recognizer (`'off'`), refused microphone permission, unsupported capture APIs, an empty transcript, and wire failures each render their own copy instead of failing silently.
 
+While recording, a live level meter (one bar per 100 ms over the capture's peak input level) shows the microphone is actually picking sound up; an empty transcript over a near-silent capture renders dedicated silence guidance with the measured duration and peak, separating "no sound reached the browser" from "the recognizer found no speech".
+
 ## Settings section
 
 Recognizer selection (`off` / SenseVoice local / OpenAI-compatible cloud), language hint, push-to-talk key, local model precision (INT8/FP32), and the write-only cloud API key (the settings mirror redacts it; presence in the user layer marks it configured). The prepare button triggers `speech.prepare` and renders the settled status — ready, unprepared, or failed with the provider's detail — over the same section.
@@ -34,4 +36,3 @@ None; no request-prefix changes.
 
 - **Whole-clip capture** — no streaming transcription; the recorder stops before the first byte leaves.
 - **Insertion is end-of-draft only** — the transcript appends; insertion at the caret rides the upstream span CAS work and is deferred.
-- **No waveform or level meter** — a recording indicator and localized status text carry the state today.

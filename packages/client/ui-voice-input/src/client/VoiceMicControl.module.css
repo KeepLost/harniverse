@@ -33,6 +33,19 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 20px;
+}
+
+.waveBar {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-primary);
+}
+
 .notice {
   display: inline-flex;
   align-items: center;
