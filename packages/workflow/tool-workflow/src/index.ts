@@ -15,6 +15,7 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { JobRegistry } from '@deepseek-ai/dsh-jobs'
 import type { JsonValue, Session, SessionEventMap } from '@deepseek-ai/dsh-session'
 import type {
   WorkflowResult, WorkflowRun, WorkflowRunId, WorkflowStopReason,
@@ -25,6 +26,12 @@ import type {
 } from './types.ts'
 // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
 import type {} from '@deepseek-ai/dsh-system-prompt'
+
+declare module '@deepseek-ai/dsh-jobs' {
+  interface JobKindMap {
+    'workflow': 'workflow'
+  }
+}
 
 export const name = 'tool-workflow'
 export const inject = ['tools', 'workflowEngine', 'systemPrompt']
@@ -253,20 +260,44 @@ export function apply(ctx: Context, config: Config): void {
         additionalProperties: true,
         description: 'Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}).',
       },
+      run_in_background: {
+        type: 'boolean',
+        description: 'Register the run as a workflow job and return its ids immediately; collect output with job_output and stop with job_kill. The parent turn does not wait for the script.',
+      },
     },
     output: {
       schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          runId: { type: 'string', required: true },
-          agentsStarted: { type: 'integer', required: true },
-          result: { type: 'json', required: true },
-        },
+        oneOf: [
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              kind: { type: 'string', required: true, const: 'background' },
+              jobId: { type: 'string', required: true },
+              runId: { type: 'string', required: true },
+            },
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              runId: { type: 'string', required: true },
+              agentsStarted: { type: 'integer', required: true },
+              result: { type: 'json', required: true },
+            },
+          },
+        ],
       },
       render: (args, value) => [{
         type: 'text',
-        text: renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars),
+        text: (value as { kind?: 'background' }).kind === 'background'
+          ? `started workflow job ${(value as { jobId: string }).jobId} (run ${value.runId})`
+          : renderResult(
+            args.meta.name,
+            (value as { agentsStarted: number }).agentsStarted,
+            (value as { result: JsonValue }).result,
+            maxResultChars,
+          ),
       }],
     },
     async execute(args, exec) {
@@ -288,6 +319,42 @@ export function apply(ctx: Context, config: Config): void {
         parent,
         signal: exec.signal,
       })
+      const jobs: JobRegistry | undefined = ctx.get('jobs')
+      if (args.run_in_background === true) {
+        if (jobs === undefined) {
+          try { await run.dispose() } catch { /* the engine never started user work before validation */ }
+          throw new Error('run_in_background is unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
+        }
+        const tail: string[] = []
+        const pushLine = (line: string): void => {
+          tail.push(line)
+          while (tail.length > 50) tail.shift()
+        }
+        const disposeLine = ctx.on('workflow/phase', (info, title) => {
+          if (info.id === run.id) pushLine(`phase: ${title}`)
+        })
+        const disposeLog = ctx.on('workflow/log', (info, message) => {
+          if (info.id === run.id) pushLine(message)
+        })
+        const jobId = jobs.start({
+          kind: 'workflow',
+          label: args.meta.name,
+          owner: parent,
+          run: () => ({
+            cancel: (reason?: string) => { run.cancel(reason ?? 'killed by job_kill') },
+            done: run.result.then((outcome) => {
+              disposeLine()
+              disposeLog()
+              const error = stopReasonError(outcome)
+              return error === undefined
+                ? { status: 'completed' as const, detail: `agents: ${outcome.agentsStarted}`, output: renderResult(args.meta.name, outcome.agentsStarted, outcome.value as JsonValue, maxResultChars) }
+                : { status: outcome.stopReason === 'cancelled' ? 'killed' as const : 'failed' as const, detail: error }
+            }),
+            readOutput: () => tail.splice(0).join('\n'),
+          }),
+        })
+        return { kind: 'background' as const, jobId, runId: run.id }
+      }
       const recordsRun = exec.parent === undefined
       // The shipped worker-thread engine publishes member events from later
       // worker messages, after start() returns and this run record is active.

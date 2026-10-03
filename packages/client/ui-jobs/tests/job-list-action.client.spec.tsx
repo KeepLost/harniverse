@@ -33,7 +33,7 @@ function job(over: Partial<JobView> = {}): JobView {
   }
 }
 
-function props(jobs: readonly JobView[] | undefined): JobListActionProps {
+function props(jobs: readonly JobView[] | undefined, api?: JobListActionProps['api']): JobListActionProps {
   const state = {
     ids: [SESSION],
     byId: {},
@@ -46,20 +46,72 @@ function props(jobs: readonly JobView[] | undefined): JobListActionProps {
   function useSessions<T>(select: (snapshot: SessionListState) => T): T {
     return select(state)
   }
-  return { sessionId: SESSION, useSessions, t } as unknown as JobListActionProps
+  return { sessionId: SESSION, useSessions, t, ...api === undefined ? {} : { api } } as unknown as JobListActionProps
+}
+
+/** Scripted follow windows served in call order; later calls answer empty. */
+interface JobsFaceCall {
+  follow: { jobId: string; offsetBytes?: number }[]
+  kill: { jobId: string }[]
+}
+
+function fakeJobs(
+  windows: readonly string[] = [],
+  outcome:
+    | { ok: true; value: { result: 'requested' | 'already-finished' } }
+    | { ok: false; error: { code: string; message: string; details: {} } } = { ok: true, value: { result: 'requested' } },
+): { api: JobListActionProps['api']; calls: JobsFaceCall } {
+  const calls: JobsFaceCall = { follow: [], kill: [] }
+  let served = 0
+  let offset = 0
+  const api = {
+    jobs: {
+      follow: (payload: { sessionId: string; jobId: string; offsetBytes?: number }): Promise<unknown> => {
+        calls.follow.push({ jobId: payload.jobId, ...payload.offsetBytes === undefined ? {} : { offsetBytes: payload.offsetBytes } })
+        const text = served < windows.length ? windows[served] ?? '' : ''
+        served += 1
+        offset += text.length
+        return Promise.resolve({
+          rpcId: 'r',
+          result: { ok: true, value: { text, nextOffsetBytes: offset, truncated: false, totalBytes: offset, status: 'running' as const } },
+        })
+      },
+      kill: (payload: { sessionId: string; jobId: string }): Promise<unknown> => {
+        calls.kill.push({ jobId: payload.jobId })
+        return Promise.resolve({ rpcId: 'r', result: outcome })
+      },
+    },
+  } as unknown as JobListActionProps['api']
+  return { api, calls }
+}
+
+/** A follow face whose every call rejects, for the transport-failure view. */
+function brokenJobs(): JobListActionProps['api'] {
+  return {
+    jobs: {
+      follow: () => Promise.reject(new Error('wire down')),
+      kill: () => Promise.reject(new Error('wire down')),
+    },
+  }
 }
 
 /**
- * Rows in render order as `[kind, label, status, duration]`. Adjacent spans
- * carry no whitespace between them, so the cells are read one element at a
- * time rather than split out of a flattened string.
+ * Rows in render order as `[kind, label, status, duration]`: the span cells
+ * of each row, with the action buttons and the expanded pane (not spans)
+ * filtered out.
  */
 function rowCells(): string[][] {
   return within(screen.getByRole('list', { name: zh['list.aria'] }))
     .getAllByRole('listitem')
     .map(row => [...row.children]
+      .filter((cell): cell is HTMLSpanElement => cell instanceof HTMLSpanElement)
       .map(cell => cell.textContent ?? '')
       .filter(text => text !== ''))
+}
+
+/** The first row's listitem locator. */
+function firstRow(): HTMLElement {
+  return within(screen.getByRole('list', { name: zh['list.aria'] })).getAllByRole('listitem')[0]!
 }
 
 describe('JobListAction visibility', () => {
@@ -235,5 +287,228 @@ describe('JobListAction wire tolerance', () => {
     ])} />)
     fireEvent.click(screen.getByRole('button'))
     expect(rowCells().map(cells => cells[1])).toEqual(['later', 'earlier'])
+  })
+})
+
+describe('JobListAction expandable output', () => {
+  it('follows the ring from offset 0 and appends polled windows', async () => {
+    const { api, calls } = fakeJobs(['tick 1\n', 'tick 2\n'])
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+
+    const pane = screen.getByRole('log', { name: zh['output.aria'] })
+    await act(async () => {})
+    expect(pane.textContent).toContain('tick 1\n')
+    expect(calls.follow).toEqual([{ jobId: 'bash-1', offsetBytes: 0 }])
+
+    await act(async () => { vi.advanceTimersByTime(500) })
+    expect(pane.textContent).toContain('tick 2\n')
+    expect(calls.follow).toEqual([{ jobId: 'bash-1', offsetBytes: 0 }, { jobId: 'bash-1', offsetBytes: 7 }])
+  })
+
+  it('stops polling once the row settles and keeps the pane readable', async () => {
+    const { api, calls } = fakeJobs(['tick 1\n'])
+    const view = render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await act(async () => {})
+
+    view.rerender(<JobListAction {...props([
+      job({ status: 'killed', detail: 'signal: SIGTERM', finishedAt: START + 1_000 }),
+    ], api)} />)
+    const settledCalls = calls.follow.length
+    await act(async () => { vi.advanceTimersByTime(2_000) })
+    expect(calls.follow.length).toBe(settledCalls)
+    // The pane survives settlement; only the stop control disappears.
+    expect(screen.getByRole('log', { name: zh['output.aria'] }).textContent).toContain('tick 1\n')
+    expect(within(firstRow()).queryByRole('button', { name: zh['row.stop'] })).toBeNull()
+    expect(within(firstRow()).queryByRole('button', { name: zh['row.collapse'] })).not.toBeNull()
+  })
+
+  it('clears the poll when the row collapses', async () => {
+    const { api, calls } = fakeJobs(['tick 1\n'])
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await act(async () => {})
+
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.collapse'] }))
+    expect(screen.queryByRole('log', { name: zh['output.aria'] })).toBeNull()
+    const collapsedCalls = calls.follow.length
+    await act(async () => { vi.advanceTimersByTime(1_500) })
+    expect(calls.follow.length).toBe(collapsedCalls)
+  })
+
+  it('renders a refused follow inline without dropping the pane', async () => {
+    const api = {
+      jobs: {
+        follow: () => Promise.resolve({
+          rpcId: 'r',
+          result: { ok: false, error: { code: 'job-unavailable', message: 'job bash-1 is gone', details: {} } },
+        }),
+      },
+    } as unknown as JobListActionProps['api']
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+
+    await act(async () => {})
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toBe('输出读取失败：job bash-1 is gone')
+    expect(screen.getByRole('log', { name: zh['output.aria'] })).toBeDefined()
+  })
+
+  it('renders a transport failure inline', async () => {
+    render(<JobListAction {...props([job()], brokenJobs())} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+
+    await act(async () => {})
+    expect(screen.getByRole('alert').textContent).toBe('输出读取失败：wire down')
+  })
+})
+
+describe('JobListAction two-step stop', () => {
+  it('arms on the first press and kills on the second', async () => {
+    const { api, calls } = fakeJobs()
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    const stop = within(firstRow()).getByRole('button', { name: zh['row.stop'] })
+    fireEvent.click(stop)
+    expect(calls.kill).toEqual([])
+    expect(within(firstRow()).getByRole('button', { name: zh['row.stopConfirm'] })).toBeDefined()
+
+    await act(async () => { fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stopConfirm'] })) })
+    expect(calls.kill).toEqual([{ jobId: 'bash-1' }])
+    expect(within(firstRow()).getByRole('button', { name: zh['row.stop'] })).toBeDefined()
+  })
+
+  it('reverts the confirm posture on its own timeout without killing', async () => {
+    const { api, calls } = fakeJobs()
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stop'] }))
+
+    await act(async () => { vi.advanceTimersByTime(2_500) })
+    expect(within(firstRow()).getByRole('button', { name: zh['row.stop'] })).toBeDefined()
+    expect(calls.kill).toEqual([])
+  })
+
+  it('shows a refused kill as an inline alert', async () => {
+    const api = fakeJobs([], {
+      ok: false,
+      error: { code: 'job-unavailable', message: 'registry is absent', details: {} },
+    }).api
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stop'] }))
+
+    await act(async () => { fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stopConfirm'] })) })
+    expect(screen.getByRole('alert').textContent).toBe('停止失败：registry is absent')
+  })
+
+  it('shows a transport failure of the kill as an inline alert', async () => {
+    render(<JobListAction {...props([job()], brokenJobs())} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stop'] }))
+
+    await act(async () => { fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stopConfirm'] })) })
+    expect(screen.getByRole('alert').textContent).toBe('停止失败：wire down')
+  })
+
+  it('renders a non-Error kill rejection through its string form', async () => {
+    const api = {
+      jobs: {
+        follow: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { text: '', nextOffsetBytes: 0, truncated: false, totalBytes: 0, status: 'running' as const } } }),
+        // oxlint-disable-next-line prefer-promise-reject-errors -- the alert renders non-Error rejections via their string form
+        kill: () => Promise.reject('carrier gone'),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stop'] }))
+
+    await act(async () => { fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stopConfirm'] })) })
+    expect(screen.getByRole('alert').textContent).toBe('停止失败：carrier gone')
+  })
+
+  it('keeps appending after the user scrolls the output pane', async () => {
+    const { api } = fakeJobs(['tick 1\n', 'tick 2\n'])
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+
+    const pane = screen.getByRole('log', { name: zh['output.aria'] })
+    await act(async () => {})
+    fireEvent.scroll(pane)
+    await act(async () => { vi.advanceTimersByTime(500) })
+    expect(pane.textContent).toContain('tick 2\n')
+  })
+
+  it('stops pinning to the bottom once the user scrolled away', async () => {
+    const { api } = fakeJobs(['tick 1\n', 'tick 2\n'])
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    const pane = screen.getByRole('log', { name: zh['output.aria'] }) as HTMLDivElement
+    await act(async () => {})
+    Object.defineProperty(pane, 'scrollTop', { configurable: true, value: 0 })
+    Object.defineProperty(pane, 'clientHeight', { configurable: true, value: 10 })
+    Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 100 })
+    fireEvent.scroll(pane)
+    await act(async () => { vi.advanceTimersByTime(500) })
+    expect(pane.textContent).toContain('tick 2\n')
+    expect(pane.scrollTop).toBe(0)
+  })
+
+  it('drops a follow settlement that lands after the pane collapsed', async () => {
+    const deferred = Promise.withResolvers<unknown>()
+    const api = {
+      jobs: {
+        follow: vi.fn(() => deferred.promise),
+        kill: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { result: 'requested' as const } } }),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await act(async () => {})
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.collapse'] }))
+    deferred.resolve({ rpcId: 'r', result: { ok: true, value: { text: 'late\n', nextOffsetBytes: 5, truncated: false, totalBytes: 5, status: 'running' as const } } })
+    await act(async () => {})
+    expect(screen.queryByRole('log', { name: zh['output.aria'] })).toBeNull()
+  })
+
+  it('drops a follow rejection that lands after the pane collapsed', async () => {
+    const deferred = Promise.withResolvers<unknown>()
+    const api = {
+      jobs: {
+        follow: vi.fn(() => deferred.promise),
+        kill: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { result: 'requested' as const } } }),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await act(async () => {})
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.collapse'] }))
+    deferred.reject(new Error('late failure'))
+    await act(async () => {})
+    expect(screen.queryByRole('log', { name: zh['output.aria'] })).toBeNull()
+  })
+
+  it('renders a non-Error follow rejection through its string form', async () => {
+    const api = {
+      jobs: {
+        // oxlint-disable-next-line prefer-promise-reject-errors -- the string rejection is the case under test
+        follow: vi.fn(() => Promise.reject('carrier dropped')),
+        kill: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { result: 'requested' as const } } }),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+    await vi.waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('输出读取失败：carrier dropped') })
   })
 })

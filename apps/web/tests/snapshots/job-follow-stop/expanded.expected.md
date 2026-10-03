@@ -1,0 +1,6 @@
+- list "Background jobs":
+  - listitem:
+    - text: bash for i in $(seq 1 120); do echo "job-follow-stop tick $i"; sleep 1; done running {{duration}}
+    - button "Hide output" [expanded]:
+      - img
+    - button "Stop"

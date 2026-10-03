@@ -77,6 +77,43 @@ describe('image/offload message projection', () => {
     expect(Object.isFrozen(derived[0])).toBe(true)
   })
 
+  it('renders a target-carried stub verbatim beside constant-stub targets', () => {
+    const s = projectedSession()
+    const kept = image('a')
+    s.append('user/message', userImages(kept, image('b'), image('c')), { surfaceOp: 'append' })
+    const verbatim = '[图片] b.png · 1 B · sha256:deadbeef\n只读路径: /dsh/attachments/v1/links/x\n当前模型无法查看图片，原图已从本次请求移除；切换到视觉模型后可用 read_image 工具读取该路径重新查看。'
+    s.append('image/offload', {
+      targets: [
+        { messageSeq: 0, imageIndex: 1, stub: verbatim },
+        { messageSeq: 0, imageIndex: 2 },
+      ],
+    })
+    expect(s.deriveMessages()[0]?.content).toEqual([
+      kept,
+      { type: 'text', text: verbatim },
+      { type: 'text', text: OFFLOADED_IMAGE_STUB_TEXT },
+    ])
+  })
+
+  it('composes a stubbed target with a later verbatim-stub decision without index drift', () => {
+    const s = projectedSession()
+    s.append('user/message', userImages(image('a'), image('b')), { surfaceOp: 'append' })
+    s.append('image/offload', { targets: [{ messageSeq: 0, imageIndex: 0 }] })
+    const verbatim = '[图片] b.png · 1 B · sha256:deadbeef\n只读路径: /dsh/attachments/v1/links/x'
+    s.append('image/offload', { targets: [{ messageSeq: 0, imageIndex: 1, stub: verbatim }] })
+    expect(s.deriveMessages()[0]?.content).toEqual([
+      { type: 'text', text: OFFLOADED_IMAGE_STUB_TEXT },
+      { type: 'text', text: verbatim },
+    ])
+  })
+
+  it('rejects an empty-string stub', () => {
+    const s = projectedSession()
+    s.append('user/message', userImages(image('a')), { surfaceOp: 'append' })
+    s.append('image/offload', { targets: [{ messageSeq: 0, imageIndex: 0, stub: '' }] })
+    expect(() => s.deriveMessages()).toThrow('a target stub must be a nonempty string when present')
+  })
+
   it('composes consecutive decisions because indexes count the durable base', () => {
     const s = projectedSession()
     s.append('user/message', userImages(image('a'), image('b')), { surfaceOp: 'append' })

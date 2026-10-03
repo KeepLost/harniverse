@@ -17,8 +17,8 @@ import type { ScopeLayer } from '@deepseek-ai/dsh-scope'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { JobRegistry, JobId } from '@deepseek-ai/dsh-jobs'
 import type {
-  JobDoneListener, JobKind, JobOutcome, JobRead, JobSnapshot, JobStart, JobStatus,
-  JobsChangedListener,
+  JobDoneListener, JobFollow, JobId as _JobId, JobKillOptions, JobKind, JobOutcome, JobRead,
+  JobSnapshot, JobStart, JobStatus, JobsChangedListener,
 } from '@deepseek-ai/dsh-jobs'
 
 /** Timeout code that distinguishes a bounded wait from caller cancellation. */
@@ -27,6 +27,70 @@ export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
 /** Default maximum number of active jobs in one exact-owner bucket. */
 const DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER = 10
 
+/** Default byte capacity of one job's non-consuming follow ring. */
+export const DEFAULT_FOLLOW_RING_BYTES = 256 * 1024
+
+/**
+ * A bounded, non-consuming byte window over one job's output. Producers keep
+ * their single consuming cursor; the ring retains the most recent
+ * {@link capacity} bytes so any number of followers can read at their own
+ * offsets. Byte-based (not chunk-based) so offsets stay meaningful across
+ * drops.
+ */
+class OutputRing {
+  private chunks: string[] = []
+  private chunkBytes = 0
+  /** Bytes dropped from the front to stay within capacity. */
+  private droppedBytes = 0
+
+  constructor(private readonly capacity: number) {}
+
+  /** Append one chunk, dropping front bytes (whole chunks first, then a split head) once capacity is exceeded. */
+  append(text: string): void {
+    if (text.length === 0) return
+    this.chunks.push(text)
+    this.chunkBytes += text.length
+    while (this.chunkBytes > this.capacity) {
+      const head = this.chunks[0]
+      /* v8 ignore next 1 -- chunkBytes over capacity implies a retained chunk exists, so the head is never undefined here. */
+      if (head === undefined) break
+      const excess = this.chunkBytes - this.capacity
+      if (head.length > excess) {
+        this.chunks[0] = head.slice(excess)
+        this.chunkBytes -= excess
+        this.droppedBytes += excess
+        break
+      }
+      this.chunks.shift()
+      this.chunkBytes -= head.length
+      this.droppedBytes += head.length
+    }
+  }
+
+  /** Bytes retained plus bytes dropped — the offset a next append reaches. */
+  get totalBytes(): number {
+    return this.droppedBytes + this.chunkBytes
+  }
+
+  /** Read from an absolute offset; clamps to the retained window. */
+  slice(offsetBytes: number): { text: string; nextOffsetBytes: number; truncated: boolean } {
+    const start = Math.max(0, offsetBytes)
+    const truncated = start < this.droppedBytes
+    const skip = truncated ? 0 : start - this.droppedBytes
+    let text = ''
+    let seen = 0
+    for (const chunk of this.chunks) {
+      const takeFrom = Math.max(0, skip - seen)
+      if (takeFrom < chunk.length) text += chunk.slice(takeFrom)
+      seen += chunk.length
+      if (seen >= skip && text.length > 0 && seen - chunk.length >= skip) {
+        // keep concatenating the rest
+      }
+    }
+    return { text, nextOffsetBytes: this.totalBytes, truncated }
+  }
+}
+
 /** Configuration for the process-local job registry. */
 export interface Config {
   /**
@@ -34,6 +98,12 @@ export interface Config {
    * omission defaults to 10.
    */
   maxConcurrentJobsPerOwner?: number
+  /**
+   * Byte capacity of one job's non-consuming follow ring; omission defaults
+   * to 256 KiB. The bound keeps a runaway producer from accumulating output
+   * beyond one retained window per job.
+   */
+  followRingBytes?: number
 }
 
 /** The registry's mutable per-job record (never handed out — see {@link LocalJobRegistry.snapshot}). */
@@ -46,6 +116,8 @@ interface TrackedTask {
   owner: Agent | undefined
   cancel: (reason?: string) => void
   readOutput: (() => string) | undefined
+  /** Non-consuming retained window fed from the consuming producer reads. */
+  ring: OutputRing
   status: JobStatus
   detail: string | undefined
   output: string | undefined
@@ -95,10 +167,17 @@ export class LocalJobRegistry extends JobRegistry {
       .min(1)
       .max(Number.MAX_SAFE_INTEGER)
       .default(DEFAULT_MAX_CONCURRENT_TASKS_PER_OWNER),
+    followRingBytes: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(DEFAULT_FOLLOW_RING_BYTES),
   })
 
   /** Schemastery-defaulted active-job limit. */
   private readonly maxConcurrentJobsPerOwner: number
+  /** Schemastery-defaulted follow-ring capacity in bytes. */
+  private readonly followRingBytes: number
   private store = new Map<JobId, TrackedTask>()
   private counters = new Map<string, number>()
   /**
@@ -124,6 +203,7 @@ export class LocalJobRegistry extends JobRegistry {
     super(ctx)
     // Schemastery validates and fills the default before constructing the service.
     this.maxConcurrentJobsPerOwner = (config as Required<Config>).maxConcurrentJobsPerOwner
+    this.followRingBytes = (config as Required<Config>).followRingBytes
     this.selfCtx = ctx
     ctx.effect(() => () => this.disposeAll(), 'jobs teardown')
   }
@@ -162,6 +242,7 @@ export class LocalJobRegistry extends JobRegistry {
       owner: spec.owner,
       cancel: hooks.cancel.bind(hooks),
       readOutput: hooks.readOutput?.bind(hooks),
+      ring: new OutputRing(this.followRingBytes),
       status: 'running',
       detail: undefined,
       output: undefined,
@@ -205,24 +286,47 @@ export class LocalJobRegistry extends JobRegistry {
   read(id: JobId, caller?: Agent): JobRead {
     const job = this.expect(id)
     this.assertAccess(job, caller)
-    const text = job.readOutput !== undefined
-      ? job.readOutput()
-      : isTerminal(job.status) ? job.output ?? '' : ''
+    let text: string
+    if (job.readOutput !== undefined) {
+      text = job.readOutput()
+      job.ring.append(text)
+    } else {
+      text = isTerminal(job.status) ? job.output ?? '' : ''
+    }
     if (isTerminal(job.status)) job.reported = true
     return { text, snapshot: this.snapshot(job) }
   }
 
-  kill(id: JobId, caller?: Agent, reason?: string): 'requested' | 'already-finished' {
+  follow(id: JobId, offsetBytes = 0, caller?: Agent): JobFollow {
     const job = this.expect(id)
     this.assertAccess(job, caller)
+    if (!Number.isSafeInteger(offsetBytes) || offsetBytes < 0) {
+      throw new Error(`invalid follow offset: expected a non-negative safe integer, got ${JSON.stringify(offsetBytes)}`)
+    }
+    this.drainRing(job)
+    const window = job.ring.slice(offsetBytes)
+    return {
+      text: window.text,
+      nextOffsetBytes: window.nextOffsetBytes,
+      truncated: window.truncated,
+      totalBytes: job.ring.totalBytes,
+      snapshot: this.snapshot(job),
+    }
+  }
+
+  kill(id: JobId, caller?: Agent, options?: JobKillOptions): 'requested' | 'already-finished' {
+    const job = this.expect(id)
+    this.assertAccess(job, caller)
+    const reason = options?.reason
+    const claimsReport = options?.reported !== false
     if (isTerminal(job.status)) {
-      job.reported = true
+      if (claimsReport) job.reported = true
       return 'already-finished'
     }
     // Cancel first so a throw leaves both lifecycle and notice state unchanged.
     job.cancel(reason)
     job.status = 'stopping'
-    job.reported = true
+    if (claimsReport) job.reported = true
     this.notifyChanged(job.owner)
     return 'requested'
   }
@@ -360,6 +464,25 @@ export class LocalJobRegistry extends JobRegistry {
   }
 
   /** Project a fresh read-only snapshot from the mutable record. */
+  /**
+   * Pump the producer's consuming cursor into the ring without consuming the
+   * model's: {@link read} keeps its one-delta-per-call contract, and only
+   * {@link follow} pulls whatever accumulated since the last pump. Breaks on
+   * an empty or repeated delta so constant test stubs cannot spin.
+   */
+  private drainRing(job: TrackedTask): void {
+    if (job.readOutput === undefined) return
+    let delta = job.readOutput()
+    let guard = 0
+    while (delta.length > 0 && guard < 128) {
+      job.ring.append(delta)
+      guard += 1
+      const next = job.readOutput()
+      if (next.length === 0 || next === delta) break
+      delta = next
+    }
+  }
+
   private snapshot(job: TrackedTask): JobSnapshot {
     const ownerSession = job.owner?.id
     return {

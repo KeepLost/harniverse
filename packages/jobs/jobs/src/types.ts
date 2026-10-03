@@ -127,6 +127,33 @@ export interface JobSnapshot {
   reported: boolean
 }
 
+/** Non-consuming window into one job's retained output ring. */
+export interface JobFollow {
+  /** Ring bytes from the requested offset (or the ring's start, whichever is later). */
+  text: string
+  /** Offset to pass next time; advances even when the ring truncated early bytes. */
+  nextOffsetBytes: number
+  /** True when the requested offset fell before the ring's retained start. */
+  truncated: boolean
+  /** Total bytes the producer has emitted into the ring so far. */
+  totalBytes: number
+  /** The job's state at read time. */
+  snapshot: JobSnapshot
+}
+
+/** Options on one kill request. */
+export interface JobKillOptions {
+  /** Logged reason forwarded to the producer. */
+  reason?: string
+  /**
+   * Whether the killer claims the terminal report (default `true`, the
+   * model's `job_kill` semantics: no completion notice follows). A human
+   * stop passes `false` — it has no model-visible channel, so the
+   * settlement flows through the ordinary completion notice.
+   */
+  reported?: boolean
+}
+
 /** Output and post-read state returned by {@link JobRegistry.read}. */
 export interface JobRead {
   /**

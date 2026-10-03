@@ -218,6 +218,18 @@ export class FakeApiClient implements IApiClient {
     get: () => Promise.resolve(ok({ operationId: 'operation:fake', kind: 'session.prompt' as const, status: 'accepted' as const, acceptedAt: 0 })),
   }
 
+  readonly jobs: IApiClient['jobs'] = {
+    follow: payload => this.record('jobs.follow', payload, Promise.resolve(ok({
+      text: '', nextOffsetBytes: 0, truncated: false, totalBytes: 0, status: 'running' as const,
+    }))),
+    kill: payload => this.record('jobs.kill', payload, Promise.resolve(ok({ result: 'requested' as const }))),
+  }
+
+  readonly speech: IApiClient['speech'] = {
+    transcribe: payload => this.record('speech.transcribe', payload, Promise.resolve(ok({ text: '' }))),
+    prepare: payload => this.record('speech.prepare', payload, Promise.resolve(ok({ status: 'ready' as const }))),
+  }
+
   onSubagentList: (payload: unknown) => Promise<RpcResponse<{ entries: never[]; parentAvailable: boolean }>>
     = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
   onSubagentProfiles: (payload: unknown) => Promise<RpcResponse<{ profiles: never[] }>>

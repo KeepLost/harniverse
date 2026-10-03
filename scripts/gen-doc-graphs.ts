@@ -106,6 +106,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The provider owns admission state, token revisions, browser sessions, lease, and records; Connection owns HTTP and WebSocket protocol enforcement.',
   },
   {
+    key: 'speech',
+    pkg: 'speech',
+    title: 'Speech recognition',
+    mode: 'seam',
+    implementations: ['speech-sensevoice', 'speech-openai'],
+    consumers: ['speech-settings', 'host-apiproxy'],
+    note: 'The seam owns WAV validation and provider resolution; recognizers own preparation and inference; the apiproxy exposes transcribe/prepare to clients.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

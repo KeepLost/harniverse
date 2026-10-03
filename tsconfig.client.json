@@ -81,6 +81,7 @@
     { "path": "./packages/client/ui-subagent" },
     { "path": "./packages/client/ui-reference" },
     { "path": "./packages/client/ui-jobs" },
+    { "path": "./packages/client/ui-voice-input" },
      { "path": "./packages/client/ui-scheduler" },
      { "path": "./packages/client/ui-remote-hosts" },
     { "path": "./packages/client/ui-governor" },

@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-supervision'
 import { isArchivalSession } from '@deepseek-ai/dsh-session-import'
 import { AttachmentError, AttachmentId, fileHandleText } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, LlmCallConfig, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isJsonValue } from '@deepseek-ai/dsh-session'
@@ -55,7 +55,7 @@ import type {
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, HoldStreamFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
-  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
+  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, SpeechPrepareView, ToolEventView,
   SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, TerminalStreamFrame, WorkspaceId, WorkspaceView,
   ApiContractDescription, OperationView, OperationStatus,
 } from './api/index.ts'
@@ -83,6 +83,10 @@ import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 import { JobId } from '@deepseek-ai/dsh-jobs/brand'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
+// The speech seam: the resolver reads the settings-selected recognizer; the
+// value import carries canonical WAV intake validation to this wire boundary.
+import type {} from '@deepseek-ai/dsh-speech'
+import { validateWav } from '@deepseek-ai/dsh-speech'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
@@ -217,10 +221,15 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
  * is deferred work.
  */
 const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'compaction', 'governor', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
+  'agent-loop', 'compaction', 'governor', 'shell', 'locale', 'permission', 'speech', 'ui-conversation', 'ui-theme',
   'web', 'web-search-deepseek', 'web-search-exa', 'web-search-perplexity',
   'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-firecrawl',
 ] as const
+
+/** Maximum decoded WAV bytes admitted by one speech.transcribe request. */
+const SPEECH_MAX_AUDIO_BYTES = 4 * 1024 * 1024
+/** Maximum recording duration admitted by one speech.transcribe request. */
+const SPEECH_MAX_DURATION_SECONDS = 120
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
@@ -378,11 +387,6 @@ function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => b
     default:
       return undefined
   }
-}
-
-/** True when the current model-visible surface contains an image. */
-function messagesHaveImage(messages: readonly { content: readonly ContentBlock[] }[]): boolean {
-  return messages.some(message => contentHasImage(message.content))
 }
 
 /** Resolve the first reference matching one opaque id. */
@@ -1522,7 +1526,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   ctx.on('settings/description-changed', announceSettingsExposure)
   ctx.on('capabilities/change', announceSettingsExposure)
   ctx.on('llm/adapters-updated', announceSettingsExposure)
-  const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
 
   /** Read one operation without exposing the underlying job or session record. */
   async function operationGet(request: RpcRequest<{ operationId: string; sessionId?: SessionId }>): Promise<RpcResponse<OperationView>> {
@@ -1606,13 +1609,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     void tail.finally(() => {
       if (sessionLineageChains.get(parentId) === tail) sessionLineageChains.delete(parentId)
     })
-    return result
-  }
-
-  /** Serialize image admission with model selection for one agent. */
-  function serializeImageAdmission<T>(agent: Agent, operation: () => Promise<T>): Promise<T> {
-    const result = (imageAdmissionChains.get(agent) ?? Promise.resolve()).then(operation)
-    imageAdmissionChains.set(agent, result.then(() => undefined, () => undefined))
     return result
   }
 
@@ -2073,7 +2069,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       || agent.status !== 'idle' || queueItems(agent).length > 0
       || pendingInteractions(sessionId).length > 0) return
     const closing = (async () => {
-      await (imageAdmissionChains.get(agent) ?? Promise.resolve())
       await ctx.get('subagents')?.drainContinuableDescendants([agent])
       const result = await ctx.agents.closeIfIdle(sessionId)
       if (result === 'closed') {
@@ -3276,7 +3271,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, provider, model, reasoningEffort } = request.payload
         const found = await activeAgentFor(sessionId)
         if ('error' in found) return err(request, found.error)
-        return serializeImageAdmission(found.agent, async () => {
+        return (async () => {
           try {
             const resolved = await ctx.llm.resolveCallConfig({
               provider,
@@ -3285,18 +3280,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 ? {}
                 : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
             })
-            const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
-              .some(message => contentHasImage(message.content))
-            if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
-              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
-              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'model-unavailable',
-                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
-                  details: { provider, model },
-                })
-              }
-            }
             const selected: ModelSelection = {
               provider: resolved.provider,
               model: resolved.model,
@@ -3328,7 +3311,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { provider, model },
             })
           }
-        })
+        })()
       },
 
       async selectModelTarget(request) {
@@ -3339,7 +3322,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (policy === undefined) {
           return err(request, { code: 'internal', message: 'model policy is not configured', details: {} })
         }
-        return serializeImageAdmission(found.agent, async () => {
+        return (async () => {
           try {
             const selected = policy.concreteTarget(found.agent.session, target)
             if (selected === undefined) {
@@ -3354,18 +3337,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               model: selected.model,
               ...selected.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selected.reasoningEffort) },
             })
-            const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
-              .some(message => contentHasImage(message.content))
-            if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
-              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
-              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'model-unavailable',
-                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
-                  details: { provider: selected.provider, model: selected.model },
-                })
-              }
-            }
             const normalized: ModelSelection = {
               provider: resolved.provider,
               model: resolved.model,
@@ -3396,7 +3367,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { provider: '', model: '' },
             })
           }
-        })
+        })()
       },
 
       async selectModelProfile(request) {
@@ -3617,20 +3588,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           rpcId: request.rpcId,
           ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
         }
-        const hasImage = content.some(part => part.type === 'image')
         const admit = async (): Promise<RpcResponse<PromptReceipt>> => {
           try {
-            if (hasImage) {
-              const current = selectionFor(agent).current
-              const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model)
-              if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'attachment-error',
-                  message: `Model "${current.model}" does not support image input.`,
-                  details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
-                })
-              }
-            }
             const durable = await durablePromptContent(ctx, content)
             const message: UserMessage = createUserMessage({
               content: durable.blocks,
@@ -3665,7 +3624,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         }
-        return hasImage ? serializeImageAdmission(agent, admit) : admit()
+        return admit()
       },
 
       async attachment(request) {
@@ -3818,7 +3777,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let closing = sessionClosures.get(sessionId)
         if (closing === undefined) {
           closing = (async () => {
-            await (imageAdmissionChains.get(agent) ?? Promise.resolve())
             await ctx.subagents.drainContinuableDescendants([agent])
             if (!await ctx.agents.close(sessionId)) {
               throw new Error(`agent "${sessionId}" detached before close acquired its lifecycle`)
@@ -3958,6 +3916,154 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return outcome.error === undefined
           ? ok(request, { deleted: true as const, attachmentsRetained: true as const })
           : err(request, outcome.error)
+      },
+    },
+
+    // Human follow/stop over the live registry. The Agent fence mirrors the
+    // model-facing verbs: the owner's session decides servability, and the
+    // registry enforces job ownership beyond it.
+    jobs: {
+      async follow(request) {
+        const { sessionId, jobId, offsetBytes } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const jobs = ctx.get('jobs')
+        if (jobs === undefined) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: 'background jobs are unavailable in this deployment',
+            details: {},
+          })
+        }
+        try {
+          const view = jobs.follow(JobId(jobId), offsetBytes ?? 0, found.agent)
+          return ok(request, {
+            text: view.text,
+            nextOffsetBytes: view.nextOffsetBytes,
+            truncated: view.truncated,
+            totalBytes: view.totalBytes,
+            status: view.snapshot.status,
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+
+      async kill(request) {
+        const { sessionId, jobId } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const jobs = ctx.get('jobs')
+        if (jobs === undefined) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: 'background jobs are unavailable in this deployment',
+            details: {},
+          })
+        }
+        try {
+          // A human stop does not claim the terminal report: the owner's
+          // ordinary completion notice still flows.
+          return ok(request, { result: jobs.kill(JobId(jobId), found.agent, { reported: false }) })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'job-unavailable',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+    },
+
+    // Voice input over the speech seam. The settings namespace owns the
+    // recognizer selection; this surface resolves it per request and enforces
+    // the wire intake limits before any provider sees audio.
+    speech: {
+      async transcribe(request, signal) {
+        const speech = ctx.get('speech')
+        if (speech === undefined) {
+          return err(request, {
+            code: 'speech-unavailable',
+            message: 'speech recognition is unavailable in this deployment',
+            details: {},
+          })
+        }
+        const { wavBase64, language } = request.payload
+        if (wavBase64.length > Math.ceil(SPEECH_MAX_AUDIO_BYTES / 3) * 4) {
+          return err(request, {
+            code: 'speech-transcription-failed',
+            message: 'Audio exceeds the configured byte limit',
+            details: {},
+          })
+        }
+        let wav: Uint8Array
+        try {
+          const decoded = Buffer.from(wavBase64, 'base64')
+          if (decoded.toString('base64') !== wavBase64) throw new Error('Audio must use canonical base64 encoding')
+          if (decoded.byteLength > SPEECH_MAX_AUDIO_BYTES) throw new Error('Audio exceeds the configured byte limit')
+          wav = new Uint8Array(decoded)
+          validateWav(wav, { maxDurationSeconds: SPEECH_MAX_DURATION_SECONDS })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'speech-transcription-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+        try {
+          const result = await speech.transcribe(
+            { wav, ...(language === undefined ? {} : { language }) },
+            signal,
+          )
+          return ok(request, { text: result.text })
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'speech transcription was cancelled', details: {} })
+          }
+          return err(request, {
+            code: 'speech-transcription-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+
+      async prepare(request) {
+        const speech = ctx.get('speech')
+        if (speech === undefined) {
+          return err(request, {
+            code: 'speech-unavailable',
+            message: 'speech recognition is unavailable in this deployment',
+            details: {},
+          })
+        }
+        try {
+          const preparation = await speech.prepare()
+          if (!('ok' in preparation)) {
+            const view: SpeechPrepareView = {
+              status: preparation.status,
+              ...preparation.detail === undefined ? {} : { detail: preparation.detail },
+            }
+            return ok(request, view)
+          }
+          return err(request, {
+            code: 'speech-unavailable',
+            message: preparation.reason === 'disabled'
+              ? 'voice input is disabled (the recognizer is off)'
+              : `speech recognizer "${preparation.recognizer}" is not registered`,
+            details: {},
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'speech-transcription-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
       },
     },
 
@@ -4309,7 +4415,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 }
               }
               try {
-                await (imageAdmissionChains.get(agent) ?? Promise.resolve())
                 await ctx.get('subagents')?.drainContinuableDescendants([agent])
                 const closed = await ctx.agents.closeIfIdle(sessionId)
                 if (closed !== 'closed') {

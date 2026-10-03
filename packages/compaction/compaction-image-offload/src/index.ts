@@ -21,7 +21,8 @@ import type { CompactionSettings } from '@deepseek-ai/dsh-compaction-settings'
 import { parseImageOffloadSetting, resolveImageOffloadDecisions } from '@deepseek-ai/dsh-image-offload-policy'
 import type { ImageOffloadSetting } from '@deepseek-ai/dsh-image-offload-policy'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import { imageHandleText } from '@deepseek-ai/dsh-attachment'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { imageOffloadProjection } from './projection.ts'
 import { imageCarrier } from './project-message.ts'
@@ -45,18 +46,23 @@ function readSetting(ctx: Context): ImageOffloadSetting {
 }
 
 /**
- * Register the projection and the request-boundary decision listener.
+ * Register the projection and the request-boundary decision listeners.
  * @param ctx - plugin context.
  */
 export function apply(ctx: Context): void {
   ctx.sessions.registerMessageProjection(imageOffloadProjection)
-  ctx.on('agent/request', ({ agent }, next) => {
+  // Prepend so the modality settlement runs outermost: `await next()` then
+  // observes the final request config, including any model a fallback
+  // listener substituted inside the waterfall.
+  ctx.on('agent/request', async ({ agent }, next) => {
     const decisions = resolveImageOffloadDecisions(agent.session.events, { setting: readSetting(ctx) })
     if (decisions.length > 0) {
       agent.session.append('image/offload', { targets: decisions.map(decision => decision.target) })
     }
-    return next()
-  })
+    const config = await next()
+    await settleModalityOffload(ctx, agent.session, config)
+    return config
+  }, { prepend: true })
   ctx.on('llm/project-request', (_options, next) => {
     const options = next()
     const session = options.sessionId === undefined ? undefined : ctx.sessions.get(options.sessionId)
@@ -65,6 +71,54 @@ export function apply(ctx: Context): void {
     if (decisions.length > 0) session.append('image/offload', { targets: decisions.map(decision => decision.target) })
     return projectRequest(session, options)
   })
+}
+
+/**
+ * Settle every retained image occurrence before dispatch when the request's
+ * final route accepts no image input. Each minted stub names the image and
+ * its read-only hard-link path, so a later vision model can re-view the
+ * original through `read_image`; the stub text rides the durable decision
+ * and replays verbatim. Images produced later in the same session settle at
+ * the next request boundary the same way. Skipped silently when the llm or
+ * attachment service is absent, the model's input modalities are unknown,
+ * or model resolution fails — the adapter's own image guard then stays the
+ * loud safety net.
+ * @param ctx - plugin context carrying the optional llm and attachment services.
+ * @param session - the session whose next request is being assembled.
+ * @param config - the final request config after the whole agent/request waterfall.
+ */
+async function settleModalityOffload(ctx: Context, session: Session, config: { provider?: string; model?: string }): Promise<void> {
+  const decisions = resolveImageOffloadDecisions(session.events, { setting: readSetting(ctx), routeAcceptsImages: false })
+  if (decisions.length === 0 || config.provider === undefined || config.model === undefined) return
+  const llm = ctx.get('llm')
+  /* v8 ignore next 1 -- the waterfall only runs beside the injected llm service; defensive for llm-free compositions. */
+  if (llm === undefined) return
+  let inputModalities: readonly string[] | undefined
+  try {
+    inputModalities = (await llm.resolveModelInfo(config.provider, config.model)).inputModalities
+  } catch {
+    return
+  }
+  if (inputModalities === undefined) return
+  if (inputModalities.includes('image')) return
+  const attachments = ctx.get('attachments')
+  /* v8 ignore next 1 -- minting a decision requires the store that saved the image; defensive for store-less mounts. */
+  if (attachments === undefined) return
+  const targets = await Promise.all(decisions.map(async (decision) => {
+    const event = session.eventAt(decision.target.messageSeq)
+    /* v8 ignore next 1 -- targets are minted from this same event log moments earlier, so the event always resolves. */
+    const carrier = event === undefined ? undefined : imageCarrier(event)
+    const image = carrier
+      ?.filter((block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image')
+      [decision.target.imageIndex]
+    /* v8 ignore next 4 -- resolver targets are minted from this same immutable carrier walk in this call, so the image always exists. */
+    if (image === undefined) {
+      throw new Error(`image/offload: modality target ${decision.target.messageSeq}:${decision.target.imageIndex} has no retained image`)
+    }
+    const path = await attachments.publishFileHandle(image.attachment)
+    return { ...decision.target, stub: imageHandleText(image.attachment, path) }
+  }))
+  session.append('image/offload', { targets })
 }
 
 /** Bind provider pressure to the exact occurrences carried by this request. */

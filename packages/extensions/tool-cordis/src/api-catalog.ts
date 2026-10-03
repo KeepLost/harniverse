@@ -350,6 +350,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
+        signature: 'jobs?: JobsApi',
+        description: 'Optional only for compositions without the job registry; the Host service always provides it.',
+        parameters: [],
+      },
+      {
+        signature: 'speech?: SpeechApi',
+        description: 'Optional only for compositions without the speech seam; the Host service always provides it.',
+        parameters: [],
+      },
+      {
         signature: 'workspaceFiles?: WorkspaceFilesApi',
         description: 'Optional only for legacy hand-built implementations; the Host service always provides it.',
         parameters: [],
@@ -1195,9 +1205,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'output text and the post-read snapshot.',
       },
       {
-        signature: 'abstract kill(id: JobId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
-        description: 'Request cancellation, then mark the job stopping and reported. A producer throw propagates without changing job state. Throws for an unknown or foreign job.',
-        parameters: [{ name: 'id', description: 'job to cancel.' }, { name: 'caller', description: 'killing agent checked against the owner.' }, { name: 'reason', description: 'logged reason forwarded to the producer.' }],
+        signature: 'abstract follow(id: JobId, offsetBytes?: number, caller?: Agent): JobFollow',
+        description: 'Non-consumingly read one job\'s retained output ring. Never marks the job reported and never disturbs the model\'s consuming read cursor; ideal for a human live viewer. Throws for an unknown or foreign job.',
+        parameters: [{ name: 'id', description: 'job to follow.' }, { name: 'offsetBytes', description: 'ring offset to read from (default 0, the start).' }, { name: 'caller', description: 'following agent checked against the owner.' }],
+        returns: 'the ring window, the next offset, and the snapshot.',
+      },
+      {
+        signature: 'abstract kill(id: JobId, caller?: Agent, options?: JobKillOptions): \'requested\' | \'already-finished\'',
+        description: 'Request cancellation, then mark the job stopping and reported unless the caller passes `{ reported: false }` (a human stop: the ordinary completion notice still flows). A producer throw propagates without changing job state. Throws for an unknown or foreign job.',
+        parameters: [{ name: 'id', description: 'job to cancel.' }, { name: 'caller', description: 'killing agent checked against the owner.' }, { name: 'options', description: 'optional reason and report-claim override.' }],
         returns: '`requested` for live work, otherwise `already-finished`.',
       },
       {
@@ -2551,6 +2567,60 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Load and validate the winning candidate, passing its opaque discovery locator back to the provider. Cancellation is rechecked after selection, including cache hits, and raced against loading so an uncooperative provider cannot hang the caller.',
         parameters: [{ name: 'name', description: 'kebab-case skill name.' }, { name: 'options', description: 'view options; `scope` selects the viewing agent\'s layers, `cwd` selects workspace-sensitive skills, and `signal` cancels work.' }],
         returns: 'the full skill, including body content, or `undefined`.',
+      },
+    ],
+  },
+  {
+    key: 'speech',
+    summary: 'Process-wide recognizer registry and preference holder.',
+    description: 'Process-wide recognizer registry and preference holder. Load it as a plugin and it registers as `ctx.speech`; providers then register recognizers into it and `@deepseek-ai/dsh-speech-settings` pushes the user\'s resolved preferences. Registrations are effects: a provider\'s fiber disposal removes its recognizer.',
+    methods: [
+      {
+        signature: 'registerRecognizer(id: string, recognizer: SpeechRecognizer): () => void',
+        description: 'Register one recognizer under its own id.',
+        parameters: [{ name: 'id', description: 'registry id; a duplicate registration fails loud.' }, { name: 'recognizer', description: 'the provider implementation.' }],
+        returns: 'disposer that removes the registration.',
+      },
+      {
+        signature: 'listRecognizers(): readonly SpeechRecognizer[]',
+        description: 'List every registered recognizer.',
+        parameters: [],
+        returns: 'every registered recognizer in registration order.',
+      },
+      {
+        signature: 'recognizer(id: string): SpeechRecognizer | undefined',
+        description: 'Look up one registered recognizer.',
+        parameters: [{ name: 'id', description: 'registry id.' }],
+        returns: 'the recognizer, or undefined when absent.',
+      },
+      {
+        signature: 'configure(preferences: SpeechPreferences): void',
+        description: 'Replace the resolved preferences. The settings bridge owns this write; callers read through SpeechService.currentPreferences.',
+        parameters: [{ name: 'preferences', description: 'the complete next resolved value.' }],
+      },
+      {
+        signature: 'currentPreferences(): SpeechPreferences',
+        description: 'Read the current resolved preferences.',
+        parameters: [],
+        returns: 'the current resolved preferences (defaults while no bridge is loaded).',
+      },
+      {
+        signature: 'resolve(recognizerId?: string): SpeechResolution',
+        description: 'Resolve the recognizer a transcription should use.',
+        parameters: [{ name: 'recognizerId', description: 'explicit id overriding the preference; omitted uses it.' }],
+        returns: 'the paired recognizer and language hint, or the refusal reason.',
+      },
+      {
+        signature: 'async prepare(recognizerId?: string, signal?: AbortSignal): Promise<SpeechPreparation | SpeechRefusal>',
+        description: 'Prepare one recognizer\'s local resources (download and verify).',
+        parameters: [{ name: 'recognizerId', description: 'explicit id overriding the preference; omitted uses it.' }, { name: 'signal', description: 'preparation cancellation.' }],
+        returns: 'the settled readiness observation, or the refusal reason.',
+      },
+      {
+        signature: 'async transcribe(input: SpeechTranscribeInput, signal?: AbortSignal): Promise<SpeechTranscribeResult>',
+        description: 'Transcribe one recording through the resolved recognizer.',
+        parameters: [{ name: 'input', description: 'WAV bytes and optional language hint overriding the preference.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'final text; empty when no speech was recognized.',
       },
     ],
   },
@@ -5028,12 +5098,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JobDoneListener = (snapshot: JobSnapshot, owner: Agent | undefined) => void | PromiseLike<void>;',
   },
   {
+    name: 'JobFollow',
+    declaration: 'export interface JobFollow {\n    text: string;\n    nextOffsetBytes: number;\n    truncated: boolean;\n    totalBytes: number;\n    snapshot: JobSnapshot;\n}',
+  },
+  {
+    name: 'JobFollowView',
+    declaration: 'export interface JobFollowView {\n    text: string;\n    nextOffsetBytes: number;\n    truncated: boolean;\n    totalBytes: number;\n    status: JobView[\'status\'];\n}',
+  },
+  {
     name: 'JobHooks',
     declaration: 'export interface JobHooks {\n    cancel(reason?: string): void;\n    done: Promise<JobOutcome>;\n    readOutput?(): string;\n}',
   },
   {
     name: 'JobId',
     declaration: 'export type JobId = Branded<\'JobId\'>;',
+  },
+  {
+    name: 'JobKillOptions',
+    declaration: 'export interface JobKillOptions {\n    reason?: string;\n    reported?: boolean;\n}',
   },
   {
     name: 'JobKind',
@@ -5052,6 +5134,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface JobRead {\n    text: string;\n    snapshot: JobSnapshot;\n}',
   },
   {
+    name: 'JobsApi',
+    declaration: 'export interface JobsApi {\n    follow(request: RpcRequest<{\n        sessionId: SessionId;\n        jobId: JobId;\n        offsetBytes?: number;\n    }>): Promise<RpcResponse<JobFollowView>>;\n    kill(request: RpcRequest<{\n        sessionId: SessionId;\n        jobId: JobId;\n    }>): Promise<RpcResponse<{\n        result: \'requested\' | \'already-finished\';\n    }>>;\n}',
+  },
+  {
     name: 'JobsChangedListener',
     declaration: 'export type JobsChangedListener = (owner: Agent | undefined) => void;',
   },
@@ -5066,6 +5152,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JobStatus',
     declaration: 'export type JobStatus = \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';',
+  },
+  {
+    name: 'JobView',
+    declaration: 'export interface JobView {\n    operationId?: string;\n    id: JobId;\n    kind: string;\n    label: string;\n    status: \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n}',
   },
   {
     name: 'JsonSchemaNode',
@@ -6310,6 +6400,42 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillViewOptions',
     declaration: 'export interface SkillViewOptions extends SkillLookupOptions {\n    readonly scope?: ScopeKey | undefined;\n}',
+  },
+  {
+    name: 'SpeechApi',
+    declaration: 'export interface SpeechApi {\n    transcribe(request: RpcRequest<{\n        wavBase64: string;\n        language?: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        text: string;\n    }>>;\n    prepare(request: RpcRequest<{}>): Promise<RpcResponse<SpeechPrepareView>>;\n}',
+  },
+  {
+    name: 'SpeechPreferences',
+    declaration: 'export interface SpeechPreferences {\n    readonly recognizer: string;\n    readonly language?: string;\n    readonly pushToTalkKey?: string;\n    readonly modelVariant?: \'int8\' | \'fp32\';\n    readonly apiKey?: string;\n}',
+  },
+  {
+    name: 'SpeechPreparation',
+    declaration: 'export interface SpeechPreparation {\n    readonly status: \'ready\' | \'unprepared\' | \'failed\';\n    readonly detail?: string;\n}',
+  },
+  {
+    name: 'SpeechPrepareView',
+    declaration: 'export interface SpeechPrepareView {\n    status: \'ready\' | \'unprepared\' | \'failed\';\n    detail?: string;\n}',
+  },
+  {
+    name: 'SpeechRecognizer',
+    declaration: 'export interface SpeechRecognizer {\n    readonly id: string;\n    readonly label: string;\n    readonly location: \'host-local\' | \'cloud\';\n    inspect?(): Promise<SpeechPreparation>;\n    prepare?(signal?: AbortSignal): Promise<SpeechPreparation>;\n    transcribe(input: SpeechTranscribeInput, signal?: AbortSignal): Promise<SpeechTranscribeResult>;\n}',
+  },
+  {
+    name: 'SpeechRefusal',
+    declaration: 'export interface SpeechRefusal {\n    readonly ok: false;\n    readonly reason: \'disabled\' | \'unknown\';\n    readonly recognizer: string;\n}',
+  },
+  {
+    name: 'SpeechResolution',
+    declaration: 'export type SpeechResolution = {\n    readonly ok: true;\n    readonly recognizer: SpeechRecognizer;\n    readonly language?: string;\n} | SpeechRefusal;',
+  },
+  {
+    name: 'SpeechTranscribeInput',
+    declaration: 'export interface SpeechTranscribeInput {\n    readonly wav: Uint8Array;\n    readonly language?: string;\n}',
+  },
+  {
+    name: 'SpeechTranscribeResult',
+    declaration: 'export interface SpeechTranscribeResult {\n    readonly text: string;\n}',
   },
   {
     name: 'SpillLocator',

@@ -384,6 +384,11 @@
     - id: ui-model-selection
       name: '@deepseek-ai/dsh-client-ui-model-selection'
 
+    # Voice input: the composer microphone (click + push-to-talk) and the
+    # Settings → Voice input section over the speech Remote and namespace.
+    - id: ui-voice-input
+      name: '@deepseek-ai/dsh-client-ui-voice-input'
+
     - id: ui-permission
       name: '@deepseek-ai/dsh-client-ui-permission-presets'
 

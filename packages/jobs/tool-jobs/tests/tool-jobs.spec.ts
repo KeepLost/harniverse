@@ -130,7 +130,7 @@ describe('tool-jobs setup', () => {
 
   it('defaults delivery to wakeup and rejects an unknown lane', () => {
     expect(ToolTasks.Config({}).completionDelivery).toBe('wakeup')
-    expect(ToolTasks.Config({}).maxConsecutiveWakes).toBe(3)
+    expect(ToolTasks.Config({}).maxConsecutiveWakes).toBeUndefined()
     expect(() => ToolTasks.Config({ completionDelivery: 'loud' as never })).toThrow()
     expect(() => ToolTasks.Config({ maxConsecutiveWakes: 0 })).toThrow()
   })
@@ -152,7 +152,6 @@ describe('tool-jobs setup', () => {
 
     // The field exists to bound runaway waking; a fractional budget counts
     // nothing and an infinite one removes the bound it was configured for.
-    expect(await loadWith(Number.POSITIVE_INFINITY)).toContain('maxConsecutiveWakes')
     expect(await loadWith(2.5)).toContain('maxConsecutiveWakes')
     expect(await loadWith(1)).toBe('loaded')
   })
@@ -580,6 +579,17 @@ describe('completion notice delivery', () => {
     await tick()
     expect(inject).toHaveBeenCalledTimes(1)
     expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('wakes for every completion by default — no cap without an explicit budget', async () => {
+    const { ctx } = await setup()
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', { inject, followup, status: 'idle' })
+
+    await settleTasks(ctx, owner, 5)
+    expect(followup).toHaveBeenCalledTimes(5)
+    expect(inject).not.toHaveBeenCalled()
   })
 
   it('degrades to injection once the consecutive wake budget is spent', async () => {

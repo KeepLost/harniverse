@@ -211,4 +211,33 @@ describe('resolveImageOffloadDecisions', () => {
     expect(resolveImageOffloadDecisions(events, { setting: 'unlimited' })).toEqual([])
     expect(OFFLOADED_IMAGE_STUB_TEXT).toContain('retained')
   })
+
+  it('settles every active occurrence with reason modality on a text-only route', () => {
+    const events = [userMessage(1, 2), assistantMessage(2), toolResult(3, 1), userMessage(4, 1)]
+    expect(resolveImageOffloadDecisions(events, { setting: 'unlimited', routeAcceptsImages: false })).toEqual([
+      { target: { messageSeq: 1, imageIndex: 0 }, reason: 'modality' },
+      { target: { messageSeq: 1, imageIndex: 1 }, reason: 'modality' },
+      { target: { messageSeq: 3, imageIndex: 0 }, reason: 'modality' },
+      { target: { messageSeq: 4, imageIndex: 0 }, reason: 'modality' },
+    ])
+  })
+
+  it('bypasses the age limit entirely on a modality settlement', () => {
+    const events = [userMessage(1, 1)]
+    expect(resolveImageOffloadDecisions(events, { setting: 5, routeAcceptsImages: false })).toEqual([
+      { target: { messageSeq: 1, imageIndex: 0 }, reason: 'modality' },
+    ])
+    expect(resolveImageOffloadDecisions(events, { setting: 5, routeAcceptsImages: true })).toEqual([])
+  })
+
+  it('never re-settles occurrences an earlier modality decision already stubbed', () => {
+    const events = [
+      userMessage(1, 1),
+      offload(2, [{ messageSeq: 1, imageIndex: 0 }]),
+      userMessage(3, 1),
+    ]
+    expect(resolveImageOffloadDecisions(events, { setting: 'unlimited', routeAcceptsImages: false })).toEqual([
+      { target: { messageSeq: 3, imageIndex: 0 }, reason: 'modality' },
+    ])
+  })
 })

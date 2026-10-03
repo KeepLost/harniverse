@@ -506,20 +506,23 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 ```ts persistence-catalog
 /**
  * Records that the listed image occurrences are offloaded from the model
- * request projection: later requests render the canonical offload stub
- * text in place of each image, while the original attachments remain
- * retained for replay and authorized re-reads. Each target names the
- * surface event (`user/message` or `tool/result`) carrying the image and
- * the 0-based index among that event's image blocks. Appended at a
- * request-assembly decision point after either the configured
- * `imageOffloadAfterUserTurns` age limit or provider pressure chose the
- * images; an occurrence settled here or shadowed by a compaction
- * replacement is never chosen again.
+ * request projection: later requests render the offload stub text in
+ * place of each image, while the original attachments remain retained
+ * for replay and authorized re-reads. Each target names the surface
+ * event (`user/message` or `tool/result`) carrying the image and the
+ * 0-based index among that event's image blocks; a target may carry the
+ * verbatim `stub` rendered in its place — `modality` settlements mint a
+ * read-only path so a vision model can re-view the image through
+ * `read_image`. Appended at a request-assembly decision point after the
+ * configured `imageOffloadAfterUserTurns` age limit, provider pressure,
+ * or a modality settlement on a route whose model accepts no image
+ * input chose the images; an occurrence settled here or shadowed by a
+ * compaction replacement is never chosen again.
  */
 'image/offload': ImageOffloadEventData
 ```
 
-Source: [`packages/compaction/image-offload-policy/src/types.ts:65`](../packages/compaction/image-offload-policy/src/types.ts)
+Source: [`packages/compaction/image-offload-policy/src/types.ts:79`](../packages/compaction/image-offload-policy/src/types.ts)
 
 ### `import/*`
 

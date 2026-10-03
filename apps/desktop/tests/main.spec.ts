@@ -183,6 +183,26 @@ describe('desktop window and connection lifecycle', () => {
     const permission = window.webContents.session.setPermissionCheckHandler.mock.calls[0][0] as () => boolean
     expect(permission()).toBe(false)
   })
+
+  it('grants the microphone only on the connected loopback Web origin', async () => {
+    const { shell } = await fixture()
+    await shell.connect({ kind: 'local' })
+    const mockSession = electron.windows.at(-1)!.webContents.session
+    const check = mockSession.setPermissionCheckHandler.mock.calls[0][0] as
+      (webContents: unknown, permission: string, requestingOrigin: string) => boolean
+    expect(check(undefined, 'media', 'http://127.0.0.1:9090')).toBe(true)
+    // A different origin, a non-loopback host, or a non-media permission stays denied.
+    expect(check(undefined, 'media', 'https://remote.test')).toBe(false)
+    expect(check(undefined, 'geolocation', 'http://127.0.0.1:9090')).toBe(false)
+    const request = mockSession.setPermissionRequestHandler.mock.calls[0][0] as
+      (webContents: unknown, permission: string, callback: (granted: boolean) => void) => void
+    const granted = vi.fn()
+    request({ getURL: () => 'http://127.0.0.1:9090/chat' }, 'media', granted)
+    expect(granted).toHaveBeenCalledWith(true)
+    request({ getURL: () => 'http://127.0.0.1:9090/chat' }, 'notifications', granted)
+    expect(granted).toHaveBeenCalledWith(false)
+    await shell.disconnect()
+  })
 })
 
 describe('desktop quit and failures', () => {

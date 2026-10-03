@@ -103,6 +103,33 @@ const BUILD_TIME_TOOLS = [
   },
 ]
 
+/**
+ * Model assets the local speech recognizer downloads at runtime (never npm
+ * dependencies, so no manifest can disclose them). Each row's digest is
+ * pinned by `packages/speech/speech-sensevoice/src/assets.ts`; this list
+ * names the same files with their upstream licenses.
+ */
+const RUNTIME_MODEL_ASSETS = [
+  {
+    name: 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 (model.int8.onnx, model.onnx, tokens.txt)',
+    license: 'Apache-2.0',
+    repo: 'https://github.com/csukuangfj/sherpa-onnx',
+    role: 'local SenseVoice speech-recognition weights downloaded on demand into `$DSH_HOME/speech/sensevoice`',
+  },
+  {
+    name: 'silero_vad.onnx',
+    license: 'MIT',
+    repo: 'https://github.com/snakers4/silero-vad',
+    role: 'Silero voice-activity detector downloaded on demand for speech segmentation',
+  },
+  {
+    name: 'onnxruntime (bundled inside sherpa-onnx-node)',
+    license: 'MIT',
+    repo: 'https://github.com/microsoft/onnxruntime',
+    role: 'CPU inference engine shipped inside the `sherpa-onnx-node` native binding',
+  },
+]
+
 /** The `package.json` fields this generator reads. */
 export interface Manifest {
   name?: string
@@ -739,6 +766,14 @@ ${python.map(dep => `| [\`${dep.name}\`](${dep.repo}) | ${dep.license} | ${dep.r
 | Package | License | Role |
 | --- | --- | --- |
 ${BUILD_TIME_TOOLS.map(tool => `| [\`${tool.name}\`](${tool.repo}) | ${tool.license} | ${tool.role} |`).join('\n')}
+
+## Downloaded model assets
+
+Files the local speech recognizer downloads at runtime. They are pinned by sha256 in packages/speech/speech-sensevoice/src/assets.ts, verified before use, and stored under the user's $DSH_HOME; they are not redistributed inside any published artifact.
+
+| Asset | License | Role |
+| --- | --- | --- |
+${RUNTIME_MODEL_ASSETS.map(asset => `| [\`${asset.name}\`](${asset.repo}) | ${asset.license} | ${asset.role} |`).join('\n')}
 
 ## First-party native packages
 

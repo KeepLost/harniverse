@@ -38,6 +38,14 @@ flowchart LR
   cfg --> plugin_dsh_base_model_policy
   plugin_dsh_base_jobs["jobs<br/>@deepseek-ai/dsh-jobs-local"]
   cfg --> plugin_dsh_base_jobs
+  plugin_dsh_base_speech["speech<br/>@deepseek-ai/dsh-speech"]
+  cfg --> plugin_dsh_base_speech
+  plugin_dsh_base_speech_settings["speech-settings<br/>@deepseek-ai/dsh-speech-settings"]
+  cfg --> plugin_dsh_base_speech_settings
+  plugin_dsh_base_speech_sensevoice["speech-sensevoice<br/>@deepseek-ai/dsh-speech-sensevoice"]
+  cfg --> plugin_dsh_base_speech_sensevoice
+  plugin_dsh_base_speech_openai["speech-openai<br/>@deepseek-ai/dsh-speech-openai"]
+  cfg --> plugin_dsh_base_speech_openai
   plugin_dsh_base_llm_retry["llm-retry<br/>@deepseek-ai/dsh-llm-retry"]
   cfg --> plugin_dsh_base_llm_retry
   plugin_dsh_base_model_policy_fallback["model-policy-fallback<br/>@deepseek-ai/dsh-model-policy-fallback"]
@@ -229,6 +237,10 @@ flowchart LR
 | `agent-default-model` | `@deepseek-ai/dsh-agent-default-model` |
 | `model-policy` | `@deepseek-ai/dsh-model-policy` |
 | `jobs` | `@deepseek-ai/dsh-jobs-local` |
+| `speech` | `@deepseek-ai/dsh-speech` |
+| `speech-settings` | `@deepseek-ai/dsh-speech-settings` |
+| `speech-sensevoice` | `@deepseek-ai/dsh-speech-sensevoice` |
+| `speech-openai` | `@deepseek-ai/dsh-speech-openai` |
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
 | `model-policy-fallback` | `@deepseek-ai/dsh-model-policy-fallback` |
 | `settings` | `@deepseek-ai/dsh-settings-file` |

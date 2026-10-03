@@ -490,6 +490,54 @@ describe('background execution through the job runtime', () => {
     await call(ctx, 'job_output', { job_id: 'bash-1', wait: true }, agent) // await settlement — no orphan
   })
 
+  it('promotes an expired explicit timeout to a background job instead of killing it', async () => {
+    const ctx = await setupWithTasks()
+    const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', timeoutMs: 100 })
+    expect(started.isError).toBe(false)
+    if (started.isError) throw new Error('expected promotable success')
+    expect(started.value).toEqual({ kind: 'timeout-background', jobId: 'bash-1', timeoutMs: 100 })
+
+    const killed = await call(ctx, 'job_kill', { job_id: 'bash-1' })
+    expect(killed.isError).toBe(false)
+    const final = await call(ctx, 'job_output', { job_id: 'bash-1', wait: true })
+    expect(text(final)).toContain('[status: killed, signal: SIGTERM]')
+  })
+
+  it('kills on timeout again when promoteOnTimeout is disabled', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalJobRegistry)
+    await ctx.plugin(ToolTasks)
+    await ctx.plugin(LocalSubprocessRuntime)
+    ;(ctx.subprocess as LocalSubprocessRuntime).internals = { spillDir }
+    await ctx.plugin(BashEnvPlugin)
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
+    await ctx.plugin(ToolBash, { promoteOnTimeout: false })
+    const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', timeoutMs: 100 })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('[timed out after 100ms]')
+  })
+
+  it('surfaces caller aborts of a promotable run as the structured TOOL_ABORTED error', async () => {
+    const ctx = await setupWithTasks()
+    const controller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: CallId('call-promotable-abort'),
+      name: 'bash',
+      arguments: { command: 'sleep 60', description: 'test command', timeoutMs: 10_000 },
+      signal: controller.signal,
+    })
+    setTimeout(() => { controller.abort() }, 50)
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: TOOL_ABORTED },
+    })
+  })
+
   it('fails loud when the job runtime is not loaded', async () => {
     const ctx = await setup() // no LocalJobRegistry / ToolTasks
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })

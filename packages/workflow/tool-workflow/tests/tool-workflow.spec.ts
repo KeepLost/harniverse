@@ -4,6 +4,8 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { WorkflowRunId, WorkflowEngine } from '@deepseek-ai/dsh-workflow'
 import type {
@@ -11,6 +13,8 @@ import type {
   WorkflowRunId as WorkflowRunIdType, WorkflowStartRequest,
 } from '@deepseek-ai/dsh-workflow'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import { JobId } from '@deepseek-ai/dsh-jobs'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import WorkerThreadWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as toolWorkflow from '../src/index.ts'
@@ -72,18 +76,47 @@ class StubEngine extends WorkflowEngine {
       meta: this.requests[Number(String(id).slice(4)) - 1]!.meta,
     }, agent)
   }
+
+  phase(id: WorkflowRunIdType, title: string): void {
+    this.emitWorkflowEvent('workflow/phase', {
+      id,
+      meta: this.requests[Number(String(id).slice(4)) - 1]?.meta ?? META,
+    }, title)
+  }
+
+  log(id: WorkflowRunIdType, message: string): void {
+    this.emitWorkflowEvent('workflow/log', {
+      id,
+      meta: this.requests[Number(String(id).slice(4)) - 1]?.meta ?? META,
+    }, message)
+  }
 }
 
-async function setup(config?: { toolName?: string; maxResultChars?: number }) {
+async function setup(config?: { toolName?: string; maxResultChars?: number }, options: { jobs?: boolean } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(StubEngine)
+  await ctx.plugin(AgentRegistry)
+  if (options.jobs !== false) {
+    await ctx.plugin(LocalJobRegistry)
+    ctx.jobs.attachController('test-controller')
+  }
   await ctx.plugin(toolWorkflow, config ?? {})
   const engine = ctx.workflowEngine as StubEngine
   const session = Session.create(SessionId('caller'))
-  const parent = { id: session.id, options: {}, session } as unknown as Agent
-  return { ctx, engine, parent, session }
+  const agentKey = {}
+  const agentScope = createScope(ctx, agentKey)
+  const parent = {
+    id: session.id,
+    options: {},
+    session,
+    ctx: agentScope.ctx,
+    inject: () => {},
+    followup: () => {},
+    status: 'idle',
+  } as unknown as Agent
+  return { ctx, engine, parent, session, agentKey }
 }
 
 const SCRIPT = 'return 1'
@@ -106,6 +139,105 @@ function execute(ctx: Context, args: unknown, extra?: {
 }
 
 describe('dsh-tool-workflow', () => {
+  it('registers a background workflow job and returns immediately', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.settlements.get(WorkflowRunId('run-1'))!({ value: { findings: [] }, stopReason: 'completed', agentsStarted: 3 })
+      const result = await pending
+      // Keyless snapshot: ids ride the result; the script's value does not.
+      const view = result.content.filter(block => block.type === 'text').map(block => block.type === 'text' ? block.text : '').join('')
+      expect(view).toContain('started workflow job workflow-1 (run run-1)')
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'completed', detail: 'agents: 3' })
+      })
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
+  it('streams phases and logs into the background job ring and stops it through kill', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.phase(WorkflowRunId('run-1'), 'collecting')
+      engine.log(WorkflowRunId('run-1'), 'scanned 3 files')
+      const followed = ctx.jobs.follow(JobId('workflow-1'), 0, parent)
+      expect(followed.text).toContain('phase: collecting')
+      expect(followed.text).toContain('scanned 3 files')
+      ctx.jobs.kill(JobId('workflow-1'), parent, { reason: 'stop requested', reported: true })
+      const result = await pending
+      expect(result.isError).toBe(false)
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'killed' })
+      })
+      expect(engine.cancels).toContain('stop requested')
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects run_in_background when the job runtime is not loaded', async () => {
+    const { ctx, parent } = await setup(undefined, { jobs: false })
+    const result = await execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('run_in_background is unavailable')
+    await ctx.fiber.dispose()
+  })
+
+  it('ignores events of other runs and caps the tail at fifty lines', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.phase(WorkflowRunId('run-99'), 'foreign phase')
+      engine.log(WorkflowRunId('run-99'), 'foreign run output')
+      for (let index = 0; index < 52; index += 1) engine.log(WorkflowRunId('run-1'), `line ${index}`)
+      const followed = ctx.jobs.follow(JobId('workflow-1'), 0, parent)
+      expect(followed.text).not.toContain('foreign run output')
+      expect(followed.text).toContain('line 51')
+      expect(followed.text).not.toContain('line 0\n')
+      ctx.jobs.kill(JobId('workflow-1'), parent)
+      await pending
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'killed' })
+      })
+      // A kill without a reason forwards the job_kill default to the engine.
+      expect(engine.cancels).toContain('killed by job_kill')
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
+  it('settles a failed background workflow distinctly from a cancelled one', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.settle({ value: null, stopReason: 'error', error: 'engine exploded', agentsStarted: 2 })
+      await pending
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'failed', detail: 'workflow run failed: engine exploded' })
+      })
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
   it('starts a run with the script/args/parent/signal and renders the completed value', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()

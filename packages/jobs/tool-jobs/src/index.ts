@@ -38,9 +38,10 @@ export interface Config {
   completionDelivery?: CompletionDelivery
   /**
    * Turns one owner may have opened by completion wakes before the next
-   * notice degrades to injection, reset by any user-authored input (default 3).
-   * Bounds the self-exciting chain where a woken turn starts the job whose
-   * completion wakes it again.
+   * notice degrades to injection, reset by any user-authored input. Absent
+   * (the default) every completion wakes its idle owner — the bound is an
+   * opt-in for the self-exciting chain where a woken turn starts the job
+   * whose completion wakes it again.
    */
   maxConsecutiveWakes?: number
 }
@@ -49,7 +50,7 @@ export const Config: z<Config> = z.object({
   waitTimeoutMs: z.number().min(1).default(30_000),
   maxWaitTimeoutMs: z.number().min(1).default(600_000),
   completionDelivery: z.union(['quiet', 'wakeup'] as const).default('wakeup'),
-  maxConsecutiveWakes: z.number().min(1).default(3),
+  maxConsecutiveWakes: z.number().min(1),
 })
 
 /** Task state safe for model-authored programs; ownership/bookkeeping fields are omitted. */
@@ -206,7 +207,7 @@ export function apply(ctx: Context, config: Config): void {
   const waitDefault = config.waitTimeoutMs ?? 30_000
   const waitCap = config.maxWaitTimeoutMs ?? 600_000
   const delivery = config.completionDelivery ?? 'wakeup'
-  const wakeBudget = config.maxConsecutiveWakes ?? 3
+  const wakeBudget = config.maxConsecutiveWakes ?? Number.POSITIVE_INFINITY
 
   // Turns this plugin opened on each owner since that owner last consumed
   // human input. Keyed by the exact Agent, so a same-session replacement
@@ -215,9 +216,10 @@ export function apply(ctx: Context, config: Config): void {
   if (waitDefault > waitCap) {
     throw new Error(`tool-jobs: waitTimeoutMs (${waitDefault}) exceeds maxWaitTimeoutMs (${waitCap})`)
   }
-  // A budget is a count of turns. `Infinity` would leave the runaway chain this
-  // field exists to bound unbounded, and a fraction never names a turn at all.
-  if (!Number.isSafeInteger(wakeBudget)) {
+  // An explicit budget is a count of turns: a fraction never names a turn.
+  // The default is unbounded — every completion wakes its idle owner — with
+  // the optional setting as the opt-in bound for runaway chains.
+  if (wakeBudget !== Number.POSITIVE_INFINITY && !Number.isSafeInteger(wakeBudget)) {
     throw new Error(`tool-jobs: maxConsecutiveWakes (${wakeBudget}) must be a whole number of turns`)
   }
   // Nothing spends the budget under quiet delivery, so nothing needs to refill it.
@@ -390,7 +392,7 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute(args, exec) {
       const id = validateJobId(args.job_id)
-      const result = ctx.jobs.kill(id, exec.agent, args.reason)
+      const result = ctx.jobs.kill(id, exec.agent, args.reason === undefined ? {} : { reason: args.reason })
       // A snapshot describes current state without consuming pending output.
       const snapshot = publicJob(ctx.jobs.get(id, exec.agent))
       return Promise.resolve({

@@ -22,13 +22,24 @@ export interface ImageOffloadTarget {
   readonly messageSeq: number
   /** 0-based position of this image among that event's image blocks, in block order. */
   readonly imageIndex: number
+  /**
+   * Model-visible replacement text for this occurrence, verbatim. Present
+   * only on `modality` settlements, which mint a read-only path for the
+   * retained attachment and name it so a vision model can re-view the image
+   * through `read_image`; absent decisions render the canonical constant
+   * stub. Stored because the minted path is machine-local and must replay
+   * as the exact text the model saw.
+   */
+  readonly stub?: string
 }
 
 /**
  * Why one image unloaded. `'age'` is the configured user-turn limit;
- * `'pressure'` is the provider's offload demand choosing the oldest images.
+ * `'pressure'` is the provider's offload demand choosing the oldest images;
+ * `'modality'` is a request-boundary settlement that unloads every retained
+ * occurrence because the routed model accepts no image input at all.
  */
-export type ImageOffloadReason = 'age' | 'pressure'
+export type ImageOffloadReason = 'age' | 'pressure' | 'modality'
 
 /** One pending unload decision, before it is appended as `image/offload`. */
 export interface ImageOffloadDecision {
@@ -52,15 +63,18 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Records that the listed image occurrences are offloaded from the model
-     * request projection: later requests render the canonical offload stub
-     * text in place of each image, while the original attachments remain
-     * retained for replay and authorized re-reads. Each target names the
-     * surface event (`user/message` or `tool/result`) carrying the image and
-     * the 0-based index among that event's image blocks. Appended at a
-     * request-assembly decision point after either the configured
-     * `imageOffloadAfterUserTurns` age limit or provider pressure chose the
-     * images; an occurrence settled here or shadowed by a compaction
-     * replacement is never chosen again.
+     * request projection: later requests render the offload stub text in
+     * place of each image, while the original attachments remain retained
+     * for replay and authorized re-reads. Each target names the surface
+     * event (`user/message` or `tool/result`) carrying the image and the
+     * 0-based index among that event's image blocks; a target may carry the
+     * verbatim `stub` rendered in its place — `modality` settlements mint a
+     * read-only path so a vision model can re-view the image through
+     * `read_image`. Appended at a request-assembly decision point after the
+     * configured `imageOffloadAfterUserTurns` age limit, provider pressure,
+     * or a modality settlement on a route whose model accepts no image
+     * input chose the images; an occurrence settled here or shadowed by a
+     * compaction replacement is never chosen again.
      */
     'image/offload': ImageOffloadEventData
   }

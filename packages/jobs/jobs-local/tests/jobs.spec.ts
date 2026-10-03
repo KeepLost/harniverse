@@ -390,7 +390,155 @@ describe('LocalJobRegistry reads and settlement', () => {
   })
 })
 
+describe('LocalJobRegistry.follow', () => {
+  it('reads the ring non-consumingly at independent offsets', async () => {
+    const ctx = await harness()
+    let buffer = ''
+    const p = producer({ readOutput: () => { const delta = buffer; buffer = ''; return delta } })
+    const id = ctx.jobs.start(p.spec)
+    buffer = 'hello '
+    expect(ctx.jobs.follow(id)).toMatchObject({ text: 'hello ', nextOffsetBytes: 6, truncated: false, totalBytes: 6 })
+    buffer = 'world'
+    // A second follower from zero sees both chunks; the first offset is untouched.
+    expect(ctx.jobs.follow(id, 0)).toMatchObject({ text: 'hello world', truncated: false, totalBytes: 11 })
+    expect(ctx.jobs.follow(id, 6)).toMatchObject({ text: 'world', truncated: false })
+    expect(ctx.jobs.follow(id, 11)).toMatchObject({ text: '', truncated: false })
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps the consuming model read independent of followers', async () => {
+    const ctx = await harness()
+    let buffer = ''
+    const p = producer({ readOutput: () => { const delta = buffer; buffer = ''; return delta } })
+    const id = ctx.jobs.start(p.spec)
+    buffer = 'model-delta'
+    // A follower pumps first; the model read still gets the same bytes once.
+    expect(ctx.jobs.follow(id).text).toBe('model-delta')
+    expect(ctx.jobs.read(id).text).toBe('')
+    buffer = 'next'
+    expect(ctx.jobs.read(id).text).toBe('next')
+    expect(ctx.jobs.follow(id, 0).text).toBe('model-deltanext')
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
+  it('bounds the ring and flags truncation beyond the retained window', async () => {
+    const ctx = await harness({ followRingBytes: 10 })
+    let buffer = ''
+    const p = producer({ readOutput: () => { const delta = buffer; buffer = ''; return delta } })
+    const id = ctx.jobs.start(p.spec)
+    buffer = '0123456789ABCDEF'
+    const first = ctx.jobs.follow(id)
+    expect(first).toMatchObject({ text: '6789ABCDEF', truncated: true, totalBytes: 16, nextOffsetBytes: 16 })
+    // Offsets inside the retained window read cleanly; before it, clamped.
+    expect(ctx.jobs.follow(id, 6).text).toBe('6789ABCDEF')
+    expect(ctx.jobs.follow(id, 0)).toMatchObject({ text: '6789ABCDEF', truncated: true })
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
+  it('drops whole leading chunks before splitting the new head', async () => {
+    const ctx = await harness({ followRingBytes: 10 })
+    let buffer = ''
+    const p = producer({ readOutput: () => { const delta = buffer; buffer = ''; return delta } })
+    const id = ctx.jobs.start(p.spec)
+    buffer = 'aaaa'
+    expect(ctx.jobs.follow(id).text).toBe('aaaa')
+    // Dropping the 4-byte 'aaaa' chunk whole still leaves 2 bytes over the
+    // cap, so the 12-byte head splits: only its last 10 bytes stay retained.
+    buffer = 'bbbbbbbbcccc'
+    const second = ctx.jobs.follow(id, 4)
+    expect(second).toMatchObject({ text: 'bbbbbbcccc', truncated: true, totalBytes: 16, nextOffsetBytes: 16 })
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
+  it('drains every distinct pending delta in one follow pump', async () => {
+    const ctx = await harness()
+    const queue: string[] = []
+    const p = producer({ readOutput: () => queue.shift() ?? '' })
+    const id = ctx.jobs.start(p.spec)
+    queue.push('one', 'two')
+    expect(ctx.jobs.follow(id)).toMatchObject({ text: 'onetwo', totalBytes: 6, nextOffsetBytes: 6 })
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses an incoherent offset and an unknown job', async () => {
+    const ctx = await harness()
+    const p = producer()
+    const id = ctx.jobs.start(p.spec)
+    expect(() => ctx.jobs.follow(id, -1)).toThrow('invalid follow offset')
+    expect(() => ctx.jobs.follow(id, 1.5)).toThrow('invalid follow offset')
+    expect(() => ctx.jobs.follow(JobId('nope-1'))).toThrow()
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
+  it('serves final-output kinds an empty live ring', async () => {
+    const ctx = await harness()
+    const p = producer({ kind: 'subagent' })
+    const id = ctx.jobs.start(p.spec)
+    expect(ctx.jobs.follow(id)).toMatchObject({ text: '', totalBytes: 0 })
+    p.settle({ status: 'completed', output: 'done' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('LocalJobRegistry.kill', () => {
+  it('splits model kills (report claimed) from human kills (notice flows)', async () => {
+    const ctx = await harness()
+    const p = producer()
+    const id = ctx.jobs.start(p.spec)
+
+    // A human stop does not claim the terminal report.
+    expect(ctx.jobs.kill(id, undefined, { reason: 'user pressed stop', reported: false })).toBe('requested')
+    expect(ctx.jobs.get(id)).toMatchObject({ status: 'stopping', reported: false })
+    p.settle({ status: 'killed', detail: 'signal: SIGTERM' })
+    await tick()
+    // The completion settlement owns the report now; the notice path still sees it unclaimed.
+    expect(ctx.jobs.get(id)).toMatchObject({ status: 'killed', reported: false })
+
+    // A model kill on a second job claims the report immediately.
+    const second = producer()
+    const id2 = ctx.jobs.start(second.spec)
+    expect(ctx.jobs.kill(id2, undefined, { reason: 'no longer needed' })).toBe('requested')
+    expect(ctx.jobs.get(id2)).toMatchObject({ status: 'stopping', reported: true })
+    second.settle({ status: 'killed', detail: 'signal: SIGTERM' })
+    await tick()
+
+    // A human kill of an already-settled job leaves the report unclaimed,
+    // and an owned job's kill walks that owner's listener scope.
+    expect(ctx.jobs.kill(id, undefined, { reported: false })).toBe('already-finished')
+    expect(ctx.jobs.get(id)).toMatchObject({ status: 'killed', reported: false })
+    // The owner's notice walks that owner's scoped listener layer, not the global one.
+    const standing = createScope(ctx, {})
+    const ownedDone: JobSnapshot[] = []
+    await standing.ctx.plugin({
+      inject: ['jobs'],
+      apply(pluginCtx: Context) {
+        pluginCtx.jobs.onJobDone((snapshot) => { ownedDone.push(snapshot) })
+      },
+    })
+    const owner = stubAgent(ctx, 'kill-owner', scopeOf(standing.ctx))
+    const disposeOwner = ctx.agents.register(owner)
+    const third = producer({ owner })
+    const id3 = ctx.jobs.start(third.spec)
+    expect(ctx.jobs.kill(id3, owner)).toBe('requested')
+    third.settle({ status: 'killed', detail: 'signal: SIGTERM' })
+    await tick()
+    expect(ownedDone.map(snapshot => snapshot.id)).toEqual(['bash-3'])
+    disposeOwner()
+    await ctx.fiber.dispose()
+  })
   it('cancels a live job with the forwarded reason and suppresses the notice', async () => {
     const ctx = await harness()
     const seen: JobSnapshot[] = []
@@ -398,7 +546,7 @@ describe('LocalJobRegistry.kill', () => {
     const p = producer()
     const id = ctx.jobs.start(p.spec)
 
-    expect(ctx.jobs.kill(id, undefined, 'no longer needed')).toBe('requested')
+    expect(ctx.jobs.kill(id, undefined, { reason: 'no longer needed' })).toBe('requested')
     expect(p.cancels).toEqual(['no longer needed'])
     expect(ctx.jobs.list()[0]).toMatchObject({ status: 'stopping', reported: true })
 

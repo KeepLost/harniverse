@@ -82,6 +82,8 @@ import {
 } from '../api/subagents.schema.ts'
 import { apiDescribeValueSchema } from '../api/contract.schema.ts'
 import { operationGetValueSchema } from '../api/operations.schema.ts'
+import { jobsFollowValueSchema, jobsKillValueSchema } from '../api/jobs.schema.ts'
+import { speechPrepareValueSchema, speechTranscribeValueSchema } from '../api/speech.schema.ts'
 import {
   workspaceFilesListValueSchema, workspaceFilesReadBinaryValueSchema,
   workspaceFilesReadValueSchema, workspaceFilesSearchValueSchema,
@@ -112,6 +114,14 @@ export interface IApiClient {
   }
   operations: {
     get(payload: RequestPayload<'operation.get'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'operation.get'>>>
+  }
+  jobs: {
+    follow(payload: RequestPayload<'jobs.follow'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'jobs.follow'>>>
+    kill(payload: RequestPayload<'jobs.kill'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'jobs.kill'>>>
+  }
+  speech: {
+    transcribe(payload: RequestPayload<'speech.transcribe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'speech.transcribe'>>>
+    prepare(payload: RequestPayload<'speech.prepare'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'speech.prepare'>>>
   }
   sessions: {
     list(payload: RequestPayload<'session.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.list'>>>
@@ -221,6 +231,10 @@ export interface IApiClient {
 const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseValue<K>>> } = {
   'api.describe': apiDescribeValueSchema,
   'operation.get': operationGetValueSchema,
+  'jobs.follow': jobsFollowValueSchema,
+  'jobs.kill': jobsKillValueSchema,
+  'speech.transcribe': speechTranscribeValueSchema,
+  'speech.prepare': speechPrepareValueSchema,
   'session.list': sessionListValueSchema,
   'session.search': sessionSearchValueSchema,
   'session.create': sessionCreateValueSchema,
@@ -541,6 +555,16 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly operations: NonNullable<IApiClient['operations']> = {
     get: (payload, signal) => this.callUnary('operation.get', payload, signal),
+  }
+
+  readonly jobs: IApiClient['jobs'] = {
+    follow: (payload, signal) => this.callUnary('jobs.follow', payload, signal),
+    kill: (payload, signal) => this.callUnary('jobs.kill', payload, signal),
+  }
+
+  readonly speech: IApiClient['speech'] = {
+    transcribe: (payload, signal) => this.callUnary('speech.transcribe', payload, signal),
+    prepare: (payload, signal) => this.callUnary('speech.prepare', payload, signal),
   }
 
   readonly sessions: IApiClient['sessions'] = {

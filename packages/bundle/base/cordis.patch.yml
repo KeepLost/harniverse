@@ -75,6 +75,25 @@
     - id: jobs
       name: '@deepseek-ai/dsh-jobs-local'
 
+    # Voice input seam + preference owner + the two shipped recognizers. The
+    # service registers as ctx.speech; providers register recognizers into it,
+    # and speech-settings pushes the user's resolved preferences per commit.
+    # Assets download into $DSH_HOME/speech/sensevoice on first prepare; the
+    # sherpa-onnx-node native binding loads only at first transcription.
+    - id: speech
+      name: '@deepseek-ai/dsh-speech'
+
+    - id: speech-settings
+      name: '@deepseek-ai/dsh-speech-settings'
+
+    - id: speech-sensevoice
+      name: '@deepseek-ai/dsh-speech-sensevoice'
+      config:
+        dataRoot: !!js dshHomePath('speech')
+
+    - id: speech-openai
+      name: '@deepseek-ai/dsh-speech-openai'
+
     - id: llm-retry
       name: '@deepseek-ai/dsh-llm-retry'
 

@@ -88,6 +88,8 @@ import {
 import type { BrowserStreamFrame, HoldStreamFrame, TerminalStreamFrame } from '../api/events.ts'
 import { apiDescribeRequestSchema } from '../api/contract.schema.ts'
 import { operationGetRequestSchema } from '../api/operations.schema.ts'
+import { jobsFollowRequestSchema, jobsKillRequestSchema } from '../api/jobs.schema.ts'
+import { speechPrepareRequestSchema, speechTranscribeRequestSchema } from '../api/speech.schema.ts'
 import {
   workspaceFilesListRequestSchema, workspaceFilesReadBinaryRequestSchema,
   workspaceFilesReadRequestSchema, workspaceFilesSearchRequestSchema,
@@ -125,6 +127,10 @@ const IDEMPOTENCY_STORES = new WeakMap<ApiProxy, Map<string, IdempotencyEntry>>(
 const UNARY_ROUTES: UnaryRoutes = {
   'api.describe': { schema: apiDescribeRequestSchema, invoke: (api, r) => api.api?.describe(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'API contract discovery is unavailable', details: {} } } }) },
   'operation.get': { schema: operationGetRequestSchema, invoke: (api, r) => api.operations?.get(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'operation lookup is unavailable', details: {} } } }) },
+  'jobs.follow': { schema: jobsFollowRequestSchema, invoke: (api, r) => api.jobs?.follow(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'job follow is unavailable', details: {} } } }) },
+  'jobs.kill': { schema: jobsKillRequestSchema, invoke: (api, r) => api.jobs?.kill(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'job kill is unavailable', details: {} } } }) },
+  'speech.transcribe': { schema: speechTranscribeRequestSchema, invoke: (api, r, signal) => api.speech?.transcribe(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'speech transcription is unavailable', details: {} } } }) },
+  'speech.prepare': { schema: speechPrepareRequestSchema, invoke: (api, r) => api.speech?.prepare(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'speech preparation is unavailable', details: {} } } }) },
   'session.list': { schema: sessionListRequestSchema, invoke: (api, r) => api.sessions.list(r) },
   'session.search': { schema: sessionSearchRequestSchema, invoke: (api, r, signal) => api.sessions.search(r, signal) },
   'session.create': { schema: sessionCreateRequestSchema, invoke: (api, r) => api.sessions.create(r) },

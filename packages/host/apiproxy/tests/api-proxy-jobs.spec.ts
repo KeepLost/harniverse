@@ -156,7 +156,7 @@ describe('session/jobs change pushes', () => {
 
     const p = producer()
     const id = ctx.jobs.start({ ...p.spec, owner: agent })
-    ctx.jobs.kill(id, agent, 'test')
+    ctx.jobs.kill(id, agent, { reason: 'test' })
     p.settle({ status: 'killed', detail: 'signal: SIGTERM' })
 
     const frames = await collected
@@ -250,7 +250,7 @@ describe('session/jobs never consumes model output', () => {
 
     const p = producer()
     const id = ctx.jobs.start({ ...p.spec, owner: agent })
-    ctx.jobs.kill(id, agent, 'test')
+    ctx.jobs.kill(id, agent, { reason: 'test' })
     p.settle({ status: 'killed', detail: 'signal: SIGTERM' })
     await collected
 

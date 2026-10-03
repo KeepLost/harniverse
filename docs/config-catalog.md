@@ -1174,10 +1174,16 @@ export interface Config {
    * omission defaults to 10.
    */
   maxConcurrentJobsPerOwner?: number
+  /**
+   * Byte capacity of one job's non-consuming follow ring; omission defaults
+   * to 256 KiB. The bound keeps a runaway producer from accumulating output
+   * beyond one retained window per job.
+   */
+  followRingBytes?: number
 }
 ```
 
-Source: [`packages/jobs/jobs-local/src/index.ts:31`](../packages/jobs/jobs-local/src/index.ts)
+Source: [`packages/jobs/jobs-local/src/index.ts:95`](../packages/jobs/jobs-local/src/index.ts)
 
 <a id="deepseek-aidsh-llm-deepseek"></a>
 
@@ -2666,6 +2672,82 @@ export interface Config {
 
 Source: [`packages/skill/skill-filesystem/src/index.ts:48`](../packages/skill/skill-filesystem/src/index.ts)
 
+<a id="deepseek-aidsh-speech-openai"></a>
+
+## `@deepseek-ai/dsh-speech-openai`
+
+Requires: `speech`
+
+```ts config-catalog
+/** Cloud transcription deployment configuration. */
+export interface Config {
+  /** Ordered base URLs tried for every request; each must serve `/audio/transcriptions`. */
+  readonly endpoints: string[]
+  /** Transcription model id sent with every request. */
+  readonly model: string
+  /** Per-endpoint request timeout. */
+  readonly timeoutMs: number
+}
+```
+
+Source: [`packages/speech/speech-openai/src/index.ts:23`](../packages/speech/speech-openai/src/index.ts)
+
+<a id="deepseek-aidsh-speech-sensevoice"></a>
+
+## `@deepseek-ai/dsh-speech-sensevoice`
+
+Requires: `speech`
+
+```ts config-catalog
+/** Deployment configuration consumed by the recognizer. */
+export interface SenseVoiceConfig {
+  /** Root under which the `sensevoice/` asset directory is created (`$DSH_HOME/speech`). */
+  readonly dataRoot: string
+  /** Hugging Face-compatible origins probed in order before each missing download. */
+  readonly origins: string[]
+  /** Deadline for concurrent HEAD probes. */
+  readonly probeTimeoutMs: number
+  /** CPU intra-operation thread count. */
+  readonly threads: number
+  /** Maximum speech segment length passed to the recognizer. */
+  readonly segmentSeconds: number
+  /** Silero speech probability threshold. */
+  readonly vadThreshold: number
+  /** Minimum speech duration retained by VAD. */
+  readonly minSpeechSeconds: number
+  /** Silence separating two speech segments. */
+  readonly minSilenceSeconds: number
+  /** Maximum admitted recording duration. */
+  readonly maxDurationSeconds: number
+}
+```
+
+Source: [`packages/speech/speech-sensevoice/src/recognizer.ts:20`](../packages/speech/speech-sensevoice/src/recognizer.ts)
+
+<a id="deepseek-aidsh-speech-settings"></a>
+
+## `@deepseek-ai/dsh-speech-settings`
+
+Requires: `settings` · `speech`
+
+```ts config-catalog
+/** Stored voice-input settings; every field is optional over the schema defaults. */
+export interface SpeechSettings {
+  /** Selected recognizer, or `'off'` while voice input is disabled. */
+  recognizer?: 'off' | 'sensevoice' | 'openai-compatible'
+  /** Default language hint (`'zh'`, `'en'`, …) passed when a request carries none. */
+  language?: string
+  /** Keyboard key held for push-to-talk (`'shift'`, `'ctrl'`, a letter); unset disables the gesture. */
+  pushToTalkKey?: string
+  /** Local SenseVoice weight precision; INT8 minimizes download and storage. */
+  modelVariant?: 'int8' | 'fp32'
+  /** Cloud recognizer API key; declared secret so it never rides a redacted wire surface. */
+  apiKey?: string
+}
+```
+
+Source: [`packages/speech/speech-settings/src/index.ts:20`](../packages/speech/speech-settings/src/index.ts)
+
 <a id="deepseek-aidsh-spill-local"></a>
 
 ## `@deepseek-ai/dsh-spill-local`
@@ -3172,10 +3254,16 @@ Requires: `tools` · `shell` · `systemPrompt` · `shellEnv`
 export interface Config {
   /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
+  /**
+   * Keep an explicitly timed-out foreground command running as a background
+   * job and return its id instead of killing it (default true). The command
+   * then settles through the ordinary job completion notice.
+   */
+  promoteOnTimeout?: boolean
 }
 ```
 
-Source: [`packages/shell/tool-bash/src/index.ts:34`](../packages/shell/tool-bash/src/index.ts)
+Source: [`packages/shell/tool-bash/src/index.ts:35`](../packages/shell/tool-bash/src/index.ts)
 
 <a id="deepseek-aidsh-tool-bash-persistent"></a>
 
@@ -3307,9 +3395,10 @@ export interface Config {
   completionDelivery?: CompletionDelivery
   /**
    * Turns one owner may have opened by completion wakes before the next
-   * notice degrades to injection, reset by any user-authored input (default 3).
-   * Bounds the self-exciting chain where a woken turn starts the job whose
-   * completion wakes it again.
+   * notice degrades to injection, reset by any user-authored input. Absent
+   * (the default) every completion wakes its idle owner — the bound is an
+   * opt-in for the self-exciting chain where a woken turn starts the job
+   * whose completion wakes it again.
    */
   maxConsecutiveWakes?: number
 }
@@ -3677,7 +3766,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/tool-workflow/src/index.ts:33`](../packages/workflow/tool-workflow/src/index.ts)
+Source: [`packages/workflow/tool-workflow/src/index.ts:40`](../packages/workflow/tool-workflow/src/index.ts)
 
 <a id="deepseek-aidsh-tools"></a>
 
@@ -4086,6 +4175,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-tool` ([`packages/client/ui-tool/src/index.ts`](../packages/client/ui-tool/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-user-questions` ([`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-voice-input` ([`packages/client/ui-voice-input/src/index.ts`](../packages/client/ui-voice-input/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workflow-run` ([`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))
@@ -4122,6 +4212,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-session-projection` ([`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts))
 - `@deepseek-ai/dsh-session-stats` — requires `sessionProjections` ([`packages/session/session-stats/src/index.ts`](../packages/session/session-stats/src/index.ts))
 - `@deepseek-ai/dsh-skill-badge` — requires `skills` ([`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts))
+- `@deepseek-ai/dsh-speech` ([`packages/speech/speech/src/index.ts`](../packages/speech/speech/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-local` ([`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts))
