@@ -50,9 +50,11 @@ export const inject = ['settings', 'speech']
 /** Narrow a resolved settings value to the shared preferences contract. */
 function preferencesOf(resolved: SpeechSettings): SpeechPreferences {
   return {
+    /* v8 ignore next 1 -- the registered base always carries recognizer; the default keeps the helper total over partial values. */
     recognizer: resolved.recognizer ?? 'off',
     ...resolved.language === undefined ? {} : { language: resolved.language },
     ...resolved.pushToTalkKey === undefined ? {} : { pushToTalkKey: resolved.pushToTalkKey },
+    /* v8 ignore next 1 -- the registered base always carries modelVariant; the empty arm keeps the helper total over partial values. */
     ...resolved.modelVariant === undefined ? {} : { modelVariant: resolved.modelVariant },
     ...resolved.apiKey === undefined ? {} : { apiKey: resolved.apiKey },
   }

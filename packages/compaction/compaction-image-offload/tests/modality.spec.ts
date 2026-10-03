@@ -245,6 +245,35 @@ describe('modality offload at the request boundary', () => {
     expect(imageCount(bench.adapter.requests[0]!)).toBe(1)
   })
 
+  it('skips the settlement when model resolution fails', async () => {
+    const bench = await harness([textResponse('one'), textResponse('two')])
+    let model = 'vision'
+    const disposeSwitch = bench.ctx.on('agent/request', async (_payload, next) => {
+      const config = await next()
+      return { ...config, model }
+    })
+    const idle1 = waitForIdle(bench.ctx, bench.agent)
+    send(bench.agent, { type: 'text', text: 'keep' }, imageBlock(bench.ref))
+    await idle1
+    // The settlement resolves the routed model before the request pipeline's
+    // own look-up; fail only the first resolution so the skip under test
+    // stays attributable to the settlement path.
+    let textOnlyResolves = 0
+    bench.adapter.resolveModel = async (provider, target) => {
+      if (target === 'vision') return modalResolve(provider, target)
+      textOnlyResolves += 1
+      if (textOnlyResolves > 1) return modalResolve(provider, target)
+      throw new Error('registry unavailable')
+    }
+    model = 'text-only'
+    const idle2 = waitForIdle(bench.ctx, bench.agent)
+    send(bench.agent, { type: 'text', text: 'describe' })
+    await idle2
+    expect(bench.agent.session.events.some(event => event.type === 'image/offload')).toBe(false)
+    expect(imageCount(bench.adapter.requests[1]!)).toBe(1)
+    disposeSwitch()
+  })
+
   it('settles images when a route fallback lands on a text-only model', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-modality-fallback-'))
     directories.push(home)

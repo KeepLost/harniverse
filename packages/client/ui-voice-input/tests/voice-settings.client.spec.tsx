@@ -129,4 +129,24 @@ describe('VoiceSettingsSection preparation', () => {
     fireEvent.click(view.getByRole('button', { name: t('settings.prepare') }))
     await vi.waitFor(() => { expect(view.getByText(`${t('settings.prepare.failed')}voice input is disabled`)).toBeTruthy() })
   })
+
+  it('reports a transport rejection of prepare as its detail', async () => {
+    const api: VoiceSettingsInjected['api'] = {
+      speech: {
+        prepare: () => Promise.reject(new Error('carrier dropped')),
+      },
+    }
+    const view = mount({ scope: scopeFixture(), api })
+    fireEvent.click(view.getByRole('button', { name: t('settings.prepare') }))
+    await vi.waitFor(() => { expect(view.getByText(`${t('settings.prepare.failed')}carrier dropped`)).toBeTruthy() })
+  })
+
+  it('writes the local model variant selection', () => {
+    const scope = scopeFixture({ modelVariant: 'int8' })
+    const view = mount({ scope, api: speechFixture().api })
+    const select = view.getByLabelText(t('settings.modelVariant')) as HTMLSelectElement
+    expect(select.value).toBe('int8')
+    fireEvent.change(select, { target: { value: 'fp32' } })
+    expect(scope.writes).toEqual([{ field: 'modelVariant', value: 'fp32' }])
+  })
 })

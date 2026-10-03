@@ -1,7 +1,7 @@
 /** The deterministic handle text a model sees for one stored generic file. */
 
 import { describe, expect, it } from 'vitest'
-import { AttachmentId, fileHandleText } from '../src/index.ts'
+import { AttachmentId, fileHandleText, imageHandleText } from '../src/index.ts'
 
 const REF = {
   attachmentId: AttachmentId(`sha256:${'3f9c21ab'.repeat(8)}`),
@@ -30,5 +30,19 @@ describe('fileHandleText', () => {
   it('rounds large magnitudes to whole units', () => {
     const text = fileHandleText({ attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`), bytes: 16_384 }, '/x/links/bbbbbbbb-a.tar')
     expect(text).toContain('16 KB')
+  })
+})
+
+describe('imageHandleText', () => {
+  it('falls back to the digest prefix when the attachment carries no name', () => {
+    const text = imageHandleText({
+      attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+      bytes: 900,
+      mediaType: 'image/png',
+      width: 64,
+      height: 64,
+    }, '/x/links/cccccccc-img')
+    expect(text).toContain('[图片] cccccccc · 900 B')
+    expect(text).toContain('只读路径: /x/links/cccccccc-img')
   })
 })

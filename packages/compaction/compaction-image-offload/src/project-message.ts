@@ -108,6 +108,7 @@ export function stubEventImages(
   const textByPosition = new Map<number, string>()
   for (const [order, position] of positions.entries()) {
     const index = indexes[order]
+    /* v8 ignore next 1 -- imagePositions throws unless every index located, so the pairing is total and index is always defined. */
     const text = index === undefined ? undefined : texts.get(index)
     if (text !== undefined) textByPosition.set(position, text)
   }

@@ -80,4 +80,17 @@ describe('speech-openai plugin', () => {
     expect(ctx.speech.recognizer('openai-compatible')).toBeUndefined()
     await ctx.fiber.dispose()
   })
+
+  it('the registered recognizer consults live preferences before sending', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SpeechService)
+    const fiber = ctx.plugin(speechOpenai, speechOpenai.Config({}))
+    await fiber
+    // No API key configured: the registered recognizer reads the live
+    // preferences and refuses before any endpoint is contacted.
+    ctx.speech.configure({ recognizer: 'openai-compatible' })
+    await expect(ctx.speech.transcribe({ wav: WAV })).rejects.toThrow('no API key')
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
 })

@@ -70,6 +70,22 @@ describe('downloadAsset', () => {
     await writeFile(join(directory, 'file.bin'), content)
     expect(await verifyAsset(join(directory, 'file.bin'), asset)).toBe(true)
   })
+
+  it('verifyAsset rethrows read errors other than a missing file', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-dl-'))
+    const asset = pinned(new Uint8Array(4))
+    // Reading a directory as a file fails with EISDIR, not ENOENT.
+    await expect(verifyAsset(directory, asset)).rejects.toThrow()
+  })
+
+  it('wraps a mid-stream body failure as a network asset error', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'speech-dl-'))
+    const asset = pinned(new Uint8Array(64).fill(1))
+    const fetchImpl: FetchLike = vi.fn(async () => new Response(new ReadableStream({
+      start(controller) { controller.error(new TypeError('socket reset mid-flight')) },
+    })))
+    await expect(downloadAsset(asset, directory, { fetchImpl })).rejects.toMatchObject({ reason: 'network' })
+  })
 })
 
 describe('orderSources', () => {
@@ -95,5 +111,12 @@ describe('orderSources', () => {
     const fetchImpl: FetchLike = vi.fn(async () => response(null, { status: 403 }))
     await expect(orderSources(assetUrl, ['https://huggingface.co', 'https://hf-mirror.com'], 1_000, undefined, fetchImpl))
       .resolves.toEqual(['https://huggingface.co/repo/resolve/abc/file.bin', 'https://hf-mirror.com/repo/resolve/abc/file.bin'])
+  })
+
+  it('merges a caller signal into the concurrent probes', async () => {
+    const fetchImpl: FetchLike = vi.fn(async () => response(null, { status: 200 }))
+    await expect(orderSources(assetUrl, ['https://huggingface.co', 'https://hf-mirror.com'], 1_000, new AbortController().signal, fetchImpl))
+      .resolves.toEqual(['https://huggingface.co/repo/resolve/abc/file.bin', 'https://hf-mirror.com/repo/resolve/abc/file.bin'])
+    expect(fetchImpl).toHaveBeenCalled()
   })
 })

@@ -202,6 +202,26 @@ describe('speech-sensevoice plugin', () => {
     expect(ctx.speech.recognizer('sensevoice')).toBeUndefined()
     await ctx.fiber.dispose()
   })
+
+  it('reads live preferences through the registered recognizer while preparing', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SpeechService)
+    const directory = await mkdtemp(join(tmpdir(), 'speech-sv-'))
+    // One unreachable origin: preparation reads the preferences (variant
+    // selection) first, then fails fast on the refused loopback connection
+    // without touching the network.
+    const fiber = ctx.plugin(speechSensevoice, speechSensevoice.Config({
+      dataRoot: directory,
+      origins: ['http://127.0.0.1:9'],
+      probeTimeoutMs: 100,
+    }))
+    await fiber
+    ctx.speech.configure({ recognizer: 'sensevoice' })
+    const preparation = await ctx.speech.prepare('sensevoice')
+    expect(preparation).toMatchObject({ status: 'failed' })
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
 })
 
 describe('pinned release', () => {

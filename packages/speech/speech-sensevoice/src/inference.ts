@@ -63,6 +63,7 @@ export type SherpaBinding = Sherpa
  * @returns the binding's OfflineRecognizer and Vad constructors.
  */
 export function loadSherpaBinding(): SherpaBinding {
+  /* v8 ignore next 1 -- only the real-transcribe e2e loads the native binding; unit suites must not initialize ONNX Runtime. */
   return createRequire(import.meta.url)('sherpa-onnx-node') as Sherpa
 }
 

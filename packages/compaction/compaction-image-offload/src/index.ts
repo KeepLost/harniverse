@@ -108,6 +108,7 @@ async function settleModalityOffload(ctx: Context, session: Session, config: { p
       ?.filter((block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image')
       [decision.target.imageIndex]
     if (image === undefined) {
+      /* v8 ignore next 1 -- resolver targets are minted from this same immutable carrier walk in this call, so the image always exists. */
       throw new Error(`image/offload: modality target ${decision.target.messageSeq}:${decision.target.imageIndex} has no retained image`)
     }
     const path = await attachments.publishFileHandle(image.attachment)

@@ -48,11 +48,15 @@ describe('encodeWav16kMono', () => {
 
 describe('downmixToMono', () => {
   it('returns the single plane unchanged and averages multi-channel planes', () => {
-    const mono = new Float32Array([1, -1])
+    const mono = new Float32Array([1, 2, 3])
     expect(downmixToMono([mono])).toBe(mono)
-    const left = new Float32Array([1, 1])
-    const right = new Float32Array([-1, 3])
+    const left = new Float32Array([-1, 1])
+    const right = new Float32Array([1, 3])
     expect([...downmixToMono([left, right])]).toEqual([0, 2])
+  })
+
+  it('answers an empty plane list with an empty mix', () => {
+    expect(downmixToMono([])).toEqual(new Float32Array(0))
   })
 })
 

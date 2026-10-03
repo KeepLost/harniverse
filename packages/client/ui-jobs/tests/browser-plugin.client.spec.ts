@@ -56,6 +56,18 @@ describe('ui-job browser half', () => {
     expect(headerEntryIds(ctx)).not.toContain('job-list')
   })
 
+  it('resolves the header action inject face off the ledger the way the outlet would', async () => {
+    const { ctx, fiber } = await bench()
+    try {
+      const entry = ctx.slots.entries('conversation.session.header.actions').find(candidate => candidate.options.id === 'job-list')
+      expect(entry).toBeDefined()
+      const injected = (entry as unknown as { inject: () => { api: unknown } }).inject()
+      expect(injected.api).toEqual({ settings: {} })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
     const { ctx, fiber } = await bench()
     const translate = ctx.locale.bind(NS)

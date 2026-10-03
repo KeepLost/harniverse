@@ -76,6 +76,20 @@ class StubEngine extends WorkflowEngine {
       meta: this.requests[Number(String(id).slice(4)) - 1]!.meta,
     }, agent)
   }
+
+  phase(id: WorkflowRunIdType, title: string): void {
+    this.emitWorkflowEvent('workflow/phase', {
+      id,
+      meta: this.requests[Number(String(id).slice(4)) - 1]!.meta,
+    }, title)
+  }
+
+  log(id: WorkflowRunIdType, message: string): void {
+    this.emitWorkflowEvent('workflow/log', {
+      id,
+      meta: this.requests[Number(String(id).slice(4)) - 1]!.meta,
+    }, message)
+  }
 }
 
 async function setup(config?: { toolName?: string; maxResultChars?: number }) {
@@ -138,6 +152,31 @@ describe('dsh-tool-workflow', () => {
       await vi.waitFor(() => {
         expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'completed', detail: 'agents: 3' })
       })
+    } finally {
+      disposeAgent()
+    }
+    await ctx.fiber.dispose()
+  })
+
+  it('streams phases and logs into the background job ring and stops it through kill', async () => {
+    const { ctx, engine, parent, agentKey } = await setup()
+    bindScopeParent(agentKey, scopeOf(ctx) as object)
+    const disposeAgent = ctx.agents.register(parent)
+    try {
+      const pending = execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
+      await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+      engine.phase(WorkflowRunId('run-1'), 'collecting')
+      engine.log(WorkflowRunId('run-1'), 'scanned 3 files')
+      const followed = ctx.jobs.follow(JobId('workflow-1'), 0, parent)
+      expect(followed.text).toContain('phase: collecting')
+      expect(followed.text).toContain('scanned 3 files')
+      ctx.jobs.kill(JobId('workflow-1'), parent, { reason: 'stop requested', reported: true })
+      const result = await pending
+      expect(result.isError).toBe(false)
+      await vi.waitFor(() => {
+        expect(ctx.jobs.get(JobId('workflow-1'), parent)).toMatchObject({ status: 'killed' })
+      })
+      expect(engine.cancels).toContain('stop requested')
     } finally {
       disposeAgent()
     }

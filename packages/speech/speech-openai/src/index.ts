@@ -106,6 +106,7 @@ export async function transcribeThroughChain(
       // request) the remaining gateways would repeat; fail the chain with it.
       throw new Error(`the cloud recognizer rejected the request: ${endpoint} answered HTTP ${String(response.status)}`)
     } catch (error) {
+      /* v8 ignore next 3 -- minted only in this loop and thrown at exhaustion; nothing rethrows it into this catch. */
       if (error instanceof EndpointUnavailableError) {
         lastUnavailable = error
         continue

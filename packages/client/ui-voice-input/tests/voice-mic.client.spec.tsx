@@ -158,6 +158,52 @@ describe('VoiceMicControl state machine', () => {
     expect(view.container.textContent).toContain(t('mic.insertFailed'))
   })
 
+  it('clears the offer once the retry insertion lands', async () => {
+    let accept = false
+    const face = injected({
+      insertText: (_sessionId, text) => {
+        face.insertions.push({ text })
+        return accept
+      },
+    })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    fireEvent.click(await view.findByRole('button', { name: t('mic.stop') }))
+    const retry = await view.findByRole('button', { name: 'recognized text' })
+    fireEvent.click(retry)
+    expect(view.getByRole('button', { name: 'recognized text' })).toBeTruthy()
+    accept = true
+    fireEvent.click(view.getByRole('button', { name: 'recognized text' }))
+    await vi.waitFor(() => { expect(view.queryByRole('button', { name: 'recognized text' })).toBeNull() })
+  })
+
+  it('swallows the mousedown so the composer never loses the draft focus', async () => {
+    const face = injected()
+    const view = mount(face)
+    const button = view.getByRole('button', { name: t('mic.start') })
+    fireEvent.mouseDown(button)
+    expect(view.getByRole('button', { name: t('mic.start') })).toBeTruthy()
+    expect(face.calls).toHaveLength(0)
+  })
+
+  it('surfaces the live phase and a transport failure notice', async () => {
+    const face = injected({
+      api: {
+        speech: {
+          transcribe: () => { throw new Error('socket gone') },
+        },
+      },
+    })
+    const view = mount(face)
+    fireEvent.click(view.getByRole('button', { name: t('mic.start') }))
+    expect(view.getByText(t('mic.requesting')).getAttribute('role')).toBe('status')
+    const stop = await view.findByRole('button', { name: t('mic.stop') })
+    expect(view.getByText(t('mic.recording')).getAttribute('role')).toBe('status')
+    fireEvent.click(stop)
+    await vi.waitFor(() => { expect(view.getByText(`${t('mic.failed')}socket gone`)).toBeTruthy() })
+    expect(face.insertions).toHaveLength(0)
+  })
+
   it('forwards the configured language hint with the transcription request', async () => {
     const face = injected({}, { recognizer: 'sensevoice', language: 'zh' })
     const view = mount(face)
@@ -210,5 +256,21 @@ describe('canonical wire payload', () => {
     const wav = encodeWav16kMono(new Float32Array(8))
     expect(wav.length).toBe(60)
     expect(wav[0]).toBe('R'.charCodeAt(0))
+  })
+})
+
+describe('createRecording failure kinds', () => {
+  it('maps a non-permission getUserMedia failure to unsupported', async () => {
+    const container = mediaContainer()
+    container.getUserMedia = async () => { throw new Error('no audio hardware') }
+    await expect(createRecording(container).start()).rejects.toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('maps a decode failure while stopping to decode', async () => {
+    const container = mediaContainer()
+    container.decode = async () => { throw new Error('corrupt blob') }
+    const capture = createRecording(container)
+    await capture.start()
+    await expect(capture.stop()).rejects.toMatchObject({ kind: 'decode' })
   })
 })

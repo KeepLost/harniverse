@@ -416,4 +416,33 @@ describe('JobListAction two-step stop', () => {
     await act(async () => { fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stopConfirm'] })) })
     expect(screen.getByRole('alert').textContent).toBe('停止失败：wire down')
   })
+
+  it('renders a non-Error kill rejection through its string form', async () => {
+    const api = {
+      jobs: {
+        follow: () => Promise.resolve({ rpcId: 'r', result: { ok: true, value: { text: '', nextOffsetBytes: 0, truncated: false, totalBytes: 0, status: 'running' as const } } }),
+        // oxlint-disable-next-line prefer-promise-reject-errors -- the alert renders non-Error rejections via their string form
+        kill: () => Promise.reject('carrier gone'),
+      },
+    } as never
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stop'] }))
+
+    await act(async () => { fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.stopConfirm'] })) })
+    expect(screen.getByRole('alert').textContent).toBe('停止失败：carrier gone')
+  })
+
+  it('keeps appending after the user scrolls the output pane', async () => {
+    const { api } = fakeJobs(['tick 1\n', 'tick 2\n'])
+    render(<JobListAction {...props([job()], api)} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(within(firstRow()).getByRole('button', { name: zh['row.expand'] }))
+
+    const pane = screen.getByRole('log', { name: zh['output.aria'] })
+    await act(async () => {})
+    fireEvent.scroll(pane)
+    await act(async () => { vi.advanceTimersByTime(500) })
+    expect(pane.textContent).toContain('tick 2\n')
+  })
 })

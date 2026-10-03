@@ -14,6 +14,7 @@ import { ALL_AUTHENTICATION_CAPABILITIES } from '@deepseek-ai/dsh-authentication
 import type { TerminalAttachmentId, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import type { BrowserAttachmentId, HostBrowserPageId } from '@deepseek-ai/dsh-api-browser-controller/types'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import { JobId } from '@deepseek-ai/dsh-jobs'
 
 const sid = (id: string): SessionId => id as SessionId
 
@@ -336,6 +337,40 @@ describe('unary round trip', () => {
       (await c.workspaceGit.commits({ workspaceId })).result,
       (await c.workspaceGit.diff({ workspaceId, path: 'a.md' })).result,
     ]) expect(reasonOf(result)).toBe('workspace Git inspection is unavailable')
+
+    expect(reasonOf((await c.jobs.follow({ sessionId: sid('s1'), jobId: JobId('bash-1') })).result ?? { ok: true, value: 0 }))
+      .toBe('job follow is unavailable')
+    expect(reasonOf((await c.jobs.kill({ sessionId: sid('s1'), jobId: JobId('bash-1') })).result ?? { ok: true, value: 0 }))
+      .toBe('job kill is unavailable')
+    expect(reasonOf((await c.speech.transcribe({ wavBase64: 'x'.repeat(44) })).result ?? { ok: true, value: 0 }))
+      .toBe('speech transcription is unavailable')
+    expect(reasonOf((await c.speech.prepare({})).result ?? { ok: true, value: 0 }))
+      .toBe('speech preparation is unavailable')
+  })
+
+  it('routes the jobs and speech faces through the wire', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const record = recorderInto(seen)
+    const api = scriptedApi()
+    api.jobs = {
+      follow: record('jobs.follow', r => ok(r, { text: 'hello', nextOffsetBytes: 5, truncated: false, totalBytes: 5, status: 'running' as const })),
+      kill: record('jobs.kill', r => ok(r, { result: 'requested' as const })),
+    }
+    api.speech = {
+      transcribe: record('speech.transcribe', r => ok(r, { text: 'recognized' })),
+      prepare: record('speech.prepare', r => ok(r, { status: 'ready' as const })),
+    }
+    const c = client(api)
+    expect((await c.jobs.follow({ sessionId: sid('s1'), jobId: JobId('bash-1'), offsetBytes: 3 })).result)
+      .toEqual({ ok: true, value: { text: 'hello', nextOffsetBytes: 5, truncated: false, totalBytes: 5, status: 'running' } })
+    expect((await c.jobs.kill({ sessionId: sid('s1'), jobId: JobId('bash-1') })).result)
+      .toEqual({ ok: true, value: { result: 'requested' } })
+    expect((await c.speech.transcribe({ wavBase64: 'x'.repeat(44), language: 'zh' })).result)
+      .toEqual({ ok: true, value: { text: 'recognized' } })
+    expect((await c.speech.prepare({})).result)
+      .toEqual({ ok: true, value: { status: 'ready' } })
+    expect(seen.map(entry => entry.method)).toEqual(['jobs.follow', 'jobs.kill', 'speech.transcribe', 'speech.prepare'])
+    expect(seen[0]!.payload).toEqual({ sessionId: 's1', jobId: JobId('bash-1'), offsetBytes: 3 })
   })
 
   it('routes contract discovery, operation reads, subagent history, and unarchive through the wire', async () => {

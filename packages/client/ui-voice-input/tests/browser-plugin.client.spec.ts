@@ -22,7 +22,7 @@ function entryIds(ctx: Context, slot: 'conversation.input.left' | 'settings.sect
 }
 
 /** Boot the browser half over a real slot tree declaring both target seats. */
-async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
+async function bench(options: { bail?: boolean } = {}): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
@@ -32,7 +32,7 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
       'settings.section': { kind: 'list', scope: 'root' },
     },
   } as never, () => null)
-  ctx.provide('sessions', { scope: () => undefined })
+  ctx.provide('sessions', { scope: () => (options.bail ? { bail: () => true } : undefined) })
   ctx.provide('connection', { api: { speech: {} } } as never)
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
@@ -68,6 +68,46 @@ describe('ui-voice-input browser half', () => {
 
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+  })
+
+  it('inject faces resolve off the ledger the way the outlet would', async () => {
+    const { ctx, fiber } = await bench()
+    try {
+      const micEntry = ctx.slots.entries('conversation.input.left').find(entry => entry.options.id === 'voice-input')
+      expect(micEntry).toBeDefined()
+      const mic = ((micEntry as unknown as { inject: () => unknown }).inject as unknown as () => {
+        api: { speech: unknown }
+        createRecording: () => unknown
+        insertText: (sessionId: string, text: string, span: unknown) => boolean
+        hooks: { preferences: unknown }
+      })()
+      expect(mic.api.speech).toEqual({})
+      expect(typeof mic.createRecording).toBe('function')
+      expect(mic.insertText('s1', 'hello', { start: 0, end: 0, draftRev: 1 })).toBe(false)
+      expect(mic.hooks.preferences).toBeDefined()
+
+      const sectionEntry = ctx.slots.entries('settings.section').find(entry => entry.options.id === 'voice')
+      expect(sectionEntry).toBeDefined()
+      expect((sectionEntry!.options as { label?: () => string }).label?.()).toBe(zh['settings.nav'])
+      const section = ((sectionEntry as unknown as { inject: () => unknown }).inject as unknown as () => { scope: unknown; api: unknown })()
+      expect(section.scope).toBeDefined()
+      expect(section.api).toEqual({ speech: {} })
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('inserts the transcript when the session scope accepts the bail event', async () => {
+    const { ctx, fiber } = await bench({ bail: true })
+    try {
+      const micEntry = ctx.slots.entries('conversation.input.left').find(entry => entry.options.id === 'voice-input')
+      const mic = ((micEntry as unknown as { inject: () => unknown }).inject as unknown as () => {
+        insertText: (sessionId: string, text: string, span: unknown) => boolean
+      })()
+      expect(mic.insertText('s1', 'hello', { start: 0, end: 0, draftRev: 1 })).toBe(true)
+    } finally {
+      await fiber.dispose()
+    }
   })
 })
 

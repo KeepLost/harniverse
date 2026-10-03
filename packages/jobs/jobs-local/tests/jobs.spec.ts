@@ -441,6 +441,35 @@ describe('LocalJobRegistry.follow', () => {
     await ctx.fiber.dispose()
   })
 
+  it('drops whole leading chunks before splitting the new head', async () => {
+    const ctx = await harness({ followRingBytes: 10 })
+    let buffer = ''
+    const p = producer({ readOutput: () => { const delta = buffer; buffer = ''; return delta } })
+    const id = ctx.jobs.start(p.spec)
+    buffer = 'aaaa'
+    expect(ctx.jobs.follow(id).text).toBe('aaaa')
+    // Dropping the 4-byte 'aaaa' chunk whole still leaves 2 bytes over the
+    // cap, so the 12-byte head splits: only its last 10 bytes stay retained.
+    buffer = 'bbbbbbbbcccc'
+    const second = ctx.jobs.follow(id, 4)
+    expect(second).toMatchObject({ text: 'bbbbbbcccc', truncated: true, totalBytes: 16, nextOffsetBytes: 16 })
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
+  it('drains every distinct pending delta in one follow pump', async () => {
+    const ctx = await harness()
+    const queue: string[] = []
+    const p = producer({ readOutput: () => queue.shift() ?? '' })
+    const id = ctx.jobs.start(p.spec)
+    queue.push('one', 'two')
+    expect(ctx.jobs.follow(id)).toMatchObject({ text: 'onetwo', totalBytes: 6, nextOffsetBytes: 6 })
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await tick()
+    await ctx.fiber.dispose()
+  })
+
   it('refuses an incoherent offset and an unknown job', async () => {
     const ctx = await harness()
     const p = producer()
