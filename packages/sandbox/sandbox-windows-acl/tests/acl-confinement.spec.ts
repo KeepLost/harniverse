@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 import koffi from 'koffi'
 
 import { grantWrite, revokeWrite } from '../src/acl.ts'
+import { AclWriteGrant } from '../src/index.ts'
 import { allocBytes, ptrAddress } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import * as abi from '../src/win32-abi.ts'
@@ -90,8 +91,12 @@ interface MergeCall {
   trustees: bigint[]
 }
 
-/** The confinement stub: DACL/label content is per-test; every call succeeds. */
-function confinementApi(options: { oldAcl: NativePtr | null; labelAcl: NativePtr | null }): {
+/** The confinement stub: DACL/label content is per-test; every call succeeds until overridden. */
+function confinementApi(options: {
+  oldAcl: NativePtr | null
+  labelAcl: NativePtr | null
+  overrides?: Record<string, unknown>
+}): {
   api: Win32Bindings
   applies: ApplyCall[]
   merges: MergeCall[]
@@ -150,9 +155,19 @@ function confinementApi(options: { oldAcl: NativePtr | null; labelAcl: NativePtr
     }),
     initializeAcl: vi.fn(() => 1),
     addMandatoryAce: vi.fn(() => 1),
+    convertStringSidToSidW: vi.fn((_sid: string, slot: NativePtr) => {
+      koffi.encode(slot, PVOID, ++nextPtr)
+      return 1
+    }),
+    createWellKnownSid: vi.fn((_type: number, _domain: null, sid: NativePtr, _size: NativePtr) => {
+      koffi.encode(sid, PVOID, ++nextPtr)
+      return 1
+    }),
+    isValidSid: vi.fn(() => 1),
     localFree: vi.fn(() => 0n as NativePtr),
     getLastError: vi.fn(() => 5),
     formatMessageW: vi.fn(() => 0),
+    ...options.overrides,
   } as unknown as Win32Bindings
   return { api, applies, merges, labelBuilds }
 }
@@ -239,5 +254,182 @@ describe('enrolled-workspace confinement', () => {
     const { api, applies } = confinementApi({ oldAcl: ownGrant, labelAcl: craftLabelAcl(lowSid) })
     expect(revokeWrite(api, 'C:/ws', workspaceSid)).toBe(true)
     expect(applies[0]?.information).toBe(abi.DACL_SECURITY_INFORMATION)
+  })
+
+})
+describe('enrolled-workspace confinement failure paths', () => {
+  const workspaceSid = craftSid([0, 0, 0, 0, 0, 5])
+  const lowSid = craftSid([0, 0, 0, 0, 0, 16])
+  const worldSid = craftSid([0, 0, 0, 0, 0, 1])
+
+  it('buildLowLabelAcl fails closed on a zero GetLengthSid', () => {
+    const { api } = confinementApi({ oldAcl: null, labelAcl: null, overrides: { getLengthSid: vi.fn(() => 0) } })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/GetLengthSid/u)
+  })
+
+  it('buildLowLabelAcl fails closed on a null LocalAlloc', () => {
+    const { api } = confinementApi({ oldAcl: null, labelAcl: null, overrides: { localAlloc: vi.fn(() => 0n as NativePtr) } })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/LocalAlloc/u)
+  })
+
+  it('buildLowLabelAcl releases the half-built ACL when InitializeAcl fails', () => {
+    const frees: Array<bigint | number> = []
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: { initializeAcl: vi.fn(() => 0), localFree: vi.fn((ptr: bigint | number) => { frees.push(ptr); return 0n as NativePtr }) },
+    })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/InitializeAcl/u)
+    expect(frees.length).toBeGreaterThan(0)
+  })
+
+  it('buildLowLabelAcl releases the half-built ACL when AddMandatoryAce fails', () => {
+    const { api } = confinementApi({ oldAcl: null, labelAcl: null, overrides: { addMandatoryAce: vi.fn(() => 0) } })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/AddMandatoryAce/u)
+  })
+
+  it('a label-build failure inside grantWrite releases the read descriptor before propagating', () => {
+    const frees: Array<bigint | number> = []
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: {
+        getLengthSid: vi.fn((): number => { throw new Error('GetLengthSid blew up') }),
+        localFree: vi.fn((ptr: bigint | number) => { frees.push(ptr); return 0n as NativePtr }),
+      },
+    })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/GetLengthSid blew up/u)
+    expect(frees).toContain(50n) // the descriptor allocation the read owned
+  })
+
+  it('a failed merge frees the built label ACL alongside the descriptor', () => {
+    const frees: Array<bigint | number> = []
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: {
+        setEntriesInAclW: vi.fn((_count: number, _entries: Buffer, _old: unknown, _newAcl: NativePtr) => 5),
+        localFree: vi.fn((ptr: bigint | number) => { frees.push(ptr); return 0n as NativePtr }),
+      },
+    })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/SetEntriesInAclW/u)
+    expect(frees).toContain(50n) // descriptor
+    expect(frees.length).toBe(2) // descriptor + label ACL
+  })
+
+  it('a null merged ACL frees the built label ACL alongside the descriptor', () => {
+    const frees: Array<bigint | number> = []
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: {
+        setEntriesInAclW: vi.fn((_count: number, _entries: Buffer, _old: unknown, newAcl: NativePtr) => {
+          koffi.encode(newAcl, PVOID, 0n)
+          return 0
+        }),
+        localFree: vi.fn((ptr: bigint | number) => { frees.push(ptr); return 0n as NativePtr }),
+      },
+    })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/null new ACL/u)
+    expect(frees.length).toBe(2)
+  })
+
+  it('a failed apply reports SetNamedSecurityInfoW and still frees the label ACL', () => {
+    const frees: Array<bigint | number> = []
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: {
+        setNamedSecurityInfoW: vi.fn(() => 5),
+        localFree: vi.fn((ptr: bigint | number) => { frees.push(ptr); return 0n as NativePtr }),
+      },
+    })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/SetNamedSecurityInfoW/u)
+    expect(frees.length).toBe(3) // descriptor + new ACL + label ACL
+  })
+
+  it('a non-null label-ACL free failure reports LocalFree after the apply', () => {
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: { localFree: vi.fn((ptr: bigint | number) => (ptr === 101n ? 999n : 0n) as NativePtr) },
+    })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/label ACL/u)
+  })
+
+  it('the confined skip does not fire when the deny is missing (grant + exact label stand)', () => {
+    const oldAcl = craftAcl([grantAce(workspaceSid)])
+    const { api, merges } = confinementApi({ oldAcl, labelAcl: craftLabelAcl(lowSid) })
+    grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid)
+    expect(merges).toHaveLength(1)
+  })
+
+  it('the confined skip does not fire when the label names another SID', () => {
+    const oldAcl = craftAcl([
+      { sid: worldSid, type: abi.ACCESS_DENIED_ACE_TYPE, flags: abi.CONTAINER_INHERIT_ACE, mask: abi.FILE_DELETE_CHILD },
+      { sid: workspaceSid, type: abi.ACCESS_ALLOWED_ACE_TYPE, flags: abi.SUB_CONTAINERS_AND_OBJECTS_INHERIT, mask: abi.GRANT_MASK },
+    ])
+    const otherLow = craftSid([0, 0, 0, 0, 0, 17])
+    const { api, merges } = confinementApi({ oldAcl, labelAcl: craftLabelAcl(otherLow) })
+    grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid)
+    expect(merges).toHaveLength(1)
+  })
+
+  it('the legacy skip still fires on the exact grant alone', () => {
+    const oldAcl = craftAcl([grantAce(workspaceSid)])
+    const { api, applies, merges } = confinementApi({ oldAcl, labelAcl: null })
+    grantWrite(api, 'C:/ws', workspaceSid)
+    expect(merges).toHaveLength(0)
+    expect(applies).toHaveLength(0)
+  })
+
+  it('malformed ACL headers read as no-match: the implausible sizes fall back to the merge path', () => {
+    // AclSize below the 8-byte header.
+    const tiny = allocBytes(32)
+    koffi.encode(tiny, 'uint8', 2)
+    koffi.encode(tiny, 2, 'uint16', 4)
+    koffi.encode(tiny, 4, 'uint16', 1)
+    const { api: tinyApi, merges: tinyMerges } = confinementApi({ oldAcl: tiny, labelAcl: null })
+    grantWrite(tinyApi, 'C:/ws', workspaceSid)
+    expect(tinyMerges).toHaveLength(1)
+
+    // An ACE claiming a size smaller than its own header.
+    const stubAce = allocBytes(32)
+    koffi.encode(stubAce, 'uint8', 2)
+    koffi.encode(stubAce, 2, 'uint16', 24)
+    koffi.encode(stubAce, 4, 'uint16', 1)
+    koffi.encode(stubAce, 8 + 2, 'uint16', 4)
+    const { api: stubApi, merges: stubMerges } = confinementApi({ oldAcl: stubAce, labelAcl: null })
+    grantWrite(stubApi, 'C:/ws', workspaceSid)
+    expect(stubMerges).toHaveLength(1)
+
+    // An ACE running past the declared ACL size.
+    const overrun = allocBytes(32)
+    koffi.encode(overrun, 'uint8', 2)
+    koffi.encode(overrun, 2, 'uint16', 24)
+    koffi.encode(overrun, 4, 'uint16', 1)
+    koffi.encode(overrun, 8 + 2, 'uint16', 64)
+    const { api: overrunApi, merges: overrunMerges } = confinementApi({ oldAcl: overrun, labelAcl: null })
+    grantWrite(overrunApi, 'C:/ws', workspaceSid)
+    expect(overrunMerges).toHaveLength(1)
+  })
+
+  it('a confined AclWriteGrant materializes and disposes through the confinement pair', () => {
+    const { api, applies } = confinementApi({ oldAcl: null, labelAcl: null })
+    const grant = AclWriteGrant.create('S-1-4-9000-9', { confined: true, api })
+    grant.add('C:/ws-temp', false)
+    expect(applies).toHaveLength(1)
+    expect(applies[0]?.information).toBe(abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION)
+    grant.dispose()
+  })
+
+  it('a confined AclWriteGrant create fails closed when the world SID fails: the Low SID is released first', () => {
+    const frees: Array<bigint | number> = []
+    const createWellKnownSid = vi.fn((_type: number) => 1)
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: {
+        createWellKnownSid,
+        localFree: vi.fn((ptr: bigint | number) => { frees.push(ptr); return 0n as NativePtr }),
+      },
+    })
+    createWellKnownSid.mockImplementationOnce(() => 1) // the Low label SID succeeds
+    createWellKnownSid.mockImplementationOnce(() => 0) // the world SID fails
+    expect(() => AclWriteGrant.create('S-1-4-9000-10', { confined: true, api })).toThrow(/CreateWellKnownSid/u)
+    expect(frees.length).toBe(2) // Low label SID, then the parsed write SID
   })
 })

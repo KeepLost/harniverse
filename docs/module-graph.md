@@ -439,7 +439,6 @@ flowchart TD
   pkg_host_webserver --> pkg_invariants
   pkg_ptc_runtime --> pkg_invariants
   pkg_plugin_diagnostics --> pkg_invariants
-  pkg_sandbox_windows_acl --> pkg_invariants
   pkg_speech --> pkg_invariants
   pkg_remote_hosts_ssh --> pkg_invariants
   pkg_storage --> pkg_invariants
@@ -626,6 +625,8 @@ flowchart TD
   pkg_sandbox --> pkg_invariants
   pkg_sandbox --> pkg_llm
   pkg_sandbox --> pkg_session
+  pkg_sandbox_windows_acl --> pkg_invariants
+  pkg_sandbox_windows_acl --> pkg_skill
   pkg_session_persistence --> pkg_brand
   pkg_session_persistence --> pkg_invariants
   pkg_session_persistence --> pkg_session
@@ -1966,7 +1967,6 @@ flowchart TD
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | `runtime-diagnostics` | [`invariants`](../packages/runtime-diagnostics/invariants) |
-| [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`speech`](../packages/speech/speech) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`storage`](../packages/storage/storage) | `storage` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2028,6 +2028,7 @@ flowchart TD
 | [`persona`](../packages/preset/persona) | `preset` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
 | [`ptc-runtime-python`](../packages/ptc-runtime/ptc-runtime-python) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants), [`skill`](../packages/skill/skill) |
 | [`session-persistence`](../packages/session/session-persistence) | `session` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`session-projection`](../packages/session/session-projection) | `session` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
 | [`acp-snapshot`](../packages/test-support/acp-snapshot) | `test-support` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |

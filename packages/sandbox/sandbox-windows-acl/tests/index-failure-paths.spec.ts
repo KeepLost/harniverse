@@ -34,6 +34,11 @@ interface HappyStubs {
   createRestrictedToken: MockFn
   createJobObjectW: MockFn
   getNamedSecurityInfoW: MockFn
+  createWellKnownSid: MockFn
+  setTokenInformation: MockFn
+  localAlloc: MockFn
+  initializeAcl: MockFn
+  addMandatoryAce: MockFn
 }
 
 const state = vi.hoisted(() => ({ stubs: undefined as HappyStubs | undefined }))
@@ -85,9 +90,10 @@ function happyStubs(): HappyStubs {
   const createFileW = vi.fn(() => fresh())
   const getNamedSecurityInfoW = vi.fn((
     _path: unknown, _type: unknown, _info: unknown, _owner: unknown, _group: unknown,
-    dacl: NativePtr, _sacl: unknown, descriptor: NativePtr,
+    dacl: NativePtr, sacl: NativePtr, descriptor: NativePtr,
   ) => {
     koffi.encode(dacl, PVOID, 0n)
+    koffi.encode(sacl, PVOID, 0n)
     koffi.encode(descriptor, PVOID, 0n)
     return 0
   })
@@ -149,6 +155,9 @@ function happyStubs(): HappyStubs {
   const assignProcessToJobObject = vi.fn(() => 1)
   const resumeThread = vi.fn(() => 0)
   const getStdHandle = vi.fn(() => fresh())
+  const localAlloc = vi.fn(() => fresh())
+  const initializeAcl = vi.fn(() => 1)
+  const addMandatoryAce = vi.fn(() => 1)
   const localFree = vi.fn(() => 0n)
   const closeHandle = vi.fn(() => 1)
   const getLastError = vi.fn(() => abi.ERROR_BROKEN_PIPE) // the drains' clean EOF
@@ -162,11 +171,13 @@ function happyStubs(): HappyStubs {
     setTokenInformation, createPipe, setHandleInformation, createProcessAsUserW,
     peekNamedPipe, readFile, waitForSingleObject, terminateProcess, getExitCodeProcess, createJobObjectW,
     setInformationJobObject, assignProcessToJobObject, resumeThread, getStdHandle,
+    localAlloc, initializeAcl, addMandatoryAce,
     localFree, closeHandle, getLastError, formatMessageW,
   } as unknown as Win32Bindings
   return {
     api, setNamedSecurityInfoW, convertStringSidToSidW, closeHandle, localFree,
     createRestrictedToken, createJobObjectW, getNamedSecurityInfoW,
+    createWellKnownSid, setTokenInformation, localAlloc, initializeAcl, addMandatoryAce,
   }
 }
 
@@ -227,6 +238,51 @@ describe('AclSandbox init', () => {
     await sandbox.init()
     expect(sandbox.tempDir).toBe(resolve(temp))
     expect(setNamedSecurityInfoW).toHaveBeenCalledTimes(2)
+  })
+
+  it('lowIntegrity lowers the token and applies label-carrying grants on the LABEL bit', async () => {
+    const { setNamedSecurityInfoW, createWellKnownSid, setTokenInformation } = state.stubs as HappyStubs
+    const workspace = scratch()
+    const temp = scratch()
+    const sandbox = new AclSandbox({
+      writableDirs: [workspace],
+      tempDir: temp,
+      writeSid: 'S-1-4-9000-3',
+      tempWriteSid: 'S-1-4-9000-3-1',
+      mode: 'workspace-write',
+      lowIntegrity: true,
+    })
+    await sandbox.init()
+    expect(sandbox.tempDir).toBe(resolve(temp))
+    // The Low label SID joins the well-known allocations (world SID, then logon SID).
+    expect(vi.mocked(createWellKnownSid).mock.calls.some(call => call[0] === abi.WinLowLabelSid)).toBe(true)
+    const integrity = vi.mocked(setTokenInformation).mock.calls.filter(([, cls]) => cls === abi.TokenIntegrityLevel)
+    expect(integrity).toHaveLength(1)
+    // Both grants (workspace + temp) apply DACL and LABEL together with a non-null SACL.
+    const applies = vi.mocked(setNamedSecurityInfoW).mock.calls
+    expect(applies).toHaveLength(2)
+    for (const call of applies) {
+      expect(call[2]).toBe(abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION)
+      expect(call[6]).not.toBeNull()
+    }
+    sandbox.dispose()
+  })
+
+  it('lowIntegrity with manageDacls false still lowers the token but applies no grants', async () => {
+    const { setNamedSecurityInfoW, setTokenInformation } = state.stubs as HappyStubs
+    const workspace = scratch()
+    const sandbox = new AclSandbox({
+      writableDirs: [workspace],
+      tempDir: null,
+      writeSid: 'S-1-4-9000-4',
+      mode: 'workspace-write',
+      manageDacls: false,
+      lowIntegrity: true,
+    })
+    await sandbox.init()
+    expect(setNamedSecurityInfoW).not.toHaveBeenCalled()
+    expect(vi.mocked(setTokenInformation).mock.calls.some(([, cls]) => cls === abi.TokenIntegrityLevel)).toBe(true)
+    sandbox.dispose()
   })
 
   it('requires an explicit private temp directory or null under workspace-write', () => {

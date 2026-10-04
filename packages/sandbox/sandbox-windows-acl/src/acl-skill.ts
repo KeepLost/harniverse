@@ -66,6 +66,7 @@ export function registerAclDiagnosisSkill(ctx: Context): void {
       list: () => Promise.resolve([candidate]),
       async get(entry, options) {
         const entryPath = entry.locator
+        /* v8 ignore next -- the registry always passes this provider's own string locator; the guard narrows the unknown-typed field. */
         if (typeof entryPath !== 'string') return undefined
         const { rank: _rank, locator: _locator, ...summary } = entry
         const raw = await readFile(entryPath, { encoding: 'utf8', signal: options.signal })

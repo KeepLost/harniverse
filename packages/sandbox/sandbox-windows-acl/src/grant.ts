@@ -70,14 +70,19 @@ export class AclWriteGrant {
     const sidPtr = decodePtr(sidSlot)
     if (sidPtr === null) throwLastError(bindings, 'ConvertStringSidToSidW', `null SID for ${writeSid}`)
     if (options.confined !== true) return new AclWriteGrant(bindings, sidPtr, writeSid, undefined, undefined)
-    const lowLabelSidPtr = makeWellKnownSid(bindings, abi.WinLowLabelSid)
     try {
-      const worldSidPtr = makeWellKnownSid(bindings, abi.WinWorldSid)
-      return new AclWriteGrant(bindings, sidPtr, writeSid, lowLabelSidPtr, worldSidPtr)
+      const lowLabelSidPtr = makeWellKnownSid(bindings, abi.WinLowLabelSid)
+      try {
+        const worldSidPtr = makeWellKnownSid(bindings, abi.WinWorldSid)
+        return new AclWriteGrant(bindings, sidPtr, writeSid, lowLabelSidPtr, worldSidPtr)
+      } catch (error) {
+        // The Low label SID is LocalAlloc'd: release it before the failure
+        // propagates to the sidPtr release below.
+        bindings.localFree(lowLabelSidPtr)
+        throw error
+      }
     } catch (error) {
-      // The Low label SID is LocalAlloc'd: release it before the world-SID
-      // failure propagates to the sidPtr release below.
-      bindings.localFree(lowLabelSidPtr)
+      bindings.localFree(sidPtr)
       throw error
     }
   }
