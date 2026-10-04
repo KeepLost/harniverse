@@ -23,7 +23,7 @@ export interface DesktopLoginShellConfig {
 }
 
 /** One candidate shell that did not produce an environment. */
-export interface DesktopLoginShellFailure {
+interface DesktopLoginShellFailure {
   readonly shell: string
   /**
    * `exit <code>`, terminating signal name, spawn error, `timeout`, `aborted`, or `unparsed`

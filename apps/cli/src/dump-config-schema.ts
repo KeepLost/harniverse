@@ -27,6 +27,7 @@ export async function runDumpConfigSchema(
 ): Promise<void> {
   const loaded = prepareProfile(profile, true)
   const layers = collectConfigDumpLayers(loaded, false, patches)
+  // oxlint-disable-next-line typescript/unbound-method -- Saved only for exact restoration, never called unbound.
   const stdoutWrite = process.stdout.write
   let dump: ConfigSchemaDump
   // Trusted module diagnostics must not precede the JSON document on stdout.

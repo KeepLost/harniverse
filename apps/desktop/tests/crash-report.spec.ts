@@ -72,7 +72,7 @@ describe('crash report files', () => {
     expect(written).toBeDefined()
     expect(readdirSync(path)).toHaveLength(1)
     expect(readFileSync(written!, 'utf8')).toContain('source: host')
-    expect(statSync(written!).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect(statSync(written!).mode & 0o777).toBe(0o600)
     // The `wx` flag keeps a repeated write from clobbering the first report.
     expect(await writeCrashReport(path, input())).toBeUndefined()
   })

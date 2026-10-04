@@ -539,7 +539,7 @@ export class DesktopShell {
     })
     contents.on('render-process-gone', (_event, details) => {
       if (this.quitting || window !== this.window) return
-      this.reportFatal(new Error(`Desktop renderer exited: ${String(details.reason)}`), 'renderer')
+      this.reportFatal(new Error(`Desktop renderer exited: ${details.reason}`), 'renderer')
     })
     contents.on('unresponsive', () => { this.tray?.setToolTip(this.copy.tooltipUnresponsive) })
     contents.on('responsive', () => { this.tray?.setToolTip('Harniverse') })

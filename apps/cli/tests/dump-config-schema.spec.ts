@@ -98,7 +98,7 @@ describe('runDumpConfigSchema', () => {
     await runDumpConfigSchema(profileName, [])
     expect(process.exitCode).toBe(undefined)
     expect(stdout.startsWith('{\n  "$schema"')).toBe(true)
-    const document: ConfigSchemaDump = JSON.parse(stdout)
+    const document = JSON.parse(stdout) as ConfigSchemaDump
     expect(document.$schema).toBe('https://json-schema.org/draft/2020-12/schema')
     expect(document.title).toBe(`Cordis configuration for profile ${profileName}`)
     expect(document['x-cordis'].complete).toBe(true)
@@ -126,7 +126,7 @@ describe('runDumpConfigSchema', () => {
     writeFileSync(join(profileDir, 'cordis.patch.yml'), `- insert:\n    - id: noisy\n      name: ${packageName}/noisy\n`)
     await runDumpConfigSchema(profileName, [])
     expect(stderr).toBe(`imported ${packageName}/noisy\n`)
-    const document: ConfigSchemaDump = JSON.parse(stdout)
+    const document = JSON.parse(stdout) as ConfigSchemaDump
     expect(document['x-cordis'].complete).toBe(true)
     // The bundle layer's row stays first; the profile patch's noisy row appends after it.
     expect(document['x-cordis'].entries.map(({ path, id }) => ({ path, id }))).toEqual([
@@ -142,7 +142,7 @@ describe('runDumpConfigSchema', () => {
     await runDumpConfigSchema(profileName, [])
     expect(process.exitCode).toBe(1)
     expect(stderr).toBe('dsh: error: [/0] Config is not a native Schemastery schema\n')
-    const document: ConfigSchemaDump = JSON.parse(stdout)
+    const document = JSON.parse(stdout) as ConfigSchemaDump
     expect(document['x-cordis'].complete).toBe(false)
     expect(document['x-cordis'].entries[0]).toMatchObject({ path: '/0', status: 'unsupported', configRef: '#/$defs/unknownConfig' })
   })
@@ -154,7 +154,7 @@ describe('runDumpConfigSchema', () => {
     await runDumpConfigSchema(profileName, [overlay])
     expect(process.exitCode).toBe(undefined)
     expect(stderr).toBe('dsh: warning: patch: entry "missing" not found\n')
-    const document: ConfigSchemaDump = JSON.parse(stdout)
+    const document = JSON.parse(stdout) as ConfigSchemaDump
     expect(document['x-cordis'].complete).toBe(true)
     expect(document['x-cordis'].diagnostics).toEqual([{ level: 'warning', message: 'patch: entry "missing" not found' }])
   })
