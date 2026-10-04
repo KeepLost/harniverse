@@ -838,6 +838,29 @@ describe('watchWorkspaceFiles generator boundary', () => {
     }
   })
 
+  it('refuses a target whose canonical resolution differs from its lexical path (seam-driven)', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      writeFileSync(join(project, 'linked.md'), 'x')
+      // Any resolver that canonicalizes to a different path is a symbolic
+      // prefix; the refusal must not depend on the platform granting symlink
+      // privileges to the test process.
+      const realpathSeam = (async (path: string) => (
+        path === join(project, 'linked.md') ? join(project, 'elsewhere.md') : realpath(path)
+      )) as typeof realpath
+      const watchFeed = openFeed(project, 'linked.md', { realpath: realpathSeam })
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceInspectorError)
+      if (!(failure instanceof WorkspaceInspectorError)) throw new Error('unreachable')
+      expect(failure.code).toBe('workspace-path-invalid')
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('reports an unresolvable anchor as not readable when realpath fails (seam-driven)', async () => {
     const root = freshRoot()
     try {

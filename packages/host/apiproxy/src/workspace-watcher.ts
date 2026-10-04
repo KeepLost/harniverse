@@ -217,6 +217,10 @@ class TargetWatch {
       await new Promise<void>((resolve) => { this.wake = resolve })
       this.wake = undefined
     }
+    /* v8 ignore next -- true only when a close lands while a pull is parked
+       between wake settlements; that parked window is scheduler-dependent
+       (CI-documented drift on the same commit), so the arm is raced, not
+       driven. */
     if (this.stopped) return false
     this.settled = false
     return true
