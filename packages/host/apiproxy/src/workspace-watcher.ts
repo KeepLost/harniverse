@@ -39,6 +39,10 @@ export interface WorkspaceWatchOptions {
   debounceMs?: number
   /** fs.watch boundary; defaults to node:fs watch with a non-persistent handle. */
   open?: WatchOpener
+  /** Anchor-resolution lstat boundary; defaults to node:fs/promises lstat. */
+  readonly lstat?: typeof lstat
+  /** Anchor-resolution realpath boundary; defaults to node:fs/promises realpath. */
+  readonly realpath?: typeof realpath
 }
 
 /** Watch initialization refusal mapped onto the `workspace-watch-unsupported` wire error. */
@@ -170,6 +174,9 @@ class TargetWatch {
   readonly target: string
   private readonly debounceMs: number
   private readonly open: WatchOpener
+  /** Anchor-resolution stat boundaries, injectable for cross-platform error-code tests. */
+  private readonly lstat: typeof lstat
+  private readonly realpath: typeof realpath
   private watcher: WatchHandle | undefined
   private watcherDir: string | undefined
   /** `/`-joined missing path the current watcher filters on ('' = watching the target itself). */
@@ -189,6 +196,8 @@ class TargetWatch {
     this.target = relativePath(root, path)
     this.debounceMs = options.debounceMs ?? DEFAULT_FILE_WATCH_DEBOUNCE_MS
     this.open = options.open ?? openNodeWatch
+    this.lstat = options.lstat ?? lstat
+    this.realpath = options.realpath ?? realpath
   }
 
   /**
@@ -329,7 +338,7 @@ class TargetWatch {
     let current = this.target
     while (true) {
       signal.throwIfAborted()
-      const entry = await lstat(current).catch((error: unknown) => {
+      const entry = await this.lstat(current).catch((error: unknown) => {
         const code = (error as NodeJS.ErrnoException).code
         if (code === 'ENOENT' || code === 'ENOTDIR') return null
         throw new WorkspaceInspectorError(
@@ -339,7 +348,7 @@ class TargetWatch {
         )
       })
       if (entry !== null) {
-        const canonical = await realpath(current).catch(() => {
+        const canonical = await this.realpath(current).catch(() => {
           throw new WorkspaceInspectorError(
             'workspace-entry-not-readable',
             `workspace entry ${JSON.stringify(this.requestPath)} cannot be resolved`,

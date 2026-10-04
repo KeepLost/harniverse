@@ -6,6 +6,7 @@
  */
 
 import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, watch as watchNode, writeFileSync } from 'node:fs'
+import { lstat, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -811,6 +812,50 @@ describe('watchWorkspaceFiles generator boundary', () => {
       } finally {
         await watchFeed.dispose()
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('treats a path segment through a file as a missing anchor (ENOTDIR, seam-driven)', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      writeFileSync(join(project, 'plain.md'), 'x')
+      const enotdir = Object.assign(new Error('not a directory'), { code: 'ENOTDIR' })
+      const lstatSeam = (async (path: string) => {
+        if (path === join(project, 'plain.md', 'child.md')) throw enotdir
+        return lstat(path)
+      }) as typeof lstat
+      const watchFeed = openFeed(project, 'plain.md/child.md', { lstat: lstatSeam })
+      // ENOTDIR means "no entry here": the anchor walks up and watches the
+      // existing parent, so the feed opens instead of failing.
+      expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reports an unresolvable anchor as not readable when realpath fails (seam-driven)', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      writeFileSync(join(project, 'looped.md'), 'x')
+      const realpathSeam = (async (path: string) => {
+        if (path === join(project, 'looped.md')) {
+          throw Object.assign(new Error('too many levels of symbolic links'), { code: 'ELOOP' })
+        }
+        return realpath(path)
+      }) as typeof realpath
+      const watchFeed = openFeed(project, 'looped.md', { realpath: realpathSeam })
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceInspectorError)
+      if (!(failure instanceof WorkspaceInspectorError)) throw new Error('unreachable')
+      expect(failure.code).toBe('workspace-entry-not-readable')
+      await watchFeed.dispose()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
