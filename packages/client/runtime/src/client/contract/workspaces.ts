@@ -11,6 +11,7 @@ import type {
   WorkspaceGitStatusEntry, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import type { WorkspaceFileWatch } from '../workspaces/change-feed.ts'
 
 /**
  * Optional glob scoping for one Workspace file search.
@@ -99,6 +100,17 @@ export interface IWorkspaces {
     bytes: number
     truncated: boolean
   }>
+  /**
+   * Follow filesystem changes under one Workspace directory (the Host watch
+   * contract): one subscription per watched directory whose first frame is
+   * `ready` and whose later `change` frames name changed absolute paths;
+   * aborting `signal` tears the subscription down. Typed failures throw with
+   * code `watch-unsupported`, `not-found`, or `outside-workspace`.
+   *
+   * Absent while the Host watch transport has not shipped: consumers treat
+   * the gap as `watch-unsupported` and fall back to manual refresh.
+   */
+  watchFiles?: WorkspaceFileWatch
   /** Read one complete, bounded image or PDF inside a registered Workspace. */
   readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
     path: string

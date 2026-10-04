@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { WorkspaceFileEntry } from './workspace-files.ts'
+import type { WorkspaceFileEntry, WorkspaceFileWatchFrame } from './workspace-files.ts'
+import type { WorkspaceFilesApi } from './workspace-files.ts'
 import { WORKSPACE_GLOB_LIST_LIMIT, WORKSPACE_GLOB_PATTERN_LIMIT } from './workspace-files.ts'
+import { rpcErrorSchema } from './rpc.schema.ts'
 import { workspaceIdSchema } from './workspace.schema.ts'
 
 const workspaceFileEntrySchema = z.object({
@@ -73,3 +75,30 @@ export const workspaceFilesReadBinaryValueSchema = z.object({
   mediaType: z.string().min(1),
   bytes: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.files.readBinary'>>>
+
+/**
+ * Wire validator for one file-watch stream open (the no-envelope GET query
+ * carrier): a registered workspace id plus an optional workspace-relative
+ * target whose omission addresses the workspace root.
+ */
+export const workspaceFilesWatchRequestSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  path: z.string().optional(),
+}) satisfies z.ZodType<Wire<Parameters<WorkspaceFilesApi['watchFiles']>[0]['payload']>>
+
+/**
+ * Wire validator for one file-watch stream frame (the SSE payload envelope's
+ * inner value): `ready`/`change` are kind-discriminated contract payloads,
+ * and the shared `stream/error` member closes a failed stream.
+ */
+export const workspaceFilesWatchFrameSchema = z.union([
+  z.object({ kind: z.literal('ready') }),
+  z.object({
+    kind: z.literal('change'),
+    change: z.union([
+      z.object({ absolutePath: z.string(), version: z.string() }),
+      z.object({ absolutePath: z.string(), absent: z.literal(true) }),
+    ]),
+  }),
+  z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
+]) as unknown as z.ZodType<WorkspaceFileWatchFrame>

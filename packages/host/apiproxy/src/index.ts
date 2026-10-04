@@ -20,6 +20,9 @@ import {
   createApiProxy, DEFAULT_COLD_BLANK_PROBE_MAX_BYTES, DEFAULT_STREAM_QUEUE_MAX_FRAMES,
 } from './api-proxy.ts'
 import {
+  DEFAULT_FILE_WATCH_DEBOUNCE_MS, DEFAULT_FILE_WATCH_MAX_PER_WORKSPACE,
+} from './workspace-watcher.ts'
+import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   type SessionLogCompressionLevel,
 } from './session-export.ts'
@@ -63,6 +66,19 @@ export interface Config {
   coldBlankProbeMaxBytes?: number
   /** Maximum retained frames per live stream before it fails for resumable reconnect. @default 1024 */
   streamQueueMaxFrames?: number
+  /**
+   * Trailing coalescing window in milliseconds for one workspace file watch
+   * burst: raw watcher events inside the window collapse into one change
+   * frame. Protocol cadence stays fixed; this tunes host-side watcher noise.
+   * @default 50
+   */
+  fileWatchDebounceMs?: number
+  /**
+   * Maximum concurrent workspace file watch subscriptions one workspace may
+   * hold; an additional open fails with `workspace-watch-limit-reached`.
+   * @default 64
+   */
+  fileWatchMaxPerWorkspace?: number
 }
 
 /**
@@ -82,6 +98,8 @@ export class ApiProxyService extends Service implements ApiProxy {
       .default(DEFAULT_SESSION_LOG_COMPRESSION_LEVEL) as z<SessionLogCompressionLevel>,
     coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
     streamQueueMaxFrames: z.natural().min(1).default(DEFAULT_STREAM_QUEUE_MAX_FRAMES),
+    fileWatchDebounceMs: z.natural().min(1).default(DEFAULT_FILE_WATCH_DEBOUNCE_MS),
+    fileWatchMaxPerWorkspace: z.natural().min(1).default(DEFAULT_FILE_WATCH_MAX_PER_WORKSPACE),
   })
 
   readonly sessions: ApiProxy['sessions']
@@ -120,6 +138,12 @@ export class ApiProxyService extends Service implements ApiProxy {
       ...(config.streamQueueMaxFrames === undefined
         ? {}
         : { streamQueueMaxFrames: config.streamQueueMaxFrames }),
+      ...(config.fileWatchDebounceMs === undefined
+        ? {}
+        : { fileWatchDebounceMs: config.fileWatchDebounceMs }),
+      ...(config.fileWatchMaxPerWorkspace === undefined
+        ? {}
+        : { fileWatchMaxPerWorkspace: config.fileWatchMaxPerWorkspace }),
     })
     this.sessions = api.sessions
     if (api.api === undefined || api.operations === undefined) throw new Error('api-proxy: contract and operation surfaces were not created')

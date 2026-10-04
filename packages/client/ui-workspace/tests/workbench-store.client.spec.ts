@@ -107,6 +107,14 @@ describe('createWorkspaceWorkbenchStore', () => {
     })
   })
 
+  it('defaults accounts to automatic file watching and records the manual drop', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.ensureWorkspace('a')
+    expect(store.getSnapshot().byWorkspace.a?.fileWatch).toBe('auto')
+    actions.setFileWatch('a', 'manual')
+    expect(store.getSnapshot().byWorkspace.a?.fileWatch).toBe('manual')
+  })
+
   it('reselects the previous tab after closing the active last tab', () => {
     const { store, actions } = createWorkspaceWorkbenchStore().create()
     actions.openTab('a', { id: 'one', path: 'one', title: 'one', kind: 'text', loading: false })

@@ -38,6 +38,7 @@ import type {
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import {
   compileGlobFilter, WORKSPACE_SEARCH_DEFAULT_EXCLUDES,
 } from '@deepseek-ai/dsh-host-apiproxy/api/workspace-glob'
@@ -1789,6 +1790,46 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       details: { workspaceId: request.payload.workspaceId },
     })
   }
+  /**
+   * Fixture watch stream: one closing frame, matching the real host's opener
+   * errors (the fixture keeps no filesystem to observe).
+   */
+  const fixtureWatchStream = (
+    request: RpcRequest<{ workspaceId: WorkspaceId; path?: string }>,
+    signal: AbortSignal,
+  ): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>> => {
+    const known = workspaces.some(workspace => workspace.workspaceId === request.payload.workspaceId)
+    const frame: RpcRequest<WorkspaceFileWatchFrame> = {
+      rpcId: RpcId(randomUuid()),
+      payload: { type: 'stream/error', error: signal.aborted
+        ? { code: 'cancelled', message: 'fixture Workspace watch was aborted', details: {} }
+        : known
+          ? {
+            code: 'workspace-watch-unsupported',
+            message: 'fixture workspaces cannot be watched',
+            details: { workspaceId: request.payload.workspaceId, path: request.payload.path ?? '' },
+          }
+          : {
+            code: 'workspace-not-found',
+            message: `workspace "${request.payload.workspaceId}" not found`,
+            details: { workspaceId: request.payload.workspaceId },
+          } },
+    }
+    let delivered = false
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<RpcRequest<WorkspaceFileWatchFrame>> {
+        return {
+          next: () => {
+            const result = delivered
+              ? { done: true as const, value: undefined }
+              : { done: false as const, value: frame }
+            delivered = true
+            return Promise.resolve(result)
+          },
+        }
+      },
+    }
+  }
   const setRunning = (id: SessionId, running: boolean): void => {
     const summary = summaryOf(id)
     if (summary === undefined || summary.running === running) return
@@ -3051,6 +3092,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           ? ok(request, { path: 'pixel.png', dataBase64: fixturePixel, mediaType: 'image/png', bytes: 68 })
           : err(request, { code: 'workspace-file-preview-unsupported', message: `fixture path ${request.payload.path} has no binary preview`, details: { workspaceId: request.payload.workspaceId, path: request.payload.path } })
       },
+      // The fixture keeps no live filesystem, so a watch open answers with one
+      // closing stream/error frame instead of pretending to observe anything.
+      watchFiles: (request, signal) => fixtureWatchStream(request, signal),
     },
     workspaceGit: {
       status: (request, signal) => {

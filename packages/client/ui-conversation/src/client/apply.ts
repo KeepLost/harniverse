@@ -1,5 +1,6 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from '@deepseek-ai/cordis'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   createSnapshotStore, resolveWorkspacePath, type ISessions, type SessionId,
@@ -11,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { MarkdownExternalLinks } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ReferenceInsert } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
@@ -19,12 +21,13 @@ import type {
 } from './contract/slots.ts'
 import type { ComposerFileDraft, InputNotice } from './contract/input.ts'
 import { createChatStore } from './stores.ts'
-import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
+import { ConversationController, UnsupportedImageMediaTypeError, isImageMediaType } from './service.ts'
 import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './contract/input-blocks.ts'
 import type { ComposerBlock } from './contract/input-blocks.ts'
 import { InputHub } from './input/hub.ts'
 import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
+import { formatFileMention, hostPathBridge, relativizeToCwd, workspaceTitleOf } from './input/file-paths.ts'
 import { installStopShortcut } from './stop-shortcut.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
@@ -129,6 +132,10 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
+  // Local-Host facts for the drop/paste path-reference gate (the same seam
+  // ui-deliverables reads: loopback page authority plus the handshake's
+  // canOpenPath, never a user-agent sniff).
+  const connection = ctx.get('connection') as ConnectionHandle
 
   // One durable section, one scope: the composer's Enter preference and the
   // link destination are fields of the same document.
@@ -373,11 +380,13 @@ export function apply(ctx: Context): void {
             submissionPolicy.resolve(running, gesture, steeringAvailable),
           stop: undefined,
           command: undefined,
+          isLoopback: connection.isLoopback,
           hooks: {
             notices: ABSENT_NOTICES,
             lexicon: ABSENT_LEXICON,
             menuLauncher: ABSENT_MENU_LAUNCHER,
             fileDrafts: ABSENT_FILE_DRAFTS,
+            hostDescription: connection.hostDescription,
           },
         }
       }
@@ -407,7 +416,47 @@ export function apply(ctx: Context): void {
           shell.removeImage(id)
         },
         draftImages: ids => conversation.draftImages(ids),
-        addFiles: (files) => { shell.addFiles(files) },
+        // Desktop drop/paste intake (X13-R31): on a local Host whose shell
+        // bridge names each file's Host path, named files and folders become
+        // `@path` reference chips in the draft; pathless files and images
+        // upload through the ordinary draft-file path. The whole batch is
+        // validated before any mutation, so an unrepresentable path refuses
+        // the drop without a partial draft.
+        addFiles: (files, directories = new Set(), at) => {
+          if (shell.snapshot.phase === 'adjudicating' || shell.snapshot.phase === 'submitting') {
+            return t('attachment.dropBlocked')
+          }
+          const localHost = connection.isLoopback
+            && connection.hostDescription.getSnapshot()?.canOpenPath === true
+          const bridge = localHost ? hostPathBridge() : undefined
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          const uploads: File[] = []
+          const references: ReferenceInsert[] = []
+          for (const file of files) {
+            const directory = directories.has(file)
+            if (directory && bridge === undefined) return t('attachment.directoryDesktopOnly')
+            const path = bridge?.pathFor(file) ?? ''
+            if (directory && path === '') return t('attachment.pathUnavailable')
+            if (path === '' || (!directory && isImageMediaType(file.type))) {
+              uploads.push(file)
+              continue
+            }
+            const relative = relativizeToCwd(path, cwd)
+            const mention = formatFileMention(directory ? `${relative}/` : relative)
+            if (mention === undefined) return t('attachment.pathUnsupported')
+            const label = workspaceTitleOf(path) || file.name
+            references.push({
+              source: 'reference', ref: mention,
+              label: directory ? `${label}/` : label,
+              clipboardText: mention,
+            })
+          }
+          if (uploads.length > 0) shell.addFiles(uploads)
+          if (references.length > 0) {
+            shell.insertFileReferences(references, at ?? shell.snapshot.draft.length)
+          }
+          return null
+        },
         removeFile: (id) => { shell.removeFile(id) },
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
           submissionPolicy.resolve(running, gesture, steeringAvailable),
@@ -423,7 +472,9 @@ export function apply(ctx: Context): void {
           lexicon: shell.lexicon,
           menuLauncher: inputTriggers?.launcher ?? ABSENT_MENU_LAUNCHER,
           fileDrafts: shell.fileDrafts,
+          hostDescription: connection.hostDescription,
         },
+        isLoopback: connection.isLoopback,
       }
     },
   }, InputBar)

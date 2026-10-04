@@ -24,7 +24,7 @@ export type {
   BrowserStreamFrame, HoldStreamFrame, TerminalStreamFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
   DirectoryEntry, DirectoryListing,
-  ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView, WorkspaceFileEntry,
+  ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView, WorkspaceFileEntry, WorkspaceFileWatchFrame,
   WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitStatusEntry,
   SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,

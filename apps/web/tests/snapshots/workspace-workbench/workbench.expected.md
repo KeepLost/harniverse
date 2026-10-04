@@ -29,4 +29,8 @@
         - img
         - text: .git
       - button "MD README.md"
+      - button "Open “README.md” in the default application":
+        - img
       - button "TS tracked.ts"
+      - button "Open “tracked.ts” in the default application":
+        - img

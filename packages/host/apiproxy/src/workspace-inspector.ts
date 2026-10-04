@@ -110,7 +110,14 @@ function abortSignal(signal: AbortSignal): AbortSignal {
   return AbortSignal.any([signal, AbortSignal.timeout(10_000)])
 }
 
-function relativePath(root: string, path: string): string {
+/**
+ * Resolve one workspace-relative request path to its absolute lexical target,
+ * refusing NUL bytes, absolute inputs, and targets that escape the root.
+ * @param root - registered canonical Workspace root.
+ * @param path - workspace-relative request path ('' or '.' address the root).
+ * @returns the absolute lexical target under the root.
+ */
+export function relativePath(root: string, path: string): string {
   if (path.includes('\0') || isAbsolute(path)) {
     throw new WorkspaceInspectorError('workspace-path-invalid', `workspace path ${JSON.stringify(path)} must be relative`, path)
   }
@@ -122,7 +129,13 @@ function relativePath(root: string, path: string): string {
   return target
 }
 
-function sameFilesystemPath(left: string, right: string): boolean {
+/**
+ * Compare two absolute paths under the host platform's case rules.
+ * @param left - one absolute path.
+ * @param right - the other absolute path.
+ * @returns whether both name the same filesystem path.
+ */
+export function sameFilesystemPath(left: string, right: string): boolean {
   return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 

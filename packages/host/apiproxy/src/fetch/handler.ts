@@ -13,6 +13,7 @@ import {
 } from '@deepseek-ai/dsh-authentication'
 import type { z } from 'zod'
 import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
+import type { WorkspaceFileWatchFrame } from '../api/index.ts'
 import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
 import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, RpcError, RpcRequest, RpcResponse, ServerRequest, ServerResponse } from '../api/rpc.ts'
@@ -95,6 +96,7 @@ import { speechPrepareRequestSchema, speechTranscribeRequestSchema } from '../ap
 import {
   workspaceFilesListRequestSchema, workspaceFilesReadBinaryRequestSchema,
   workspaceFilesReadRequestSchema, workspaceFilesSearchRequestSchema,
+  workspaceFilesWatchRequestSchema,
 } from '../api/workspace-files.schema.ts'
 import {
   workspaceGitCommitsRequestSchema, workspaceGitDiffRequestSchema, workspaceGitStatusRequestSchema,
@@ -282,16 +284,59 @@ async function handleUnary<K extends keyof RpcMethodMap>(
 }
 
 /** SSE frame: complete the narrow RpcRequest<frame> into a ServerRequest full form (method = frame type). */
-function fullFrame(narrow: RpcRequest<BrowserStreamFrame | MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame>): ServerRequest {
-  return { type: 'server-request', rpcId: narrow.rpcId, method: narrow.payload.type, payload: narrow.payload }
+function fullFrame(narrow: RpcRequest<CarrierFrame>): ServerRequest {
+  const payload = narrow.payload
+  // Workspace file watch frames are kind-discriminated contract payloads
+  // without a per-frame carrier method; every other family names its method
+  // through the frame's own `type`.
+  return {
+    type: 'server-request',
+    rpcId: narrow.rpcId,
+    method: 'type' in payload ? payload.type : 'workspace.files.watch',
+    payload,
+  }
 }
+
+/** One-frame stream answering a composition without the workspace inspection surface. */
+function unavailableWatchStream(): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>> {
+  const failure: RpcRequest<WorkspaceFileWatchFrame> = {
+    rpcId: RpcId(randomUUID()),
+    payload: {
+      type: 'stream/error',
+      error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} },
+    },
+  }
+  let delivered = false
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<RpcRequest<WorkspaceFileWatchFrame>> {
+      return {
+        next: () => {
+          const result = delivered
+            ? { done: true as const, value: undefined }
+            : { done: false as const, value: failure }
+          delivered = true
+          return Promise.resolve(result)
+        },
+      }
+    },
+  }
+}
+
+/** Every frame family the SSE carrier can envelope. */
+type CarrierFrame =
+  | BrowserStreamFrame
+  | MuxFrame
+  | HostFrame
+  | TerminalStreamFrame
+  | HoldStreamFrame
+  | WorkspaceFileWatchFrame
 
 /**
  * Wrap a frame stream as an SSE Response; stops when req.signal aborts. An
  * impl throw mid-stream emits one stream/error frame and then closes.
  */
 function sseResponse(
-  frames: AsyncIterable<RpcRequest<BrowserStreamFrame | MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame>>,
+  frames: AsyncIterable<RpcRequest<CarrierFrame>>,
   operation: string,
   principal?: AuthenticationPrincipal,
   reportFailure?: ApiProxyFailureReporter,
@@ -319,7 +364,7 @@ function sseResponse(
         // the failure instead of a silent end (which reads as a normal disconnect). A fresh
         // rpcId is minted — this is a server-initiated push like any other frame.
         reportFailure?.(operation, error)
-        const failure: BrowserStreamFrame | MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame = {
+        const failure: CarrierFrame = {
           type: 'stream/error',
           error: { code: 'internal', message: 'event stream failed', details: {} },
         }
@@ -459,6 +504,27 @@ export function toFetchHandler(
           payload: parsed.data as Parameters<ApiProxy['events']['browser']>[0]['payload'],
           ...(principal !== undefined && { principal }),
         }, req.signal), 'events.browser', principal, reportFailure)
+      }
+      if (path === '/api/workspace.files.watch' && req.method === 'GET') {
+        const parsed = workspaceFilesWatchRequestSchema.safeParse({
+          workspaceId: url.searchParams.get('workspaceId'),
+          path: url.searchParams.get('path') ?? undefined,
+        })
+        if (!parsed.success) return new Response('invalid file watch query parameters', { status: 400 })
+        const files = api.workspaceFiles
+        if (files === undefined) {
+          return sseResponse(
+            unavailableWatchStream(),
+            'workspace.files.watch',
+            principal,
+            reportFailure,
+          )
+        }
+        return sseResponse(files.watchFiles({
+          rpcId: RpcId(randomUUID()),
+          payload: parsed.data as Parameters<NonNullable<ApiProxy['workspaceFiles']>['watchFiles']>[0]['payload'],
+          ...(principal !== undefined && { principal }),
+        }, req.signal), 'workspace.files.watch', principal, reportFailure)
       }
       if (path === '/api/session.export' && (req.method === 'GET' || req.method === 'HEAD')) {
         // Query params are a different boundary from the POST envelope, but

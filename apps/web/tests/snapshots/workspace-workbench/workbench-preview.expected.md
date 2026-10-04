@@ -5,6 +5,8 @@
       - img
   - tabpanel "README.md":
     - text: ⁨README.md⁩ 40 B
+    - button "Open this file in the default application":
+      - img
     - button "Close file preview":
       - img
     - article:

@@ -29,6 +29,10 @@ import type {
   ComposerBarOwnerProps,
 } from '../src/client/contract/slots.ts'
 import type { ViewTab } from '../src/client/contract/views.ts'
+import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
+
+/** No connected Host description (the pre-handshake source these benches assume). */
+const ABSENT_HOST_DESCRIPTION = createSnapshotStore<HostDescription | undefined>(undefined)
 
 /** Machine-backed wiring over a sink spy. */
 function fakeWiring() {
@@ -221,9 +225,11 @@ function mount(
           keyboard={wiring}
           addImages={() => null}
           removeImage={() => {}}
-          addFiles={() => {}}
+          addFiles={() => null}
           removeFile={() => {}}
           draftImages={() => []}
+          isLoopback={false}
+          useHostDescription={bindSnapshotSelector(ABSENT_HOST_DESCRIPTION)}
           resolveSubmitMode={() => 'queue'}
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}

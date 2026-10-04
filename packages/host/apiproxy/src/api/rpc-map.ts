@@ -274,6 +274,7 @@ export const CARRIER_ENDPOINT_CAPABILITIES: Readonly<Record<string, Authenticati
   'events.terminal': 'harniverse.observe',
   'events.hold': 'harniverse.observe',
   'events.browser': 'harniverse.observe',
+  'workspace.files.watch': 'harniverse.observe',
   'session.export': 'harniverse.observe',
   'respond': 'harniverse.operate',
 }

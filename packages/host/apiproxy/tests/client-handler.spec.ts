@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, BrowserStreamFrame, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, TerminalStreamFrame } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy, BrowserStreamFrame, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, TerminalStreamFrame, WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-host-apiproxy'
 import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-host-apiproxy'
 import { ALL_AUTHENTICATION_CAPABILITIES } from '@deepseek-ai/dsh-authentication'
 import type { TerminalAttachmentId, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
@@ -139,6 +139,7 @@ function scriptedApi(overrides: {
       search: r => ok(r, { entries: [{ name: r.payload.query, path: r.payload.query, kind: 'file' as const }], truncated: false }),
       read: r => ok(r, { path: r.payload.path, content: 'stub', bytes: 4, truncated: false }),
       readBinary: r => ok(r, { path: r.payload.path, dataBase64: 'AA==', mediaType: 'image/png', bytes: 1 }),
+      watchFiles: () => empty<WorkspaceFileWatchFrame>(),
       ...overrides.workspaceFiles,
     },
     workspaceGit: {

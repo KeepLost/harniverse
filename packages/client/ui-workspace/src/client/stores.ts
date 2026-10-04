@@ -91,7 +91,7 @@ export function createWorkspaceViewStore(machineKey = 'host'): EngineStoreHandle
 /** Primary navigation section in the Workspace workbench. */
 export type WorkbenchSection = 'files' | 'search' | 'changes'
 /** Renderer selected for one read-only document tab. */
-export type WorkbenchPreviewKind = 'markdown' | 'html' | 'code' | 'text' | 'csv' | 'image' | 'pdf' | 'diff'
+export type WorkbenchPreviewKind = 'markdown' | 'html' | 'code' | 'text' | 'csv' | 'tsv' | 'image' | 'pdf' | 'diff'
 /** Git status side whose diff entries are visible. */
 export type WorkbenchGitArea = 'worktree' | 'staged'
 
@@ -165,6 +165,12 @@ export interface WorkspaceWorkbenchAccount {
   gitArea: WorkbenchGitArea
   git: WorkbenchGit | null
   /**
+   * File-tree refresh mode: `'auto'` while watch frames drive relists;
+   * `'manual'` after the change feed exhausted its stream retries — the
+   * manual refresh button is the only relist trigger then.
+   */
+  fileWatch: 'auto' | 'manual'
+  /**
    * Workspace activity watermark already reflected in the loaded directories
    * and Git data (null until first data lands). Session activity beyond this
    * mark revalidates the loaded surfaces; see WorkspaceWorkbench.
@@ -190,6 +196,7 @@ type WorkspaceWorkbenchActions = {
   setPreviewOpen: (draft: WorkspaceWorkbenchState, workspaceId: string, open: boolean) => void
   setGitArea: (draft: WorkspaceWorkbenchState, workspaceId: string, area: WorkbenchGitArea) => void
   setGit: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchGit) => void
+  setFileWatch: (draft: WorkspaceWorkbenchState, workspaceId: string, mode: 'auto' | 'manual') => void
   setSyncedActivity: (draft: WorkspaceWorkbenchState, workspaceId: string, value: number) => void
 }
 
@@ -203,6 +210,7 @@ function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
     search: emptyWorkbenchSearch(),
     gitArea: 'worktree',
     git: null,
+    fileWatch: 'auto',
     syncedActivity: null,
   }
 }
@@ -291,6 +299,7 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
       setPreviewOpen: (d, workspaceId, open) => { workbenchAccount(d, workspaceId).previewOpen = open },
       setGitArea: (d, workspaceId, area) => { workbenchAccount(d, workspaceId).gitArea = area },
       setGit: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).git = value },
+      setFileWatch: (d, workspaceId, mode) => { workbenchAccount(d, workspaceId).fileWatch = mode },
       setSyncedActivity: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).syncedActivity = value },
     },
   })

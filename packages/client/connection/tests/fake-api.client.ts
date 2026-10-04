@@ -107,6 +107,11 @@ export class FakeApiClient implements IApiClient {
     search: payload => this.record('workspace.files.search', payload, Promise.resolve(ok({ entries: [], truncated: false }))),
     read: payload => this.record('workspace.files.read', payload, Promise.resolve(ok({ path: '', content: '', bytes: 0, truncated: false }))),
     readBinary: payload => this.record('workspace.files.readBinary', payload, Promise.resolve(ok({ path: '', dataBase64: '', mediaType: 'image/png', bytes: 0 }))),
+    watchFiles: (payload, signal) => {
+      void this.record('workspace.files.watch', payload, Promise.resolve())
+      void signal
+      return (async function* emptyWatch() {})()
+    },
   }
   readonly workspaceGit: IApiClient['workspaceGit'] = {
     status: payload => this.record('workspace.git.status', payload, Promise.resolve(ok({ branch: null, entries: [], truncated: false }))),

@@ -15,7 +15,7 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { WorkspaceBrowserInjected, WorkspacePickerInjected, WorkspaceWorkbenchInjected } from './contract/slots.ts'
+import type { WorkspaceBrowserInjected, WorkspacePickerInjected, WorkspacePreviewInjected, WorkspaceWorkbenchInjected } from './contract/slots.ts'
 import { createWorkspaceViewStore, createWorkspaceWorkbenchStore } from './stores.ts'
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
@@ -167,6 +167,26 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
     WorkspacePicker,
   ))
   const workbenchStore = createWorkspaceWorkbenchStore()
+  // The Host's native path-open capability rides the connection's
+  // description source: true exactly while the connected generation reported
+  // canOpenPath, absent before connect and while reconnecting.
+  const canOpenPathSource: HostObservable<boolean> = {
+    getSnapshot: () => connection.hostDescription.getSnapshot()?.canOpenPath === true,
+    subscribe: listener => connection.hostDescription.subscribe(listener),
+  }
+  const openPath = (path: string): Promise<void> => {
+    current()
+    return ctx.workspaces.openPath(path)
+  }
+  // The runtime watch subscription arrives with the Host watch transport;
+  // absent here, the workbench falls back to its manual refresh button.
+  const boundWatchFiles = ctx.workspaces.watchFiles?.bind(ctx.workspaces)
+  const watchFiles: WorkspaceWorkbenchInjected['watchFiles'] = boundWatchFiles === undefined
+    ? undefined
+    : (workspaceId, path, signal) => {
+      current()
+      return boundWatchFiles(workspaceId, path, signal)
+    }
   const workbenchInjected = (): WorkspaceWorkbenchInjected => ({
     openWorkbench: () => { ctx.layout.openWorkbench() },
     closeWorkbench: () => { ctx.layout.closeWorkbench() },
@@ -180,6 +200,9 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
     gitStatus: (workspaceId, signal) => { current(); return ctx.workspaces.gitStatus(workspaceId, signal) },
     gitCommits: (workspaceId, limit, signal) => { current(); return ctx.workspaces.gitCommits(workspaceId, limit, signal) },
     gitDiff: (workspaceId, path, staged, signal) => { current(); return ctx.workspaces.gitDiff(workspaceId, path, staged, signal) },
+    openPath,
+    ...(watchFiles === undefined ? {} : { watchFiles }),
+    hooks: { canOpenPath: canOpenPathSource },
   })
   yield ctx.slots.inject('workbench', () => ctx.slots.register(
     {
@@ -199,12 +222,18 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
   // The preview surface is a second registration over the SAME store handle:
   // it lives in the frame-wide overlay layer so it can slide over the
   // conversation, which the workbench column (overflow-clipped) cannot do.
+  // It carries only the native open-path action and its capability.
+  const previewInjected = (): WorkspacePreviewInjected => ({
+    openPath,
+    hooks: { canOpenPath: canOpenPathSource },
+  })
   yield ctx.slots.inject('shell.overlay', () => ctx.slots.register(
     {
       name: 'shell.overlay',
       id: 'workspace-workbench-preview',
       order: 10,
       store: workbenchStore,
+      inject: previewInjected,
       locale: NS,
     },
     WorkspaceWorkbenchPreviewOverlay,

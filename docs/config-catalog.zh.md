@@ -1084,10 +1084,23 @@ export interface Config {
   coldBlankProbeMaxBytes?: number
   /** Maximum retained frames per live stream before it fails for resumable reconnect. @default 1024 */
   streamQueueMaxFrames?: number
+  /**
+   * Trailing coalescing window in milliseconds for one workspace file watch
+   * burst: raw watcher events inside the window collapse into one change
+   * frame. Protocol cadence stays fixed; this tunes host-side watcher noise.
+   * @default 50
+   */
+  fileWatchDebounceMs?: number
+  /**
+   * Maximum concurrent workspace file watch subscriptions one workspace may
+   * hold; an additional open fails with `workspace-watch-limit-reached`.
+   * @default 64
+   */
+  fileWatchMaxPerWorkspace?: number
 }
 ```
 
-来源：[`packages/host/apiproxy/src/index.ts:43`](../packages/host/apiproxy/src/index.ts)
+来源：[`packages/host/apiproxy/src/index.ts:46`](../packages/host/apiproxy/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
