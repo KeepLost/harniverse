@@ -22,15 +22,15 @@
   - img
   - img
   - text: Context injection skill-catalog
-- button "Think Load the requested skill.":
-  - img
-  - img
-  - text: Think Load the requested skill.
 - button "Skill snapshot-skill" [expanded]:
   - img
   - text: Skill snapshot-skill
 - region "Instructions": "Instructions <skill_content name=\"snapshot-skill\"> <skill_resources> Base directory for this skill: {{cwd}}/.dsh/skills/snapshot-skill Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed. </skill_resources> <skill_instructions> Follow these snapshot-only instructions. Resolve referenced resources relative to this skill directory. </skill_instructions> </skill_content>"
 - button "Inspect"
+- button "Think Load the requested skill.":
+  - img
+  - img
+  - text: Think Load the requested skill.
 - button "Think The skill is loaded.":
   - img
   - img

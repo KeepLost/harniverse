@@ -329,9 +329,10 @@ function hasExactDeny(oldAcl: NativePtr, worldSidPtr: NativePtr): boolean {
  * @returns whether another capability grant remains.
  */
 function hasForeignGrant(oldAcl: NativePtr, sidPtr: NativePtr): boolean {
+  // decodeUint16At caps AclSize at 65,535, so only the sub-8 header needs guarding.
   const aclSize = decodeUint16At(oldAcl, 2)
   const aceCount = decodeUint16At(oldAcl, 4)
-  if (aclSize < 8 || aclSize > 1_048_576) return false // implausible: leave the label alone
+  if (aclSize < 8) return false // implausible: leave the label alone
   let offset = 8
   for (let index = 0; index < aceCount; index++) {
     const aceSize = decodeUint16At(oldAcl, offset + 2)

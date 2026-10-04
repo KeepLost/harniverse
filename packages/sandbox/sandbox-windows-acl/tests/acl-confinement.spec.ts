@@ -408,6 +408,50 @@ describe('enrolled-workspace confinement failure paths', () => {
     expect(overrunMerges).toHaveLength(1)
   })
 
+  it('a confined revoke over malformed ACL headers falls through to the label-clearing merge', () => {
+    // ACE claiming a size smaller than its own header.
+    const stubAce = allocBytes(32)
+    koffi.encode(stubAce, 'uint8', 2)
+    koffi.encode(stubAce, 2, 'uint16', 24)
+    koffi.encode(stubAce, 4, 'uint16', 1)
+    koffi.encode(stubAce, 8 + 2, 'uint16', 4)
+    const stub = confinementApi({ oldAcl: stubAce, labelAcl: craftLabelAcl(lowSid) })
+    expect(revokeWrite(stub.api, 'C:/ws', workspaceSid, true)).toBe(true)
+    expect(stub.applies[0]?.information).toBe(abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION)
+
+    // ACE running past the declared ACL size.
+    const overrun = allocBytes(32)
+    koffi.encode(overrun, 'uint8', 2)
+    koffi.encode(overrun, 2, 'uint16', 24)
+    koffi.encode(overrun, 4, 'uint16', 1)
+    koffi.encode(overrun, 8 + 2, 'uint16', 64)
+    const over = confinementApi({ oldAcl: overrun, labelAcl: craftLabelAcl(lowSid) })
+    expect(revokeWrite(over.api, 'C:/ws', workspaceSid, true)).toBe(true)
+    expect(over.applies[0]?.information).toBe(abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION)
+  })
+
+  it('a label-build failure with a null descriptor skips the descriptor release', () => {
+    const frees: Array<bigint | number> = []
+    const { api } = confinementApi({
+      oldAcl: null, labelAcl: null,
+      overrides: {
+        getNamedSecurityInfoW: vi.fn((
+          _path: unknown, _type: unknown, _info: unknown, _owner: unknown, _group: unknown,
+          dacl: NativePtr, sacl: NativePtr, descriptor: NativePtr,
+        ) => {
+          koffi.encode(dacl, PVOID, 0n)
+          koffi.encode(sacl, PVOID, 0n)
+          koffi.encode(descriptor, PVOID, 0n) // no descriptor allocation
+          return 0
+        }),
+        getLengthSid: vi.fn((): number => { throw new Error('GetLengthSid blew up') }),
+        localFree: vi.fn((ptr: bigint | number) => { frees.push(ptr); return 0n as NativePtr }),
+      },
+    })
+    expect(() => { grantWrite(api, 'C:/ws', workspaceSid, lowSid, worldSid) }).toThrow(/GetLengthSid blew up/u)
+    expect(frees).toEqual([])
+  })
+
   it('a confined AclWriteGrant materializes and disposes through the confinement pair', () => {
     const { api, applies } = confinementApi({ oldAcl: null, labelAcl: null })
     const grant = AclWriteGrant.create('S-1-4-9000-9', { confined: true, api })
