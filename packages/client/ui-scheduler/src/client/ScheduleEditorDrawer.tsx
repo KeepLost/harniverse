@@ -285,8 +285,8 @@ export function ScheduleEditorDrawer({
               <ul className={css.historyList}>
                 {runs.map(run => (
                   <li key={run.id} className={css.historyRow}>
-                    <span className={run.status === 'succeeded' ? css.runOk : css.runFail}>
-                      {t(run.status === 'succeeded' ? 'run.succeeded' : 'run.failed', { time: new Date(run.attemptedAt).toLocaleString() })}
+                    <span className={run.status === 'failed' ? css.runFail : css.runOk}>
+                      {t(run.status === 'succeeded' ? 'run.succeeded' : run.status === 'skipped' ? 'run.skipped' : 'run.failed', { time: new Date(run.attemptedAt).toLocaleString() })}
                     </span>
                     <span className={css.historyTarget} title={run.targetSessionId}>{sessionLabel(run.targetSessionId)}</span>
                     {run.error === undefined ? null : <span className={css.runFail}>{run.error}</span>}

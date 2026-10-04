@@ -8,7 +8,7 @@ import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-inva
 const PACKAGE_NAME = '@deepseek-ai/dsh-session-import'
 
 /** The foreign generations an import marker may name. */
-const CLASSIFIED_FOREIGN_FORMATS = new Set<string>(['official-v1', 'official-v2', 'official-v3'])
+const CLASSIFIED_FOREIGN_FORMATS = new Set<string>(['official-v1', 'official-v2', 'official-v3', 'official-v4'])
 
 /** Cordis companion plugin name. */
 export const name = 'session-import-invariant'

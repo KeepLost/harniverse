@@ -124,8 +124,10 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
       current()
       await ctx.workspaces.insertBefore(workspaceId, beforeWorkspaceId)
     },
-    archiveSession: async (sessionId) => { current(); await ctx.workspaces.archiveSession(sessionId) },
+    archiveSession: async (sessionId, options) => { current(); await ctx.workspaces.archiveSession(sessionId, options) },
     unarchiveSession: async (sessionId) => { current(); await ctx.workspaces.unarchiveSession(sessionId) },
+    pinSession: async (sessionId) => { current(); await ctx.workspaces.pinSession(sessionId) },
+    unpinSession: async (sessionId) => { current(); await ctx.workspaces.unpinSession(sessionId) },
     openArchive: (sessionId) => { current(); return ctx.sessions.openArchive(sessionId) },
     loadArchiveOlder: (sessionId) => { current(); return ctx.sessions.loadArchiveOlder(sessionId) },
     deleteSession: (sessionId) => { current(); return ctx.sessions.deleteSession(sessionId) },

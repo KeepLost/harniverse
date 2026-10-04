@@ -53,6 +53,8 @@ import {
   workspaceListRequestSchema,
   workspaceRenameRequestSchema,
   workspaceUnarchiveSessionRequestSchema,
+  workspacePinSessionRequestSchema,
+  workspaceUnpinSessionRequestSchema,
 } from '../api/workspace.schema.ts'
 import { skillListRequestSchema } from '../api/skills.schema.ts'
 import {
@@ -167,6 +169,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
   'workspace.archiveSession': { schema: workspaceArchiveSessionRequestSchema, invoke: (api, r) => api.workspace.archiveSession(r) },
   'workspace.unarchiveSession': { schema: workspaceUnarchiveSessionRequestSchema, invoke: (api, r) => api.workspace.unarchiveSession(r) },
+  'workspace.pinSession': { schema: workspacePinSessionRequestSchema, invoke: (api, r) => api.workspace.pinSession(r) },
+  'workspace.unpinSession': { schema: workspaceUnpinSessionRequestSchema, invoke: (api, r) => api.workspace.unpinSession(r) },
   'workspace.files.list': { schema: workspaceFilesListRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.list(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
   'workspace.files.search': { schema: workspaceFilesSearchRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.search(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
   'workspace.files.read': { schema: workspaceFilesReadRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.read(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },

@@ -1,7 +1,8 @@
 /**
- * Foreign session-log parsing: split an official v1/v2/v3 JSONL export into
- * its header and raw event records without assuming that generation's event
- * vocabulary. Physical framing is validated before lossy payload mapping.
+ * Foreign session-log parsing: split an official v1/v2/v3/v4 JSONL export
+ * into its header and raw event records without assuming that generation's
+ * event vocabulary. Physical framing is validated before lossy payload
+ * mapping.
  *
  * @module @deepseek-ai/dsh-session-import
  */
@@ -88,7 +89,8 @@ export function parseForeignSessionLog(text: string): ForeignSessionLog {
   if (headerRecord.type !== 'session' || typeof headerRecord.id !== 'string' || headerRecord.id.length === 0
     || createdAt === undefined || safeTime(headerRecord.delegationDepth) === undefined
     || (headerRecord.cwd !== undefined && typeof headerRecord.cwd !== 'string')
-    || ((headerRecord.version === 2 || headerRecord.version === 3) && typeof headerRecord.isSeeded !== 'boolean')) {
+    || ((headerRecord.version === 2 || headerRecord.version === 3 || headerRecord.version === 4)
+      && typeof headerRecord.isSeeded !== 'boolean')) {
     throw new ForeignLogError('invalid foreign session header')
   }
   const header: ForeignSessionHeader = {
@@ -135,8 +137,9 @@ export function parseForeignSessionLog(text: string): ForeignSessionLog {
           throw new ForeignLogError('invalid foreign surface replacement')
         }
         const op = event.surfaceOp as Record<string, unknown>
-        const start = header.version === 3 ? op.startSeq : op.start
-        const end = header.version === 3 ? op.endSeq : op.end
+        // Official v3 and v4 name the replacement endpoints startSeq/endSeq; v1/v2 use start/end.
+        const start = header.version === 3 || header.version === 4 ? op.startSeq : op.start
+        const end = header.version === 3 || header.version === 4 ? op.endSeq : op.end
         if (op.op !== 'replace' || safeTime(start) === undefined || safeTime(end) === undefined
           || (start as number) > (end as number) || (end as number) >= events.length) {
           throw new ForeignLogError('invalid foreign surface replacement')

@@ -14,7 +14,8 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspaceRegistry`）：�
 - `ctx.workspaceRegistry.delete(id)`：只移除 Workspace 注册记录、对应的持久顺序条目及会话归属记录。未知 id 返回 `false`，成功移除记录则返回 `true`。目录、用户文件、活跃会话和持久化会话日志绝不受影响，因此相关会话会进入 Ungrouped。表写入失败时会恢复原顺序和此前发布的实体。
 - `Workspace.attachSession(id)`：对照 workspace 路径验证实时或已持久化的会话头 cwd，并将新 id 前置。未知会话、缺失／无法解析／非目录的 cwd 值和不匹配情况都会在不写入的前提下被拒绝。`detachSession` 只移除候选索引条目。
 - `Workspace.insertSessionBefore(id, before?)`：在手动顺序内移动一个已记账的会话，语义类似 DOM 的 insertBefore：插到锚点之前，省略锚点则追加到末尾。会话或锚点不在记账中时拒绝且不写入；移动到当前位置时直接完成且不写入。注册表中的 Workspace 顺序绝不改变。
-- `ctx.workspaceRegistry.archiveSession(id)`/`archivedSessionIds`：覆盖在 workspace 记账之上的注册表级全局归档集合：被归档的会话从各分组视图中消失，但其会话日志和 `sessionIds` 席位保持不变，未来取消归档时可恢复原位置。归档接受任何实时或已持久化的会话（无论已记账还是 Ungrouped），对已归档的 id 直接完成而不写入，并拒绝未知 id。在该字段出现之前写入的状态解析为一个空集合。
+- `ctx.workspaceRegistry.archiveSession(id, { stopActivity? })`／`archivedSessionIds`：覆盖在 workspace 记账之上的注册表级全局归档集合：被归档的会话从各分组视图中消失，但其会话日志和 `sessionIds` 席位保持不变，未来取消归档时可恢复原位置。归档接受任何实时或已持久化的会话（无论已记账还是 Ungrouped），对已归档的 id 直接完成而不写入，并拒绝未知 id。不带 `stopActivity` 时先询问一次 `workspace/session-activity` 瀑布，任何上报的活动都会在写入任何内容前以 `WorkspaceActiveSessionError`（携带活动列表）拒绝；带 `stopActivity` 时无条件写入归档，随后在集合已持久化的前提下派发 `workspace/session-stop`——提供方拒绝只记录日志，绝不撤销归档。归档在同一次写入中移除该会话的置顶。在该字段出现之前写入的状态解析为一个空集合。
+- `ctx.workspaceRegistry.pinSession(id)`／`unpinSession(id)`／`pinnedSessionIds`：按置顶顺序（最近置顶在前）排列的注册表级全局置顶集合。置顶接受任何未归档的实时或已持久化会话（已归档 id 以 `WorkspaceArchivedSessionPinError` 拒绝），对已置顶的 id 直接完成而不写入、不重排，且绝不触碰 workspace 记账；取消置顶是幂等的，过期的客户端可以借此修复其置顶投影。
 - `ctx.workspaceRegistry.beginSessionDeletion(id)`／`pendingSessionDeletionIds`／`completeSessionDeletion(id)`：Harniverse 专属的 `workspace_deletion` domain 中的持久恢复标记，用于区分中断的权威 Session 删除与从未存在的 id。随后 `removeSessionReferences(id)` 会以幂等方式从每个 Workspace 记账、全局归档集合和内存 header/path 索引移除已提交的删除，调用方最后清除标记；这些方法自身都不删除 Session 日志。
 - `Workspace.sessionIds`：按持久候选顺序提供同步 id 加规范 cwd 成员投影。缺失头部、无效 cwd 值和不匹配情况都被过滤；下一次 workspace 变更会剪除它们。如果同一存储介质将一个会话索引到两个 workspace 下、用两条记录声明同一路径，或偏离持久 workspace 顺序，启动会被拒绝。
 - `Workspace.status()`：未缓存的目录检查，返回 `'ok' | 'missing-dir'`；目录缺失绝不会改动记录。
@@ -22,6 +23,12 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspaceRegistry`）：�
 `storageDomain` 和 `sessionPersistence` 是启动必需依赖。共享的 `workspace` domain 保持与官方 DSH 一致的格式版本 2；Harniverse 专属的删除恢复 journal 存储在版本 1 的 `workspace_deletion` domain 中。注册表将 workspace 版本 3 明确作为迁移来源，重写为版本 2，并把其中的删除标记转移到独立 journal。任一依赖服务不可用时，插件保持待处理，且不能提交空的已初始化标记。首次成功启动时，注册表调用 `SessionPersistence.list()`，仅使用头部 `id`、`cwd` 和 `createdAt` 对有效历史目录分组并持久化初始顺序；它绝不读取事件正文。已初始化标记最后写入，因此重启后可安全复用引导初始化期间的部分写入。后续仅能通过 cwd 识别的会话仍属于 Ungrouped。
 
 创建和删除操作会在记录和顺序可能分叉之前，先持久化明确的待处理变更标记。启动时只补全该标记所指明的变更，随后清除标记；没有标记的顺序／表不一致仍属于来源不明的损坏，并会明确报错。删除后重新注册同一路径会生成新的 Workspace id，且不会自动重新接纳保留下来的会话。
+
+## 归档准入与会话活动
+
+注册表拥有归档准入，但不认识任何活动家族：每个提供方通过声明合并向开放的 `SessionActivityKindMap` 并入自己的键，并经注册表派发的两个 Cordis 事件之一上报。随附家族为 `turn`（API 代理）、`job`（本机任务注册表）、`subagent`（Subagent 运行时）与 `schedule`（调度器）；各提供方的 README 拥有其家族的计数口径与停止行为。渲染活动的消费方只能看到自己程序编译进的键，对其余键回退到通用描述。
+
+`workspace/session-activity`（waterfall）在一次普通归档前询问一次；监听器把自身的 `SessionActivity` 条目前置到 `next()` 的结果上，合并结果非空即拒绝写入。`workspace/session-stop`（parallel）仅在带 `stopActivity` 的归档完成持久写入后派发：每个提供方通过与用户自己的停止操作相同的取消路径停止自己的家族，发出停止请求时不等待运行中的工作落定。调度器上报 `schedule` 但不注册停止监听——其计划被保留，而非停止。
 
 ## 模型体验
 

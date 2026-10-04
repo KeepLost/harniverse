@@ -124,8 +124,13 @@ describe('ScheduleCenterView', () => {
       target: { kind: 'session', sessionId: sid('session-b') },
       status: 'paused',
     })]
-    mount(verbs(rows, [run({ scheduleId: 'sched-1' }), run({ id: 'run-0', scheduleId: 'sched-2', status: 'failed', error: 'boom' })]))
+    mount(verbs(rows, [
+      run({ id: 'run-2', scheduleId: 'sched-1', status: 'skipped', attemptedAt: 3 }),
+      run({ scheduleId: 'sched-1' }),
+      run({ id: 'run-0', scheduleId: 'sched-2', status: 'failed', error: 'boom' }),
+    ]))
     await waitFor(() => { expect(screen.getByText('nightly digest')).toBeTruthy() })
+    expect(screen.getAllByText(/已跳过（目标会话已归档）/).length).toBeGreaterThan(0)
     expect(screen.getByText('sched-1'.slice(0, 8))).toBeTruthy()
     // current-target row shows the creator's session; the named row the bound one.
     expect(screen.getByTitle(`本会话 · 主会话 (#${'session-a'.slice(0, 8)})`)).toBeTruthy()

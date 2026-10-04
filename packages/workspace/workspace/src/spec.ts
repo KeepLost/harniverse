@@ -46,8 +46,9 @@ const workspacePendingMutation = z.discriminatedUnion('operation', [
  * the registry-global archive set layered over workspace accounting: an
  * archived session keeps its `sessionIds` slot (unarchiving must restore the
  * position), so the set never participates in the one-owner accounting
- * invariant. Archive state is defaulted so records written before the field
- * parse unchanged. The Harniverse-only Session deletion journal lives in the
+ * invariant. Archive and pin state are defaulted so records written before
+ * each field parse unchanged. The Harniverse-only Session deletion journal
+ * lives in the
  * separate {@link workspaceDeletionDomainSpec}, so the shared workspace domain
  * remains compatible with the official DSH format. The optional deletion field
  * is read only to migrate media written by the short-lived version 3 format.
@@ -56,6 +57,7 @@ export const workspaceDomainState = z.object({
   initialized: z.boolean(),
   workspaceIds: z.array(workspaceId),
   archivedSessionIds: z.array(z.string().transform(SessionId)).default([]),
+  pinnedSessionIds: z.array(z.string().transform(SessionId)).default([]),
   pendingSessionDeletionIds: z.array(z.string().transform(SessionId)).optional(),
   pendingMutation: workspacePendingMutation.optional(),
 })
@@ -83,7 +85,7 @@ export const workspaceDomainSpec = defineDomain({
   migrateFrom: [3],
   global: {
     schema: workspaceDomainState,
-    initial: { initialized: false, workspaceIds: [], archivedSessionIds: [] },
+    initial: { initialized: false, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] },
   },
   tables: { workspaces: domainTable<WorkspaceId, WorkspaceRecord>(workspaceRecord) },
 })

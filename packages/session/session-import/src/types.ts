@@ -14,11 +14,12 @@ import type { SupervisionMode } from '@deepseek-ai/dsh-supervision'
  *
  * - `'current'` — this build's own `SESSION_FORMAT_VERSION`; native, not
  *   foreign.
- * - `'official-v1'`/`'official-v2'`/`'official-v3'` — DeepSeek Harness
- *   session generations this contract knows how to name for lossy import.
+ * - `'official-v1'`/`'official-v2'`/`'official-v3'`/`'official-v4'` — DeepSeek
+ *   Harness session generations this contract knows how to name for lossy
+ *   import.
  * - `'unknown'` — anything else; refuse the import rather than guess.
  */
-export type ForeignSessionFormat = 'current' | 'official-v1' | 'official-v2' | 'official-v3' | 'unknown'
+export type ForeignSessionFormat = 'current' | 'official-v1' | 'official-v2' | 'official-v3' | 'official-v4' | 'unknown'
 
 /** The source artifact and applied default posture one import records. */
 export interface ImportRecordEventData {
@@ -40,7 +41,7 @@ declare module '@deepseek-ai/dsh-session/types' {
     /**
      * Marks this session as imported archival data: the first event of a
      * session mapped lossily from a foreign session log (an official DSH
-     * v1/v2/v3 export). The mapped history is displayable, saveable, and
+     * v1/v2/v3/v4 export). The mapped history is displayable, saveable, and
      * searchable, and the preserved source artifact is named by
      * `source.artifactName`. Live machinery must treat a session carrying
      * this marker as settled: never resumed, queued, approved, or steered —

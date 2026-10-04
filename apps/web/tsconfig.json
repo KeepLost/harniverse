@@ -89,6 +89,7 @@
     "tests/subagent-interrupt-ui.e2e.ts",
     "tests/sidebar-subagent-activity.e2e.ts",
     "tests/background-job-list.e2e.ts",
+    "tests/session-archive-active.e2e.ts",
     "tests/job-follow-stop.e2e.ts",
     "tests/bash-abort-row.e2e.ts",
     "tests/skill-tool-row.e2e.ts",

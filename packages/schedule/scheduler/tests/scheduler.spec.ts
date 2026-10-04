@@ -977,3 +977,140 @@ describe('scheduler list and pending edge coverage', () => {
   })
 
 })
+
+describe('scheduler archive admission', () => {
+  it('skips delivery to an archived target session and resumes at the next due moment', async () => {
+    const archived: SessionId[] = []
+    const { test, cleanup } = await harness((ctx) => {
+      ctx.provide('workspaceRegistry', {
+        get archivedSessionIds() { return [...archived] },
+      } as never)
+    })
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(0)
+      const creator = liveScript(test, 'skip-creator')
+      const coldSession = Session.create(SessionId('skip-cold-target'))
+      const coldScript: AgentScript = { session: coldSession, followups: [] }
+      const coldAgent = fakeAgent(coldScript)
+      test.agentsState.createAgent = (sessionId: SessionId) => {
+        test.agentsState.live.set(sessionId, coldAgent)
+        return coldAgent
+      }
+      test.scripts.set(coldSession.id, coldScript)
+      test.ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'test', model: 'test' }) } as never)
+      vi.spyOn(test.ctx.sessions, 'flush').mockResolvedValue(true)
+      const record = await test.service.create({
+        prompt: 'archival heartbeat',
+        rule: { kind: 'every', intervalMs: 300_000, anchor: new Date(0).toISOString() },
+        target: { kind: 'session', sessionId: coldSession.id },
+        contextMode: 'continue',
+        createdBy: { kind: 'user', sessionId: creator.session.id },
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      await waitForDelivery(() => {
+        expect(coldScript.followups).toHaveLength(1)
+        expect(test.service.listRunsOf(record.id)).toHaveLength(1)
+      })
+
+      archived.push(coldSession.id)
+      await vi.advanceTimersByTimeAsync(300_000)
+      await waitForDelivery(() => {
+        const stored = (test.service.list()).find(row => row.id === record.id)
+        expect(stored?.status).toBe('active')
+        expect(stored?.nextDue).toBe(600_000)
+        expect(stored?.lastError).toBeUndefined()
+        expect(test.service.listRunsOf(record.id)[0]).toMatchObject({
+          status: 'skipped',
+          targetSessionId: coldSession.id,
+          dueAt: 300_000,
+        })
+      })
+      // The archived slot attempted no delivery, resume, or session inspection.
+      expect(coldScript.followups).toHaveLength(1)
+      expect(test.agentsState.resumed).toHaveLength(1)
+      expect(test.agentsState.created).toEqual([])
+      expect(test.persistenceCalls.inspected).toEqual([coldSession.id])
+
+      archived.length = 0
+      await vi.advanceTimersByTimeAsync(300_000)
+      await waitForDelivery(() => {
+        expect(coldScript.followups).toHaveLength(2)
+        expect(test.service.listRunsOf(record.id).map(run => run.status))
+          .toEqual(['succeeded', 'skipped', 'succeeded'])
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('reports active records delivering into the asked session, with truncated labels', async () => {
+    const { test, cleanup } = await harness()
+    try {
+      const creator = liveScript(test, 'activity-creator')
+      const target = liveScript(test, 'activity-target')
+      const jobOwner = liveScript(test, 'activity-job-owner')
+      const currentOwner = liveScript(test, 'activity-current-owner')
+      const rule = { kind: 'after', delayMs: 60_000 } as const
+      const longRecord = await test.service.create({
+        prompt: 'x'.repeat(90),
+        rule,
+        target: { kind: 'session', sessionId: target.session.id },
+        contextMode: 'continue',
+        createdBy: { kind: 'user', sessionId: creator.session.id },
+      })
+      const shortRecord = await test.service.create({
+        prompt: 'short one',
+        rule,
+        target: { kind: 'session', sessionId: target.session.id },
+        contextMode: 'continue',
+        createdBy: { kind: 'user', sessionId: creator.session.id },
+      })
+      const currentRecord = await test.service.create({
+        prompt: 'current prompt',
+        rule,
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: currentOwner.session.id },
+      })
+      const jobRecord = await test.service.create({
+        prompt: 'job prompt',
+        rule,
+        target: { kind: 'job' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: jobOwner.session.id },
+      })
+
+      const ask = async (sessionId: SessionId) => await test.ctx.waterfall(
+        'workspace/session-activity', { sessionId }, () => Promise.resolve([]),
+      )
+      // The asked session is the delivery target, never the record's creator.
+      expect(await ask(target.session.id)).toEqual([{
+        kind: 'schedule',
+        items: [
+          { id: longRecord.id, label: `${'x'.repeat(79)}…` },
+          { id: shortRecord.id, label: 'short one' },
+        ],
+      }])
+      expect(await ask(creator.session.id)).toEqual([])
+      expect(await ask(currentOwner.session.id)).toEqual([{
+        kind: 'schedule',
+        items: [{ id: currentRecord.id, label: 'current prompt' }],
+      }])
+      // A job target without its job session yet falls back to the creator's session.
+      expect(await ask(jobOwner.session.id)).toEqual([{
+        kind: 'schedule',
+        items: [{ id: jobRecord.id, label: 'job prompt' }],
+      }])
+
+      // Paused plans deliver nothing and are not activity.
+      await test.service.update(longRecord.id, { status: 'paused' }, creator.session.id)
+      expect(await ask(target.session.id)).toEqual([{
+        kind: 'schedule',
+        items: [{ id: shortRecord.id, label: 'short one' }],
+      }])
+    } finally {
+      await cleanup()
+    }
+  })
+})

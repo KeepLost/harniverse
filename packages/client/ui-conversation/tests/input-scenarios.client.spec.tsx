@@ -94,7 +94,7 @@ const COMMANDS: FakeCommand[] = [
 async function scopedBench(register?: (inputTriggers: InputTriggerService) => void) {
   const ctx = new Context()
   const api = new FakeApiClient()
-  api.onWorkspaceList = () => Promise.resolve(ok({ items: [] }))
+  api.onWorkspaceList = () => Promise.resolve(ok({ items: [], pinnedSessionIds: [] }))
   const sessionId = 'scenario-s1' as Parameters<SessionRuntime['open']>[0]
   api.onList = () => Promise.resolve(ok({
     items: [{ sessionId, updatedAt: 1, running: false, blank: false, cwd: '/w/a' }],
@@ -130,7 +130,7 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),

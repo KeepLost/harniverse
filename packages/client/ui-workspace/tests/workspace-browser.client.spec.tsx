@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { SessionArchiveActiveError } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -38,8 +39,12 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const workspaceState = (items: readonly WorkspaceView[], archivedSessionIds: readonly SessionId[] = []): WorkspaceListState => ({
-  items, archivedSessionIds, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+const workspaceState = (
+  items: readonly WorkspaceView[],
+  archivedSessionIds: readonly SessionId[] = [],
+  pinnedSessionIds: readonly SessionId[] = [],
+): WorkspaceListState => ({
+  items, archivedSessionIds, pinnedSessionIds, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
   recentWorkspaceId: items[0]?.workspaceId,
 })
 function hook<T>(snapshot: T) {
@@ -77,6 +82,8 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
     unarchiveSession: vi.fn(async () => {}),
+    pinSession: vi.fn(async () => {}),
+    unpinSession: vi.fn(async () => {}),
     openArchive: vi.fn(async () => ({ ok: false as const, error: { code: 'internal' as const, message: 'not configured', details: {} } })),
     loadArchiveOlder: vi.fn(async () => ({ ok: false as const, error: { code: 'internal' as const, message: 'not configured', details: {} } })),
     deleteSession: vi.fn(async () => ({ ok: true as const, value: { deleted: true as const, attachmentsRetained: true as const } })),
@@ -400,6 +407,161 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('archive exploded') })
     expect(screen.getByText('alpha-s')).toBeTruthy()
+    // A non-active refusal never opens the stop-and-archive dialog.
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('archives quietly on success: no dialog, no alert', async () => {
+    const archiveSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    expect(archiveSession).toHaveBeenCalledExactlyOnceWith(sid('alpha-s'))
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('opens the stop-and-archive dialog listing the host-reported activities on an active refusal', async () => {
+    const archiveSession = vi.fn(async () => {
+      throw new SessionArchiveActiveError(sid('busy-s'), [
+        { kind: 'turn' },
+        { kind: 'job', items: [{ id: 'job-1', label: 'Nightly build' }] },
+        { kind: 'subagent', items: [{ id: 'sub-1' }] },
+        { kind: 'schedule' },
+        { kind: 'mystery' },
+      ])
+    })
+    mount({
+      useSessions: hook(sessionState([summary('busy-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['busy-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“busy-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止并归档会话' })
+    // The plain call went out first without stop options.
+    expect(archiveSession).toHaveBeenCalledExactlyOnceWith(sid('busy-s'))
+    // One family line per activity; an unknown kind falls to the generic line.
+    expect(within(dialog).getByText('该会话仍有进行中的工作，归档前需要停止它们：')).toBeTruthy()
+    expect(within(dialog).getByText('进行中的回合（含排队消息与待批准）')).toBeTruthy()
+    expect(within(dialog).getByText('后台任务')).toBeTruthy()
+    expect(within(dialog).getByText('子代理')).toBeTruthy()
+    expect(within(dialog).getByText('定时任务（保留计划，归档期间跳过送达）')).toBeTruthy()
+    expect(within(dialog).getByText('其他活动')).toBeTruthy()
+    // Items list under their family: a label pairs with its id, a bare id stands alone.
+    expect(within(dialog).getByText('Nightly build (job-1)')).toBeTruthy()
+    expect(within(dialog).getByText('sub-1')).toBeTruthy()
+    // The refusal is a confirmation flow, not an error.
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('confirming the stop-and-archive dialog retries with stopActivity and closes on success', async () => {
+    const archiveSession = vi.fn()
+      .mockRejectedValueOnce(new SessionArchiveActiveError(sid('busy-s'), [{ kind: 'job' }]))
+      .mockResolvedValueOnce(undefined)
+    mount({
+      useSessions: hook(sessionState([summary('busy-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['busy-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“busy-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止并归档会话' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '停止并归档' }))
+    expect(archiveSession).toHaveBeenCalledTimes(2)
+    expect(archiveSession).toHaveBeenNthCalledWith(2, sid('busy-s'), { stopActivity: true })
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('surfaces the inline alert and closes when the stop-and-archive retry fails', async () => {
+    const archiveSession = vi.fn()
+      .mockRejectedValueOnce(new SessionArchiveActiveError(sid('busy-s'), [{ kind: 'turn' }]))
+      .mockRejectedValueOnce(new Error('stop failed'))
+    mount({
+      useSessions: hook(sessionState([summary('busy-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['busy-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“busy-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止并归档会话' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '停止并归档' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('stop failed') })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // The row stays until a successful retry clears it.
+    expect(screen.getByText('busy-s')).toBeTruthy()
+  })
+
+  it('cancelling the stop-and-archive dialog closes it without retrying the archive', async () => {
+    const archiveSession = vi.fn(async () => {
+      throw new SessionArchiveActiveError(sid('busy-s'), [{ kind: 'schedule' }])
+    })
+    mount({
+      useSessions: hook(sessionState([summary('busy-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['busy-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“busy-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止并归档会话' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Only the initial plain call ever went out.
+    expect(archiveSession).toHaveBeenCalledExactlyOnceWith(sid('busy-s'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('busy-s')).toBeTruthy()
+  })
+
+  it('pins and unpins from the row menu; the pinned row leads its group', () => {
+    const pinSession = vi.fn(async () => {})
+    const unpinSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('free-s', 1), summary('top-s', 2)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['free-s', 'top-s'])], [], [sid('top-s')])),
+      pinSession,
+      unpinSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    // The registry pin set leads the group regardless of the stored account order.
+    const rows = screen.getAllByRole('treeitem').slice(1)
+    expect(rows[0]?.textContent).toContain('top-s')
+    expect(rows[1]?.textContent).toContain('free-s')
+
+    // A pinned row offers Unpin.
+    fireEvent.click(screen.getByRole('button', { name: '会话“top-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '取消置顶' }))
+    expect(unpinSession).toHaveBeenCalledExactlyOnceWith(sid('top-s'))
+    expect(pinSession).not.toHaveBeenCalled()
+
+    // An unpinned row offers Pin.
+    fireEvent.click(screen.getByRole('button', { name: '会话“free-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '置顶会话' }))
+    expect(pinSession).toHaveBeenCalledExactlyOnceWith(sid('free-s'))
+  })
+
+  it('surfaces a rejected pin as the inline alert', async () => {
+    const pinSession = vi.fn(async () => { throw new Error('pin denied') })
+    mount({
+      useSessions: hook(sessionState([summary('free-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['free-s'])])),
+      pinSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“free-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '置顶会话' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('pin denied') })
+    expect(screen.getByText('free-s')).toBeTruthy()
   })
 
   it('renders a fork child as a top-level row without a session twist', () => {

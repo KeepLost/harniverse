@@ -48,7 +48,7 @@ export const FOREIGN_TEXT = [
 ].map((line, index) => index === 0 ? line : JSON.stringify({ ...JSON.parse(line), seq: index - 1 })).join('\n')
 
 /** Materialize seq/time fields intentionally normalized out by upstream snapshots. */
-export async function officialArtifact(version: 1 | 2 | 3): Promise<string> {
+export async function officialArtifact(version: 1 | 2 | 3 | 4): Promise<string> {
   const text = await readFile(new URL(`fixtures/official-v${version}.jsonl`, import.meta.url), 'utf8')
   const [headerLine, ...eventLines] = text.trim().split('\n')
   const header = JSON.parse(headerLine!) as { createdAt: number }

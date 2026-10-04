@@ -11,10 +11,21 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import WorkspaceRegistry, {
+  WorkspaceActiveSessionError,
+  WorkspaceArchivedSessionPinError,
   WorkspaceId,
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
+  WorkspaceUnknownSessionError,
 } from '../src/index.ts'
+import type { SessionActivity } from '../src/index.ts'
+
+declare module '@deepseek-ai/dsh-workspace' {
+  interface SessionActivityKindMap {
+    /** Test-only family proving archive admission over a provider report. */
+    probe: 'probe'
+  }
+}
 import type { WorkspaceDeletionDomainState, WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 import { defaultWorkspaceTitle, fullyQualifiedWorkspacePath } from '../src/paths.ts'
 
@@ -142,11 +153,12 @@ function record(path: string, sessionIds: string[], createdAt = '2026-07-24T00:0
 }
 
 /**
- * Media written before archivedSessionIds existed omit the field; keeping the
- * fixtures in that shape continuously proves the schema default upgrades them.
+ * Media written before archivedSessionIds or pinnedSessionIds existed omits
+ * the fields; keeping the fixtures in that shape continuously proves the
+ * schema defaults upgrade them.
  */
-type StoredDomainState = Omit<WorkspaceDomainState, 'archivedSessionIds'>
-  & Partial<Pick<WorkspaceDomainState, 'archivedSessionIds'>>
+type StoredDomainState = Omit<WorkspaceDomainState, 'archivedSessionIds' | 'pinnedSessionIds'>
+  & Partial<Pick<WorkspaceDomainState, 'archivedSessionIds' | 'pinnedSessionIds'>>
 
 function storedPool(
   entries: Array<[string, WorkspaceRecord]>,
@@ -215,7 +227,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     expect(pool.versions.get('workspace_deletion')).toBe(DELETION_DOMAIN_VERSION)
 
     await result.registry.beginSessionDeletion(SessionId('deleting'))
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
     expect(storedDeletionState(pool)).toEqual({ pendingSessionDeletionIds: ['deleting'] })
   })
 
@@ -235,7 +247,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const result = await harness({ pool })
 
     expect(pool.versions.get('workspace')).toBe(DOMAIN_VERSION)
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
     expect(storedDeletionState(pool)).toEqual({ pendingSessionDeletionIds: ['legacy-deleting'] })
     expect(result.registry.pendingSessionDeletionIds).toEqual(['legacy-deleting'])
   })
@@ -252,7 +264,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     await fiber.await()
     expect(ctx.workspaceRegistry.list()).toEqual([])
     expect(list).toHaveBeenCalledTimes(1)
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
   })
 
   it('bootstraps once from list headers only, in workspace/session createdAt order', async () => {
@@ -286,6 +298,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
       initialized: true,
       workspaceIds: result.registry.list().map(workspace => workspace.id),
       archivedSessionIds: [],
+      pinnedSessionIds: [],
     })
   })
 
@@ -314,7 +327,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const second = await harness({ pool, sessions: [header('late', late, 100)] })
     expect(second.list).not.toHaveBeenCalled()
     expect(second.registry.list()).toEqual([])
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
   })
 
   it('reuses partial records after a bootstrap record write fails', async () => {
@@ -568,7 +581,7 @@ describe('WorkspaceRegistry create and lookup', () => {
     await expect(result.registry.delete(workspace.id)).resolves.toBe(false)
     expect(result.registry.get(workspace.id)).toBeUndefined()
     expect(result.registry.list()).toEqual([])
-    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
     expect(result.pool.media.get('workspace')!.tables.get('workspaces')!.has(workspace.id)).toBe(false)
     await expect(realpath(dir)).resolves.toBe(dir)
     expect(result.list).toHaveBeenCalledTimes(1)
@@ -612,6 +625,7 @@ describe('WorkspaceRegistry create and lookup', () => {
       initialized: true,
       workspaceIds: [],
       archivedSessionIds: [],
+      pinnedSessionIds: [],
       pendingMutation: { operation: 'delete', workspaceId: workspace.id },
     })
     const reregistered = await first.registry.create(dir)
@@ -620,6 +634,7 @@ describe('WorkspaceRegistry create and lookup', () => {
       initialized: true,
       workspaceIds: [reregistered.id],
       archivedSessionIds: [],
+      pinnedSessionIds: [],
     })
     await first.fiber.dispose()
 
@@ -899,7 +914,7 @@ describe('header-validated membership projection', () => {
     const createRecovery = await harness({ pool: interruptedCreate })
     expect(createRecovery.registry.list()).toEqual([])
     expect(interruptedCreate.media.get('workspace')!.tables.get('workspaces')!.has(createId)).toBe(false)
-    expect(storedState(interruptedCreate)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(interruptedCreate)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
 
     const interruptedDelete = storedPool(
       [[deleteId, record(deleteDir, [])]],
@@ -912,7 +927,7 @@ describe('header-validated membership projection', () => {
     const deleteRecovery = await harness({ pool: interruptedDelete })
     expect(deleteRecovery.registry.list()).toEqual([])
     expect(interruptedDelete.media.get('workspace')!.tables.get('workspaces')!.has(deleteId)).toBe(false)
-    expect(storedState(interruptedDelete)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(interruptedDelete)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] })
 
     const corruptPending = storedPool(
       [[deleteId, record(deleteDir, [])]],
@@ -1072,5 +1087,169 @@ describe('registry-global session archive', () => {
     await second.registry.completeSessionDeletion(SessionId('deleting'))
     expect(second.registry.pendingSessionDeletionIds).toEqual([])
     expect(storedDeletionState(pool)).toEqual({ pendingSessionDeletionIds: [] })
+  })
+})
+
+describe('archive admission through workspace/session-activity', () => {
+  it('refuses to archive a provider-reported active session before any write', async () => {
+    const result = await harness({ sessions: [header('busy', undefined, 100)] })
+    const reported: SessionActivity[] = [{ kind: 'probe', items: [{ id: 'probe-1', label: 'still running' }] }]
+    const asked: string[] = []
+    result.ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
+      asked.push(sessionId)
+      return [...reported, ...await next()]
+    })
+    const written = result.changes.length
+
+    const refusal = await result.registry.archiveSession(SessionId('busy')).then(
+      () => { throw new Error('expected the active-session refusal') },
+      (error: unknown) => error,
+    )
+
+    expect(refusal).toBeInstanceOf(WorkspaceActiveSessionError)
+    expect(refusal).toMatchObject({ sessionId: SessionId('busy'), activities: reported })
+    // The admission question is asked exactly once and nothing is written.
+    expect(asked).toEqual(['busy'])
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+    expect(result.changes).toHaveLength(written)
+  })
+
+  it('archives with stopActivity without asking the activity providers', async () => {
+    const result = await harness({ sessions: [header('busy', undefined, 100)] })
+    const asked = vi.fn()
+    result.ctx.on('workspace/session-activity', async () => {
+      asked()
+      return []
+    })
+
+    await result.registry.archiveSession(SessionId('busy'), { stopActivity: true })
+
+    expect(asked).not.toHaveBeenCalled()
+    expect(result.registry.archivedSessionIds).toEqual(['busy'])
+  })
+
+  it('stops the session only after the archive write is durable', async () => {
+    const result = await harness({ sessions: [header('busy', undefined, 100)] })
+    const observations: { sessionId: SessionId; archived: readonly SessionId[] }[] = []
+    result.ctx.on('workspace/session-stop', ({ sessionId }) => {
+      observations.push({ sessionId, archived: [...result.registry.archivedSessionIds] })
+    })
+
+    await result.registry.archiveSession(SessionId('busy'), { stopActivity: true })
+
+    expect(observations).toEqual([{ sessionId: SessionId('busy'), archived: [SessionId('busy')] }])
+    expect(result.registry.archivedSessionIds).toEqual(['busy'])
+  })
+
+  it('contains a stop-provider rejection without failing the archive', async () => {
+    const result = await harness({ sessions: [header('stuck', undefined, 100)] })
+    result.ctx.on('workspace/session-stop', () => {
+      throw new Error('stop provider failed')
+    })
+
+    await expect(result.registry.archiveSession(SessionId('stuck'), { stopActivity: true }))
+      .resolves.toBeUndefined()
+
+    expect(result.registry.archivedSessionIds).toEqual(['stuck'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual(['stuck'])
+  })
+})
+
+describe('registry-global session pins', () => {
+  it('pins most-recently-first, idempotently, and restores the order after restart', async () => {
+    const sessions = [header('s1', undefined, 1), header('s2', undefined, 2), header('s3', undefined, 3)]
+    const result = await harness({ sessions })
+    expect(result.registry.pinnedSessionIds).toEqual([])
+
+    await result.registry.pinSession(SessionId('s1'))
+    await result.registry.pinSession(SessionId('s2'))
+    await result.registry.pinSession(SessionId('s3'))
+    expect(result.registry.pinnedSessionIds).toEqual(['s3', 's2', 's1'])
+
+    const written = result.changes.filter(change => change.table === '').length
+    await result.registry.pinSession(SessionId('s2'))
+    expect(result.registry.pinnedSessionIds).toEqual(['s3', 's2', 's1'])
+    expect(result.changes.filter(change => change.table === '').length).toBe(written)
+    expect(storedState(result.pool).pinnedSessionIds).toEqual(['s3', 's2', 's1'])
+    await result.fiber.dispose()
+
+    const restarted = await harness({ pool: result.pool, sessions })
+    expect(restarted.registry.pinnedSessionIds).toEqual(['s3', 's2', 's1'])
+  })
+
+  it('refuses to pin an archived or unknown session without writing', async () => {
+    const result = await harness({ sessions: [header('s1', undefined, 1)] })
+    await result.registry.archiveSession(SessionId('s1'))
+    const written = result.changes.length
+
+    const refused = await result.registry.pinSession(SessionId('s1')).then(
+      () => { throw new Error('expected the archived-pin refusal') },
+      (error: unknown) => error,
+    )
+    expect(refused).toBeInstanceOf(WorkspaceArchivedSessionPinError)
+    expect(refused).toMatchObject({ sessionId: SessionId('s1') })
+
+    await expect(result.registry.pinSession(SessionId('ghost')))
+      .rejects.toBeInstanceOf(WorkspaceUnknownSessionError)
+    expect(result.registry.pinnedSessionIds).toEqual([])
+    expect(result.changes).toHaveLength(written)
+  })
+
+  it('unpins idempotently and durably', async () => {
+    const result = await harness({ sessions: [header('s1', undefined, 1), header('s2', undefined, 2)] })
+    await result.registry.pinSession(SessionId('s1'))
+    await result.registry.pinSession(SessionId('s2'))
+
+    await result.registry.unpinSession(SessionId('s1'))
+    expect(result.registry.pinnedSessionIds).toEqual(['s2'])
+
+    const written = result.changes.filter(change => change.table === '').length
+    await result.registry.unpinSession(SessionId('s1'))
+    await result.registry.unpinSession(SessionId('never-pinned'))
+    expect(result.registry.pinnedSessionIds).toEqual(['s2'])
+    expect(result.changes.filter(change => change.table === '').length).toBe(written)
+    expect(storedState(result.pool).pinnedSessionIds).toEqual(['s2'])
+  })
+
+  it('drops the pin in the same durable write as the archive', async () => {
+    const result = await harness({ sessions: [header('s1', undefined, 1), header('s2', undefined, 2)] })
+    await result.registry.pinSession(SessionId('s1'))
+    await result.registry.pinSession(SessionId('s2'))
+    const written = result.changes.filter(change => change.table === '').length
+
+    await result.registry.archiveSession(SessionId('s1'))
+
+    expect(result.registry.pinnedSessionIds).toEqual(['s2'])
+    expect(result.registry.archivedSessionIds).toEqual(['s1'])
+    // One archive write settles both facts together.
+    expect(result.changes.filter(change => change.table === '').length).toBe(written + 1)
+    expect(storedState(result.pool)).toMatchObject({ archivedSessionIds: ['s1'], pinnedSessionIds: ['s2'] })
+  })
+
+  it('drops the pin when a deleted session is removed from the registry', async () => {
+    const result = await harness({ sessions: [header('s1', undefined, 1)] })
+    await result.registry.pinSession(SessionId('s1'))
+
+    await result.registry.removeSessionReferences(SessionId('s1'))
+
+    expect(result.registry.pinnedSessionIds).toEqual([])
+    expect(storedState(result.pool).pinnedSessionIds).toEqual([])
+    await result.registry.removeSessionReferences(SessionId('s1'))
+    expect(result.registry.pinnedSessionIds).toEqual([])
+  })
+
+  it('parses media written before pinnedSessionIds existed with the empty default', async () => {
+    const dir = await makeDir('pin-pre-field')
+    const legacyId = WorkspaceId('00000000-0000-4000-8000-00000000000b')
+    const legacy = storedPool(
+      [[legacyId, record(dir, [])]],
+      { initialized: true, workspaceIds: [legacyId] },
+    )
+    const upgraded = await harness({ pool: legacy, sessions: [header('late', undefined, 1)] })
+    expect(upgraded.registry.pinnedSessionIds).toEqual([])
+    // The defaulted view persists through the next registry write.
+    await upgraded.registry.pinSession(SessionId('late'))
+    expect(storedState(legacy).pinnedSessionIds).toEqual(['late'])
   })
 })

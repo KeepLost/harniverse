@@ -188,6 +188,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'subprocess': 'subprocess.md',
+  'workspace': 'workspace.md',
   'governor': 'governor.md',
   'agent': 'core.md',
   'agent-loop': 'core.md',
@@ -604,6 +605,12 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   DomainFacility: 'storage.md',
   Workspace: 'workspace.md',
   WorkspaceId: 'workspace.md',
+  SessionActivity: 'workspace.md',
+  ArchiveSessionOptions: 'workspace.md',
+  SessionActivityItem: 'workspace.md',
+  SessionActivityKind: 'workspace.md',
+  SessionActivityKindMap: 'workspace.md',
+  SessionActivityRequest: 'workspace.md',
   WebBootGraph: 'client-modules.md',
   SessionClosedEvent: 'session.md',
   NotificationEnvelope: 'notification.md',

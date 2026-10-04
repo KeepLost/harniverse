@@ -1283,3 +1283,98 @@ describe('LocalJobRegistry teardown change notifications', () => {
     expect(seen).toEqual([undefined, undefined, undefined])
   })
 })
+
+/**
+ * Boot the registry with an ancestor-provided agents registry, the shape the
+ * workspace archive-admission listeners read: the stub keeps real Agent
+ * objects (headers, scopes) without the full AgentRegistry plugin.
+ */
+async function admissionHarness() {
+  const ctx = new Context()
+  const registered = new Map<SessionId, Agent>()
+  ctx.provide('agents', {
+    get: (id: SessionId) => registered.get(id),
+    list: () => [...registered.values()],
+    register: (agent: Agent) => { registered.set(agent.id, agent) },
+  } as never)
+  await ctx.plugin(LocalJobRegistry)
+  ctx.jobs.attachController('test-controller')
+  return { ctx, register: (agent: Agent) => registered.set(agent.id, agent) }
+}
+
+describe('LocalJobRegistry archive admission', () => {
+  it('reports the owning session\'s active jobs and nothing for strangers', async () => {
+    const { ctx, register } = await admissionHarness()
+    const owner = stubAgent(ctx, 'admission-owner')
+    register(owner)
+    const stranger = stubAgent(ctx, 'admission-stranger')
+    register(stranger)
+    const running = producer({ owner, label: 'long task' })
+    const runningId = ctx.jobs.start(running.spec)
+    const stopping = producer({ owner, label: 'winding down' })
+    const stoppingId = ctx.jobs.start(stopping.spec)
+    ctx.jobs.kill(stoppingId, owner)
+
+    const own = await ctx.waterfall(
+      'workspace/session-activity', { sessionId: owner.id }, () => Promise.resolve([]),
+    )
+    expect(own).toEqual([{
+      kind: 'job',
+      items: [{ id: runningId, label: 'long task' }, { id: stoppingId, label: 'winding down' }],
+    }])
+    // A registered stranger with no jobs and an unknown session both stay silent.
+    expect(await ctx.waterfall(
+      'workspace/session-activity', { sessionId: stranger.id }, () => Promise.resolve([]),
+    )).toEqual([])
+    expect(await ctx.waterfall(
+      'workspace/session-activity', { sessionId: SessionId('admission-ghost') }, () => Promise.resolve([]),
+    )).toEqual([])
+
+    running.settle({ status: 'completed' })
+    stopping.settle({ status: 'killed' })
+  })
+
+  it('kills the archived session\'s running jobs unreported and leaves finished ones', async () => {
+    const { ctx, register } = await admissionHarness()
+    const owner = stubAgent(ctx, 'stop-owner')
+    register(owner)
+    const running = producer({ owner, label: 'sleep 60' })
+    const runningId = ctx.jobs.start(running.spec)
+    const finished = producer({ owner, label: 'already done' })
+    const finishedId = ctx.jobs.start(finished.spec)
+    finished.settle({ status: 'completed' })
+    await tick()
+
+    // A stop for a session without an agent is a silent no-op.
+    await ctx.parallel('workspace/session-stop', { sessionId: SessionId('stop-ghost') })
+    await ctx.parallel('workspace/session-stop', { sessionId: owner.id })
+
+    expect(ctx.jobs.get(runningId, owner)).toMatchObject({ status: 'stopping', reported: false })
+    expect(running.cancels).toEqual(['session archived'])
+    expect(ctx.jobs.get(finishedId, owner)).toMatchObject({ status: 'completed', reported: false })
+
+    running.settle({ status: 'killed' })
+  })
+
+  it('contains one kill failure and still kills the sibling jobs', async () => {
+    const { ctx, register } = await admissionHarness()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const owner = stubAgent(ctx, 'boom-owner')
+    register(owner)
+    const bomb = producer({ owner, label: 'refuses cancel', cancel: () => { throw new Error('cancel refused') } })
+    const bombId = ctx.jobs.start(bomb.spec)
+    const sibling = producer({ owner, label: 'sibling task' })
+    const siblingId = ctx.jobs.start(sibling.spec)
+
+    await ctx.parallel('workspace/session-stop', { sessionId: owner.id })
+
+    // The bomb's cancel threw before its lifecycle moved; the sibling is still killed.
+    expect(ctx.jobs.get(bombId, owner).status).toBe('running')
+    expect(ctx.jobs.get(siblingId, owner)).toMatchObject({ status: 'stopping', reported: false })
+    expect(sibling.cancels).toEqual(['session archived'])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('killing "bash-1" for an archived session failed'))
+
+    bomb.settle({ status: 'completed' })
+    sibling.settle({ status: 'killed' })
+  })
+})

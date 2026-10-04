@@ -504,3 +504,20 @@
     transition: none;
   }
 }
+
+/* Stop-and-archive confirmation: the host-reported activity families and
+   their per-item identities, one nested list per family. */
+.archiveActivityList {
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.archiveActivityItems {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+  color: var(--dsw-alias-label-secondary);
+}

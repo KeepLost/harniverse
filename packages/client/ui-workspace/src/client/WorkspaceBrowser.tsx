@@ -22,6 +22,7 @@ import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
+import { SessionArchiveActiveError } from '@deepseek-ai/dsh-client-runtime/client'
 import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import { ArchiveIcon, ArchivePanel } from './ArchivePanel.tsx'
@@ -242,6 +243,10 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Pin or unpin a session (row menu action; pinned rows lead their section). */
+  onSessionPinToggle: (sessionId: SessionNode['id'], pinned: boolean) => void
+  /** Registry-global pin set (leading rows). */
+  pinnedSessionIds: readonly SessionNode['id'][]
   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
 }
@@ -249,7 +254,7 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, onSessionPinToggle, pinnedSessionIds,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
@@ -320,13 +325,13 @@ function SessionTree({
     [sessionOrderByAccount, ungroupedSessionIds],
   )
   const groups = useMemo(
-    () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, {
+    () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, pinnedSessionIds, {
       expandedGroups,
       ...(sessionOrderByAccount[UNGROUPED_KEY] === undefined
         ? {}
         : { ungroupedOrder: sessionOrderByAccount[UNGROUPED_KEY] }),
     }),
-    [list, orderedWorkspaces, archivedSessionIds, expandedGroups, sessionOrderByAccount],
+    [list, orderedWorkspaces, archivedSessionIds, pinnedSessionIds, expandedGroups, sessionOrderByAccount],
   )
   const now = Date.now()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
@@ -517,6 +522,7 @@ function SessionTree({
                     onRename={onSessionRename}
                     onFork={forkSession}
                     onArchive={onSessionArchive}
+                    onPinToggle={onSessionPinToggle}
                     drag={dragProps}
                     t={t}
                   />
@@ -545,7 +551,8 @@ function SessionTree({
 
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
-  useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
+  useSessions, open, forkSession, onSessionRename, onSessionArchive, onSessionPinToggle,
+  archivedSessionIds, pinnedSessionIds,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
 }: Pick<
   SessionTreeProps,
@@ -554,7 +561,9 @@ function FlatList({
   | 'forkSession'
   | 'onSessionRename'
   | 'onSessionArchive'
+  | 'onSessionPinToggle'
   | 'archivedSessionIds'
+  | 'pinnedSessionIds'
   | 'orderBy'
   | 'sessionOrderByAccount'
   | 'sessionUpdatedAtByAccount'
@@ -564,8 +573,8 @@ function FlatList({
 >) {
   const list = useSessions(s => s)
   const baseRows = useMemo(
-    () => deriveFlat(list, archivedSessionIds),
-    [list, archivedSessionIds],
+    () => deriveFlat(list, archivedSessionIds, pinnedSessionIds),
+    [list, archivedSessionIds, pinnedSessionIds],
   )
   const sessionIds = useMemo(() => baseRows.map(row => row.id), [baseRows])
   const previousOrderBy = useRef(orderBy)
@@ -633,6 +642,7 @@ function FlatList({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionArchive}
+              onPinToggle={onSessionPinToggle}
               flat
               drag={{
                 start: () => {
@@ -662,6 +672,14 @@ function FlatList({
     </div>
   )
 }
+
+/** Locale keys for the activity families this build knows; unknown families fall to the generic line. */
+const ARCHIVE_ACTIVITY_FAMILY_LABEL_KEYS = {
+  turn: 'archiveActive.family.turn',
+  job: 'archiveActive.family.job',
+  subagent: 'archiveActive.family.subagent',
+  schedule: 'archiveActive.family.schedule',
+} as const
 
 interface RemoteSearchState {
   query: string
@@ -755,6 +773,8 @@ export function WorkspaceBrowser({
   insertWorkspaceBefore,
   archiveSession,
   unarchiveSession,
+  pinSession,
+  unpinSession,
   openArchive,
   loadArchiveOlder,
   deleteSession,
@@ -769,6 +789,7 @@ export function WorkspaceBrowser({
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  const pinnedSessionIds = useWorkspaces(state => state.pinnedSessionIds)
   const sessionList = useSessions(state => state)
   const archivedItems = useMemo(() => archivedSessionIds.flatMap((id) => {
     const item = sessionList.byId[id]
@@ -938,14 +959,52 @@ export function WorkspaceBrowser({
     setSessionRenameError(null)
   }
 
-  // Archive is dialog-free: not destructive (the log and the accounting slot
-  // remain), so the menu action commits directly; the row disappears when the
-  // archive-set echo lands. A rejection surfaces as an inline alert and the
-  // row stays until a successful retry clears it.
+  // Archive is dialog-free for a quiet session: not destructive (the log and
+  // the accounting slot remain), so the menu action commits directly and the
+  // row disappears when the archive-set echo lands. A SESSION_ACTIVE refusal
+  // is the confirmation: it opens the stop-and-archive dialog listing the
+  // host's answer, and confirming retries with stopActivity. Any other
+  // rejection surfaces as an inline alert and the row stays until a
+  // successful retry clears it.
   const [sessionArchiveError, setSessionArchiveError] = useState<string | null>(null)
+  const [archiveActiveTarget, setArchiveActiveTarget] = useState<{
+    sessionId: SessionNode['id']
+    activities: readonly { kind: string; items?: { id: string; label?: string }[] }[]
+  } | null>(null)
+  const [archiveActiveBusy, setArchiveActiveBusy] = useState(false)
   const onSessionArchive = (sessionId: SessionNode['id']) => {
     setSessionArchiveError(null)
     archiveSession(sessionId).catch((reason: unknown) => {
+      if (reason instanceof SessionArchiveActiveError) {
+        setArchiveActiveTarget({ sessionId: reason.sessionId, activities: reason.activities })
+        return
+      }
+      setSessionArchiveError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+  const closeArchiveActive = () => {
+    if (archiveActiveBusy) return
+    setArchiveActiveTarget(null)
+  }
+  const confirmArchiveActive = () => {
+    /* v8 ignore next -- the Modal is absent without a target and its button is disabled while busy. */
+    if (archiveActiveBusy || archiveActiveTarget === null) return
+    setArchiveActiveBusy(true)
+    archiveSession(archiveActiveTarget.sessionId, { stopActivity: true })
+      .then(() => { setArchiveActiveTarget(null) })
+      .catch((reason: unknown) => {
+        setSessionArchiveError(reason instanceof Error ? reason.message : String(reason))
+        setArchiveActiveTarget(null)
+      })
+      .finally(() => { setArchiveActiveBusy(false) })
+  }
+  // Pinning is dialog-free: the row jumps to the head of its section, and
+  // unpinning restores its kept slot; failures surface through the same
+  // inline alert as archive.
+  const onSessionPinToggle = (sessionId: SessionNode['id'], pinned: boolean) => {
+    setSessionArchiveError(null)
+    const request = pinned ? unpinSession(sessionId) : pinSession(sessionId)
+    request.catch((reason: unknown) => {
       setSessionArchiveError(reason instanceof Error ? reason.message : String(reason))
     })
   }
@@ -1168,7 +1227,9 @@ export function WorkspaceBrowser({
                 <FlatList
                   useSessions={useSessions} open={open} forkSession={forkSession}
                   onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                  onSessionPinToggle={onSessionPinToggle}
                   archivedSessionIds={archivedSessionIds}
+                  pinnedSessionIds={pinnedSessionIds}
                   orderBy={orderBy}
                   sessionOrderByAccount={sessionOrderByAccount}
                   sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
@@ -1182,8 +1243,10 @@ export function WorkspaceBrowser({
                   useSessions={useSessions}
                   onSessionRename={onSessionRename}
                   onSessionArchive={onSessionArchive}
+                  onSessionPinToggle={onSessionPinToggle}
                   forkSession={forkSession}
                   workspaces={workspaces}
+                  pinnedSessionIds={pinnedSessionIds}
                   groupExpansion={groupExpansion}
                   setGroupExpanded={actions.setGroupExpanded}
                   sessionOrderByAccount={sessionOrderByAccount}
@@ -1209,6 +1272,46 @@ export function WorkspaceBrowser({
                 />
               ))}
       </div>
+
+      <Modal
+        open={archiveActiveTarget !== null}
+        onClose={closeArchiveActive}
+        closeLabel={t('close')}
+        title={t('archiveActive.title')}
+        footer={(
+          <>
+            <Button variant="outline" disabled={archiveActiveBusy} onClick={closeArchiveActive}>
+              {t('archiveActive.cancel')}
+            </Button>
+            <Button variant="primary" disabled={archiveActiveBusy} onClick={confirmArchiveActive}>
+              {t('archiveActive.confirm')}
+            </Button>
+          </>
+        )}
+      >
+        <p className={css.deleteConfirmText}>{t('archiveActive.body')}</p>
+        <ul className={css.archiveActivityList}>
+          {archiveActiveTarget?.activities.map((activity, index) => {
+            // Every key below exists in the locale dict; the cast only widens
+            // the host's opaque family vocabulary back into that fixed set.
+            const labelKey = (ARCHIVE_ACTIVITY_FAMILY_LABEL_KEYS as Record<string, string | undefined>)[activity.kind]
+              ?? 'archiveActive.family.other'
+            const items = activity.items ?? []
+            return (
+              <li key={`${activity.kind}:${index}`}>
+                <span className={css.deleteConfirmText}>{t(labelKey as Parameters<typeof t>[0])}</span>
+                {items.length > 0 && (
+                  <ul className={css.archiveActivityItems}>
+                    {items.map(item => (
+                      <li key={item.id}>{item.label === undefined ? item.id : `${item.label} (${item.id})`}</li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </Modal>
 
       <Modal
         open={renameTarget !== null}

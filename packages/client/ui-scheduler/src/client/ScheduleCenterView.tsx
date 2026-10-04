@@ -178,7 +178,7 @@ export function ScheduleCenterView({
                     <td data-label={t('table.lastRun')}>
                       {lastRun === undefined ? t('run.none') : (
                         <span title={sessionLabel(lastRun.targetSessionId)}>
-                          {t(lastRun.status === 'succeeded' ? 'run.succeeded' : 'run.failed', { time: new Date(lastRun.attemptedAt).toLocaleString() })}
+                          {t(lastRun.status === 'succeeded' ? 'run.succeeded' : lastRun.status === 'skipped' ? 'run.skipped' : 'run.failed', { time: new Date(lastRun.attemptedAt).toLocaleString() })}
                           {' · '}
                           {sessionLabel(lastRun.targetSessionId)}
                         </span>
