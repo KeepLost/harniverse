@@ -32,6 +32,9 @@ const WORKSPACE_CLOSURE = [
   // consumer resolves it like any other @deepseek-ai peer (koffi arrives
   // from the registry).
   'packages/sandbox/sandbox-windows-acl',
+  // sandbox-windows-acl imports the skill-seam constants at runtime, so a
+  // packed consumer resolves its dsh-skill peer like every other member.
+  'packages/skill/skill',
   'packages/sandbox/sandbox',
   'packages/core/session',
   'packages/core/scope',
