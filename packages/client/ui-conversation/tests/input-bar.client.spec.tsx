@@ -4,7 +4,7 @@
 // semantics (input stays free; continuable children keep Send beside Stop), the machine pending lock,
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
-import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
@@ -467,6 +467,15 @@ describe('image draft rail', () => {
 })
 
 describe('desktop path intake', () => {
+  // The desktop shell's path bridge is part of the local-Host gate: install
+  // it for the suite (the non-local case below stays image-only regardless).
+  beforeEach(() => {
+    vi.stubGlobal('harniverseHostPaths', { pathFor: (file: File) => `/ws/host/${file.name}` })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('keeps the image-only intake on a non-local client exactly (no addFiles route)', () => {
     const addImages = vi.fn(() => null)
     const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)

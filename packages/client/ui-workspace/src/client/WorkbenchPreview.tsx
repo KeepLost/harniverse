@@ -243,7 +243,7 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: 
             the bidi isolate stops the base direction from reordering it. */}
         <span className={css.previewPath} title={tab.path}>&#8296;{tab.path}&#8297;</span>
         {tab.bytes !== undefined && <small>{tab.bytes.toLocaleString()} B</small>}
-        {onOpenExternal !== undefined && !tab.loading && tab.error === undefined && (
+        {onOpenExternal !== undefined && tab.error === undefined && (
           <button
             type="button"
             className={css.closeButton}

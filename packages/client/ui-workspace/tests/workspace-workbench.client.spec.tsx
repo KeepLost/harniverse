@@ -471,12 +471,15 @@ describe('workbench presentation units', () => {
     await waitFor(() => { expect(view.getByText('无法生成此文件的预览')).toBeTruthy() })
   })
 
-  it('opens the previewed file externally once it loaded and hides the action otherwise', () => {
+  it('opens the previewed file externally and hides the action on read failure or a missing callback', () => {
     const onDismiss = vi.fn()
     const onOpenExternal = vi.fn()
     const tab = { id: 'readme', path: 'README.md', title: 'README.md', kind: 'text' as const, loading: false, content: 'body' }
-    const view = render(<FilePreview tab={{ ...tab, loading: true }} t={t} onDismiss={onDismiss} onOpenExternal={onOpenExternal} />)
-    expect(view.queryByRole('button', { name: '在默认应用中打开此文件' })).toBeNull()
+    // The action depends only on the path, so it stays available while the
+    // content is still streaming in (a settled golden must not depend on it).
+    const loading = render(<FilePreview tab={{ ...tab, loading: true }} t={t} onDismiss={onDismiss} onOpenExternal={onOpenExternal} />)
+    expect(loading.getByRole('button', { name: '在默认应用中打开此文件' })).toBeTruthy()
+    const view = loading
     view.rerender(<FilePreview tab={{ ...tab, error: 'read failed' }} t={t} onDismiss={onDismiss} onOpenExternal={onOpenExternal} />)
     expect(view.queryByRole('button', { name: '在默认应用中打开此文件' })).toBeNull()
     view.rerender(<FilePreview tab={tab} t={t} onDismiss={onDismiss} />)

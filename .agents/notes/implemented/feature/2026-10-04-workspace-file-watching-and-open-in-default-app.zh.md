@@ -17,6 +17,20 @@ Scope:`packages/host/apiproxy`(`src/workspace-watcher.ts`、`src/api/workspace-f
 - **客户端 feed。** `ChangeFeed`(client/runtime)为每个展开的树目录持有一条订阅:`ready` 重置失败计数,`change` 调度投递目录的尾随合并 relist,流失调用连接循环同形的退避重开(带抖动上限),连续五次失败将整个 Workspace 降级为手动模式(拆除全部监听、`onMode` 一次),手动刷新按钮始终可用。类型化拒绝只安静终结自己所在的目录。运行时服务把宿主关闭帧映射为 `WorkspaceFileWatchError`(`workspace-watch-unsupported` 与 `workspace-watch-limit-reached` 都属于观察本身被拒绝;`workspace-not-found`;`workspace-path-invalid` → `outside-workspace`);其余错误保持传输层原形,交由重连路径处理。
 - **打开动作。** `host.openPath` 现在对线路面设闸:只有宿主能够 stat 到的绝对路径才会打开(`bad-request` / `host-path-not-found`,两者共用一个拒绝,调用方无法借此探测具体是哪一种);宿主解析的内部打开保持原缝不变。树行与预览头暴露“以默认应用打开”,门控在已经对客户端可见的 `hostDescription.canOpenPath` 事实上(不嗅探 UA);应用目录、逐应用图标与启动器解析维持拒绝。
 
+## Alternatives considered
+
+**上游独立的 `connection` 信任栅栏服务。** 拒绝:浏览器载体已经对每条 `/api` 路由做认证;按路由族复制栅栏会把安全断言搬离唯一拥有它们的准入点。
+
+**为监听流启用 WebSocket 升级。** 拒绝:既有 SSE 载体(`readSse`)已通过 fetch handler 流式传输 terminal/host/mux 帧,带认证、背压与帧模式解析;为一个新流族引入第二传输面会使载体面积翻倍。
+
+**经一元客户端轮询。** 拒绝:轮询把删除可见性藏进节奏常数并空耗能力检查;帧流推送合并后的事实,手动模式回退为失败语义封顶。
+
+**官方 open-in-app 应用目录与逐应用启动器。** 既定处置拒绝:`host.openPath` 的 OS 默认交接加 stat 闸已覆盖产品面,无需启动器模板、图标提取及其探测超时。
+
+## Consequences
+
+展开的树目录自动刷新;监听器不友好的部署在连续五次流失调用后将整个 Workspace 降级为手动刷新,而不是静默停滞。每条 watch 订阅占用该 Workspace `fileWatchMaxPerWorkspace`(默认 64)并发额度之一,病态的树展开会得到类型化拒绝而非无界观察器增长。面向线路的 `host.openPath` 在任何原生前即拒绝相对与缺失路径,调用方也无法再借打开路由探测路径存在性(共用一个拒绝)。应用目录、逐应用图标与启动器解析维持拒绝:所有打开只走操作系统默认应用。
+
 ## Verification
 
 宿主侧:`packages/host/apiproxy/tests/workspace-file-watch.spec.ts`(15 例:帧、合并、祖先重锚、上限、释放、SSE 组帧、400 查询)、`api-proxy-workspace.spec.ts` 的 openPath 闸用例。客户端:`workspaces-change-feed.client.spec.ts`(11)、`workspaces-watch.client.spec.ts`(3 个映射用例)、`workspace-workbench.client.spec.ts` 的监听/动作测试。全树 `tsc -b` 聚合干净;按文件类型感知 lint 干净。

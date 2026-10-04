@@ -36,6 +36,7 @@ import { isImageMediaType } from '../service.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import { SupervisionSelect } from './SupervisionSelect.tsx'
+import { hostPathBridge } from '../input/file-paths.ts'
 import { isSafariBrowser, repairSafariTextareaLayout } from './safari.ts'
 import css from './InputBar.module.css'
 
@@ -54,8 +55,12 @@ interface ComposerRailItem extends AttachmentRailItem {
  */
 function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]): ReadonlySet<File> {
   const directories = new Set<File>()
+  // A synthetic or sanitized DataTransfer may carry files without an items
+  // list; no entry metadata means no directory can be named.
+  const items = dataTransfer.items as DataTransferItemList | undefined
+  if (items === undefined) return directories
   let fileIndex = 0
-  for (const item of dataTransfer.items) {
+  for (const item of items) {
     if (item.kind !== 'file') continue
     const file = files[fileIndex++]
     if (typeof item.webkitGetAsEntry !== 'function') continue
@@ -120,9 +125,11 @@ export function InputBar({
   const imageLimits = useProjection('imageLimits')
   // Local-Host gate for the drop/paste @path intake (X13-R31): the page
   // authority is loopback AND the current Host handshake reports native path
-  // opening — the same seam the produced-files row reads, never a UA sniff.
+  // opening AND the Desktop shell's path bridge is installed — without the
+  // bridge no file can become a `@path` chip, so the intake keeps the plain
+  // image-only behavior everywhere else; never a UA sniff.
   const hostCanOpenPath = useHostDescription(description => description?.canOpenPath === true)
-  const localHost = isLoopback && hostCanOpenPath
+  const localHost = isLoopback && hostCanOpenPath && hostPathBridge() !== undefined
   // Prompt failures are ordinary failures (no create/attach transaction exists
   // anymore): the toast announces promptError, the draft stays in the machine,
   // and the user resubmits. A remount over a session whose machine still holds
@@ -540,7 +547,13 @@ export function InputBar({
     }
     if (images.length > 0) intakeImages(images)
     if (rest.length === 0) return
-    const rejected = addFiles?.(rest, restDirectories, at)
+    // A composer without the chip face keeps the image intake's own refusal
+    // rather than silently dropping the non-image remainder.
+    if (addFiles === undefined) {
+      intakeImages(rest)
+      return
+    }
+    const rejected = addFiles(rest, restDirectories, at)
     if (rejected != null) showToast(rejected)
   }, [localHost, imageLimits, intakeImages, addFiles, showToast])
 

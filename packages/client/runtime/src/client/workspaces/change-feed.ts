@@ -16,19 +16,11 @@
  * changes by reopening.
  */
 import type { WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type { WorkspaceFileWatch, WorkspaceFileWatchFailureCode } from '../contract/workspaces.ts'
 
-/** One filesystem change under a watched directory, as the Host watch reports it. */
-export type WorkspaceFileWatchChange =
-  | { readonly absolutePath: string; readonly version: string }
-  | { readonly absolutePath: string; readonly absent: true }
-
-/** One frame of a `watchFiles` subscription: `ready` first, then `change` frames. */
-export type WorkspaceFileWatchFrame =
-  | { readonly kind: 'ready' }
-  | { readonly kind: 'change'; readonly change: WorkspaceFileWatchChange }
-
-/** Typed reasons a watch subscription can refuse or fail, distinct from transport loss. */
-export type WorkspaceFileWatchFailureCode = 'watch-unsupported' | 'not-found' | 'outside-workspace'
+export type {
+  WorkspaceFileWatch, WorkspaceFileWatchChange, WorkspaceFileWatchFailureCode, WorkspaceFileWatchFrame,
+} from '../contract/workspaces.ts'
 
 /**
  * A watch failure the service surface distinguishes by code.
@@ -50,20 +42,6 @@ export class WorkspaceFileWatchError extends Error {
     this.name = 'WorkspaceFileWatchError'
   }
 }
-
-/**
- * The `watchFiles` subscription factory the runtime workspaces service
- * exposes: one subscription per watched directory, aborted by `signal`.
- * @param workspaceId - Workspace whose files the subscription observes.
- * @param path - workspace-relative directory path; undefined watches the root.
- * @param signal - aborts the subscription and tears it down on the Host.
- * @returns the frame stream, `ready` first.
- */
-export type WorkspaceFileWatch = (
-  workspaceId: WorkspaceId,
-  path: string | undefined,
-  signal: AbortSignal,
-) => AsyncIterable<WorkspaceFileWatchFrame>
 
 /** Whether a Workspace's directories refresh from watch frames or only manually. */
 export type ChangeFeedMode = 'auto' | 'manual'

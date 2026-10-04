@@ -15,7 +15,10 @@ export interface HostPathBridge {
   pathFor(file: File): string
 }
 
-/** The shell-installed bridge, when this document runs inside the Desktop application. */
+/**
+ * The shell-installed bridge, when this document runs inside the Desktop application.
+ * @returns the Desktop shell's path bridge, or `undefined` on a served Web page.
+ */
 export function hostPathBridge(): HostPathBridge | undefined {
   return (globalThis as { harniverseHostPaths?: HostPathBridge }).harniverseHostPaths
 }

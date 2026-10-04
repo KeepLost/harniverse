@@ -17,6 +17,18 @@ Blueprint rows R30/R31 (item X13): the workbench previewed CSV tables but not TS
 - **`@path` chips through the preload bridge.** The Desktop preload exposes `harniverseHostPaths.pathFor` (Harniverse's name for upstream's `__DSH_HOST_PATHS__`; Electron `webUtils.getPathForFile`) on the http(s) branch — the desktop shell loads the app over `loadURL`, not `file:`. On a local client: whole-batch validation runs before any mutation (a busy composer or an unsupported entry refuses atomically), directories without a bridge refuse with localized desktop-only copy, pathless files and images still upload, and named files/folders become relativized `@path` reference chips inserted through one `paste-begin` transaction (single undo for the batch; chips delete and serialize exactly like existing occurrence chips through ui-reference's codec). A mixed drop splits: images upload, the rest become chips — neither silently disappears. Web (non-local) non-image drops keep the existing refusal copy; the A5 upload path is untouched.
 - **Folder drops stay one chip.** A dropped folder inserts a single `@path` reference for its path (no recursive traversal); the official grammar's directory-tail quoting is ported in `file-paths.ts` alongside `relativizeToCwd` and `workspaceTitleOf`.
 
+## Alternatives considered
+
+**A shared table package ported from upstream's documentpreview.** Rejected: the 2365-line preview package exists to serve spreadsheet renderers we refuse; extending our existing CSV arm by one delimiter parameter is the whole TSV requirement.
+
+**Recursive folder traversal into per-file chips.** Rejected: a dropped folder is one reference the model can list on demand; expanding it client-side would mint chips for files the user never named and blow the paste transaction.
+
+**Uploading desktop drops through the A5 path with host-side copy.** Rejected: the point of R31 is to reference without copying; the bridge names the path, the chip keeps it a mention, and uploads remain for images and pathless files only.
+
+## Consequences
+
+Workbench tables preview TSV exactly as CSV, so spreadsheet families beyond delimited text (XLSX/XLS) remain refused by the recorded disposition — a TSV file previews, an XLSX still gets the unviewable treatment. Desktop users can drop or paste files and folders as `@path` references without uploading them; web users see no change, and the split never silently discards either side of a mixed drop. The preload bridge name (`harniverseHostPaths`) is now part of the Desktop shell's renderer contract. A composition without ui-reference fails a chip submit loudly rather than degrading the mention to plain text.
+
 ## Verification
 
 `packages/client/ui-workspace/tests/workspace-workbench.client.spec.tsx` (TSV beside every CSV case: dispatch, parser, quoted tab-fields, comma-in-TSV isolation, clipping, empty copy), `packages/client/ui-conversation/tests/input-file-paths.client.spec.ts`, `input-files.client.spec.ts`, `input-bar.client.spec.tsx` (desktop intake describe: non-local parity, split, insertion point, refusal toasts), `apply-inject.client.spec.tsx` (batch atomicity). Scoped tsc and lint clean.

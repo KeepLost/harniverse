@@ -485,6 +485,12 @@
       "requiredCapability": "harniverse.observe"
     },
     {
+      "endpoint": "workspace.files.watch",
+      "kind": "stream",
+      "method": "POST",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
       "endpoint": "session.export",
       "kind": "download",
       "method": "GET",
@@ -521,10 +527,13 @@
     "workspace-file-too-large",
     "workspace-git-not-repository",
     "workspace-git-failed",
+    "workspace-watch-unsupported",
+    "workspace-watch-limit-reached",
     "directory-unreadable",
     "directory-exists",
     "directory-create-failed",
     "directory-picker-unavailable",
+    "host-path-not-found",
     "agent-preset-read-only",
     "agent-preset-conflict",
     "agent-preset-not-found",
