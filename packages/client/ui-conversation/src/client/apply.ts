@@ -381,6 +381,7 @@ export function apply(ctx: Context): void {
           stop: undefined,
           command: undefined,
           isLoopback: connection.isLoopback,
+          shellPathBridge: hostPathBridge() !== undefined,
           hooks: {
             notices: ABSENT_NOTICES,
             lexicon: ABSENT_LEXICON,
@@ -475,6 +476,7 @@ export function apply(ctx: Context): void {
           hostDescription: connection.hostDescription,
         },
         isLoopback: connection.isLoopback,
+        shellPathBridge: hostPathBridge() !== undefined,
       }
     },
   }, InputBar)

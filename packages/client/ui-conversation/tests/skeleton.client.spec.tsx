@@ -229,6 +229,7 @@ function mount(
           removeFile={() => {}}
           draftImages={() => []}
           isLoopback={false}
+          shellPathBridge={false}
           useHostDescription={bindSnapshotSelector(ABSENT_HOST_DESCRIPTION)}
           resolveSubmitMode={() => 'queue'}
           useNotices={bindSnapshotSelector(wiring.notices)}

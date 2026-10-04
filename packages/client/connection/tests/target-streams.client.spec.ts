@@ -77,3 +77,62 @@ describe('standalone HTTP cancellation', () => {
     })).resolves.toMatchObject({ accepted: false, reason: 'not-pending' })
   })
 })
+
+describe('workspace file watch stream', () => {
+  const watchPayload = { workspaceId: 'ws' as never, path: 'src' }
+  const watchFrame = { kind: 'change', change: { absolutePath: '/ws/src/a.ts', version: 'v1' } }
+  const watchResponse = () => new Response(
+    envelope('connection.authenticated', { kind: 'bypass' })
+    + envelope('workspace.files.watch', { kind: 'ready' })
+    + envelope('workspace.files.watch', watchFrame),
+  )
+
+  it.each(['standalone', 'captured', 'delegate'] as const)('delivers frames through the %s API', async (mode) => {
+    const generation = new TargetGeneration({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    const captured = new WebApiClient(undefined, undefined, undefined, undefined,
+      generation.resolvePath, () => generation)
+    const api = mode === 'standalone' ? new WebApiClient() : mode === 'captured' ? captured
+      : new WebApiClient(undefined, undefined, undefined, undefined, undefined, undefined, () => captured)
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => watchResponse())
+    const opened = vi.fn()
+    const identities: unknown[] = []
+    const iterator = api.workspaceFiles.watchFiles(watchPayload, new AbortController().signal, opened,
+      identity => identities.push(identity))[Symbol.asyncIterator]()
+    expect(await iterator.next()).toMatchObject({ done: false, value: { payload: { kind: 'ready' } } })
+    expect(await iterator.next()).toMatchObject({ done: false, value: { payload: watchFrame } })
+    expect(await iterator.next()).toMatchObject({ done: true })
+    expect(opened).toHaveBeenCalledOnce()
+    expect(identities).toEqual([{ kind: 'bypass' }])
+    const input = fetch.mock.calls[0]![0]
+    const url = new URL(input instanceof Request ? input.url : input)
+    expect(url.pathname).toBe('/api/workspace.files.watch')
+    expect(url.searchParams.get('workspaceId')).toBe('ws')
+    expect(url.searchParams.get('path')).toBe('src')
+  })
+
+  it('omits the path query for a root watch and delivers without readiness callbacks', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => watchResponse())
+    const iterator = new WebApiClient().workspaceFiles.watchFiles(
+      { workspaceId: 'ws' as never }, new AbortController().signal,
+    )[Symbol.asyncIterator]()
+    expect(await iterator.next()).toMatchObject({ value: { payload: { kind: 'ready' } } })
+    const raw = fetch.mock.calls[0]![0]
+    const url = new URL(raw instanceof Request ? raw.url : raw)
+    expect(url.searchParams.has('path')).toBe(false)
+  })
+
+  it('suppresses open, identity and buffered frames after cancellation', async () => {
+    const caller = new AbortController()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      caller.abort()
+      return watchResponse()
+    })
+    const opened = vi.fn()
+    const identities: unknown[] = []
+    const iterator = new WebApiClient().workspaceFiles.watchFiles(watchPayload, caller.signal, opened,
+      identity => identities.push(identity))[Symbol.asyncIterator]()
+    expect(await iterator.next()).toMatchObject({ done: true })
+    expect(opened).not.toHaveBeenCalled()
+    expect(identities).toEqual([])
+  })
+})

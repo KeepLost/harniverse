@@ -4,7 +4,7 @@
 // semantics (input stays free; continuable children keep Send beside Stop), the machine pending lock,
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
@@ -98,6 +98,8 @@ interface BenchOptions {
   addFiles?: (files: readonly File[], directories?: ReadonlySet<File>, at?: number) => string | null
   /** Loopback half of the local-Host path-reference gate. */
   isLoopback?: boolean
+  /** Desktop shell's host-path bridge half of the same gate. */
+  shellPathBridge?: boolean
   /** Host handshake description; absent = no connected description yet. */
   canOpenPath?: boolean
   commandMenuOpen?: boolean
@@ -206,6 +208,7 @@ function bench(over?: BenchOptions) {
     addFiles: over?.addFiles ?? ((files) => { shell.addFiles(files); return null }),
     removeFile: (id) => { shell.removeFile(id) },
     isLoopback: over?.isLoopback ?? false,
+    shellPathBridge: over?.shellPathBridge ?? false,
     useHostDescription: bindSnapshotSelector(hostDescriptionSource(over?.canOpenPath)),
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
@@ -467,14 +470,6 @@ describe('image draft rail', () => {
 })
 
 describe('desktop path intake', () => {
-  // The desktop shell's path bridge is part of the local-Host gate: install
-  // it for the suite (the non-local case below stays image-only regardless).
-  beforeEach(() => {
-    vi.stubGlobal('harniverseHostPaths', { pathFor: (file: File) => `/ws/host/${file.name}` })
-  })
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
 
   it('keeps the image-only intake on a non-local client exactly (no addFiles route)', () => {
     const addImages = vi.fn(() => null)
@@ -496,7 +491,7 @@ describe('desktop path intake', () => {
   it('splits a local paste: folders and files to reference chips, images to the rail', () => {
     const addImages = vi.fn(() => null)
     const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
-    const { textarea } = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true })
+    const { textarea } = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
     const folder = new File([], 'my project')
     const note = new File([Uint8Array.of(2)], 'notes.md', { type: 'text/markdown' })
     const shot = new File([Uint8Array.of(3)], 'shot.png', { type: 'image/png' })
@@ -524,7 +519,7 @@ describe('desktop path intake', () => {
 
   it('inserts local reference chips at the live selection end while pasted text replaces the selection', () => {
     const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
-    const { textarea, shell } = bench({ addFiles, isLoopback: true, canOpenPath: true, draft: '读一些' })
+    const { textarea, shell } = bench({ addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true, draft: '读一些' })
     textarea.setSelectionRange(3, 3)
     const note = new File([Uint8Array.of(1)], 'notes.md', { type: 'text/markdown' })
     fireEvent.paste(textarea, {
@@ -537,7 +532,7 @@ describe('desktop path intake', () => {
   it('routes a local drop through the same intake, reading directory entries off the drag', () => {
     const addImages = vi.fn(() => null)
     const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
-    bench({ addImages, addFiles, isLoopback: true, canOpenPath: true })
+    bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
     const folder = new File([], 'project')
     const note = new File([Uint8Array.of(1)], 'notes.md', { type: 'text/markdown' })
     const shot = new File([Uint8Array.of(2)], 'shot.png', { type: 'image/png' })
@@ -567,7 +562,7 @@ describe('desktop path intake', () => {
     const addImages = vi.fn(() => null)
     const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
     const first = bench({
-      addImages, addFiles, isLoopback: true, canOpenPath: true,
+      addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true,
       imageLimits: {
         maxImageBytes: 1024, maxImagesPerMessage: 4, maxMessageImageBytes: 4096,
         maxImagePixels: 1000, mediaTypes: ['image/png'] as const,
@@ -583,7 +578,7 @@ describe('desktop path intake', () => {
     expect(addFiles).toHaveBeenCalledWith([webp], new Set(), 0)
     cleanup()
     // A png-only batch keeps the whole intake on the rail (nothing to chip).
-    const second = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true })
+    const second = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
     const png = new File([Uint8Array.of(2)], 'shot.png', { type: 'image/png' })
     fireEvent.paste(second.textarea, {
       clipboardData: { items: [{ kind: 'file', getAsFile: () => png }], getData: () => '' },
@@ -595,7 +590,7 @@ describe('desktop path intake', () => {
   it('announces an addFiles refusal through the toast and keeps the image side of a mixed batch', () => {
     const addImages = vi.fn(() => null)
     const addFiles = vi.fn(() => '只有桌面端支持添加文件夹，浏览器里请添加单个文件')
-    const { view, textarea } = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true })
+    const { view, textarea } = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
     const folder = new File([], 'project')
     const shot = new File([Uint8Array.of(2)], 'shot.png', { type: 'image/png' })
     fireEvent.paste(textarea, {

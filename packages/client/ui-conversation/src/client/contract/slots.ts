@@ -549,6 +549,12 @@ export interface ComposerBarInjected {
    */
   isLoopback: boolean
   /**
+   * Whether the Desktop shell's host-path bridge is installed on this
+   * document (with {@link isLoopback} and the Host handshake's
+   * `canOpenPath`, the complete drop/paste path-reference gate).
+   */
+  shellPathBridge: boolean
+  /**
    * Registrant hooks compartment: the renderer binds these to
    * useNotices/useLexicon (static absent sources without a session — hook
    * order stays constant).

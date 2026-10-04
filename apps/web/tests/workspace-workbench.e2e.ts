@@ -31,7 +31,12 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
   beforeAll(async () => {
     const fixture = await readFile(FIXTURE, 'utf8')
     expect(fixtureUserPrompts(fixture)).toEqual([PROMPT])
-    scaffold = await launchWebScaffold({ authentication: 'grant', replayFixture: FIXTURE, paceMs: 5 })
+    scaffold = await launchWebScaffold({
+      authentication: 'grant',
+      replayFixture: FIXTURE,
+      paceMs: 5,
+      extraOverlayPath: fileURLToPath(new URL('./workspace-workbench.overlay.yml', import.meta.url)),
+    })
     const workspace = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(workspace, { recursive: true })
     await writeFile(join(workspace, 'README.md'), '# Workbench E2E\n\nAuthenticated preview.\n')

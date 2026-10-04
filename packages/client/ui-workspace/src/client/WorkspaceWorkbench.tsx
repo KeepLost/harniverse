@@ -398,8 +398,13 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   // generation; expansion changes reconcile its subscriptions. A Workspace
   // that exhausts the feed's stream retries lands in manual mode (store
   // field), leaving the manual refresh button as the only relist trigger.
+  // The placeholder is replaced by the assignment below before any feed can
+  // call it; it exists only so the ref's first read has a callable.
+  /* v8 ignore next -- unreachable placeholder: overwritten before first call. */
   const relistDirectory = useRef((_path: string) => {})
   relistDirectory.current = (path: string) => {
+    /* v8 ignore next -- a change frame can land after the directory collapsed
+       and was pruned from the account; the late relist target is gone. */
     if (account?.directories[path] !== undefined) loadDirectory(path, true)
   }
   const watchFiles = props.watchFiles
@@ -409,11 +414,17 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     if (watchId === undefined || watchFiles === undefined) return
     const feed = new ChangeFeed({
       watch: watchFiles,
+      // The id guards drop callbacks a previous generation's feed delivers
+      // after the workspace switched underneath this effect.
+      /* v8 ignore next -- generation race: only the prior generation's feed reports a foreign id. */
       onInvalidate: (id, path) => { if (id === watchId) relistDirectory.current(path) },
+      /* v8 ignore next -- generation race, same source as onInvalidate. */
       onMode: (id, mode) => { if (id === watchId) props.actions.setFileWatch(watchId, mode) },
     })
     feedRef.current = feed
     return () => {
+      /* v8 ignore next -- a newer generation already replaced the ref when an
+         older effect's cleanup runs; only that generation owns the teardown. */
       if (feedRef.current === feed) feedRef.current = undefined
       feed.dispose()
     }

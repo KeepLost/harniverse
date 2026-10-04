@@ -61,6 +61,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     removeFile: () => {},
     draftImages: () => [],
     isLoopback: false,
+    shellPathBridge: false,
     useHostDescription: bindSnapshotSelector(ABSENT_HOST_DESCRIPTION),
     resolveSubmitMode: () => 'queue',
     useNotices: bindSnapshotSelector(shell.notices),

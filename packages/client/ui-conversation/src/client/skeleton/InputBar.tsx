@@ -36,7 +36,6 @@ import { isImageMediaType } from '../service.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import { SupervisionSelect } from './SupervisionSelect.tsx'
-import { hostPathBridge } from '../input/file-paths.ts'
 import { isSafariBrowser, repairSafariTextareaLayout } from './safari.ts'
 import css from './InputBar.module.css'
 
@@ -77,7 +76,7 @@ export function InputBar({
   addFiles, removeFile,
   resolveSubmitMode, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher, useFileDrafts, useHostDescription,
-  useProjection, sessionId, variant, disabled: inert = false, blocked, isLoopback,
+  useProjection, sessionId, variant, disabled: inert = false, blocked, isLoopback, shellPathBridge,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
@@ -129,7 +128,7 @@ export function InputBar({
   // bridge no file can become a `@path` chip, so the intake keeps the plain
   // image-only behavior everywhere else; never a UA sniff.
   const hostCanOpenPath = useHostDescription(description => description?.canOpenPath === true)
-  const localHost = isLoopback && hostCanOpenPath && hostPathBridge() !== undefined
+  const localHost = isLoopback && hostCanOpenPath && shellPathBridge
   // Prompt failures are ordinary failures (no create/attach transaction exists
   // anymore): the toast announces promptError, the draft stays in the machine,
   // and the user resubmits. A remount over a session whose machine still holds

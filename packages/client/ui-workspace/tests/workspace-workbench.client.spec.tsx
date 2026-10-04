@@ -1153,6 +1153,42 @@ describe('workbench open-in-default-application actions', () => {
     hidden.unmount()
   })
 
+  it('announces an open failure as a diagnostic without breaking the tree or preview', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const openPath = vi.fn(async () => { throw new Error('no desktop') })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true })
+
+    fireEvent.click(await view.findByRole('button', { name: '在默认应用中打开“README.md”' }))
+    fireEvent.click(view.getByRole('button', { name: /^MDREADME\.md$/ }))
+    const overlay = await view.findByRole('region', { name: '工作区文件预览' })
+    fireEvent.click(within(overlay).getByRole('button', { name: '在默认应用中打开此文件' }))
+    await waitFor(() => { expect(warn).toHaveBeenCalledTimes(2) })
+    expect(warn).toHaveBeenCalledWith('open in default application failed:', expect.objectContaining({ message: 'no desktop' }))
+    // The affordances stay usable after the failed hand-off.
+    expect(within(overlay).getByRole('button', { name: '在默认应用中打开此文件' })).toBeTruthy()
+    warn.mockRestore()
+    view.unmount()
+  })
+
+  it('offers the preview header action on the docked workbench panel too', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const openPath = vi.fn(async () => {})
+    // Drawer mode collapses the overlay variant, so the panel's own preview
+    // is the only rendered region.
+    const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true, drawer: true })
+
+    fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
+    const region = await view.findByRole('region', { name: '工作区文件预览' })
+    fireEvent.click(within(region).getByRole('button', { name: '在默认应用中打开此文件' }))
+    expect(openPath).toHaveBeenCalledWith('/projects/a/README.md')
+    view.unmount()
+  })
+
   it('offers the preview header action for a loaded file only with the capability', async () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
