@@ -100,6 +100,8 @@ export const TokenDefaultDacl = 6
 // SECURITY_INFORMATION (winnt.h line ~4293)
 /** DACL_SECURITY_INFORMATION: read/write only the DACL of a security descriptor. */
 export const DACL_SECURITY_INFORMATION = 0x00000004
+/** LABEL_SECURITY_INFORMATION: read/write only the SACL's mandatory integrity label. */
+export const LABEL_SECURITY_INFORMATION = 0x00000010
 
 // PROCESS access rights (winnt.h lines ~4364)
 /** PROCESS_QUERY_INFORMATION: read exit status and times of a process handle. */
@@ -119,9 +121,11 @@ export const TRUSTEE_IS_SID = 0
 /** NO_MULTIPLE_TRUSTEE: Trustee.pMultipleTrustee is null. */
 export const NO_MULTIPLE_TRUSTEE = 0
 
-// ACCESS_MODE (accctrl.h line ~127: NOT_USED_ACCESS=0, GRANT_ACCESS=1, REVOKE_ACCESS=4)
+// ACCESS_MODE (accctrl.h line ~127: NOT_USED_ACCESS=0, GRANT_ACCESS=1, DENY_ACCESS=3, REVOKE_ACCESS=4)
 /** GRANT_ACCESS: SetEntriesInAclW adds the entry as an allow ACE. */
 export const GRANT_ACCESS = 1
+/** DENY_ACCESS: SetEntriesInAclW adds the entry as a deny ACE. */
+export const DENY_ACCESS = 3
 /** REVOKE_ACCESS: SetEntriesInAclW removes the matching allow ACE. */
 export const REVOKE_ACCESS = 4
 
@@ -176,6 +180,11 @@ export const ERROR_NO_DATA = 232
 /** ERROR_LOCK_VIOLATION: a byte-range lock conflicts with an existing lock (winerror.h line ~78). */
 export const ERROR_LOCK_VIOLATION = 33
 
+// ---- memory (winbase.h LocalAlloc flags) -----------------------------------
+
+/** LPTR: LocalAlloc's zero-initialized fixed block (LMEM_FIXED | LMEM_ZEROINIT). */
+export const LPTR = 0x0040
+
 // ---- lock files (fileapi.h / minwinbase.h / winnt.h) -----------------------
 
 // CreateFileW dwDesiredAccess for the ACL lock files: plain read+write is
@@ -204,6 +213,38 @@ export const LOCKFILE_FAIL_IMMEDIATELY = 0x1
 // ACE_HEADER.AceType (winnt.h lines ~3449-3463)
 /** ACCESS_ALLOWED_ACE_TYPE: an access-allowed ACE granting the mask to the trustee. */
 export const ACCESS_ALLOWED_ACE_TYPE = 0
+/** ACCESS_DENIED_ACE_TYPE: an access-denied ACE withholding the mask from the trustee. */
+export const ACCESS_DENIED_ACE_TYPE = 1
+/** SYSTEM_MANDATORY_LABEL_ACE_TYPE: the SACL ACE carrying a mandatory integrity label. */
+export const SYSTEM_MANDATORY_LABEL_ACE_TYPE = 0x11
+
+// Mandatory integrity labels (winnt.h): the confined token carries a Low
+// integrity level and every enrolled granted directory carries a Low
+// no-write-up label, so the confined child cannot write up into unlabeled
+// higher-integrity objects even where ambient DACLs would allow it.
+/** SYSTEM_MANDATORY_LABEL_NO_WRITE_UP: label policy — processes at the label's level or below cannot write the object. */
+export const SYSTEM_MANDATORY_LABEL_NO_WRITE_UP = 0x00000001
+/** TokenIntegrityLevel: SetTokenInformation class setting the token's mandatory integrity level. */
+export const TokenIntegrityLevel = 25
+/** SE_GROUP_INTEGRITY: SID_AND_ATTRIBUTES attribute marking an integrity label. */
+export const SE_GROUP_INTEGRITY = 0x00000020
+/** WinLowLabelSid: S-1-16-4096 — the Low mandatory integrity level. */
+export const WinLowLabelSid = 66
+/** sizeof(TOKEN_MANDATORY_LABEL): { SID_AND_ATTRIBUTES Label } — 16 bytes on x64. */
+export const TOKEN_MANDATORY_LABEL_SIZE = 16
+
+// ACL byte layout (winnt.h struct ACL): revision@0, Sbz1@1, AclSize@2 (WORD),
+// AceCount@4 (WORD), Sbz2@6 (WORD).
+/** ACL_HEADER_SIZE: the fixed 8-byte ACL header preceding the first ACE. */
+export const ACL_HEADER_SIZE = 8
+/** Bytes a SYSTEM_MANDATORY_LABEL_ACE occupies beyond the ACL header and its SID (header 4 + mask 4). */
+export const MANDATORY_ACE_OVERHEAD = 8
+/** ACL_REVISION: the ACL revision InitializeAcl/AddMandatoryAce build with. */
+export const ACL_REVISION = 2
+
+// grfInheritance / AceFlags single flags (accctrl.h, winnt.h)
+/** CONTAINER_INHERIT_ACE: the ACE propagates to subdirectories only — FILE_DELETE_CHILD is meaningless on files. */
+export const CONTAINER_INHERIT_ACE = 0x2
 
 // SID structure (winnt.h line ~280 SID_IDENTIFIER_AUTHORITY; line ~286
 // #define SID_MAX_SUB_AUTHORITIES 15).

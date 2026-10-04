@@ -5,6 +5,7 @@
   ],
   "ignoreBinaries": [
     "bwrap",
+    "pwsh",
     "icacls",
     "musl-gcc",
     "openssl",

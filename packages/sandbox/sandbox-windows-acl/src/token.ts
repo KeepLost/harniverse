@@ -153,6 +153,29 @@ function buildRestrictingSids(sids: readonly NativePtr[]): Buffer {
   return buffer
 }
 
+/**
+ * Lower `token`'s mandatory integrity level to the label `lowLabelSidPtr`
+ * names (S-1-16-4096, Low) with the SE_GROUP_INTEGRITY attribute. The
+ * write-restricted intersection covers only the object's own access check;
+ * integrity is the second half of the confinement — a Low token cannot write
+ * up into medium-integrity objects even where an ambient DACL (Everyone,
+ * hard links) would allow the write. Enrolled-workspace confinement only;
+ * fails closed like every token edit in this module.
+ * @param api - the binding table.
+ * @param token - the restricted token to lower (requires TOKEN_ADJUST_DEFAULT).
+ * @param lowLabelSidPtr - the Low integrity SID the token label names.
+ */
+export function restrictTokenIntegrity(api: Win32Bindings, token: NativePtr, lowLabelSidPtr: NativePtr): void {
+  const sidLength = api.getLengthSid(lowLabelSidPtr)
+  if (sidLength === 0) throwLastError(api, 'GetLengthSid', 'Low integrity label SID')
+  const info = Buffer.alloc(abi.TOKEN_MANDATORY_LABEL_SIZE + sidLength)
+  info.writeBigUInt64LE(ptrAddress(lowLabelSidPtr), 0) // Label.Sid
+  info.writeUInt32LE(abi.SE_GROUP_INTEGRITY, 8) // Label.Attributes
+  if (api.setTokenInformation(token, abi.TokenIntegrityLevel, info, info.length) === 0) {
+    throwLastError(api, 'SetTokenInformation', 'TokenIntegrityLevel (Low)')
+  }
+}
+
 /** The well-known SID packed into every restricted token's restricting list. */
 export interface RestrictingSidSet {
   world: NativePtr

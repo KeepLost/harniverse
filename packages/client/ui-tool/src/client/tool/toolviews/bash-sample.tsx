@@ -22,7 +22,8 @@ import {
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '../../contract/slots.ts'
 import { terminalBlockLabels, terminalCardModel, terminalFailed } from '../models/terminal-card-model.ts'
-import { toolRowModel, type ToolRowState } from '../models/tool-call-model.ts'
+import { isPreparingCall, toolRowModel, type ToolRowState } from '../models/tool-call-model.ts'
+import { PreparingToolRow } from '../components/PreparingToolRow.tsx'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
 import css from './bash-sample.module.css'
 
@@ -51,9 +52,20 @@ function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
 /**
  * Bash row: icon + Bash · {description} in the shared ToolRow chrome, the
  * whole row toggling the command's terminal or generic error card (ToolRow's unified
- * expand interaction, replicated locally per the registrant posture).
+ * expand interaction, replicated locally per the registrant posture). A
+ * streamed preparation renders the non-expandable preparing row and touches
+ * none of the session hooks the dispatched row needs.
  */
-export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
+export function BashRow(props: BashRowProps) {
+  if (isPreparingCall(props.block)) {
+    return <PreparingToolRow toolName={props.toolName} icon={<IconApiOutline14 size={14} />}
+      title={toolRowModel(props.toolName, props.block).title} t={props.t}
+      preparingLabel={props.tTool('row.preparing')} />
+  }
+  return <StartedBashRow {...props} />
+}
+
+function StartedBashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
   const model = toolRowModel(toolName, block)
   // Session workspace root: the terminal view's cwd resolves against it (an
   // omitted workdir IS the workspace), which the pure presenter cannot do.

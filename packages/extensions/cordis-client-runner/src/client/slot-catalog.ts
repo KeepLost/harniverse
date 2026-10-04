@@ -1315,6 +1315,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-conversation EnterBehaviorRow id \'composer-enter\'',
       'client-ui-conversation LinkDestinationRow id \'conversation-links\'',
       'client-ui-permission-presets PermissionRow id \'permission\'',
+      'client-ui-settings-general CurrentVersionRow id \'current-version\'',
       'client-ui-theme AppearanceRow id \'appearance\'',
       'client-ui-theme FontSizeRow id \'font-size\'',
     ],
@@ -1818,7 +1819,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     kind: 'keyed',
     scope: 'session',
     summary: 'Keyed atomic Tool call view, dispatched by the wire Tool name.',
-    doc: 'Keyed atomic Tool call view, dispatched by the wire Tool name. Register\nwith `key: \'<tool name>\'` to own how one tool\'s calls render inside a\nturn — the key domain is open (any wire tool name, including a tool your\nown package registered), so there is no compile-time key set to pick\nfrom and a typo simply never renders.\n\nA key the shipped composition already covers is replaced, not shared;\nan unclaimed key falls back to the generic tool row, so registering is\nadditive for your own tool and a takeover for a shipped one. The owner\npasses the call\'s identity, its frozen running-or-settled node, and the\nexpansion state (see ToolCallOwnerProps), so the view stays a pure\nfunction of what the turn already knows.',
+    doc: 'Keyed atomic Tool call view, dispatched by the wire Tool name. Register\nwith `key: \'<tool name>\'` to own how one tool\'s calls render inside a\nturn — the key domain is open (any wire tool name, including a tool your\nown package registered), so there is no compile-time key set to pick\nfrom and a typo simply never renders.\n\nA key the shipped composition already covers is replaced, not shared;\nan unclaimed key falls back to the generic tool row, so registering is\nadditive for your own tool and a takeover for a shipped one. The owner\npasses the call\'s identity, its frozen running-or-settled node, the\npreparation locale seat, and the expansion state (see\nToolCallOwnerProps), so the view stays a pure function of what the turn\nalready knows. A `preparing` phase block has no dispatched arguments;\n`useToolCallArgumentsPartial` optionally subscribes to its raw prefix.',
     registerOptions: [
       {
         name: 'key',
@@ -1828,9 +1829,11 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Standard owner currency supplied to every atomic Tool view. */\nexport interface ToolCallOwnerProps {\n  /** Tool call identity, stable across running and settled forms. */\n  callId: string\n  /** Wire Tool name and keyed dispatch value. */\n  toolName: string\n  /** Frozen running call or settled result node. */\n  block: ToolCallBlock\n  /** Session workspace root for relative summaries. */\n  cwd?: string | undefined\n  /** Open a Tool argument path through the Host. */\n  openFile: (path: string) => void\n  /** Inspect this call in the trajectory view when available. */\n  inspect?: (() => void) | undefined\n}',
+      '/** Standard owner currency supplied to every atomic Tool view. */\nexport interface ToolCallOwnerProps {\n  /** Tool call identity, stable across running and settled forms. */\n  callId: string\n  /** Wire Tool name and keyed dispatch value. */\n  toolName: string\n  /** Frozen running call or settled result node. */\n  block: ToolCallBlock\n  /** Session workspace root for relative summaries. */\n  cwd?: string | undefined\n  /** Open a Tool argument path through the Host. */\n  openFile: (path: string) => void\n  /** Inspect this call in the trajectory view when available. */\n  inspect?: (() => void) | undefined\n  /**\n   * Tool-namespace translate for preparation copy (`row.preparing`,\n   * `tool.preparing.content`); the conversation locale seat cannot carry the\n   * Tool layer\'s own keys.\n   */\n  tTool: TranslateNS<\'tool\'>\n}',
     ],
-    ownerPropsReferences: [],
+    ownerPropsReferences: [
+      'TranslateNS',
+    ],
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
@@ -1863,7 +1866,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'tool.call.toolview\', () => ctx.slots.register(\n      { name: \'tool.call.toolview\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-tool/src/client/contract/slots.ts:23',
+    source: 'packages/client/ui-tool/src/client/contract/slots.ts:26',
   },
   {
     key: 'tool.view.cordis',

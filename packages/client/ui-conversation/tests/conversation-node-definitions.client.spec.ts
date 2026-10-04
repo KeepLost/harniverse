@@ -196,7 +196,14 @@ describe('built-in conversation node Definitions', () => {
       }, { surfaceOp: 'append' }),
     ])
     const toolOnlySnapshot = snapshot(toolOnlyValue)
-    expect(toolOnlySnapshot.order).toEqual([])
+    // The named delta alone already materializes a preparing Tool node; the
+    // tool-only Assistant step stays hidden and keeps its legacy final node.
+    expect(toolOnlySnapshot.order.map(key => toolOnlySnapshot.nodes.get(key)?.kind)).toEqual(['tool-call'])
+    expect(node(toolOnlySnapshot, 'tool-call')?.data).toMatchObject({
+      root: { phase: 'preparing', callId: 'call-1', name: 'read' },
+    })
+    expect(node(toolOnlySnapshot, 'tool-call')?.visibility).toBe('visible')
+    expect(toolOnlySnapshot.legacy.runningCalls).toEqual([])
     expect(node(toolOnlySnapshot, 'assistant-step')?.visibility).toBe('hidden')
     expect(toolOnlySnapshot.legacy.nodes).toMatchObject([{
       kind: 'assistant',
@@ -217,6 +224,9 @@ describe('built-in conversation node Definitions', () => {
     const interruptedToolOnly = node(snapshot(interruptedToolOnlyValue), 'assistant-step')
     expect(interruptedToolOnly?.visibility).toBe('visible')
     expect(interruptedToolOnly?.data).toMatchObject({ status: 'interrupted' })
+    // A preparation interrupted before dispatch has no durable story of its
+    // own: the step's interruption evidence covers it, so the node hides.
+    expect(node(snapshot(interruptedToolOnlyValue), 'tool-call')?.visibility).toBe('hidden')
 
     const retryTimingValue = assembler([
       at(50, 'turn/start', { turn: 6 }),
@@ -342,6 +352,56 @@ describe('built-in conversation node Definitions', () => {
         },
       },
     })
+  })
+
+  it('promotes a streamed preparation on tool/call and settles through tool/result', () => {
+    const events = (): ConversationEventInput[] => [
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'tool-call-delta', index: 0, id: 'call-9', name: 'write', argumentsDelta: '{"file_pat' },
+      }),
+    ]
+    const value = assembler(events())
+    const preparing = node(snapshot(value), 'tool-call')
+    expect(preparing?.data).toMatchObject({
+      root: { phase: 'preparing', callId: 'call-9', name: 'write' },
+    })
+
+    value.append(at(4, 'tool/call', {
+      turn: 1, step: 1, callId: 'call-9', name: 'write',
+      arguments: '{"file_path":"hello.txt","content":"hello"}',
+    }))
+    value.flush()
+    const promoted = node(snapshot(value), 'tool-call')
+    expect(promoted?.key).toBe(preparing?.key)
+    expect(promoted?.data).toMatchObject({
+      root: { phase: 'start', argsRaw: '{"file_path":"hello.txt","content":"hello"}' },
+    })
+
+    value.append(at(5, 'tool/result', {
+      turn: 1, step: 1, message: toolResult('call-9', 'done'),
+    }, { surfaceOp: 'append' }))
+    value.flush()
+    const settled = node(snapshot(value), 'tool-call')
+    expect(settled?.data).toMatchObject({
+      root: { kind: 'tool-result', call: { name: 'write', argsRaw: '{"file_path":"hello.txt","content":"hello"}' } },
+    })
+
+    // History replay of the same log derives the same promotion.
+    const replayed = assembler([
+      ...events(),
+      at(4, 'tool/call', {
+        turn: 1, step: 1, callId: 'call-9', name: 'write',
+        arguments: '{"file_path":"hello.txt","content":"hello"}',
+      }),
+      at(5, 'tool/result', {
+        turn: 1, step: 1, message: toolResult('call-9', 'done'),
+      }, { surfaceOp: 'append' }),
+    ])
+    expect(node(snapshot(replayed), 'tool-call')?.data).toEqual(settled?.data)
   })
 
   it('keeps one keyed Tool node from running through settlement and replays nested dispatch after prepend', () => {

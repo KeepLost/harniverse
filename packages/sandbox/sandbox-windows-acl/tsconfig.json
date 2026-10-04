@@ -16,6 +16,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../skill/skill"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

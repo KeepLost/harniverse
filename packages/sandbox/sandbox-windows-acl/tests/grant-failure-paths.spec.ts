@@ -60,7 +60,7 @@ describe('AclWriteGrant failure paths', () => {
       getLastError: vi.fn(() => 87),
       formatMessageW: vi.fn(() => 0),
     } as unknown as Win32Bindings
-    expect(() => AclWriteGrant.create('S-1-4-abc-1', api)).toThrow(/ConvertStringSidToSidW/)
+    expect(() => AclWriteGrant.create('S-1-4-abc-1', { api })).toThrow(/ConvertStringSidToSidW/)
   })
 
   it('create fails closed: a null SID pointer is rejected', () => {
@@ -72,12 +72,12 @@ describe('AclWriteGrant failure paths', () => {
       getLastError: vi.fn(() => 87),
       formatMessageW: vi.fn(() => 0),
     } as unknown as Win32Bindings
-    expect(() => AclWriteGrant.create('S-1-4-42-42', api)).toThrow(/null SID/)
+    expect(() => AclWriteGrant.create('S-1-4-42-42', { api })).toThrow(/null SID/)
   })
 
   it('dispose aggregates a failing revocation into an AggregateError (best-effort cleanup)', () => {
     const { api, failReads } = grantThenFailApi()
-    const grant = AclWriteGrant.create('S-1-4-42-42', api)
+    const grant = AclWriteGrant.create('S-1-4-42-42', { api })
     grant.add('C:\\granted')
     expect(grant.paths).toEqual(['C:\\granted'])
     failReads()
@@ -94,7 +94,7 @@ describe('AclWriteGrant failure paths', () => {
       getLastError: vi.fn(() => 87),
       formatMessageW: vi.fn(() => 0),
     } as unknown as Win32Bindings
-    const grant = AclWriteGrant.create('S-1-4-42-42', api)
+    const grant = AclWriteGrant.create('S-1-4-42-42', { api })
     expect(() =>{  grant.dispose() }).toThrow(AggregateError)
   })
 })

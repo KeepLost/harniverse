@@ -188,9 +188,16 @@ function legacyContribution(raw: ChatConversationViewNode): LegacyContribution {
     }
     case 'tool-call': {
       const root = node.data.root
-      return isRunningTool(root)
-        ? { anchorSeq: node.anchorSeq, nodes: EMPTY_LIST, partial: null, running: root }
-        : { anchorSeq: node.anchorSeq, nodes: [root], partial: null, running: null }
+      if (!isRunningTool(root)) {
+        return { anchorSeq: node.anchorSeq, nodes: [root], partial: null, running: null }
+      }
+      // A preparing call has no dispatched arguments; the legacy slice feeds
+      // the approval strip and trajectory, which stay evidence-complete, so
+      // the preparation renders only through its chat Node.
+      if (root.phase === 'preparing') {
+        return { anchorSeq: node.anchorSeq, nodes: EMPTY_LIST, partial: null, running: null }
+      }
+      return { anchorSeq: node.anchorSeq, nodes: EMPTY_LIST, partial: null, running: root }
     }
     case 'manual-compaction': {
       const data = node.data

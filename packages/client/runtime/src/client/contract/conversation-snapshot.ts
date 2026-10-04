@@ -302,8 +302,17 @@ export type ConversationNode =
   | CompactionSummaryNode
   | UnknownSurfaceNode
 
-/** In-flight tool card material: tool/call seen, tool/result not yet. */
+/**
+ * In-flight tool card material. `phase: 'preparing'` marks a call known only
+ * from streamed named tool-call deltas — its arguments have not been
+ * dispatched yet, so `argsRaw` is the empty string and `callView` is null
+ * until the promoting `tool/call` event arrives; `phase: 'start'` (the
+ * default for producers predating the marker) carries the dispatched
+ * arguments.
+ */
 export interface RunningToolCall {
+  /** Lifecycle marker; 'start' once tool/call promoted the preparation. */
+  readonly phase?: 'preparing' | 'start'
   callId: string
   name: string
   argsRaw: string

@@ -11,7 +11,8 @@
  *   [node, runner.js, '--workspace', <dir>, '--temp', <dir>,
  *    '--mode', <read-only|workspace-write>,
  *    ['--write-sid', <S-1-4-…>,
- *     '--temp-write-sid', <S-1-4-…>], '--', <argv...>]
+ *     '--temp-write-sid', <S-1-4-…>],
+ *    ['--low-integrity'], '--', <argv...>]
  *
  * Modes:
  *  - workspace-write: the workspace and temp directories carry distinct
@@ -23,6 +24,12 @@
  *    (CIM unavailable — documented in README) and INTERACTIVE/LOCAL (the
  *    Public tree writes are denied); the two lists share the keep-alive group
  *    (logon SID, EVERYONE) and differ only by the capabilities.
+ *
+ * `--low-integrity`: the enrolled-workspace confinement — the token is
+ * lowered to Low integrity and the grants (the seam's, or the runner's own
+ * under agentless use) carry the Low no-write-up label and the
+ * ambient-delete deny. Absent (the default): the unenrolled backend's exact
+ * behavior.
  *
  * `--write-sid` + `--temp-write-sid`: the seam's grant contract — the
  * CALLER has already materialized distinct workspace and private-temp ACEs
@@ -68,6 +75,7 @@ interface ParsedArgs {
   mode: 'read-only' | 'workspace-write'
   writeSid: string | undefined
   tempWriteSid: string | undefined
+  lowIntegrity: boolean
   command: string
   args: string[]
 }
@@ -78,12 +86,17 @@ function parseArgs(raw: string[]): ParsedArgs {
   let mode: string | undefined
   let writeSid: string | undefined
   let parsedTempWriteSid: string | undefined
+  let lowIntegrity = false
   let index = 0
   for (; index < raw.length; index++) {
     const token = raw[index]
     if (token === '--') {
       index++
       break
+    }
+    if (token === '--low-integrity') {
+      lowIntegrity = true
+      continue
     }
     index++
     const value = raw[index]
@@ -103,7 +116,7 @@ function parseArgs(raw: string[]): ParsedArgs {
   const argv = raw.slice(index)
   const command = argv[0]
   if (command === undefined) fail('missing command after --')
-  return { workspace, temp, mode, writeSid, tempWriteSid: parsedTempWriteSid, command, args: argv.slice(1) }
+  return { workspace, temp, mode, writeSid, tempWriteSid: parsedTempWriteSid, lowIntegrity, command, args: argv.slice(1) }
 }
 
 function requireDirectory(label: string, path: string): void {
@@ -165,6 +178,7 @@ async function main(): Promise<number> {
       ...writeSid === undefined ? {} : { writeSid },
       ...privateTempSid === undefined ? {} : { tempWriteSid: privateTempSid },
       manageDacls: !seamManaged,
+      lowIntegrity: parsed.lowIntegrity,
     })
     await sandbox.init()
     initialized = true

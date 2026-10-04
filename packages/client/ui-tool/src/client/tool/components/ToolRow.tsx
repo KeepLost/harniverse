@@ -88,6 +88,13 @@ export interface ToolRowProps {
   web?: WebBlockProps | null | undefined
   state: ToolRowState
   /**
+   * Localized status label for a preparing row (the visually hidden state
+   * announcement). The conversation seat cannot carry the Tool namespace's
+   * `row.preparing` key, so the preparing caller supplies it; other states
+   * read their labels from `t`.
+   */
+  preparingLabel?: string | undefined
+  /**
    * Filesystem path from tool args; when set with onOpenFile, the summary
    * renders as a hover-underline link that opens the host default app.
    */
@@ -116,8 +123,9 @@ function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
  *  aria-hidden / colour-only, so assistive technology needs this text to know a
  *  row is running, failed, or interrupted. null in the ok state (the icon and
  *  summary already describe a settled row). */
-function stateStatus(state: ToolRowState, t: TranslateNS<'conversation'>): string | null {
+function stateStatus(state: ToolRowState, t: TranslateNS<'conversation'>, preparingLabel: string | undefined): string | null {
   switch (state) {
+    case 'preparing': return preparingLabel ?? null
     case 'running': return t('row.running')
     case 'error': return t('row.failed')
     case 'stopped': return t('row.stopped')
@@ -142,6 +150,7 @@ export function ToolRow({
   search,
   web,
   state,
+  preparingLabel,
   filePath,
   onOpenFile,
   inspect,
@@ -155,13 +164,14 @@ export function ToolRow({
   const outputText = output ?? null
   // A card replaces the text body; a call carries at most one card kind, so the
   // card props are mutually exclusive. Any of them, or a text body/output,
-  // makes the row expandable.
+  // makes the row expandable. A preparation has no dispatched material and
+  // never expands.
   const card = terminalBody ?? diffBody ?? readBody ?? searchBody ?? webBody
-  const expandable = body !== null || outputText !== null || card !== null
+  const expandable = state !== 'preparing' && (body !== null || outputText !== null || card !== null)
   const open = expanded && expandable
   // The run-state label AT needs: the StateDot and the running sweep are both
   // aria-hidden / colour-only, so a stopped or running row is otherwise silent.
-  const status = stateStatus(state, t)
+  const status = stateStatus(state, t, preparingLabel)
   // An error row's collapsed summary IS the failure: the first error line in
   // the error color outranks both the args summary and a terminal description.
   const failureLine = state === 'error' ? errorSummary ?? null : null

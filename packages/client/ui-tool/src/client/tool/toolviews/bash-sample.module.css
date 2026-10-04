@@ -93,8 +93,10 @@
   min-width: 0;
 }
 
-/* Running sweep glare — same deepsuite ShimmerText pattern as ToolRow. */
-.root[data-state='running']::after {
+/* Running sweep glare — same deepsuite ShimmerText pattern as ToolRow; a
+   preparation carries the same in-flight signal. */
+.root[data-state='running']::after,
+.root[data-state='preparing']::after {
   content: '';
   position: absolute;
   top: 0;

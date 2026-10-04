@@ -45,7 +45,7 @@ A direct `AclSandbox` requires an explicit private temp directory (or `tempDir: 
 The seam-facing shape is the **runner entry** (`./runner`), the argv-prefix wrapper `@deepseek-ai/dsh-sandbox-local` spawns in place of the caller's command — the same architecture as bwrap/landlock-run/sandbox-exec, so the sandbox seam's `confine()` contract needs no change. Stable argv contract:
 
 ```sh
-node runner.js --workspace <dir> --temp <dir> --mode <read-only|workspace-write> [--write-sid <S-1-4-…> --temp-write-sid <S-1-4-…>] -- <argv...>
+node runner.js --workspace <dir> --temp <dir> --mode <read-only|workspace-write> [--write-sid <S-1-4-…> --temp-write-sid <S-1-4-…>] [--low-integrity] -- <argv...>
 ```
 
 The runner creates the restricted token, spawns the wrapped argv under it with the caller's stdio passed straight through (the caller's pipes, made inheritable around the spawn — Node clears stdio inheritability at startup, which raw spawns must compensate for), wraps the child in a `KILL_ON_JOB_CLOSE` job (a dead runner kills the child), ignores its own console Ctrl+C so the child handles its own, mirrors the child's exit code, and revokes its self-managed temp grant on exit (workspace ACEs stand). Every runner-side failure prints `windows-acl-run: <detail>` to stderr and exits 127 — the seam's `RUNNER_FAILURE_RULES` match that signature, so a runner refusal is never mistaken for a denial.
@@ -69,6 +69,21 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 ```
 
 The koffi struct definitions assert their sizes against the probe at module load, so a header/koffi layout drift fails loudly instead of corrupting memory.
+
+## Enrolled-workspace Low-integrity confinement
+
+The ACL intersection covers only the object's own access check, so it leaves two documented holes: a delete authorized through the parent directory's `FILE_DELETE_CHILD` right, and ambient-DACL writes (Everyone, hard links) into objects the token's own level would protect. The **enrolled-workspace confinement** closes both for workspaces that opt in — [`dsh-sandbox-local`](../sandbox-local/README.md)'s `confinedWorkspaces` config lists absolute workspace roots, compared case-insensitively against the session's resolved root:
+
+- the restricted token is additionally **lowered to Low integrity** (`S-1-16-4096` via `SetTokenInformation`/`TokenIntegrityLevel`);
+- every grant on an enrolled root additionally applies, in the same single merge: a **standing Low no-write-up mandatory label** on the directory's SACL (inheritable, so later children carry it) and a **container-inherited Everyone deny of `FILE_DELETE_CHILD`** — the capability ACE's own DELETE bit becomes the only delete authority inside the root.
+
+Enrollment is deliberately opt-in because the effects are **persistent**: the label and deny are standing directory mutations that survive the process by design (the same reuse cache as the capability ACE). Un-enrolling a workspace stops NEW grants from carrying them but removes nothing already standing; the label is cleared only when a revoke leaves no other capability grant on the directory. A legacy-era standing grant (from before enrollment) receives the label and deny on its next confined provision — the idempotent skip requires the exact ACE, deny, AND label together. Unenrolled workspaces keep the pre-enrollment backend behavior byte-for-byte: no `--low-integrity` flag, DACL-only applies, no label machinery.
+
+The runner takes the confinement as the `--low-integrity` flag (both modes); the direct `AclSandbox` API takes `lowIntegrity: true`; `AclWriteGrant.create(sid, { confined: true })` materializes seam-side grants with the same edits. Confined grants additionally require `WRITE_OWNER` on the granted directory (the label lives in the SACL; owner-implicit rights cover only `READ_CONTROL` and `WRITE_DAC`) — a Full-control workspace directory, the normal case, satisfies both.
+
+## Windows sandbox diagnosis skill (two steps)
+
+The package bundles [`diagnose-windows-sandbox-acl`](assets/diagnose-windows-sandbox-acl/SKILL.md), registered with the skill registry when the skills service is present: an unexpected denial (workspace writes, listing, ordinarily readable paths) is diagnosed by a **confined** run of one script — read-only observation, report inside the workspace — and repaired, when the diagnosis proves a repair is warranted, by a **separately approved unconfined** run of the same script with `-Repair`. Expected confinement denials are explained, not repaired; no feedback is uploaded anywhere; the report file stays on disk for the owner.
 
 ## Verified boundaries (inherent to restricted tokens, not this port)
 

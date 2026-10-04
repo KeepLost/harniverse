@@ -16,7 +16,7 @@ import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 
 /** Cross-file state shared with the vi.mock factory (hoisting contract). */
 const mockState = vi.hoisted(() => ({
-  grants: [] as Array<{ writeSid: string; added: Array<{ path: string; standing: boolean }>; disposed: boolean }>,
+  grants: [] as Array<{ writeSid: string; confined: boolean; added: Array<{ path: string; standing: boolean }>; disposed: boolean }>,
   addFailure: undefined as Error | undefined,
   /** Restrict an add failure to standing (workspace) or revocable (temp). */
   addFailureStanding: undefined as boolean | undefined,
@@ -27,15 +27,17 @@ const mockState = vi.hoisted(() => ({
 vi.mock('@deepseek-ai/dsh-sandbox-windows-acl', () => {
   class MockAclWriteGrant {
     readonly writeSid: string
+    readonly confined: boolean
     readonly added: Array<{ path: string; standing: boolean }> = []
     disposed = false
-    constructor(writeSid: string) {
+    constructor(writeSid: string, confined: boolean) {
       this.writeSid = writeSid
+      this.confined = confined
       mockState.grants.push(this)
     }
-    static create(writeSid: string): MockAclWriteGrant {
+    static create(writeSid: string, options: { confined?: boolean } = {}): MockAclWriteGrant {
       if (writeSid.startsWith('TEMP:') && mockState.createTempFailure !== undefined) throw mockState.createTempFailure
-      return new MockAclWriteGrant(writeSid)
+      return new MockAclWriteGrant(writeSid, options.confined === true)
     }
     add(path: string, standing = false): void {
       this.added.push({ path, standing })
@@ -65,9 +67,9 @@ vi.mock('@deepseek-ai/dsh-sandbox-windows-acl', () => {
 
 const WORKSPACE_SID = 'S-1-4-42-42'
 
-async function setup() {
+async function setup(config: Record<string, unknown> = {}) {
   const ctx = new Context()
-  const fiber = await ctx.plugin(LocalSandboxProvider, {})
+  const fiber = await ctx.plugin(LocalSandboxProvider, config)
   const sandbox = ctx.sandbox as LocalSandboxProvider
   sandbox.internals = { platform: 'win32', windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'] }
   return { ctx, sandbox, fiber }
@@ -335,5 +337,60 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
     } finally {
       cleanup()
     }
+  })
+  it('default config stays unconfined: no --low-integrity flag and legacy grants (off by default)', async () => {
+    try {
+      const { sandbox, fiber } = await setup()
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      const policy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('sess-1') }
+      const confined = sandbox.confine(['true'], policy)
+      expect(confined.argv.includes('--low-integrity')).toBe(false)
+      expect(mockState.grants.every(grant => !grant.confined)).toBe(true)
+      await fiber.dispose()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('an enrolled workspace confines: the flag rides every policy shape and every grant is created confined', async () => {
+    try {
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      // Enroll with a DIFFERENT case spelling: the comparison is case-insensitive.
+      const { sandbox, fiber } = await setup({ confinedWorkspaces: [ws.toUpperCase()] })
+      const session: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('sess-1') }
+      const agentless: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws }
+      const readOnly: SandboxPolicy = { mode: 'read-only', workspaceRoot: ws, sessionId: SessionId('sess-1') }
+      for (const policy of [session, agentless, readOnly]) {
+        expect(sandbox.confine(['true'], policy).argv.includes('--low-integrity')).toBe(true)
+      }
+      expect(mockState.grants.length).toBeGreaterThanOrEqual(2)
+      expect(mockState.grants.every(grant => grant.confined)).toBe(true)
+      await fiber.dispose()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('an unenrolled sibling stays unconfined while the enrolled workspace confines', async () => {
+    try {
+      const enrolled = workspaceRoot()
+      const bystander = workspaceRoot()
+      scratch.push(enrolled, bystander)
+      const { sandbox, fiber } = await setup({ confinedWorkspaces: [enrolled] })
+      const confinedPolicy: SandboxPolicy = { mode: 'read-only', workspaceRoot: enrolled }
+      const bystanderPolicy: SandboxPolicy = { mode: 'read-only', workspaceRoot: bystander }
+      expect(sandbox.confine(['true'], confinedPolicy).argv.includes('--low-integrity')).toBe(true)
+      expect(sandbox.confine(['true'], bystanderPolicy).argv.includes('--low-integrity')).toBe(false)
+      await fiber.dispose()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('a relative confinedWorkspaces entry fails at construction (misconfiguration surfaces early)', async () => {
+    const ctx = new Context()
+    await expect(ctx.plugin(LocalSandboxProvider, { confinedWorkspaces: ['relative/path'] })).rejects.toThrow(/absolute resolved workspace roots/)
   })
 })

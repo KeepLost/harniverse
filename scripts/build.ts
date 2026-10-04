@@ -4,13 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import {
-  CLIENT_BUILD_RECORD_PATH,
-  clientBuildProcessEnvironment,
-  repositoryCommitHash,
-  resolveClientBuildEnvironment,
-  writeClientBuildRecord,
-} from './client-build-environment.ts'
+import { CLIENT_BUILD_RECORD_PATH, clientBuildProcessEnvironment, repositoryCommitHash, repositoryVersion, resolveClientBuildEnvironment, writeClientBuildRecord } from './client-build-environment.ts'
 
 function runScript(script: string, environment: NodeJS.ProcessEnv): void {
   const packageManager = process.env.npm_execpath
@@ -38,6 +32,7 @@ function main(): void {
   const parentEnvironment = {
     ...process.env,
     DSH_CLIENT_COMMIT_HASH: repositoryCommitHash(root, process.env),
+    DSH_CLIENT_VERSION: repositoryVersion(root),
   }
   const clientEnvironment = resolveClientBuildEnvironment(parentEnvironment, values.profile)
   const buildEnvironment = clientBuildProcessEnvironment(parentEnvironment, clientEnvironment)

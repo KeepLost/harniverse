@@ -24,6 +24,7 @@ import { CHAT_READ_MAX_LINES, readCardModel } from '../src/client/tool/models/re
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { zh as zhTool } from '../src/client/locales.ts'
 import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
 import { ReadRow, readToolview } from '../src/client/tool/toolviews/read-row.tsx'
 import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.client.tsx'
@@ -34,6 +35,7 @@ const SID = 's1' as SessionId
 
 /** The chat-view locale seat: this package's namespace over the common fallback. */
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
+const tTool = makeTranslate(zhTool)
 
 // The read tool's real schema key is `file_path`; the top-level read samples
 // use it so the row exercises a production-shaped call. `web_fetch` (below) has
@@ -135,7 +137,7 @@ describe('readCardModel', () => {
 
 describe('GenericToolCard read body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
-    callId: 'c1', toolName: 'web_fetch', block, openFile: vi.fn(), t,
+    callId: 'c1', toolName: 'web_fetch', block, openFile: vi.fn(), t, tTool,
   })
 
   /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
@@ -161,7 +163,7 @@ describe('GenericToolCard read body', () => {
     const view = render(<GenericToolCard {...({
       callId: 'c1', toolName: 'echo', block: settled({
         call: { name: 'echo', argsRaw: '{"text":"x"}' }, callView: null, resultView: null,
-      }), openFile: vi.fn(), t,
+      }), openFile: vi.fn(), t, tTool,
     })} />)
     toggleRow(view)
     expect(view.container.querySelector('[data-read]')).toBeNull()
@@ -184,7 +186,7 @@ describe('ReadRow keyed toolview', () => {
   })
 
   const rowProps = (block: RunningToolCall | ToolResultNode): Parameters<typeof ReadRow>[0] => ({
-    callId: 'c1', toolName: 'read', block, openFile: vi.fn(),
+    callId: 'c1', toolName: 'read', block, openFile: vi.fn(), tTool,
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
     t,
   } as unknown as Parameters<typeof ReadRow>[0])

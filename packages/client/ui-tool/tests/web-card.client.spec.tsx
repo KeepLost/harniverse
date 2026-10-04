@@ -30,6 +30,7 @@ import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { zh as zhTool } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -37,6 +38,7 @@ const SID = 's1' as SessionId
 
 /** Locale seat for the card render sites (GenericToolCard, DetailsPanel), as the sibling suites build it. */
 const t = makeTranslate(zh, commonZh)
+const tTool = makeTranslate(zhTool)
 
 const SEARCH_ARGS = '{"queries":["deepseek harness"]}'
 const FETCH_ARGS = '{"url":"https://example.com/page"}'
@@ -127,7 +129,7 @@ describe('webCardModel', () => {
 
 describe('chat row web body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode, toolName: string): ToolCallOwnerProps => ({
-    callId: block.callId, toolName, block, openFile: vi.fn(),
+    callId: block.callId, toolName, block, openFile: vi.fn(), tTool,
   })
   // WebRow reads only toolName/block off the full runtime share plus the locale
   // seat; the standard kit is unused, so the cast supplies the owner slice and

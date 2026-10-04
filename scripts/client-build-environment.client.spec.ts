@@ -9,6 +9,7 @@ import {
   clientBuildProcessEnvironment,
   readClientBuildRecord,
   repositoryCommitHash,
+  repositoryVersion,
   resolveClientBuildEnvironment,
   writeClientBuildRecord,
 } from './client-build-environment.ts'
@@ -55,6 +56,7 @@ describe('client build environment', () => {
       DSH_CLIENT_BUILD_PROFILE: 'harniverse',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'Harniverse',
+      DSH_CLIENT_VERSION: '1.2.3-rc.4',
     } as const
 
     expect(() => { assertClientBuildEnvironment({ PATH: '/bin', ...expected }, expected) }).not.toThrow()
@@ -72,6 +74,7 @@ describe('client build environment', () => {
       DSH_CLIENT_BUILD_PROFILE: 'local',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'Local title',
+      DSH_CLIENT_VERSION: '9.9.9-local',
       DSH_CLIENT_EXTRA: 'local-extra',
     }
 
@@ -82,22 +85,41 @@ describe('client build environment', () => {
       DSH_CLIENT_BUILD_PROFILE: 'harniverse',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'Harniverse',
+      DSH_CLIENT_VERSION: '9.9.9-local',
     })
     expect(() => {
       resolveClientBuildEnvironment({ DSH_BUILD_CLIENT_PROFILE: 'harniverse' })
     }).toThrow(/DSH_CLIENT_COMMIT_HASH/)
+    expect(() => {
+      resolveClientBuildEnvironment({ DSH_BUILD_CLIENT_PROFILE: 'harniverse', DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7) })
+    }).toThrow(/DSH_CLIENT_VERSION/)
     expect(() => { resolveClientBuildEnvironment({}, 'unknown') }).toThrow(/unknown client build profile/)
     expect(clientBuildProcessEnvironment(parent, {
       DSH_CLIENT_BUILD_PROFILE: 'harniverse',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'Harniverse',
+      DSH_CLIENT_VERSION: '9.9.9-local',
     })).toEqual({
       PATH: '/bin',
       DSH_CLIENT_BUILD_PROFILE: 'harniverse',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'Harniverse',
+      DSH_CLIENT_VERSION: '9.9.9-local',
     })
     expect(repositoryCommitHash('/unused', { DSH_CLIENT_COMMIT_HASH: COMMIT_HASH })).toBe(COMMIT_HASH.slice(0, 7))
+  })
+
+  it('reads the repository version from the root package.json', () => {
+    const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string }
+    expect(repositoryVersion(root)).toBe(manifest.version)
+    const versioned = mkdtempSync(join(tmpdir(), 'harniverse-client-version-'))
+    roots.push(versioned)
+    write(join(versioned, 'package.json'), '{\n  "name": "fixture",\n  "version": "1.2.3-rc.4"\n}\n')
+    expect(repositoryVersion(versioned)).toBe('1.2.3-rc.4')
+    write(join(versioned, 'package.json'), '{\n  "name": "fixture",\n  "version": "1.2"\n}\n')
+    expect(() => { repositoryVersion(versioned) }).toThrow(/invalid version/)
+    write(join(versioned, 'package.json'), 'not json')
+    expect(() => { repositoryVersion(versioned) }).toThrow(/cannot read repository version/)
   })
 
   it('defines only public client values over a non-enumerable fallback', () => {
@@ -149,6 +171,7 @@ describe('client build environment', () => {
       DSH_CLIENT_BUILD_PROFILE: 'harniverse',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'Harniverse',
+      DSH_CLIENT_VERSION: '1.2.3-rc.4',
     }
     const harniverse = buildFixture(harniverseEnvironment)
     const defaultBuild = buildFixture({})

@@ -23,6 +23,9 @@ const HARNIVERSE_CLIENT_BUILD_ENVIRONMENT = {
 
 const CLIENT_COMMIT_HASH_VARIABLE = 'DSH_CLIENT_COMMIT_HASH'
 
+/** Public variable carrying the repository package version embedded in client artifacts. */
+const CLIENT_VERSION_VARIABLE = 'DSH_CLIENT_VERSION'
+
 /** Repository-relative path of the complete client build record. */
 export const CLIENT_BUILD_RECORD_PATH = '.harniverse-build/client-build-environment.json'
 
@@ -62,6 +65,27 @@ export function repositoryCommitHash(root: string, environment: NodeJS.ProcessEn
   return value.slice(0, 7).toLowerCase()
 }
 
+/**
+ * Resolve the repository package version used by browser build metadata.
+ * @param root - repository root containing the authoritative package.json.
+ * @returns the repository's semver-compatible package version.
+ */
+export function repositoryVersion(root: string): string {
+  const path = resolve(root, 'package.json')
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(readFileSync(path, 'utf8'))
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`cannot read repository version from ${path}: ${detail}`)
+  }
+  if (!isObject(manifest) || typeof manifest.version !== 'string'
+    || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.version)) {
+    throw new Error(`repository package.json has an invalid version ${JSON.stringify(isObject(manifest) ? manifest.version : undefined)}`)
+  }
+  return manifest.version
+}
+
 /** Resolve the exact public values required by a Harniverse build at one commit. */
 export function harniverseClientBuildEnvironment(
   root: string,
@@ -69,6 +93,7 @@ export function harniverseClientBuildEnvironment(
 ): Readonly<Record<`DSH_CLIENT_${string}`, string>> {
   return {
     DSH_CLIENT_COMMIT_HASH: repositoryCommitHash(root, environment),
+    DSH_CLIENT_VERSION: repositoryVersion(root),
     ...HARNIVERSE_CLIENT_BUILD_ENVIRONMENT,
   }
 }
@@ -90,7 +115,15 @@ export function resolveClientBuildEnvironment(
     if (commitHash === undefined) {
       throw new Error(`${CLIENT_COMMIT_HASH_VARIABLE} is required for the Harniverse client build profile`)
     }
-    return { DSH_CLIENT_COMMIT_HASH: commitHash, ...HARNIVERSE_CLIENT_BUILD_ENVIRONMENT }
+    const version = environment[CLIENT_VERSION_VARIABLE]
+    if (version === undefined) {
+      throw new Error(`${CLIENT_VERSION_VARIABLE} is required for the Harniverse client build profile`)
+    }
+    return {
+      DSH_CLIENT_COMMIT_HASH: commitHash,
+      DSH_CLIENT_VERSION: version,
+      ...HARNIVERSE_CLIENT_BUILD_ENVIRONMENT,
+    }
   }
   throw new Error(`unknown client build profile ${JSON.stringify(profile)}; expected "harniverse"`)
 }

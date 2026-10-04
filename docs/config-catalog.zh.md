@@ -2310,6 +2310,21 @@ export interface Config {
   runnerFailureSignatures?: string[]
   /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
+  /**
+   * Workspace roots explicitly enrolled in the Windows Low-integrity
+   * confinement (the `windows-acl` runner only; ignored elsewhere). Each
+   * entry is an absolute path compared case-insensitively against the
+   * session's resolved workspace root — spell it exactly as the workspace
+   * info prints it. Enrollment is OPT-IN and persistent: every grant on an
+   * enrolled root additionally applies a standing Low no-write-up mandatory
+   * label and a container-inherited Everyone deny of `FILE_DELETE_CHILD`,
+   * and the confined token is lowered to Low integrity. These directory
+   * mutations survive the process by design (the standing reuse cache);
+   * un-enrolling stops NEW grants from carrying them but removes nothing
+   * already standing. The default backend behavior for unenrolled
+   * workspaces is byte-identical to the pre-enrollment backend.
+   */
+  confinedWorkspaces?: string[]
 }
 ```
 

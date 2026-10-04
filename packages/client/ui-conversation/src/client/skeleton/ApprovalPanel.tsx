@@ -8,11 +8,13 @@
 // unbounded model text, so they scroll inside the card at the shared composer
 // cap (`data-approval-scroll`) and the action row stays outside it — the
 // buttons must be reachable no matter how long the command is.
-// One-shot: the buttons disable
-// after a click and the panel leaves (the InputBar returns) on the broadcast
-// resolved frame.
+// One-shot: the buttons disable after a click and the panel leaves (the
+// InputBar returns) on the broadcast resolved frame. Keyboard parity with
+// the buttons: Enter allows once and Escape rejects while focus stays in
+// the panel, with IME composition and native button-Enter clicks left to
+// their own owners.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RunningToolCall } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingApproval, type ApprovalComposerProps } from '../contract/slots.ts'
@@ -56,14 +58,55 @@ function ApprovalFlow({ pending, command, t }: {
 }) {
   // Local one-shot latch: the panel leaves only when the resolved frame
   // lands; until then the buttons must not re-fire. An answer failure
-  // (rejected receipt / transport) re-arms them for retry.
+  // (rejected receipt / transport) re-arms them for retry. The waiting ref
+  // holds the latch across synchronous key repeats and double keydowns that
+  // race the re-render; `active` keeps a late failure from re-arming a
+  // panel that already left.
   const [answered, setAnswered] = useState(false)
+  const waiting = useRef(false)
+  const active = useRef(true)
+  const composing = useRef(false)
+  const compositionEnded = useRef(false)
+  useEffect(() => {
+    active.current = true
+    return () => { active.current = false }
+  }, [])
   const answer = (outcome: 'allowed-once' | 'rejected'): void => {
+    if (waiting.current) return
+    waiting.current = true
     setAnswered(true)
-    void pending.answer(outcome).catch(() => { setAnswered(false) })
+    void pending.answer(outcome).catch(() => {
+      if (!active.current) return
+      waiting.current = false
+      setAnswered(false)
+    })
+  }
+  // Panel-level keys: Enter allows once, Escape rejects — only while focus
+  // stays inside the panel, never from editable descendants, and never on
+  // behalf of a button (its native Enter click owns that path).
+  const keydown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const element = event.target as Element
+    if (event.defaultPrevented || !event.currentTarget.contains(document.activeElement)
+      || element.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]') !== null) return
+    if (event.key !== 'Enter' && event.key !== 'Escape') return
+    if (event.key === 'Enter' && element.closest('button, a[href], [role="button"]') !== null) return
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    // oxlint-disable-next-line typescript/no-deprecated -- IME 229 covers engines without isComposing.
+    if (event.repeat || composing.current || compositionEnded.current || event.nativeEvent.isComposing || event.keyCode === 229) return
+    answer(event.key === 'Enter' ? 'allowed-once' : 'rejected')
   }
   return (
-    <div className={css.root} data-approval-key={pending.key}>
+    <div
+      className={css.root}
+      data-approval-key={pending.key}
+      aria-busy={answered}
+      onKeyDown={keydown}
+      onKeyUpCapture={() => { compositionEnded.current = false }}
+      onCompositionStartCapture={() => { composing.current = true }}
+      onCompositionEndCapture={() => { composing.current = false; compositionEnded.current = true }}
+    >
       <div className={css.card}>
         <div className={css.strip}><span className={css.dot} />{t('approval.waiting')}</div>
         {/* Tab stop: the region scrolls once the command passes the cap and

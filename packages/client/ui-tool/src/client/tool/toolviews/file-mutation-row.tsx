@@ -6,19 +6,34 @@
 // has. The summary stays a path link (the file-tool interaction) that opens
 // through the host; an errored mutation (write/edit return no diff on
 // `result.isError`) keeps the model-facing error text on ToolRow's Output
-// section, its first line in the collapsed summary.
+// section, its first line in the collapsed summary. A streamed preparation
+// renders the non-expandable preparing row with the accumulated argument
+// prefix as its KB progress.
 
 import type { Context } from '@deepseek-ai/cordis'
 import { IconEditOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '../../contract/slots.ts'
 import { diffCardModel } from '../models/diff-card-model.ts'
-import { toolRowModel } from '../models/tool-call-model.ts'
+import { isPreparingCall, toolRowModel } from '../models/tool-call-model.ts'
+import { useToolCallArgumentsPartial } from '../tool-call-arguments-partial.ts'
 import { ToolRow } from '../components/ToolRow.tsx'
+import { PreparingToolRow } from '../components/PreparingToolRow.tsx'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
 
 /** Full row props: the toolview runtime share plus the standard locale seat. */
 type FileMutationRowProps = ToolCallViewProps & PropsLocale<'conversation'>
+
+/**
+ * File-mutation preparation: icon + title with the streamed argument prefix
+ * as KB progress, never expandable.
+ */
+function PreparingFileMutationRow({ toolName, callId, block, useSession, tTool, t }: FileMutationRowProps) {
+  const raw = useToolCallArgumentsPartial(useSession, callId)
+  return <PreparingToolRow toolName={toolName} icon={<IconEditOutline16 size={14} />}
+    title={toolRowModel(toolName, block).title} t={t} preparingLabel={tTool('row.preparing')}
+    summary={tTool('tool.preparing.content', { kilobytes: Math.ceil(raw.length / 1024) })} />
+}
 
 /**
  * File-mutation row: icon + {Edit,Write} · {path} in the shared ToolRow chrome,
@@ -29,7 +44,9 @@ type FileMutationRowProps = ToolCallViewProps & PropsLocale<'conversation'>
  * model-facing error text through its Output section and its first line in the
  * collapsed summary instead.
  */
-export function FileMutationRow({ toolName, block, cwd, openFile, inspect, t }: FileMutationRowProps) {
+export function FileMutationRow(props: FileMutationRowProps) {
+  if (isPreparingCall(props.block)) return <PreparingFileMutationRow {...props} />
+  const { toolName, block, cwd, openFile, inspect, t } = props
   const model = toolRowModel(toolName, block, cwd)
   const diff = diffCardModel(block)
   return (

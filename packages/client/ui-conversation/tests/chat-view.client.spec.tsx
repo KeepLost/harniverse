@@ -4,18 +4,18 @@
 // ObservableSnapshot fake, no wire or Tool presentation plugin.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { useEffect } from 'react'
 import type {
-  AssistantMessageNode, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot,
-  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolCallBlock, ToolResultNode, TurnErrorNode,
-  TurnMaxTokensNode, UserMessageNode, WorkspaceListState,
+  AssistantMessageNode, ChatSnapshot, CommandNode, CompactionSummaryNode,
+  ConversationNode, ConversationSnapshot, ModelRetryNode, RunningToolCall, SessionId, SessionListState,
+  ToolCallBlock, ToolResultNode, TurnErrorNode, TurnMaxTokensNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
-  createSnapshotStore, EMPTY_CONVERSATION_VIEWS, PendingWait,
+  conversationContextKey, createSnapshotStore, EMPTY_CONVERSATION_VIEWS, PendingWait,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+import { RpcId, type ClientResponse, type RpcReceipt } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   ChatNode, ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, SelectionTarget, UseChatNodeTurnData,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -31,6 +31,7 @@ import {
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
+import { ApprovalPanel } from '../src/client/skeleton/ApprovalPanel.tsx'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -1438,5 +1439,189 @@ describe('user-bubble reference chips', () => {
     act(() => { h.set({ nodes: [user(2, 'run /deploy-site now')] }) })
     expect(view.container.querySelectorAll('[data-ref-chip]').length).toBe(1)
     expect(view.container.querySelector('[data-ref-chip]')!.textContent).toBe('/deploy-site')
+  })
+})
+
+describe('ApprovalPanel keyboard', () => {
+  /** Approval carrier whose response settlement the case drives by hand. */
+  function approvalBench(respond: (message: ClientResponse) => Promise<RpcReceipt>) {
+    const wait = new PendingWait(
+      'approval', RpcId('r-ap'), SID,
+      { approvalId: 'ap1', toolName: 'bash', reason: '要跑一个命令' } as PendingWait<'approval'>['payload'],
+      respond,
+    )
+    const props = {
+      ...makeHarness().props,
+      matched: wait,
+    } as unknown as React.ComponentProps<typeof ApprovalPanel>
+    const view = render(<ApprovalPanel {...props} />)
+    const root = view.container.querySelector('[data-approval-key]') as HTMLElement
+    const body = root.querySelector('[data-approval-scroll]') as HTMLElement
+    const allow = view.getByRole('button', { name: '允许一次' }) as HTMLButtonElement
+    const reject = view.getByRole('button', { name: '拒绝' }) as HTMLButtonElement
+    const key = (keyName: 'Enter' | 'Escape', init: Record<string, unknown> = {}, target: Element = body): boolean => {
+      const event = new KeyboardEvent('keydown', { key: keyName, bubbles: true, cancelable: true, ...init })
+      if ('keyCode' in init) Object.defineProperty(event, 'keyCode', { value: init.keyCode })
+      if (init.preventDefault === true) event.preventDefault()
+      target.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    return { view, root, body, allow, reject, key, wait }
+  }
+
+  /** Respond double queuing its receipts until the test settles each by hand. */
+  function deferredRespond() {
+    const pending: Array<(receipt: RpcReceipt) => void> = []
+    const respond = vi.fn(() => new Promise<RpcReceipt>((resolve) => { pending.push(resolve) }))
+    return {
+      respond,
+      settle: (receipt: RpcReceipt) => { pending.shift()?.(receipt) },
+    }
+  }
+
+  it('Enter allows once and Escape rejects while focus stays inside the panel', async () => {
+    const { respond, settle } = deferredRespond()
+    const b = approvalBench(respond)
+    b.body.focus()
+    expect(b.key('Enter')).toBe(true) // consumed by the panel
+    await waitFor(() => { expect(b.allow.hasAttribute('disabled')).toBe(true) })
+    expect(respond).toHaveBeenCalledWith({
+      type: 'client-response',
+      rpcId: RpcId('r-ap'),
+      result: { ok: true, value: { sessionId: SID, approvalId: 'ap1', outcome: 'allowed-once' } },
+    })
+    // A second Enter before settlement must not fire again.
+    b.key('Enter')
+    expect(respond).toHaveBeenCalledOnce()
+    // A rejected receipt re-arms both affordances for retry.
+    settle({ accepted: false, reason: 'not-pending' })
+    await waitFor(() => { expect(b.allow.hasAttribute('disabled')).toBe(false) })
+    b.key('Escape')
+    await waitFor(() => {
+      expect(respond).toHaveBeenCalledTimes(2)
+      expect(respond).toHaveBeenLastCalledWith({
+        type: 'client-response',
+        rpcId: RpcId('r-ap'),
+        result: { ok: true, value: { sessionId: SID, approvalId: 'ap1', outcome: 'rejected' } },
+      })
+    })
+  })
+
+  it('ignores modifier chords and unrelated keys; repeats and IME keys are consumed but not answered', () => {
+    const { respond } = deferredRespond()
+    const b = approvalBench(respond)
+    b.body.focus()
+    for (const init of [
+      { ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true },
+    ]) {
+      expect(b.key('Enter', init)).toBe(false)
+    }
+    // The consumption happens before the repeat/composition guard, mirroring
+    // upstream: the gesture is the panel's, the answer is not.
+    expect(b.key('Enter', { repeat: true })).toBe(true)
+    expect(b.key('Enter', { keyCode: 229 })).toBe(true)
+    expect(b.key('Enter', { preventDefault: true })).toBe(true) // consumed earlier, not here
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+    b.body.dispatchEvent(space)
+    expect(space.defaultPrevented).toBe(false)
+    expect(respond).not.toHaveBeenCalled()
+    expect(b.allow.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('guards IME composition: Enter inside or closing a composition never answers', () => {
+    const { respond } = deferredRespond()
+    const b = approvalBench(respond)
+    b.body.focus()
+    fireEvent.compositionStart(b.body)
+    expect(b.key('Enter', { isComposing: true })).toBe(true) // consumed, never answered
+    fireEvent.compositionEnd(b.body)
+    // The closing Enter Safari delivers AFTER compositionend stays inert…
+    expect(b.key('Enter')).toBe(true)
+    // …until the matching keyup clears the guard.
+    fireEvent.keyUp(b.body, { key: 'Enter' })
+    expect(b.key('Enter')).toBe(true)
+    expect(respond).toHaveBeenCalledOnce()
+  })
+
+  it('leaves Enter on a button to its native click and requires focus containment', () => {
+    const { respond } = deferredRespond()
+    const b = approvalBench(respond)
+    // The key lands on the allow button: its own Enter click owns the gesture.
+    b.allow.focus()
+    expect(b.key('Enter', {}, b.allow)).toBe(false)
+    // A key inside the panel while focus sits outside it is not the panel's.
+    b.allow.blur()
+    expect(b.key('Escape')).toBe(false)
+    expect(respond).not.toHaveBeenCalled()
+  })
+
+  it('never answers from an editable descendant', () => {
+    const { respond } = deferredRespond()
+    const b = approvalBench(respond)
+    const edit = document.createElement('textarea')
+    b.root.append(edit)
+    edit.focus()
+    try {
+      expect(b.key('Enter', {}, edit)).toBe(false)
+      expect(respond).not.toHaveBeenCalled()
+    } finally {
+      edit.remove()
+    }
+  })
+
+  it('does not re-arm after the panel left while an answer was in flight', async () => {
+    const { respond, settle } = deferredRespond()
+    const b = approvalBench(respond)
+    b.body.focus()
+    b.key('Escape')
+    b.view.unmount()
+    settle({ accepted: false, reason: 'not-pending' })
+    // The settle's microtask runs without a mounted panel: no state update,
+    // no warning, and nothing left to observe.
+    await act(async () => { await Promise.resolve() })
+  })
+
+  it('renders the paired command line only while the running call carries one', () => {
+    const runningWith = (argsRaw: string): RunningToolCall => ({ ...runningCall('c1'), argsRaw })
+    const chatOver = (root: ToolCallBlock): ChatSnapshot => {
+      const base = chatSnapshotFixture('kind' in root ? { nodes: [root] } : { runningCalls: [root] })
+      const node = base.nodes.get('fixture:tool:c1')
+      return {
+        ...base,
+        nodes: {
+          ...base.nodes,
+          get: (key: string) => key === conversationContextKey('tool-call', 'c1')
+            ? node
+            : base.nodes.get(key),
+        },
+      }
+    }
+    const benchWithCommand = (root: ToolCallBlock) => {
+      const { respond } = deferredRespond()
+      const wait = new PendingWait(
+        'approval', RpcId('r-cmd'), SID,
+        { approvalId: 'ap2', toolName: 'bash', callId: 'c1' } as PendingWait<'approval'>['payload'],
+        respond,
+      )
+      const chat = chatOver(root)
+      const props = {
+        ...makeHarness().props,
+        useSession: (selector: (snapshot: ConversationSnapshot) => unknown) => selector({ ...snapshotBase(), chat }),
+        matched: wait,
+      } as unknown as React.ComponentProps<typeof ApprovalPanel>
+      return render(<ApprovalPanel {...props} />)
+    }
+    // A string command renders verbatim under the headline.
+    const view = benchWithCommand(runningWith('{"command":"ls -la"}'))
+    expect(view.getByText('ls -la')).toBeTruthy()
+    view.unmount()
+    // Non-string and unparseable args both hide the line…
+    benchWithCommand(runningWith('{"command":42}')).unmount()
+    const broken = benchWithCommand(runningWith('not json'))
+    expect(broken.queryByText(/command/)).toBeNull()
+    broken.unmount()
+    // …and so does a settled call (only a running call pairs the command).
+    const settled = benchWithCommand(toolResult(3, 'c1'))
+    expect(settled.container.querySelector('[data-approval-scroll]')?.textContent).not.toContain('ls')
   })
 })
