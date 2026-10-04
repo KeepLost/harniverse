@@ -5,11 +5,12 @@
  * tempdir and aborts its streams before finishing.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, watch as watchNode, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { ALL_AUTHENTICATION_CAPABILITIES } from '@deepseek-ai/dsh-authentication'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -19,8 +20,11 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import type { RpcRequest, WorkspaceFileWatchFrame, WorkspaceId } from '@deepseek-ai/dsh-host-apiproxy'
+import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-host-apiproxy'
 import { createApiProxy, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-import type { WatchOpener } from '../src/workspace-watcher.ts'
+import { watchWorkspaceFiles, WorkspaceWatchError } from '../src/workspace-watcher.ts'
+import type { WatchOpener, WorkspaceWatchOptions } from '../src/workspace-watcher.ts'
+import { WorkspaceInspectorError } from '../src/workspace-inspector.ts'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 
 let nextRpc = 1
@@ -133,6 +137,109 @@ function sseReader(response: Response): {
       await reader.cancel().catch(() => { /* already cancelled or stream already closed */ })
     },
   }
+}
+
+/** Throwaway canonical directory owned by one direct-feed spec. */
+function freshRoot(): string {
+  return realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-watch-')))
+}
+
+/** One scripted watcher handle: records where it was opened and fires events on demand. */
+interface ScriptedWatchHandle {
+  readonly target: string
+  readonly recursive: boolean
+  isClosed(): boolean
+  fire(eventType: string, filename: string | null): void
+}
+
+/**
+ * Scripted fs.watch boundary: every open is recorded, and the spec fires
+ * events through the handles instead of waiting on the real filesystem.
+ * @param onOpen - optional notifier receiving each handle and its open index.
+ * @returns the injectable opener plus every handle it handed out.
+ */
+function scriptedWatcher(
+  onOpen?: (handle: ScriptedWatchHandle, index: number) => void,
+): { opener: WatchOpener; handles: ScriptedWatchHandle[] } {
+  const handles: ScriptedWatchHandle[] = []
+  const opener: WatchOpener = (target, options, listener) => {
+    let closed = false
+    const handle: ScriptedWatchHandle = {
+      target,
+      recursive: options.recursive,
+      isClosed: () => closed,
+      fire: (eventType, filename) => { listener(eventType, filename) },
+    }
+    handles.push(handle)
+    onOpen?.(handle, handles.length - 1)
+    return { close: () => { closed = true } }
+  }
+  return { opener, handles }
+}
+
+/** Real fs.watch boundary for fault-injection openers that still watch. */
+const openRealWatch: WatchOpener = (target, options, listener) =>
+  watchNode(target, { persistent: false, recursive: options.recursive }, (eventType, filename) => {
+    listener(eventType, typeof filename === 'string' ? filename : null)
+  })
+
+/** One direct generator feed; disposal aborts and drains the feed. */
+function openFeed(root: string, path: string, options: WorkspaceWatchOptions = {}): {
+  feed: AsyncGenerator<WorkspaceFileWatchFrame>
+  dispose: () => Promise<void>
+} {
+  const controller = new AbortController()
+  const feed = watchWorkspaceFiles(root, path, controller.signal, options)
+  return {
+    feed,
+    dispose: async () => {
+      controller.abort()
+      await feed.return(undefined)
+    },
+  }
+}
+
+/** Read the next raw generator frame or fail after `timeoutMs` of silence. */
+async function nextRaw(
+  iterator: AsyncIterator<WorkspaceFileWatchFrame>,
+  timeoutMs = 4000,
+): Promise<WorkspaceFileWatchFrame> {
+  return await new Promise<WorkspaceFileWatchFrame>((resolve, reject) => {
+    const timer = lazyTimeout(timeoutMs, () => { reject(new Error('file watch frame timeout')) })
+    void iterator.next().then((step) => {
+      clearTimeout(timer)
+      if (step.done === true) {
+        reject(new Error('file watch feed ended before the expected frame'))
+        return
+      }
+      resolve(step.value)
+    }, (error: unknown) => {
+      clearTimeout(timer)
+      reject(error instanceof Error ? error : new Error(String(error)))
+    })
+  })
+}
+
+/** Assert the feed rejects on the next pull, failing after `timeoutMs` of silence. */
+async function rejectionOf(
+  iterator: AsyncIterator<WorkspaceFileWatchFrame>,
+  timeoutMs = 4000,
+): Promise<unknown> {
+  return await new Promise<unknown>((resolve, reject) => {
+    const timer = lazyTimeout(timeoutMs, () => { reject(new Error('file watch failure timeout')) })
+    void iterator.next().then((step) => {
+      clearTimeout(timer)
+      reject(new Error(`expected the feed to fail, got ${JSON.stringify(step.done === true ? 'end' : step.value)}`))
+    }, (error: unknown) => {
+      clearTimeout(timer)
+      resolve(error)
+    })
+  })
+}
+
+/** Wait out several coalescing windows without pulling the feed. */
+async function settle(milliseconds = 250): Promise<void> {
+  await new Promise<void>((resolve) => { lazyTimeout(milliseconds, () => { resolve() }) })
 }
 
 /** Minimal live agent; the gateway only needs identity and its session. */
@@ -593,6 +700,480 @@ describe('workspace.files.watch carrier route', () => {
         })
       } finally {
         await sse.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('attaches the authenticated principal to the watch stream request', async () => {
+    const { api, root } = await harness()
+    try {
+      const { workspaceId } = await projectWorkspace(api, root)
+      const files = api.workspaceFiles
+      if (files === undefined) throw new Error('workspace file inspection surface is unavailable')
+      const original = files.watchFiles.bind(files)
+      const seen: unknown[] = []
+      files.watchFiles = (request, signal) => {
+        seen.push(request)
+        return original(request, signal)
+      }
+      const principal: AuthenticationPrincipal = { kind: 'bypass', capabilities: ALL_AUTHENTICATION_CAPABILITIES }
+      const response = await toFetchHandler(api, principal).fetch(new Request(
+        `http://x/api/workspace.files.watch?workspaceId=${encodeURIComponent(String(workspaceId))}&path=wire.md`,
+        { method: 'GET' },
+      ))
+      expect(response.status).toBe(200)
+
+      const sse = sseReader(response)
+      try {
+        const opening = await sse.read(2)
+        expect(opening[1]).toMatchObject({
+          type: 'server-request',
+          method: 'workspace.files.watch',
+          payload: { kind: 'ready' },
+        })
+        expect(seen[0]).toEqual(expect.objectContaining({ payload: { workspaceId, path: 'wire.md' }, principal }))
+      } finally {
+        await sse.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('watchWorkspaceFiles generator boundary', () => {
+  it('defaults to the production opener and its own debounce window', async () => {
+    const root = freshRoot()
+    try {
+      writeFileSync(join(root, 'a.md'), 'one')
+      const watchFeed = openFeed(root, 'a.md')
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        writeFileSync(join(root, 'a.md'), 'two')
+        const change = presentChange(await nextRaw(watchFeed.feed))
+        expect(change.absolutePath).toBe(join(root, 'a.md'))
+        expect(change.version).toBeTruthy()
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to a non-recursive anchor watch when the platform refuses recursive watching', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const attempts: { target: string; recursive: boolean }[] = []
+      const opener: WatchOpener = (target, options, listener) => {
+        attempts.push({ target, recursive: options.recursive })
+        if (options.recursive) {
+          throw Object.assign(new Error('recursive watch is unavailable'), { code: 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM' })
+        }
+        return openRealWatch(target, options, listener)
+      }
+      const watchFeed = openFeed(project, 'notes.md', { open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        expect(attempts).toEqual([
+          { target: project, recursive: true },
+          { target: project, recursive: false },
+        ])
+        writeFileSync(join(project, 'notes.md'), 'created')
+        const created = presentChange(await nextRaw(watchFeed.feed))
+        expect(created.absolutePath).toBe(join(project, 'notes.md'))
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('re-resolves the anchor once when it vanishes before the open', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      let calls = 0
+      const opener: WatchOpener = (target, options, listener) => {
+        if (calls++ === 0) throw Object.assign(new Error('anchor vanished before the open'), { code: 'ENOENT' })
+        return openRealWatch(target, options, listener)
+      }
+      const watchFeed = openFeed(project, 'notes.md', { open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        expect(calls).toBe(2)
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('maps an open refusal onto the workspace-watch-unsupported failure', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const refusal = Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      const watchFeed = openFeed(project, 'a.md', { open: () => { throw refusal } })
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceWatchError)
+      if (!(failure instanceof WorkspaceWatchError)) throw new Error('unreachable')
+      expect(failure.path).toBe('a.md')
+      expect(failure.message).toContain('EACCES')
+      expect(failure.message).toContain(project)
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reports an open failure without an errno as an unknown error', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const watchFeed = openFeed(project, 'a.md', { open: () => { throw new Error('boom') } })
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceWatchError)
+      if (!(failure instanceof WorkspaceWatchError)) throw new Error('unreachable')
+      expect(failure.message).toContain('unknown error')
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('treats an unreported watcher filename as relevant to the missing target', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'notes.md', { open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        handles[0]?.fire('change', null)
+        expect(await nextRaw(watchFeed.feed)).toEqual({
+          kind: 'change',
+          change: { absolutePath: join(project, 'notes.md'), absent: true },
+        })
+        writeFileSync(join(project, 'notes.md'), 'created')
+        handles[0]?.fire('change', 'notes.md')
+        const created = presentChange(await nextRaw(watchFeed.feed))
+        expect(created.absolutePath).toBe(join(project, 'notes.md'))
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores sibling events unrelated to the missing target', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const watchFeed = openFeed(project, 'notes.md')
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        // A sibling that leaked through the filter would coalesce into an
+        // absent-target frame on the next pull; only the target's own creation
+        // may answer with a present one.
+        writeFileSync(join(project, 'other.txt'), 'unrelated')
+        await settle()
+        writeFileSync(join(project, 'notes.md'), 'created')
+        const created = presentChange(await nextRaw(watchFeed.feed))
+        expect(created.absolutePath).toBe(join(project, 'notes.md'))
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('conservatively reports a sibling that names the missing suffix tail', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(join(project, 'deep'), { recursive: true })
+      const watchFeed = openFeed(project, 'deep/nested/notes.md')
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        writeFileSync(join(project, 'deep', 'notes.md'), 'sibling')
+        expect(await nextRaw(watchFeed.feed)).toEqual({
+          kind: 'change',
+          change: { absolutePath: join(project, 'deep', 'nested', 'notes.md'), absent: true },
+        })
+        mkdirSync(join(project, 'deep', 'nested'))
+        writeFileSync(join(project, 'deep', 'nested', 'notes.md'), 'created')
+        const created = presentChange(await nextRaw(watchFeed.feed))
+        expect(created.absolutePath).toBe(join(project, 'deep', 'nested', 'notes.md'))
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reports a missing directory target once entries appear inside it', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const watchFeed = openFeed(project, 'assets')
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        mkdirSync(join(project, 'assets'))
+        writeFileSync(join(project, 'assets', 'icon.png'), 'x')
+        const change = presentChange(await nextRaw(watchFeed.feed))
+        expect(change.absolutePath).toBe(join(project, 'assets'))
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers from a watcher error event by re-anchoring on the nearest existing ancestor', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(join(project, 'sub'), { recursive: true })
+      const target = join(project, 'sub', 'x.md')
+      writeFileSync(target, 'one')
+      let resolveReopen: (() => void) | undefined
+      const reopened = new Promise<void>((resolve) => { resolveReopen = resolve })
+      const { opener, handles } = scriptedWatcher((_handle, index) => {
+        if (index === 1) resolveReopen?.()
+      })
+      const watchFeed = openFeed(project, 'sub/x.md', { open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        expect(handles[0]?.target).toBe(target)
+        rmSync(target)
+        handles[0]?.fire('error', null)
+        expect(await nextRaw(watchFeed.feed)).toEqual({
+          kind: 'change',
+          change: { absolutePath: target, absent: true },
+        })
+
+        const present = nextRaw(watchFeed.feed)
+        await reopened
+        expect(handles[1]?.target).toBe(join(project, 'sub'))
+        writeFileSync(target, 'two')
+        handles[1]?.fire('change', 'x.md')
+        const back = presentChange(await present)
+        expect(back.absolutePath).toBe(target)
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('re-reports a target that reappears before its error recovery re-binds', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(join(project, 'sub'), { recursive: true })
+      const target = join(project, 'sub', 'x.md')
+      writeFileSync(target, 'one')
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'sub/x.md', { open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        rmSync(target)
+        handles[0]?.fire('error', null)
+        expect(await nextRaw(watchFeed.feed)).toEqual({
+          kind: 'change',
+          change: { absolutePath: target, absent: true },
+        })
+        writeFileSync(target, 'two')
+        handles[0]?.fire('change', 'x.md')
+        const back = presentChange(await nextRaw(watchFeed.feed))
+        expect(back.absolutePath).toBe(target)
+        expect(handles[1]?.target).toBe(target)
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('re-reports a target that changes again while its re-bind is in flight', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const target = join(project, 'saved.md')
+      writeFileSync(target, 'one')
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'saved.md', { debounceMs: 0, open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        writeFileSync(join(project, 'incoming.md'), 'two')
+        renameSync(join(project, 'incoming.md'), target)
+        handles[0]?.fire('rename', 'saved.md')
+        const replaced = presentChange(await nextRaw(watchFeed.feed))
+        expect(replaced.absolutePath).toBe(target)
+
+        writeFileSync(target, 'three')
+        handles[0]?.fire('change', 'saved.md')
+        const missed = presentChange(await nextRaw(watchFeed.feed))
+        expect(missed.absolutePath).toBe(target)
+        expect(missed.version).not.toBe(replaced.version)
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('re-reports a target that disappears while its re-bind is in flight', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const target = join(project, 'saved.md')
+      writeFileSync(target, 'one')
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'saved.md', { debounceMs: 0, open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        writeFileSync(join(project, 'incoming.md'), 'two')
+        renameSync(join(project, 'incoming.md'), target)
+        handles[0]?.fire('rename', 'saved.md')
+        const replaced = presentChange(await nextRaw(watchFeed.feed))
+        expect(replaced.absolutePath).toBe(target)
+
+        rmSync(target)
+        handles[0]?.fire('change', 'saved.md')
+        expect(await nextRaw(watchFeed.feed)).toEqual({
+          kind: 'change',
+          change: { absolutePath: target, absent: true },
+        })
+        expect(handles[1]?.target).toBe(project)
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('drops a pending burst and late events on close', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'notes.md', { open: opener })
+      expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+      handles[0]?.fire('change', 'notes.md')
+      await watchFeed.dispose()
+      expect(handles[0]?.isClosed()).toBe(true)
+      handles[0]?.fire('change', 'notes.md')
+      expect((await watchFeed.feed.next()).done).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails the feed when the workspace root stops resolving', async () => {
+    const root = freshRoot()
+    const project = join(root, 'project')
+    mkdirSync(project)
+    writeFileSync(join(project, 'a.md'), 'x')
+    const { opener, handles } = scriptedWatcher()
+    const watchFeed = openFeed(project, 'a.md', { open: opener })
+    try {
+      expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+      rmSync(project, { recursive: true, force: true })
+      handles[0]?.fire('rename', 'a.md')
+      expect(await nextRaw(watchFeed.feed)).toEqual({
+        kind: 'change',
+        change: { absolutePath: join(project, 'a.md'), absent: true },
+      })
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceInspectorError)
+      if (!(failure instanceof WorkspaceInspectorError)) throw new Error('unreachable')
+      expect(failure.code).toBe('workspace-path-invalid')
+      expect(failure.message).toContain('no longer resolves')
+    } finally {
+      await watchFeed.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to watch through a symbolic link', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      writeFileSync(join(project, 'real.md'), 'x')
+      symlinkSync('real.md', join(project, 'link.md'))
+      const watchFeed = openFeed(project, 'link.md')
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceInspectorError)
+      if (!(failure instanceof WorkspaceInspectorError)) throw new Error('unreachable')
+      expect(failure.code).toBe('workspace-path-invalid')
+      expect(failure.message).toContain('symbolic link')
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reports an unresolvable looped ancestor as not readable', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      symlinkSync('self', join(project, 'self'))
+      const watchFeed = openFeed(project, 'self/x.md')
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceInspectorError)
+      if (!(failure instanceof WorkspaceInspectorError)) throw new Error('unreachable')
+      expect(failure.code).toBe('workspace-entry-not-readable')
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails the feed when the target stops being statable', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      const target = join(project, 'self.md')
+      writeFileSync(target, 'x')
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'self.md', { open: opener })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        rmSync(target)
+        symlinkSync('self.md', target)
+        handles[0]?.fire('rename', 'self.md')
+        const failure = await rejectionOf(watchFeed.feed)
+        expect((failure as NodeJS.ErrnoException).code).toBe('ELOOP')
+      } finally {
+        await watchFeed.dispose()
       }
     } finally {
       rmSync(root, { recursive: true, force: true })

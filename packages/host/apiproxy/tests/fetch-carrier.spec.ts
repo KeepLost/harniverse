@@ -3,7 +3,7 @@ import {
   ALL_AUTHENTICATION_CAPABILITIES, authenticationGrantId,
   type AuthenticationPrincipal, type AuthenticationPrincipalIdentity,
 } from '@deepseek-ai/dsh-authentication'
-import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
+import type { ApiProxy, HostFrame, MuxFrame, WorkspaceFileWatchFrame } from '../src/api/index.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { toFetchHandler } from '../src/fetch/handler.ts'
@@ -911,6 +911,19 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       .fetch(new Request('http://x/api/events.mux?since=%7B%7D&since=%7B%7D', { method: 'GET' }))
     expect(response.status).toBe(400)
     expect(await response.text()).toBe('invalid since query parameter')
+  })
+
+  it('answers a watch request with a one-frame failure stream when the composition lacks the workspace files surface', async () => {
+    const frames: WorkspaceFileWatchFrame[] = []
+    for await (const envelope of client(fakeApi()).workspaceFiles.watchFiles(
+      { workspaceId: 'w1' as never }, new AbortController().signal,
+    )) {
+      frames.push(envelope.payload)
+    }
+    expect(frames).toEqual([{
+      type: 'stream/error',
+      error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} },
+    }])
   })
 
   it('carries the settling principal into both no-envelope event streams', async () => {

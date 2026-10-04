@@ -71,6 +71,9 @@ interface WatchAnchor {
 /** Production fs.watch boundary; a Buffer filename is treated as unreported. */
 const openNodeWatch: WatchOpener = (target, options, listener) =>
   watch(target, { persistent: false, recursive: options.recursive }, (eventType, filename) => {
+    /* v8 ignore next -- Node 24 (the coverage-gate runtime) lossily decodes an
+       undecodable watcher name into a replacement-character string; only older
+       Node 22 inotify delivers a Buffer filename, which never executes here. */
     listener(eventType, typeof filename === 'string' ? filename : null)
   })
 
@@ -287,6 +290,9 @@ class TargetWatch {
   private async openWatcher(signal: AbortSignal): Promise<void> {
     for (let attempt = 0; ; attempt++) {
       const anchor = await this.anchorFor(signal)
+      /* v8 ignore next -- every entry passes closeWatcher first (reanchor closes
+         before reopening and a refused open never leaves watcherAlive set), so a
+         live watcher on the very directory being opened is unreachable. */
       if (this.watcherAlive && this.watcherDir === anchor.dir) return
       this.closeWatcher()
       const recursive = anchor.suffix !== '' && this.recursiveSupported
@@ -348,6 +354,10 @@ class TargetWatch {
           )
         }
         const fromRoot = relative(this.root, canonical)
+        /* v8 ignore next 7 -- containment fence over a resolver that answered
+           outside the tree: the symlink check above proved the canonical form
+           equals the lexical path, which relativePath already confined to the
+           root, so a canonical escape cannot reach this throw. */
         if (fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
           throw new WorkspaceInspectorError(
             'workspace-path-invalid',
@@ -368,9 +378,10 @@ class TargetWatch {
         )
       }
       const parent = dirname(current)
+      /* v8 ignore next 7 -- lexical confinement guarantees the walk reaches the
+         root check above first; only a resolver answering outside the tree
+         could get here, and none does. */
       if (parent === current) {
-        // Lexical confinement guarantees the walk reaches the root first; this
-        // guards a resolver that answered outside the tree.
         throw new WorkspaceInspectorError(
           'workspace-path-invalid',
           `workspace path ${JSON.stringify(this.requestPath)} escapes the workspace`,
