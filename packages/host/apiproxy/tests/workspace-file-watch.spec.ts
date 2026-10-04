@@ -817,6 +817,28 @@ describe('watchWorkspaceFiles generator boundary', () => {
     }
   })
 
+  it('reports an unreadable anchor when lstat fails outside missing-entry codes (seam-driven)', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      writeFileSync(join(project, 'secret.md'), 'x')
+      const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      const lstatSeam = (async (path: string) => {
+        if (path === join(project, 'secret.md')) throw eacces
+        return lstat(path)
+      }) as typeof lstat
+      const watchFeed = openFeed(project, 'secret.md', { lstat: lstatSeam })
+      const failure = await rejectionOf(watchFeed.feed)
+      expect(failure).toBeInstanceOf(WorkspaceInspectorError)
+      if (!(failure instanceof WorkspaceInspectorError)) throw new Error('unreachable')
+      expect(failure.code).toBe('workspace-entry-not-readable')
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('treats a path segment through a file as a missing anchor (ENOTDIR, seam-driven)', async () => {
     const root = freshRoot()
     try {
