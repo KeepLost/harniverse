@@ -408,6 +408,16 @@ describe('enrolled-workspace confinement failure paths', () => {
     expect(overrunMerges).toHaveLength(1)
   })
 
+  it('a confined revoke over a sub-8 AclSize header falls through to the label-clearing merge', () => {
+    const tiny = allocBytes(32)
+    koffi.encode(tiny, 'uint8', 2)
+    koffi.encode(tiny, 2, 'uint16', 4)
+    koffi.encode(tiny, 4, 'uint16', 1)
+    const { api, applies } = confinementApi({ oldAcl: tiny, labelAcl: craftLabelAcl(lowSid) })
+    expect(revokeWrite(api, 'C:/ws', workspaceSid, true)).toBe(true)
+    expect(applies[0]?.information).toBe(abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION)
+  })
+
   it('a confined revoke over malformed ACL headers falls through to the label-clearing merge', () => {
     // ACE claiming a size smaller than its own header.
     const stubAce = allocBytes(32)
