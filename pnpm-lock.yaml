@@ -436,6 +436,9 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       execa:
         specifier: ^10.0.0
         version: 10.0.0
@@ -1326,6 +1329,12 @@ importers:
 
   packages/boot/app-boot:
     dependencies:
+      '@eslint-community/regexpp':
+        specifier: ^4.12.2
+        version: 4.12.2
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       js-yaml:
         specifier: 4.3.2
         version: 4.3.2
@@ -1363,6 +1372,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9

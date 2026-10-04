@@ -81,6 +81,18 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
   })
 
+  it('routes schema dumps with ordered overlays', () => {
+    expect(parse(['--profile', 'web', '--dump-config-schema']))
+      .toEqual({ mode: 'dump-config-schema', profile: 'web', patches: [] })
+    expect(parse(['--profile', 'tui', '--patch', 'first.yml', '--dump-config-schema', '--patch', 'second.json']))
+      .toEqual({ mode: 'dump-config-schema', profile: 'tui', patches: ['first.yml', 'second.json'] })
+    expect(parse(['web', '--dump-config-schema']))
+      .toEqual({ mode: 'dump-config-schema', profile: 'web', patches: [] })
+    // A launcher flag after the first app-owned token belongs to the app.
+    expect(parse(['web', '--port', '8080', '--dump-config-schema']))
+      .toMatchObject({ mode: 'profile', args: ['--port', '8080', '--dump-config-schema'] })
+  })
+
   it('rejects missing profile, removed flags, and contradictory inputs', () => {
     expect(exitCode([])).toBe(1)
     expect(exitCode(['tui'])).toBe(1) // an app argument without --profile has no app to reach
@@ -90,9 +102,18 @@ describe('parseDshArgs', () => {
     expect(exitCode(['--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', '--patch='])).toBe(1)
     expect(exitCode(['--dump-config'])).toBe(1)
+    expect(exitCode(['--dump-config-schema'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--dump-config', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--dump-config', '--dump-config-schema'])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--dump-config-schema', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--dump-default-config', '--dump-config', '--dump-config-schema'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--dump-default-config', '--patch', 'p.yml'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--dump-config', 'task'])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--dump-config-schema', 'task'])).toBe(1)
+    expect(exitCode(['web', '--dump-config-schema', '--help'])).toBe(1)
+    expect(exitCode(['web', '--dump-config-schema', '--', '--patch', 'late.yml'])).toBe(1)
+    expect(exitCode(['web', '--dump-config-schema', '--patch='])).toBe(1)
+    expect(exitCode(['--dump-config-schema', 'plugin', 'add', 'x'])).toBe(1)
     expect(exitCode(['--bogus'])).toBe(1)
     expect(exitCode(['--profile', 'x', 'web'])).toBe(1)
     expect(exitCode(['web', '--dump-config', '--dump-default-config'])).toBe(1)

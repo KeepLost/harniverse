@@ -10,6 +10,8 @@ import {
   type AuthWebReply, type ConnectionProfile, type DirectorySelection, type RendererAuthority, type ShellActivity, type ShellState,
 } from './ipc.ts'
 import { shellCopy } from './locale.ts'
+import { DesktopFatalRecovery } from './fatal-recovery.ts'
+import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportApp, type CrashReportSource } from './crash-report.ts'
 
 /** Ready data stays in the main process; the URL may contain a short-lived browser bootstrap. */
 export interface DesktopHostReady { url: string; authWeb?: string }
@@ -34,7 +36,9 @@ export interface OwnedHostCallbacks {
 
 /** Distribution paths and the owned-process factory are main-process configuration. */
 export interface DesktopShellOptions {
-  createOwnedHost(callbacks: OwnedHostCallbacks): OwnedDesktopHost
+  createOwnedHost(callbacks: OwnedHostCallbacks, environment: NodeJS.ProcessEnv): OwnedDesktopHost
+  /** Environment for owned Host children; one shared login-shell read, awaited before each spawn. */
+  hostEnvironment?: Promise<NodeJS.ProcessEnv>
   rendererPath: string
   preloadPath: string
   updates?: Pick<DesktopUpdates, 'install' | 'recover'>
@@ -50,6 +54,14 @@ interface Connection {
   stopping?: boolean
 }
 
+/** Facts of this Desktop process recorded in every crash report header. */
+function crashReportApp(): CrashReportApp {
+  return {
+    name: app.name, version: app.getVersion(), platform: process.platform, arch: process.arch,
+    electron: process.versions.electron, node: process.versions.node, locale: app.getLocale(),
+  }
+}
+
 /**
  * Start the sole application instance after Electron is ready.
  * @param options - trusted distribution paths and owned Host adapter.
@@ -58,13 +70,25 @@ interface Connection {
 export async function launchDesktopShell(options: DesktopShellOptions): Promise<DesktopShell | undefined> {
   app.setName('dsh-harniverse')
   app.setAppUserModelId('com.keeplost.harniverse')
+  // Platform-conventional logs directory (macOS ~/Library/Logs/<name>, otherwise under userData);
+  // set before ready so the first fatal report already resolves under it.
+  app.setAppLogsPath()
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return undefined
   }
   await app.whenReady()
   const shell = new DesktopShell(options)
-  await shell.start()
+  try {
+    await shell.start()
+  } catch (error) {
+    // The entry point exits this process immediately after the rejection; the
+    // report is all the fatal record this path keeps.
+    await writeCrashReport(app.getPath('logs'), {
+      source: 'main', phase: 'startup', error, rendererConsole: [], app: crashReportApp(), time: new Date(),
+    })
+    throw error
+  }
   return shell
 }
 
@@ -83,8 +107,27 @@ export class DesktopShell {
   private updates: Pick<DesktopUpdates, 'install' | 'recover'> | undefined
   private partition = 'persist:harniverse-owned'
   private readonly securedSessions = new WeakSet<Electron.Session>()
+  /** Error-level console output of the primary window, attached to crash reports. */
+  private readonly rendererConsole = new RendererConsoleTail()
+  /** Whether the connected Host had reached ready; crash reports phase on it. */
+  private backendReady = false
+  /** Set while a recovery-chosen exit is tearing the application down. */
+  private shuttingDown = false
+  private readonly fatal: DesktopFatalRecovery
 
-  constructor(private readonly options: DesktopShellOptions) {}
+  constructor(private readonly options: DesktopShellOptions) {
+    this.fatal = new DesktopFatalRecovery({
+      messages: () => this.copy,
+      show: messageOptions => dialog.showMessageBox(messageOptions),
+      stop: () => {
+        this.shuttingDown = true
+        return this.stopOwned(true)
+      },
+      exit: () => { this.quitFromRecovery() },
+      restart: () => { app.relaunch(); this.quitFromRecovery() },
+      writeReport: (error, source) => this.persistCrashReport(error, source),
+    })
+  }
 
   /** Locale-picked copy for dialogs, menus, and surfaced state messages. */
   private get copy(): ReturnType<typeof shellCopy> {
@@ -93,6 +136,7 @@ export class DesktopShell {
 
   /** Create the shell window and retained tray after Electron readiness. */
   async start(): Promise<void> {
+    void pruneCrashReports(app.getPath('logs'))
     this.registerIpc()
     this.createTray()
     await this.showLauncher()
@@ -174,6 +218,7 @@ export class DesktopShell {
           },
           detach: async () => {
             this.connection = undefined
+            this.backendReady = false
             this.state = { phase: 'disconnected', activity: { status: 'unknown' } }
             await this.showLauncher()
           },
@@ -218,11 +263,12 @@ export class DesktopShell {
     try {
       let webUrl: string
       if (profile.kind === 'local') {
+        const environment = await (this.options.hostEnvironment ?? Promise.resolve(process.env))
         connection.host = this.options.createOwnedHost({
-          onFailure: () => { this.hostFailed(connection) },
+          onFailure: (error: Error) => { this.hostFailed(connection, error) },
           pickDirectory: () => this.showDirectoryPicker(connection),
           pickFile: request => this.showFilePicker(connection, request),
-        })
+        }, environment)
         const ready = await connection.host.start()
         const origin = new URL(validateHostUrl(ready.url)).origin
         if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname)) throw new Error('Owned Host must bind loopback.')
@@ -243,10 +289,18 @@ export class DesktopShell {
       await this.window?.loadURL(webUrl)
       if (this.connectionFailed(connection)) throw new Error(this.copy.errorStartupStopped)
       this.state = { ...this.state, phase: 'ready' }
+      this.backendReady = true
       this.refreshMenu()
       this.show()
-    } catch {
+    } catch (error) {
       connection.failed = true
+      this.backendReady = false
+      if (profile.kind === 'local') {
+        // An owned Host that cannot reach ready is a fatal application failure:
+        // the recovery dialog owns the outcome instead of the connection page.
+        this.reportFatal(error, 'host')
+        throw new Error(this.copy.errorRetryAfterFailure)
+      }
       this.state = { ...this.state, phase: 'failed', message: this.copy.stateConnectionFailed, activity: { status: 'unknown' } }
       await this.showLauncher()
       // Ownership remains attached until stop settles, including failed startup.
@@ -254,13 +308,12 @@ export class DesktopShell {
     }
   }
 
-  private hostFailed(connection: Connection): void {
+  private hostFailed(connection: Connection, error: Error): void {
     if (connection !== this.connection || connection.stopping || this.quitting) return
     connection.failed = true
+    this.backendReady = false
     this.state = { ...this.state, phase: 'failed', activity: { status: 'unknown' }, message: this.copy.stateHostStopped }
-    void this.serialize(async () => { if (connection === this.connection) await this.showLauncher() }).catch(() => {
-      dialog.showErrorBox('Harniverse', this.copy.recoveryUnavailable)
-    })
+    this.reportFatal(error, 'host')
   }
 
   private async stopOwned(allowUncleanExit = false): Promise<void> {
@@ -430,7 +483,7 @@ export class DesktopShell {
         webPreferences: {
           preload: this.options.preloadPath, contextIsolation: true, sandbox: true,
           nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false,
-          webviewTag: false, partition,
+          webviewTag: false, partition, devTools: true,
         },
       })
       this.window = window
@@ -457,6 +510,16 @@ export class DesktopShell {
     contents.on('will-navigate', permitNavigation)
     contents.on('will-redirect', permitNavigation)
     contents.on('will-attach-webview', (event) => { event.preventDefault() })
+    contents.on('console-message', (details) => {
+      if (details.level !== 'error') return
+      this.rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
+    })
+    contents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      // -3 is the aborted navigation of a superseded load or teardown.
+      if (isMainFrame && code !== -3 && !this.quitting && !window.isDestroyed()) {
+        this.reportFatal(new Error(`Desktop page failed to load: ${url} (${String(code)}: ${description})`), 'renderer')
+      }
+    })
     if (!this.securedSessions.has(contents.session)) {
       this.securedSessions.add(contents.session)
       // Voice input is the one media consumer: the microphone is granted only
@@ -474,12 +537,9 @@ export class DesktopShell {
       event.preventDefault()
       window.hide()
     })
-    contents.on('render-process-gone', () => {
+    contents.on('render-process-gone', (_event, details) => {
       if (this.quitting || window !== this.window) return
-      this.state = { ...this.state, phase: 'failed', message: this.copy.stateWindowStopped }
-      void this.serialize(async () => { await this.showLauncher() }).catch(() => {
-        dialog.showErrorBox('Harniverse', this.copy.windowRecoveryUnavailable)
-      })
+      this.reportFatal(new Error(`Desktop renderer exited: ${details.reason}`), 'renderer')
     })
     contents.on('unresponsive', () => { this.tray?.setToolTip(this.copy.tooltipUnresponsive) })
     contents.on('responsive', () => { this.tray?.setToolTip('Harniverse') })
@@ -540,6 +600,41 @@ export class DesktopShell {
       { label: this.copy.quitButton, click: () => { void this.requestQuit() } },
     ]
     this.tray?.setContextMenu(Menu.buildFromTemplate(items))
-    Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'Harniverse', submenu: items }, { role: 'editMenu' }]))
+    // Packaged DevTools for the main window: hidden menu roles keep the role's
+    // platform accelerator and F12 reachable without a visible entry; win32
+    // drops the visible application menu entirely, matching the tray-owned shell.
+    const devToolsItems: Electron.MenuItemConstructorOptions[] = [
+      { role: 'toggleDevTools', visible: false },
+      { role: 'toggleDevTools', visible: false, accelerator: 'F12' },
+    ]
+    Menu.setApplicationMenu(Menu.buildFromTemplate(process.platform === 'win32' ? devToolsItems
+      : [{ label: 'Harniverse', submenu: [...items, ...devToolsItems] }, { role: 'editMenu' }]))
+  }
+
+  private reportFatal(error: unknown, source: CrashReportSource): void {
+    console.error(error)
+    if (this.shuttingDown) {
+      // No dialog during shutdown, but the report still records what failed on the way out.
+      void this.persistCrashReport(error, source)
+      return
+    }
+    void this.fatal.report(error, source).catch(() => { app.exit(1) })
+  }
+
+  private persistCrashReport(error: unknown, source: CrashReportSource): Promise<string | undefined> {
+    return writeCrashReport(app.getPath('logs'), {
+      source,
+      phase: this.backendReady ? 'running' : 'startup',
+      error,
+      rendererConsole: this.rendererConsole.snapshot(),
+      app: crashReportApp(),
+      time: new Date(),
+    })
+  }
+
+  private quitFromRecovery(): void {
+    this.quitting = true
+    this.tray?.destroy()
+    app.quit()
   }
 }

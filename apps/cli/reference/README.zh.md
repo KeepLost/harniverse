@@ -36,9 +36,12 @@
 ```sh
 dsh --profile web --dump-default-config
 dsh --profile web --patch ./extra.yml --dump-config
+dsh --profile web --dump-config-schema
 ```
 
 `--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。dump 操作不会运行应用的命令行参数提供方，因此展示的是解析任何应用参数之前的组合配置树；如果调用中包含应用参数，dump 会拒绝该调用。
+
+`--dump-config-schema` 将同一组合（始终包含用户层）打印为一份 JSON Schema 2020-12 文档——条目与 overlay 结构，以及每个发现的插件的 `Config` schema——诊断写入 stderr；当 `x-cordis.complete` 为 false 时退出码为 1。导入与惰性 schema 构建器会运行可信模块代码；插件绝不被应用，`!!js` 绝不被求值。三个 dump flag 互斥。
 
 ## 插件管理
 

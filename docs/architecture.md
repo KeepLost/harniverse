@@ -30,7 +30,7 @@ To see the tree your machine actually boots:
 dsh --profile web --dump-config
 ```
 
-Any row it prints can be replaced by a patch of your own.
+Any row it prints can be replaced by a patch of your own. `dsh --profile web --dump-config-schema` prints the same composition (always with its user layer) as one JSON Schema 2020-12 document — entry and overlay structure plus every discovered plugin's `Config` schema — with diagnostics on stderr, an explicit completeness marker (`x-cordis.complete`), and exit code 1 when incomplete.
 
 Composition mechanics are in [app-boot](../packages/boot/app-boot/README.md#profiles); config fields are in the generated [config catalog](config-catalog.md).
 

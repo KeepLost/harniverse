@@ -36,9 +36,12 @@ Inspect the composed tree without booting it:
 ```sh
 dsh --profile web --dump-default-config
 dsh --profile web --patch ./extra.yml --dump-config
+dsh --profile web --dump-config-schema
 ```
 
 `--dump-default-config` prints only the bundle layers; `--dump-config` adds the profile's `cordis.patch.yml`, the home-level `$DSH_HOME/cordis.patch.yml`, and `--patch` overlays. Both print comments naming the file that supplied each row and every overlay that changed it; `!!js` expressions remain unevaluated, and unmatched patch targets are reported on stderr. A dump never runs app command-line providers, so it shows the composed tree before any app argument is resolved and rejects an invocation that carries app arguments.
+
+`--dump-config-schema` prints the same composition (always with its user layer) as one JSON Schema 2020-12 document — entry and overlay structure plus every discovered plugin's `Config` schema — with diagnostics on stderr; the exit code is 1 when `x-cordis.complete` is false. Imports and lazy schema builders run trusted module code; plugins are never applied and `!!js` is never evaluated. The three dump flags are mutually exclusive.
 
 ## Plugin management
 

@@ -1,3 +1,6 @@
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -56,7 +59,9 @@ const electron = vi.hoisted(() => {
   }
   const app = Object.assign(new Events(), {
     quit: vi.fn(), whenReady: vi.fn(async () => {}), requestSingleInstanceLock: vi.fn(() => true),
-    setName: vi.fn(), setAppUserModelId: vi.fn(), getPath: vi.fn(() => '/data/harniverse'), getVersion: vi.fn(() => '1.0.0'), isPackaged: false,
+    setName: vi.fn(), setAppUserModelId: vi.fn(), setAppLogsPath: vi.fn(), relaunch: vi.fn(), exit: vi.fn(),
+    name: 'dsh-harniverse',
+    getPath: vi.fn(() => '/data/harniverse'), getVersion: vi.fn(() => '1.0.0'), isPackaged: false,
     getLocale: vi.fn(() => 'en-US'),
   })
   return {
@@ -84,6 +89,7 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  electron.app.getPath.mockReturnValue(mkdtempSync(join(tmpdir(), 'dsh-desktop-main-')))
   electron.windows.length = 0
   electron.trays.length = 0
   electron.handlers.clear()
@@ -102,7 +108,7 @@ async function fixture(updates?: ConstructorParameters<typeof DesktopShell>[0]['
     enroll: vi.fn(async () => ({ grant: { id: 'grant-1', name: 'Desktop' } })),
     updateTasks: vi.fn<NonNullable<OwnedDesktopHost['updateTasks']>>(async () => ({ status: 'idle', sessions: 0, tasks: 0 })),
   }
-  const factory = vi.fn((value: OwnedHostCallbacks) => { callbacks = value; return host })
+  const factory = vi.fn((value: OwnedHostCallbacks, _environment: NodeJS.ProcessEnv) => { callbacks = value; return host })
   const shell = new DesktopShell({ createOwnedHost: factory, rendererPath: '/app/renderer/index.html', preloadPath: '/app/lib/preload.cjs', updates })
   await shell.start()
   const window = electron.windows[0]
@@ -257,13 +263,16 @@ describe('desktop quit and failures', () => {
   })
 
   it('retains a failed startup child until its teardown settles', async () => {
-    const { shell, host, window, invoke } = await fixture()
+    const { shell, host, invoke } = await fixture()
+    // The fatal dialog stays open: its exit choice would race the explicit
+    // disconnect this test drives through the same serialized operations. The
+    // disconnect confirmation that follows still answers through the default.
+    electron.dialog.showMessageBox.mockImplementationOnce(() => new Promise(() => {}))
+    electron.dialog.showMessageBox.mockResolvedValue({ response: 1 })
     host.start.mockRejectedValue(new Error('secret boot diagnostic'))
     await expect(shell.connect({ kind: 'local' })).rejects.toThrow('connection failed')
-    expect(window.loaded.at(-1)).toBe(rendererURL)
-    expect(await invoke(DESKTOP_IPC.state)).toMatchObject({ phase: 'failed', ownership: 'owned' })
+    await vi.waitFor(() => { expect(electron.dialog.showMessageBox).toHaveBeenCalled() })
     expect(JSON.stringify(await invoke(DESKTOP_IPC.state))).not.toContain('secret')
-    electron.dialog.showMessageBox.mockResolvedValue({ response: 1 })
     await shell.disconnect()
     expect(host.stop).toHaveBeenCalledOnce()
     expect(await invoke(DESKTOP_IPC.state)).toEqual({ phase: 'disconnected', activity: { status: 'unknown' } })
@@ -302,18 +311,82 @@ describe('desktop quit and failures', () => {
     expect(electron.app.quit).not.toHaveBeenCalled()
   })
 
-  it('recovers renderer crashes without stopping the Host and redacts Host failures', async () => {
-    const { shell, host, window, invoke, fail } = await fixture()
+  it('reports renderer crashes through the native fatal dialog with a written crash report', async () => {
+    const { shell, host, window } = await fixture()
     await shell.connect({ kind: 'local' })
-    window.webContents.emit('render-process-gone')
-    await vi.waitFor(() => { expect(window.loaded.at(-1)).toBe(rendererURL) })
-    expect(await invoke(DESKTOP_IPC.state)).toMatchObject({ phase: 'failed', message: expect.stringContaining('window stopped') as unknown })
-    expect(host.stop).not.toHaveBeenCalled()
+    window.webContents.emit('render-process-gone', undefined, { reason: 'crashed' })
+    await vi.waitFor(() => { expect(electron.dialog.showMessageBox).toHaveBeenCalled() })
+    const message = electron.dialog.showMessageBox.mock.calls[0][0] as Electron.MessageBoxOptions
+    expect(message.title).toBe('Harniverse failed to start')
+    expect(message.detail).toContain('Desktop renderer exited: crashed')
+    // The exit choice stops the owned Host and quits without a confirmation.
+    await vi.waitFor(() => { expect(electron.app.quit).toHaveBeenCalled() })
+    expect(host.stop).toHaveBeenCalled()
+    const directory = electron.app.getPath('logs')
+    const reports = readdirSync(directory).filter(name => name.startsWith('crash-'))
+    expect(reports).toHaveLength(1)
+    expect(readFileSync(join(directory, reports[0]), 'utf8')).toContain('source: renderer')
+    expect(readFileSync(join(directory, reports[0]), 'utf8')).toContain('phase: running')
+  })
+
+  it('reports owned Host failures after ready and keeps the renderer-visible state redacted', async () => {
+    const { shell, fail } = await fixture()
+    await shell.connect({ kind: 'local' })
     fail()
-    await vi.waitFor(async () => {
-      expect(await invoke(DESKTOP_IPC.state)).toMatchObject({ phase: 'failed', message: expect.stringContaining('Host stopped') as unknown })
+    await vi.waitFor(() => { expect(electron.dialog.showMessageBox).toHaveBeenCalled() })
+    const directory = electron.app.getPath('logs')
+    const report = readdirSync(directory).find(name => name.startsWith('crash-'))
+    expect(report).toBeDefined()
+    expect(readFileSync(join(directory, report ?? ''), 'utf8')).toContain('source: host')
+    // The native dialog is owner-facing and names the failure the report holds.
+    const message = electron.dialog.showMessageBox.mock.calls[0][0] as Electron.MessageBoxOptions
+    expect(message.detail).toContain('secret Host stderr')
+  })
+
+  it('treats an owned Host that cannot start as a startup-phase fatal failure', async () => {
+    const { shell, host } = await fixture()
+    host.start.mockRejectedValue(new Error('owned Host boot failed'))
+    await expect(shell.connect({ kind: 'local' })).rejects.toThrow('Disconnect before retrying')
+    await vi.waitFor(() => { expect(electron.dialog.showMessageBox).toHaveBeenCalled() })
+    const directory = electron.app.getPath('logs')
+    const report = readdirSync(directory).find(name => name.startsWith('crash-'))
+    expect(readFileSync(join(directory, report ?? ''), 'utf8')).toContain('phase: startup')
+  })
+
+  it('awaits the shared login-shell environment before creating the owned Host', async () => {
+    const seen: NodeJS.ProcessEnv[] = []
+    const deferredEnvironment = deferred<NodeJS.ProcessEnv>()
+    const shell = new DesktopShell({
+      createOwnedHost: (_callbacks, environment): OwnedDesktopHost => {
+        seen.push(environment)
+        return {
+          start: vi.fn(async () => ({ url: 'http://127.0.0.1:9090/' })),
+          stop: vi.fn(async () => {}),
+          activity: vi.fn(async () => ({ status: 'idle', sessions: 0, tasks: 0 })),
+          enroll: vi.fn(async () => ({ grant: { id: 'grant-1', name: 'Desktop' } })),
+        }
+      },
+      hostEnvironment: deferredEnvironment.promise,
+      rendererPath: '/app/renderer/index.html', preloadPath: '/app/lib/preload.cjs',
     })
-    expect(JSON.stringify(await invoke(DESKTOP_IPC.state))).not.toContain('secret')
+    const connecting = shell.connect({ kind: 'local' })
+    await Promise.resolve()
+    expect(seen).toEqual([])
+    deferredEnvironment.resolve({ HARNESS: 'login-shell' })
+    await connecting
+    expect(seen).toEqual([{ HARNESS: 'login-shell' }])
+  })
+
+  it('adds hidden DevTools menu roles for the main window and keeps them out of the tray', async () => {
+    await fixture()
+    const template = electron.Menu.setApplicationMenu.mock.calls.at(-1)![0] as Electron.MenuItemConstructorOptions[]
+    const roles = (process.platform === 'win32' ? template : template[0].submenu as Electron.MenuItemConstructorOptions[])
+      .filter(item => item.role === 'toggleDevTools')
+    expect(roles).toHaveLength(2)
+    expect(roles.every(item => item.visible === false)).toBe(true)
+    expect(roles.some(item => item.accelerator === 'F12')).toBe(true)
+    const trayMenu = electron.trays[0].menu as Electron.MenuItemConstructorOptions[]
+    expect(trayMenu.filter(item => item.role === 'toggleDevTools')).toHaveLength(0)
   })
 })
 
