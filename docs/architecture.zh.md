@@ -30,7 +30,7 @@ Harniverse 保留本文所述的 DeepSeek Harness 插件架构。改动 `package
 dsh --profile web --dump-config
 ```
 
-它打印出的任何条目，都可以由你自己的 patch 替换。
+它打印出的任何条目，都可以由你自己的 patch 替换。`dsh --profile web --dump-config-schema` 将同一组合（始终包含用户层）打印为一份 JSON Schema 2020-12 文档——条目与 overlay 结构，以及每个发现的插件的 `Config` schema——诊断写入 stderr，并带有显式的完整性标记（`x-cordis.complete`），不完整时退出码为 1。
 
 组装机制见 [app-boot](../packages/boot/app-boot/README.md#profiles)；配置字段见生成的[配置目录](config-catalog.md)。
 

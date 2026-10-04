@@ -9,7 +9,7 @@
 | `resolveConfigPath(path, snapshotMode, cwd?)` | 生成绝对配置路径；当 `snapshotMode === 'replay'` 时，把 basename 为 `cordis.yml`/`.yaml` 的文件替换为同级 `cordis.snapshot.yml` |
 | `loadEnv(binName, dir?, warn?)` | 加载已被 git 忽略的 `.env`（Node `process.loadEnvFile`）；文件不存在不影响启动，文件无法加载时输出一行带标签的警告（默认写入 stderr） |
 | `loadLayeredEnv(binName, cwd?, warn?)` | 构建产品 CLI（命令行界面）冻结的「继承环境 > 项目 `.env` > 用户 `.env`」快照，拒绝文件中的 bootstrap-only 变量，并在不替换继承值的前提下物化其余文件值 |
-| `installFailLoud(binName, proc?, release?)` | 将启动期或后续未处理的 Loader 拒绝转换为一行带标签的 stderr 消息并执行 `exit(1)`；两者之间会等待可选的 `release` 清理钩子（以 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 为上限），使持有终端的界面能在退出前恢复终端；返回卸载函数 |
+| `installFailLoud(binName, proc?, release?)` | 将进程生命周期内任一时刻的未处理 rejection（`fatal load failure`）或未捕获异常（`fatal uncaught exception`）转换为一行带标签的 stderr 诊断并执行 `exit(1)`；诊断使用 `util.inspect(err, { depth: 4, maxArrayLength: 50 })`，因此 `node:fs` 错误的 `code`/`syscall`/`path` 及任何 `cause` 链都会被记录；两者之间会等待可选的 `release` 清理钩子（以 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 为上限），使持有终端的界面能在退出前恢复终端，且闩锁保证被报告的始终是第一个失败；返回卸载函数 |
 | `acquireHomeOwnership(configured?, options?)` | 获取规范化后 Harness home 的独占租约，或独立获取 `options.profile` 的独占租约；同一范围已有存活持有者时拒绝启动，可回收已退出进程的租约；返回可重复调用的异步释放函数 |
 | `FAIL_LOUD_RELEASE_TIMEOUT_MS` | `installFailLoud` 等待其 `release` 回调的时长；卡死的 disposer 只会延迟致命退出，而不会取消它 |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
@@ -21,8 +21,10 @@
 | `resolveProfileDir` / `initProfile` / `loadProfile` / `readProfileManifest` / `writeProfileManifest` / `resolveBundleDir` / `composeEntries` / `healProfilesModuleFallback` / `PROFILE_TEMPLATES` / `DEFAULT_PROFILE_BUNDLES` / `PROFILES_DIR` / `PROFILE_PATCH_FILENAME` | Profile 机制（见 [Profile](#profiles)） |
 | `boot(binName, absoluteConfigPath, patches?, prepare?, bareModuleBaseUrl?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并以带标签的错误 reject；可选模块基准与 `mountRootInclude` 的解析语义相同 |
 | `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`）离线合成基础配置与带标签的覆盖层，使结果与 `boot()` 挂载的内容一致，再渲染为 YAML，并原样保留 `!!js` 表达式；每段来源于同一文件且由相同补丁层修改的连续行之前都有一条 `# ==` 注释，标明该文件和这些补丁层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取、解析或字段验证失败则抛出 |
+| `generateConfigSchema(profile, layers)` | 将已准备 profile 的有序 patch 层组合起来，把每个已声明插件的 `Config` 收集为一份 JSON Schema 2020-12 文档——全程不启动、不应用插件，也不对 `!!js` 求值（见[配置 schema 导出](#config-schema-export)） |
+| `createConfigProjector` / `LOADER_EXPRESSION_SCHEMA` / `isNativeConfigSchema` | 配置 schema 的构建块：原生 Schemastery 图投影器、共享的惰性 `!!js` 值定义、原生身份检查；`ConfigSchemaDump` / `NativeConfigSchema` / `ConfigProjection` 是配套类型 |
 
-Loader 结算会在导入或生命周期失败时返回拒绝结果，并携带失败的配置项与阶段；`boot()` 会 dispose 部分构造的上下文，并用 bin 名称包装该失败。结算后遗留的配置项由独立审计处理：`assertEntriesLoaded` 将已启用却没有 fiber 的配置项转换为 rejection 并列出每个未解析插件；`assertEntriesActivated` 会显式等待每个失败的 fiber，把原始错误堆栈写入启动 rejection，并列出每个等待中配置项尚未解析的服务。抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而所有无关的未处理 rejection 仍然致命。
+Loader 结算会在导入或生命周期失败时返回拒绝结果，并携带失败的配置项与阶段；`boot()` 会 dispose 部分构造的上下文，并用 bin 名称包装该失败。结算后遗留的配置项由独立审计处理：`assertEntriesLoaded` 将已启用却没有 fiber 的配置项转换为 rejection 并列出每个未解析插件；`assertEntriesActivated` 会显式等待每个失败的 fiber，把原始错误堆栈写入启动 rejection，并列出每个等待中配置项尚未解析的服务。抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而所有无关的未处理 rejection 与未捕获异常仍然致命。
 
 Loader 并发挂载各个条目，因此当其他环节失败时，某个界面可能已经持有终端：此时不经过整棵树自身的拆卸就退出，会把 raw 模式、bracketed paste 和键盘协议残留在用户的 shell 上，而尚未返回的终端查询响应会在下一个提示符处显示为字面文本。配置树失败会经 `boot()` 结算：它先 dispose 部分构建的上下文（从而执行该界面自身的 shutdown），再抛出带标签的 rejection。对于 `boot()` 看不到的 rejection（插件游离的异步工作在挂载期间或挂载完成后失败），持有终端的 bin 会传入 `release`，在提交退出前 dispose 整棵树；`dsh` 在 `boot()` 的 `prepare` 回调中捕获根上下文，而不是取其返回值，使该回调覆盖整个挂载窗口。release 执行期间，处理函数保持注册并处于锁定状态：被报告的始终是第一个 rejection，后续拒绝（包括拆卸自身产生的拒绝）会被忽略，而不会变成未捕获错误、在拆卸中途杀死进程。
 
@@ -47,6 +49,14 @@ CLI 在准备阶段之前为独占组合获取 home 租约，并为每个组合�
 
 每次 profile 启动都由 `watchUserPatches` 持续应用 `cordis.patch.yml` 的变更（一次性 surface 经由有界关闭 dispose 监视器）。即使该文件或其直接父目录不存在，监视器仍会监视确切路径；它会串行处理突发变更，并按调用方的层次顺序重新组合用户 patch（组合包层在下、overlay 在上）。读取失败、解析失败或 Loader 候选被拒时，最后一个可用树会继续运行；HMR 服务记录错误后广播 `hmr/config-update-failed(filename, Error)`，并隔离观察方的失败。上下文 dispose 时会关闭 watcher，并等待进行中的刷新结束。
 
+## Config schema export
+
+`generateConfigSchema(profile, layers)` 在不启动的情况下回答「这个 profile 的配置可以包含什么」：它用与启动相同的 `composeEntries` 组合调用方传入的各 patch 层，遍历条目树（include 文件按字面读取，拥有自己的解析基准与 patch 索引；循环即拒绝；展开 `cordis:group`/`cordis:include` 载体，禁用的载体不声明子项），以与启动解析一致的方式导入每个具名插件（裸名经由 profile 旁由启动器维护的扁平回退目录解析），读取其 `Config` 导出，并把每个原生 Schemastery 图投影为 JSON Schema 2020-12。插件绝不被应用，`!!js` 绝不被求值：表达式值位置与惰性的 `#/$defs/loaderExpression` 标记取并集，其结果只在运行时校验。导入、`Config` getter 与惰性 schema 构建器会执行——收集过程运行的是可信模块代码，与启动同等信任；原生校验器与 transform 回调绝不运行，因此一切无法静态判定的语义（loose 回退、transform 回调、会改写输入的 union 分支、非有限边界、Unicode pattern 语义、lazy 元数据传播）都会放宽生成的校验，并以警告诊断的形式呈现，而不是变成静默错误的约束。
+
+文档对不完整性自我描述，而不是猜测：只要存在 error 级诊断、任一条目状态为 `partial`/`unsupported`/`error`，或某一插件名收集到多个不同的 schema（取其并集并给出警告，因为模块解析取决于所属树），`x-cordis.complete` 即为 `false`。`x-cordis.entries[]` 携带每个已声明行的状态与 `configRef`；`x-cordis.patchSchema` 指向 `$defs.patchList`，即 profile/home/CLI overlay 的 schema；按 id 定位的 patch 规则由根树的当前索引生成。
+
+[`dsh`](../../../apps/cli/README.md) CLI 将其暴露为 `dsh --profile <name> --dump-config-schema [--patch <file>]...`（也可用于 `dsh web` 之后；与 `--dump-config`/`--dump-default-config` 互斥）：stdout 只输出 JSON 文档（生成期间插件的 stdout 被重定向到 stderr），诊断写入 stderr，文档不完整时退出码为 1。
+
 ## 模型体验
 
 模型通过此包加载的插件树间接受到影响；该树决定最终应用中的提示词、schema、消息和模型适配器。本包没有任何直接贡献模型可见上下文的导出。
@@ -61,3 +71,4 @@ CLI 在准备阶段之前为独占组合获取 home 租约，并为每个组合�
 - **快照回放替换仅识别特定 basename**：只有以 `cordis.yml` 或 `cordis.yaml` 结尾的配置会映射到同级 `cordis.snapshot.yml`；自定义配置名称需要调用方自行选择。
 - **环境发现以启动为界**：`loadLayeredEnv` 只读取一次调用目录与 harness home 中的 `.env`；它不搜索父目录，也不跟随之后选择的 workspace。`loadEnv` 仍是非产品 bin 使用的单目录 helper。
 - **用户 patch 会替换匹配到的整个配置**：按 id 定位的 patch 不做深度合并，因此 profile 覆盖必须重述需要保留的组合包字段。
+- **配置 schema 导出针对本加载器模型做了适配**：不做运行期 Schemastery 拦截（收集经由与启动等价的 profile 自身模块解析）；没有 skipped-bundle 诊断（`loadProfile` 对没有组合包声明的列名包直接报错，不存在被静默跳过的集合）；没有 `--from-default-profile` 变体（`loadProfile` 会自动初始化缺失的随附 profile，无需合成默认组合）；不做 volatile-schema 复查（锁定的 Schemastery 3.18.1 没有 volatile schema）；相对 `insert` 名称保持相对（解析由所属 Loader 树决定，因此文档只描述而不改写）。

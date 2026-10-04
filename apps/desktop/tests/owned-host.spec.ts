@@ -44,16 +44,25 @@ async function stopped(process: OwnedDesktopHostProcess) {
 }
 
 describe('owned Host process protocol', () => {
-  it('spawns with internal-loader access and a minimal bootstrap environment', async () => {
-    vi.stubEnv('NODE_OPTIONS', '--require=/hostile'); vi.stubEnv('API_TOKEN', 'secret'); vi.stubEnv('ELECTRON_RUN_AS_NODE', 'hostile')
-    const process = await started()
+  it('spawns with internal-loader access and the provided environment in Node mode', async () => {
+    vi.stubEnv('ELECTRON_RUN_AS_NODE', 'hostile')
+    const owned = new OwnedDesktopHostProcess('/app/host.js', '/app/home', '/app/cli/package.json', {
+      onFailure: failure, pickDirectory: async () => ({ kind: 'cancelled' }), pickFile: async () => ({ kind: 'cancelled' }),
+    }, { ...options, environment: { PATH: '/usr/bin', NODE_OPTIONS: '--require=/hostile', API_TOKEN: 'secret' } })
+    const start = owned.start(); child.emit('message', ready); await start
     const launchCall = mocks.spawn.mock.calls.at(0)
     if (launchCall === undefined) throw new Error('Host was not spawned')
     const [, argv, launch] = launchCall
     expect(argv).toEqual(['--expose-internals', '/app/host.js', '/app/home', '/app/cli/package.json'])
-    expect(launch.env).not.toHaveProperty('NODE_OPTIONS')
-    expect(launch.env).not.toHaveProperty('API_TOKEN')
-    expect(launch.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(launch.env).toEqual({ PATH: '/usr/bin', NODE_OPTIONS: '--require=/hostile', API_TOKEN: 'secret', ELECTRON_RUN_AS_NODE: '1' })
+    await stopped(owned)
+  })
+  it('defaults to the Electron process environment and selects Node mode over a hostile value', async () => {
+    vi.stubEnv('NODE_OPTIONS', '--require=/hostile'); vi.stubEnv('ELECTRON_RUN_AS_NODE', 'hostile')
+    const process = await started()
+    const launchCall = mocks.spawn.mock.calls.at(0)
+    if (launchCall === undefined) throw new Error('Host was not spawned')
+    expect(launchCall[2].env).toMatchObject({ NODE_OPTIONS: '--require=/hostile', ELECTRON_RUN_AS_NODE: '1' })
     await stopped(process)
   })
   it.each([

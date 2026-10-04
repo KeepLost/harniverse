@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import type { DesktopHostReady, OwnedDesktopHost, OwnedHostCallbacks } from './main.ts'
 import type { ShellActivity } from './ipc.ts'
+import { desktopNodeEnvironment } from './node-environment.ts'
 
 type RequestKind = 'enroll' | 'activity' | 'update-tasks'
 type ReplyKind = 'enrolled' | 'activity' | 'update-tasks'
@@ -92,7 +93,7 @@ function hostMessage(value: unknown): HostMessage | undefined {
     && activity(value.activity) && value.active === (value.activity.status !== 'idle')) return { type: value.type, requestId, active: value.active, activity: value.activity }
 }
 
-/** Main-process deployment deadlines; no renderer controls subprocess configuration. */
+/** Main-process deployment deadlines and spawn settings; no renderer controls subprocess configuration. */
 export interface OwnedHostProcessOptions {
   startupTimeoutMs?: number
   requestTimeoutMs?: number
@@ -101,17 +102,8 @@ export interface OwnedHostProcessOptions {
   killTimeoutMs?: number
   /** Private port override for isolated runtime tests; production keeps the stable browser origin. */
   port?: number
-}
-
-/** Preserve only OS/runtime necessities, then deliberately select Electron's Node entry mode. */
-function launchEnvironment(): NodeJS.ProcessEnv {
-  const allowed = new Set(['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
-    'TEMP', 'TMP', 'TMPDIR', 'APPDATA', 'LOCALAPPDATA', 'LANG', 'TZ', 'DISPLAY', 'WAYLAND_DISPLAY',
-    'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS'])
-  const environment = Object.fromEntries(Object.entries(process.env).filter(([name, value]) => value !== undefined
-    && (allowed.has(name.toUpperCase()) || /^LC_[A-Z_]+$/iu.test(name))))
-  if ((process.versions as Record<string, string | undefined>).electron !== undefined) environment.ELECTRON_RUN_AS_NODE = '1'
-  return environment
+  /** Environment inherited by the Host and its plugin subprocesses; defaults to the Electron process environment. */
+  environment?: NodeJS.ProcessEnv
 }
 
 interface CloseResult { code: number | null; signal: NodeJS.Signals | null }
@@ -133,14 +125,18 @@ export class OwnedDesktopHostProcess implements OwnedDesktopHost {
   private lastPickerId = -1
   private pickerId: number | undefined
   private readonly pending = new Map<number, Pending>()
-  private readonly deadlines: Required<Omit<OwnedHostProcessOptions, 'port'>>
+  private readonly deadlines: Required<Omit<OwnedHostProcessOptions, 'port' | 'environment'>>
+  private readonly environment: NodeJS.ProcessEnv
 
   constructor(private readonly entry: string, private readonly home: string, private readonly installAnchor: string,
     private readonly callbacks: OwnedHostCallbacks, private readonly options: OwnedHostProcessOptions = {}) {
     this.deadlines = { startupTimeoutMs: 60000, requestTimeoutMs: 10000, shutdownTimeoutMs: 15000,
       terminateTimeoutMs: 5000, killTimeoutMs: 5000, ...options }
+    this.environment = options.environment ?? process.env
     for (const [key, value] of Object.entries(this.deadlines)) {
-      if (key !== 'port' && (!Number.isSafeInteger(value) || value < 1 || value > 300000)) throw new Error(`Invalid desktop Host deadline: ${key}`)
+      if (key !== 'port' && key !== 'environment' && (!Number.isSafeInteger(value) || value < 1 || value > 300000)) {
+        throw new Error(`Invalid desktop Host deadline: ${key}`)
+      }
     }
     if (options.port !== undefined && (!count(options.port) || options.port > 65535)) throw new Error('Invalid desktop Host port.')
   }
@@ -154,7 +150,7 @@ export class OwnedDesktopHostProcess implements OwnedDesktopHost {
       mkdirSync(this.home, { recursive: true, mode: 0o700 })
       const child = spawn(process.execPath, ['--expose-internals', this.entry, this.home, this.installAnchor,
         ...this.options.port === undefined ? [] : ['--port', String(this.options.port)]], {
-        cwd: this.home, env: launchEnvironment(), stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        cwd: this.home, env: desktopNodeEnvironment(process.execPath, undefined, this.environment), stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       })
       this.child = child
       this.close = new Promise(resolve => child.once('close', (code, signal) => {

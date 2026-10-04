@@ -40,9 +40,6 @@ export const en = {
   updateFailed: 'The update did not finish.',
   stateConnectionFailed: 'The Host connection failed. Check the Host and retry.',
   stateHostStopped: 'The local Host stopped unexpectedly. Disconnect and reconnect to start it again.',
-  stateWindowStopped: 'The window stopped unexpectedly. The Host may still be running. Reopen the app or disconnect safely.',
-  recoveryUnavailable: 'The Host stopped and the recovery page could not load. Use the tray menu to quit.',
-  windowRecoveryUnavailable: 'The window could not recover. Use the tray menu to quit.',
   menuShow: 'Show Harniverse',
   menuOpenApp: 'Open connected app',
   menuSettings: 'Connection settings',
@@ -53,6 +50,15 @@ export const en = {
   chooseFile: 'Choose a file',
   errorRetryAfterFailure: 'The Host connection failed. Disconnect before retrying.',
   errorStartupStopped: 'The Host stopped during startup.',
+  fatalSummary: 'Harniverse hit a fatal error.',
+  startupFailed: 'Harniverse failed to start',
+  startupAddressInUse: 'The local Host port is already in use. Quit the other process, then restart.',
+  diagnosticTruncated: '… (diagnostic shortened; the full error is in the crash report)',
+  reportWrittenTo: 'Crash report written to: {path}',
+  startupReinstallAdvice: 'If this keeps happening, reinstall the application and keep the crash report for diagnosis.',
+  recoveryOperationFailed: 'The recovery operation failed. Choose an action again.',
+  exitApplication: 'Exit',
+  restartApplication: 'Restart',
 }
 
 export const zh: typeof en = {
@@ -95,9 +101,6 @@ export const zh: typeof en = {
   updateFailed: '更新未完成。',
   stateConnectionFailed: 'Host 连接失败。请检查 Host 后重试。',
   stateHostStopped: '本地 Host 意外停止。请断开并重新连接以再次启动。',
-  stateWindowStopped: '窗口意外停止。Host 可能仍在运行。请重新打开应用或安全断开。',
-  recoveryUnavailable: 'Host 已停止且恢复页面无法加载。请使用托盘菜单退出。',
-  windowRecoveryUnavailable: '窗口无法恢复。请使用托盘菜单退出。',
   menuShow: '显示 Harniverse',
   menuOpenApp: '打开已连接的应用',
   menuSettings: '连接设置',
@@ -108,6 +111,15 @@ export const zh: typeof en = {
   chooseFile: '选择文件',
   errorRetryAfterFailure: 'Host 连接失败。请先断开再重试。',
   errorStartupStopped: 'Host 在启动期间停止。',
+  fatalSummary: 'Harniverse 遇到致命错误。',
+  startupFailed: 'Harniverse 启动失败',
+  startupAddressInUse: '本地 Host 端口已被占用。请退出占用进程后重启。',
+  diagnosticTruncated: '……（诊断已截断，完整错误见崩溃报告）',
+  reportWrittenTo: '崩溃报告已写入：{path}',
+  startupReinstallAdvice: '如果反复出现，请重装应用并保留崩溃报告以便诊断。',
+  recoveryOperationFailed: '恢复操作失败。请重新选择操作。',
+  exitApplication: '退出',
+  restartApplication: '重启',
 }
 
 export type ShellCopy = typeof en

@@ -47,6 +47,11 @@ switch (invocation.mode) {
     runDumpConfig(invocation.profile, invocation.defaultOnly, invocation.patches)
     break
   }
+  case 'dump-config-schema': {
+    const { runDumpConfigSchema } = await import('./dump-config-schema.ts')
+    await runDumpConfigSchema(invocation.profile, invocation.patches)
+    break
+  }
   default:
     invocation satisfies never
     throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)

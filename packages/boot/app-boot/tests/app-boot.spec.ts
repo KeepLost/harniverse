@@ -271,35 +271,63 @@ describe('loadLayeredEnv', () => {
 })
 
 describe('installFailLoud', () => {
-  function fakeProc(): FailLoudProcess & { handlers: Array<(err: unknown) => void>; written: string[]; exits: number[] } {
-    const handlers: Array<(err: unknown) => void> = []
+  function fakeProc(): FailLoudProcess & {
+    rejections: Array<(err: unknown) => void>
+    exceptions: Array<(err: unknown) => void>
+    written: string[]
+    exits: number[]
+  } {
+    const rejections: Array<(err: unknown) => void> = []
+    const exceptions: Array<(err: unknown) => void> = []
     const written: string[] = []
     const exits: number[] = []
     return {
-      handlers, written, exits,
-      on: (_event, handler) => { handlers.push(handler) },
-      off: (_event, handler) => { handlers.splice(handlers.indexOf(handler), 1) },
+      rejections, exceptions, written, exits,
+      on: (event, handler) => { (event === 'unhandledRejection' ? rejections : exceptions).push(handler) },
+      off: (event, handler) => {
+        const list = event === 'unhandledRejection' ? rejections : exceptions
+        list.splice(list.indexOf(handler), 1)
+      },
       stderr: { write: (chunk: string) => { written.push(chunk) } },
       exit: (code: number) => { exits.push(code) },
     }
   }
 
-  it('writes one labelled line with the stack and exits 1 on an Error rejection', () => {
+  it('writes one labelled line with the inspected error and exits 1 on an Error rejection', () => {
     const proc = fakeProc()
     installFailLoud(NAME, proc)
     const error = new Error('boom')
-    proc.handlers[0]!(error)
+    proc.rejections[0]!(error)
     expect(proc.written[0]).toContain(`${NAME}: fatal load failure: `)
-    expect(proc.written[0]).toContain(error.stack)
+    expect(proc.written[0]).toContain('boom')
     expect(proc.exits).toEqual([1])
   })
 
-  // One rejection is reported per install: the first is the diagnosis, so each
+  it('inspects enumerable properties a stack line omits, for the crash reports that follow', () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc)
+    const error = Object.assign(new Error('missing workspace file'), { code: 'ENOENT', syscall: 'open', path: '/tmp/absent' })
+    proc.rejections[0]!(error)
+    expect(proc.written[0]).toContain('ENOENT')
+    expect(proc.written[0]).toContain('/tmp/absent')
+    expect(proc.exits).toEqual([1])
+  })
+
+  it('reports an uncaught exception under its own label and exits 1', () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc)
+    proc.exceptions[0]!(new Error('listener threw mid-update'))
+    expect(proc.written[0]).toContain(`${NAME}: fatal uncaught exception: `)
+    expect(proc.written[0]).toContain('listener threw mid-update')
+    expect(proc.exits).toEqual([1])
+  })
+
+  // One failure is reported per install: the first is the diagnosis, so each
   // formatting case needs its own handler rather than reusing a latched one.
   it('stringifies a non-Error rejection and an Error without a stack falls back to its message', () => {
     const plain = fakeProc()
     installFailLoud(NAME, plain)
-    plain.handlers[0]!('plain failure')
+    plain.rejections[0]!('plain failure')
     expect(plain.written[0]).toContain('plain failure')
     expect(plain.exits).toEqual([1])
 
@@ -307,24 +335,29 @@ describe('installFailLoud', () => {
     delete (stackless as { stack?: string }).stack
     const bare = fakeProc()
     installFailLoud(NAME, bare)
-    bare.handlers[0]!(stackless)
+    bare.rejections[0]!(stackless)
     expect(bare.written[0]).toContain('no stack')
     expect(bare.exits).toEqual([1])
   })
 
-  it('returns an uninstaller that removes the handler (and defaults to the real process)', () => {
+  it('returns an uninstaller that removes both handlers (and defaults to the real process)', () => {
     const proc = fakeProc()
     const uninstall = installFailLoud(NAME, proc)
-    expect(proc.handlers).toHaveLength(1)
+    expect(proc.rejections).toHaveLength(1)
+    expect(proc.exceptions).toHaveLength(1)
     uninstall()
-    expect(proc.handlers).toHaveLength(0)
+    expect(proc.rejections).toHaveLength(0)
+    expect(proc.exceptions).toHaveLength(0)
     // Default-proc arm: install on the real process, then immediately uninstall
     // so the suite leaks no handler and can never exit the runner.
-    const before = process.listenerCount('unhandledRejection')
+    const beforeRejections = process.listenerCount('unhandledRejection')
+    const beforeExceptions = process.listenerCount('uncaughtException')
     const uninstallReal = installFailLoud(NAME)
-    expect(process.listenerCount('unhandledRejection')).toBe(before + 1)
+    expect(process.listenerCount('unhandledRejection')).toBe(beforeRejections + 1)
+    expect(process.listenerCount('uncaughtException')).toBe(beforeExceptions + 1)
     uninstallReal()
-    expect(process.listenerCount('unhandledRejection')).toBe(before)
+    expect(process.listenerCount('unhandledRejection')).toBe(beforeRejections)
+    expect(process.listenerCount('uncaughtException')).toBe(beforeExceptions)
   })
 
   it('does not report an activation rejection shared by entries in the boot audit', async () => {
@@ -346,11 +379,11 @@ describe('installFailLoud', () => {
     } as unknown as Context, NAME)
     await Promise.resolve()
     await Promise.resolve()
-    proc.handlers[0]!(error)
+    proc.rejections[0]!(error)
     expect(proc.written).toEqual([])
     expect(proc.exits).toEqual([])
     await expect(audit).rejects.toThrow('assembled activation failure')
-    proc.handlers[0]!(error)
+    proc.rejections[0]!(error)
     expect(proc.exits).toEqual([1])
   })
 
@@ -364,7 +397,7 @@ describe('installFailLoud', () => {
       await Promise.resolve()
       order.push('released')
     })
-    proc.handlers[0]!(new Error('sibling entry rejected'))
+    proc.rejections[0]!(new Error('sibling entry rejected'))
     expect(proc.written[0]).toContain(`${NAME}: fatal load failure: `)
     // The release is in flight, so the exit has not committed yet.
     expect(proc.exits).toEqual([])
@@ -375,7 +408,7 @@ describe('installFailLoud', () => {
   it('still exits when the release hook rejects', async () => {
     const proc = fakeProc()
     installFailLoud(NAME, proc, () => Promise.reject(new Error('terminal stop failed')))
-    proc.handlers[0]!(new Error('boom'))
+    proc.rejections[0]!(new Error('boom'))
     await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
   })
 
@@ -384,7 +417,7 @@ describe('installFailLoud', () => {
     try {
       const proc = fakeProc()
       installFailLoud(NAME, proc, () => new Promise<void>(() => {}))
-      proc.handlers[0]!(new Error('boom'))
+      proc.rejections[0]!(new Error('boom'))
       expect(proc.exits).toEqual([])
       await vi.advanceTimersByTimeAsync(FAIL_LOUD_RELEASE_TIMEOUT_MS)
       expect(proc.exits).toEqual([1])
@@ -403,9 +436,9 @@ describe('installFailLoud', () => {
       await Promise.resolve()
       released = true
     })
-    proc.handlers[0]!(new Error('first rejection'))
-    proc.handlers[0]!(new Error('second rejection'))
-    expect(proc.handlers).toHaveLength(1)
+    proc.rejections[0]!(new Error('first rejection'))
+    proc.rejections[0]!(new Error('second rejection'))
+    expect(proc.rejections).toHaveLength(1)
     expect(proc.written).toHaveLength(1)
     expect(proc.written[0]).toContain('first rejection')
     await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
