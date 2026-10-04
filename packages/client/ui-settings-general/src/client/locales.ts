@@ -8,6 +8,7 @@ export const zh = {
   'openDocument': '打开配置文件',
   'openDocument.error': '无法打开配置文件',
   'general.nav': '通用设置',
+  'general.currentVersion': '当前版本：{version}',
 } satisfies Record<string, string>
 
 /** The settings namespace key union. */
@@ -21,4 +22,5 @@ export const en = {
   'openDocument': 'Open configuration file',
   'openDocument.error': 'Could not open configuration file',
   'general.nav': 'General',
+  'general.currentVersion': 'Current version: {version}',
 } satisfies Record<SettingsKey, string>

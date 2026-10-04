@@ -1,5 +1,6 @@
 /** Tool UI slot declarations and their composed component props. */
-import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -16,9 +17,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * A key the shipped composition already covers is replaced, not shared;
      * an unclaimed key falls back to the generic tool row, so registering is
      * additive for your own tool and a takeover for a shipped one. The owner
-     * passes the call's identity, its frozen running-or-settled node, and the
-     * expansion state (see ToolCallOwnerProps), so the view stays a pure
-     * function of what the turn already knows.
+     * passes the call's identity, its frozen running-or-settled node, the
+     * preparation locale seat, and the expansion state (see
+     * ToolCallOwnerProps), so the view stays a pure function of what the turn
+     * already knows. A `preparing` phase block has no dispatched arguments;
+     * `useToolCallArgumentsPartial` optionally subscribes to its raw prefix.
      */
     'tool.call.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolCallOwnerProps }
   }
@@ -38,6 +41,18 @@ export interface ToolCallOwnerProps {
   openFile: (path: string) => void
   /** Inspect this call in the trajectory view when available. */
   inspect?: (() => void) | undefined
+  /**
+   * Tool-namespace translate for preparation copy (`row.preparing`,
+   * `tool.preparing.content`); the conversation locale seat cannot carry the
+   * Tool layer's own keys.
+   */
+  tTool: TranslateNS<'tool'>
+}
+
+/** Inject face of the Tool call-tree registration: the bound tool dictionary. */
+export interface ToolTreeInjected {
+  /** Stable Tool-namespace translate (see `locales.ts`). */
+  tTool: TranslateNS<'tool'>
 }
 
 /** Full props of a registered atomic Tool view. */
@@ -47,6 +62,7 @@ export type ToolCallViewProps = PropsRuntime<'tool.call.toolview'>
 export type ToolTreeProps = PropsRuntime<'conversation.chat.node', 'tool-call'>
   & PropsRenderSlots<'tool.call.toolview'>
   & PropsLocale<'conversation'>
+  & InjectFace<ToolTreeInjected>
 
 /** Full props of the selected Tool output renderer in the details panel. */
 export type ToolDetailsProps = PropsRuntime<'conversation.details.tool'> & PropsLocale<'conversation'>

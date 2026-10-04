@@ -24,11 +24,13 @@ import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client
 import { BashRow } from '../src/client/tool/toolviews/bash-sample.tsx'
 import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.client.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { zh as zhTool } from '../src/client/locales.ts'
 
 type BashRowProps = Parameters<typeof BashRow>[0]
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
+const tTool = makeTranslate(zhTool)
 
 afterEach(cleanup)
 
@@ -242,7 +244,7 @@ describe('terminalCardModel', () => {
 
 describe('chat row terminal body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), t,
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), t, tTool,
   })
 
   /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
@@ -353,7 +355,7 @@ describe('BashRow terminal card', () => {
   })
 
   const rowProps = (block: RunningToolCall | ToolResultNode): BashRowProps => ({
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), tTool,
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
     t,
   } as unknown as BashRowProps)

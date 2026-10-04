@@ -14,7 +14,7 @@ Each root and child wrapper preserves the `data-chat-anchor-key="call:<id>"` and
 
 The package also fills `conversation.details.tool` with `ToolDetails`. The row and details renderers share the same pure card models for `terminal`, `read`, `diff`, `search`, and `web` render intents. Unknown intent tags and malformed wire card data fall back to flattened Tool result text.
 
-Generic rows classify known Tool names into search, read, shell, write, edit, code, or generic variants. Running, successful, failed, and interrupted lifecycle states come only from the frozen call/result slice. File paths resolve against the session `cwd` only when the user invokes the Host open-file callback; presentation code does not read Session services.
+Generic rows classify known Tool names into search, read, shell, write, edit, code, or generic variants. Running, successful, failed, and interrupted lifecycle states come only from the frozen call/result slice. A call known only from streamed named tool-call deltas renders a non-expandable preparing row (`phase: "preparing"`); file mutations and shell commands show their streamed argument prefix as whole-kilobyte progress through the `tool` namespace dictionary, and the promoting `tool/call` replaces the row with the dispatched material. File paths resolve against the session `cwd` only when the user invokes the Host open-file callback; presentation code does not read Session services.
 
 ## Atomic Tool views
 

@@ -426,9 +426,6 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   ): ConversationPublication {
     const key = conversationContextKey(definition.kind, id)
     let context = this.contexts.get(key)
-    if (role === 'start' && context?.start !== undefined) {
-      throw new Error(`conversation Context ${key} received more than one start Match`)
-    }
     if (context === undefined) {
       context = {
         key,
@@ -447,6 +444,11 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       }
       this.contexts.set(key, context)
     }
+    // A 'start' for a Context that already owns one demotes to an update:
+    // Definitions whose evidence begins with a streamed prefix (a named
+    // tool-call delta) promote on the authoritative later event (tool/call)
+    // that carries the same identity with a start role.
+    const starting = role === 'start' && context.start === undefined
     const match: ConversationMatch = {
       ...input,
       role,
@@ -456,12 +458,12 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     if (previous !== undefined && previous.event.seq >= input.event.seq) {
       throw new Error(`conversation Context ${key} received non-appended Match ${input.event.seq}`)
     }
-    if (role === 'start' && context.matches.length > 0) {
+    if (starting && context.matches.length > 0) {
       throw new Error(`conversation Context ${key} received an update before its start Match`)
     }
     context.matches.push(match)
     if (skipUpdate) context.skippedHistoryUpdates.add(input.event.seq)
-    if (role === 'start') {
+    if (starting) {
       context.startSeq = input.event.seq
       context.start = match
       this.indexStartedContext(context)
@@ -470,7 +472,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     owners.add(context)
     this.contextsBySeq.set(input.event.seq, owners)
 
-    if (role === 'start') {
+    if (starting) {
       this.replayContext(context)
     } else if (context.state !== undefined && !skipUpdate) {
       const typed = contextSnapshot(context) as ConversationNodeContext & { readonly state: unknown }
@@ -509,17 +511,10 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         }
         this.contexts.set(key, context)
       }
-      let discoveredStart: ConversationMatch | undefined
       const additions = entries
         .map((entry) => {
           if (entry.definition !== context.definition || entry.id !== context.id) {
             throw new Error(`conversation Context ${key} received inconsistent Definition identity`)
-          }
-          if (entry.match.role === 'start') {
-            if (discoveredStart !== undefined || context.start !== undefined) {
-              throw new Error(`conversation Context ${key} received more than one start Match`)
-            }
-            discoveredStart = entry.match
           }
           const owners = this.contextsBySeq.get(entry.match.event.seq) ?? new Set<InternalContext>()
           owners.add(context)
@@ -528,8 +523,12 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
           return entry.match
         })
         .sort((left, right) => left.event.seq - right.event.seq)
+      // The earliest start-role addition is THE start; later ones demote to
+      // replayed updates (the live acceptMatch path mirrors this), so a
+      // Definition may promote a streamed prefix on its authoritative event.
+      const discoveredStart: ConversationMatch | undefined = additions.find(match => match.role === 'start')
       context.matches = mergeMatches(context.key, additions, context.matches)
-      if (discoveredStart !== undefined) {
+      if (discoveredStart !== undefined && context.start === undefined) {
         context.start = discoveredStart
         context.startSeq = discoveredStart.event.seq
         const starts = startsByKind.get(context.kind) ?? []
@@ -578,7 +577,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     this.replaceDependencies(context, dependencies)
     for (let index = 1; index < context.matches.length; index++) {
       const match = context.matches[index]
-      if (match === undefined || match.role !== 'update') continue
+      if (match === undefined) continue
       if (context.skippedHistoryUpdates.has(match.event.seq)) continue
       const typed = contextSnapshot(context) as ConversationNodeContext & { readonly state: unknown }
       context.state = requireState(

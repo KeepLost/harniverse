@@ -11,7 +11,8 @@ import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.
 import type { TriggerContentProps } from '../src/client/chrome.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
 import { SettingsDocumentStore as SharedSettingsDocumentStore } from '../src/client/settings-document-store.ts'
-import { en } from '../src/client/locales.ts'
+import { CurrentVersionRow } from '../src/client/CurrentVersionRow.tsx'
+import { en, zh } from '../src/client/locales.ts'
 
 class SettingsDocumentStore extends SharedSettingsDocumentStore {
   readonly mirror: SettingsDescribeMirror
@@ -23,7 +24,7 @@ class SettingsDocumentStore extends SharedSettingsDocumentStore {
   }
 }
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllEnvs() })
 
 // The seat's key domain is settings ∪ common; the stub answers from the
 // package dictionary and falls back to the key like the real chain.
@@ -161,5 +162,28 @@ describe('SettingsDocumentAction', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open configuration file' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Could not open configuration file')
     expect(screen.getByRole('button', { name: 'Open configuration file' })).toBeTruthy()
+  })
+})
+
+describe('current version', () => {
+  it.each([
+    ['Current version: 1.2.3-rc.4', en],
+    ['当前版本：1.2.3-rc.4', zh],
+  ])('renders the localized release label %s', (expected, dictionary) => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
+    const translate: Parameters<typeof CurrentVersionRow>[0]['t'] = (key, params) => {
+      let text = (dictionary as Record<string, string>)[key] ?? key
+      for (const [name, value] of Object.entries(params ?? {})) text = text.replace(`{${name}}`, String(value))
+      return text
+    }
+    render(<CurrentVersionRow {...kit} t={translate} />)
+    expect(screen.getByText(expected)).toBeTruthy()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('omits the row when a partial build has no version metadata', () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', undefined)
+    const view = render(<CurrentVersionRow {...kit} t={t} />)
+    expect(view.container.textContent).toBe('')
   })
 })

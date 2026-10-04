@@ -47,7 +47,7 @@ rmSync(tempDir, { recursive: true, force: true })
 面向 seam 的形态是 **runner 入口**（`./runner`）：`@deepseek-ai/dsh-sandbox-local` 在调用者命令的位置 spawn 的 argv 前缀包装——与 bwrap/landlock-run/sandbox-exec 同一架构，因此沙盒 seam 的 `confine()` 契约无需改动。稳定的 argv 契约：
 
 ```sh
-node runner.js --workspace <dir> --temp <dir> --mode <read-only|workspace-write> [--write-sid <S-1-4-…> --temp-write-sid <S-1-4-…>] -- <argv...>
+node runner.js --workspace <dir> --temp <dir> --mode <read-only|workspace-write> [--write-sid <S-1-4-…> --temp-write-sid <S-1-4-…>] [--low-integrity] -- <argv...>
 ```
 
 runner 创建受限令牌，在它之下 spawn 包装后的 argv，调用者的 stdio 直接透传（调用者的管道在 spawn 前后被设为可继承——Node 在启动时清除 stdio 可继承性，裸 spawn 必须补偿这一点），把子进程包进 `KILL_ON_JOB_CLOSE` job（runner 死亡则子进程死亡），忽略自身的控制台 Ctrl+C 让子进程自行处理，镜像子进程的退出码，并在退出时撤销其自行管理的临时授权（工作区 ACE 常驻）。每个 runner 侧失败都会向 stderr 打印 `windows-acl-run: <detail>` 并以 127 退出——seam 的 `RUNNER_FAILURE_RULES` 匹配该签名，因此 runner 拒绝永远不会被误判为拒绝授权。
@@ -71,6 +71,21 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 ```
 
 koffi 结构体定义在模块加载时对照探针断言其大小，因此头文件/koffi 布局漂移会大声失败而不是破坏内存。
+
+## 登记工作区的 Low-integrity 隔离
+
+ACL 交集只覆盖对象自身的访问检查，因此留下两个已记录的缺口：经父目录 `FILE_DELETE_CHILD` 权限授权的删除，以及环境 DACL 写入（Everyone、硬链接）进入令牌自身级别本应保护的对象。**登记工作区隔离**为选择加入的工作区同时关闭这两个缺口——[`dsh-sandbox-local`](../sandbox-local/README.md) 的 `confinedWorkspaces` 配置列出绝对工作区根目录，并与会话解析出的根目录做不区分大小写的比较：
+
+- 受限令牌额外**降为低完整性（Low integrity）**（`S-1-16-4096`，经 `SetTokenInformation`/`TokenIntegrityLevel`）；
+- 登记根目录上的每次授权在**同一次合并**中额外应用：目录 SACL 上一个**常驻的 Low no-write-up（禁止向上写入）强制标签**（可继承，因此后续子对象携带它），以及一条**容器继承的 Everyone 对 `FILE_DELETE_CHILD` 的拒绝**——能力 ACE 自身的 DELETE 位由此成为根目录内唯一的删除授权。
+
+登记是刻意的选择加入，因为其效果**持久存在**：标签与拒绝项是按设计在进程之外存续的常驻目录改动（与能力 ACE 同一复用缓存）。取消登记会让**新的**授权不再携带它们，但不会移除已经常驻的内容；只有当某次撤销使目录上不再剩任何其他能力授权时，标签才会被清除。登记机制引入之前留下的常驻授权会在下一次受限供给时获得标签与拒绝项——幂等跳过要求精确的 ACE、拒绝项**和**标签三者齐备。未登记的工作区逐字节保持登记前行为：没有 `--low-integrity` 标志，只应用 DACL，不启用标签机制。
+
+runner 以 `--low-integrity` 标志接收该隔离（两种模式皆然）；直接 `AclSandbox` API 接受 `lowIntegrity: true`；`AclWriteGrant.create(sid, { confined: true })` 以同样的改动物化 seam 侧授权。受限授权额外要求被授权目录上的 `WRITE_OWNER`（标签位于 SACL；所有者隐式权限只覆盖 `READ_CONTROL` 与 `WRITE_DAC`）——完全控制的工作区目录，即通常情形，两者皆已满足。
+
+## Windows 沙箱诊断 skill（技能）（两步）
+
+本包捆绑 [`diagnose-windows-sandbox-acl`](assets/diagnose-windows-sandbox-acl/SKILL.md)，并在 skills 服务存在时向 skill 注册表注册：意外拒绝（工作区写入、列目录、通常可读的路径）先由同一脚本的**受限**运行诊断——只读观察，报告写在工作区内；当诊断证明确有修复必要时，再由同一脚本带 `-Repair` 的**另行批准的未受限**运行执行修复。预期中的隔离拒绝只解释、不修复；不上传任何反馈；报告文件留在磁盘上归所有者所有。
 
 ## 已验证边界（受限令牌固有，非本移植引入）
 

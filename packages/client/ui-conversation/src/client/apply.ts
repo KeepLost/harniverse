@@ -25,6 +25,7 @@ import { ComposerBlockRegistry } from './contract/input-blocks.ts'
 import type { ComposerBlock } from './contract/input-blocks.ts'
 import { InputHub } from './input/hub.ts'
 import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
+import { installStopShortcut } from './stop-shortcut.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
@@ -238,6 +239,15 @@ export function apply(ctx: Context): void {
   // way: this package must not import the plugins that would know.
   const composerBlocks = new ComposerBlockRegistry()
 
+  // The one stop verb behind both affordances: the bar's button and the fixed
+  // double-Escape input route into the same scoped cancellation.
+  const stop = (sessionId: SessionId): void => {
+    scopedConversation(sessions, sessionId).cancel().catch(() => {
+      // Stop failure surfaces via snapshot.promptError; nothing to restore.
+    })
+  }
+  ctx.effect(() => installStopShortcut(sessions, stop), 'ui-conversation: fixed stop input')
+
   // The input machine feeds every session-scope slot
   // component through the standard provide channel — the 'input' hook plus
   // the two public actions. Materialization is the shell creation trigger
@@ -401,11 +411,7 @@ export function apply(ctx: Context): void {
         removeFile: (id) => { shell.removeFile(id) },
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
           submissionPolicy.resolve(running, gesture, steeringAvailable),
-        stop: () => {
-          scopedConversation(sessions, sessionId).cancel().catch(() => {
-            // Stop failure surfaces via snapshot.promptError; nothing to restore.
-          })
-        },
+        stop: () => { stop(sessionId) },
         command: async (line) => {
           const session = sessions.binding(sessionId)?.session
           if (session === undefined) return false

@@ -15,7 +15,7 @@ import { allocBytes, isNullPtr } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import { Win32Error } from '../src/errors.ts'
 import {
-  createRestrictedToken, findLogonSid, makeWellKnownSid, openCurrentProcessToken, setTokenDefaultDaclGrant,
+  createRestrictedToken, findLogonSid, makeWellKnownSid, openCurrentProcessToken, restrictTokenIntegrity, setTokenDefaultDaclGrant,
 } from '../src/token.ts'
 import * as abi from '../src/win32-abi.ts'
 
@@ -432,5 +432,71 @@ describe('createRestrictedToken failure paths', () => {
     }
     expect(caught).toBeInstanceOf(Win32Error)
     expect((caught as Win32Error).api).toBe('CreateRestrictedToken')
+  })
+
+})
+describe('restrictTokenIntegrity (enrolled-workspace confinement)', () => {
+  const token = 9n as NativePtr
+  const lowSid = 77n as NativePtr
+
+  /** One recorded SetTokenInformation call. */
+  interface SetCall {
+    target: NativePtr
+    cls: number
+    info: Buffer
+    length: number
+  }
+
+  /** The integrity stub: the size query and the set both record their calls. */
+  function integrityApi(options: { sidLength?: number; setResult?: number } = {}): {
+    api: Win32Bindings
+    setCalls: SetCall[]
+    lengthCalls: NativePtr[]
+  } {
+    const setCalls: SetCall[] = []
+    const lengthCalls: NativePtr[] = []
+    const api = {
+      getLengthSid: (sid: NativePtr): number => {
+        lengthCalls.push(sid)
+        return options.sidLength ?? 8
+      },
+      setTokenInformation: (target: NativePtr, cls: number, info: Buffer, length: number): number => {
+        setCalls.push({ target, cls, info, length })
+        return options.setResult ?? 1
+      },
+      getLastError: (): number => 87,
+      formatMessageW: (): number => 0,
+    } as unknown as Win32Bindings
+    return { api, setCalls, lengthCalls }
+  }
+
+  it('lowers the token: TokenIntegrityLevel, the Low SID as Label.Sid, SE_GROUP_INTEGRITY, sized to the SID', () => {
+    const { api, setCalls, lengthCalls } = integrityApi()
+    restrictTokenIntegrity(api, token, lowSid)
+    expect(lengthCalls).toEqual([lowSid])
+    expect(setCalls).toHaveLength(1)
+    const call = setCalls[0]
+    expect(call?.target).toBe(token)
+    expect(call?.cls).toBe(abi.TokenIntegrityLevel)
+    expect(call?.info.readBigUInt64LE(0)).toBe(77n) // Label.Sid
+    expect(call?.info.readUInt32LE(8)).toBe(abi.SE_GROUP_INTEGRITY)
+    expect(call?.length).toBe(abi.TOKEN_MANDATORY_LABEL_SIZE + 8)
+  })
+
+  it('fails closed on a zero GetLengthSid', () => {
+    const { api } = integrityApi({ sidLength: 0 })
+    expect(() => { restrictTokenIntegrity(api, token, lowSid) }).toThrow(Win32Error)
+  })
+
+  it('fails closed on a failed SetTokenInformation', () => {
+    const { api } = integrityApi({ setResult: 0 })
+    let caught: unknown
+    try {
+      restrictTokenIntegrity(api, token, lowSid)
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(Win32Error)
+    expect((caught as Win32Error).api).toBe('SetTokenInformation')
   })
 })

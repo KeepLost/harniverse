@@ -198,7 +198,7 @@ export function ConversationRoot({
   // on the fallback alone would leave Question/Approval panels at the content
   // end off-screen when the user is not pinned to the floor.
   const composerSeat = (
-    <div ref={seatResizeRef} className={css.composerSeat} data-composer-seat="">
+    <div ref={seatResizeRef} className={css.composerSeat} data-composer-seat="" data-conversation-region="composer">
       {composer}
     </div>
   )
@@ -206,7 +206,15 @@ export function ConversationRoot({
   return (
     <div ref={rootResizeRef} className={css.root} data-phase={phase}>
       {renderSlot('conversation.session.header', {})}
-      <div className={css.scrollBody} data-conversation-scroll="">
+      {/* The occurrence markers address fixed input to one Conversation
+          occurrence: the composer seat carries its own region so a press
+          inside it never combines with one in the chat region. */}
+      <div
+        className={css.scrollBody}
+        data-conversation-scroll=""
+        data-conversation-session={sessionId}
+        data-conversation-region="chat"
+      >
         {renderSlot('conversation.session', {})}
         {composerSeat}
       </div>

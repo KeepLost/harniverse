@@ -26,9 +26,11 @@ function write(path: string, content: string): void {
   writeFileSync(path, content)
 }
 
-function buildFixture(environment: Record<string, string>): string {
+function buildFixture(environment: Record<string, string>, version = '0.0.0-fixture'): string {
   const root = mkdtempSync(join(tmpdir(), 'harniverse-release-build-'))
   roots.push(root)
+  // The verify path derives DSH_CLIENT_VERSION from the fixture's own root manifest.
+  write(join(root, 'package.json'), `${JSON.stringify({ name: 'fixture', version })}\n`)
   write(join(root, 'apps/web/dist/index.html'), '<main></main>')
   write(join(root, 'packages/client/example/lib/client.js'), 'module.exports = {}\n')
   writeClientBuildRecord(root, environment)
@@ -79,13 +81,15 @@ describe('release families', () => {
     const vendor = releaseFamily('vendor')
     const expected = harniverseClientBuildEnvironment(resolve(import.meta.dirname, '../..'))
     vi.stubEnv('DSH_CLIENT_COMMIT_HASH', expected.DSH_CLIENT_COMMIT_HASH)
-    const harniverse = buildFixture(expected)
+    const harniverse = buildFixture(expected, expected.DSH_CLIENT_VERSION)
     const defaultBuild = buildFixture({})
 
     expect(() => { dsh.verifyBuildArtifacts(harniverse) }).not.toThrow()
     expect(() => { dsh.verifyBuildArtifacts(defaultBuild) }).toThrow(/DSH_CLIENT_TITLE/)
-    expect(() => { dsh.verifyBuildArtifacts(join(defaultBuild, 'missing')) }).toThrow(/record.*missing/)
-    expect(() => { vendor.verifyBuildArtifacts(join(defaultBuild, 'missing')) }).not.toThrow()
+    const missing = join(defaultBuild, 'missing')
+    write(join(missing, 'package.json'), `${JSON.stringify({ name: 'fixture', version: '0.0.0-fixture' })}\n`)
+    expect(() => { dsh.verifyBuildArtifacts(missing) }).toThrow(/record.*missing/)
+    expect(() => { vendor.verifyBuildArtifacts(missing) }).not.toThrow()
 
     write(join(harniverse, 'packages/client/example/lib/client.js'), 'module.exports = { changed: true }\n')
     expect(() => { dsh.verifyBuildArtifacts(harniverse) }).toThrow(/artifacts differ/)

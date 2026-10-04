@@ -23,7 +23,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   LAUNCHER_BIN,
@@ -37,7 +37,7 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { AclWriteGrant, assertTempRootOutsideWorkspace, tempWriteSid, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
+import { AclWriteGrant, assertTempRootOutsideWorkspace, registerAclDiagnosisSkill, tempWriteSid, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import { bwrapProfileArgs, landlockProfileArgs, resolveRunnerProgram, seatbeltProfileArgs } from './profiles.ts'
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
@@ -62,6 +62,21 @@ export interface Config {
   runnerFailureSignatures?: string[]
   /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
+  /**
+   * Workspace roots explicitly enrolled in the Windows Low-integrity
+   * confinement (the `windows-acl` runner only; ignored elsewhere). Each
+   * entry is an absolute path compared case-insensitively against the
+   * session's resolved workspace root — spell it exactly as the workspace
+   * info prints it. Enrollment is OPT-IN and persistent: every grant on an
+   * enrolled root additionally applies a standing Low no-write-up mandatory
+   * label and a container-inherited Everyone deny of `FILE_DELETE_CHILD`,
+   * and the confined token is lowered to Low integrity. These directory
+   * mutations survive the process by design (the standing reuse cache);
+   * un-enrolling stops NEW grants from carrying them but removes nothing
+   * already standing. The default backend behavior for unenrolled
+   * workspaces is byte-identical to the pre-enrollment backend.
+   */
+  confinedWorkspaces?: string[]
 }
 
 /** Probe whether `bwrap` can create the profile; the provider caches the bounded result. */
@@ -253,6 +268,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     runnerCommand: z.array(z.string()).default([]),
     runnerFailureSignatures: z.array(z.string()).default([]),
     probeTimeoutMs: z.natural().default(5_000),
+    confinedWorkspaces: z.array(z.string()).default([]),
   })
 
   /** Test hook (mirrors the bash executors' `internals`). */
@@ -260,6 +276,7 @@ export class LocalSandboxProvider extends SandboxProvider {
 
   private readonly runnerCommand: string[] | undefined
   private readonly configuredRunnerFailureSignatures: string[]
+  private readonly confinedWorkspaces: ReadonlySet<string>
   private readonly probeTimeoutMs: number
   /** Cached chain verdict; undefined until the first confined wrap needs it. */
   private selectedRunner: SelectedRunner | 'unavailable' | undefined
@@ -293,6 +310,21 @@ export class LocalSandboxProvider extends SandboxProvider {
     this.configuredRunnerFailureSignatures = runnerFailureSignatures
     this.probeTimeoutMs = config.probeTimeoutMs as number
     assertPositiveFinite('probeTimeoutMs', this.probeTimeoutMs)
+    const confinedWorkspaces = config.confinedWorkspaces as string[]
+    for (const entry of confinedWorkspaces) {
+      if (entry.length === 0 || !isAbsolute(entry)) {
+        throw new Error(`sandbox-local: confinedWorkspaces entries must be absolute resolved workspace roots: ${entry}`)
+      }
+    }
+    // Windows path matching is case-insensitive; the comparison key is the
+    // lowercased absolute form of both the configured entry and the policy root.
+    this.confinedWorkspaces = new Set(confinedWorkspaces.map(entry => entry.toLowerCase()))
+    // An operator-supplied runner does not use the ACL backend. The registry
+    // remains optional and may be mounted after this provider.
+    /* v8 ignore next 3 -- Windows-only registration; the Linux coverage lane cannot take this branch */
+    if (process.platform === 'win32' && this.runnerCommand === undefined) {
+      ctx.inject(['skills'], (skillsCtx) => { registerAclDiagnosisSkill(skillsCtx) })
+    }
     // The temp grants are revoked with the provider: a clean server
     // shutdown leaves no temp ACEs behind (workspace ACEs stand by design —
     // the reuse cache; an unclean shutdown leaves them for the next
@@ -361,12 +393,14 @@ export class LocalSandboxProvider extends SandboxProvider {
    */
   private windowsAclRunnerArgv(policy: SandboxPolicy): string[] {
     const sessionId = policy.sessionId
+    const confinementArgs = this.isConfinedWorkspace(policy.workspaceRoot) ? ['--low-integrity'] : []
     if (sessionId === undefined || policy.mode === 'read-only') {
       return [
         ...this.windowsAclRunnerInvocation(),
         '--workspace', policy.workspaceRoot,
         '--temp', tmpdir(),
         '--mode', policy.mode,
+        ...confinementArgs,
       ]
     }
     const temp = this.materializeAclGrant(sessionId, policy.workspaceRoot)
@@ -377,7 +411,20 @@ export class LocalSandboxProvider extends SandboxProvider {
       '--mode', policy.mode,
       '--write-sid', workspaceWriteSid(policy.workspaceRoot),
       '--temp-write-sid', temp.writeSid,
+      ...confinementArgs,
     ]
+  }
+
+  /**
+   * Whether `workspaceRoot` is explicitly enrolled in the Windows
+   * Low-integrity confinement ({@link Config.confinedWorkspaces}):
+   * case-insensitive absolute comparison. Unenrolled roots keep the default
+   * backend behavior byte-for-byte.
+   * @param workspaceRoot - the resolved policy root.
+   * @returns whether the root is enrolled.
+   */
+  private isConfinedWorkspace(workspaceRoot: string): boolean {
+    return this.confinedWorkspaces.has(workspaceRoot.toLowerCase())
   }
 
   /**
@@ -396,8 +443,9 @@ export class LocalSandboxProvider extends SandboxProvider {
   private materializeAclGrant(sessionId: SessionId, workspaceRoot: string): AclTempCapability {
     assertTempRootOutsideWorkspace(workspaceRoot, tmpdir())
     const writeSid = workspaceWriteSid(workspaceRoot)
+    const confined = this.isConfinedWorkspace(workspaceRoot)
     if (!this.workspaceGrants.has(workspaceRoot)) {
-      const grant = AclWriteGrant.create(writeSid)
+      const grant = AclWriteGrant.create(writeSid, { confined })
       try {
         grant.add(workspaceRoot, true)
       } catch (error) {
@@ -420,7 +468,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     const tempSid = tempWriteSid(tempDir)
     let grant: AclWriteGrant | undefined
     try {
-      grant = AclWriteGrant.create(tempSid)
+      grant = AclWriteGrant.create(tempSid, { confined })
       grant.add(tempDir)
     } catch (error) {
       const cleanupFailures: unknown[] = []

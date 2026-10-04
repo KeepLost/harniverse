@@ -12,11 +12,13 @@ import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/t
 import { ToolRow } from '../src/client/tool/components/ToolRow.tsx'
 import { BashRow } from '../src/client/tool/toolviews/bash-sample.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { zh as zhTool } from '../src/client/locales.ts'
 
 type BashRowProps = Parameters<typeof BashRow>[0]
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
+const tTool = makeTranslate(zhTool)
 
 afterEach(cleanup)
 
@@ -37,7 +39,7 @@ function listStore() {
 
 function bashProps(block: RunningToolCall | ToolResultNode): BashRowProps {
   return {
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), tTool,
     sessionId: SID, useSessions: bindSnapshotSelector(listStore()),
     t,
   } as unknown as BashRowProps
@@ -60,7 +62,7 @@ describe('Tool presentation tails', () => {
       content: [], isError: false, callView: null, resultView: null, subCalls: [],
     }
     const props: GenericToolCardProps = {
-      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(), t,
+      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(), t, tTool,
     }
     const view = render(<GenericToolCard {...props} />)
     expect(view.container.querySelector('[data-variant="others"] svg')).not.toBeNull()

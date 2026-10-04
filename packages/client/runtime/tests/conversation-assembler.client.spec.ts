@@ -1020,12 +1020,12 @@ describe('ConversationNodeAssembler', () => {
     )).toThrow(/Definition "undefined-update" returned undefined from update/)
   })
 
-  it('rejects a duplicate start before mutating the existing Context', () => {
+  it('demotes a duplicate start to an update on the existing Context', () => {
     const definition: ConversationNodeDefinition<number> = {
       kind: 'single-start',
       match: event => (event.type as string) === 'command/run' ? { id: 'one', role: 'start' } : null,
       start: (_context, match) => match.event.seq,
-      update: context => context.state,
+      update: (_context, match) => match.event.seq,
       target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
@@ -1038,11 +1038,11 @@ describe('ConversationNodeAssembler', () => {
     ], false)
     assembler.flush()
 
-    expect(() => assembler.append(
-      input(at(2, 'command/run', { commandId: 'two', name: 'x' })),
-    )).toThrow(/received more than one start Match/)
+    // A streamed-prefix Definition promotes on a later event that repeats the
+    // start role; the later match folds through update, not a second start.
+    assembler.append(input(at(2, 'command/run', { commandId: 'two', name: 'x' })))
     assembler.flush()
-    expect([...chatSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toBe(1)
+    expect([...chatSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toBe(2)
   })
 
   it('applies Definition-owned batch replay skips without hiding Matches or changing live append', () => {

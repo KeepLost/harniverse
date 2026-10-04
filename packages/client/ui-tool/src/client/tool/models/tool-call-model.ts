@@ -17,7 +17,17 @@ export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 export type ToolRowVariant = 'search' | 'read' | 'bash' | 'write' | 'edit' | 'code' | 'others'
 
 /** Row state semantic; colors self-supplied via StateDot (design gives none). */
-export type ToolRowState = 'running' | 'ok' | 'error' | 'stopped'
+export type ToolRowState = 'preparing' | 'running' | 'ok' | 'error' | 'stopped'
+
+/**
+ * Whether a call block is a streamed preparation: named tool-call deltas
+ * without dispatched arguments yet.
+ * @param block - running or settled call block.
+ * @returns true while the call is still preparing.
+ */
+export function isPreparingCall(block: ToolCallBlock): boolean {
+  return !('kind' in block) && block.phase === 'preparing'
+}
 
 /** Figma row titles per variant (design literals, not translatable copy). */
 export const VARIANT_TITLES: Record<ToolRowVariant, string> = {
@@ -204,24 +214,28 @@ function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
 /**
  * Derive the full row model from a frozen call slice.
  * @param toolName - wire tool name (dispatch-supplied; survives windowless results).
- * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
+ * @param block - preparing call, dispatched call, or result off the snapshot caches.
  * @param cwd - session workspace root; workspace-rooted path summaries display relative to it.
  * @returns the row model.
  */
 export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: string): ToolRowModel {
   const variant = classifyTool(toolName)
   const done = 'kind' in block
-  const argsRaw = (done ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const state: ToolRowState = !done ? 'running'
+  const preparing = !done && block.phase === 'preparing'
+  const argsRaw = preparing ? null : (done ? block.call?.argsRaw : block.argsRaw) ?? ''
+  const state: ToolRowState = !done ? preparing ? 'preparing' : 'running'
     : block.error?.code === 'interrupted' ? 'stopped'
       : block.isError ? 'error' : 'ok'
-  const base = argsRaw === '' ? block.callId : relativizeToCwd(deriveSummary(variant, argsRaw), cwd)
+  const base = argsRaw === null ? '' : argsRaw === '' ? block.callId : relativizeToCwd(deriveSummary(variant, argsRaw), cwd)
   const toolTitle = TOOL_TITLES[toolName]
   // Others keeps the static "Tool call" title (figma literal); the real tool
   // name rides the mutable summary slot unless the tool owns a specific title.
-  const summary = variant === 'others' && toolName !== '' && toolTitle === undefined
-    ? `${toolName} · ${base}`
-    : base
+  // A preparation has no args summary, so the tool name stands alone there.
+  const summary = argsRaw === null
+    ? variant === 'others' && toolName !== '' && toolTitle === undefined ? toolName : ''
+    : variant === 'others' && toolName !== '' && toolTitle === undefined
+      ? `${toolName} · ${base}`
+      : base
   // The empty string is "no text" for both derived result fields: a settled
   // call with blank content has nothing to expand, and a blank first line
   // would erase the collapsed error row's summary slot.
@@ -231,8 +245,8 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
     variant,
     title: toolTitle ?? VARIANT_TITLES[variant],
     summary,
-    filePath: deriveFilePath(variant, argsRaw),
-    body: deriveBody(variant, argsRaw),
+    filePath: argsRaw === null ? undefined : deriveFilePath(variant, argsRaw),
+    body: argsRaw === null ? null : deriveBody(variant, argsRaw),
     output,
     errorSummary,
     state,

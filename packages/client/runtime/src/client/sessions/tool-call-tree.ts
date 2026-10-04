@@ -58,6 +58,7 @@ export class ToolCallTree {
     if (event.type === 'tool/code-dispatch-start') {
       const data = event.data
       const running: RunningToolCall = {
+        phase: 'start',
         callId: data.subCallId,
         name: data.name,
         argsRaw: JSON.stringify(data.arguments),

@@ -14,7 +14,7 @@ Client 工具展示插件。`ui-conversation` 通过 `conversation.chat.node` �
 
 本包还通过 `ToolDetails` 填充 `conversation.details.tool`。行 renderer 与详情 renderer 共用同一组面向 `terminal`、`read`、`diff`、`search` 和 `web` render intent 的纯 card model。未知的 intent 标签和格式错误的 wire card 数据都会回退为压平的工具结果文本。
 
-通用行把已知工具名称归类为 search、read、shell、write、edit、code 或 generic 变体。运行中、成功、失败和中断状态只来自冻结的 call/result slice。只有用户调用 Host 打开文件回调时，文件路径才相对会话 `cwd` 解析；展示代码不读取会话服务。
+通用行把已知工具名称归类为 search、read、shell、write、edit、code 或 generic 变体。运行中、成功、失败和中断状态只来自冻结的 call/result slice。只有流式命名 tool-call 增量可知的调用渲染为不可展开的准备行（`phase: "preparing"`）；文件变更与 shell 命令通过 `tool` 命名空间词典把流式参数前缀显示为整 KB 进度，随后的 `tool/call` 提升会用已派发的材料替换该行。只有用户调用 Host 打开文件回调时，文件路径才相对会话 `cwd` 解析；展示代码不读取会话服务。
 
 ## 原子工具视图
 
