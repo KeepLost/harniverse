@@ -464,7 +464,10 @@ describe('workspace.files.watch frames', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  // macOS FSEvents can coalesce one creation delivery past vitest's 5s
+  // default test budget on a loaded darwin-parity runner; the 15s frame
+  // wait above needs the test budget to cover it.
+  }, 20_000)
 
   it('watches a deeply missing target until its creation surfaces', async () => {
     const { api, root } = await harness()
