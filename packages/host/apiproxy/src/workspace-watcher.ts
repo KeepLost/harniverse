@@ -85,6 +85,9 @@ const openNodeWatch: WatchOpener = (target, options, listener) => {
   // a listener Node rethrows it as an uncaught process exception. The error
   // detail is dropped here on purpose: the feed's error arm re-stats the
   // target and re-anchors, which is the authoritative next state.
+  /* v8 ignore next -- the OS error channel fires when the platform reports a
+     watcher failure (Windows EPERM on a deleted directory); POSIX delivers
+     rename events for the same fact, so this arm is Windows-lane-only. */
   watcher.on('error', () => { listener('error', null) })
   return watcher
 }

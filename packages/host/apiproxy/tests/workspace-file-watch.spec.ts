@@ -920,7 +920,7 @@ describe('watchWorkspaceFiles generator boundary', () => {
       // Whatever the platform reports (rename events or a watcher error), the
       // feed answers with a frame or a typed failure — never an uncaught throw.
       const outcome = await Promise.race([
-        nextRaw(watchFeed.feed).then(frame => frame.kind === 'change' && frame.change !== undefined && 'absent' in frame.change
+        nextRaw(watchFeed.feed).then(frame => 'kind' in frame && frame.kind === 'change' && 'absent' in frame.change
           ? 'absent'
           : 'change'),
         rejectionOf(watchFeed.feed).then(() => 'failed'),
