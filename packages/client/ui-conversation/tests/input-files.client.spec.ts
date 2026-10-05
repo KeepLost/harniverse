@@ -223,3 +223,71 @@ describe('draft-file lifecycle', () => {
     expect(locked.fileDrafts.getSnapshot()).toHaveLength(0)
   })
 })
+
+describe('host-path reference chip batch', () => {
+  const ref = (name: string): { source: string; ref: string; label: string; clipboardText: string } => ({
+    source: 'reference', ref: `@${name}`, label: name, clipboardText: `@${name}`,
+  })
+
+  it('inserts the batch as one paste transaction with separators and mints occurrences', () => {
+    const { shell } = shellWith()
+    expect(shell.insertFileReferences([ref('a.ts'), ref('my folder/')], 0)).toBe(true)
+    const snapshot = shell.snapshot
+    expect(snapshot.draft).toBe('￼ ￼ ')
+    expect(snapshot.occurrences.map(o => [o.offset, o.ref, o.label])).toEqual([
+      [0, '@a.ts', 'a.ts'],
+      [2, '@my folder/', 'my folder/'],
+    ])
+    // One undo removes the whole batch.
+    shell.undo()
+    expect(shell.snapshot.draft).toBe('')
+    expect(shell.snapshot.occurrences).toHaveLength(0)
+  })
+
+  it('separates the first chip from a non-blank predecessor and inserts mid-draft at the offset', () => {
+    const { shell } = shellWith()
+    shell.setDraft('abcdef')
+    expect(shell.insertFileReferences([ref('n.md')], 3)).toBe(true)
+    expect(shell.snapshot.draft).toBe('abc ￼ def')
+    expect(shell.snapshot.occurrences[0]?.offset).toBe(4)
+  })
+
+  it('clamps an out-of-range offset and accepts an empty batch as a no-op', () => {
+    const { shell } = shellWith()
+    shell.setDraft('abc')
+    expect(shell.insertFileReferences([], -5)).toBe(true)
+    expect(shell.insertFileReferences([ref('x.ts')], 99)).toBe(true)
+    expect(shell.snapshot.draft).toBe('abc ￼ ')
+    const empty = shellWith()
+    expect(empty.shell.insertFileReferences([], 0)).toBe(true)
+    expect(empty.shell.snapshot.draft).toBe('')
+  })
+
+  it('refuses the batch while an admission transaction is busy', () => {
+    const held = vi.fn(() => new Promise<SubmitOutcome>(() => {}))
+    const locked = new SessionInputShell({
+      actx: {} as ClientContext,
+      defaultSink: held,
+      fileUploads: transport().fileUploads,
+    })
+    locked.setDraft('busy')
+    locked.submit('queue')
+    expect(locked.snapshot.phase).toBe('submitting')
+    expect(locked.insertFileReferences([ref('y.ts')], 0)).toBe(false)
+    expect(locked.snapshot.draft).toBe('busy')
+    expect(locked.snapshot.occurrences).toHaveLength(0)
+  })
+
+  it('serializes the chips through the reference codec on submit', async () => {
+    const serialize = vi.fn(async (source: string, value: string) => `${source}:${value}`)
+    const { shell, sink } = shellWith({
+      inputTriggers: (() => ({ serializeReference: serialize, track: () => {} })) as never,
+    })
+    shell.insertFileReferences([ref('a.ts')], 0)
+    shell.setDraft(`${shell.snapshot.draft}look`)
+    shell.submit('queue')
+    await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('plain') })
+    expect(serialize).toHaveBeenCalledWith('reference', '@a.ts', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('reference:@a.ts look', [], [], 'queue', expect.any(AbortSignal))
+  })
+})

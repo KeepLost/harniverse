@@ -3,10 +3,11 @@ import clsx from 'clsx'
 import {
   IconBranchOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
   IconCloseOutline16, IconFolderClose16, IconFolderOpen16,
-  IconRefreshOutline16, IconSearchOutline16,
+  IconRefreshOutline16, IconRightUpOutline16, IconSearchOutline16,
   IconSettingsOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceFileEntry } from '@deepseek-ai/dsh-client-runtime/client'
+import { ChangeFeed, resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspacePreviewOverlayProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
 import type {
   WorkbenchDirectory, WorkbenchGitArea, WorkbenchSearch, WorkbenchSection, WorkbenchTab,
@@ -117,9 +118,13 @@ export function DirectoryChildren(props: {
   directories: Record<string, WorkbenchDirectory>
   expanded: Record<string, boolean>
   activePath: string | undefined
+  /** Whether the connected Host can open paths with a native application. */
+  canOpenPath: boolean
   t: WorkbenchTranslate
   onToggle: (path: string) => void
   onOpen: (entry: WorkspaceFileEntry) => void
+  /** Open one file with the Host's default application. */
+  onOpenExternal: (entry: WorkspaceFileEntry) => void
 }) {
   const directory = props.directories[props.path]
   if (directory === undefined || directory.loading) return <div className={css.navStatus}>{props.t('workbench.directoryLoading')}</div>
@@ -146,19 +151,28 @@ export function DirectoryChildren(props: {
           return <div key={entry.path} className={css.inertRow} style={inset} title={props.t('workbench.directoryUnsupported')}>{entry.name}</div>
         }
         return (
-          <button
-            type="button"
-            key={entry.path}
-            className={css.treeRow}
-            style={inset}
-            data-workbench-focus-path={entry.path}
-            data-active={props.activePath === entry.path || undefined}
-            aria-current={props.activePath === entry.path ? 'page' : undefined}
-            onClick={() => { props.onOpen(entry) }}
-          >
-            <span className={clsx(css.treeGlyph, css.fileGlyph)}>{extension(entry.path).slice(0, 3).toUpperCase() || 'TXT'}</span>
-            <span>{entry.name}</span>
-          </button>
+          <div key={entry.path} className={css.treeRowWrap}>
+            <button
+              type="button"
+              className={css.treeRow}
+              style={inset}
+              data-workbench-focus-path={entry.path}
+              data-active={props.activePath === entry.path || undefined}
+              aria-current={props.activePath === entry.path ? 'page' : undefined}
+              onClick={() => { props.onOpen(entry) }}
+            >
+              <span className={clsx(css.treeGlyph, css.fileGlyph)}>{extension(entry.path).slice(0, 3).toUpperCase() || 'TXT'}</span>
+              <span>{entry.name}</span>
+            </button>
+            {props.canOpenPath && (
+              <button
+                type="button"
+                className={css.treeRowAction}
+                aria-label={props.t('workbench.openExternal', { name: entry.name })}
+                onClick={() => { props.onOpenExternal(entry) }}
+              ><IconRightUpOutline16 size={14} /></button>
+            )}
+          </div>
         )
       })}
       {directory.entries.length === 0 && <div className={css.navStatus}>{props.t('workbench.directoryEmpty')}</div>}
@@ -342,6 +356,15 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const account = props.useStore(state => workspaceId === undefined ? undefined : state.byWorkspace[workspaceId])
   const activeTab = account?.tabs.find(tab => tab.id === account.activeTabId)
   const runRequest = useRequestFence(workspaceId)
+  const canOpenPath = props.useCanOpenPath(capable => capable)
+  const openExternal = useCallback((relativePath: string) => {
+    /* v8 ignore next -- file actions render only after a Workspace account resolves. */
+    if (workspace === undefined) return
+    // Open failures are non-fatal diagnostics; the tree and preview stay usable.
+    void props.openPath(resolveWorkspacePath(workspace.path, relativePath)).catch((error: unknown) => {
+      console.warn('open in default application failed:', error)
+    })
+  }, [props.openPath, workspace])
 
   useEffect(() => {
     if (retainedWorkspaces !== null) {
@@ -369,6 +392,56 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   useEffect(() => {
     if (rootMissing) loadDirectory('')
   }, [loadDirectory, rootMissing])
+
+  // Live file-tree refresh: one watch subscription per expanded directory,
+  // change bursts coalesced into silent relists. The feed lives per Workspace
+  // generation; expansion changes reconcile its subscriptions. A Workspace
+  // that exhausts the feed's stream retries lands in manual mode (store
+  // field), leaving the manual refresh button as the only relist trigger.
+  // The placeholder is replaced by the assignment below before any feed can
+  // call it; it exists only so the ref's first read has a callable.
+  /* v8 ignore next -- unreachable placeholder: overwritten before first call. */
+  const relistDirectory = useRef((_path: string) => {})
+  relistDirectory.current = (path: string) => {
+    /* v8 ignore next -- a change frame can land after the directory collapsed
+       and was pruned from the account; the late relist target is gone. */
+    if (account?.directories[path] !== undefined) loadDirectory(path, true)
+  }
+  const watchFiles = props.watchFiles
+  const feedRef = useRef<ChangeFeed | undefined>(undefined)
+  useEffect(() => {
+    const watchId = workspace?.workspaceId
+    if (watchId === undefined || watchFiles === undefined) return
+    const feed = new ChangeFeed({
+      watch: watchFiles,
+      // The id guards drop callbacks a previous generation's feed delivers
+      // after the workspace switched underneath this effect.
+      /* v8 ignore next -- generation race: only the prior generation's feed reports a foreign id. */
+      onInvalidate: (id, path) => { if (id === watchId) relistDirectory.current(path) },
+      /* v8 ignore next -- generation race, same source as onInvalidate. */
+      onMode: (id, mode) => { if (id === watchId) props.actions.setFileWatch(watchId, mode) },
+    })
+    feedRef.current = feed
+    return () => {
+      /* v8 ignore next -- a newer generation already replaced the ref when an
+         older effect's cleanup runs; only that generation owns the teardown. */
+      if (feedRef.current === feed) feedRef.current = undefined
+      feed.dispose()
+    }
+  }, [props.actions, watchFiles, workspaceId])
+  const expandedDirectories = account?.expandedDirectories ?? { '': true }
+  // Collapsed directories keep a `false` key in the map; only `true`
+  // entries are expanded, and only those are watched.
+  const expandedPaths = Object.keys(expandedDirectories).filter(path => expandedDirectories[path] === true)
+  const expandedKey = expandedPaths.join('\u0000')
+  useEffect(() => {
+    const feed = feedRef.current
+    const watchId = workspace?.workspaceId
+    if (feed === undefined || watchId === undefined) return
+    feed.sync(watchId, expandedPaths)
+    // expandedPaths is read for the watch set; sync is idempotent for
+    // unchanged directories.
+  }, [expandedKey, workspaceId])
 
   const openFile = useCallback((entry: WorkspaceFileEntry) => {
     /* v8 ignore next -- file actions render only after a Workspace account resolves. */
@@ -560,7 +633,10 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
 
   const section = props.section
   const directories = account?.directories ?? {}
-  const expanded = account?.expandedDirectories ?? { '': true }
+  const expanded = expandedDirectories
+  const previewOpenExternal = canOpenPath && activeTab !== undefined && activeTab.kind !== 'diff' && !activeTab.loading && activeTab.error === undefined
+    ? () => { openExternal(activeTab.path) }
+    : undefined
   const searchAccount: WorkbenchSearch = search
     ?? { query: '', include: '', exclude: '', filtersOpen: false, entries: [], truncated: false, loading: false }
   const git = account?.git
@@ -657,20 +733,27 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
             <div className={css.emptyState}>{props.t('workbench.noWorkspace')}</div>
           )}
           {hasWorkspace && section === 'files' && (
-            <DirectoryChildren
-              path=""
-              depth={0}
-              directories={directories}
-              expanded={expanded}
-              activePath={activeTab?.kind === 'diff' ? undefined : activeTab?.path}
-              t={props.t}
-              onToggle={(path) => {
-                const open = expanded[path] !== true
-                props.actions.setDirectoryExpanded(workspaceId, path, open)
-                if (open && directories[path] === undefined) loadDirectory(path)
-              }}
-              onOpen={openFile}
-            />
+            <>
+              {account?.fileWatch === 'manual' && (
+                <div className={css.navStatus}>{props.t('workbench.watchManual')}</div>
+              )}
+              <DirectoryChildren
+                path=""
+                depth={0}
+                directories={directories}
+                expanded={expanded}
+                activePath={activeTab?.kind === 'diff' ? undefined : activeTab?.path}
+                canOpenPath={canOpenPath}
+                t={props.t}
+                onToggle={(path) => {
+                  const open = expanded[path] !== true
+                  props.actions.setDirectoryExpanded(workspaceId, path, open)
+                  if (open && directories[path] === undefined) loadDirectory(path)
+                }}
+                onOpen={openFile}
+                onOpenExternal={(entry) => { openExternal(entry.path) }}
+              />
+            </>
           )}
           {hasWorkspace && section === 'search' && (
             <SearchPanel
@@ -713,6 +796,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           open={account?.previewOpen ?? false}
           focusScopeKey={workspaceId}
           {...(activeTab?.path === undefined ? {} : { focusReturnPath: activeTab.path })}
+          {...(previewOpenExternal === undefined ? {} : { onOpenExternal: previewOpenExternal })}
           placement="in-column"
           t={props.t}
           onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
@@ -738,14 +822,26 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
     return current !== undefined && state.byId[current] !== undefined ? current : undefined
   })
   const sessionCwd = props.useSessions(state => sessionId === undefined ? undefined : state.byId[sessionId]?.cwd)
-  const workspaceId = props.useWorkspaces(state => (
+  const workspace = props.useWorkspaces(state => (
     sessionId === undefined
       ? undefined
-      : (state.items.find(item => item.sessionIds.includes(sessionId))
-        ?? state.items.find(item => item.path === sessionCwd))?.workspaceId as string | undefined
+      : state.items.find(item => item.sessionIds.includes(sessionId))
+        ?? state.items.find(item => item.path === sessionCwd)
   ))
+  const workspaceId = workspace?.workspaceId as string | undefined
   const account = props.useStore(state => workspaceId === undefined ? undefined : state.byWorkspace[workspaceId])
   const activeTab = account?.tabs.find(tab => tab.id === account.activeTabId)
+  const canOpenPath = props.useCanOpenPath(capable => capable)
+  const openExternal = useCallback((relativePath: string) => {
+    /* v8 ignore next -- the preview renders only after a Workspace account resolves. */
+    if (workspace === undefined) return
+    void props.openPath(resolveWorkspacePath(workspace.path, relativePath)).catch((error: unknown) => {
+      console.warn('open in default application failed:', error)
+    })
+  }, [props.openPath, workspace])
+  const previewOpenExternal = canOpenPath && activeTab !== undefined && activeTab.kind !== 'diff' && !activeTab.loading && activeTab.error === undefined
+    ? () => { openExternal(activeTab.path) }
+    : undefined
   useEffect(() => {
     return () => {
       if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
@@ -766,6 +862,7 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       open={account?.previewOpen === true}
       focusScopeKey={workspaceId}
       {...(activeTab?.path === undefined ? {} : { focusReturnPath: activeTab.path })}
+      {...(previewOpenExternal === undefined ? {} : { onOpenExternal: previewOpenExternal })}
       placement="overlay"
       t={props.t}
       onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}

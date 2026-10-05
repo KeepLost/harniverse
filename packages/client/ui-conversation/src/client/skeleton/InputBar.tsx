@@ -32,6 +32,7 @@ import {
   attachmentErrorText, attachmentRailLabels, dropOverlayLabels, fileChipLabels, imageSizeText,
   lightboxLabels,
 } from '../image-labels.ts'
+import { isImageMediaType } from '../service.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import { SupervisionSelect } from './SupervisionSelect.tsx'
@@ -46,14 +47,36 @@ interface ComposerRailItem extends AttachmentRailItem {
   attachment: ComposerAttachment
 }
 
+/**
+ * Members of a file drop that are directories. The `File` a directory drop
+ * yields is indistinguishable from an empty file, so the entry API is the only
+ * source of that fact; browsers without it report no directories.
+ */
+function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]): ReadonlySet<File> {
+  const directories = new Set<File>()
+  // A synthetic or sanitized DataTransfer may carry files without an items
+  // list; no entry metadata means no directory can be named.
+  const items = dataTransfer.items as DataTransferItemList | undefined
+  if (items === undefined) return directories
+  let fileIndex = 0
+  for (const item of items) {
+    if (item.kind !== 'file') continue
+    const file = files[fileIndex++]
+    if (typeof item.webkitGetAsEntry !== 'function') continue
+    if (item.webkitGetAsEntry()?.isDirectory !== true) continue
+    if (file !== undefined) directories.add(file)
+  }
+  return directories
+}
+
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
   addFiles, removeFile,
   resolveSubmitMode, stop, command, t,
-  renderSlot, useNotices, useLexicon, useMenuLauncher, useFileDrafts,
-  useProjection, sessionId, variant, disabled: inert = false, blocked,
+  renderSlot, useNotices, useLexicon, useMenuLauncher, useFileDrafts, useHostDescription,
+  useProjection, sessionId, variant, disabled: inert = false, blocked, isLoopback, shellPathBridge,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
@@ -99,6 +122,13 @@ export function InputBar({
   // The deployment's image-intake limits (absent while no attachment service
   // is composed — the pre-check below then defers entirely to the host).
   const imageLimits = useProjection('imageLimits')
+  // Local-Host gate for the drop/paste @path intake (X13-R31): the page
+  // authority is loopback AND the current Host handshake reports native path
+  // opening AND the Desktop shell's path bridge is installed — without the
+  // bridge no file can become a `@path` chip, so the intake keeps the plain
+  // image-only behavior everywhere else; never a UA sniff.
+  const hostCanOpenPath = useHostDescription(description => description?.canOpenPath === true)
+  const localHost = isLoopback && hostCanOpenPath && shellPathBridge
   // Prompt failures are ordinary failures (no create/attach transaction exists
   // anymore): the toast announces promptError, the draft stays in the machine,
   // and the user resubmits. A remount over a session whose machine still holds
@@ -428,19 +458,28 @@ export function InputBar({
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     if (keyboard === undefined) return // absent machine: no draft can accept a paste
     if (machineBusy || locked) return
-    const files = Array.from(e.clipboardData.items)
-      .filter(item => item.kind === 'file')
-      .map(item => item.getAsFile())
-      .filter((file): file is File => file !== null)
-    if (files.length > 0) intakeImages(files)
+    const el = e.currentTarget
+    const sel = selectionOf(el)
+    const files: File[] = []
+    const directories = new Set<File>()
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind !== 'file') continue
+      const file = item.getAsFile()
+      if (file === null) continue
+      files.push(file)
+      if (typeof item.webkitGetAsEntry === 'function' && item.webkitGetAsEntry()?.isDirectory === true) {
+        directories.add(file)
+      }
+    }
+    // Reference chips land exactly at the selection end, so the text paste
+    // below still replaces the untouched selection ahead of them.
+    if (files.length > 0) intakeFiles(files, directories, sel.end)
     const text = e.clipboardData.getData('text/plain')
     if (text === '') {
       if (files.length > 0) e.preventDefault()
       return
     }
     e.preventDefault()
-    const el = e.currentTarget
-    const sel = selectionOf(el)
     // Sync components stay empty at this layer: hot-snapshot matching needs
     // the Slash roster, which lives behind keyboard.track — the paste attempt
     // opens in the machine and the controller upgrades tokens as matches
@@ -483,6 +522,40 @@ export function InputBar({
     if (rejected !== null) showToast(rejected)
   }, [addImages, attachments, imageLimits, showToast, t])
 
+  // Desktop drop/paste intake (X13-R31): on a local Host, files and folders
+  // the intake resolves become `@path` reference chips at the gesture-time
+  // caret while images keep the upload rail (a mixed batch never silently
+  // drops either side); a non-local client keeps today's image-only intake.
+  const intakeFiles = useCallback((files: readonly File[], directories: ReadonlySet<File>, at: number): void => {
+    if (!localHost) {
+      intakeImages(files)
+      return
+    }
+    const isImage = (file: File): boolean => imageLimits === undefined
+      ? isImageMediaType(file.type)
+      : (imageLimits.mediaTypes as readonly string[]).includes(file.type)
+    const images: File[] = []
+    const rest: File[] = []
+    const restDirectories = new Set<File>()
+    for (const file of files) {
+      if (!directories.has(file) && isImage(file)) images.push(file)
+      else {
+        rest.push(file)
+        if (directories.has(file)) restDirectories.add(file)
+      }
+    }
+    if (images.length > 0) intakeImages(images)
+    if (rest.length === 0) return
+    // A composer without the chip face keeps the image intake's own refusal
+    // rather than silently dropping the non-image remainder.
+    if (addFiles === undefined) {
+      intakeImages(rest)
+      return
+    }
+    const rejected = addFiles(rest, restDirectories, at)
+    if (rejected != null) showToast(rejected)
+  }, [localHost, imageLimits, intakeImages, addFiles, showToast])
+
   // Whole-page file-drop intake (DeepSeek Chat behavior): the listeners live
   // on the document so a drop anywhere over the window adds images, not only
   // over the composer card. Safe as document-level state: the composer-bar
@@ -491,6 +564,14 @@ export function InputBar({
   // native drop-text-into-textarea path. The overlay layer itself is
   // pointer-inert, so it never disturbs the enter/leave count.
   const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  // Draft offset a reference-chip batch lands at: the textarea's live
+  // selection end (persisting while another element holds focus), or the
+  // draft's head when no selection is resolvable.
+  const insertionOffset = (): number => {
+    const el = inputRef.current
+    /* v8 ignore next -- the resident textarea node is mounted before any drop or pick gesture can fire. */
+    return el === null ? 0 : selectionOf(el).end
+  }
   useEffect(() => {
     const hasFiles = (event: globalThis.DragEvent): boolean =>
       event.dataTransfer?.types.includes('Files') ?? false
@@ -523,8 +604,10 @@ export function InputBar({
       if (!hasFiles(event)) return
       event.preventDefault()
       reset()
-      if (!canAcceptDrop) return
-      intakeImages([...(event.dataTransfer?.files ?? [])])
+      if (!canAcceptDrop || event.dataTransfer === null) return
+      const files = [...event.dataTransfer.files]
+      if (files.length === 0) return
+      intakeFiles(files, droppedDirectories(event.dataTransfer, files), insertionOffset())
     }
     document.addEventListener('dragenter', onDragEnter)
     document.addEventListener('dragover', onDragOver)
@@ -538,7 +621,7 @@ export function InputBar({
       document.removeEventListener('drop', onDrop)
       window.removeEventListener('dragend', reset)
     }
-  }, [canAcceptDrop, intakeImages])
+  }, [canAcceptDrop, intakeFiles])
 
   const closePreview = useCallback(() => { setPreview(null) }, [])
 
@@ -587,11 +670,15 @@ export function InputBar({
   // The file entry: a hidden multiple input keeps the native picker behavior
   // (OS dialog, same-file re-pick) behind one paperclip button. The value
   // resets after every pick so choosing the same file twice re-uploads it.
+  // The same intake as drops: on a local Host whose shell names the picked
+  // file's path it lands as a reference chip at the caret, else it uploads.
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const onPickFiles = (e: ChangeEvent<HTMLInputElement>): void => {
     const files = [...(e.target.files ?? [])]
     e.target.value = ''
-    if (files.length > 0) addFiles?.(files)
+    if (files.length === 0) return
+    const rejected = addFiles?.(files, undefined, insertionOffset())
+    if (rejected != null) showToast(rejected)
   }
 
   // Ordinary sessions retain their primary Send/Stop toggle. A continuable

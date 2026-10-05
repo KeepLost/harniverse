@@ -37,6 +37,7 @@ const CARRIER_ENDPOINT_KINDS: Readonly<Record<string, Exclude<CarrierEndpointRow
   'events.terminal': 'stream',
   'events.hold': 'stream',
   'events.browser': 'stream',
+  'workspace.files.watch': 'stream',
   'session.export': 'download',
   'respond': 'client-response',
 }

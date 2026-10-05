@@ -1,8 +1,8 @@
 /**
  * Pure preview-format helpers shared by the workbench navigation (which decides
  * a tab's renderer when opening a file) and the preview surface (which renders
- * it). Extension-to-renderer mapping and CSV parsing have no React or store
- * dependency, so they live apart from either component.
+ * it). Extension-to-renderer mapping and delimited (CSV/TSV) parsing have no
+ * React or store dependency, so they live apart from either component.
  */
 import type { WorkbenchPreviewKind } from './stores.ts'
 
@@ -32,26 +32,34 @@ export function previewType(path: string): { kind: WorkbenchPreviewKind; languag
   if (ext === 'md' || ext === 'mdx') return { kind: 'markdown' }
   if (ext === 'htm' || ext === 'html') return { kind: 'html' }
   if (ext === 'csv') return { kind: 'csv' }
+  if (ext === 'tsv') return { kind: 'tsv' }
   if (ext === 'pdf') return { kind: 'pdf' }
   if (BINARY_EXTENSIONS.has(ext)) return { kind: 'image' }
   const language = LANGUAGE_BY_EXTENSION[ext]
   return language === undefined ? { kind: 'text' } : { kind: 'code', language }
 }
 
-/** One bounded CSV preview table. */
+/** One bounded delimited (CSV/TSV) preview table. */
 export interface CsvPreview {
   rows: string[][]
   truncated: boolean
 }
 
 /**
- * Parse enough RFC-4180-style CSV for a bounded preview table.
- * @param content - CSV text to parse.
+ * Parse enough RFC-4180-style delimited text (CSV or TSV) for a bounded
+ * preview table.
+ * @param content - delimited text to parse.
  * @param maxRows - maximum rows to retain.
  * @param maxColumns - maximum columns to retain per row.
+ * @param delimiter - field separator chosen by extension (`,` or `\t`).
  * @returns retained rows and whether either bound clipped the input.
  */
-export function parseCsvPreview(content: string, maxRows = 100, maxColumns = 50): CsvPreview {
+export function parseCsvPreview(
+  content: string,
+  maxRows = 100,
+  maxColumns = 50,
+  delimiter: ',' | '\t' = ',',
+): CsvPreview {
   const rows: string[][] = []
   let row: string[] = []
   let field = ''
@@ -75,7 +83,7 @@ export function parseCsvPreview(content: string, maxRows = 100, maxColumns = 50)
       else if (char === '"') quoted = false
       else field += char
     } else if (char === '"' && field === '') quoted = true
-    else if (char === ',') { row.push(field); field = '' }
+    else if (char === delimiter) { row.push(field); field = '' }
     else if (char === '\n') {
       if (pushRow()) return { rows, truncated: index < content.length - 1 || truncated }
     } else if (char !== '\r') field += char

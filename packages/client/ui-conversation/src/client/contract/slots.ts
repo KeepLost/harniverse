@@ -11,7 +11,7 @@ import type {
   TurnLocation, WorkspaceId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
+import type { HostDescription, MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from './input-blocks.ts'
 import type {
@@ -508,8 +508,23 @@ export interface ComposerBarInjected {
   removeImage: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve ordered input ids to browser-owned draft images. */
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
-  /** Begin draft-file uploads and append their chips to the session input. */
-  addFiles: ((files: readonly File[]) => void) | undefined
+  /**
+   * Begin draft-file intake against the session input. On a local Host the
+   * shell bridge may name a file's Host path: named files and folders become
+   * `@path` reference chips in the draft (one batch transaction) while the
+   * rest — every pathless file and every image — upload as before.
+   * @param files - dropped, pasted, or picked browser files in gesture order.
+   * @param directories - members of `files` the gesture source identified as
+   * folders (a dropped folder inserts one chip for its path).
+   * @param at - draft offset to insert reference chips at (the gesture-time
+   * selection end); omitted appends after the draft.
+   * @returns the localized rejection line, or null when the batch was accepted.
+   */
+  addFiles: ((
+    files: readonly File[],
+    directories?: ReadonlySet<File>,
+    at?: number,
+  ) => string | null) | undefined
   /** Remove one draft file (aborting its upload when still in flight). */
   removeFile: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
@@ -528,6 +543,18 @@ export interface ComposerBarInjected {
    */
   command: ((line: string) => Promise<boolean>) | undefined
   /**
+   * Whether the page authority is loopback (the local-Host half of the
+   * drop/paste path-reference gate; the Host handshake's `canOpenPath`
+   * completes it through the hooks compartment below).
+   */
+  isLoopback: boolean
+  /**
+   * Whether the Desktop shell's host-path bridge is installed on this
+   * document (with {@link isLoopback} and the Host handshake's
+   * `canOpenPath`, the complete drop/paste path-reference gate).
+   */
+  shellPathBridge: boolean
+  /**
    * Registrant hooks compartment: the renderer binds these to
    * useNotices/useLexicon (static absent sources without a session — hook
    * order stays constant).
@@ -542,6 +569,8 @@ export interface ComposerBarInjected {
     menuLauncher: ObservableSnapshot<string | null>
     /** Live draft-file chips through their upload lifecycle (the chip row source). */
     fileDrafts: ObservableSnapshot<readonly ComposerFileDraft[]>
+    /** Current connection generation's Host description (the `canOpenPath` fact). */
+    hostDescription: ObservableSnapshot<HostDescription | undefined>
   }
 }
 

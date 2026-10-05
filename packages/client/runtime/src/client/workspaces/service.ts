@@ -9,6 +9,7 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
 import type { IWorkspaces, WorkspaceListState, WorkspaceSearchFilters } from '../contract/workspaces.ts'
+import { WorkspaceFileWatchError, type WorkspaceFileWatchFrame } from './change-feed.ts'
 import { WorkspaceManager } from './manager.ts'
 
 /**
@@ -311,6 +312,27 @@ export class WorkspaceRuntime implements IWorkspaces {
     return response.result.value
   }
 
+  /**
+   * Watch one workspace directory and stream its invalidations (`ready`
+   * first, then coalesced `change` frames), aborting the Host watcher with
+   * `signal`. A typed refusal ends the stream as `WorkspaceFileWatchError`;
+   * any other failure rethrows the transport error so the feed's reconnect
+   * path owns it.
+   * @param workspaceId - Workspace whose directory is watched.
+   * @param path - workspace-relative directory; `undefined` watches the root.
+   * @param signal - aborts the subscription and its Host watcher.
+   */
+  async *watchFiles(workspaceId: WorkspaceId, path: string | undefined, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame> {
+    const stream = this.api.workspaceFiles.watchFiles(
+      { workspaceId, ...(path === undefined || path === '' ? {} : { path }) }, signal,
+    )
+    for await (const frame of stream) {
+      const payload = frame.payload
+      if ('type' in payload) throw watchRefusalOf(payload.error)
+      yield payload
+    }
+  }
+
   async searchFiles(workspaceId: WorkspaceId, query: string, filters?: WorkspaceSearchFilters, signal?: AbortSignal): Promise<{
     entries: WorkspaceFileEntry[]
     truncated: boolean
@@ -549,4 +571,20 @@ function recentWorkspace(
     }
   }
   return selected
+}
+
+/**
+ * Map one Host watch-stream refusal to the client's typed failure; a watch
+ * cap exhaustion and an unsupported provider both refuse the watch itself,
+ * and any other error keeps its transport form for the feed's reconnect path.
+ * @param error - the `stream/error` closer's RpcError.
+ * @returns the typed watch refusal, or the raw error rethrown.
+ */
+function watchRefusalOf(error: RpcError): Error {
+  if (error.code === 'workspace-watch-unsupported' || error.code === 'workspace-watch-limit-reached') {
+    return new WorkspaceFileWatchError('watch-unsupported')
+  }
+  if (error.code === 'workspace-not-found') return new WorkspaceFileWatchError('not-found')
+  if (error.code === 'workspace-path-invalid') return new WorkspaceFileWatchError('outside-workspace')
+  return new Error(`workspace file watch failed: ${error.message}`)
 }

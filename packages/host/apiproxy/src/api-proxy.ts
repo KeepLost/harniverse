@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { authenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -64,7 +64,8 @@ import type {
   ModelReasoning, MuxFrame, HoldStreamFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, SpeechPrepareView, ToolEventView,
-  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, TerminalStreamFrame, WorkspaceId, WorkspaceView,
+  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, TerminalStreamFrame,
+  WorkspaceFileWatchFrame, WorkspaceId, WorkspaceView,
   ApiContractDescription, OperationView, OperationStatus,
 } from './api/index.ts'
 import { HostBootId } from './api/host.ts'
@@ -152,6 +153,13 @@ import {
   workspaceGitDiff,
   workspaceGitStatus,
 } from './workspace-inspector.ts'
+import {
+  DEFAULT_FILE_WATCH_DEBOUNCE_MS,
+  DEFAULT_FILE_WATCH_MAX_PER_WORKSPACE,
+  watchWorkspaceFiles,
+  WorkspaceWatchError,
+  type WatchOpener,
+} from './workspace-watcher.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -248,6 +256,10 @@ const COLD_SUMMARY_BATCH_SIZE = 16
 export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 /** Default number of frames retained for one slow stream consumer. */
 export const DEFAULT_STREAM_QUEUE_MAX_FRAMES = 1024
+/** Default trailing coalescing window for one workspace file watch burst. */
+export { DEFAULT_FILE_WATCH_DEBOUNCE_MS } from './workspace-watcher.ts'
+/** Default cap on concurrent workspace file watch subscriptions per workspace. */
+export { DEFAULT_FILE_WATCH_MAX_PER_WORKSPACE } from './workspace-watcher.ts'
 
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
@@ -971,6 +983,15 @@ export interface ApiProxyDefaults {
   coldBlankProbeMaxBytes?: number
   /** Maximum frames retained by one mux or host stream. */
   streamQueueMaxFrames?: number
+  /** Trailing coalescing window in milliseconds for one workspace file watch burst. */
+  fileWatchDebounceMs?: number
+  /** Maximum concurrent workspace file watch subscriptions per workspace. */
+  fileWatchMaxPerWorkspace?: number
+  /**
+   * fs.watch boundary for workspace file watches; injectable for deterministic
+   * carrier tests, like {@link openPath}. Absent, node:fs watch serves.
+   */
+  watchFileSystem?: WatchOpener
   /**
    * Whether handing a path to the native opener can work at all — the
    * `hasDocument` capability the preset roster reports, and the switch
@@ -1417,6 +1438,37 @@ function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string)
   })
 }
 
+/** Map one expected inspection failure to its wire error without exposing Host command output. */
+function inspectionError(error: WorkspaceInspectorError, workspaceId: string, path: string): RpcError {
+  const inspectedPath = error.path ?? path
+  switch (error.code) {
+    case 'workspace-path-invalid':
+    case 'workspace-entry-not-found':
+    case 'workspace-entry-not-readable':
+    case 'workspace-entry-type-invalid':
+    case 'workspace-file-binary':
+    case 'workspace-file-preview-unsupported':
+    case 'workspace-file-too-large':
+      return {
+        code: error.code,
+        message: error.message,
+        details: { workspaceId, path: inspectedPath },
+      }
+    case 'workspace-git-not-repository':
+      return {
+        code: error.code,
+        message: error.message,
+        details: { workspaceId },
+      }
+    case 'workspace-git-failed':
+      return {
+        code: error.code,
+        message: error.message,
+        details: { workspaceId, operation: error.operation ?? 'unknown' },
+      }
+  }
+}
+
 /** Map expected filesystem/Git inspection failures without exposing Host command output. */
 function workspaceInspectionFailure<T>(
   request: RpcRequest<unknown>,
@@ -1431,32 +1483,25 @@ function workspaceInspectionFailure<T>(
   if (!(error instanceof WorkspaceInspectorError)) {
     return err(request, { code: 'internal', message: 'workspace inspection failed', details: {} })
   }
-  const inspectedPath = error.path ?? path
-  switch (error.code) {
-    case 'workspace-path-invalid':
-    case 'workspace-entry-not-found':
-    case 'workspace-entry-not-readable':
-    case 'workspace-entry-type-invalid':
-    case 'workspace-file-binary':
-    case 'workspace-file-preview-unsupported':
-    case 'workspace-file-too-large':
-      return err(request, {
-        code: error.code,
-        message: error.message,
-        details: { workspaceId, path: inspectedPath },
-      })
-    case 'workspace-git-not-repository':
-      return err(request, {
-        code: error.code,
-        message: error.message,
-        details: { workspaceId },
-      })
-    case 'workspace-git-failed':
-      return err(request, {
-        code: error.code,
-        message: error.message,
-        details: { workspaceId, operation: error.operation ?? 'unknown' },
-      })
+  return err(request, inspectionError(error, workspaceId, path))
+}
+
+/**
+ * Map one watch-stream failure to its closing stream/error frame. Abort needs
+ * no frame — the consumer is gone and the queue drops anything pushed after.
+ */
+function watchStreamError(error: unknown, workspaceId: string, path: string, signal: AbortSignal): RpcError | undefined {
+  if (signal.aborted) return undefined
+  if (error instanceof WorkspaceWatchError) {
+    return { code: 'workspace-watch-unsupported', message: error.message, details: { workspaceId, path } }
+  }
+  if (error instanceof WorkspaceInspectorError) {
+    return inspectionError(error, workspaceId, path)
+  }
+  return {
+    code: 'internal',
+    message: `workspace file watch failed: ${error instanceof Error ? error.message : String(error)}`,
+    details: {},
   }
 }
 
@@ -1499,6 +1544,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES
   const streamQueueMaxFrames = defaults.streamQueueMaxFrames
     ?? DEFAULT_STREAM_QUEUE_MAX_FRAMES
+  const fileWatchDebounceMs = defaults.fileWatchDebounceMs
+    ?? DEFAULT_FILE_WATCH_DEBOUNCE_MS
+  const fileWatchMaxPerWorkspace = defaults.fileWatchMaxPerWorkspace
+    ?? DEFAULT_FILE_WATCH_MAX_PER_WORKSPACE
+  /** Open workspace file watch subscriptions, keyed by workspace id string. */
+  const fileWatchCounts = new Map<string, number>()
   /** The seed model each create/resume declares; re-read so it never goes stale. */
   const agentOptions = (): AgentOptions => {
     const { provider, model } = defaults.defaultModelSelection()
@@ -2781,6 +2832,50 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const open = defaults.openPath
       ?? ((target: string, openSignal: AbortSignal) => openNativePath(target, openSignal))
     return openTarget(request, path, signal, open)
+  }
+
+  /**
+   * Open one wire-addressed path: the same native hand-off, behind the
+   * admission checks a browser payload must pass. The path must be absolute
+   * and name an entry the host can stat, and a missing or inaccessible target
+   * reports one typed refusal (no probing which of the two it was) — nothing
+   * reaches the native hand-off before those checks pass.
+   */
+  async function openWirePath(
+    request: RpcRequest<unknown>, path: string, signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>> {
+    if (!isAbsolute(path)) {
+      return err(request, {
+        code: 'bad-request',
+        message: 'host.openPath requires an absolute path',
+        details: { issues: [] },
+      })
+    }
+    try {
+      await stat(path)
+    } catch (error: unknown) {
+      if (signal.aborted) {
+        return err(request, {
+          code: 'cancelled',
+          message: 'path open was aborted',
+          details: {},
+        })
+      }
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM') {
+        return err(request, {
+          code: 'host-path-not-found',
+          message: `path does not exist or is not accessible: ${path}`,
+          details: { path },
+        })
+      }
+      return err(request, {
+        code: 'internal',
+        message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
+        details: {},
+      })
+    }
+    return openPath(request, path, signal)
   }
 
   /** Open one Host-resolved text document in a native editor. */
@@ -4675,6 +4770,60 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return workspaceInspectionFailure(request, workspaceId, path, error, signal)
         }
       },
+
+      watchFiles(request, signal) {
+        const { workspaceId } = request.payload
+        const path = request.payload.path ?? ''
+        const queue = new FrameQueue<RpcRequest<WorkspaceFileWatchFrame>>(streamQueueMaxFrames)
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'workspace-not-found',
+            message: `workspace "${workspaceId}" not found`,
+            details: { workspaceId },
+          } }))
+          queue.end()
+          return queue.iterate(signal, () => {})
+        }
+        const openWatches = fileWatchCounts.get(workspaceId) ?? 0
+        if (openWatches >= fileWatchMaxPerWorkspace) {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'workspace-watch-limit-reached',
+            message: `workspace "${workspaceId}" already holds ${String(openWatches)} open file watches`,
+            details: { workspaceId, limit: fileWatchMaxPerWorkspace },
+          } }))
+          queue.end()
+          return queue.iterate(signal, () => {})
+        }
+        fileWatchCounts.set(workspaceId, openWatches + 1)
+        // The count reservation is released exactly once, whether the feed
+        // ends by itself or the consumer unsubscribes mid-stream.
+        let released = false
+        const release = (): void => {
+          if (released) return
+          released = true
+          const remaining = (fileWatchCounts.get(workspaceId) ?? 1) - 1
+          if (remaining <= 0) fileWatchCounts.delete(workspaceId)
+          else fileWatchCounts.set(workspaceId, remaining)
+        }
+        void (async () => {
+          try {
+            for await (const watchFrame of watchWorkspaceFiles(workspace.path, path, signal, {
+              debounceMs: fileWatchDebounceMs,
+              ...(defaults.watchFileSystem === undefined ? {} : { open: defaults.watchFileSystem }),
+            })) {
+              queue.push(frame(watchFrame))
+            }
+          } catch (error: unknown) {
+            const streamError = watchStreamError(error, workspaceId, path, signal)
+            if (streamError !== undefined) queue.push(frame({ type: 'stream/error', error: streamError }))
+          } finally {
+            release()
+            queue.end()
+          }
+        })()
+        return queue.iterate(signal, release)
+      },
     },
 
     workspaceGit: {
@@ -4804,7 +4953,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async openPath(request, signal) {
-        return openPath(request, request.payload.path, signal)
+        return openWirePath(request, request.payload.path, signal)
       },
     },
 

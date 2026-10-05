@@ -49,6 +49,11 @@ export {
   DirectoryBrowseError, SessionArchiveActiveError, WorkspaceCreateError, WorkspaceRuntime,
 } from './workspaces/service.ts'
 export { resolveWorkspacePath } from './workspaces/path.ts'
+export { ChangeFeed, WorkspaceFileWatchError } from './workspaces/change-feed.ts'
+export type {
+  ChangeFeedMode, ChangeFeedOptions, WorkspaceFileWatch, WorkspaceFileWatchChange,
+  WorkspaceFileWatchFailureCode, WorkspaceFileWatchFrame,
+} from './workspaces/change-feed.ts'
 // Contract only: the scope implementation and its Host transport belong to
 // dsh-client-ui-settings (see that package's settings-scope.ts).
 export type {

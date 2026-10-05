@@ -11,7 +11,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  CodeBlock, IconCloseOutline16, MarkdownText,
+  CodeBlock, IconCloseOutline16, IconRightUpOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceWorkbenchProps } from './contract/slots.ts'
 import type { WorkbenchTab } from './stores.ts'
@@ -83,11 +83,16 @@ function useObjectUrl(tab: WorkbenchTab | undefined): ObjectUrlState | undefined
   return state
 }
 
-/** Package-internal bounded CSV presentation, exported for direct component accounting. */
-export function CsvTable({ content, t }: { content: string; t: WorkbenchTranslate }) {
-  const parsed = parseCsvPreview(content)
+/** Delimited-table family the bounded preview renders (delimiter and copy derive from it). */
+export type CsvFamily = 'csv' | 'tsv'
+
+/** Package-internal bounded delimited (CSV/TSV) presentation, exported for direct component accounting. */
+export function CsvTable({ content, family, t }: { content: string; family: CsvFamily; t: WorkbenchTranslate }) {
+  const parsed = parseCsvPreview(content, undefined, undefined, family === 'tsv' ? '\t' : ',')
   const [header, ...body] = parsed.rows
-  if (header === undefined) return <div className={css.emptyPreview}>{t('workbench.csvEmpty')}</div>
+  if (header === undefined) {
+    return <div className={css.emptyPreview}>{t('workbench.tableEmpty', { format: family.toUpperCase() })}</div>
+  }
   return (
     <div className={css.csvWrap}>
       <table className={css.csvTable}>
@@ -184,11 +189,13 @@ export function TabStrip(props: {
 }
 
 /** Package-internal preview dispatcher, exported for direct component accounting. */
-export function FilePreview({ tab, onDismiss, t, onFrameLoad }: {
+export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: {
   tab: WorkbenchTab | undefined
   onDismiss: () => void
   t: WorkbenchTranslate
   onFrameLoad?: (frame: HTMLIFrameElement) => void
+  /** Open the previewed file with the Host's default application; absent hides the action. */
+  onOpenExternal?: () => void
 }) {
   const objectUrlState = useObjectUrl(tab)
   const objectUrl = objectUrlState !== undefined && tab !== undefined
@@ -217,7 +224,8 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad }: {
       case 'html': body = <iframe className={css.htmlPreview} title={tab.title} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={content} onLoad={event => onFrameLoad?.(event.currentTarget)} />; break
       case 'code': body = <div className={css.codePreview}><CodeBlock code={content} lang={tab.language} /></div>; break
       case 'text': body = <pre className={css.textPreview}>{tab.content}</pre>; break
-      case 'csv': body = <CsvTable content={content} t={t} />; break
+      case 'csv': body = <CsvTable content={content} family="csv" t={t} />; break
+      case 'tsv': body = <CsvTable content={content} family="tsv" t={t} />; break
       case 'diff': body = <DiffPreview content={content} />; break
       case 'image': body = <div className={css.imagePreview}><img src={objectUrl} alt={tab.title} /></div>; break
       case 'pdf': body = <iframe className={css.pdfPreview} title={tab.title} sandbox="allow-same-origin" src={objectUrl} onLoad={event => onFrameLoad?.(event.currentTarget)} />; break
@@ -235,6 +243,16 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad }: {
             the bidi isolate stops the base direction from reordering it. */}
         <span className={css.previewPath} title={tab.path}>&#8296;{tab.path}&#8297;</span>
         {tab.bytes !== undefined && <small>{tab.bytes.toLocaleString()} B</small>}
+        {onOpenExternal !== undefined && tab.error === undefined && (
+          <button
+            type="button"
+            className={css.closeButton}
+            aria-label={t('workbench.previewOpenExternal')}
+            onClick={onOpenExternal}
+          >
+            <IconRightUpOutline16 />
+          </button>
+        )}
         <button type="button" className={css.closeButton} aria-label={t('workbench.previewClose')} onClick={onDismiss}>
           <IconCloseOutline16 />
         </button>
@@ -258,6 +276,8 @@ export function WorkbenchPreview(props: {
   focusScopeKey?: string
   /** Workspace-relative path used to hand the opener across placements. */
   focusReturnPath?: string
+  /** Open the previewed file with the Host's default application; absent hides the action. */
+  onOpenExternal?: () => void
   placement: WorkbenchPreviewPlacement
   t: WorkbenchTranslate
   onSelect: (id: string) => void
@@ -373,7 +393,13 @@ export function WorkbenchPreview(props: {
         onSelect={props.onSelect}
         onClose={props.onClose}
       />
-      <FilePreview tab={activeTab} t={props.t} onDismiss={props.onDismiss} onFrameLoad={bindFrame} />
+      <FilePreview
+        tab={activeTab}
+        t={props.t}
+        onDismiss={props.onDismiss}
+        onFrameLoad={bindFrame}
+        {...(props.onOpenExternal === undefined ? {} : { onOpenExternal: props.onOpenExternal })}
+      />
     </div>
   )
   return props.placement === 'overlay'

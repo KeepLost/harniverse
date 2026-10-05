@@ -13,6 +13,7 @@ import type { ClientAuthentication } from '@deepseek-ai/dsh-client-authenticatio
 import type { TargetGeneration, TransportPathResolver } from './target.ts'
 
 type IApiEvents = import('./api.ts').IApiClient['events']
+type IApiClient = import('./api.ts').IApiClient
 
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
 
@@ -178,6 +179,14 @@ export class WebApiClient extends AbstractApiClient {
     if (this.delegate !== undefined) return this.delegate().openBrowser(...args)
     const signal = this.generation?.().signal(args[1]) ?? args[1]
     return this.fenceStream(super.openBrowser(args[0], signal,
+      () => { if (!signal.aborted) args[2]?.() },
+      (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+  }
+
+  protected override openWorkspaceFilesWatch(...args: Parameters<IApiClient['workspaceFiles']['watchFiles']>): ReturnType<IApiClient['workspaceFiles']['watchFiles']> {
+    if (this.delegate !== undefined) return this.delegate().openWorkspaceFilesWatch(...args)
+    const signal = this.generation?.().signal(args[1]) ?? args[1]
+    return this.fenceStream(super.openWorkspaceFilesWatch(args[0], signal,
       () => { if (!signal.aborted) args[2]?.() },
       (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
   }

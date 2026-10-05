@@ -27,6 +27,10 @@ import { zh } from '../src/client/locales.ts'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
+
+/** No connected Host description (the pre-handshake source these benches assume). */
+const ABSENT_HOST_DESCRIPTION = createSnapshotStore<HostDescription | undefined>(undefined)
 
 afterEach(cleanup)
 
@@ -139,9 +143,12 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
     keyboard: shell,
     addImages: () => null,
     removeImage: () => {},
-    addFiles: () => {},
+    addFiles: () => null,
     removeFile: () => {},
     draftImages: () => [],
+    isLoopback: false,
+    shellPathBridge: false,
+    useHostDescription: bindSnapshotSelector(ABSENT_HOST_DESCRIPTION),
     resolveSubmitMode: () => 'queue',
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),

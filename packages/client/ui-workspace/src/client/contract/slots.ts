@@ -31,7 +31,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {
   ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
+import type { IWorkspaces, WorkspaceFileWatch } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore, createWorkspaceWorkbenchStore } from '../stores.ts'
 
 /**
@@ -201,6 +201,27 @@ export type WorkspaceWorkbenchInjected = {
   gitStatus: IWorkspaces['gitStatus']
   gitCommits: IWorkspaces['gitCommits']
   gitDiff: IWorkspaces['gitDiff']
+  /**
+   * Open a Host-resolved path with the operating system's default
+   * application; `resolveWorkspacePath` turns a Workspace-relative tree path
+   * into the spelling this accepts.
+   */
+  openPath: IWorkspaces['openPath']
+  /**
+   * The runtime's directory watch subscription, when the Host watch
+   * transport has shipped; absent means watch-driven refresh is unavailable
+   * and the manual refresh button is the only relist trigger.
+   */
+  watchFiles?: WorkspaceFileWatch
+  /**
+   * Reserved reactive compartment: true while the connected Host can open
+   * paths with a native application (its description reports
+   * `canOpenPath`).
+   */
+  hooks: {
+    /** The Host's native path-open capability. */
+    canOpenPath: HostObservable<boolean>
+  }
 }
 
 /** Full top-level workbench props: session runtime, shared store, callbacks, and locale. */
@@ -212,6 +233,19 @@ export type WorkspaceWorkbenchProps =
   & PropsLocale<'workspace'>
 
 /**
+ * Preview-surface callbacks supplied by the apply world: the native
+ * open-path action and its capability, shared with the workbench face.
+ */
+export type WorkspacePreviewInjected = {
+  openPath: IWorkspaces['openPath']
+  /** Reserved reactive compartment: see {@link WorkspaceWorkbenchInjected}. */
+  hooks: {
+    /** The Host's native path-open capability. */
+    canOpenPath: HostObservable<boolean>
+  }
+}
+
+/**
  * Props of the preview companion registered into the shell's overlay layer.
  *
  * The surface needs no inspection callbacks: the workbench performs every read
@@ -221,4 +255,5 @@ export type WorkspaceWorkbenchProps =
 export type WorkspacePreviewOverlayProps =
   PropsRuntime<'shell.overlay'>
   & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
+  & InjectFace<WorkspacePreviewInjected>
   & PropsLocale<'workspace'>

@@ -387,6 +387,17 @@ function imageMediaType(value: string): ImageMediaType {
   }
 }
 
+/**
+ * Whether a browser file's MIME type is one of the composer's image types
+ * (the non-throwing twin of {@link imageMediaType}; drop/paste routing reads
+ * it to split an image upload batch from Host-path reference chips).
+ * @param value - browser file MIME type.
+ * @returns whether the type names a supported image.
+ */
+export function isImageMediaType(value: string): boolean {
+  return value === 'image/png' || value === 'image/jpeg' || value === 'image/webp' || value === 'image/gif'
+}
+
 function bytesToBase64(data: Uint8Array): string {
   let binary = ''
   const chunk = 0x8000

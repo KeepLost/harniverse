@@ -7,7 +7,8 @@
 
 import type { z } from 'zod'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
-import type { ApiProxy, BrowserStreamFrame, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame } from '../api/index.ts'
+import type { ApiProxy, BrowserStreamFrame, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame, WorkspaceFileWatchFrame } from '../api/index.ts'
+import type { WorkspaceId } from '../api/workspace.ts'
 import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
 import { CONNECTION_AUTHENTICATED_METHOD, RequestId, RpcId, sameAuthenticationPrincipalIdentity } from '../api/rpc.ts'
@@ -89,6 +90,7 @@ import { speechPrepareValueSchema, speechTranscribeValueSchema } from '../api/sp
 import {
   workspaceFilesListValueSchema, workspaceFilesReadBinaryValueSchema,
   workspaceFilesReadValueSchema, workspaceFilesSearchValueSchema,
+  workspaceFilesWatchFrameSchema,
 } from '../api/workspace-files.schema.ts'
 import {
   workspaceGitCommitsValueSchema, workspaceGitDiffValueSchema, workspaceGitStatusValueSchema,
@@ -176,6 +178,10 @@ export interface IApiClient {
     search(payload: RequestPayload<'workspace.files.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.search'>>>
     read(payload: RequestPayload<'workspace.files.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.read'>>>
     readBinary(payload: RequestPayload<'workspace.files.readBinary'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.readBinary'>>>
+    watchFiles(
+      payload: { workspaceId: WorkspaceId; path?: string }, signal: AbortSignal, onOpen?: () => void,
+      onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
+    ): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>>
   }
   workspaceGit: {
     status(payload: RequestPayload<'workspace.git.status'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.status'>>>
@@ -500,6 +506,16 @@ export abstract class AbstractApiClient implements IApiClient {
     return this.readSse(path, signal, browserStreamFrameSchema, onOpen, onAuthenticated)
   }
 
+  /** Workspace file-watch stream opener; virtual for the same override reason as openMux. */
+  protected openWorkspaceFilesWatch(
+    payload: Parameters<IApiClient['workspaceFiles']['watchFiles']>[0], signal: AbortSignal,
+    onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
+  ): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>> {
+    const query = new URLSearchParams({ workspaceId: payload.workspaceId })
+    if (payload.path !== undefined && payload.path !== '') query.set('path', payload.path)
+    return this.readSse(`/api/workspace.files.watch?${query.toString()}`, signal, workspaceFilesWatchFrameSchema, onOpen, onAuthenticated)
+  }
+
   /**
    * SSE protocol path: streaming fetch (not EventSource), '\n\n' framing, ServerRequest envelope +
    * frame-schema parse, tap, narrow yield. onOpen fires once the response headers are in and the
@@ -507,7 +523,9 @@ export abstract class AbstractApiClient implements IApiClient {
    * either parse level is reported and skipped (one corrupt frame must not kill the stream; the
    * client's gap detection covers whatever the frame carried).
    */
-  protected async *readSse<F extends MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame | BrowserStreamFrame>(
+  protected async *readSse<
+    F extends MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame | BrowserStreamFrame | WorkspaceFileWatchFrame,
+  >(
     path: string,
     signal: AbortSignal,
     frameSchema: z.ZodType<F>,
@@ -632,6 +650,8 @@ export abstract class AbstractApiClient implements IApiClient {
     search: (payload, signal) => this.callUnary('workspace.files.search', payload, signal),
     read: (payload, signal) => this.callUnary('workspace.files.read', payload, signal),
     readBinary: (payload, signal) => this.callUnary('workspace.files.readBinary', payload, signal),
+    watchFiles: (payload, signal, onOpen, onAuthenticated) =>
+      this.openWorkspaceFilesWatch(payload, signal, onOpen, onAuthenticated),
   }
 
   readonly workspaceGit: IApiClient['workspaceGit'] = {

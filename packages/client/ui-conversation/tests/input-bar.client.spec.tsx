@@ -13,6 +13,7 @@ import {
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import type { SessionInputDeps } from '../src/client/input/facade.ts'
@@ -93,6 +94,14 @@ interface BenchOptions {
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
   addImages?: (files: readonly File[]) => string | null
+  /** Composer addFiles inject override (default: accept with no rejection). */
+  addFiles?: (files: readonly File[], directories?: ReadonlySet<File>, at?: number) => string | null
+  /** Loopback half of the local-Host path-reference gate. */
+  isLoopback?: boolean
+  /** Desktop shell's host-path bridge half of the same gate. */
+  shellPathBridge?: boolean
+  /** Host handshake description; absent = no connected description yet. */
+  canOpenPath?: boolean
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   commandsEntry?: React.ReactNode
@@ -112,6 +121,14 @@ function row(id: string): ConversationSnapshot['queue'][number] {
 // re-invoked on every controller read, so an instance minted inside it would
 // change identity per call and loop the bound selector forever.
 const EMPTY_LEXICON_STUB = new Map()
+
+/** Host-description source for the local-Host gate (absent while canOpenPath is). */
+function hostDescriptionSource(canOpenPath: boolean | undefined) {
+  const description: HostDescription | undefined = canOpenPath === undefined ? undefined : {
+    bootId: 'boot' as never, version: '0', cwd: '/proj', attachedSessions: 0, canOpenPath,
+  }
+  return createSnapshotStore<HostDescription | undefined>(description)
+}
 
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
 function bench(over?: BenchOptions) {
@@ -187,8 +204,12 @@ function bench(over?: BenchOptions) {
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
     removeImage,
-    addFiles: (files) => { shell.addFiles(files) },
+    // Default mirrors the production face's pathless arm: a plain upload.
+    addFiles: over?.addFiles ?? ((files) => { shell.addFiles(files); return null }),
     removeFile: (id) => { shell.removeFile(id) },
+    isLoopback: over?.isLoopback ?? false,
+    shellPathBridge: over?.shellPathBridge ?? false,
+    useHostDescription: bindSnapshotSelector(hostDescriptionSource(over?.canOpenPath)),
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
       return attachment === undefined ? [] : [attachment]
@@ -253,7 +274,7 @@ describe('image draft rail', () => {
     const addImages = vi.fn(() => null)
     const { view } = bench({ addImages })
     const image = new File([Uint8Array.of(1)], 'dropped.png', { type: 'image/png' })
-    const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'none' }
+    const dataTransfer = { types: ['Files'], files: [image], items: [], dropEffect: 'none' }
     // The drag never touches the composer card: the listeners are page-wide.
     expect(fireEvent.dragEnter(document.body, { dataTransfer })).toBe(false)
     expect(view.getByRole('status').textContent).toContain('图片拖动到此处即可添加')
@@ -270,7 +291,7 @@ describe('image draft rail', () => {
     // A text drag carries no Files type: no overlay, native behavior stays.
     fireEvent.dragEnter(document.body, { dataTransfer: { types: ['text/plain'], files: [], dropEffect: 'none' } })
     expect(view.queryByRole('status')).toBeNull()
-    const dataTransfer = { types: ['Files'], files: [], dropEffect: 'none' }
+    const dataTransfer = { types: ['Files'], files: [], items: [], dropEffect: 'none' }
     fireEvent.dragEnter(document.body, { dataTransfer })
     expect(view.getByRole('status')).toBeTruthy()
     fireEvent.dragLeave(document.body, { dataTransfer })
@@ -294,7 +315,7 @@ describe('image draft rail', () => {
     }
     const png = (bytes: number, name: string) => new File([new ArrayBuffer(bytes)], name, { type: 'image/png' })
     const drop = (files: File[]) => {
-      fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, dropEffect: 'none' } })
+      fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, items: [], dropEffect: 'none' } })
     }
     // Count: three at once over a two-image limit → the whole batch refused.
     const overCount = bench({ addImages: vi.fn(() => null), imageLimits: limits })
@@ -341,7 +362,7 @@ describe('image draft rail', () => {
       new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' }),
       new File([new ArrayBuffer(64)], 'b.pdf', { type: 'application/pdf' }),
     ]
-    fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, dropEffect: 'none' } })
+    fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, items: [], dropEffect: 'none' } })
     expect(addImages).toHaveBeenCalledWith(files)
     expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
   })
@@ -382,7 +403,7 @@ describe('image draft rail', () => {
     const addImages = vi.fn(() => null)
     const { view } = bench({ addImages, inert: true })
     const image = new File([Uint8Array.of(1)], 'dropped.png', { type: 'image/png' })
-    const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'copy' }
+    const dataTransfer = { types: ['Files'], files: [image], items: [], dropEffect: 'copy' }
     fireEvent.dragEnter(document.body, { dataTransfer })
     expect(view.getByRole('status').textContent).toContain('当前无法添加图片')
     fireEvent.dragOver(document.body, { dataTransfer })
@@ -442,9 +463,148 @@ describe('image draft rail', () => {
     const addImages = vi.fn(() => '图片读取服务不可用')
     const { view } = bench({ addImages })
     const card = view.container.querySelector('[class*="card"]')!
-    const dataTransfer = { types: ['Files'], files: [new File([Uint8Array.of(1)], 'x.png', { type: 'image/png' })], dropEffect: 'none' }
+    const dataTransfer = { types: ['Files'], files: [new File([Uint8Array.of(1)], 'x.png', { type: 'image/png' })], items: [], dropEffect: 'none' }
     fireEvent.drop(card, { dataTransfer })
     expect(view.getByRole('alert').textContent).toContain('图片读取服务不可用')
+  })
+})
+
+describe('desktop path intake', () => {
+
+  it('keeps the image-only intake on a non-local client exactly (no addFiles route)', () => {
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
+    const { textarea } = bench({ addImages, addFiles, isLoopback: false, canOpenPath: true })
+    const image = new File([Uint8Array.of(1)], 'shot.png', { type: 'image/png' })
+    const document_ = new File([Uint8Array.of(2)], 'notes.md', { type: 'text/markdown' })
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [{ kind: 'file', getAsFile: () => image }, { kind: 'file', getAsFile: () => document_ }],
+        getData: () => '',
+      },
+    })
+    // Today's web behavior: every pasted file rides the image intake.
+    expect(addImages).toHaveBeenCalledWith([image, document_])
+    expect(addFiles).not.toHaveBeenCalled()
+  })
+
+  it('splits a local paste: folders and files to reference chips, images to the rail', () => {
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
+    const { textarea } = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
+    const folder = new File([], 'my project')
+    const note = new File([Uint8Array.of(2)], 'notes.md', { type: 'text/markdown' })
+    const shot = new File([Uint8Array.of(3)], 'shot.png', { type: 'image/png' })
+    const withoutEntry = new File([], 'no-entry')
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [
+          { kind: 'string', getAsFile: () => null },
+          { kind: 'file', getAsFile: () => folder, webkitGetAsEntry: () => ({ isDirectory: true }) },
+          { kind: 'file', getAsFile: () => note, webkitGetAsEntry: () => ({ isDirectory: false }) },
+          { kind: 'file', getAsFile: () => shot },
+          { kind: 'file', getAsFile: () => withoutEntry, webkitGetAsEntry: () => null },
+          { kind: 'file', getAsFile: () => null },
+        ],
+        getData: () => '',
+      },
+    })
+    expect(addImages).toHaveBeenCalledWith([shot])
+    expect(addFiles).toHaveBeenCalledTimes(1)
+    const [files, directories, at] = addFiles.mock.calls[0]!
+    expect(files).toEqual([folder, note, withoutEntry])
+    expect([...(directories ?? [])].map(file => file.name)).toEqual(['my project'])
+    expect(at).toBe(0)
+  })
+
+  it('inserts local reference chips at the live selection end while pasted text replaces the selection', () => {
+    const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
+    const { textarea, shell } = bench({ addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true, draft: '读一些' })
+    textarea.setSelectionRange(3, 3)
+    const note = new File([Uint8Array.of(1)], 'notes.md', { type: 'text/markdown' })
+    fireEvent.paste(textarea, {
+      clipboardData: { items: [{ kind: 'file', getAsFile: () => note }], getData: () => '这些' },
+    })
+    expect(addFiles).toHaveBeenCalledWith([note], new Set(), 3)
+    expect(shell.snapshot.draft).toBe('读一些这些')
+  })
+
+  it('routes a local drop through the same intake, reading directory entries off the drag', () => {
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
+    bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
+    const folder = new File([], 'project')
+    const note = new File([Uint8Array.of(1)], 'notes.md', { type: 'text/markdown' })
+    const shot = new File([Uint8Array.of(2)], 'shot.png', { type: 'image/png' })
+    fireEvent.drop(document.body, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [folder, note, shot],
+        items: [
+          { kind: 'string' },
+          { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: true }) },
+          { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: false }) },
+          { kind: 'file' },
+          // An entry with no paired File (more file items than files) is skipped.
+          { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: true }) },
+        ],
+        dropEffect: 'none',
+      },
+    })
+    expect(addImages).toHaveBeenCalledWith([shot])
+    expect(addFiles).toHaveBeenCalledTimes(1)
+    const [files, directories] = addFiles.mock.calls[0]!
+    expect(files).toEqual([folder, note])
+    expect([...(directories ?? [])].map(file => file.name)).toEqual(['project'])
+  })
+
+  it('keeps an images-only local paste on the rail and honors projected media types at the split', () => {
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn((_files: readonly File[], _directories?: ReadonlySet<File>, _at?: number): string | null => null)
+    const first = bench({
+      addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true,
+      imageLimits: {
+        maxImageBytes: 1024, maxImagesPerMessage: 4, maxMessageImageBytes: 4096,
+        maxImagePixels: 1000, mediaTypes: ['image/png'] as const,
+      },
+    })
+    // webp is a composer image type but outside the projected media list, so
+    // the split routes it to the reference intake, not the rail.
+    const webp = new File([Uint8Array.of(1)], 'shot.webp', { type: 'image/webp' })
+    fireEvent.paste(first.textarea, {
+      clipboardData: { items: [{ kind: 'file', getAsFile: () => webp }], getData: () => '' },
+    })
+    expect(addImages).not.toHaveBeenCalled()
+    expect(addFiles).toHaveBeenCalledWith([webp], new Set(), 0)
+    cleanup()
+    // A png-only batch keeps the whole intake on the rail (nothing to chip).
+    const second = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
+    const png = new File([Uint8Array.of(2)], 'shot.png', { type: 'image/png' })
+    fireEvent.paste(second.textarea, {
+      clipboardData: { items: [{ kind: 'file', getAsFile: () => png }], getData: () => '' },
+    })
+    expect(addImages).toHaveBeenCalledWith([png])
+    expect(addFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('announces an addFiles refusal through the toast and keeps the image side of a mixed batch', () => {
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn(() => '只有桌面端支持添加文件夹，浏览器里请添加单个文件')
+    const { view, textarea } = bench({ addImages, addFiles, isLoopback: true, canOpenPath: true, shellPathBridge: true })
+    const folder = new File([], 'project')
+    const shot = new File([Uint8Array.of(2)], 'shot.png', { type: 'image/png' })
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [
+          { kind: 'file', getAsFile: () => folder, webkitGetAsEntry: () => ({ isDirectory: true }) },
+          { kind: 'file', getAsFile: () => shot },
+        ],
+        getData: () => '',
+      },
+    })
+    // The refusal names the folder; the image still entered the upload rail.
+    expect(view.getByRole('alert').textContent).toContain('只有桌面端支持添加文件夹')
+    expect(addImages).toHaveBeenCalledWith([shot])
   })
 })
 
@@ -1594,6 +1754,12 @@ describe('file intake', () => {
       fireEvent.change(input)
     })
   }
+
+  it('announces a refused picker batch through the same toast', () => {
+    const b = bench({ addFiles: () => '路径含有无法引用的字符，请改名后再试' })
+    pick(b.view, [new File([], 'bad"name')])
+    expect(b.view.getByRole('alert').textContent).toContain('路径含有无法引用的字符')
+  })
 
   it('mints an uploading chip from the picker and locks the primary until it settles', async () => {
     const { held, fileUploads } = holding()

@@ -489,10 +489,10 @@ export class SessionInputShell implements SessionInput {
    * consume-token span branch: the machine sees an ordinary draft-changed
    * transaction (one undo step), no occurrence is minted — the chip look is
    * a scan-derived decoration, never state.
-    * @param text - the plain reference text to splice in (e.g. `/name `).
-    * @param span - pick-time span snapshot (draftRev CAS).
-    * @param continueCompletion - whether to re-track completion at the replacement caret.
-    * @returns whether the text was applied.
+   * @param text - the plain reference text to splice in (e.g. `/name `).
+   * @param span - pick-time span snapshot (draftRev CAS).
+   * @param continueCompletion - whether to re-track completion at the replacement caret.
+   * @returns whether the text was applied.
    */
   insertText(text: string, span: TokenSpan, continueCompletion = false): boolean {
     const snapshot = this.core.state
@@ -500,6 +500,33 @@ export class SessionInputShell implements SessionInput {
     const draft = snapshot.draft
     this.setDraft(draft.slice(0, span.start) + text + draft.slice(span.end))
     if (continueCompletion) this.track(this.snapshot.draft, span.start + text.length)
+    return true
+  }
+
+  /**
+   * Insert one ordered batch of Host-path reference chips at the draft caret
+   * (the desktop drop/paste intake): a single paste transaction whose
+   * components mint each chip, so one undo removes the whole batch and each
+   * chip rides the standard placeholder/removal semantics.
+   * @param references - validated references in source order.
+   * @param at - insertion offset in draft coordinates (clamped to the draft).
+   * @returns whether the busy-phase guard accepted the batch.
+   */
+  insertFileReferences(references: readonly ReferenceInsert[], at: number): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    if (references.length === 0) return true
+    const draft = this.snapshot.draft
+    const bounded = Math.min(Math.max(at, 0), draft.length)
+    // Each chip lands as one placeholder with a separator after it; the first
+    // additionally separates from a non-blank predecessor.
+    const lead = bounded > 0 && !/\s/u.test(draft.charAt(bounded - 1)) ? ' ' : ''
+    let text = lead
+    const components: PasteComponent[] = references.map((reference) => {
+      const component = { start: text.length, end: text.length + 1, reference }
+      text += '  '
+      return component
+    })
+    this.pasteBegin(text, { start: bounded, end: bounded }, components)
     return true
   }
 

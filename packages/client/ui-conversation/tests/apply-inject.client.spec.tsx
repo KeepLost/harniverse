@@ -14,12 +14,13 @@
 // guards would mask. Rendering-path acceptance lives in
 // chat-toolview-slot.spec.tsx.
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
@@ -28,6 +29,8 @@ import type {
 import type { createChatStore } from '../src/client/stores.ts'
 import type { ConversationSettings } from '../src/conversation-settings.ts'
 import type { LinkDestinationRowInjected } from '../src/client/settings/LinkDestinationRow.tsx'
+import { projectClipboard } from '../src/client/input/machine.ts'
+import type { InputState } from '../src/client/contract/input.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -48,9 +51,29 @@ function sessionFakeFor() {
   } satisfies SessionBehaviorOverrides
 }
 
-async function bench() {
+async function bench(over: {
+  /** Loopback half of the local-Host gate (default: a served remote page). */
+  isLoopback?: boolean
+  /** Handshake description's native path-opening fact (absent = no handshake yet). */
+  canOpenPath?: boolean
+} = {}) {
   const runtime = await SlotTestRuntime.create()
-  runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
+  const upload = vi.fn(() => Promise.resolve({
+    attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+    bytes: 1,
+    name: 'uploaded',
+  }))
+  runtime.provide('connection', {
+    api: { settings: {} },
+    isLoopback: over.isLoopback ?? false,
+    hostDescription: {
+      getSnapshot: () => over.canOpenPath === undefined ? undefined : {
+        bootId: 'boot' as never, version: '0', cwd: '/proj', attachedSessions: 0, canOpenPath: over.canOpenPath,
+      },
+      subscribe: () => () => {},
+    },
+    upload,
+  })
   // The plugin injects both; these specs exercise no settings path.
   runtime.provide('remote', { $on: () => () => {} })
   // One publishable scope: the durable conversation section (Enter behavior and
@@ -129,7 +152,7 @@ async function bench() {
   const inputApi = (id: SessionId) => {
     const info = runtime.sessions.provideInfo(id)!
     const state = info.hooks['input'] as {
-      getSnapshot: () => { draft: string }
+      getSnapshot: () => InputState
       subscribe: (fn: () => void) => () => void
     }
     const actions = info.props['inputActions'] as {
@@ -141,7 +164,7 @@ async function bench() {
   return {
     runtime, feature, slots: runtime.slots, entryOf,
     conversationApi, conversationHeaderApi, residentApi, composerApi, chatViewApi, inputApi, linkRowApi,
-    sessionFake, layoutFake, settings,
+    sessionFake, layoutFake, settings, upload,
   }
 }
 
@@ -241,6 +264,119 @@ describe('conversation slot inject API', () => {
     const stop = injectFn(ROOT).stop!
     await b.feature.dispose()
     expect(() => { stop() }).toThrow(/unavailable through the session scope/)
+    await b.runtime.dispose()
+  })
+
+  it('cites dropped files and folders as @ reference chips on a local Host; images still upload', async () => {
+    const paths = new Map([
+      ['my project', '/proj/my project'],
+      ['notes.md', '/proj/src/notes.md'],
+      ['shot.png', '/proj/shot.png'],
+      ['outside.txt', '/elsewhere/outside.txt'],
+    ])
+    vi.stubGlobal('harniverseHostPaths', { pathFor: (file: File) => paths.get(file.name) ?? '' })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const b = await bench({ isLoopback: true, canOpenPath: true })
+    const composer = b.composerApi(ROOT)
+    const { state } = b.inputApi(ROOT)
+    const folder = new File([], 'my project')
+    const note = new File([Uint8Array.of(1)], 'notes.md', { type: 'text/markdown' })
+    const shot = new File([Uint8Array.of(2)], 'shot.png', { type: 'image/png' })
+    const outside = new File([Uint8Array.of(3)], 'outside.txt', { type: 'text/plain' })
+    expect(composer.addFiles?.([folder, note, shot, outside], new Set([folder]), 0)).toBeNull()
+    // Folders and named non-image files became reference chips in drop
+    // order; the workspace-rooted path relativizes while the foreign one
+    // stays absolute. The draft holds one placeholder per chip.
+    expect(state.getSnapshot().draft).toBe('￼ ￼ ￼ ')
+    expect(projectClipboard(state.getSnapshot())).toBe('@"my project/" @src/notes.md @/elsewhere/outside.txt ')
+    const chips = state.getSnapshot().occurrences.map(o => ({ ref: o.ref, label: o.label, clipboardText: o.clipboardText }))
+    expect(chips).toEqual([
+      { ref: '@"my project/"', label: 'my project/', clipboardText: '@"my project/"' },
+      { ref: '@src/notes.md', label: 'notes.md', clipboardText: '@src/notes.md' },
+      { ref: '@/elsewhere/outside.txt', label: 'outside.txt', clipboardText: '@/elsewhere/outside.txt' },
+    ])
+    // The image kept the upload rail.
+    expect(b.upload).toHaveBeenCalledTimes(1)
+    await b.runtime.dispose()
+  })
+
+  it('refuses folders without the desktop bridge and uploads pathless files on a served page', async () => {
+    const b = await bench()
+    const composer = b.composerApi(ROOT)
+    const { state } = b.inputApi(ROOT)
+    const folder = new File([], 'project')
+    expect(composer.addFiles?.([folder], new Set([folder]))).toBe('只有桌面端支持添加文件夹，浏览器里请添加单个文件')
+    expect(state.getSnapshot().draft).toBe('')
+    // A bridge alone does not flip a non-local page: directories still refuse.
+    vi.stubGlobal('harniverseHostPaths', { pathFor: () => '/proj/project' })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    expect(composer.addFiles?.([folder], new Set([folder]))).toBe('只有桌面端支持添加文件夹，浏览器里请添加单个文件')
+    // Pathless files upload exactly as before.
+    const note = new File([Uint8Array.of(1)], 'notes.md', { type: 'text/markdown' })
+    expect(composer.addFiles?.([note])).toBeNull()
+    expect(state.getSnapshot().draft).toBe('')
+    expect(b.upload).toHaveBeenCalledTimes(1)
+    await b.runtime.dispose()
+  })
+
+  it('falls back to the browser file name when the named path has no title segment', async () => {
+    // A separator-only Host path yields no workspace title; the chip label
+    // keeps the dropped file's own name instead of going blank.
+    vi.stubGlobal('harniverseHostPaths', { pathFor: () => '/' })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const b = await bench({ isLoopback: true, canOpenPath: true })
+    const composer = b.composerApi(ROOT)
+    const { state } = b.inputApi(ROOT)
+    const odd = new File([Uint8Array.of(1)], 'untitled.md', { type: 'text/markdown' })
+    expect(composer.addFiles?.([odd], undefined, 0)).toBeNull()
+    expect(state.getSnapshot().occurrences.map(o => [o.label, o.ref])).toEqual([['untitled.md', '@/']])
+    await b.runtime.dispose()
+  })
+
+  it('refuses the whole batch before mutating when a member is unrepresentable or unnamed', async () => {
+    vi.stubGlobal('harniverseHostPaths', {
+      pathFor: (file: File) => file.name === 'nameless' ? '' : `/proj/${file.name}`,
+    })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const b = await bench({ isLoopback: true, canOpenPath: true })
+    const composer = b.composerApi(ROOT)
+    const { state, actions } = b.inputApi(ROOT)
+    actions.setDraft('keep this')
+    const good = new File([], 'good.txt')
+    for (const name of ['bad"name', 'bad\nname']) {
+      expect(composer.addFiles?.([good, new File([], name)])).toBe('路径含有无法引用的字符，请改名后再试')
+      expect(state.getSnapshot().draft).toBe('keep this')
+      expect(state.getSnapshot().occurrences).toHaveLength(0)
+      expect(b.upload).not.toHaveBeenCalled()
+    }
+    // A folder the bridge cannot name refuses its own batch.
+    const nameless = new File([], 'nameless')
+    expect(composer.addFiles?.([nameless], new Set([nameless]))).toBe('无法获取文件夹路径，请重新拖入')
+    expect(state.getSnapshot().draft).toBe('keep this')
+    await b.runtime.dispose()
+  })
+
+  it('refuses the chip intake while an admission transaction is busy', async () => {
+    vi.stubGlobal('harniverseHostPaths', { pathFor: (file: File) => `/proj/${file.name}` })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const b = await bench({ isLoopback: true, canOpenPath: true })
+    const composer = b.composerApi(ROOT)
+    const { state, actions } = b.inputApi(ROOT)
+    let release: (() => void) | undefined
+    b.sessionFake.prompt.mockReturnValue(new Promise((resolve) => {
+      release = () => {
+        resolve({ ok: true, value: { accepted: true } })
+      }
+    }))
+    actions.setDraft('busy')
+    actions.submit()
+    expect(state.getSnapshot().phase).toBe('submitting')
+    expect(composer.addFiles?.([new File([], 'a.txt')]))
+      .toBe('当前无法添加文件')
+    expect(state.getSnapshot().draft).toBe('busy')
+    // Settle the held admission so disposal can drain it.
+    release?.()
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
     await b.runtime.dispose()
   })
 

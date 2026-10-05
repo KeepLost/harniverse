@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type {
-  SessionId, SessionListState, WorkspaceFileEntry, WorkspaceId, WorkspaceListState, WorkspaceView,
+  SessionId, SessionListState, WorkspaceFileEntry, WorkspaceFileWatch, WorkspaceFileWatchFrame,
+  WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -23,6 +24,75 @@ const t: WorkspaceWorkbenchProps['t'] = makeTranslate(zh, commonZh)
 const sid = (value: string) => value as SessionId
 const wid = (value: string) => value as WorkspaceId
 
+/** SnapshotSelectorHook stub over a fixed capability value. */
+const capabilityHook = (enabled: boolean) => <S,>(select: (capable: boolean) => S): S => select(enabled)
+
+/** One programmable watch subscription's pending frames and wake callback. */
+interface WatchQueue {
+  frames: WorkspaceFileWatchFrame[]
+  error: unknown
+  done: boolean
+  wake: (() => void) | undefined
+}
+
+/** Programmable watch subscription: the case pushes frames or fails the stream. */
+class WatchChannel {
+  /** Every opened subscription's abort signal, in open order. */
+  readonly signals: AbortSignal[] = []
+  private readonly queues: WatchQueue[] = []
+  /** When set, every opened subscription fails with it on its first pull. */
+  autoFail: unknown
+
+  /** The watchFiles face member the workbench consumes. */
+  readonly watch: WorkspaceFileWatch = (_workspaceId, _path, signal) => {
+    const entry: WatchQueue = { frames: [], error: undefined, done: false, wake: undefined }
+    this.signals.push(signal)
+    this.queues.push(entry)
+    if (this.autoFail !== undefined) {
+      entry.error = this.autoFail
+      entry.done = true
+    }
+    signal.addEventListener('abort', () => {
+      entry.done = true
+      entry.wake?.()
+    }, { once: true })
+    return this.streamOf(entry)
+  }
+
+  /** Push one frame to the most recently opened subscription. */
+  emit(frame: WorkspaceFileWatchFrame): void {
+    const entry = this.queues.at(-1)
+    if (entry === undefined) throw new Error('no open watch subscription')
+    entry.frames.push(frame)
+    entry.wake?.()
+  }
+
+  /** Fail the most recently opened subscription. */
+  fail(error: unknown): void {
+    const entry = this.queues.at(-1)
+    if (entry === undefined) throw new Error('no open watch subscription')
+    entry.error = error
+    entry.done = true
+    entry.wake?.()
+  }
+
+  private async *streamOf(entry: WatchQueue): AsyncGenerator<WorkspaceFileWatchFrame> {
+    while (true) {
+      const next = entry.frames.shift()
+      if (next !== undefined) {
+        yield next
+        continue
+      }
+      if (entry.done) {
+        if (entry.error !== undefined) throw entry.error
+        return
+      }
+      await new Promise<void>((resolve) => { entry.wake = resolve })
+      entry.wake = undefined
+    }
+  }
+}
+
 function workspace(id: string, sessionId: string): WorkspaceView {
   return {
     workspaceId: wid(id), path: `/projects/${id}`, title: id.toUpperCase(), sessionIds: [sid(sessionId)],
@@ -32,7 +102,7 @@ function workspace(id: string, sessionId: string): WorkspaceView {
 
 type Services = Pick<WorkspaceWorkbenchProps,
   | 'listFiles' | 'searchFiles' | 'readFile' | 'readBinaryFile'
-  | 'gitStatus' | 'gitCommits' | 'gitDiff' | 'openWorkbench' | 'closeWorkbench'>
+  | 'gitStatus' | 'gitCommits' | 'gitDiff' | 'openWorkbench' | 'closeWorkbench' | 'openPath'>
 
 function mountWorkbench(
   overrides: Partial<Services> = {},
@@ -46,6 +116,8 @@ function mountWorkbench(
     section?: string
     store?: ReturnType<ReturnType<typeof createWorkspaceWorkbenchStore>['create']>
     initialSessions?: Record<string, { updatedAt?: number; running?: boolean }>
+    canOpenPath?: boolean
+    watchFiles?: WorkspaceFileWatch
   } = {},
 ) {
   let current = 'current' in options ? options.current : sid('s-a')
@@ -63,6 +135,7 @@ function mountWorkbench(
     const summary = sessions[sid(sessionId)]
     if (summary !== undefined) sessions[sid(sessionId)] = { ...summary, ...patch }
   }
+  const canOpenPath = capabilityHook(options.canOpenPath ?? false)
   const services: Services = {
     listFiles: vi.fn(async (_workspaceId: WorkspaceId, path?: string, _signal?: AbortSignal) => ({ path: path ?? '', entries: [], truncated: false })),
     searchFiles: vi.fn(async (
@@ -75,6 +148,7 @@ function mountWorkbench(
     gitDiff: vi.fn(async (_workspaceId: WorkspaceId, _path?: string, _staged?: boolean, _signal?: AbortSignal) => ({ diff: '', truncated: false })),
     openWorkbench: vi.fn(),
     closeWorkbench: vi.fn(),
+    openPath: vi.fn(async (_path: string) => {}),
     ...overrides,
   }
   const workspaceState = (): WorkspaceListState => ({
@@ -104,6 +178,8 @@ function mountWorkbench(
         request={undefined}
         renderSlot={() => null}
         t={t}
+        useCanOpenPath={canOpenPath}
+        {...(options.watchFiles === undefined ? {} : { watchFiles: options.watchFiles })}
         {...services}
       />
       <WorkspaceWorkbenchPreviewOverlay
@@ -115,6 +191,8 @@ function mountWorkbench(
         rightOpen={rightOpen}
         rightDrawer={options.drawer ?? false}
         t={t}
+        useCanOpenPath={canOpenPath}
+        openPath={services.openPath}
       />
     </>
   )
@@ -154,9 +232,10 @@ describe('workbench presentation units', () => {
   it('renders directory loading, errors, nested empty folders, unsupported entries, and truncation', () => {
     const onToggle = vi.fn()
     const onOpen = vi.fn()
+    const onOpenExternal = vi.fn()
     const base = {
-      path: '', depth: 0, activePath: 'NOTICE', t, onToggle, onOpen,
-      expanded: { src: true },
+      path: '', depth: 0, activePath: 'NOTICE', t, onToggle, onOpen, onOpenExternal,
+      expanded: { src: true }, canOpenPath: false,
     }
     const view = render(<DirectoryChildren {...base} directories={{ '': { entries: [], truncated: false, loading: true } }} />)
     expect(view.getByText('正在读取目录…')).toBeTruthy()
@@ -181,10 +260,19 @@ describe('workbench presentation units', () => {
     const activeFile = view.getByRole('button', { name: /NOTICE/ })
     expect(directory.getAttribute('aria-expanded')).toBe('true')
     expect(activeFile.getAttribute('aria-current')).toBe('page')
+    expect(view.queryByRole('button', { name: '在默认应用中打开“NOTICE”' })).toBeNull()
     fireEvent.click(directory)
     fireEvent.click(activeFile)
     expect(onToggle).toHaveBeenCalledWith('src')
     expect(onOpen).toHaveBeenCalledWith({ name: 'NOTICE', path: 'NOTICE', kind: 'file' })
+    expect(onOpenExternal).not.toHaveBeenCalled()
+
+    view.rerender(<DirectoryChildren {...base} canOpenPath directories={{
+      '': { entries: [{ name: 'NOTICE', path: 'NOTICE', kind: 'file' }], truncated: false, loading: false },
+    }} />)
+    const openExternal = view.getByRole('button', { name: '在默认应用中打开“NOTICE”' })
+    fireEvent.click(openExternal)
+    expect(onOpenExternal).toHaveBeenCalledWith({ name: 'NOTICE', path: 'NOTICE', kind: 'file' })
   })
 
   it('renders and drives search result, empty, error, loading, and truncation states', () => {
@@ -249,15 +337,24 @@ describe('workbench presentation units', () => {
     expect(view.getByText('没有变更')).toBeTruthy()
   })
 
-  it('renders bounded CSV and all unified-diff line roles', () => {
-    const csv = render(<CsvTable content={'a,b\n1,2'} t={t} />)
+  it('renders bounded CSV and TSV tables and all unified-diff line roles', () => {
+    const csv = render(<CsvTable content={'a,b\n1,2'} family="csv" t={t} />)
     expect(csv.getByRole('table')).toBeTruthy()
     expect(csv.getByText('1')).toBeTruthy()
-    csv.rerender(<CsvTable content="" t={t} />)
+    csv.rerender(<CsvTable content="" family="csv" t={t} />)
     expect(csv.getByText('CSV 文件为空')).toBeTruthy()
-    csv.rerender(<CsvTable content={Array.from({ length: 101 }, (_, index) => String(index)).join('\n')} t={t} />)
+    csv.rerender(<CsvTable content={Array.from({ length: 101 }, (_, index) => String(index)).join('\n')} family="csv" t={t} />)
     expect(csv.getByText(/前 100 行/)).toBeTruthy()
     csv.unmount()
+
+    const tsv = render(<CsvTable content={'a\tb\n1\t2'} family="tsv" t={t} />)
+    expect(tsv.getByRole('table')).toBeTruthy()
+    expect(tsv.getByText('2')).toBeTruthy()
+    tsv.rerender(<CsvTable content="" family="tsv" t={t} />)
+    expect(tsv.getByText('TSV 文件为空')).toBeTruthy()
+    tsv.rerender(<CsvTable content={Array.from({ length: 101 }, (_, index) => String(index)).join('\n')} family="tsv" t={t} />)
+    expect(tsv.getByText(/前 100 行/)).toBeTruthy()
+    tsv.unmount()
 
     const diff = render(<DiffPreview content={'--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n same'} />)
     expect(diff.container.querySelector('[data-kind="header"]')).toBeTruthy()
@@ -354,6 +451,8 @@ describe('workbench presentation units', () => {
     expect(onDismiss).toHaveBeenCalledOnce()
     view.rerender(<FilePreview tab={tab('csv', 'a,b\n1,2')} t={t} onDismiss={onDismiss} />)
     expect(view.getByRole('table')).toBeTruthy()
+    view.rerender(<FilePreview tab={tab('tsv', 'a\tb\n1\t2')} t={t} onDismiss={onDismiss} />)
+    expect(view.getByRole('table')).toBeTruthy()
     view.rerender(<FilePreview tab={tab('diff', '@@ -1 +1 @@\n-old\n+new')} t={t} onDismiss={onDismiss} />)
     expect(view.getByText('+new')).toBeTruthy()
     view.rerender(<FilePreview tab={tab('markdown', '# Markdown')} t={t} onDismiss={onDismiss} />)
@@ -370,6 +469,24 @@ describe('workbench presentation units', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:1')
     view.rerender(<FilePreview tab={{ ...tab('image'), dataBase64: '%%%', mediaType: 'image/png' }} t={t} onDismiss={onDismiss} />)
     await waitFor(() => { expect(view.getByText('无法生成此文件的预览')).toBeTruthy() })
+  })
+
+  it('opens the previewed file externally and hides the action on read failure or a missing callback', () => {
+    const onDismiss = vi.fn()
+    const onOpenExternal = vi.fn()
+    const tab = { id: 'readme', path: 'README.md', title: 'README.md', kind: 'text' as const, loading: false, content: 'body' }
+    // The action depends only on the path, so it stays available while the
+    // content is still streaming in (a settled golden must not depend on it).
+    const loading = render(<FilePreview tab={{ ...tab, loading: true }} t={t} onDismiss={onDismiss} onOpenExternal={onOpenExternal} />)
+    expect(loading.getByRole('button', { name: '在默认应用中打开此文件' })).toBeTruthy()
+    const view = loading
+    view.rerender(<FilePreview tab={{ ...tab, error: 'read failed' }} t={t} onDismiss={onDismiss} onOpenExternal={onOpenExternal} />)
+    expect(view.queryByRole('button', { name: '在默认应用中打开此文件' })).toBeNull()
+    view.rerender(<FilePreview tab={tab} t={t} onDismiss={onDismiss} />)
+    expect(view.queryByRole('button', { name: '在默认应用中打开此文件' })).toBeNull()
+    view.rerender(<FilePreview tab={tab} t={t} onDismiss={onDismiss} onOpenExternal={onOpenExternal} />)
+    fireEvent.click(view.getByRole('button', { name: '在默认应用中打开此文件' }))
+    expect(onOpenExternal).toHaveBeenCalledOnce()
   })
 
   it('manages preview entry focus, dismisses only it on Escape, and restores focus', async () => {
@@ -484,6 +601,7 @@ describe('workspace preview helpers', () => {
     expect(previewType('README.md')).toEqual({ kind: 'markdown' })
     expect(previewType('page.html')).toEqual({ kind: 'html' })
     expect(previewType('data.csv')).toEqual({ kind: 'csv' })
+    expect(previewType('table.tsv')).toEqual({ kind: 'tsv' })
     expect(previewType('source.tsx')).toEqual({ kind: 'code', language: 'tsx' })
     expect(previewType('pixel.png')).toEqual({ kind: 'image' })
     expect(previewType('manual.pdf')).toEqual({ kind: 'pdf' })
@@ -502,6 +620,19 @@ describe('workspace preview helpers', () => {
     expect(parseCsvPreview('a\nb\n', 2)).toEqual({ rows: [['a'], ['b']], truncated: false })
     expect(parseCsvPreview('a,')).toEqual({ rows: [['a', '']], truncated: false })
     expect(parseCsvPreview('a\r\nb')).toEqual({ rows: [['a'], ['b']], truncated: false })
+  })
+
+  it('parses TSV with the tab delimiter beside the CSV arm', () => {
+    expect(parseCsvPreview('name\tnote\nalpha\t"one\ttwo"', undefined, undefined, '\t')).toEqual({
+      rows: [['name', 'note'], ['alpha', 'one\ttwo']],
+      truncated: false,
+    })
+    // Commas stay ordinary characters inside TSV fields.
+    expect(parseCsvPreview('a,b\tc', undefined, undefined, '\t')).toEqual({ rows: [['a,b', 'c']], truncated: false })
+    // Tabs stay ordinary characters inside CSV fields.
+    expect(parseCsvPreview('a\tb,c')).toEqual({ rows: [['a\tb', 'c']], truncated: false })
+    expect(parseCsvPreview('a\tb\tc', 1, 2, '\t')).toEqual({ rows: [['a', 'b']], truncated: true })
+    expect(parseCsvPreview('a\r\nb', undefined, undefined, '\t')).toEqual({ rows: [['a'], ['b']], truncated: false })
   })
 })
 
@@ -999,4 +1130,160 @@ describe('workbench session-activity revalidation', () => {
     await waitFor(() => { expect(listFiles).toHaveBeenCalledTimes(2) }, { timeout: 2_000 })
     remounted.unmount()
   }, 10_000)
+})
+
+describe('workbench open-in-default-application actions', () => {
+  it('resolves the tree row action through the workspace root and hides it without the capability', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
+    const openPath = vi.fn(async () => {})
+    const view = mountWorkbench({ listFiles, openPath }, { canOpenPath: true })
+
+    const action = await view.findByRole('button', { name: '在默认应用中打开“README.md”' })
+    fireEvent.click(action)
+    expect(openPath).toHaveBeenCalledWith('/projects/a/README.md')
+    // The row itself still opens the preview, not the external application.
+    fireEvent.click(view.getByRole('button', { name: /^MDREADME\.md$/ }))
+    expect(openPath).toHaveBeenCalledTimes(1)
+    view.unmount()
+
+    const hidden = mountWorkbench({ listFiles, openPath }, { canOpenPath: false })
+    await hidden.findByRole('button', { name: /^MDREADME\.md$/ })
+    expect(hidden.queryByRole('button', { name: '在默认应用中打开“README.md”' })).toBeNull()
+    hidden.unmount()
+  })
+
+  it('announces an open failure as a diagnostic without breaking the tree or preview', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const openPath = vi.fn(async () => { throw new Error('no desktop') })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true })
+
+    fireEvent.click(await view.findByRole('button', { name: '在默认应用中打开“README.md”' }))
+    fireEvent.click(view.getByRole('button', { name: /^MDREADME\.md$/ }))
+    const overlay = await view.findByRole('region', { name: '工作区文件预览' })
+    fireEvent.click(within(overlay).getByRole('button', { name: '在默认应用中打开此文件' }))
+    await waitFor(() => { expect(warn).toHaveBeenCalledTimes(2) })
+    expect(warn).toHaveBeenCalledWith('open in default application failed:', expect.objectContaining({ message: 'no desktop' }))
+    // The affordances stay usable after the failed hand-off.
+    expect(within(overlay).getByRole('button', { name: '在默认应用中打开此文件' })).toBeTruthy()
+    warn.mockRestore()
+    view.unmount()
+  })
+
+  it('offers the preview header action on the docked workbench panel too', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const openPath = vi.fn(async () => {})
+    // Drawer mode collapses the overlay variant, so the panel's own preview
+    // is the only rendered region.
+    const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true, drawer: true })
+
+    fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
+    const region = await view.findByRole('region', { name: '工作区文件预览' })
+    fireEvent.click(within(region).getByRole('button', { name: '在默认应用中打开此文件' }))
+    expect(openPath).toHaveBeenCalledWith('/projects/a/README.md')
+    view.unmount()
+  })
+
+  it('offers the preview header action for a loaded file only with the capability', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const openPath = vi.fn(async () => {})
+    const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true })
+
+    fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
+    const overlay = await view.findByRole('region', { name: '工作区文件预览' })
+    const headerAction = within(overlay).getByRole('button', { name: '在默认应用中打开此文件' })
+    fireEvent.click(headerAction)
+    expect(openPath).toHaveBeenCalledWith('/projects/a/README.md')
+    view.unmount()
+
+    const incapable = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: false })
+    fireEvent.click(await incapable.findByRole('button', { name: /^MDREADME\.md$/ }))
+    const bareOverlay = await incapable.findByRole('region', { name: '工作区文件预览' })
+    expect(within(bareOverlay).queryByRole('button', { name: '在默认应用中打开此文件' })).toBeNull()
+    incapable.unmount()
+  })
+})
+
+describe('workbench watch-driven file refresh', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  const advance = async (ms: number): Promise<void> => {
+    await act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+  }
+
+  it('watches expanded directories, silently relists on change frames, and skips collapsed ones', async () => {
+    const src: WorkspaceFileEntry = { name: 'src', path: 'src', kind: 'directory' }
+    const stale: WorkspaceFileEntry = { name: 'stale.ts', path: 'stale.ts', kind: 'file' }
+    const fresh: WorkspaceFileEntry = { name: 'fresh.ts', path: 'fresh.ts', kind: 'file' }
+    const listFiles = vi.fn(async (_workspaceId: WorkspaceId, path?: string) => ({
+      path: path ?? '',
+      entries: path === 'src' ? [] : [src, listFiles.mock.calls.length === 1 ? stale : fresh],
+      truncated: false,
+    }))
+    const channel = new WatchChannel()
+    const view = mountWorkbench({ listFiles }, { watchFiles: channel.watch })
+    await advance(0)
+    // Only the expanded root is watched; the collapsed src directory is not.
+    expect(channel.signals).toHaveLength(1)
+
+    channel.emit({ kind: 'ready' })
+    channel.emit({ kind: 'change', change: { absolutePath: '/projects/a/stale.ts', version: '1' } })
+    channel.emit({ kind: 'change', change: { absolutePath: '/projects/a/fresh.ts', absent: true } })
+    await advance(100)
+    expect(listFiles).toHaveBeenCalledTimes(1)
+    await advance(300)
+    expect(listFiles).toHaveBeenCalledTimes(2)
+    expect(listFiles).toHaveBeenLastCalledWith(wid('a'), undefined, expect.any(AbortSignal))
+    expect(view.getByRole('button', { name: /fresh\.ts/ })).toBeTruthy()
+    expect(view.queryByRole('button', { name: /stale\.ts/ })).toBeNull()
+
+    // Expanding a directory starts its watch; collapsing stops it.
+    fireEvent.click(view.getByRole('button', { name: /src/ }))
+    await advance(0)
+    expect(channel.signals).toHaveLength(2)
+    fireEvent.click(view.getByRole('button', { name: /src/ }))
+    await advance(0)
+    expect(channel.signals[1]?.aborted).toBe(true)
+    expect(channel.signals[0]?.aborted).toBe(false)
+    view.unmount()
+    await advance(0)
+    expect(channel.signals[0]?.aborted).toBe(true)
+  })
+
+  it('drops to manual refresh after repeated stream failures and keeps the refresh button working', async () => {
+    const stale: WorkspaceFileEntry = { name: 'stale.ts', path: 'stale.ts', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [stale], truncated: false }))
+    const channel = new WatchChannel()
+    channel.autoFail = new Error('watch stream down')
+    const view = mountWorkbench({ listFiles }, { watchFiles: channel.watch })
+    await advance(0)
+    expect(channel.signals).toHaveLength(1)
+    // Five consecutive failures with jittered capped backoff stay under 15s.
+    await advance(15_000)
+    expect(view.getByText('实时刷新已暂停，请使用刷新按钮')).toBeTruthy()
+    expect(view.instance.getSnapshot().byWorkspace.a?.fileWatch).toBe('manual')
+    expect(channel.signals.every(signal => signal.aborted)).toBe(true)
+
+    // The manual refresh button remains the relist trigger.
+    fireEvent.click(view.getByRole('button', { name: '刷新文件树' }))
+    await advance(0)
+    expect(listFiles).toHaveBeenCalledTimes(2)
+    view.unmount()
+  })
+
+  it('never watches when the runtime watch subscription is absent', async () => {
+    const listFiles = vi.fn(async () => ({ path: '', entries: [], truncated: false }))
+    const view = mountWorkbench({ listFiles })
+    await advance(5_000)
+    expect(listFiles).toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
 })

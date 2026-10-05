@@ -188,6 +188,44 @@
   white-space: nowrap;
 }
 
+/* File rows carry a trailing open-external action revealed on hover and
+   keyboard focus; the wrapper keeps the action inside the row's hit area. */
+.treeRowWrap {
+  position: relative;
+}
+
+.treeRowAction {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.treeRowWrap:hover .treeRowAction,
+.treeRowWrap:focus-within .treeRowAction {
+  opacity: 1;
+}
+
+.treeRowAction:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .treeGlyph {
   display: inline-flex;
   width: 16px;

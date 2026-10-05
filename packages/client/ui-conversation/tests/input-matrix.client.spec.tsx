@@ -12,6 +12,7 @@ import {
   createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -25,6 +26,9 @@ afterEach(cleanup)
 
 const SCTX = {} as ClientContext
 const SID = 's1' as SessionId
+
+/** No connected Host description (the pre-handshake source these benches assume). */
+const ABSENT_HOST_DESCRIPTION = createSnapshotStore<HostDescription | undefined>(undefined)
 
 /** Standard-props InputBar mount over a real shell (the composer-bar entry shape). */
 function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled?: boolean }) {
@@ -53,9 +57,12 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     keyboard: shell,
     addImages: () => null,
     removeImage: () => {},
-    addFiles: () => {},
+    addFiles: () => null,
     removeFile: () => {},
     draftImages: () => [],
+    isLoopback: false,
+    shellPathBridge: false,
+    useHostDescription: bindSnapshotSelector(ABSENT_HOST_DESCRIPTION),
     resolveSubmitMode: () => 'queue',
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),

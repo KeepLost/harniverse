@@ -67,10 +67,23 @@ export interface RpcErrorDetailsMap {
   'workspace-file-too-large': { workspaceId: string; path: string }
   'workspace-git-not-repository': { workspaceId: string }
   'workspace-git-failed': { workspaceId: string; operation: string }
+  /**
+   * A workspace file watch stream could not initialize its watcher (the
+   * platform refused the filesystem watch or the anchor vanished mid-open).
+   */
+  'workspace-watch-unsupported': { workspaceId: string; path: string }
+  /** Open workspace file watch streams reached the per-workspace cap. */
+  'workspace-watch-limit-reached': { workspaceId: string; limit: number }
   'directory-unreadable': { path: string }
   'directory-exists': { path: string }
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
+  /**
+   * host.openPath addressed a target the host cannot see: no entry exists at
+   * the path, or it cannot be stat'd (both report the same refusal so a caller
+   * cannot probe for the existence of inaccessible paths).
+   */
+  'host-path-not-found': { path: string }
   'agent-preset-read-only': { agentPreset: string; reason: string }
   'agent-preset-conflict': { sessionId: SessionId; requestedPreset: string; existingPreset?: string }
   'agent-preset-not-found': { agentPreset: string; available: string[] }
@@ -194,10 +207,13 @@ export const RPC_ERROR_CODES = [
   'workspace-file-too-large',
   'workspace-git-not-repository',
   'workspace-git-failed',
+  'workspace-watch-unsupported',
+  'workspace-watch-limit-reached',
   'directory-unreadable',
   'directory-exists',
   'directory-create-failed',
   'directory-picker-unavailable',
+  'host-path-not-found',
   'agent-preset-read-only',
   'agent-preset-conflict',
   'agent-preset-not-found',

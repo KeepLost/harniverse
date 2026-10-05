@@ -99,6 +99,17 @@ export interface IWorkspaces {
     bytes: number
     truncated: boolean
   }>
+  /**
+   * Follow filesystem changes under one Workspace directory (the Host watch
+   * contract): one subscription per watched directory whose first frame is
+   * `ready` and whose later `change` frames name changed absolute paths;
+   * aborting `signal` tears the subscription down. Typed failures throw with
+   * code `watch-unsupported`, `not-found`, or `outside-workspace`.
+   *
+   * Absent while the Host watch transport has not shipped: consumers treat
+   * the gap as `watch-unsupported` and fall back to manual refresh.
+   */
+  watchFiles?: WorkspaceFileWatch
   /** Read one complete, bounded image or PDF inside a registered Workspace. */
   readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
     path: string
@@ -195,3 +206,30 @@ export interface WorkspaceListState {
   /** Most recently active Workspace, derived without changing `items` order. */
   recentWorkspaceId: WorkspaceId | undefined
 }
+
+/** One filesystem change under a watched directory, as the Host watch reports it. */
+export type WorkspaceFileWatchChange =
+  | { readonly absolutePath: string; readonly version: string }
+  | { readonly absolutePath: string; readonly absent: true }
+
+/** One frame of a `watchFiles` subscription: `ready` first, then `change` frames. */
+export type WorkspaceFileWatchFrame =
+  | { readonly kind: 'ready' }
+  | { readonly kind: 'change'; readonly change: WorkspaceFileWatchChange }
+
+/** Typed reasons a watch subscription can refuse or fail, distinct from transport loss. */
+export type WorkspaceFileWatchFailureCode = 'watch-unsupported' | 'not-found' | 'outside-workspace'
+
+/**
+ * The `watchFiles` subscription factory the runtime workspaces service
+ * exposes: one subscription per watched directory, aborted by `signal`.
+ * @param workspaceId - Workspace whose files the subscription observes.
+ * @param path - workspace-relative directory path; undefined watches the root.
+ * @param signal - aborts the subscription and tears it down on the Host.
+ * @returns the frame stream, `ready` first.
+ */
+export type WorkspaceFileWatch = (
+  workspaceId: WorkspaceId,
+  path: string | undefined,
+  signal: AbortSignal,
+) => AsyncIterable<WorkspaceFileWatchFrame>

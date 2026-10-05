@@ -244,24 +244,54 @@ describe('host.openPath', () => {
     expect(expectOk(await headless.api.host.describe(request({}))).canOpenPath).toBe(false)
   })
 
-  it('opens through the injected native boundary', async () => {
+  it('opens an existing absolute path through the injected native boundary', async () => {
+    const opened: string[] = []
+    const { api, root } = await harness(undefined, undefined, {
+      openPath: async (path) => { opened.push(path) },
+    })
+    const target = join(root, 'a.txt')
+    writeFileSync(target, 'opened')
+    expect((await api.host.openPath(request({ path: target }), new AbortController().signal)).result)
+      .toEqual({ ok: true, value: { opened: true } })
+    expect(opened).toEqual([target])
+  })
+
+  it('rejects a non-absolute path before any native hand-off', async () => {
     const opened: string[] = []
     const { api } = await harness(undefined, undefined, {
       openPath: async (path) => { opened.push(path) },
     })
-    expect((await api.host.openPath(request({ path: '/tmp/a.txt' }), new AbortController().signal)).result)
-      .toEqual({ ok: true, value: { opened: true } })
-    expect(opened).toEqual(['/tmp/a.txt'])
+    expect((await api.host.openPath(request({ path: 'relative/a.txt' }), new AbortController().signal)).result)
+      .toMatchObject({ ok: false, error: { code: 'bad-request', details: { issues: [] } } })
+    expect(opened).toEqual([])
+  })
+
+  it('rejects a missing target with the shared not-found error, not an internal failure', async () => {
+    const opened: string[] = []
+    const { api, root } = await harness(undefined, undefined, {
+      openPath: async (path) => { opened.push(path) },
+    })
+    const missing = join(root, 'missing.txt')
+    expect((await api.host.openPath(request({ path: missing }), new AbortController().signal)).result)
+      .toMatchObject({ ok: false, error: { code: 'host-path-not-found', details: { path: missing } } })
+    expect(opened).toEqual([])
   })
 
   it('propagates abort into the native boundary as a cancelled RPC error', async () => {
-    const { api } = await harness(undefined, undefined, {
+    const { api, root } = await harness(undefined, undefined, {
       openPath: (_path, signal) => new Promise((_resolve, reject) => {
+        // A real command runner refuses an already-aborted signal too.
+        if (signal.aborted) {
+          reject(new Error('aborted'))
+          return
+        }
         signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
       }),
     })
+    const target = join(root, 'aborted.txt')
+    writeFileSync(target, 'pending')
     const abort = new AbortController()
-    const pending = api.host.openPath(request({ path: '/tmp/a.txt' }), abort.signal)
+    const pending = api.host.openPath(request({ path: target }), abort.signal)
     abort.abort()
     expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
   })

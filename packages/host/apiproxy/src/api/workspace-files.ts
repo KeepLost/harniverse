@@ -1,4 +1,4 @@
-import type { RpcRequest, RpcResponse } from './rpc.ts'
+import type { RpcError, RpcRequest, RpcResponse } from './rpc.ts'
 import type { WorkspaceId } from './workspace.ts'
 
 /** Maximum glob patterns accepted in one Workspace search filter direction. */
@@ -68,4 +68,54 @@ export interface WorkspaceFilesApi {
     mediaType: string
     bytes: number
   }>>
+
+  /**
+   * Watch one workspace file or directory and stream its invalidations. The
+   * first frame is `ready` once the watcher is active; each later `change`
+   * frame carries the target's current metadata — its freshness `version`
+   * when it exists, `absent: true` when it was observed gone. A missing
+   * target is legal: the host watches its nearest existing ancestor, so the
+   * target's creation still fires a change frame. Event bursts are
+   * coalesced into one trailing frame per window. Open failures and
+   * mid-stream failures arrive as the shared `stream/error` closer frame;
+   * concurrent watches per workspace are capped (`workspace-watch-limit-reached`).
+   */
+  watchFiles(
+    request: RpcRequest<{
+      workspaceId: WorkspaceId
+      /** Workspace-relative target; omitted addresses the workspace root. */
+      path?: string
+    }>,
+    signal: AbortSignal,
+  ): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>>
 }
+
+/**
+ * Current target metadata after one observed invalidation. File consumers may
+ * ignore an already known `version`; directory consumers relist on every frame
+ * because a child can change without changing the directory version.
+ */
+export type WorkspaceFileChange =
+  | {
+    /** Absolute target path in the host's path vocabulary. */
+    absolutePath: string
+    /** Opaque freshness token from the current stat; never parsed. */
+    version: string
+  }
+  | {
+    /** Absolute target path in the host's path vocabulary. */
+    absolutePath: string
+    /** The target was observed to be gone. */
+    absent: true
+  }
+
+/**
+ * One workspace file watch stream's frames: `ready` confirms the target
+ * watcher is active, `change` frames follow for coalesced invalidations, and
+ * the shared `stream/error` member closes a failed stream — the same closer
+ * every other stream family appends.
+ */
+export type WorkspaceFileWatchFrame =
+  | { kind: 'ready' }
+  | { kind: 'change'; change: WorkspaceFileChange }
+  | { type: 'stream/error'; error: RpcError }

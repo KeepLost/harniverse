@@ -4,6 +4,7 @@
 import type {
   BrowserStreamFrame, ClientResponse, HoldStreamFrame, HostFrame, IApiClient, MessageId, ModelSelection, MuxFrame,
   RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
+  WorkspaceFileWatchFrame,
   TerminalStreamFrame, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -67,6 +68,13 @@ export function fakeRemote(): SessionRemotes {
       execute: () => Promise.resolve({ ok: true, value: undefined }),
     },
   }
+}
+
+
+/** Immediately-ending watch stream: the fake host observes no filesystem. */
+function emptyWatchStream(signal: AbortSignal): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>> {
+  void signal
+  return (async function* watchStream() {})()
 }
 
 export class FakeApiClient implements IApiClient {
@@ -135,6 +143,10 @@ export class FakeApiClient implements IApiClient {
     search: payload => this.record('workspace.files.search', payload, Promise.resolve(ok({ entries: [], truncated: false }))),
     read: payload => this.record('workspace.files.read', payload, Promise.resolve(ok({ path: '', content: '', bytes: 0, truncated: false }))),
     readBinary: payload => this.record('workspace.files.readBinary', payload, Promise.resolve(ok({ path: '', dataBase64: '', mediaType: 'image/png', bytes: 0 }))),
+    watchFiles: (payload, signal) => {
+      void this.record('workspace.files.watch', payload, Promise.resolve())
+      return emptyWatchStream(signal)
+    },
   }
   readonly workspaceGit: IApiClient['workspaceGit'] = {
     status: payload => this.record('workspace.git.status', payload, Promise.resolve(ok({ branch: null, entries: [], truncated: false }))),

@@ -1,0 +1,7 @@
+# The workbench golden pins the open-in-default-application affordances. The
+# gateway's nativeOpen flag makes that capability deterministic instead of
+# display-detecting, so a headless CI runner and a desktop coauthor capture
+# the same accessibility tree.
+- id: api-gateway
+  config:
+    nativeOpen: true
