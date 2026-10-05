@@ -350,8 +350,10 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        const parsed = JSON.parse(body) as { max_tokens?: number; messages?: unknown[] }
-        const titleRequest = parsed.max_tokens === 64
+        // The title auxiliary request frames the first human message as JSON;
+        // classifying by that framing keeps this mock independent of the
+        // composition's configured title output budget.
+        const titleRequest = body.includes('Generate the session title from this JSON array of human messages')
         const mainRequest = !titleRequest && body.includes(promptMarker)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         if (!mainRequest) {
