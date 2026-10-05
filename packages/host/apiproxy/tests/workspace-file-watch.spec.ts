@@ -454,7 +454,9 @@ describe('workspace.files.watch frames', () => {
       try {
         expect(await nextFrame(watch.iterator)).toEqual({ kind: 'ready' })
         writeFileSync(join(root, 'project', 'notes.md'), 'created')
-        const created = presentChange(await nextFrame(watch.iterator))
+        // macOS FSEvents coalesces under a loaded runner; one delivery may
+        // exceed the 4s helper default, so the creation wait gets a wide budget.
+        const created = presentChange(await nextFrame(watch.iterator, 15_000))
         expect(created.absolutePath).toBe(join(root, 'project', 'notes.md'))
       } finally {
         await watch.dispose()
