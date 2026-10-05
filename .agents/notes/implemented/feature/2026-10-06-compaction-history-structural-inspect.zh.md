@@ -12,6 +12,11 @@ Status: implemented
 2. 两个工具都没有把 DAG *当作结构*暴露：提交了几轮、每轮替代了哪个区间、某条消息处于何处——这些数据（`kind`、`depth`、`shadowedRange`、`shadowedTokenCount`、父链接）早已存在于每个 `CompactionHistoryNode` 上，而服务层的 `stats()` 动词根本没有任何调用方。
 3. 要找回某条特定原文，需要把 session-query 的 seq 区间搜索与摘要区间知识组合起来——一个模型只能从散文指引里自行发现的多工具编排。
 
+## 备选方案
+
+- 保留两个工具、仅新增结构视图:否决——文本对与 session-query 的召回重复,而独有的结构数据仍然隐藏,第三个工具还会进一步膨胀目录。
+- 把原始消息做成一等可检索顶点并在工具内建全局 FTS:否决——以更弱的匹配语义与无界扫描义务复制 session-query 的能力 seam。
+
 ## 决策
 
 - **合并为一个工具：`compaction_history_inspect`**，必选 `view`（`overview` / `search` / `node` / `locate`），沿用 `session_inspect` 的视图惯例。
@@ -22,6 +27,11 @@ Status: implemented
 - **源消息在本工具内可检索，但受投影约束**：扫描在内存会话日志上遍历已提交节点的 `sourceEventSeqs`（现实阴影体量下为毫秒级）；它是词项匹配而非 FTS，全工作区全文检索仍归 `dsh-session-query` 所有。每条原文只会被压缩吞掉一次，因此各层 source 集合互不相交，命中无需去重。
 - **lineage 只渲染一条确定性的最深父链**；每个父节点在 `overview` 中仍可计数、可经 `node` 取回，这让多父的浓缩轮次在不打印整棵树的前提下保持诚实。
 - 服务层 seam 扩张为拥有工具所需的读取：`list()`、重塑的 `search(options)`（scope/depth/limit）、`locate()`；`expand()` 与 `stats()` 不变。工具层不自行计算任何图结构。
+
+## 后果
+
+- 模型可见目录减少一个工具;旧名称的每个消费方(preset 能力映射、session-query 指引、精确目录 e2e 列表、生成目录)已在同一变更中更新,不留陈旧引用。
+- 源消息文本自此可经本工具按词项匹配到达;不可信历史框架覆盖它,而全工作区 FTS 仍由 `dsh-session-query` 单一持有。
 
 ## 验证
 

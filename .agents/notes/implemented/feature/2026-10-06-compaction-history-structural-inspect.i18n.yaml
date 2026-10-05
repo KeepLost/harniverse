@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-06-compaction-history-structural-inspect.md
-2026-10-06-compaction-history-structural-inspect.md: 9020444a68d0235fd1bedd7e2beaec9ba9e891fd
-2026-10-06-compaction-history-structural-inspect.zh.md: 6bb147f01cb3e345e5eea24c81a4a35505b17376
+2026-10-06-compaction-history-structural-inspect.md: 3527051e945556d42e302047b396b9435dc53bc7
+2026-10-06-compaction-history-structural-inspect.zh.md: 716e146ba26e60924f1faa29b602210516e8542e
