@@ -445,6 +445,35 @@ describe('workspace.files.watch frames', () => {
     }
   })
 
+  it('serves a burst that settles while its predecessor frame is still unpulled', async () => {
+    const { api, root } = await harness()
+    try {
+      const { workspaceId } = await projectWorkspace(api, root)
+      writeFileSync(join(root, 'project', 'lag.md'), '0')
+      const watch = openWatch(api, workspaceId, 'lag.md')
+
+      try {
+        expect(await nextFrame(watch.iterator)).toEqual({ kind: 'ready' })
+        writeFileSync(join(root, 'project', 'lag.md'), '1')
+        const first = presentChange(await nextFrame(watch.iterator))
+        expect(first.absolutePath).toBe(join(root, 'project', 'lag.md'))
+        // The consumer now lags one pull: whatever settles while the yielded
+        // frame above waits to be pulled must be served without re-parking,
+        // so the feed's next wait skips the park arm outright.
+        writeFileSync(join(root, 'project', 'lag.md'), '22')
+        await new Promise((resolve) => { setTimeout(resolve, 150) })
+        const second = presentChange(await nextFrame(watch.iterator))
+        expect(second.absolutePath).toBe(join(root, 'project', 'lag.md'))
+        expect(second.version).not.toBe(first.version)
+        await expectNoFrame(watch.iterator)
+      } finally {
+        await watch.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('watches a missing target through its parent and reports the creation', async () => {
     const { api, root } = await harness()
     try {
