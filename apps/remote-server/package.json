@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-server",
   "description": "Process-owned authenticated remote Harness server and deployment root",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "type": "module",
   "license": "MIT",
   "publishConfig": { "access": "public" },

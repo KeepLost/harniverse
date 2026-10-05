@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-compaction-lossless",
   "description": "Lossless-style DAG summary projection and automatic compaction provider for the DeepSeek Harness",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

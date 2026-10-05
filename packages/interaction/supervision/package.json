@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-supervision",
   "description": "Per-session supervised or unsupervised human-interaction policy for the DeepSeek Harness",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

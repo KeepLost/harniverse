@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-compaction-settings",
   "description": "Root settings namespace for shared compaction policy overrides",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

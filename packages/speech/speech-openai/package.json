@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-speech-openai",
   "description": "OpenAI-compatible cloud speech recognizer provider with an ordered endpoint chain and settings-namespace credentials",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

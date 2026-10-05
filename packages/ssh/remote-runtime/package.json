@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-runtime",
   "description": "Authenticated locked-at-boot remote runtime control and endpoint discovery",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "type": "module",
   "license": "MIT",
   "publishConfig": { "access": "public" },

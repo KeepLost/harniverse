@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-session-query-sqlite",
   "description": "Concrete ctx.sessionQuery backend with SQLite discovery and content search",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

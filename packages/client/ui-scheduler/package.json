@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-scheduler",
   "description": "Session-header schedule list: this session's durable schedules with pause/resume/delete over the scheduler Remote",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
