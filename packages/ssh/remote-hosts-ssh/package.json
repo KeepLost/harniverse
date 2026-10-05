@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-hosts-ssh",
   "description": "Pinned SSH transport for independently managed remote Harniverse hosts",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": { "access": "public" },
   "repository": { "type": "git", "url": "git+https://github.com/deepseek-ai/deepseek-harness.git", "directory": "packages/ssh/remote-hosts-ssh" },
   "type": "module",

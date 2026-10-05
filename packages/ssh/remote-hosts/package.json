@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-remote-hosts",
   "description": "Local authoritative SSH remote-host coordinator",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

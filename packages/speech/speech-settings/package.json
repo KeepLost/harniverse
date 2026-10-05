@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-speech-settings",
   "description": "Root settings namespace for voice input: recognizer, language, push-to-talk key, model variant, and cloud API key",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },

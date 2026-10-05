@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-voice-input",
   "description": "Voice input: composer microphone control (click and push-to-talk) plus the Settings → Voice input section over the speech Remote and the speech settings namespace",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "publishConfig": {
     "access": "public"
   },
