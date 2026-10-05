@@ -253,6 +253,31 @@ describe('PiAiAdapter provider routing', () => {
     })
   })
 
+  it('locks thinking off for session-title requests over defaults and explicit efforts', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = await harness(server.url, { reasoning: 'max' })
+
+    await assemble(ctx, {
+      model: 'deepseek-flash',
+      purpose: 'session-title',
+      messages: [],
+      maxTokens: 32,
+    })
+    expect(server.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
+
+    // An explicit effort does not cross the lock.
+    await assemble(ctx, {
+      model: 'deepseek-flash',
+      purpose: 'session-title',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [],
+      maxTokens: 32,
+    })
+    expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
+  })
+
   it('keeps an explicit defaultReasoningEffort pin off the wire', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = new Context()
@@ -1230,6 +1255,20 @@ describe('protocol-owned request assembly', () => {
     })
 
     expect(body).toMatchObject({ thinking: { type: 'disabled' }, temperature: 0.5 })
+  })
+
+  it('keeps a session-title request inside a tiny cap by locking thinking off', async () => {
+    const { body } = await oneWireRequest({
+      anthropic: { apiKeyEnv: 'PI_TEST_KEY' },
+    }, {
+      provider: 'anthropic', model: 'claude-haiku-4-5', messages: [],
+      purpose: 'session-title', maxTokens: 32,
+    })
+
+    // Without the lock the resolved implicit level would refuse the request:
+    // no legal thinking budget fits inside a 32-token cap. The lock disables
+    // thinking instead, so the whole cap stays available for the title text.
+    expect(body).toMatchObject({ max_tokens: 32, thinking: { type: 'disabled' } })
   })
 
   it('sends an adaptive effort without inventing a thinking budget', async () => {

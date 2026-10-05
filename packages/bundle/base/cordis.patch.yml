@@ -49,7 +49,10 @@
         targetWords: 5
         targetCjkCharacters: 10
         maxInputBytes: 4096
-        maxOutputTokens: 64
+        # The title purpose locks thinking off where the adapter can, but a
+        # route whose endpoint always reasons still spends the cap on hidden
+        # reasoning before any title text; the bump keeps those routes usable.
+        maxOutputTokens: 256
         timeoutMs: 60000
 
     - id: user-questions

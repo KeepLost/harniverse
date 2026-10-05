@@ -95,6 +95,8 @@ profile 的 `models` 列表是*替换*该路由已安装 catalog，而不是扩�
 
 一个未指定档位的请求——请求本身不点名、模型没有配置默认、路由也没有默认——在推理能力已获描述的模型上会发送隐式的中间档位：`medium`，并向该模型最近的可支持档位收敛（catalog 的 DeepSeek V4 只支持 `high`/`max`，其隐式档位就是 `high`）。没有显式的思考请求时，网关与混合推理模型会把思维链内联进可见的回复正文，而不是放进独立的思考块，因此沿用提供方默认是一个正确性缺陷而非中性的省略。`defaultReasoningEffort: default` 是为刻意要沿用提供方默认的模型恢复「不发送档位」的写法。
 
+携带 `GenerateOptions.purpose: 'session-title'` 的请求会在上述任何解析发生之前锁定思考关闭，镜像 `llm-deepseek` 的部署锁：辅助标题调用只带一个很小的输出预算，而一个思考轮次要么把它耗在隐藏推理上，要么——在预算型思考的 Anthropic 模型上——直接以 `UNSUPPORTED_OPTION` 拒绝整个上限。该锁同样越过路由默认、模型默认与显式档位选择；在 `streamSimple()` 协议上它以省略 reasoning 选项表达，那是通用词汇里 off 的唯一写法。
+
 ### 推理分派的 compat 开关
 
 思考级别如何在协议中传输——单独一个 `reasoning_effort`、DeepSeek 的 `thinking: {type}` 加上档位、z.ai 的 `thinking` 对象，诸如此类——就是 pi-ai 的 `compat.thinkingFormat`，pi-ai 会从端点 URL 猜测它；私有网关的 URL 什么也说明不了，于是说 DeepSeek 方言的网关只会收到 OpenAI 方言的请求，且无从更正。因此 `compat.thinkingFormat` 与 `compat.supportsReasoningEffort` 既可配置在路由上（作为其模型的默认值），也可按模型配置（逐字段胜出），解析顺序为模型 → 路由 → 已安装 catalog 条目 → pi-ai 按 URL 得出的猜测；设置路由级开关会为路由上的每个模型遮蔽 catalog 条目的值，而且除了重述其值，没有任何写法能把某个字段交还给 catalog。`thinkingFormat` 接受 pi-ai 可分派的各种格式，但不含 `qwen-chat-template`——其 kwargs 由 pi-ai 自行固定。`chat-template` 格式是任意字段的逃生通道：其 `compat.chatTemplateKwargs` 把 `chat_template_kwargs` 下的字段名映射到字面量，或映射到变量 `thinking.enabled`（随开关状态变化的布尔值）与 `thinking.effort`（所选档位的线上拼写），两者都可加 `omitWhenOff`；kwargs 按模型 → 路由解析，且在解析后的格式不是 `chat-template` 时被拒绝，因此绝不会成为死配置。两个开关都只存在于 `openai-completions` 上——其余协议的推理形状由协议本身承载——因此在其他协议的模型上设置模型级开关会使解析失败，路由级开关会跳过其他协议的模型，而完全没有 `openai-completions` 模型的路由则会被拒绝。pi-ai compat 面的其余部分（`supportsStore`、`maxTokensField`……）保持自动检测，特意不在此处开放配置。
@@ -231,6 +233,7 @@ pi-ai 事件会变为 harness 推理、文本、工具调用、usage 与 finish 
 - **路由的 catalog 不会自我刷新**：catalog 就是 `settings.yaml` 所写的内容，因此模型列表的新鲜度只到最近一次编辑为止。这里没有任何环节会去问提供方它服务哪些模型；路由要多一个模型，得有人写进去。
 - **已配置的输出上限同时也是路由的请求默认值**：写进 `models` 条目或 `modelOverrides` 值的 `maxTokens`（包括从发现回复中采纳的值——那披露的是能力）是部署选择，因此会成为 seam 的 `defaultMaxTokens`，为每个未点名输出上限的请求设限；从已安装 catalog 继承的值是模型能力，绝不会自行为请求设限。条目层面没有「只作能力、不作默认值」的写法——要么写该路由应该默认的上限，要么把该字段留给 catalog。
 - **Responses 上未作选择的推理模型按思考关闭分派**：pi-ai 的 Responses 分派把「没有 reasoning 选项」映射为显式的最低档 effort，而不是省略字段，被翻译的路径保留了这一行为；自身默认就在思考的 Responses 模型必须被显式选择才会思考。（该状态下调用方的 temperature 仍然随行，因为协议层面上思考已关闭。）
+- **session-title 思考锁受限于线上表达**——`purpose: 'session-title'` 通过各协议自身的 off 写法关闭思考，但 `streamSimple()` 上一个永远在推理的模型（OpenAI 兼容网关后面的 reasoner-only 部署）没有任何 off 写法可发；它的标题调用仍会把输出上限耗在推理上，为这类路由部署时请选择能容忍此事的标题预算。
 - **模态声明不经验证，且多声明的后果超出本轮**：没有任何环节会去询问端点接受什么，因此声明了网关并不提供的 `image` 的模型不会在这里被拦下，而是由提供方在轮次中途拒绝。prompt 准入在构造请求之前就把用户消息持久化提交，于是被拒绝的图片留在会话日志里：该模型会不断重发它，而模型选择拒绝切换到任何纯文本模型。恢复途径是换一个确实支持图片的模型、fork 到图片之前，或开启新会话；发送失败时把尚未消费的图片消息从日志中回滚出去这件事已暂缓。
 - **未认证路由取决于其协议**：不点名凭据会让路由解析为「已配置但无密钥」，但 pi-ai 的 OpenAI 兼容实现仍要求 API key 或 `Authorization` 标头，因此无鉴权的本地服务需要一个由 `apiKeyEnv` 引用的占位凭据，或在 `headers` 中给出 `Authorization` 条目。
 - **不支持 `GenerateOptions.stop`**：pi-ai 的通用流选项无法保证所有提供方都支持 stop sequence，因此适配器会拒绝该字段。
