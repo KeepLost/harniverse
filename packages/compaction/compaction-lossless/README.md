@@ -46,7 +46,7 @@ The index is rebuilt from `Session.events` after resume or HMR. It is therefore 
 | `maxOverflowRetries` | `1` | Context-overflow recovery retry cap. |
 | `modelPolicies` | `[]` | Exact provider/model policy overrides. |
 | `auto` | `true` | Enable automatic pressure and overflow compaction. |
-| `maxSearchResults` | `20` | Maximum summary hits returned by the history consumer. |
+| `maxSearchResults` | `20` | Maximum search hits returned by the history consumer, across summary and source corpora. |
 | `maxExpansionDepth` | `3` | Maximum DAG levels returned by expansion. |
 | `maxExpansionTokens` | `4000` | Maximum estimated expansion tokens. |
 

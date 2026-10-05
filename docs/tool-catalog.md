@@ -32,7 +32,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflowEngine`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-compaction` | `context_compact` | `ctx.tools`, `ctx.compaction`, `ctx.tokenMeter`, `a direct calling Agent` | `tool/call`, `compaction/* on success`, `tool/result` | - | The direct model call asks the configured compaction provider to condense one safe older prefix while retaining recent context. Nested transport dispatches are rejected. |
-| `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_expand`, `compaction_history_search` | `ctx.tools`, `ctx.systemPrompt`, `ctx.compactionHistory`, `a calling Agent for Session identity` | `tool/call`, `tool/result` | - | The shipped tools search only committed summary checkpoints in the calling live Session. Expansion output treats recovered history as untrusted and applies configured depth and deterministic token-estimate caps. |
+| `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_inspect` | `ctx.tools`, `ctx.systemPrompt`, `ctx.compactionHistory`, `a calling Agent for Session identity` | `tool/call`, `tool/result` | - | The shipped tools search only committed summary checkpoints in the calling live Session. Expansion output treats recovered history as untrusted and applies configured depth and deterministic token-estimate caps. |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`, `session_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
@@ -1313,58 +1313,68 @@ The direct model call asks the configured compaction provider to condense one sa
 
 ## `@deepseek-ai/dsh-tool-compaction-history`
 
-### `compaction_history_expand`
+### `compaction_history_inspect`
 
-Expand one compacted summary through its DAG parents and optionally bounded raw source messages.
+Inspect the current session's compaction summary DAG: list committed rounds with their covered log spans, search summary or source text with DAG coordinates, expand one summary with bounded ancestry, or locate which layer covers one log event.
 
 ```json
 {
   "type": "object",
   "properties": {
-    "summaryId": {
+    "view": {
       "type": "string",
-      "description": "Summary id returned by compaction_history_search."
+      "description": "overview lists every compaction round; search matches text; node expands one summary; locate maps one log event.",
+      "enum": [
+        "overview",
+        "search",
+        "node",
+        "locate"
+      ]
     },
-    "maxDepth": {
-      "type": "integer",
-      "description": "Maximum parent DAG depth to traverse."
-    },
-    "tokenCap": {
-      "type": "integer",
-      "description": "Maximum estimated tokens in the expansion."
-    },
-    "includeSources": {
-      "type": "boolean",
-      "description": "Include raw source messages cited directly by expanded summaries."
-    }
-  },
-  "required": [
-    "summaryId"
-  ]
-}
-```
-
-Source: [`packages/compaction/tool-compaction-history/src/index.ts`](../packages/compaction/tool-compaction-history/src/index.ts)
-
-### `compaction_history_search`
-
-Search compacted summary nodes in the current session and return bounded ids, depths, and snippets.
-
-```json
-{
-  "type": "object",
-  "properties": {
     "query": {
       "type": "string",
-      "description": "Terms to find in compacted summary content."
+      "description": "Terms to find; required for view=search."
+    },
+    "depth": {
+      "type": "integer",
+      "description": "Restrict view=search to one exact DAG depth (0 = summaries of raw messages); omit for all depths."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Corpus view=search scans: summary text, the source messages those summaries cite, or both. Defaults to summaries.",
+      "enum": [
+        "summaries",
+        "sources",
+        "both"
+      ]
     },
     "limit": {
       "type": "integer",
-      "description": "Maximum hits; capped by plugin configuration."
+      "description": "Maximum search hits; capped by plugin configuration."
+    },
+    "summary_id": {
+      "type": "string",
+      "description": "Summary id from overview or search; required for view=node."
+    },
+    "include_sources": {
+      "type": "boolean",
+      "description": "With view=node: include raw source messages cited by the expanded summaries."
+    },
+    "max_depth": {
+      "type": "integer",
+      "description": "With view=node: maximum parent DAG depth to traverse."
+    },
+    "token_cap": {
+      "type": "integer",
+      "description": "With view=node: maximum estimated tokens in the expansion."
+    },
+    "event_seq": {
+      "type": "integer",
+      "description": "Log event seq to locate; required for view=locate."
     }
   },
   "required": [
-    "query"
+    "view"
   ]
 }
 ```

@@ -98,8 +98,8 @@ describe('lossless compaction tools real Loader composition', () => {
     const result = await context.tools.execute({
       signal: new AbortController().signal,
       callId: CallId('history-search'),
-      name: 'compaction_history_search',
-      arguments: { query: 'durable answer' },
+      name: 'compaction_history_inspect',
+      arguments: { view: 'search', query: 'durable answer' },
       agent: { session } as never,
     })
 
@@ -112,18 +112,18 @@ describe('lossless compaction tools real Loader composition', () => {
     const resultText = result.content[0]?.type === 'text' ? result.content[0].text : ''
     expect(resultText).toContain('compaction-summary:')
     expect(context.tools.schemas({ session }).map(schema => schema.name)).toEqual(expect.arrayContaining([
-      'compaction_history_search',
-      'compaction_history_expand',
+      'compaction_history_inspect',
     ]))
 
     const expansion = await context.tools.execute({
       signal: new AbortController().signal,
       callId: CallId('history-expand'),
-      name: 'compaction_history_expand',
+      name: 'compaction_history_inspect',
       arguments: {
-        summaryId: `compaction-summary:${session.id}:${summary.seq}`,
-        tokenCap: 3,
-        includeSources: true,
+        view: 'node',
+        summary_id: `compaction-summary:${session.id}:${summary.seq}`,
+        token_cap: 3,
+        include_sources: true,
       },
       agent: { session } as never,
     })
@@ -135,7 +135,7 @@ describe('lossless compaction tools real Loader composition', () => {
       .find(entry => entry.options.name === '@deepseek-ai/dsh-tool-compaction-history')
     if (historyEntry?.fiber === undefined) throw new Error('history tool loader entry is not active')
     await historyEntry.fiber.dispose()
-    expect(context.tools.schemas({ session }).map(schema => schema.name)).not.toContain('compaction_history_search')
+    expect(context.tools.schemas({ session }).map(schema => schema.name)).not.toContain('compaction_history_inspect')
     expect((await context.systemPrompt.assemble({ agent: { session } as never })).sections)
       .not.toContainEqual(expect.objectContaining({ name: 'tool:compaction-history' }))
   })

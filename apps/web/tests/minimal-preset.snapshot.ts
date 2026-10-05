@@ -110,7 +110,7 @@ describe('minimal agent preset', () => {
     expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'compaction')).toBeDefined()
     expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'compactionHistory')).toBeDefined()
     expect(requestHeader.tools?.map(tool => tool.name)).not.toEqual(expect.arrayContaining([
-      'context_compact', 'compaction_history_expand', 'compaction_history_search',
+      'context_compact', 'compaction_history_inspect',
     ]))
     await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl'])
   })
