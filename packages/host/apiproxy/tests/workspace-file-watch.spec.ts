@@ -906,6 +906,32 @@ describe('watchWorkspaceFiles generator boundary', () => {
     }
   })
 
+  it('survives the watched directory vanishing under the production opener', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      const nested = join(project, 'nested')
+      mkdirSync(nested, { recursive: true })
+      writeFileSync(join(nested, 'a.md'), 'x')
+      // No injected open seam: the real FSWatcher (and its error channel) runs.
+      const watchFeed = openFeed(project, 'nested')
+      expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+      rmSync(nested, { recursive: true, force: true })
+      // Whatever the platform reports (rename events or a watcher error), the
+      // feed answers with a frame or a typed failure — never an uncaught throw.
+      const outcome = await Promise.race([
+        nextRaw(watchFeed.feed).then(frame => frame.kind === 'change' && frame.change !== undefined && 'absent' in frame.change
+          ? 'absent'
+          : 'change'),
+        rejectionOf(watchFeed.feed).then(() => 'failed'),
+      ])
+      expect(['change', 'absent', 'failed']).toContain(outcome)
+      await watchFeed.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('maps an open refusal onto the workspace-watch-unsupported failure', async () => {
     const root = freshRoot()
     try {

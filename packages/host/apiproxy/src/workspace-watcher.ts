@@ -73,13 +73,21 @@ interface WatchAnchor {
 }
 
 /** Production fs.watch boundary; a Buffer filename is treated as unreported. */
-const openNodeWatch: WatchOpener = (target, options, listener) =>
-  watch(target, { persistent: false, recursive: options.recursive }, (eventType, filename) => {
+const openNodeWatch: WatchOpener = (target, options, listener) => {
+  const watcher = watch(target, { persistent: false, recursive: options.recursive }, (eventType, filename) => {
     /* v8 ignore next -- Node 24 (the coverage-gate runtime) lossily decodes an
        undecodable watcher name into a replacement-character string; only older
        Node 22 inotify delivers a Buffer filename, which never executes here. */
     listener(eventType, typeof filename === 'string' ? filename : null)
   })
+  // A vanished or inaccessible watch target (a deleted directory on Windows
+  // reports EPERM) surfaces through the watcher's own 'error' event; without
+  // a listener Node rethrows it as an uncaught process exception. The error
+  // detail is dropped here on purpose: the feed's error arm re-stats the
+  // target and re-anchors, which is the authoritative next state.
+  watcher.on('error', () => { listener('error', null) })
+  return watcher
+}
 
 /**
  * Stat one target for a change frame.
