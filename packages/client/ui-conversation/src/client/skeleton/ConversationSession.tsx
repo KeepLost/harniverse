@@ -164,7 +164,7 @@ export function ConversationSession({
 
   if (blank && composerPhase === 'blank') return null
   return (
-    <div className={css.viewArea}>
+    <div className={css.viewArea} data-active-view={active?.id}>
       {active !== undefined && renderSlot('conversation.view', {
         inspect,
         onInspectDone: () => { actions.setInspect(null) },

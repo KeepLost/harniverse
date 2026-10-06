@@ -321,9 +321,13 @@ describe('web e2e: Trajectory virtualization over tail-paged history', () => {
         host.scrollTo = trackedScrollTo as typeof host.scrollTo
       })
       const settled = scaffold.whenTurnSettled()
+      // The composer is Chat's surface now, so the send rides the Chat tab;
+      // Trajectory stays the observed surface for the stream below.
+      await page.getByRole('tab', { name: 'Chat', exact: true }).click()
       const input = page.locator('textarea').first()
       await input.fill('Stream one deterministic response while Trajectory remains visible.')
       await input.press('Enter')
+      await page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
       await settled
       await page.getByText('stream fragment 01', { exact: false }).waitFor({ timeout: 30_000 })
       await nextPaint(page)

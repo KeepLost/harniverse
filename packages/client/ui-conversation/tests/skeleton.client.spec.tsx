@@ -486,6 +486,21 @@ describe('ConversationRoot resident composer', () => {
     act(() => { b.chat.actions.setView('trajectory') })
     expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
     expect(b.view.getByRole('textbox')).toBeTruthy()
+    // The raised interaction pins the seat over the non-Chat view, so the
+    // chat-only visibility rule must not hide it.
+    expect(b.view.container.querySelector('[data-composer-seat]')?.hasAttribute('data-composer-takeover')).toBe(true)
+  })
+
+  it('marks the active view so the composer hides outside Chat without a pending takeover', () => {
+    const b = mount(conversationSnapshot())
+    expect(b.view.container.querySelector('[data-active-view="chat"]')).toBeTruthy()
+    expect(b.view.container.querySelector('[data-composer-seat]')?.hasAttribute('data-composer-takeover')).toBe(false)
+    act(() => { b.chat.actions.setView('trajectory') })
+    expect(b.view.container.querySelector('[data-active-view="trajectory"]')).toBeTruthy()
+    // The seat stays a resident node (textarea identity survives the switch);
+    // the ConversationRoot stylesheet hides it through the marker pair.
+    expect(b.view.getByRole('textbox')).toBeTruthy()
+    expect(b.view.container.querySelector('[data-composer-seat]')?.hasAttribute('data-composer-takeover')).toBe(false)
   })
 
   it('keeps the Chat fallback selected by id when a view is inserted before it', () => {
