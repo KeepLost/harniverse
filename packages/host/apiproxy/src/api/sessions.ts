@@ -495,6 +495,11 @@ export interface SessionsApi {
 
   /**
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
+   * A `next-step` occurrence accepts mutations only while it is user-origin — injected
+   * context refuses with `queue-item-not-user` — while `next-turn` keeps admitting plugin
+   * follow-ups. When the address is no longer pending, `queue-item-not-found` details carry
+   * the occurrence's durable `status` (`claimed`/`settled` separates a model-read batch,
+   * `discarded` an already-recalled one, `unknown` a cold session the Host did not resume).
    * The response includes the post-mutation lifecycle so callers need not issue a second lookup.
    * Session-backed subagents reject with `agent-busy`.
    */

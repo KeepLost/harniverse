@@ -38,7 +38,7 @@
     - button "Edit queued message":
       - img
     - tooltip "Edit queued message"
-    - button "Remove queued message":
+    - button "Recall queued message":
       - img
     - button "Steer queued message" [disabled]:
       - img
@@ -46,7 +46,7 @@
     - text: Queue item preserved after stop
     - button "Edit queued message":
       - img
-    - button "Remove queued message":
+    - button "Recall queued message":
       - img
     - button "Steer queued message" [disabled]:
       - img

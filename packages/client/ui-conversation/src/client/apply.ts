@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { MarkdownExternalLinks } from '@deepseek-ai/dsh-client-ui-primitives'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ReferenceInsert } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
@@ -19,7 +20,7 @@ import type {
   ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
   DetailsInjected,
 } from './contract/slots.ts'
-import type { ComposerFileDraft, InputNotice } from './contract/input.ts'
+import type { ComposerFileDraft, InputNotice, InputState, SessionInput } from './contract/input.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationController, UnsupportedImageMediaTypeError, isImageMediaType } from './service.ts'
 import type { IConversation } from './service.ts'
@@ -36,6 +37,8 @@ import { LinkDestinationRow } from './settings/LinkDestinationRow.tsx'
 import type { LinkDestinationRowInjected } from './settings/LinkDestinationRow.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
+import { splitFileHandleText } from './chat/file-badges.ts'
+import { queueRecallFailureKey } from './contract/queue.ts'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
@@ -117,6 +120,34 @@ function concreteConversation(ctx: Context): ConversationController {
   const conversation = ctx.get('conversation') as ConversationController | undefined
   if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
   return conversation
+}
+
+/** Resolve the session-scoped input shell or undefined when the session has no scope. */
+function scopedInput(sessions: ISessions, id: SessionId, conversation: ConversationController): SessionInput | undefined {
+  const actx = sessions.scope(id)
+  return actx === undefined ? undefined : conversation.input.for(actx)
+}
+
+/**
+ * Apply one recall's composer refill once the input machine accepts it: a
+ * fast recall can beat its own submission's settlement, and the settling
+ * transaction would otherwise consume the restored text as the sent snapshot.
+ * The plain and claimed phases both accept draft writes.
+ * @param input - the session's input shell.
+ * @param restore - draft-reading refill step, run at the first accepting phase.
+ */
+function refillWhenPlain(input: SessionInput, restore: (draft: string) => void): void {
+  const accepting = (phase: InputState['phase']): boolean => phase !== 'adjudicating' && phase !== 'submitting'
+  const state = input.state.getSnapshot()
+  if (accepting(state.phase)) {
+    restore(state.draft)
+    return
+  }
+  const unsubscribe = input.state.subscribe(() => {
+    if (!accepting(input.state.getSnapshot().phase)) return
+    unsubscribe()
+    restore(input.state.getSnapshot().draft)
+  })
 }
 
 /** Chain routing: claim the composer while an approval wait is pending (pure — owner props only). */
@@ -542,6 +573,33 @@ export function apply(ctx: Context): void {
             .catch(() => {
               // Fork or child-rename failure keeps the source view untouched.
             })
+        },
+        recallSteering: async (itemId, content) => {
+          const input = scopedInput(sessions, sessionId, conversation)
+          if (input === undefined) return
+          const result = await conversation.removeQueueItem(sessionId, itemId)
+          if (!result.ok) {
+            const status = result.error.code === 'queue-item-not-found'
+              ? result.error.details.status
+              : undefined
+            input.notify('error', t(queueRecallFailureKey(status)))
+            return
+          }
+          const { text, badges } = splitFileHandleText(content)
+          if (text !== '') {
+            refillWhenPlain(input, (draft) => {
+              if (draft === '') input.setDraft(text)
+              else {
+                void writeClipboard(text)
+                input.notify('info', t('queue.recall.draftBusy'))
+              }
+            })
+          }
+          // The attachment notice lands last so the visible line names what
+          // the composer could not restore, past any clipboard report.
+          if (badges.length > 0 || content.some(block => (block as { type?: string }).type === 'image')) {
+            input.notify('info', t('queue.recall.attachments'))
+          }
         },
       }
     },

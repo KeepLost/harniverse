@@ -541,6 +541,7 @@
     "agent-busy",
     "attachment-error",
     "queue-item-not-found",
+    "queue-item-not-user",
     "steer-unavailable",
     "command-error",
     "unknown-command",

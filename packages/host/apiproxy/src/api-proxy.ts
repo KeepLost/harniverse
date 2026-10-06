@@ -3881,7 +3881,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return Promise.resolve(err(request, {
             code: 'queue-item-not-found',
             message: 'queued item is no longer pending',
-            details: { itemId },
+            details: { itemId, status: { state: 'unknown' as const } },
           }))
         }
         const target = agent.inbox.nextTurn.some(message => message.id === itemId)
@@ -3895,6 +3895,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return Promise.resolve(err(request, {
             code: 'queue-item-not-found',
             message: 'queued item is no longer pending',
+            details: { itemId, status: workStatusOf(agent.session.events, itemId) },
+          }))
+        }
+        // next-step is the steering/context lane: injected context (approval
+        // notices, task completion, attached snapshots) is not a user action,
+        // so only user-origin occurrences are client-mutable. next-turn keeps
+        // accepting plugin follow-ups (QueueDock renders those rows).
+        if (target === 'next-step' && message.source.kind !== 'user') {
+          return Promise.resolve(err(request, {
+            code: 'queue-item-not-user',
+            message: 'next-step queue items accept user-origin messages only',
             details: { itemId },
           }))
         }

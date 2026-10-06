@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { RpcError, SessionWorkStatus } from '@deepseek-ai/dsh-client-connection/client'
 import type { FileAttachmentRef, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { SubmitImageAttachment } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ComposerAttachment } from './contract/slots.ts'
@@ -75,16 +76,49 @@ interface ImageUrlEntry {
   readonly pending: Promise<string>
 }
 
+/** Build the throw shape for a refused queue mutation, keeping the durable lifecycle when the Host reported one. */
+function queueMutationErrorOf(error: RpcError): QueueMutationError {
+  const status = error.code === 'queue-item-not-found' ? error.details.status : undefined
+  return new QueueMutationError(
+    error.code,
+    status,
+    `conversation.updateQueue failed: ${error.code}: ${error.message}`,
+  )
+}
+
 /** Unsupported browser-declared image type, localized by the UI boundary. */
 export class UnsupportedImageMediaTypeError extends Error {
   /** Browser-declared MIME value, possibly empty. */
   readonly mediaType: string
 
-  /** @param mediaType - Browser-declared MIME value, possibly empty. */
+  /** @param mediaType - Browser-declared MIME value. */
   constructor(mediaType: string) {
     super(`unsupported image media type: ${mediaType || '(empty)'}`)
     this.name = 'UnsupportedImageMediaTypeError'
     this.mediaType = mediaType
+  }
+}
+
+/**
+ * Queue mutation refusal carrying the Host's structured verdict so recall
+ * surfaces can route their failure copy by the durable lifecycle.
+ */
+export class QueueMutationError extends Error {
+  /** The Host error code that refused the mutation. */
+  readonly code: string
+  /** The addressed occurrence's durable lifecycle, when the Host reported one. */
+  readonly status: SessionWorkStatus | undefined
+
+  /**
+   * @param code - The Host error code that refused the mutation.
+   * @param status - The addressed occurrence's durable lifecycle, when known.
+   * @param message - Human-readable refusal chain for logs and generic handlers.
+   */
+  constructor(code: string, status: SessionWorkStatus | undefined, message: string) {
+    super(message)
+    this.name = 'QueueMutationError'
+    this.code = code
+    this.status = status
   }
 }
 
@@ -310,8 +344,24 @@ export class ConversationController extends Service implements IConversation {
         action.kind === 'steer'
         && (result.error.code === 'steer-unavailable' || result.error.code === 'queue-item-not-found')
       ) return
-      throw new Error(`conversation.updateQueue failed: ${result.error.code}: ${result.error.message}`)
+      throw queueMutationErrorOf(result.error)
     }
+  }
+
+  /**
+   * Remove one pending queue occurrence, surfacing the Host's structured
+   * verdict instead of throwing: recall choreography refills the composer only
+   * on success and routes its failure copy by the reported lifecycle.
+   * @param sessionId - owning session authorization scope.
+   * @param itemId - agent-owned inbox occurrence identity.
+   * @returns the session face's complete updateQueue result.
+   */
+  removeQueueItem(sessionId: SessionId, itemId: QueueItemId): Promise<Awaited<ReturnType<SessionFace['updateQueue']>>> {
+    const session = this.requireSessions().binding(sessionId)?.session
+    if (session === undefined) {
+      throw new Error(`conversation.removeQueueItem: session "${sessionId}" resolved no binding`)
+    }
+    return session.updateQueue(itemId, { kind: 'remove' })
   }
 
   /** Cancel the scoped session's in-flight turn while preserving Queue (failures land in promptError and reject, as in send). */

@@ -1,14 +1,15 @@
 // MessageItem: simple chat nodes — user and consumed-steering bubbles
 // (right-aligned, with clock + copy IconActions; branch lives only under
-// assistant answers), pending steering (copy only), context injection,
-// compaction marker, retry disclosure, and unknown-surface JSON rows.
+// assistant answers), pending steering (copy + pre-admission recall),
+// context injection, compaction marker, retry disclosure, and unknown-surface
+// JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
   ModelRetryNode, TurnErrorNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MessageText, StateDot, IconTrashOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import { FileBadgeList, ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -18,6 +19,7 @@ import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
+import iconActionsCss from './MessageIconActions.module.css'
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
 
@@ -218,16 +220,26 @@ function UserStyleBubble({
 
 /**
  * Render one Host-authoritative pending steering item with the same visual
- * language as its eventual durable transcript node.
- * @param props - Pending message content and conversation translator.
+ * language as its eventual durable transcript node. The optional recall
+ * action withdraws the occurrence before the loop claims it; the composition
+ * owns the host call and the draft refill, the bubble only gates re-entry.
+ * @param props - Pending message content, optional recall callback, and conversation translator.
  * @returns the pending steering bubble.
  */
-export function PendingSteeringBubble({ content, loadImage, t }: {
+export function PendingSteeringBubble({ content, loadImage, onRecall, t }: {
   content: readonly unknown[]
   loadImage?: ImageLoader
+  /** Withdraw this occurrence before admission; undefined hides the action. */
+  onRecall?: (() => Promise<void>) | undefined
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
+  const [recalling, setRecalling] = useState(false)
+  const recall = (): void => {
+    if (onRecall === undefined || recalling) return
+    setRecalling(true)
+    void onRecall().finally(() => { setRecalling(false) })
+  }
   return (
     <UserStyleBubble
       content={content}
@@ -240,6 +252,19 @@ export function PendingSteeringBubble({ content, loadImage, t }: {
           clock="start"
           className={css.actions}
           t={t}
+          extraActions={onRecall === undefined ? undefined : (
+            <Tooltip label={t('message.recallSteering')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={iconActionsCss.action}
+                aria-label={t('message.recallSteering')}
+                disabled={recalling}
+                onClick={recall}
+              >
+                <IconTrashOutline16 size={14} />
+              </button>
+            </Tooltip>
+          )}
         />
       )}
     />

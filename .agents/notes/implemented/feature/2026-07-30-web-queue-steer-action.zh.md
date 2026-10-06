@@ -16,7 +16,7 @@ Web composer 原本会在 agent（智能体）运行期间把所有 Enter 提交
 
 普通会话中每个非编辑态的 QueueDock 行都会提供名为「插话发送」的向上箭头操作。仅当会话报告 agent 正在运行时，该操作才会启用；包含混合内容的消息仍可使用，因为 steering 会转发完整且不可变的 `UserMessage`，而非该行的文本投影。已寻址 subagent 的 Queue 投影保持只读，因为其继续执行传输不提供 Queue 变更。
 
-触发该操作会针对对应的 `InboxItemId` 请求严格的当前轮次 steering。操作成功后，权威 Host 快照会移除 Queue 行，并在 `Deep diving...` 运行状态行之后立即投影同一条待处理 steering；该气泡提供复制，但消息尚无持久事件序号，因此不提供 fork。AgentLoop 排空该项后，现有持久 `user/message` 事件会接管同一个用户样式气泡，并恢复时钟、复制和 fork，无需另建持久展示路径。
+触发该操作会针对对应的 `InboxItemId` 请求严格的当前轮次 steering。操作成功后，权威 Host 快照会移除 Queue 行，并在 `Deep diving...` 运行状态行之后立即投影同一条待处理 steering；该气泡提供复制与认领前的撤回，但消息尚无持久事件序号，因此不提供 fork（撤回动作由[撤回笔记](2026-10-06-recall-pending-steering.md)持有）。AgentLoop 排空该项后，现有持久 `user/message` 事件会接管同一个用户样式气泡，并恢复时钟、复制和 fork，无需另建持久展示路径。
 
 running 标志位只用于提示交互状态。在同步变更边界上，AgentLoop 的 `acceptsNextStep` 值才是权威依据。如果该窗口已经关闭，操作会保持 Queue 单次入队项不变并返回类型化的 `steer-unavailable` 错误，随后原唤醒单次入队项会经 Queue 继续执行。如果驱动器已经认领该项，则返回现有的 `queue-item-not-found` 错误，且独立轮次投递已经开始。UI 会把两种竞态都视为已收敛的 Queue 投递，不显示失败通知；传输和未知错误仍会显示。
 
@@ -34,7 +34,7 @@ Composer 对新输入采用另一套尽力而为约定。所寻址会话空闲�
 
 `session.updateQueue` 会携带 `steer` 操作，并把两种负面结果映射为类型化 RPC 错误。这项转换是一次同步 Agent 操作；Host 绝不会通过组合移除和提示词调用来重建它。
 
-Host 仍以现有 `queuedMirror` 作为唯一的瞬态 inbox 权威。`session/queue` 快照会携带所有存活单次入队项及其 `placement: 'queued' | 'steering'`：QueueDock 只渲染 queued 行，ChatView 则在会话流末尾、`Deep diving...` 运行状态行之后渲染待处理 steering，提供复制操作，但不提供 fork、编辑或删除操作。重连会重放同一份快照，因此这项可见性既不依赖客户端乐观展示，也不需要第二个注册表。
+Host 仍以现有 `queuedMirror` 作为唯一的瞬态 inbox 权威。`session/queue` 快照会携带所有存活单次入队项及其 `placement: 'queued' | 'steering'`：QueueDock 只渲染 queued 行，ChatView 则在会话流末尾、`Deep diving...` 运行状态行之后渲染待处理 steering，提供复制与认领前的撤回，但不提供 fork 或编辑（撤回动作由[撤回笔记](2026-10-06-recall-pending-steering.md)持有）。重连会重放同一份快照，因此这项可见性既不依赖客户端乐观展示，也不需要第二个注册表。
 
 AgentLoop 认领待处理 steering 时，会在同步追加持久 `user/message` 之前立即发出 `agent/inbox/dequeue`。Host 会等到下一个微任务才退役该 steering 行，让持久会话事件先进入线性 mux 流。客户端 Session 接纳该实时事件时，会在发布快照前退役第一个匹配的当前 steering 单次入队项；历史回放不会消费后来复用同一 `MessageId` 的单次入队项。因此，ChatView 无需扫描持久历史就能每次只渲染一份权威，持久投影则会根据已记录的事件时间与序号恢复时钟、复制与 fork 操作。追加失败时，已认领行仍会退役。
 

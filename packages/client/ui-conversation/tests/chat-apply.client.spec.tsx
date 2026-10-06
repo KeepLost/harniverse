@@ -11,6 +11,9 @@ import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatViewInjected } from '../src/client/contract/slots.ts'
+import type { SessionInput } from '../src/client/contract/input.ts'
+import { SessionInputShell } from '../src/client/input/facade.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -122,5 +125,145 @@ describe('apply wiring', () => {
     expect(b.slots.entries('settings.general.item')).toHaveLength(0)
     expect(b.runtime.ctx.get('conversation')).toBeUndefined()
     await b.runtime.dispose()
+  })
+})
+
+describe('chat view recall composition', () => {
+  async function recallBench(updateQueue: (itemId: never, action: never) => Promise<unknown>) {
+    const runtime = await SlotTestRuntime.create()
+    runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
+    runtime.provide('remote', { $on: () => () => {} })
+    runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+    await runtime.sessions.add({
+      id: ROOT,
+      summary: { title: 'R', displayTitle: 'R' },
+      session: {
+        updateQueue: updateQueue as never,
+        prompt: () => Promise.resolve({ ok: true, value: { accepted: true } }),
+      },
+    }, { current: false })
+    runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+    const locale = new LocaleRuntime(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
+
+    await runtime.root.declare({
+      'conversation': { kind: 'single', scope: 'session-maybe' },
+      'details': { kind: 'single', scope: 'session' },
+      'settings.general.item': { kind: 'list', scope: 'root' },
+    }, (_p: { renderSlot?: unknown }) => null)
+
+    await runtime.mount({ inject: [...inject], apply })
+    const entry = runtime.slots.entries('conversation.view')[0] as
+      | { inject?: (sessionId: SessionId, actions: never) => ChatViewInjected }
+      | undefined
+    if (entry?.inject === undefined) throw new Error('chat view entry resolved no inject')
+    const face = entry.inject(ROOT, undefined as never)
+    const conversation = runtime.ctx.get('conversation') as { input: { for: (actx: unknown) => SessionInput } }
+    const actx = runtime.sessions.scope(ROOT)
+    if (actx === undefined) throw new Error('recall bench resolved no session scope')
+    const input = conversation.input.for(actx)
+    return { runtime, face, input, shell: input as SessionInputShell }
+  }
+
+  const okRemove = (itemId: string) => ({
+    ok: true as const,
+    value: { accepted: true as const, messageId: itemId, status: { state: 'discarded' as const, delivery: 'steer' as const } },
+  })
+
+  it('refills the composer with the recalled plain text on success', async () => {
+    const updateQueue = vi.fn(() => Promise.resolve(okRemove('steer-1')))
+    const b = await recallBench(updateQueue)
+    try {
+      await b.face.recallSteering('steer-1' as never, [{ type: 'text', text: 'take it back' }])
+      expect(updateQueue).toHaveBeenCalledWith('steer-1', { kind: 'remove' })
+      expect(b.shell.state.getSnapshot().draft).toBe('take it back')
+      expect(b.shell.notices.getSnapshot()).toBeNull()
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
+  it('defers the refill past a still-settling submission so it cannot be consumed', async () => {
+    const updateQueue = vi.fn(() => Promise.resolve(okRemove('steer-5')))
+    const b = await recallBench(updateQueue)
+    try {
+      // A recall racing its own steer's submit transaction: the machine is
+      // busy, and the refill must land only after settlement returns plain.
+      b.shell.setDraft('the steer text')
+      b.shell.submit('steer')
+      await vi.waitFor(() => { expect(b.shell.state.getSnapshot().phase).toBe('submitting') })
+      await b.face.recallSteering('steer-5' as never, [{ type: 'text', text: 'take it back' }])
+      expect(b.shell.state.getSnapshot().draft).not.toBe('take it back')
+      await vi.waitFor(() => { expect(b.shell.state.getSnapshot().phase).toBe('plain') })
+      await vi.waitFor(() => {
+        expect(b.shell.state.getSnapshot().draft).toBe('take it back')
+      })
+      expect(b.shell.notices.getSnapshot()).toBeNull()
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
+  it('strips file-handle blocks and warns that attachments were not restored', async () => {
+    const updateQueue = vi.fn(() => Promise.resolve(okRemove('steer-2')))
+    const b = await recallBench(updateQueue)
+    try {
+      const handle = '[文件] notes.txt · 1.2 KB · sha256:abcdef01\n只读路径: /tmp/notes.txt\n用 read 工具读取该路径获得内容；不要凭名字猜测内容。'
+      await b.face.recallSteering('steer-2' as never, [
+        { type: 'image', attachment: {} },
+        { type: 'text', text: handle },
+        { type: 'text', text: 'see the picture' },
+      ])
+      expect(b.shell.state.getSnapshot().draft).toBe('see the picture')
+      expect(b.shell.notices.getSnapshot()).toMatchObject({
+        level: 'info',
+        text: '撤回的消息带有附件，附件不会恢复，请重新添加。',
+      })
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
+  it('keeps a non-empty draft, copying the recalled text to the clipboard instead', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const updateQueue = vi.fn(() => Promise.resolve(okRemove('steer-3')))
+    const b = await recallBench(updateQueue)
+    try {
+      b.shell.setDraft('already typing')
+      await b.face.recallSteering('steer-3' as never, [{ type: 'text', text: 'take it back' }])
+      expect(b.shell.state.getSnapshot().draft).toBe('already typing')
+      expect(writeText).toHaveBeenCalledWith('take it back')
+      expect(b.shell.notices.getSnapshot()).toMatchObject({
+        level: 'info',
+        text: '输入框非空，撤回的文本已复制到剪贴板。',
+      })
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
+  it('never refills on failure and differentiates the notice by the reported lifecycle', async () => {
+    const claimed = {
+      ok: false as const,
+      error: {
+        code: 'queue-item-not-found' as const,
+        message: 'queued item is no longer pending',
+        details: { itemId: 'steer-4', status: { state: 'claimed' as const, turn: 2, delivery: 'steer' as const } },
+      },
+    }
+    const updateQueue = vi.fn(() => Promise.resolve(claimed))
+    const b = await recallBench(updateQueue)
+    try {
+      await b.face.recallSteering('steer-4' as never, [{ type: 'text', text: 'too late' }])
+      expect(b.shell.state.getSnapshot().draft).toBe('')
+      expect(b.shell.notices.getSnapshot()).toMatchObject({
+        level: 'error',
+        text: '撤回失败：模型已读取这条消息，无法撤回。如需中断，请使用「停止」。',
+      })
+    } finally {
+      await b.runtime.dispose()
+    }
   })
 })

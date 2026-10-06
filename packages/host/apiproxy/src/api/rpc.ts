@@ -94,7 +94,15 @@ export interface RpcErrorDetailsMap {
    */
   'agent-busy': { reason: string; activities?: import('./workspace.ts').SessionActivityView[] }
   'attachment-error': { reason: string }
-  'queue-item-not-found': { itemId: MessageId }
+  /**
+   * The addressed pending occurrence is gone. `status` reports its durable
+   * lifecycle so a caller can separate "the model already claimed it"
+   * (claimed/settled) from "another client already discarded it" (discarded);
+   * `{ state: 'unknown' }` covers a cold session the Host did not resume.
+   */
+  'queue-item-not-found': { itemId: MessageId; status: import('./sessions.ts').SessionWorkStatus }
+  /** A next-step pending occurrence is not user-origin, so queue mutation refuses it. */
+  'queue-item-not-user': { itemId: MessageId }
   'steer-unavailable': { itemId: MessageId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
@@ -221,6 +229,7 @@ export const RPC_ERROR_CODES = [
   'agent-busy',
   'attachment-error',
   'queue-item-not-found',
+  'queue-item-not-user',
   'steer-unavailable',
   'command-error',
   'unknown-command',

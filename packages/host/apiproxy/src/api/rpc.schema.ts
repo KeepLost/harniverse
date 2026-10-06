@@ -10,6 +10,9 @@ import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { ClientRequest, ClientResponse, RequestId, RpcError, RpcId, RpcReceipt, ServerRequest, ServerResponse } from './rpc.ts'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
+// Value import is one-directional: sessions.schema.ts reads only the Wire
+// type from here, so the error body can reuse the session work-status schema.
+import { sessionWorkStatusSchema } from './sessions.schema.ts'
 
 /**
  * Wire widening of a contract type: widens every property (deeply) to `original | undefined`.
@@ -92,7 +95,12 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
     }),
   }),
   z.object({ code: z.literal('attachment-error'), message: z.string(), details: z.object({ reason: z.string() }) }),
-  z.object({ code: z.literal('queue-item-not-found'), message: z.string(), details: z.object({ itemId: z.string() }) }),
+  z.object({
+    code: z.literal('queue-item-not-found'),
+    message: z.string(),
+    details: z.object({ itemId: z.string(), status: sessionWorkStatusSchema }),
+  }),
+  z.object({ code: z.literal('queue-item-not-user'), message: z.string(), details: z.object({ itemId: z.string() }) }),
   z.object({ code: z.literal('steer-unavailable'), message: z.string(), details: z.object({ itemId: z.string() }) }),
   z.object({ code: z.literal('command-error'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('unknown-command'), message: z.string(), details: z.object({}) }),

@@ -109,7 +109,7 @@ describe('web e2e: queue row actions', () => {
     )
     await queueHeader.click()
     await expect.poll(
-      () => page.getByRole('button', { name: 'Remove queued message' }).count(),
+      () => page.getByRole('button', { name: 'Recall queued message' }).count(),
       { timeout: 10_000 },
     ).toBe(2)
 
@@ -157,7 +157,7 @@ describe('web e2e: queue row actions', () => {
     await page.getByText(EDITED, { exact: true }).waitFor()
 
     const removeRow = page.getByText(REMOVE, { exact: true }).locator('..')
-    await removeRow.getByRole('button', { name: 'Remove queued message' }).click()
+    await removeRow.getByRole('button', { name: 'Recall queued message' }).click()
     await expect.poll(() => page.getByText(REMOVE, { exact: true }).count()).toBe(0)
 
     await waitForAgentPresetLabel(page)
@@ -173,7 +173,7 @@ describe('web e2e: queue row actions', () => {
     await input.fill(TAIL)
     await input.press('Enter')
     await expect.poll(
-      () => page.getByRole('button', { name: 'Remove queued message' }).count(),
+      () => page.getByRole('button', { name: 'Recall queued message' }).count(),
       { timeout: 10_000 },
     ).toBe(2)
 
@@ -181,7 +181,7 @@ describe('web e2e: queue row actions', () => {
     await firstSettled
     await expect.poll(() => page.getByRole('button', { name: 'Stop generating' }).count())
       .toBe(0)
-    await expect.poll(() => page.getByRole('button', { name: 'Remove queued message' }).count())
+    await expect.poll(() => page.getByRole('button', { name: 'Recall queued message' }).count())
       .toBe(2)
 
     await compareGoldenWhenSettled(
@@ -276,7 +276,7 @@ describe('web e2e: queue row actions', () => {
     await page.setViewportSize({ width: 1680, height: 1000 })
 
     await queueHeader.click()
-    const removeButtons = page.getByRole('button', { name: 'Remove queued message' })
+    const removeButtons = page.getByRole('button', { name: 'Recall queued message' })
     await expect.poll(() => removeButtons.count(), { timeout: 10_000 }).toBe(2)
     await removeButtons.first().click()
     await expect.poll(() => removeButtons.count(), { timeout: 10_000 }).toBe(1)

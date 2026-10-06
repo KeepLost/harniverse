@@ -17,6 +17,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { QueueItemId } from '../src/client/contract/queue.ts'
 import type { InputState } from '../src/client/contract/input.ts'
+import { QueueMutationError } from '../src/client/service.ts'
 import { zh } from '../src/client/locales.ts'
 import { QueueDock, queueDockEntry, type QueueDockInjected, type QueueDockProps } from '../src/client/queue/QueueDock.tsx'
 
@@ -158,11 +159,10 @@ describe('QueueDock', () => {
       <QueueDock {...kitFor(single, { updateQueue })} useSession={source.useSession} />,
     )
 
-    fireEvent.click(view.getByLabelText('删除排队消息'))
+    fireEvent.click(view.getByLabelText('撤回排队消息'))
     act(() => {
       source.push(snapshotWith([row('i-remove', 'remove me'), row('i-2', 'second')]))
     })
-
     const header = view.getByRole('button', { name: '2 条排队消息' })
     expect(header).toHaveProperty('disabled', true)
     expect(header.getAttribute('aria-expanded')).toBe('true')
@@ -210,7 +210,7 @@ describe('QueueDock', () => {
       .toEqual(['第一条排队消息', 'image [image]'])
     expect(container.querySelectorAll('button')).toHaveLength(7)
     expect(container.querySelectorAll('[aria-label="编辑排队消息"]')).toHaveLength(2)
-    expect(container.querySelectorAll('[aria-label="删除排队消息"]')).toHaveLength(2)
+    expect(container.querySelectorAll('[aria-label="撤回排队消息"]')).toHaveLength(2)
     expect(container.querySelectorAll('[aria-label="插话发送"]')).toHaveLength(2)
     expect((container.querySelectorAll('[aria-label="编辑排队消息"]')[0] as HTMLButtonElement).disabled).toBe(false)
     expect((container.querySelectorAll('[aria-label="编辑排队消息"]')[1] as HTMLButtonElement).disabled).toBe(true)
@@ -257,7 +257,7 @@ describe('QueueDock', () => {
     const editor = getByLabelText('编辑排队消息') as HTMLInputElement
     expect(getByLabelText('保存排队消息')).toBeTruthy()
     expect(getByLabelText('取消编辑')).toBeTruthy()
-    expect(queryByLabelText('删除排队消息')).toBeNull()
+    expect(queryByLabelText('撤回排队消息')).toBeNull()
     fireEvent.change(editor, { target: { value: 'after' } })
     fireEvent.keyDown(editor, { key: 'Enter' })
 
@@ -315,7 +315,7 @@ describe('QueueDock', () => {
     )
 
     fireEvent.click(getByRole('button', { name: '2 条排队消息' }))
-    fireEvent.click(getAllByLabelText('删除排队消息')[0]!)
+    fireEvent.click(getAllByLabelText('撤回排队消息')[0]!)
     await waitFor(() => {
       expect(updateQueue).toHaveBeenCalledWith(iid('i-1'), { kind: 'remove' })
     })
@@ -360,7 +360,7 @@ describe('QueueDock', () => {
 
     expect(view.getByText('pending child follow-up')).toBeTruthy()
     expect(view.queryByLabelText('编辑排队消息')).toBeNull()
-    expect(view.queryByLabelText('删除排队消息')).toBeNull()
+    expect(view.queryByLabelText('撤回排队消息')).toBeNull()
     expect(view.queryByLabelText('插话发送')).toBeNull()
   })
 
@@ -392,11 +392,44 @@ describe('QueueDock', () => {
       <QueueDock {...kitFor(snap, { updateQueue, notify })} useSession={source.useSession} />,
     )
 
-    fireEvent.click(getByLabelText('删除排队消息'))
+    fireEvent.click(getByLabelText('撤回排队消息'))
     await waitFor(() => {
-      expect(notify).toHaveBeenCalledWith('error', '删除失败：这条消息可能已经开始发送。')
+      expect(notify).toHaveBeenCalledWith('error', '撤回失败：这条消息可能已经开始发送。')
     })
     expect(getByText('pending')).toBeTruthy()
+  })
+
+  it('differentiates the recall failure notice by the reported lifecycle', async () => {
+    const snap = snapshotWith([row('i-claimed', 'claimed')])
+    const source = liveSession(snap)
+    const notify = vi.fn()
+    const updateQueue = vi.fn(() => Promise.reject(new QueueMutationError(
+      'queue-item-not-found',
+      { state: 'claimed', turn: 3, delivery: 'queue' },
+      'conversation.updateQueue failed: queue-item-not-found',
+    )))
+    const { getByLabelText } = render(
+      <QueueDock {...kitFor(snap, { updateQueue, notify })} useSession={source.useSession} />,
+    )
+
+    fireEvent.click(getByLabelText('撤回排队消息'))
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith(
+        'error',
+        '撤回失败：模型已读取这条消息，无法撤回。如需中断，请使用「停止」。',
+      )
+    })
+
+    act(() => { source.push(snapshotWith([row('i-discarded', 'gone')])) })
+    updateQueue.mockRejectedValueOnce(new QueueMutationError(
+      'queue-item-not-found',
+      { state: 'discarded', delivery: 'queue' },
+      'conversation.updateQueue failed: queue-item-not-found',
+    ))
+    fireEvent.click(getByLabelText('撤回排队消息'))
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith('error', '这条消息已被撤回。')
+    })
   })
 
   it('follows authoritative retirement back to null', () => {

@@ -102,7 +102,13 @@ describe('rpcErrorSchema', () => {
       details: { provider: 'p', model: 'm' },
     }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
-    expect(rpcErrorSchema.parse({ code: 'queue-item-not-found', message: 'm', details: { itemId: 'i' } }).code).toBe('queue-item-not-found')
+    expect(rpcErrorSchema.parse({
+      code: 'queue-item-not-found',
+      message: 'm',
+      details: { itemId: 'i', status: { state: 'unknown' } },
+    }).code).toBe('queue-item-not-found')
+    expect(rpcErrorSchema.parse({ code: 'queue-item-not-user', message: 'm', details: { itemId: 'i' } }).code)
+      .toBe('queue-item-not-user')
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
