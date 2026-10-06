@@ -8,7 +8,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ReadResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-fs'
+import type { FsTextEncoding } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { encodingAnnotation, encodingExists, suggestEncodings } from '@deepseek-ai/dsh-fs-codec'
 import { buildWindow, formatReadOutput, langFromPath, readMetaFromMeta } from './read-render.ts'
 import { resolveRegularReadTarget } from './read-target.ts'
 
@@ -31,6 +33,7 @@ interface ReadInput {
   offset: number
   limit: number
   lineByteOffset: number
+  encoding?: string
 }
 
 function parsePositiveInteger(value: number, name: string): number {
@@ -54,7 +57,7 @@ function parseNonNegativeInteger(value: number, name: string): number {
  * @returns the validated input with `offset` defaulted to 1 and `limit` to `maxLimit`.
  */
 export function parseReadArgs(
-  args: { file_path: string; offset?: number; limit?: number; line_byte_offset?: number },
+  args: { file_path: string; offset?: number; limit?: number; line_byte_offset?: number; encoding?: string },
   maxLimit: number,
 ): ReadInput {
   if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
@@ -64,7 +67,23 @@ export function parseReadArgs(
     ? 0
     : parseNonNegativeInteger(args.line_byte_offset, 'line_byte_offset')
   if (limit > maxLimit) throw new Error(`limit must be less than or equal to ${maxLimit}`)
-  return { filePath: args.file_path, offset, limit, lineByteOffset }
+  const encoding = args.encoding === undefined ? undefined : validateEncodingName(args.encoding)
+  return { filePath: args.file_path, offset, limit, lineByteOffset, ...encoding === undefined ? {} : { encoding } }
+}
+
+/** Reject an unknown encoding name with near-miss suggestions before any I/O runs. */
+function validateEncodingName(name: string): string {
+  if (!encodingExists(name)) {
+    const suggestions = suggestEncodings(name)
+    throw new Error(`encoding must be a known encoding name (got ${JSON.stringify(name)})`
+      + (suggestions.length > 0 ? `; near matches: ${suggestions.join(', ')}` : ''))
+  }
+  return name
+}
+
+/** The `[Encoding: …]` annotation line for a decision, or `undefined` for UTF-8 reads. */
+export function readEncodingAnnotation(decision: FsTextEncoding | undefined): string | undefined {
+  return decision === undefined ? undefined : encodingAnnotation(decision.encoding, decision.source)
 }
 
 /**
@@ -76,19 +95,23 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
   ctx.systemPrompt.section({
     name: 'tool:read',
     order: 100,
-    text: 'Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines.',
+    text: 'Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines. Legacy-encoded files decode automatically; an FS_NOT_TEXT result lists encodings you can pass as encoding to re-read the file.',
   })
 
   ctx.tools.register(defineTool({
     name: 'read',
-    description: 'Read a UTF-8 text file and return line-numbered content.',
+    description: 'Read a text file and return line-numbered content. Files decode as UTF-8 by default; legacy encodings are detected from the machine locale, or name one with encoding.',
     parameters: {
       file_path: { type: 'string', required: true, description: 'Path to read, resolved by the filesystem backend.' },
       offset: { type: 'number', description: '1-based first line to return. Defaults to 1.' },
       limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${caps.limit}.` },
       line_byte_offset: {
         type: 'number',
-        description: '0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read.',
+        description: '0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read; it counts UTF-8 bytes of the decoded text regardless of the file\'s encoding.',
+      },
+      encoding: {
+        type: 'string',
+        description: 'Optional encoding name (iconv-lite spelling, e.g. gbk, big5, shiftjis, utf-16le). Omit to auto-detect; an FS_NOT_TEXT result lists encodings that can decode the file.',
       },
     },
     output: {
@@ -114,6 +137,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
             },
           },
           totalLines: { type: 'integer' },
+          encoding: { type: 'string' },
           next: {
             type: 'object',
             additionalProperties: false,
@@ -133,6 +157,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
             lines: value.lines,
             ...value.totalLines === undefined ? {} : { totalLines: value.totalLines },
             ...value.next === undefined ? {} : { next: value.next },
+            ...value.encoding === undefined ? {} : { encoding: value.encoding },
           }),
         }]
       },
@@ -147,6 +172,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
           lines: value.lines.map(line => ({ ...line })),
           ...value.totalLines === undefined ? {} : { totalLines: value.totalLines },
           ...value.next === undefined ? {} : { next: value.next },
+          ...value.encoding === undefined ? {} : { encoding: value.encoding },
           ...lang === undefined ? {} : { lang },
         }
       },
@@ -158,7 +184,11 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       // One stat: absence observation OR type check + present version.
       // A concurrent write can only make a later guarded mutation fail stale and require reread.
       const { target, info } = await resolveRegularReadTarget(ctx, exec, input.filePath)
-      const chunks = await ctx.fs.streamText(target, exec.signal)
+      let decision: FsTextEncoding | undefined
+      const chunks = await ctx.fs.streamText(target, exec.signal, {
+        ...input.encoding === undefined ? {} : { encoding: input.encoding },
+        onDecision: (value) => { decision = value },
+      })
       const window = await buildWindow(
         chunks,
         {
@@ -170,6 +200,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         },
         target.displayPath,
       )
+      const annotation = readEncodingAnnotation(decision)
 
       const outcome = {
         path: target.displayPath,
@@ -177,6 +208,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         lines: window.lines,
         ...window.totalLines === undefined ? {} : { totalLines: window.totalLines },
         ...window.next === undefined ? {} : { next: window.next },
+        ...annotation === undefined ? {} : { encoding: annotation },
       }
       // Record the present observation (a no-op when no policy plugin listens). The
       // read already succeeded; an fs/observed listener is contractually a

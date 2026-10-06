@@ -169,9 +169,13 @@ describe('readHostSource', () => {
     await expect(readSource('multibyte.ts', 5)).rejects.toThrow(/5-byte limit/)
   })
 
-  it('rejects a non-UTF-8 source', async () => {
-    await writeFile(join(ws, 'bin.ts'), Buffer.from([0xff, 0xfe, 0x00]))
-    await expect(readSource('bin.ts')).rejects.toThrow(/invalid UTF-8|binary file/)
+  it('rejects a NUL binary source while a UTF-16 BOM source now decodes', async () => {
+    await writeFile(join(ws, 'bin.ts'), Buffer.from([0x68, 0x00, 0x69]))
+    await expect(readSource('bin.ts')).rejects.toThrow(/binary file/)
+    // A UTF-16LE BOM file rides the default decode (the LSP consumer takes no
+    // utfOnly boundary), so it now reads instead of rejecting as invalid UTF-8.
+    await writeFile(join(ws, 'u16.ts'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('a\n', 'utf-16le')]))
+    await expect(readSource('u16.ts')).resolves.toMatchObject({ text: 'a\n' })
   })
 
   it('keeps a valid U+FFFD replacement character in otherwise-valid UTF-8', async () => {

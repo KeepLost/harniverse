@@ -141,7 +141,7 @@ function mountWorkbench(
     searchFiles: vi.fn(async (
       _workspaceId: WorkspaceId, _query: string, _filters, _signal?: AbortSignal,
     ) => ({ entries: [], truncated: false })),
-    readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _signal?: AbortSignal) => ({ path, content: '', bytes: 0, truncated: false })),
+    readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _opts?: { encoding?: string }, _signal?: AbortSignal) => ({ path, content: '', bytes: 0, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const })),
     readBinaryFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _signal?: AbortSignal) => ({ path, dataBase64: '', mediaType: 'image/png', bytes: 0 })),
     gitStatus: vi.fn(async (_workspaceId: WorkspaceId, _signal?: AbortSignal) => ({ branch: null, entries: [], truncated: false })),
     gitCommits: vi.fn(async (_workspaceId: WorkspaceId, _limit?: number, _signal?: AbortSignal) => ({ commits: [], truncated: false })),
@@ -193,6 +193,7 @@ function mountWorkbench(
         t={t}
         useCanOpenPath={canOpenPath}
         openPath={services.openPath}
+        readFile={services.readFile}
       />
     </>
   )
@@ -739,11 +740,15 @@ describe('WorkspaceWorkbench', () => {
       truncated: path === undefined,
     }))
     const searchFiles = vi.fn(async () => ({ entries: [nested], truncated: true }))
-    const readFile = vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+    const readFile = vi.fn(async (_workspaceId: WorkspaceId, path: string, _opts?: { encoding?: string }) => ({
       path,
       content: path.endsWith('.md') ? '# Workbench title' : 'export const ready = true',
       bytes: 42,
       truncated: path.endsWith('.md'),
+      encoding: 'utf-8',
+      encodingSource: 'utf8' as const,
+      bom: false,
+      eol: 'LF' as const,
     }))
     const gitStatus = vi.fn(async () => ({
       branch: 'dev',
@@ -768,7 +773,7 @@ describe('WorkspaceWorkbench', () => {
     expect(screen.getByRole('tab', { name: '文件' }).getAttribute('aria-selected')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /^MDREADME\.md$/ }))
     expect(await screen.findByRole('heading', { name: 'Workbench title' })).toBeTruthy()
-    expect(readFile).toHaveBeenCalledWith(wid('a'), 'README.md', expect.any(AbortSignal))
+    expect(readFile).toHaveBeenCalledWith(wid('a'), 'README.md', undefined, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole('button', { name: /^MDREADME\.md$/ }))
     expect(readFile.mock.calls.filter(call => call[1] === 'README.md')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: '刷新文件树' }))
@@ -795,7 +800,7 @@ describe('WorkspaceWorkbench', () => {
       )
     })
     fireEvent.click(await screen.findByRole('button', { name: /src\/main\.ts/ }))
-    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'src/main.ts', expect.any(AbortSignal)) })
+    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'src/main.ts', undefined, expect.any(AbortSignal)) })
     expect(mounted.container.querySelector('pre')?.textContent).toBe('export const ready = true')
     fireEvent.click(screen.getByRole('tab', { name: 'README.md' }))
     fireEvent.click(screen.getByRole('button', { name: '关闭 main.ts' }))
@@ -809,7 +814,7 @@ describe('WorkspaceWorkbench', () => {
     expect(screen.getByText('initial')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '刷新 Git 变更' }))
     fireEvent.click(await screen.findByRole('button', { name: /\?.*new\.ts/ }))
-    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'new.ts', expect.any(AbortSignal)) })
+    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'new.ts', undefined, expect.any(AbortSignal)) })
     fireEvent.click(screen.getByRole('button', { name: '暂存区' }))
     fireEvent.click(await screen.findByRole('button', { name: /M.*src\/main\.ts/ }))
     await waitFor(() => { expect(gitDiff).toHaveBeenCalledWith(wid('a'), 'src/main.ts', true, expect.any(AbortSignal)) })
@@ -844,7 +849,7 @@ describe('WorkspaceWorkbench', () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const view = mountWorkbench({
       listFiles: vi.fn(async () => ({ path: '', entries: [readme], truncated: false })),
-      readFile: vi.fn(async () => ({ path: 'README.md', content: 'drawer body', bytes: 11, truncated: false })),
+      readFile: vi.fn(async () => ({ path: 'README.md', content: 'drawer body', bytes: 11, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const })),
     }, { drawer: true })
 
     fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
@@ -863,7 +868,7 @@ describe('WorkspaceWorkbench', () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const view = mountWorkbench({
       listFiles: vi.fn(async () => ({ path: '', entries: [readme], truncated: false })),
-      readFile: vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false })),
+      readFile: vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const })),
     })
 
     fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
@@ -1032,7 +1037,7 @@ describe('WorkspaceWorkbench', () => {
     const view = mountWorkbench({
       listFiles: vi.fn(async () => ({ path: '', entries: [readme, notes], truncated: false })),
       readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
-        path, content: `body of ${path}`, bytes: 12, truncated: false,
+        path, content: `body of ${path}`, bytes: 12, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const,
       })),
     }, { drawer: true })
 
@@ -1156,7 +1161,7 @@ describe('workbench open-in-default-application actions', () => {
   it('announces an open failure as a diagnostic without breaking the tree or preview', async () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
-    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }))
     const openPath = vi.fn(async () => { throw new Error('no desktop') })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true })
@@ -1176,7 +1181,7 @@ describe('workbench open-in-default-application actions', () => {
   it('offers the preview header action on the docked workbench panel too', async () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
-    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }))
     const openPath = vi.fn(async () => {})
     // Drawer mode collapses the overlay variant, so the panel's own preview
     // is the only rendered region.
@@ -1192,7 +1197,7 @@ describe('workbench open-in-default-application actions', () => {
   it('offers the preview header action for a loaded file only with the capability', async () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
-    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }))
     const openPath = vi.fn(async () => {})
     const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true })
 

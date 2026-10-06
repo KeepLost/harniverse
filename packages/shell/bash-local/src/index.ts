@@ -17,6 +17,9 @@ import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, S
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
 import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { hostPriorsSync, hostFilePrior } from '@deepseek-ai/dsh-fs-codec'
+import type { HostPriors } from '@deepseek-ai/dsh-fs-codec'
+import type { SubprocessOutputDecoding } from '@deepseek-ai/dsh-subprocess'
 
 /**
  * Model-friendly environment overrides: disable colors, pagers, and
@@ -37,6 +40,20 @@ const DEFAULT_GRACE_MS = 3_000
 
 /** Default per-stream spill cap (the `maxSpillBytes` config). */
 const DEFAULT_MAX_SPILL_BYTES = 64 * 1024 * 1024
+
+/**
+ * The output-decoding spec for one bash command, derived from the child's
+ * FINAL locale environment (`LC_ALL > LC_CTYPE > LANG` after every env layer
+ * merged): a legacy charset decodes invalid lines through itself; a UTF-8, C,
+ * or unset locale keeps plain UTF-8 — byte-identical to the historical
+ * collector on UTF-8 hosts. `LANG` is deliberately never rewritten.
+ * @param env - the merged environment the child will run with.
+ */
+export function bashOutputDecoding(env: NodeJS.ProcessEnv): SubprocessOutputDecoding {
+  const priors: HostPriors = hostPriorsSync({ platform: 'linux', env })
+  const legacy = hostFilePrior(priors)
+  return legacy === undefined ? { kind: 'utf-8' } : { kind: 'mixed', legacy: [legacy] }
+}
 
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
@@ -182,22 +199,25 @@ export class LocalBashExecutor extends ShellExecutor {
     stdoutMaxBytes: number,
     signal: AbortSignal | undefined,
   ): SubprocessSpawnSpec {
-    const collect = (maxBytes: number): SubprocessCollect =>
-      ({ maxBytes, spill: { maxBytes: this.config.maxSpillBytes } })
+    const collect = (maxBytes: number, env: NodeJS.ProcessEnv): SubprocessCollect => ({
+      maxBytes,
+      spill: { maxBytes: this.config.maxSpillBytes },
+      decoding: bashOutputDecoding(env),
+    })
+    // The child's final locale decides the output decoding, so the merged env
+    // is computed once and shared by the collect spec and the spawn.
+    const env = { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv }
     return {
       argv,
       cwd: spec.workdir,
+      env,
       stdio: {
         stdin: spec.stdin !== undefined ? { data: spec.stdin } : 'ignore',
-        stdout: collect(stdoutMaxBytes),
-        stderr: collect(this.config.maxOutputBytes),
+        stdout: collect(stdoutMaxBytes, env),
+        stderr: collect(this.config.maxOutputBytes, env),
       },
       graceMs: this.config.graceMs,
       signal,
-      // One explicit env map for the seam, layered so the trusted dshEnv
-      // snapshot beats both the caller's env and the terminal overrides; the
-      // subprocess service merges the whole map after its ambient base.
-      env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },
       // Full-access commands inherit the harness's complete environment: the
       // user's credential/proxy/toolchain variables must reach the child the
       // same way they reach the user's interactive shell. Confined modes keep

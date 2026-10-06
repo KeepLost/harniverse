@@ -30,7 +30,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `read` | `file_path`、`offset?`、`limit?`、`line_byte_offset?` | 流式读取、带行号的 UTF-8 内容和精确续读游标。`offset` 从 1 开始；`line_byte_offset` 是首条所选行内从 0 开始的 UTF-8 字节位置，必须从先前结果复制；`limit` 默认为 `readLimit`（2000），上限也为该值。 |
+| `read` | `file_path`、`offset?`、`limit?`、`line_byte_offset?`、`encoding?` | 流式读取、带行号的内容和精确续读游标；非 UTF-8 解码结果附 `[Encoding: …]` 标注。`offset` 从 1 开始；`line_byte_offset` 是首条所选行内从 0 开始的 UTF-8 字节位置（按解码后文本计），必须从先前结果复制；`limit` 默认为 `readLimit`（2000），上限也为该值；可选 `encoding`（iconv-lite 名）显式指定编码重读。 |
 | `read_image` | `file_path` | 通过有界字节 seam 读取 PNG/JPEG/WebP/GIF 文件，经 `ctx.attachments.saveImage` 持久保存，并在小型元数据信封旁返回图像块；无扩展名路径按文件签名识别格式。只有确切路由的模型声明图像输入时才会成功。 |
 | `write` | `file_path`、`content` | 创建文件或完整替换文件。有策略插件时：覆盖现有文件要求先在未变版本上执行 `read`；创建新文件不需要。没有插件时：无条件执行。 |
 | `edit` | `file_path`、非空 `old_string`、`new_string`、`replace_all?` | 字面量替换；除非 `replace_all` 为 true，否则要求唯一匹配。有策略插件时：要求先执行 `read`（任何窗口），且文件此后未变。没有插件时：无条件执行。 |
@@ -73,7 +73,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 ##### Read 指导
 
 ```markdown
-Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines.
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines. Legacy-encoded files decode automatically; an FS_NOT_TEXT result lists encodings you can pass as encoding to re-read the file.
 ```
 
 ##### Write 指导
@@ -85,7 +85,7 @@ Use the write tool to create files or completely replace file contents. Existing
 ##### Edit 指导
 
 ```markdown
-Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+Use the edit tool for targeted changes to existing text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 ```
 
 #### Token 影响
@@ -114,7 +114,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-成功读取结果精确为 `<path><displayPath></path>`、换行、`<type>file</type>`、换行、`<content>`、编号内容、一个空行、一条 footer 和 `</content>`。完整行渲染为 `<lineNumber>: <text>`；巨型行的部分内容渲染为 `<lineNumber> [bytes <start>-<end>]: <text>`。footer 精确为 `(Line <line> continues. Use offset=<line> and line_byte_offset=<byte>.)`、`(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)` 或 `(End of file - total <total> lines)`。返回的 `next` 位置是精确值：原样传回两个值会从下一个未读 UTF-8 码点边界恢复，包括在同一逻辑行内续读，既不遗漏也不重复。读取缺失目标仍返回 `FS_NOT_FOUND`，但会为调用会话记录确认缺失；外部删除的文件被重新读取后，重试的 `write` 可以通过提供方的不替换防护安全地重新创建该文件。
+成功读取结果精确为 `<path><displayPath></path>`、换行、`<type>file</type>`、换行、`<content>`、编号内容、一个空行、一条 footer、可选的 `[Encoding: <name> (<source>)]` 标注行（仅当提供方以非 UTF-8 编码解码时出现）和 `</content>`。完整行渲染为 `<lineNumber>: <text>`；巨型行的部分内容渲染为 `<lineNumber> [bytes <start>-<end>]: <text>`。footer 精确为 `(Line <line> continues. Use offset=<line> and line_byte_offset=<byte>.)`、`(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)` 或 `(End of file - total <total> lines)`。返回的 `next` 位置是精确值：原样传回两个值会从下一个未读 UTF-8 码点边界恢复，包括在同一逻辑行内续读，既不遗漏也不重复。读取缺失目标仍返回 `FS_NOT_FOUND`，但会为调用会话记录确认缺失；外部删除的文件被重新读取后，重试的 `write` 可以通过提供方的不替换防护安全地重新创建该文件。
 
 #### Token 影响
 
@@ -169,7 +169,9 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 ## 已知限制与暂缓事项
 
 - **未交付面向模型的目录列表工具**：`ctx.fs.listDir` 服务于 skill（技能）发现等提供方代码，同级 [`dsh-tool-fs-search`](../tool-fs-search/) 包则提供基于 ripgrep 的 `glob` 与 `grep`，而不是扩展文件系统 seam。
-- **`read` 只处理 UTF-8 文本文件**：图像使用独立的 `read_image` 工具；PDF、音频和视频仍延期处理。目录目标为 `FS_NOT_REGULAR_FILE`。
+- **遗留检测跟随主机 locale**：跨地区文件（GB18030 先验主机上的 Big5 文件）会解码为乱码，直到模型利用 `FS_NOT_TEXT` 消息中的候选清单带 `encoding` 重读；含真实 U+FFFD 的文件被一票否决；同时合法的 2 字节遗留序列按 UTF-8 决定（固有歧义）。
+- **无 BOM 的 UTF-16 保持 `FS_NOT_TEXT`**，iconv-lite 缺失的编码（ISO-2022 系、EBCDIC、EUC-TW、Johab、HZ）同样如此。
+- **`read` 只处理文本文件**：图像使用独立的 `read_image` 工具；PDF、音频和视频仍延期处理。目录目标为 `FS_NOT_REGULAR_FILE`。
 - **路由门禁与并发模型切换存在竞态**：`read_image` 在执行时检查最新路由的模型；在该检查与下一次请求之间提交的切换，可能让图像块落在拒绝图像内容的路由上。Web 宿主已拒绝把含图像的会话切到纯文本模型；其他前端拥有各自的等价防护。
 - **媒体类型按扩展名声明**：扩展名选择声明类型，附件存储的魔数校验保持权威；扩展名错误但格式正确的图像会得到改名修复提示，而不是被嗅探接受。
 - **工具结果卡片没有内嵌图像预览**：UI 表面以通用形式渲染图像结果（持久引用而非像素）；内嵌渲染延后到 UI 包处理。

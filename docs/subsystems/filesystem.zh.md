@@ -52,7 +52,7 @@ type FsTargetKey = Branded<'FsTargetKey'>
 type FsVersion = Branded<'FsVersion'>
 ```
 
-`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让消费方在读取前拒绝目录和特殊文件；`size` 让文本消费方无需通过失败探测即可选择 `readText` 还是 `streamText`。文本消费方在消费 `streamText` 时执行自己的保留量上限。原始字节消费方调用 `readBytes(target, signal, maxBytes)`；其必填的完整内容上限会使已知或读取中发现的超限以 `FS_TOO_LARGE` 失败，不会截断结果或无界缓冲。
+`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让消费方在读取前拒绝目录和特殊文件；`size` 让文本消费方无需通过失败探测即可选择 `readText` 还是 `streamText`。文本消费方在消费 `streamText` 时执行自己的保留量上限。文本读取接受可选的解码控制：`encoding` 指定 iconv-lite 编码名，要么成功要么点名失败；`utfOnly` 把读取限制在 UTF 家族（skills、指令、配置依赖的边界）；`onDecision` 接收最终确定的 `FsTextEncoding` 决定（`{ encoding, source, bom, eol }`），受守卫的写回将复现该决定。遗留解码、其候选顺序与按版本的粘性决定记录由本地提供方经由 [dsh-fs-codec](../../packages/fs/fs-codec/README.zh.md) 拥有。原始字节消费方调用 `readBytes(target, signal, maxBytes)`；其必填的完整内容上限会使已知或读取中发现的超限以 `FS_TOO_LARGE` 失败，不会截断结果或无界缓冲。
 
 ```ts type-equiv
 /**
@@ -266,9 +266,10 @@ type FsErrorCode =
   | 'FS_AMBIGUOUS_EDIT'
   | 'FS_EDIT_NOT_FOUND'
   | 'FS_ABORTED'
+  | 'FS_UNMAPPABLE'
 ```
 
-目录列表使用 `FS_NOT_DIRECTORY`、`FS_PERMISSION_DENIED` 与 `FS_IO_ERROR` 区分已存在但并非目录的目标、被拒绝的列表操作和意外的后端 I/O 失败。`FS_SANDBOX_DENIED` 是强制执行沙箱的后端（`dsh-fs-sandbox`）所作的策略拒绝——模式边界拒绝了写入/编辑——与 `FS_PERMISSION_DENIED`（宿主内核拒绝）不同。`FS_NOT_OBSERVED` 表示策略插件没有此所有者的先前观测记录（或 `createIfAbsent` 遇到了现有文件）。`FS_NOT_FOUND` 也表示策略因确认缺失而拒绝 edit。`FS_STALE_VERSION` 表示后端版本不再与观测到的版本匹配（或提供方本身收到针对缺失目标的 edit）。新鲜度授权没有部分/完整之分，因此不存在 `FS_PARTIAL_OBSERVATION`。
+`FS_UNMAPPABLE` 表示受守卫的写回无法以文件记录的编码表示某个字符（`dsh-fs-local` 在暂存之前拒绝写入，绝不发布 `?` 字节）。目录列表使用 `FS_NOT_DIRECTORY`、`FS_PERMISSION_DENIED` 与 `FS_IO_ERROR` 区分已存在但并非目录的目标、被拒绝的列表操作和意外的后端 I/O 失败。`FS_SANDBOX_DENIED` 是强制执行沙箱的后端（`dsh-fs-sandbox`）所作的策略拒绝——模式边界拒绝了写入/编辑——与 `FS_PERMISSION_DENIED`（宿主内核拒绝）不同。`FS_NOT_OBSERVED` 表示策略插件没有此所有者的先前观测记录（或 `createIfAbsent` 遇到了现有文件）。`FS_NOT_FOUND` 也表示策略因确认缺失而拒绝 edit。`FS_STALE_VERSION` 表示后端版本不再与观测到的版本匹配（或提供方本身收到针对缺失目标的 edit）。新鲜度授权没有部分/完整之分，因此不存在 `FS_PARTIAL_OBSERVATION`。
 
 ## 文件 IO 不设超时
 

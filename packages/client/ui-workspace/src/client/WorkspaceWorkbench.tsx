@@ -467,10 +467,11 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
       )
     } else {
       runRequest(
-        signal => props.readFile(workspace.workspaceId, entry.path, signal),
+        signal => props.readFile(workspace.workspaceId, entry.path, undefined, signal),
         (value) => {
           props.actions.updateTab(workspaceId, {
             ...pending, content: value.content, bytes: value.bytes, truncated: value.truncated, loading: false,
+            encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
           })
         },
         (error) => { props.actions.updateTab(workspaceId, { ...pending, loading: false, error }) },
@@ -478,6 +479,32 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
       )
     }
   }, [account?.tabs, props.actions, props.readBinaryFile, props.readFile, runRequest, workspace, workspaceId])
+
+  // "Reopen with encoding": re-reads one text tab with an explicit encoding
+  // (or re-detects), keeping the tab identity so the surface does not move.
+  const reopenWithEncoding = useCallback((entryPath: string, encoding: string | undefined) => {
+    /* v8 ignore next -- the selector renders only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    const id = `file:${entryPath}`
+    const descriptor = previewType(entryPath)
+    const pending: WorkbenchTab = {
+      id, path: entryPath, title: basename(entryPath), kind: descriptor.kind, loading: true,
+      ...(descriptor.language === undefined ? {} : { language: descriptor.language }),
+      ...(encoding === undefined ? {} : { encoding, encodingSource: 'explicit' as const }),
+    }
+    props.actions.openTab(workspaceId, pending)
+    runRequest(
+      signal => props.readFile(workspace.workspaceId, entryPath, encoding === undefined ? undefined : { encoding }, signal),
+      (value) => {
+        props.actions.updateTab(workspaceId, {
+          ...pending, content: value.content, bytes: value.bytes, truncated: value.truncated, loading: false,
+          encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
+        })
+      },
+      (error) => { props.actions.updateTab(workspaceId, { ...pending, loading: false, error }) },
+      `tab:${id}`,
+    )
+  }, [props.actions, props.readFile, runRequest, workspace, workspaceId])
 
   const loadGit = useCallback((silent = false) => {
     /* v8 ignore next -- Git actions render only after an initialized Workspace account resolves. */
@@ -802,6 +829,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
           onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
           onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+          onReopenEncoding={reopenWithEncoding}
         />
       )}
     </aside>
@@ -842,6 +870,30 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
   const previewOpenExternal = canOpenPath && activeTab !== undefined && activeTab.kind !== 'diff' && !activeTab.loading && activeTab.error === undefined
     ? () => { openExternal(activeTab.path) }
     : undefined
+  // "Reopen with encoding" on the overlay copy: same tab identity, explicit
+  // encoding re-read through the shared store account.
+  const reopenWithEncoding = useCallback((entryPath: string, encoding: string | undefined) => {
+    /* v8 ignore next -- the selector renders only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    const id = `file:${entryPath}`
+    const descriptor = previewType(entryPath)
+    const pending: WorkbenchTab = {
+      id, path: entryPath, title: basename(entryPath), kind: descriptor.kind, loading: true,
+      ...(descriptor.language === undefined ? {} : { language: descriptor.language }),
+      ...(encoding === undefined ? {} : { encoding, encodingSource: 'explicit' as const }),
+    }
+    props.actions.openTab(workspaceId, pending)
+    void props.readFile(workspace.workspaceId, entryPath, encoding === undefined ? undefined : { encoding })
+      .then((value) => {
+        props.actions.updateTab(workspaceId, {
+          ...pending, content: value.content, bytes: value.bytes, truncated: value.truncated, loading: false,
+          encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
+        })
+      })
+      .catch((error: unknown) => {
+        props.actions.updateTab(workspaceId, { ...pending, loading: false, error: String(error) })
+      })
+  }, [props.actions, props.readFile, workspace, workspaceId])
   useEffect(() => {
     return () => {
       if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
@@ -868,6 +920,7 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
       onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
       onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+      onReopenEncoding={reopenWithEncoding}
     />
   )
 }

@@ -5828,6 +5828,22 @@ importers:
         specifier: workspace:^
         version: link:../../sandbox/sandbox
 
+  packages/fs/fs-codec:
+    dependencies:
+      iconv-lite:
+        specifier: 0.7.3
+        version: 0.7.3
+      koffi:
+        specifier: 3.1.1
+        version: 3.1.1
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
   packages/fs/fs-local:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -5843,6 +5859,9 @@ importers:
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../fs
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../fs-codec
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -5913,6 +5932,9 @@ importers:
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../fs
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../fs-codec
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:^
         version: link:../fs-local
@@ -6008,6 +6030,9 @@ importers:
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../fs
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../fs-codec
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:^
         version: link:../fs-local
@@ -6376,6 +6401,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../../fs/fs-codec
       '@deepseek-ai/dsh-goal':
         specifier: workspace:^
         version: link:../../goal/goal
@@ -8736,6 +8764,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../../fs/fs-codec
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -8794,6 +8825,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../../fs/fs-codec
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -10349,6 +10383,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../../fs/fs-codec
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants

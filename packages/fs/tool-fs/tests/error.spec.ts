@@ -41,3 +41,13 @@ describe('remediateFsError', () => {
     expect(remediateFsError(original, 'x')).toBe(original)
   })
 })
+
+describe('remediateFsError — FS_UNMAPPABLE', () => {
+  it('appends the representable-characters remedy, preserving the code', () => {
+    const original = new FsError('cannot edit "x": 😀 (U+1F600) at 3:7 cannot be encoded in GB18030', 'FS_UNMAPPABLE')
+    const remedied = remediateFsError(original, 'x') as FsError
+    expect(remedied.message).toBe('cannot edit "x": 😀 (U+1F600) at 3:7 cannot be encoded in GB18030 — use characters the file\'s encoding can represent')
+    expect(remedied.code).toBe('FS_UNMAPPABLE')
+    expect(remedied.cause).toBe(original)
+  })
+})

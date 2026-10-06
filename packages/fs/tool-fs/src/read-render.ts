@@ -68,6 +68,8 @@ export interface FileReadOutcome {
   /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
   next?: ReadCursor
+  /** Ready-made `[Encoding: …]` annotation; absent for UTF-8 reads (byte-identical output). */
+  encoding?: string
 }
 
 interface WindowAccumulator {
@@ -272,12 +274,13 @@ export function formatReadOutput(displayPath: string, outcome: FileReadOutcome):
   } else {
     footer = '(More file content may remain.)'
   }
+  const annotation = outcome.encoding === undefined ? '' : `\n${outcome.encoding}`
   const body = outcome.lines.length > 0
     ? `${outcome.lines.map((line) => {
       if (line.startByte === undefined || line.endByte === undefined) return `${line.number}: ${line.text}`
       return `${line.number} [bytes ${line.startByte}-${line.endByte}]: ${line.text}`
-    }).join('\n')}\n\n${footer}`
-    : footer
+    }).join('\n')}\n\n${footer}${annotation}`
+    : `${footer}${annotation}`
   return `<path>${escapeXml(displayPath)}</path>
 <type>file</type>
 <content>
@@ -348,6 +351,8 @@ export interface FsReadMeta {
   /** Exact total line count when the bounded stream reached EOF. */
   totalLines?: number
   next?: ReadCursor
+  /** Ready-made encoding annotation, present only for non-UTF-8 reads. */
+  encoding?: string
   /** Syntax-highlighting language hint from the extension, or omitted for plain text. */
   lang?: string
 }
@@ -382,8 +387,9 @@ function isFileTextLine(value: unknown): value is FileTextLine {
  */
 export function readMetaFromMeta(meta: unknown): FsReadMeta | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
-  const { path, offset, lines, totalLines, lang, next } = meta as Record<string, unknown>
+  const { path, offset, lines, totalLines, lang, next, encoding } = meta as Record<string, unknown>
   if (typeof path !== 'string' || typeof offset !== 'number') return undefined
+  if (encoding !== undefined && typeof encoding !== 'string') return undefined
   if (!Number.isInteger(offset) || offset < 1) return undefined
   if (totalLines !== undefined && (typeof totalLines !== 'number' || !Number.isInteger(totalLines) || totalLines < 0)) {
     return undefined
@@ -405,6 +411,7 @@ export function readMetaFromMeta(meta: unknown): FsReadMeta | undefined {
     path, offset, lines,
     ...totalLines === undefined ? {} : { totalLines },
     ...next === undefined ? {} : { next: next as ReadCursor },
+    ...encoding === undefined ? {} : { encoding },
     ...lang === undefined ? {} : { lang },
   }
 }

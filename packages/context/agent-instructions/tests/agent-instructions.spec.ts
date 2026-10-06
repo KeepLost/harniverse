@@ -64,6 +64,7 @@ class RecordingFileSystem extends FileSystem {
   throwOnRead = new Set<string>()
   omitSizes = new Set<string>()
   readTargets: string[] = []
+  streamTextOpts: Array<{ utfOnly?: boolean } | undefined> = []
   readTextTargets: string[] = []
   signals: AbortSignal[] = []
 
@@ -122,10 +123,11 @@ class RecordingFileSystem extends FileSystem {
     throw new Error('not needed in agent-instructions tests')
   }
 
-  override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
+  override async streamText(target: FsTarget, signal?: AbortSignal, opts?: { utfOnly?: boolean }): Promise<AsyncIterable<string>> {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()
     this.readTargets.push(target.targetKey)
+    this.streamTextOpts.push(opts)
     if (this.throwOnRead.has(target.targetKey)) throw new Error(`read failed: ${target.displayPath}`)
     const content = this.entries.get(target.targetKey)?.content ?? ''
     return (async function* () {
@@ -491,6 +493,31 @@ describe('workspace context instruction discovery', () => {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
       await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('skips a GBK-encoded AGENTS.md through the UTF-only boundary instead of decoding it', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      // GBK bytes for "旧规则" plus ASCII: without the UTF-only boundary a
+      // legacy-decoding provider would surface mojibake or decoded content.
+      await writeFile(join(root, 'AGENTS.md'), Buffer.concat([
+        Buffer.from('legacy rules: '),
+        Buffer.from([0xbe, 0xc9, 0xb9, 0xe6, 0xd4, 0xf2]),
+        Buffer.from('\n'),
+      ]))
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(derivedText(agent)).not.toContain('legacy rules')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
     }
   })
 

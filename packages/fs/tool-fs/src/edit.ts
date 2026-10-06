@@ -77,12 +77,12 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
   ctx.systemPrompt.section({
     name: 'tool:edit',
     order: 102,
-    text: 'Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.',
+    text: 'Use the edit tool for targeted changes to existing text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.',
   })
 
   ctx.tools.register(defineTool({
     name: 'edit',
-    description: 'Edit an existing UTF-8 text file by replacing literal text.',
+    description: 'Edit an existing text file by replacing literal text.',
     parameters: {
       file_path: { type: 'string', required: true, description: 'Path to edit, resolved by the filesystem backend.' },
       old_string: { type: 'string', required: true, description: 'Literal text to replace. Must match exactly.' },

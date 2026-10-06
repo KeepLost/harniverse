@@ -22,6 +22,9 @@ import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, S
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
 import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { hostPriors, hostPriorsSync, outputLegacyForCodePage } from '@deepseek-ai/dsh-fs-codec'
+import type { HostPriors } from '@deepseek-ai/dsh-fs-codec'
+import type { SubprocessOutputDecoding } from '@deepseek-ai/dsh-subprocess'
 /* jscpd:ignore-end */
 import { resolvePwshPath } from './resolve.ts'
 
@@ -83,6 +86,18 @@ type ResolvedConfig = Required<Omit<Config, 'cwd' | 'pwshPath'>> & Pick<Config, 
 // Resolution lives in its own dependency-free module so the repository's
 // coverage-gate probe shares the exact definition the suites use.
 export { candidatePwshPaths, resolvePwshPath } from './resolve.ts'
+
+/**
+ * The output-decoding spec for collected PowerShell output: per-line mixed
+ * over the host's OEM then ANSI code page, so a native program that ignores
+ * the UTF-8 preamble still decodes line-wise. A UTF-8 host keeps plain UTF-8
+ * (byte-identical to the historical collector).
+ * @param priors - the host priors to derive the legacy list from.
+ */
+export function pwshOutputDecoding(priors: HostPriors): SubprocessOutputDecoding {
+  const legacy = outputLegacyForCodePage(priors.oemcp, priors.acp)
+  return legacy.length === 0 ? { kind: 'utf-8' } : { kind: 'mixed', legacy }
+}
 
 /** Project a settled collect-mode reader into the final CollectedOutput shape. */
 function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
@@ -159,6 +174,9 @@ export class PwshLocalExecutor extends ShellExecutor {
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
+    // Warm the Win32 code-page binding so the first command's output decoding
+    // already sees the OEM/ANSI priors (POSIX hosts resolve synchronously).
+    if (process.platform === 'win32') void hostPriors()
     // Schemastery fills these fields before construction; the type does not encode that step.
     const entry = config as ResolvedConfig
     assertServiceablePwshConfig(entry)
@@ -225,8 +243,11 @@ export class PwshLocalExecutor extends ShellExecutor {
     signal: AbortSignal | undefined,
     argv: readonly string[],
   ): SubprocessSpawnSpec {
-    const collect = (maxBytes: number): SubprocessCollect =>
-      ({ maxBytes, spill: { maxBytes: this.config.maxSpillBytes } })
+    const collect = (maxBytes: number): SubprocessCollect => ({
+      maxBytes,
+      spill: { maxBytes: this.config.maxSpillBytes },
+      decoding: pwshOutputDecoding(hostPriorsSync()),
+    })
     return {
       argv: [...argv],
       cwd: spec.workdir,

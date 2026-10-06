@@ -66,9 +66,21 @@ class FakeFs extends FileSystem {
   override async readText(target: FsTarget): Promise<string> {
     return this.files.get(target.targetKey) ?? ''
   }
-  override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
+  streamTextOpts: Array<{ encoding?: string; utfOnly?: boolean } | undefined> = []
+  nextDecision?: { encoding: string; source: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'; bom: boolean; eol: 'LF' | 'CRLF' }
+
+  override async streamText(
+    target: FsTarget,
+    _signal?: AbortSignal,
+    opts?: { encoding?: string; onDecision?: (decision: never) => void },
+  ): Promise<AsyncIterable<string>> {
+    this.streamTextOpts.push(opts)
     const content = this.files.get(target.targetKey) ?? ''
-    return (async function* () { yield content })()
+    const decision = this.nextDecision
+    return (async function* () {
+      if (decision !== undefined) opts?.onDecision?.(decision as never)
+      yield content
+    })()
   }
   override async readBytes(target: FsTarget, _signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
     const bytes = new TextEncoder().encode(this.files.get(target.targetKey) ?? '')
@@ -1011,5 +1023,51 @@ describe('sandbox escalation API (write/edit)', () => {
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write', justification: 'why' }, escalationAgent())
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('not available in this composition')
+  })
+})
+
+describe('read encoding support', () => {
+  it('validates the encoding name at parameter parsing with near-miss suggestions', async () => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'read', { file_path: 'a.txt', encoding: 'gb' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('encoding must be a known encoding name (got "gb")')
+    expect(text(result)).toContain('near matches: gb18030, gbk')
+  })
+
+  it('reports an unknown encoding with no near matches', async () => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'read', { file_path: 'a.txt', encoding: 'zzzzzz' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('encoding must be a known encoding name (got "zzzzzz")')
+    expect(text(result)).not.toContain('near matches')
+  })
+
+  it('forwards a valid encoding to the backend read', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', '你好')
+    const result = await call(ctx, 'read', { file_path: 'a.txt', encoding: 'gbk' })
+    expect(result.isError).toBe(false)
+    expect(fs.streamTextOpts.at(-1)).toMatchObject({ encoding: 'gbk' })
+  })
+
+  it('annotates the output only for non-UTF-8 decisions and persists it in meta', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'alpha\nbeta\n')
+    fs.nextDecision = { encoding: 'gb18030', source: 'host', bom: false, eol: 'LF' }
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('[Encoding: GB18030 (host code page)]')
+    expect(result.meta).toMatchObject({ encoding: '[Encoding: GB18030 (host code page)]' })
+  })
+
+  it('keeps the output byte-identical for UTF-8 decisions (no annotation)', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'alpha\nbeta\n')
+    fs.nextDecision = { encoding: 'utf-8', source: 'utf8', bom: false, eol: 'LF' }
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).not.toContain('[Encoding:')
+    expect(result.meta).not.toHaveProperty('encoding')
   })
 })

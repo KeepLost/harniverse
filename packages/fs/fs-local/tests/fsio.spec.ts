@@ -321,8 +321,10 @@ describe('readTextForDiff', () => {
   it('returns normalized text only when the opened file is strictly below the limit', async () => {
     const file = join(dir, 'basis.txt')
     await writeFile(file, 'a\r\nb')
-    expect(await readTextForDiff(file, 5)).toBe('a\nb')
-    expect(await readTextForDiff(file, 4)).toBeNull()
+    const below = await readTextForDiff(file, 5)
+    expect(below.basis).toBe('a\nb')
+    expect(below.decision).toMatchObject({ encoding: 'utf-8', source: 'utf8', bom: false })
+    expect((await readTextForDiff(file, 4)).basis).toBeNull()
   })
 
   it('bounds the actual opened file rather than trusting an earlier path size', async () => {
@@ -331,7 +333,7 @@ describe('readTextForDiff', () => {
     const earlierSize = (await stat(file)).size
     await writeFile(file, '123456789')
     expect(earlierSize).toBeLessThan(8)
-    expect(await readTextForDiff(file, 8)).toBeNull()
+    expect((await readTextForDiff(file, 8)).basis).toBeNull()
   })
 
   it('returns null when the opened file shrinks after descriptor stat', async () => {
@@ -359,7 +361,7 @@ describe('readTextForDiff', () => {
 
     try {
       const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
-      expect(await isolatedReadTextForDiff(file, 8)).toBeNull()
+      expect((await isolatedReadTextForDiff(file, 8)).basis).toBeNull()
     } finally {
       vi.doUnmock('node:fs/promises')
       vi.resetModules()
@@ -391,7 +393,7 @@ describe('readTextForDiff', () => {
 
     try {
       const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
-      expect(await isolatedReadTextForDiff(file, 32)).toBeNull()
+      expect((await isolatedReadTextForDiff(file, 32)).basis).toBeNull()
     } finally {
       vi.doUnmock('node:fs/promises')
       vi.resetModules()
@@ -399,7 +401,7 @@ describe('readTextForDiff', () => {
   })
 
   it('returns null when the file vanishes before the basis open (deletion race)', async () => {
-    expect(await readTextForDiff(join(dir, 'deleted-after-preflight.txt'), 32)).toBeNull()
+    expect((await readTextForDiff(join(dir, 'deleted-after-preflight.txt'), 32)).basis).toBeNull()
   })
 
   it('returns null when the opened descriptor is no longer a regular file', async () => {
@@ -426,7 +428,7 @@ describe('readTextForDiff', () => {
 
     try {
       const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
-      expect(await isolatedReadTextForDiff(file, 32)).toBeNull()
+      expect((await isolatedReadTextForDiff(file, 32)).basis).toBeNull()
     } finally {
       vi.doUnmock('node:fs/promises')
       vi.resetModules()
@@ -459,8 +461,8 @@ describe('readTextForDiff', () => {
   it('returns null for binary and invalid UTF-8 without blocking the caller write', async () => {
     await writeFile(join(dir, 'bin'), Buffer.from([0x68, 0x00, 0x69]))
     await writeFile(join(dir, 'bad'), Buffer.from([0x68, 0xff, 0x69]))
-    expect(await readTextForDiff(join(dir, 'bin'), 8)).toBeNull()
-    expect(await readTextForDiff(join(dir, 'bad'), 8)).toBeNull()
+    expect((await readTextForDiff(join(dir, 'bin'), 8)).basis).toBeNull()
+    expect((await readTextForDiff(join(dir, 'bad'), 8)).basis).toBeNull()
   })
 
   it('honors a pre-aborted signal', async () => {

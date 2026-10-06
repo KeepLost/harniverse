@@ -3083,6 +3083,10 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         }
         return ok(request, {
           path: request.payload.path, content, bytes: new TextEncoder().encode(content).byteLength, truncated: false,
+          encoding: request.payload.encoding ?? 'utf-8',
+          encodingSource: request.payload.encoding === undefined ? 'utf8' as const : 'explicit' as const,
+          bom: false,
+          eol: 'LF' as const,
         })
       },
       readBinary: (request, signal) => {

@@ -14,7 +14,7 @@
 
 ## 工具
 
-schema 提供针对绝对路径的 `view`、`create`、`str_replace` 与 `insert`。文件查看始终通过有界的行与字节窗口流式读取，使用从 1 开始的行号，并保留内容中的制表符，因此显示的文本仍可作为有效的字面量替换输入。内容窗口会先为路径、行号和续读说明预留空间，再用 `maxOutputChars` 限制完整响应。行被截断时会返回明确的 `line_byte_offset` 游标；将它与 `view` 及首行相同的 `view_range` 一同传回，即可从 UTF-8 边界继续该行。目录查看忽略隐藏、依赖与 Python 缓存条目并下探两层。`view`、`str_replace` 或 `insert` 发生元数据未命中时，工具会在返回 `FS_NOT_FOUND` 前记录确认缺失，因此后续 `create` 可以通过已挂载策略的防护创建流程恢复外部删除的路径；缺失状态绝不会授权 `str_replace` 或 `insert`。替换要求字面量唯一匹配，错误只使用公开的 `old_str` 词汇。插入遵循所选的零基插入边界，不会隐式补尾换行。修改操作会保留请求编辑范围之外的制表符，并在完整读取前拒绝提供方所报告大小超过 `maxMutationInputBytes` 的文件。
+schema 提供针对绝对路径的 `view`、`create`、`str_replace` 与 `insert`。文件查看始终通过有界的行与字节窗口流式读取，使用从 1 开始的行号，并保留内容中的制表符，因此显示的文本仍可作为有效的字面量替换输入；提供方解码的遗留文件会在编号内容后追加 `[Encoding: <name> (<source>)]` 标注行。内容窗口会先为路径、行号和续读说明预留空间，再用 `maxOutputChars` 限制完整响应。行被截断时会返回明确的 `line_byte_offset` 游标；将它与 `view` 及首行相同的 `view_range` 一同传回，即可从 UTF-8 边界继续该行。目录查看忽略隐藏、依赖与 Python 缓存条目并下探两层。`view`、`str_replace` 或 `insert` 发生元数据未命中时，工具会在返回 `FS_NOT_FOUND` 前记录确认缺失，因此后续 `create` 可以通过已挂载策略的防护创建流程恢复外部删除的路径；缺失状态绝不会授权 `str_replace` 或 `insert`。替换要求字面量唯一匹配，错误只使用公开的 `old_str` 词汇。插入遵循所选的零基插入边界，不会隐式补尾换行。修改操作会保留请求编辑范围之外的制表符，并在完整读取前拒绝提供方所报告大小超过 `maxMutationInputBytes` 的文件。
 
 ## 模型体验
 
@@ -48,6 +48,7 @@ schema 提供针对绝对路径的 `view`、`create`、`str_replace` 与 `insert
 
 ## 已知限制与暂缓事项
 
-- 操作面向 UTF-8 文本，不支持二进制文件。
+- 操作面向文本；遗留编码文件经挂载的提供方解码，非 UTF-8 的 `view` 在编号内容后追加一行 `[Encoding: …]` 标注，`str_replace`/`insert` 按文件记录的编码写回。无 BOM 的 UTF-16、需要显式 encoding 的跨地区文件以及 iconv-lite 缺失的编码仍不支持。
+- 其余操作面向可按 UTF-8 解码的文本，不支持二进制文件。
 - `str_replace` 刻意拒绝零匹配或多匹配，且没有 `replace_all` 参数。
 - 每个修改操作都会经过 `fs/write-intent` 或 `fs/edit-intent`，解析当前会话的沙箱策略，并交由挂载的文件系统与策略插件实施约束。

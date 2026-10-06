@@ -45,6 +45,8 @@ Indirectly, through `dsh-tool-pwsh`, which renders this executor's bounded stdou
 No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
+- **ANSI-only native programs are unrecoverable** — output a native program writes through the ANSI page is decoded by PowerShell itself before this executor sees it; the mixed OEM/ANSI fallback fixes only pipe bytes the preamble did not convert, and a first command racing the Win32 code-page preload decodes as plain UTF-8.
+
 
 - **Unconfined by itself** — this executor always runs commands with the harness process's authority; deployments needing confinement compose a sandboxing bash executor or policy instead.
 - **No persistent shell or PTY** — every call starts a fresh `pwsh -Command`.

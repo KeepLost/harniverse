@@ -9,7 +9,8 @@ import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CollectedOutput } from '@deepseek-ai/dsh-subprocess'
+import type { CollectedOutput, SubprocessOutputDecoding } from '@deepseek-ai/dsh-subprocess'
+import { decodeOutputWindow } from '@deepseek-ai/dsh-fs-codec'
 
 let spillCounter = 0
 let defaultSpillDir: string | undefined
@@ -106,16 +107,22 @@ export class OutputCollector {
   private spillDisabled: boolean
   /** Total bytes ever pushed (not just retained). */
   private total = 0
+  /** Whether the stream has ended (final decodes release held-back tails). */
+  private ended = false
+  /** The `nextOffset` this collector last returned; reads resuming there start on a sequence boundary. */
+  private lastNextOffset = -1
 
   /**
    * @param maxBytes - in-memory tail cap in bytes.
    * @param label - stream label used in spill file names and failure reports.
    * @param spill - spill storage; omit for tail-only collection.
+   * @param decoding - output decoding; omitted means UTF-8.
    */
   constructor(
     private readonly maxBytes: number,
     private readonly label: string,
     private readonly spill: SpillOptions | undefined,
+    private readonly decoding: SubprocessOutputDecoding = { kind: 'utf-8' },
   ) {
     this.spillDisabled = spill === undefined
   }
@@ -215,6 +222,12 @@ export class OutputCollector {
    * pushed since `fromByte`. When `fromByte` has already slid out of the
    * in-memory tail window, the read is `lossy` — it returns the whole
    * retained tail and the gap is only recoverable from the spill file.
+   * Decoding honors the collect spec (per-line legacy fallback under
+   * `mixed`); an incomplete trailing sequence stays unread until more bytes
+   * or stream end arrive, so `nextOffset` may be smaller than the newest
+   * retained byte. Offsets this collector previously returned are sequence
+   * boundaries; resuming from a foreign offset can slice a multi-byte
+   * character, and the decoder treats that leading fragment as UTF-8.
    * @param fromByte - whole-stream offset to resume from (a prior read's `nextOffset`; 0 for the first read).
    * @returns the delta text, the offset for the next read, the `lossy` flag, and the spill path when one was created.
    */
@@ -223,9 +236,15 @@ export class OutputCollector {
     const buffer = Buffer.concat(this.chunks)
     const lossy = fromByte < windowStart
     const slice = lossy ? buffer : buffer.subarray(fromByte - windowStart)
+    const decoded = decodeOutputWindow(slice, this.decoding, {
+      final: this.ended,
+      alignedSlice: fromByte === 0 || fromByte === this.lastNextOffset,
+    })
+    const nextOffset = Math.max(fromByte, fromByte + decoded.consumedTo)
+    this.lastNextOffset = nextOffset
     return {
-      text: slice.toString('utf8'),
-      nextOffset: this.total,
+      text: decoded.text,
+      nextOffset,
       lossy,
       ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
     }
@@ -247,6 +266,7 @@ export class OutputCollector {
    * never point at a still-open file.
    */
   seal(): void {
+    this.ended = true
     if (this.spillFd === undefined) return
     try {
       closeSync(this.spillFd)
@@ -265,7 +285,7 @@ export class OutputCollector {
   finalize(): CollectedOutput {
     this.seal()
     return {
-      text: Buffer.concat(this.chunks).toString('utf8'),
+      text: decodeOutputWindow(Buffer.concat(this.chunks), this.decoding, { final: true, alignedSlice: true }).text,
       truncated: this.dropped,
       ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
     }

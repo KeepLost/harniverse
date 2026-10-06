@@ -1005,7 +1005,7 @@ async function readSkillTextFromFileSystem(ctx: Context, fs: FileSystem, path: s
   }
   if (info === undefined || info.type !== 'file') return undefined
   try {
-    return await fs.readText(target, signal)
+    return await fs.readText(target, signal, { utfOnly: true })
   } catch (error) {
     signal?.throwIfAborted()
     if (isAbsentSkillPathError(error)) return undefined

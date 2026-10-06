@@ -36,6 +36,19 @@ export interface CollectedOutput {
 export type SubprocessStdinMode = 'ignore' | 'pipe' | { readonly data: string }
 
 /**
+ * Text decoding applied to collected output. `'utf-8'` (the default and the
+ * historical behavior) decodes everything as UTF-8; `'mixed'` judges line by
+ * line — valid UTF-8 lines stay UTF-8, and only an invalid line decodes
+ * through the stream's legacy code pages (Windows OEM/ANSI or a POSIX locale
+ * charset). Collectors decode whole retained windows and hold back incomplete
+ * trailing sequences, so a read's `nextOffset` may sit before the newest
+ * retained byte.
+ */
+export type SubprocessOutputDecoding =
+  | { readonly kind: 'utf-8' }
+  | { readonly kind: 'mixed'; readonly legacy: readonly string[] }
+
+/**
  * Bounded in-memory collection for one output stream, with an optional
  * full-stream spill file. Omitting `spill` keeps only the in-memory tail —
  * the diagnostic-tail shape (a language server's stderr); including it makes
@@ -49,6 +62,8 @@ export interface SubprocessCollect {
     /** Whole-stream byte cap; a larger stream discards its now-incomplete spill. */
     maxBytes: number
   }
+  /** Output decoding; omitted means UTF-8. */
+  decoding?: SubprocessOutputDecoding
 }
 
 /**

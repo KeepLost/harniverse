@@ -109,6 +109,14 @@ export interface WorkbenchTab {
   bytes?: number
   truncated?: boolean
   error?: string
+  /** Canonical encoding name the content was decoded with (text tabs). */
+  encoding?: string
+  /** Which decode candidate produced `encoding`. */
+  encodingSource?: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+  /** Whether the file's bytes began with the encoding's byte order mark. */
+  bom?: boolean
+  /** Dominant line-ending style of the decoded content. */
+  eol?: 'LF' | 'CRLF'
 }
 
 /** One lazily loaded directory level. */

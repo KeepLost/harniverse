@@ -151,6 +151,9 @@ export const zh = {
   'workbench.previewTruncated': '文件超过文本预览上限，当前内容已截断',
   'workbench.diffStaged': '{name} · 暂存',
   'workbench.diffChanged': '{name} · 变更',
+  'workbench.encodingLabel': '编码',
+  'workbench.encodingAuto': '自动检测',
+  'workbench.encodingReopen': '以指定编码重新打开',
 } satisfies Record<string, string>
 
 /** The workspace namespace key union. */
@@ -303,4 +306,7 @@ export const en = {
   'workbench.previewTruncated': 'The file exceeds the text preview limit and was truncated',
   'workbench.diffStaged': '{name} · staged',
   'workbench.diffChanged': '{name} · changed',
+  'workbench.encodingLabel': 'Encoding',
+  'workbench.encodingAuto': 'Auto-detect',
+  'workbench.encodingReopen': 'Reopen with encoding',
 } satisfies Record<WorkspaceKey, string>

@@ -52,7 +52,7 @@ type FsTargetKey = Branded<'FsTargetKey'>
 type FsVersion = Branded<'FsVersion'>
 ```
 
-`stat` returns metadata (never content), or `undefined` when the target is absent. `type` lets consumers reject directories and special files before reading, and `size` lets text consumers choose `readText` vs `streamText` without probing by failure. A text consumer applies its own retention ceiling while consuming `streamText`. Raw-byte consumers use `readBytes(target, signal, maxBytes)`; its required complete-content cap makes a known or discovered overflow fail with `FS_TOO_LARGE` instead of truncating or buffering without a bound.
+`stat` returns metadata (never content), or `undefined` when the target is absent. `type` lets consumers reject directories and special files before reading, and `size` lets text consumers choose `readText` vs `streamText` without probing by failure. A text consumer applies its own retention ceiling while consuming `streamText`. Text reads accept optional decode controls: `encoding` names an iconv-lite encoding and wins or fails by name, `utfOnly` restricts the read to the UTF family (the boundary skills, instructions, and configuration rely on), and `onDecision` receives the settled `FsTextEncoding` decision (`{ encoding, source, bom, eol }`) that a guarded write-back reproduces. Legacy decoding, its candidate order, and the sticky per-version decision record are owned by the local provider through [`dsh-fs-codec`](../../packages/fs/fs-codec/README.md). Raw-byte consumers use `readBytes(target, signal, maxBytes)`; its required complete-content cap makes a known or discovered overflow fail with `FS_TOO_LARGE` instead of truncating or buffering without a bound.
 
 ```ts type-equiv
 /**
@@ -266,9 +266,10 @@ type FsErrorCode =
   | 'FS_AMBIGUOUS_EDIT'
   | 'FS_EDIT_NOT_FOUND'
   | 'FS_ABORTED'
+  | 'FS_UNMAPPABLE'
 ```
 
-`FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_SANDBOX_DENIED` is a POLICY refusal from a sandbox-enforcing backend (`dsh-fs-sandbox`) — the mode fence denied a write/edit — distinct from `FS_PERMISSION_DENIED` (the host kernel refusing). `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_NOT_FOUND` also represents an edit rejected from confirmed absence. `FS_STALE_VERSION` means the backend version no longer matches the observed one (or the provider itself receives an edit for a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
+`FS_UNMAPPABLE` means a guarded write-back cannot represent some character in the file's recorded encoding (`dsh-fs-local` refuses the write before staging rather than publishing `?` bytes). `FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_SANDBOX_DENIED` is a POLICY refusal from a sandbox-enforcing backend (`dsh-fs-sandbox`) — the mode fence denied a write/edit — distinct from `FS_PERMISSION_DENIED` (the host kernel refusing). `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_NOT_FOUND` also represents an edit rejected from confirmed absence. `FS_STALE_VERSION` means the backend version no longer matches the observed one (or the provider itself receives an edit for a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
 
 ## No timeouts on file IO
 

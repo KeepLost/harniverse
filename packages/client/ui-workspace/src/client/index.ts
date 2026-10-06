@@ -195,7 +195,7 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
       current()
       return ctx.workspaces.searchFiles(workspaceId, query, filters, signal)
     },
-    readFile: (workspaceId, path, signal) => { current(); return ctx.workspaces.readFile(workspaceId, path, signal) },
+    readFile: (workspaceId, path, opts, signal) => { current(); return ctx.workspaces.readFile(workspaceId, path, opts, signal) },
     readBinaryFile: (workspaceId, path, signal) => { current(); return ctx.workspaces.readBinaryFile(workspaceId, path, signal) },
     gitStatus: (workspaceId, signal) => { current(); return ctx.workspaces.gitStatus(workspaceId, signal) },
     gitCommits: (workspaceId, limit, signal) => { current(); return ctx.workspaces.gitCommits(workspaceId, limit, signal) },
@@ -225,6 +225,7 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
   // It carries only the native open-path action and its capability.
   const previewInjected = (): WorkspacePreviewInjected => ({
     openPath,
+    readFile: (workspaceId, path, opts, signal) => { current(); return ctx.workspaces.readFile(workspaceId, path, opts, signal) },
     hooks: { canOpenPath: canOpenPathSource },
   })
   yield ctx.slots.inject('shell.overlay', () => ctx.slots.register(

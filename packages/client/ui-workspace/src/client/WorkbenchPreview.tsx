@@ -188,14 +188,28 @@ export function TabStrip(props: {
   )
 }
 
+/** Encodings offered by the "reopen with encoding" selector, iconv names as values. */
+const REOPEN_ENCODINGS: readonly { value: string; label: string }[] = [
+  { value: 'utf-8', label: 'UTF-8' },
+  { value: 'gb18030', label: 'GB18030 / GBK' },
+  { value: 'big5', label: 'Big5' },
+  { value: 'shiftjis', label: 'Shift_JIS' },
+  { value: 'eucjp', label: 'EUC-JP' },
+  { value: 'cp949', label: 'EUC-KR' },
+  { value: 'windows-1251', label: 'Windows-1251' },
+  { value: 'windows-1252', label: 'Windows-1252' },
+]
+
 /** Package-internal preview dispatcher, exported for direct component accounting. */
-export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: {
+export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal, onReopenEncoding }: {
   tab: WorkbenchTab | undefined
   onDismiss: () => void
   t: WorkbenchTranslate
   onFrameLoad?: (frame: HTMLIFrameElement) => void
   /** Open the previewed file with the Host's default application; absent hides the action. */
   onOpenExternal?: () => void
+  /** Re-read the previewed file with an explicit encoding (`undefined` re-detects); text tabs only. */
+  onReopenEncoding?: (encoding: string | undefined) => void
 }) {
   const objectUrlState = useObjectUrl(tab)
   const objectUrl = objectUrlState !== undefined && tab !== undefined
@@ -242,6 +256,27 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: 
         {/* Right-to-left ellipsis keeps the filename visible on a long path;
             the bidi isolate stops the base direction from reordering it. */}
         <span className={css.previewPath} title={tab.path}>&#8296;{tab.path}&#8297;</span>
+        {tab.encoding !== undefined && (
+          <small>
+            {t('workbench.encodingLabel')}: {tab.encoding}
+            {tab.bom ? ' · BOM' : ''} · {tab.eol}
+          </small>
+        )}
+        {onReopenEncoding !== undefined && (
+          <select
+            className={css.encodingSelect}
+            aria-label={t('workbench.encodingReopen')}
+            value={tab.encodingSource === 'explicit' ? tab.encoding : ''}
+            onChange={(event) => {
+              onReopenEncoding(event.currentTarget.value === '' ? undefined : event.currentTarget.value)
+            }}
+          >
+            <option value="">{t('workbench.encodingAuto')}</option>
+            {REOPEN_ENCODINGS.map(entry => (
+              <option key={entry.value} value={entry.value}>{entry.label}</option>
+            ))}
+          </select>
+        )}
         {tab.bytes !== undefined && <small>{tab.bytes.toLocaleString()} B</small>}
         {onOpenExternal !== undefined && tab.error === undefined && (
           <button
@@ -283,6 +318,8 @@ export function WorkbenchPreview(props: {
   onSelect: (id: string) => void
   onClose: (id: string) => void
   onDismiss: () => void
+  /** Re-read the active file tab with an explicit encoding; absent hides the selector. */
+  onReopenEncoding?: (path: string, encoding: string | undefined) => void
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const restoreFocus = useRef<HTMLElement | null>(null)
@@ -399,6 +436,9 @@ export function WorkbenchPreview(props: {
         onDismiss={props.onDismiss}
         onFrameLoad={bindFrame}
         {...(props.onOpenExternal === undefined ? {} : { onOpenExternal: props.onOpenExternal })}
+        {...(props.onReopenEncoding === undefined || activeTab === undefined ? {} : {
+          onReopenEncoding: (encoding: string | undefined) => { props.onReopenEncoding?.(activeTab.path, encoding) },
+        })}
       />
     </div>
   )

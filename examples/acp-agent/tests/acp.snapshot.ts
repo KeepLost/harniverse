@@ -365,6 +365,16 @@ const SCENARIOS: Scenario[] = [
     configPath: FS_DIFF_BOUND_CONFIG,
   },
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
+  // Keyless, authored: pins the legacy-encoding path end to end under a
+  // zh_CN.GBK scenario environment (deterministic host prior). The model reads
+  // the GBK fixture (decoded GB18030 with the [Encoding: …] annotation), edits
+  // it, and the byte-exact GBK write-back lands in the scenario workspace.
+  {
+    name: 'fs-read-encoding',
+    hasModelTurn: true,
+    recorded: false,
+    env: { LC_ALL: 'zh_CN.GBK' },
+  },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'fs-delete-recreate', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },

@@ -27,6 +27,9 @@ beforeEach(async () => {
   ctx = new Context()
   fiber = await ctx.plugin(LocalFileSystem, { cwd: dir })
   fs = ctx.fs as LocalFileSystem
+  // Host-locale priors vary by machine; pin them empty so these suites stay
+  // deterministic (the encoding suite injects priors explicitly).
+  fs.resolvePriors = async () => ({})
 })
 afterEach(async () => {
   await fiber.dispose()
@@ -48,6 +51,7 @@ async function remountWithDiffLimit(diffBasisMaxBytes: number): Promise<void> {
   await fiber.dispose()
   fiber = await ctx.plugin(LocalFileSystem, { cwd: dir, diffBasisMaxBytes })
   fs = ctx.fs as LocalFileSystem
+  fs.resolvePriors = async () => ({})
 }
 
 describe('registration', () => {

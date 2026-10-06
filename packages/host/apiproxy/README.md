@@ -102,6 +102,8 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+- **Preview decoding follows the host locale** — cross-locale files (a Big5 file on a GB18030-prior host) preview as mojibake until reopened with an explicit `encoding`; BOM-less UTF-16 rejects as binary, and files iconv-lite cannot decode stay `workspace-file-binary` with a viable-encoding message. Git diff/log output remains UTF-8-decoded (legacy bytes render as U+FFFD).
+
 - **Forwarded Remote events are parasitic on this legacy frame union** — `host/remote-event` lives in `HostFrame` so the delivery path could reuse the existing host stream instead of opening a third downlink, which makes it read as if this package owned the Remote event contract. It does not: the allowlist is `dsh-api-remotes`' and the consumer verb is `ctx.remote.$on`. When the host stream moves off this package, the frame moves with it and the consumer contract is unaffected ([rationale](../../../.agents/notes/implemented/architecture/2026-08-10-remote-event-delivery.md)).
 - **Pending-interaction state is host-side** — the wire uses POST `/api/respond` plus `RpcReceipt`; the table in `src/api-proxy.ts` handles questions only and has no approval entries.
 - **Queue recall stops at the claim boundary** — `session.updateQueue` can withdraw a pending occurrence only before AgentLoop claims it; a claimed or settled batch is model-read and refuses with the lifecycle in `queue-item-not-found.details.status` ([decision](../../../.agents/notes/implemented/feature/2026-10-06-recall-pending-steering.md)). Removal does not retire the occurrence's attachments (no `retirePrompt` equivalent exists here), and cold sessions are never resumed to expose their pending residue.

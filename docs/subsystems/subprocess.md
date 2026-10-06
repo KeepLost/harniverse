@@ -64,8 +64,12 @@ interface SubprocessCollect {
     /** Whole-stream byte cap; a larger stream discards its now-incomplete spill. */
     maxBytes: number
   }
+  /** Output decoding; omitted means UTF-8. */
+  decoding?: SubprocessOutputDecoding
 }
 ```
+
+Collected output decodes through [`dsh-fs-codec`](../../packages/fs/fs-codec/README.md) over whole retained windows: the default UTF-8 spec matches the historical collector except that an incomplete trailing sequence stays unread until more bytes or stream end arrive, so a returned `nextOffset` may sit before the newest retained byte and incremental reads never split a character. The `mixed` spec judges line by line — valid UTF-8 lines stay UTF-8, and only an invalid line decodes through the stream's legacy code pages (PowerShell: host OEM then ANSI; bash: the child's final locale charset). A window resumed from a foreign offset that starts mid-character decodes that leading fragment as UTF-8 rather than falling back, because several legacy lead bytes overlap the UTF-8 continuation range. The executors derive the spec from host priors (`pwshOutputDecoding`, `bashOutputDecoding`); UTF-8 hosts keep byte-identical output.
 
 ```ts type-equiv
 /**

@@ -34,6 +34,8 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+- **The reopen-with-encoding list is fixed** — the selector offers the common encodings plus auto-detect, not the full iconv-lite name set; a file the host prior mis-detects needs an encoding outside the list to be reachable through the `read` tool instead.
+
 - **No fuzzy content search or event deep links** — the content backend uses literal token/phrase matching, and selecting a result opens the Session rather than the matching event.
 - **Archived Sessions are read-only** — the browser provides an archive list, paged message preview, unarchive, and single or batch permanent deletion; deleting a Session retains shared attachments for global garbage collection.
 - **Pending user interaction is not aggregated into collapsed groups** — a waiting row inside a collapsed group lights no group-header indicator and becomes visible only after that group is expanded.

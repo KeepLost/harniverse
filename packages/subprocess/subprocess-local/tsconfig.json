@@ -18,6 +18,9 @@
       "path": "../subprocess"
     },
     {
+      "path": "../../fs/fs-codec"
+    },
+    {
       "path": "../../util/timeout"
     },
     {

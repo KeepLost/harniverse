@@ -64,6 +64,8 @@ interface SubprocessCollect {
     /** Whole-stream byte cap; a larger stream discards its now-incomplete spill. */
     maxBytes: number
   }
+  /** Output decoding; omitted means UTF-8. */
+  decoding?: SubprocessOutputDecoding
 }
 ```
 

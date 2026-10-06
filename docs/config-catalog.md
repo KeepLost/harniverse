@@ -578,7 +578,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/shell/bash-local/src/index.ts:42`](../packages/shell/bash-local/src/index.ts)
+Source: [`packages/shell/bash-local/src/index.ts:59`](../packages/shell/bash-local/src/index.ts)
 
 <a id="deepseek-aidsh-bash-sandbox"></a>
 
@@ -869,10 +869,21 @@ export interface Config {
    * runtime's safe allocation/decode maximum. Defaults to 10 MiB.
    */
   diffBasisMaxBytes?: number
+  /**
+   * Extra iconv-lite encoding names tried (in order) after the host and
+   * locale priors when decoding a file. Defaults to none; an unknown name
+   * fails provider construction.
+   */
+  fallbackEncodings?: string[]
+  /**
+   * Whether reads may decode legacy (non-UTF-8) encodings at all. Defaults to
+   * `true`; `false` limits reads to explicit encodings, BOMs, and strict UTF-8.
+   */
+  detect?: boolean
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:41`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:46`](../packages/fs/fs-local/src/index.ts)
 
 <a id="deepseek-aidsh-fs-sandbox"></a>
 
@@ -2155,7 +2166,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/shell/pwsh-local/src/index.ts:58`](../packages/shell/pwsh-local/src/index.ts)
+Source: [`packages/shell/pwsh-local/src/index.ts:61`](../packages/shell/pwsh-local/src/index.ts)
 
 <a id="deepseek-aidsh-pwsh-sandbox"></a>
 
@@ -3611,7 +3622,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:620`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:627`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
@@ -4303,6 +4314,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-control-channel` ([`packages/subprocess/control-channel/src/index.ts`](../packages/subprocess/control-channel/src/index.ts))
 - `@deepseek-ai/dsh-deque` ([`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts))
 - `@deepseek-ai/dsh-execution-descriptor` ([`packages/sandbox/execution-descriptor/src/index.ts`](../packages/sandbox/execution-descriptor/src/index.ts))
+- `@deepseek-ai/dsh-fs-codec` ([`packages/fs/fs-codec/src/index.ts`](../packages/fs/fs-codec/src/index.ts))
 - `@deepseek-ai/dsh-hmr-coordination` ([`packages/boot/hmr-coordination/src/index.ts`](../packages/boot/hmr-coordination/src/index.ts))
 - `@deepseek-ai/dsh-home-paths` ([`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))

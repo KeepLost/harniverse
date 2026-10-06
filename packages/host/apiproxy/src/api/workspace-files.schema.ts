@@ -48,18 +48,23 @@ export const workspaceFilesSearchValueSchema = z.object({
   truncated: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.files.search'>>>
 
-/** Wire validator for one UTF-8 file-read request. */
+/** Wire validator for one bounded file-read request. */
 export const workspaceFilesReadRequestSchema = z.object({
   workspaceId: workspaceIdSchema,
   path: z.string().min(1),
+  encoding: z.string().min(1).max(64).optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'workspace.files.read'>>>
 
-/** Wire validator for one UTF-8 file-read result. */
+/** Wire validator for one decoded file-read result. */
 export const workspaceFilesReadValueSchema = z.object({
   path: z.string(),
   content: z.string(),
   bytes: z.number().int().nonnegative(),
   truncated: z.boolean(),
+  encoding: z.string(),
+  encodingSource: z.enum(['explicit', 'sticky', 'bom', 'utf8', 'host', 'locale', 'fallback']),
+  bom: z.boolean(),
+  eol: z.enum(['LF', 'CRLF']),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.files.read'>>>
 
 /** Wire validator for one bounded binary-preview request. */

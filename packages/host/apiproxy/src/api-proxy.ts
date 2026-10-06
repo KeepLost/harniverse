@@ -4761,11 +4761,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async read(request, signal) {
-        const { workspaceId, path } = request.payload
+        const { workspaceId, path, encoding } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
         try {
-          return ok(request, await readWorkspaceFile(workspace.path, path, signal))
+          return ok(request, await readWorkspaceFile(workspace.path, path, signal, encoding === undefined ? {} : { encoding }))
         } catch (error: unknown) {
           return workspaceInspectionFailure(request, workspaceId, path, error, signal)
         }

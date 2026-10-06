@@ -101,6 +101,8 @@ Host 会把每一种可能改变已授权 Settings namespace 集合的已提交�
 无；该包既不组装也不发送提供方请求。
 
 ## 已知限制与暂缓事项
+- **预览解码跟随主机 locale**：跨地区文件（GB18030 先验主机上的 Big5 文件）在以显式 `encoding` 重新打开前显示为乱码；无 BOM 的 UTF-16 按二进制拒绝，iconv-lite 不能解码的文件保持 `workspace-file-binary` 并附可行编码提示。Git diff/log 输出仍按 UTF-8 解码（遗留字节显示为 U+FFFD）。
+
 
 - **转发的 Remote 事件寄居在这套 legacy 帧联合里**：`host/remote-event` 住在 `HostFrame` 中，是为了让投递路径复用现有宿主流、不必新开第三条下行通道，因此读起来像是本包拥有 Remote 事件契约。并非如此：名单归 `dsh-api-remotes`，消费端动词是 `ctx.remote.$on`。将来宿主流整体搬离本包时，该帧随之搬走，消费端契约不受影响（[原委](../../../.agents/notes/implemented/architecture/2026-08-10-remote-event-delivery.md)）。
 - **待处理交互状态位于宿主侧**：wire 使用 POST `/api/respond` 加 `RpcReceipt`；`src/api-proxy.ts` 中的表只处理问题，不包含审批条目。

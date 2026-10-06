@@ -352,13 +352,21 @@ export class WorkspaceRuntime implements IWorkspaces {
     return response.result.value
   }
 
-  async readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+  async readFile(workspaceId: WorkspaceId, path: string, opts?: { encoding?: string }, signal?: AbortSignal): Promise<{
     path: string
     content: string
     bytes: number
     truncated: boolean
+    encoding: string
+    encodingSource: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+    bom: boolean
+    eol: 'LF' | 'CRLF'
   }> {
-    const response = await this.api.workspaceFiles.read({ workspaceId, path }, signal)
+    const response = await this.api.workspaceFiles.read({
+      workspaceId,
+      path,
+      ...opts?.encoding === undefined ? {} : { encoding: opts.encoding },
+    }, signal)
     if (!response.result.ok) throw new Error(`workspace file read failed: ${response.result.error.message}`)
     return response.result.value
   }

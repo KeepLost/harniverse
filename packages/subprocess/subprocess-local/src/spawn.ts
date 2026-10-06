@@ -208,6 +208,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       mode.maxBytes,
       label,
       mode.spill === undefined ? undefined : { maxBytes: mode.spill.maxBytes, dir: spillDir, onFailure: onSpillFailure },
+      mode.decoding,
     )
     stream.on('data', (chunk: Buffer) => { collector.push(chunk) })
     return collector

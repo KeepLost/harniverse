@@ -168,6 +168,23 @@ export interface FsEditOutcome {
 }
 
 /**
+ * The decode decision accompanying a text read: what encoding the provider
+ * settled on, where it came from, and which byte order mark / line-ending
+ * style a guarded write-back must reproduce. `source: 'utf8'` decisions are
+ * the historical contract; every other source is a legacy-compatible read.
+ */
+export interface FsTextEncoding {
+  /** Canonical provider encoding name (iconv-lite spelling, e.g. `gb18030`). */
+  encoding: string
+  /** Which candidate produced the decision. */
+  source: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+  /** Whether the file's bytes began with the encoding's byte order mark. */
+  bom: boolean
+  /** Dominant line-ending style of the decoded text. */
+  eol: 'LF' | 'CRLF'
+}
+
+/**
  * Stable, machine-routable codes for filesystem failures. Carried on
  * {@link FsError}; the tool registry exposes `{ name, code }` on `isError`
  * results so retry/permission/UI layers can branch without parsing messages.
@@ -186,6 +203,7 @@ export type FsErrorCode =
   | 'FS_AMBIGUOUS_EDIT'
   | 'FS_EDIT_NOT_FOUND'
   | 'FS_ABORTED'
+  | 'FS_UNMAPPABLE'
 
 /**
  * Typed filesystem error. Extends {@link HarnessError} so it carries a stable

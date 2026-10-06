@@ -238,6 +238,8 @@ export type WorkspaceWorkbenchProps =
  */
 export type WorkspacePreviewInjected = {
   openPath: IWorkspaces['openPath']
+  /** Text re-read with an explicit encoding (the "reopen with encoding" action). */
+  readFile: IWorkspaces['readFile']
   /** Reserved reactive compartment: see {@link WorkspaceWorkbenchInjected}. */
   hooks: {
     /** The Host's native path-open capability. */

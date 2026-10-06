@@ -34,6 +34,7 @@ class TestFileSystem extends FileSystem {
   statOverrides = new Map<string, FsInfo | undefined>()
   statSignals: Array<AbortSignal | undefined> = []
   readTextSignals: Array<AbortSignal | undefined> = []
+  readTextOpts: Array<{ utfOnly?: boolean } | undefined> = []
   readTextOverride?: (target: FsTarget, signal?: AbortSignal) => Promise<string>
 
   override async resolve(path: string): Promise<FsTarget> {
@@ -82,8 +83,9 @@ class TestFileSystem extends FileSystem {
     }
   }
 
-  override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
+  override async readText(target: FsTarget, signal?: AbortSignal, opts?: { utfOnly?: boolean }): Promise<string> {
     this.readTextSignals.push(signal)
+    this.readTextOpts.push(opts)
     if (this.readTextOverride !== undefined) return await this.readTextOverride(target, signal)
     if (this.missingReadPaths.has(target.displayPath)) throw new FsError('read failed', 'FS_NOT_FOUND')
     if (this.errorReadPaths.has(target.displayPath)) throw new Error('read temporarily failed')
@@ -432,6 +434,40 @@ describe('FileSystemSkillProvider', () => {
       bundledSkillDir: bundled,
     })
     expect((await bundledCtx.skills.get('bundled-host'))?.source).toBe('bundled')
+  })
+
+  it('reads SKILL.md files through the UTF-only boundary (a GBK file stays ignored)', async () => {
+    const home = await tempDir('skill-utf-only')
+    const root = join(home, '.dsh/skills')
+    await writeFlatSkill(root, 'plain-skill', 'Plain skill', 'Plain body.')
+    await writeFile(join(root, 'gbk-skill.md'), Buffer.concat([
+      Buffer.from('---\nname: '),
+      // GBK bytes for the skill name: a legacy-decoding provider would read
+      // this file; the UTF-only boundary keeps it FS_NOT_TEXT and ignored.
+      Buffer.from([0xbc, 0xbc, 0xc4, 0xdc]),
+      Buffer.from('\ndescription: legacy\n---\n\nUse it.\n'),
+    ]))
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    fs.readTextOverride = async (target) => {
+      if (!target.displayPath.endsWith('gbk-skill.md')) {
+        return await readFile(target.displayPath, 'utf8')
+      }
+      // The real backend under utfOnly rejects legacy bytes with FS_NOT_TEXT;
+      // a provider that decoded legacy text would instead have received no
+      // utfOnly request, which the opts assertion below rules out.
+      if (fs.readTextOpts.at(-1)?.utfOnly !== true) {
+        throw new Error('skill read did not request the UTF-only boundary')
+      }
+      throw new FsError('not text', 'FS_NOT_TEXT')
+    }
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    expect((await ctx.skills.list({ cwd: home })).map(skill => skill.name)).toEqual(['plain-skill'])
+    expect(await ctx.skills.get('gbk-skill')).toBeUndefined()
+    expect(fs.readTextOpts.length).toBeGreaterThan(0)
+    expect(fs.readTextOpts.every(opts => opts?.utfOnly === true)).toBe(true)
   })
 
   it('reports transient root reads as incomplete without caching an empty catalog', async () => {

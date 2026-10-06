@@ -26,6 +26,7 @@ export type {
   SubprocessLimits,
   SubprocessOutcome,
   SubprocessOutputMode,
+  SubprocessOutputDecoding,
   SubprocessOutputRead,
   SubprocessOutputReader,
   SubprocessSpawnSpec,
