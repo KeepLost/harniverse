@@ -214,14 +214,32 @@ Live in-memory projection of committed summary nodes recorded in each Session lo
 
 ```ts cordis-catalog
 /**
- * Search summary content belonging to one live session.
- * @param sessionId - session whose committed summary nodes are searched.
- * @param query - case-insensitive terms that every matching summary contains.
- * @param limit - requested result count, capped by provider configuration.
- * @returns newest matching committed summary nodes first.
+ * List every committed summary node of one live session as a structural
+ * descriptor, oldest first.
+ * @param sessionId - session whose committed nodes are described.
+ * @returns structural descriptors ordered by commit event seq.
  * @throws when the session is not live in this projection.
  */
-search(sessionId: SessionId, query: string, limit: number = this.config.maxSearchResults): CompactionSummarySearchHit[]
+list(sessionId: SessionId): CompactionHistoryNodeSummary[]
+
+/**
+ * Search summary text and the source messages committed nodes cite.
+ * @param sessionId - session whose committed summary DAG is searched.
+ * @param query - case-insensitive terms that every matching text contains.
+ * @param options - corpus scope, exact depth restriction, and result cap.
+ * @returns newest matching hits first, each carrying its DAG coordinates.
+ * @throws when the session is not live in this projection.
+ */
+search( sessionId: SessionId, query: string, options: CompactionHistorySearchOptions = {}, ): CompactionHistorySearchHit[]
+
+/**
+ * Locate one log event relative to the committed summary DAG.
+ * @param sessionId - session whose log the event belongs to.
+ * @param eventSeq - exact event seq to locate.
+ * @returns live, pending, or shadowed with the covering node's descriptor.
+ * @throws when the session is not live or the seq is outside its log.
+ */
+locate(sessionId: SessionId, eventSeq: number): CompactionHistoryLocation
 
 /**
  * Expand one summary through its parent DAG and optional raw message sources.
@@ -244,7 +262,7 @@ stats(sessionId: SessionId): { summaries: number; maxDepth: number }
 
 Types: [SessionId](core.md)
 
-Source: [`packages/compaction/compaction-lossless/src/index.ts:143`](../../packages/compaction/compaction-lossless/src/index.ts)
+Source: [`packages/compaction/compaction-lossless/src/index.ts:181`](../../packages/compaction/compaction-lossless/src/index.ts)
 
 <a id="ctxcontextinspector--contextinspector"></a>
 

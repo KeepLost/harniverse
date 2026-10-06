@@ -13,7 +13,9 @@
               targetWords: 5
               targetCjkCharacters: 10
               maxInputBytes: 4096
-              maxOutputTokens: 32
+              # The title purpose locks thinking off where the adapter can;
+              # the bump tolerates routes whose endpoint always reasons.
+              maxOutputTokens: 256
               timeoutMs: 5000
               provider: deepseek-official
               model: deepseek-v4-flash

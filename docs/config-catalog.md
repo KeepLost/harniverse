@@ -713,7 +713,7 @@ export interface CompactionHistoryConfig {
 
 Depends on: [`BasicCompactionConfig`](#deepseek-aidsh-compaction-basic)
 
-Source: [`packages/compaction/compaction-lossless/src/index.ts:46`](../packages/compaction/compaction-lossless/src/index.ts)
+Source: [`packages/compaction/compaction-lossless/src/index.ts:56`](../packages/compaction/compaction-lossless/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-settings"></a>
 
@@ -3324,16 +3324,16 @@ Requires: `tools` · `systemPrompt` · `compactionHistory`
 ```ts config-catalog
 /** Tool configuration controlling result bounds. */
 export interface Config {
-  /** Maximum summary hits returned by one search call. Defaults to 20. */
+  /** Maximum hits returned by one search call. Defaults to 20. */
   readonly maxResults?: number
-  /** Maximum summary levels returned by one expansion call. Defaults to 3. */
+  /** Maximum summary levels returned by one node expansion. Defaults to 3. */
   readonly maxDepth?: number
   /** Maximum deterministic estimated tokens in one rendered expansion. Defaults to 4000. */
   readonly maxTokens?: number
 }
 ```
 
-Source: [`packages/compaction/tool-compaction-history/src/index.ts:25`](../packages/compaction/tool-compaction-history/src/index.ts)
+Source: [`packages/compaction/tool-compaction-history/src/index.ts:30`](../packages/compaction/tool-compaction-history/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs"></a>
 

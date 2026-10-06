@@ -314,7 +314,7 @@ describe('registration and schemas', () => {
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
       .toContain('history (complete raw events, compacted originals included)')
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
-      .toContain('compaction_history_search')
+      .toContain('compaction_history_inspect')
     const inspect = mounted.ctx.tools.schemas().find(schema => schema.name === 'session_inspect')
     expect(inspect?.parameters).toHaveProperty('properties.limit.description', expect.stringContaining('Defaults to 10 for messages and 20 for history; maximum 50'))
     expect(inspect?.parameters).toHaveProperty('properties.seq.description', expect.stringContaining('Required for event'))

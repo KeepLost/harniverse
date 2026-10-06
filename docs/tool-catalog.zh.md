@@ -34,7 +34,7 @@
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`、`ctx.lsp`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。 |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
 | `@deepseek-ai/dsh-tool-compaction` | `context_compact` | `ctx.tools`、`ctx.compaction`、`a direct calling Agent` | `tool/call`、`compaction/* on success`、`tool/result` | - | direct 模型调用要求已配置的压缩 provider 在保留近期上下文的同时压缩一个安全的较早前缀。nested transport dispatch 会被拒绝。显式 `from`/`to` 跨度以 1 起算位置指名要压缩的消息，边界吸附保持工具调用配对，结果回报保留上下文规模。 |
-| `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_expand`、`compaction_history_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.compactionHistory`、`a calling Agent for Session identity` | `tool/call`、`tool/result` | - | 随附工具只搜索调用方 live Session 中已提交的 summary checkpoint。展开输出把恢复历史视为不可信内容，并应用配置的深度与确定性 token 估算 cap。 |
+| `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_inspect` | `ctx.tools`、`ctx.systemPrompt`、`ctx.compactionHistory`、`a calling Agent for Session identity` | `tool/call`、`tool/result` | - | 随附工具只搜索调用方 live Session 中已提交的 summary checkpoint。展开输出把恢复历史视为不可信内容，并应用配置的深度与确定性 token 估算 cap。 |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`、`session_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
@@ -1317,63 +1317,74 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ## `@deepseek-ai/dsh-tool-compaction-history`
 
-### `compaction_history_expand`
+### `compaction_history_inspect`
 
-沿 DAG parent 展开一个已压缩 summary，并可选返回有界 raw source message。
+检查当前会话的压缩摘要 DAG：列出各已提交轮次及其覆盖的日志区间、按 DAG 坐标检索摘要或源消息文本、有界展开单个摘要，或定位某个日志事件处于哪一层。
 
 ```json
 {
   "type": "object",
   "properties": {
-    "summaryId": {
+    "view": {
       "type": "string",
-      "description": "Summary id returned by compaction_history_search."
+      "description": "overview lists every compaction round; search matches text; node expands one summary; locate maps one log event.",
+      "enum": [
+        "overview",
+        "search",
+        "node",
+        "locate"
+      ]
     },
-    "maxDepth": {
-      "type": "integer",
-      "description": "Maximum parent DAG depth to traverse."
-    },
-    "tokenCap": {
-      "type": "integer",
-      "description": "Maximum estimated tokens in the expansion."
-    },
-    "includeSources": {
-      "type": "boolean",
-      "description": "Include raw source messages cited directly by expanded summaries."
-    }
-  },
-  "required": [
-    "summaryId"
-  ]
-}
-```
-
-来源：[`packages/compaction/tool-compaction-history/src/index.ts`](../packages/compaction/tool-compaction-history/src/index.ts)
-
-### `compaction_history_search`
-
-搜索当前 Session 的已压缩 summary 节点，并返回有界 id、depth 与 snippet。
-
-```json
-{
-  "type": "object",
-  "properties": {
     "query": {
       "type": "string",
-      "description": "Terms to find in compacted summary content."
+      "description": "Terms to find; required for view=search."
+    },
+    "depth": {
+      "type": "integer",
+      "description": "Restrict view=search to one exact DAG depth (0 = summaries of raw messages); omit for all depths."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Corpus view=search scans: summary text, the source messages those summaries cite, or both. Defaults to summaries.",
+      "enum": [
+        "summaries",
+        "sources",
+        "both"
+      ]
     },
     "limit": {
       "type": "integer",
-      "description": "Maximum hits; capped by plugin configuration."
+      "description": "Maximum search hits; capped by plugin configuration."
+    },
+    "summary_id": {
+      "type": "string",
+      "description": "Summary id from overview or search; required for view=node."
+    },
+    "include_sources": {
+      "type": "boolean",
+      "description": "With view=node: include raw source messages cited by the expanded summaries."
+    },
+    "max_depth": {
+      "type": "integer",
+      "description": "With view=node: maximum parent DAG depth to traverse."
+    },
+    "token_cap": {
+      "type": "integer",
+      "description": "With view=node: maximum estimated tokens in the expansion."
+    },
+    "event_seq": {
+      "type": "integer",
+      "description": "Log event seq to locate; required for view=locate."
     }
   },
   "required": [
-    "query"
+    "view"
   ]
 }
 ```
 
 来源：[`packages/compaction/tool-compaction-history/src/index.ts`](../packages/compaction/tool-compaction-history/src/index.ts)
+
 
 随附工具只搜索调用方 live Session 中已提交的 summary checkpoint。展开输出把恢复历史视为不可信内容，并应用配置的深度与确定性 token 估算 cap。
 

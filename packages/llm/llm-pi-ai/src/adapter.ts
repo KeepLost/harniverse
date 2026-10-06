@@ -427,12 +427,18 @@ export class PiAiAdapter extends LlmAdapter {
     // explicit level: without one, gateways and hybrid models inline their
     // chain of thought into the visible text instead of a thinking block.
     const configuredDefault = effectiveDefaultEffort(profile, model.id)
-    const reasoning = resolveReasoningLevel(
-      model,
-      options.reasoningEffort ?? (configuredDefault === 'pinned-none'
-        ? undefined
-        : configuredDefault ?? implicitThinkingLevel(model)),
-    )
+    // A session-title request locks thinking off before any default or
+    // explicit selection applies, mirroring the llm-deepseek deployment lock:
+    // the small output budget is reserved for visible title text, and a
+    // thinking turn would either burn it or refuse the tiny cap outright.
+    const reasoning = options.purpose === 'session-title'
+      ? 'off'
+      : resolveReasoningLevel(
+        model,
+        options.reasoningEffort ?? (configuredDefault === 'pinned-none'
+          ? undefined
+          : configuredDefault ?? implicitThinkingLevel(model)),
+      )
     const resolvedCredential = await this.config.resolveApiKey(options.provider, profile)
     const credential = typeof resolvedCredential === 'string'
       ? { value: resolvedCredential, authMode: 'api-key' as const }

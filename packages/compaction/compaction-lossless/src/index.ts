@@ -18,11 +18,15 @@ import type { CompactionCheckpointSource } from '@deepseek-ai/dsh-compaction'
 import { CompactionSummaryId } from './brand.ts'
 import type {
   CompactionHistoryConfig,
+  CompactionHistoryLocation,
+  CompactionHistoryNodeRef,
+  CompactionHistoryNodeSummary,
+  CompactionHistorySearchHit,
+  CompactionHistorySearchOptions,
   CompactionSummaryExpansion,
   CompactionSummaryExpansionOptions,
   CompactionSummaryEvent,
   CompactionHistoryNode,
-  CompactionSummarySearchHit,
   CompactionSummarySource,
 } from './types.ts'
 
@@ -31,10 +35,16 @@ import type {} from '@deepseek-ai/dsh-compaction'
 export { CompactionSummaryId } from './brand.ts'
 export type {
   CompactionHistoryConfig,
+  CompactionHistoryLocation,
+  CompactionHistoryNodeRef,
+  CompactionHistoryNodeSummary,
+  CompactionHistorySearchHit,
+  CompactionHistorySearchOptions,
+  CompactionSummaryHit,
   CompactionSummaryExpansion,
   CompactionSummaryExpansionOptions,
   CompactionHistoryNode,
-  CompactionSummarySearchHit,
+  CompactionSourceHit,
   CompactionSummarySource,
 } from './types.ts'
 
@@ -127,6 +137,34 @@ function boundedSnippet(text: string, maxChars = 240): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}...`
 }
 
+/**
+ * Deterministic deepest-parent chain from one node toward a DAG root,
+ * ordered root first. A condensed round with several parents still reports
+ * every parent through its descriptor's parent count and node expansion.
+ * @param index - session index holding the committed nodes.
+ * @param node - node whose ancestry is rendered.
+ * @returns ancestor references from the root down to the immediate parent.
+ */
+function lineageOf(index: SessionIndex, node: CompactionHistoryNode): CompactionHistoryNodeRef[] {
+  const chain: CompactionHistoryNodeRef[] = []
+  const seen = new Set<string>([node.id])
+  for (let current = node; current.parentIds.length > 0; ) {
+    let parent: CompactionHistoryNode | undefined
+    for (const id of current.parentIds) {
+      const candidate = index.byId.get(id)
+      /* v8 ignore next -- parents are committed, deduplicated, and strictly earlier by construction */
+      if (candidate === undefined || seen.has(candidate.id)) continue
+      if (parent === undefined || candidate.depth > parent.depth) parent = candidate
+    }
+    /* v8 ignore next -- the guard above keeps parent defined whenever any parent resolves */
+    if (parent === undefined) break
+    seen.add(parent.id)
+    chain.push({ id: parent.id, kind: parent.kind, depth: parent.depth })
+    current = parent
+  }
+  return chain.reverse()
+}
+
 function messageText(session: Session, seq: number): CompactionSummarySource | undefined {
   const event = session.events[seq]
   if (event === undefined) return undefined
@@ -168,30 +206,136 @@ export class CompactionHistory extends Service {
   }
 
   /**
-   * Search summary content belonging to one live session.
-   * @param sessionId - session whose committed summary nodes are searched.
-   * @param query - case-insensitive terms that every matching summary contains.
-   * @param limit - requested result count, capped by provider configuration.
-   * @returns newest matching committed summary nodes first.
+   * List every committed summary node of one live session as a structural
+   * descriptor, oldest first.
+   * @param sessionId - session whose committed nodes are described.
+   * @returns structural descriptors ordered by commit event seq.
    * @throws when the session is not live in this projection.
    */
-  search(sessionId: SessionId, query: string, limit: number = this.config.maxSearchResults): CompactionSummarySearchHit[] {
+  list(sessionId: SessionId): CompactionHistoryNodeSummary[] {
+    const index = this.requireIndex(sessionId)
+    return [...index.byId.values()]
+      .sort((a, b) => a.eventSeq - b.eventSeq)
+      .map(node => this.describeNode(index, node))
+  }
+
+  /**
+   * Search summary text and the source messages committed nodes cite.
+   * @param sessionId - session whose committed summary DAG is searched.
+   * @param query - case-insensitive terms that every matching text contains.
+   * @param options - corpus scope, exact depth restriction, and result cap.
+   * @returns newest matching hits first, each carrying its DAG coordinates.
+   * @throws when the session is not live in this projection.
+   */
+  search(
+    sessionId: SessionId,
+    query: string,
+    options: CompactionHistorySearchOptions = {},
+  ): CompactionHistorySearchHit[] {
     const index = this.requireIndex(sessionId)
     const terms = query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean)
     if (terms.length === 0) return []
-    const max = Math.min(this.config.maxSearchResults, Math.max(1, Math.floor(limit)))
-    return [...index.byId.values()]
-      .filter(node => terms.every(term => node.text.toLocaleLowerCase().includes(term)))
+    const max = Math.min(this.config.maxSearchResults, Math.max(1, Math.floor(options.limit ?? this.config.maxSearchResults)))
+    const scope = options.scope ?? 'summaries'
+    const matches = (text: string): boolean => {
+      const lowered = text.toLocaleLowerCase()
+      return terms.every(term => lowered.includes(term))
+    }
+    const nodes = [...index.byId.values()]
+      .filter(node => options.depth === undefined || node.depth === options.depth)
       .sort((a, b) => b.eventSeq - a.eventSeq)
-      .slice(0, max)
-      .map(node => ({
-        id: node.id,
-        kind: node.kind,
-        depth: node.depth,
-        eventSeq: node.eventSeq,
-        snippet: boundedSnippet(node.text),
-        tokenCount: estimateTokens(node.text),
-      }))
+    const hits: CompactionHistorySearchHit[] = []
+    if (scope !== 'sources') {
+      for (const node of nodes) {
+        if (!matches(node.text)) continue
+        hits.push({
+          kind: 'summary',
+          id: node.id,
+          nodeKind: node.kind,
+          depth: node.depth,
+          eventSeq: node.eventSeq,
+          snippet: boundedSnippet(node.text),
+          tokenCount: estimateTokens(node.text),
+          shadowedRange: { ...node.shadowedRange },
+          lineage: lineageOf(index, node),
+        })
+      }
+    }
+    if (scope !== 'summaries') {
+      for (const node of nodes) {
+        for (const seq of node.sourceEventSeqs) {
+          const source = messageText(index.session, seq)
+          if (source === undefined || !matches(source.text)) continue
+          hits.push({
+            kind: 'source',
+            eventSeq: seq,
+            role: source.role,
+            snippet: boundedSnippet(source.text),
+            node: {
+              id: node.id,
+              kind: node.kind,
+              depth: node.depth,
+              shadowedRange: { ...node.shadowedRange },
+            },
+          })
+        }
+      }
+    }
+    return hits.sort((a, b) => b.eventSeq - a.eventSeq).slice(0, max)
+  }
+
+  /**
+   * Locate one log event relative to the committed summary DAG.
+   * @param sessionId - session whose log the event belongs to.
+   * @param eventSeq - exact event seq to locate.
+   * @returns live, pending, or shadowed with the covering node's descriptor.
+   * @throws when the session is not live or the seq is outside its log.
+   */
+  locate(sessionId: SessionId, eventSeq: number): CompactionHistoryLocation {
+    const index = this.requireIndex(sessionId)
+    if (!Number.isSafeInteger(eventSeq) || eventSeq < 0 || eventSeq >= index.session.events.length) {
+      throw new Error(`compaction history locate: event seq ${String(eventSeq)} is outside the session log`)
+    }
+    let covering: CompactionHistoryNode | undefined
+    for (const node of index.byId.values()) {
+      if (node.shadowedRange.start <= eventSeq && eventSeq <= node.shadowedRange.end) {
+        /* v8 ignore next -- committed ranges cannot overlap through valid surface transactions */
+        if (covering === undefined || node.shadowedRange.start > covering.shadowedRange.start) {
+          covering = node
+        }
+      }
+    }
+    if (covering === undefined) {
+      for (const pending of index.pendingByCompactionId.values()) {
+        if (pending.shadowedRange.start <= eventSeq && eventSeq <= pending.shadowedRange.end) {
+          return { status: 'pending' }
+        }
+      }
+      return { status: 'live' }
+    }
+    const relation = covering.sourceEventSeqs.includes(eventSeq)
+      ? 'source'
+      : index.byCheckpointSeq.has(eventSeq) ? 'checkpoint' : 'other'
+    return { status: 'shadowed', relation, node: this.describeNode(index, covering) }
+  }
+
+  /** Render one committed node as a structural descriptor with its ancestry. */
+  private describeNode(index: SessionIndex, node: CompactionHistoryNode): CompactionHistoryNodeSummary {
+    return {
+      id: node.id,
+      kind: node.kind,
+      depth: node.depth,
+      eventSeq: node.eventSeq,
+      shadowedRange: { ...node.shadowedRange },
+      shadowedTokenCount: node.shadowedTokenCount,
+      summaryTokenCount: estimateTokens(node.text),
+      parentCount: node.parentIds.length,
+      sourceCount: node.sourceEventSeqs.length,
+      lineage: lineageOf(index, node),
+      provider: node.provider,
+      model: node.model,
+      createdAt: node.createdAt,
+    }
   }
 
   /**

@@ -70,7 +70,7 @@ const PROMPT_TEXT =
   + 'Find sessions by content wording with session_search, which returns each session\'s strongest matching event with seq and snippet; any language matches, including sub-word CJK terms, and compacted turns remain searchable. '
   + 'Pass exactly one session_id to session_search to list every matching event in that one session instead; the current session is an allowed target and stops before the active step. '
   + 'Read one session with session_inspect: summary status; messages (the current folded view — compacted turns are absent); history (complete raw events, compacted originals included); one event; or lineage. '
-  + 'The current session\'s compacted summaries are recovered with compaction_history_search then compaction_history_expand. '
+  + 'Inspect the current session\'s compacted history with compaction_history_inspect: overview lists each round and its covered span, search matches summary or cited source text with DAG coordinates, node expands one summary, locate maps one log event to its layer. '
   + 'Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. Search and find results are cursor-free.'
 
 /** Register discovery, search, and unified inspection tools with shared guidance. */

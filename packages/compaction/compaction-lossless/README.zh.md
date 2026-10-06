@@ -46,7 +46,7 @@
 | `maxOverflowRetries` | `1` | context-overflow recovery retry cap。 |
 | `modelPolicies` | `[]` | 精确 provider/model policy override。 |
 | `auto` | `true` | 启用自动压力与 overflow 压缩。 |
-| `maxSearchResults` | `20` | history Consumer 可返回的最大 summary hit 数。 |
+| `maxSearchResults` | `20` | history Consumer 可返回的最大搜索 hit 数，summary 与 source 语料合计。 |
 | `maxExpansionDepth` | `3` | expansion 可返回的最大 DAG level 数。 |
 | `maxExpansionTokens` | `4000` | 最大 expansion 估算 token 数。 |
 

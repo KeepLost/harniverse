@@ -20,15 +20,76 @@ export interface CompactionHistoryNode {
   readonly createdAt: number
 }
 
-/** One bounded search hit over the current session's summary DAG. */
-export interface CompactionSummarySearchHit {
+/** One committed node referenced by id, kind, and depth inside a lineage chain. */
+export interface CompactionHistoryNodeRef {
+  readonly id: CompactionSummaryId
+  readonly kind: CompactionHistoryNode['kind']
+  readonly depth: number
+}
+
+/** Structural descriptor of one committed summary node for inspection surfaces. */
+export interface CompactionHistoryNodeSummary {
   readonly id: CompactionSummaryId
   readonly kind: CompactionHistoryNode['kind']
   readonly depth: number
   readonly eventSeq: number
+  readonly shadowedRange: { readonly start: number; readonly end: number }
+  readonly shadowedTokenCount: number
+  readonly summaryTokenCount: number
+  readonly parentCount: number
+  readonly sourceCount: number
+  readonly lineage: readonly CompactionHistoryNodeRef[]
+  readonly provider: string
+  readonly model: string
+  readonly createdAt: number
+}
+
+/** One summary-text hit carrying its DAG coordinates. */
+export interface CompactionSummaryHit {
+  readonly kind: 'summary'
+  readonly id: CompactionSummaryId
+  readonly nodeKind: CompactionHistoryNode['kind']
+  readonly depth: number
+  readonly eventSeq: number
   readonly snippet: string
   readonly tokenCount: number
+  readonly shadowedRange: { readonly start: number; readonly end: number }
+  readonly lineage: readonly CompactionHistoryNodeRef[]
 }
+
+/** One source-message hit positioned by the committed node that covers it. */
+export interface CompactionSourceHit {
+  readonly kind: 'source'
+  readonly eventSeq: number
+  readonly role: string
+  readonly snippet: string
+  readonly node: CompactionHistoryNodeRef & {
+    readonly shadowedRange: { readonly start: number; readonly end: number }
+  }
+}
+
+/** One bounded search hit over the current session's summary DAG. */
+export type CompactionHistorySearchHit = CompactionSummaryHit | CompactionSourceHit
+
+/** Caller-selected corpus and bounds for one summary-DAG search. */
+export interface CompactionHistorySearchOptions {
+  /** Exact DAG depth to restrict the scan to; omit for all levels. */
+  readonly depth?: number
+  /** Text corpus to scan: summaries, their cited source messages, or both. */
+  readonly scope?: 'summaries' | 'sources' | 'both'
+  /** Requested result count across both corpora, capped by provider configuration. */
+  readonly limit?: number
+}
+
+/** Where one log event sits relative to the committed summary DAG. */
+export type CompactionHistoryLocation =
+  | { readonly status: 'live' }
+  | { readonly status: 'pending' }
+  | {
+    readonly status: 'shadowed'
+    readonly relation: 'source' | 'checkpoint' | 'other'
+    readonly node: CompactionHistoryNodeSummary
+  }
 
 /** A source message recovered from a leaf summary. */
 export interface CompactionSummarySource {

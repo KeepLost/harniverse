@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-06-session-title-thinking-lock-pi-ai.md
+2026-10-06-session-title-thinking-lock-pi-ai.md: 38cc2a161592f99f820b3f4345227e230a4eee21
+2026-10-06-session-title-thinking-lock-pi-ai.zh.md: d61d8bac75a90797056327b6b53810da8f505bf8
