@@ -288,9 +288,10 @@
   );
 }
 
-/* Views may opt into a composer overlay while ConversationRoot retains
-   ownership of the seat geometry and its active-phase precedence. */
-.scrollBody:has([data-conversation-composer-overlay]) {
+/* Views may opt into a full-bleed column (they own their scrollers and fill
+   the scroll body) while ConversationRoot retains ownership of the seat
+   geometry and its active-phase precedence. */
+.scrollBody:has([data-conversation-view-fullbleed]) {
   position: relative;
   /* A clipping box nothing scrolls out of, stated as a scroll container on both
      axes rather than `overflow: hidden`: a single-axis scroller computes the
@@ -306,25 +307,36 @@
   scrollbar-gutter: auto;
 }
 
-.scrollBody:has([data-conversation-composer-overlay]) > :global([data-slot='conversation.session']) > .viewArea {
+.scrollBody:has([data-conversation-view-fullbleed]) > :global([data-slot='conversation.session']) > .viewArea {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
 }
 
-.scrollBody:has([data-conversation-composer-overlay]) > .composerSeat {
+.scrollBody:has([data-conversation-view-fullbleed]) > .composerSeat {
   position: absolute;
   /* Chat's seat rides this box's content box, which its own scrolling shortens
-     by the bar's width; the overlay seat is against the padding box, so it
-     must give back the same width to keep the input card in place across
-     tabs. Reads ui-theme's --dsh-scrollbar-width, which mirrors the WebKit
-     bar's layout width. Chat reserves the engine-resolved width, so on an
-     engine where the resolved width differs from this fixed 8px the card
-     drifts by half the difference — accepted residual risk, recorded in
+     by the bar's width; a seat pinned over a full-bleed view (a raised
+     takeover) is against the padding box, so it must give back the same width
+     to keep the input card in place across tabs. Reads ui-theme's
+     --dsh-scrollbar-width, which mirrors the WebKit bar's layout width. Chat
+     reserves the engine-resolved width, so on an engine where the resolved
+     width differs from this fixed 8px the card drifts by half the difference
+     — accepted residual risk, recorded in
      ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-12-composer-overlay-seat-width-compensation.md)). */
   right: var(--dsh-scrollbar-width);
   bottom: 0;
   left: 0;
+}
+
+/* The resident composer is Chat's surface: outside Chat it only pins over the
+   view while a takeover interaction is raised (data-composer-takeover), so
+   the blocked agent can still receive its answer. display, not removal: the
+   seat keeps its DOM (textarea identity, drafts) across tab switches, and
+   the hidden height publishes 0 through the seat observer. The marker only
+   exists inside an open non-blank session, so the hero keeps its composer. */
+.scrollBody:has([data-active-view]:not([data-active-view='chat'])) > .composerSeat:not([data-composer-takeover]) {
+  display: none;
 }
 
 /* Hero phase: the composer stack (hero chrome + workspace row + card) is

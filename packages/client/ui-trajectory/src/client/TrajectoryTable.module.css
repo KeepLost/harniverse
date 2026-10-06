@@ -18,7 +18,6 @@
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding-bottom: var(--dsh-trajectory-bottom-clearance, 0px);
   container: trajectory-table / inline-size;
 }
 
@@ -1041,7 +1040,6 @@
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding-bottom: var(--dsh-trajectory-bottom-clearance, 0px);
   scrollbar-gutter: stable;
 }
 
@@ -1049,7 +1047,7 @@
   display: flex;
   box-sizing: border-box;
   flex-direction: column;
-  padding-bottom: calc(12px + var(--dsh-trajectory-bottom-clearance, 0px));
+  padding-bottom: 12px;
   overflow: hidden;
 }
 

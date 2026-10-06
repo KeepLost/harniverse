@@ -1,6 +1,5 @@
-/** Bottom band under the trajectory ledger: full-width, above the floating
- * composer (the published --dsh-trajectory-bottom-clearance lifts it), with a
- * top divider separating it from the ledger scroll area. */
+/** Bottom band under the trajectory ledger: full-width, with a top divider
+ * separating it from the ledger scroll area. */
 .strip {
   position: relative;
   z-index: 2;
@@ -14,7 +13,6 @@
   padding: 0 12px;
   border-top: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-1);
-  margin-bottom: var(--dsh-trajectory-bottom-clearance, 0px);
 }
 
 .title {

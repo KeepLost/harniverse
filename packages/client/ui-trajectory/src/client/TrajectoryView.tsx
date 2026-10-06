@@ -450,7 +450,7 @@ export function TrajectoryView({
   }, [loadOlder])
 
   return (
-    <div className={css.root} data-conversation-composer-overlay="">
+    <div className={css.root} data-conversation-view-fullbleed="">
       <TrajectoryToolbar
         actualDuration={actualDuration}
         onActualDurationChange={(nextActualDuration) => {
