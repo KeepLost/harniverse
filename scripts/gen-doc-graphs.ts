@@ -106,6 +106,23 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The provider owns admission state, token revisions, browser sessions, lease, and records; Connection owns HTTP and WebSocket protocol enforcement.',
   },
   {
+    key: 'chatAdapters',
+    pkg: 'chat-adapter',
+    title: 'Chat platform adapters',
+    mode: 'seam',
+    implementations: ['chat-adapter-telegram', 'chat-adapter-feishu', 'chat-adapter-fake'],
+    consumers: ['chat-bridge'],
+    note: 'The registry owns the platform-neutral adapter contract and live adapter identity; each adapter owns one platform transport; the bridge owns admission, commands, and rendering.',
+  },
+  {
+    key: 'harniverseClient',
+    pkg: 'chat-harniverse-client',
+    title: 'Operator client of the Harniverse /api',
+    mode: 'core',
+    consumers: ['chat-bridge'],
+    note: 'The client is the only package that calls /api for the chat bridge: it signs in with the operator Grant, keeps the event stream, and refuses requests outside its closed endpoint table.',
+  },
+  {
     key: 'speech',
     pkg: 'speech',
     title: 'Speech recognition',

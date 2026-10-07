@@ -220,6 +220,15 @@ Files the local speech recognizer downloads at runtime. They are pinned by sha25
 | [`silero_vad.onnx`](https://github.com/snakers4/silero-vad) | MIT | Silero voice-activity detector downloaded on demand for speech segmentation |
 | [`onnxruntime (bundled inside sherpa-onnx-node)`](https://github.com/microsoft/onnxruntime) | MIT | CPU inference engine shipped inside the `sherpa-onnx-node` native binding |
 
+## Ported source
+
+Source files that were ported or derived from other MIT-licensed projects without a package dependency on them. Each listed file keeps a header naming its origin; the upstream copyright and license apply to the ported portions.
+
+| Origin | License | Role | Files |
+| --- | --- | --- | --- |
+| [`dsh-im`](https://github.com/xmanrui/dsh-im) | MIT, Copyright (c) 2026 xmanrui | the Telegram Bot API client and update normalization, the Feishu long-connection wiring, and the throttled editable message stream of the chat bridge | [`packages/chat/chat-adapter-telegram/src/api.ts`](packages/chat/chat-adapter-telegram/src/api.ts)<br>[`packages/chat/chat-adapter-telegram/src/normalize.ts`](packages/chat/chat-adapter-telegram/src/normalize.ts)<br>[`packages/chat/chat-adapter-feishu/src/runtime.ts`](packages/chat/chat-adapter-feishu/src/runtime.ts)<br>[`packages/chat/chat-bridge/src/render.ts`](packages/chat/chat-bridge/src/render.ts) |
+| [`@larksuiteoapi/node-sdk`](https://github.com/larksuite/node-sdk) | MIT | the `pbbp2.Frame` message layout and the long-connection protocol that the Feishu adapter implements without depending on the SDK | [`packages/chat/chat-adapter-feishu/src/frame.ts`](packages/chat/chat-adapter-feishu/src/frame.ts)<br>[`packages/chat/chat-adapter-feishu/src/runtime.ts`](packages/chat/chat-adapter-feishu/src/runtime.ts) |
+
 ## First-party native packages
 
 `@deepseek-ai/node-addon-landlock-run` (and its platform packages) is built and released from this repository under BSD 3-Clause. It is listed here for completeness; it is first-party, not third-party.

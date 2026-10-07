@@ -140,11 +140,19 @@ flowchart TD
   subgraph group_bundle["packages/bundle"]
     pkg_auth_app["auth-app"]
     pkg_base["base"]
+    pkg_chat_app["chat-app"]
     pkg_headless["headless"]
     pkg_web_app["web-app"]
   end
   subgraph group_capability["packages/capability"]
     pkg_capabilities["capabilities"]
+  end
+  subgraph group_chat["packages/chat"]
+    pkg_chat_adapter["chat-adapter"]
+    pkg_chat_adapter_feishu["chat-adapter-feishu"]
+    pkg_chat_adapter_telegram["chat-adapter-telegram"]
+    pkg_chat_bridge["chat-bridge"]
+    pkg_chat_harniverse_client["chat-harniverse-client"]
   end
   subgraph group_client["packages/client"]
     pkg_client_authentication["client-authentication"]
@@ -390,6 +398,7 @@ flowchart TD
   subgraph group_test_support["packages/test-support"]
     pkg_acp_snapshot["acp-snapshot"]
     pkg_agent_loop_testkit["agent-loop-testkit"]
+    pkg_chat_adapter_fake["chat-adapter-fake"]
     pkg_client_test_runtime["client-test-runtime"]
     pkg_llm_mock_server["llm-mock-server"]
     pkg_llm_replay["llm-replay"]
@@ -427,6 +436,8 @@ flowchart TD
   pkg_hmr_coordination --> pkg_invariants
   pkg_auth_app --> pkg_invariants
   pkg_base --> pkg_invariants
+  pkg_chat_app --> pkg_invariants
+  pkg_chat_adapter --> pkg_invariants
   pkg_client_authentication --> pkg_invariants
   pkg_client_schema_form --> pkg_invariants
   pkg_client_store --> pkg_invariants
@@ -479,6 +490,8 @@ flowchart TD
   pkg_storage_sqlite --> pkg_storage
   pkg_subprocess --> pkg_http_proxy
   pkg_subprocess --> pkg_invariants
+  pkg_chat_adapter_fake --> pkg_chat_adapter
+  pkg_chat_adapter_fake --> pkg_invariants
   pkg_typert_loader --> pkg_invariants
   pkg_typert_loader --> pkg_typert_registry
   pkg_llm --> pkg_attachment
@@ -497,6 +510,12 @@ flowchart TD
   pkg_capabilities --> pkg_invariants
   pkg_capabilities --> pkg_scope
   pkg_capabilities --> pkg_settings
+  pkg_chat_adapter_feishu --> pkg_chat_adapter
+  pkg_chat_adapter_feishu --> pkg_credentials
+  pkg_chat_adapter_feishu --> pkg_invariants
+  pkg_chat_adapter_telegram --> pkg_chat_adapter
+  pkg_chat_adapter_telegram --> pkg_credentials
+  pkg_chat_adapter_telegram --> pkg_invariants
   pkg_client_modules --> pkg_client_connection
   pkg_client_modules --> pkg_invariants
   pkg_compaction_settings --> pkg_invariants
@@ -1547,6 +1566,9 @@ flowchart TD
   pkg_subagent_dsh_sdk --> pkg_session
   pkg_subagent_dsh_sdk --> pkg_subagent
   pkg_subagent_dsh_sdk --> pkg_subprocess
+  pkg_chat_harniverse_client --> pkg_credentials
+  pkg_chat_harniverse_client --> pkg_invariants
+  pkg_chat_harniverse_client --> pkg_sdk_client
   pkg_acp_demo --> pkg_acp
   pkg_acp_demo --> pkg_agent_instructions
   pkg_acp_demo --> pkg_agent_spine_demo
@@ -1600,6 +1622,11 @@ flowchart TD
   pkg_api_remotes --> pkg_settings
   pkg_api_remotes --> pkg_typert_registry
   pkg_api_remotes --> pkg_workspace_file_write
+  pkg_chat_bridge --> pkg_chat_adapter
+  pkg_chat_bridge --> pkg_chat_harniverse_client
+  pkg_chat_bridge --> pkg_home_paths
+  pkg_chat_bridge --> pkg_invariants
+  pkg_chat_bridge --> pkg_storage_domain
   pkg_client_runtime --> pkg_api_remotes
   pkg_client_runtime --> pkg_compaction
   pkg_client_runtime --> pkg_invariants
@@ -1986,6 +2013,8 @@ flowchart TD
 | [`hmr-coordination`](../packages/boot/hmr-coordination) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`auth-app`](../packages/bundle/auth-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`chat-app`](../packages/bundle/chat-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`chat-adapter`](../packages/chat/chat-adapter) | `chat` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-authentication`](../packages/client/authentication) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-store`](../packages/client/store) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2023,12 +2052,15 @@ flowchart TD
 | [`storage-json`](../packages/storage/storage-json) | `storage` | [`invariants`](../packages/runtime-diagnostics/invariants), [`storage`](../packages/storage/storage) |
 | [`storage-sqlite`](../packages/storage/storage-sqlite) | `storage` | [`invariants`](../packages/runtime-diagnostics/invariants), [`storage`](../packages/storage/storage) |
 | [`subprocess`](../packages/subprocess/subprocess) | `subprocess` | [`http-proxy`](../packages/util/http-proxy), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`chat-adapter-fake`](../packages/test-support/chat-adapter-fake) | `test-support` | [`chat-adapter`](../packages/chat/chat-adapter), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`typert-loader`](../packages/typert/loader) | `typert` | [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-registry`](../packages/typert/registry) |
 | [`llm`](../packages/llm/llm) | `llm` | [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`timeout`](../packages/util/timeout) |
 | [`api-gateway`](../packages/api/gateway) | `api` | [`client-connection`](../packages/client/connection), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-registry`](../packages/typert/registry) |
 | [`attachment-local`](../packages/attachment/attachment-local) | `attachment` | [`attachment`](../packages/attachment/attachment), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`authentication-local`](../packages/auth/authentication-local) | `auth` | [`authentication`](../packages/auth/authentication), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`capabilities`](../packages/capability/capabilities) | `capability` | [`invariants`](../packages/runtime-diagnostics/invariants), [`scope`](../packages/core/scope), [`settings`](../packages/settings/settings) |
+| [`chat-adapter-feishu`](../packages/chat/chat-adapter-feishu) | `chat` | [`chat-adapter`](../packages/chat/chat-adapter), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`chat-adapter-telegram`](../packages/chat/chat-adapter-telegram) | `chat` | [`chat-adapter`](../packages/chat/chat-adapter), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-modules`](../packages/client/modules) | `client` | [`client-connection`](../packages/client/connection), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`compaction-settings`](../packages/compaction/compaction-settings) | `compaction` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
 | [`credentials-encrypted`](../packages/credentials/credentials-encrypted) | `credentials` | [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2212,12 +2244,14 @@ flowchart TD
 | [`ssh`](../packages/ssh/ssh) | `ssh` | [`agent`](../packages/core/agent), [`capabilities`](../packages/capability/capabilities), [`control-channel`](../packages/subprocess/control-channel), [`execution-descriptor`](../packages/sandbox/execution-descriptor), [`fs`](../packages/fs/fs), [`fs-sandbox`](../packages/fs/fs-sandbox), [`invariants`](../packages/runtime-diagnostics/invariants), [`mcp-client`](../packages/mcp/mcp-client), [`mcp-resources`](../packages/mcp/mcp-resources), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-local`](../packages/sandbox/sandbox-local), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session-projection`](../packages/session/session-projection), [`skill`](../packages/skill/skill), [`skill-filesystem`](../packages/skill/skill-filesystem), [`subprocess`](../packages/subprocess/subprocess), [`subprocess-local`](../packages/subprocess/subprocess-local), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`remote-mock`](../packages/test-support/remote-mock) | `test-support` | [`client-authentication`](../packages/client/authentication), [`client-connection`](../packages/client/connection), [`host-apiproxy`](../packages/host/apiproxy), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`subagent-dsh-sdk`](../packages/subagent/subagent-dsh-sdk) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`sdk-client`](../packages/sdk/client), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess) |
+| [`chat-harniverse-client`](../packages/chat/chat-harniverse-client) | `chat` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`sdk-client`](../packages/sdk/client) |
 | [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/acp/acp), [`agent-instructions`](../packages/context/agent-instructions), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/boot/app-boot), [`invariants`](../packages/runtime-diagnostics/invariants), [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`tools`](../packages/core/tools) |
 | [`fs-ssh`](../packages/ssh/fs-ssh) | `ssh` | [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`ssh`](../packages/ssh/ssh) |
 | [`remote-hosts`](../packages/ssh/remote-hosts) | `ssh` | [`brand`](../packages/util/brand), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`host-directory-picker`](../packages/host/directory-picker), [`invariants`](../packages/runtime-diagnostics/invariants), [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh), [`sdk-client`](../packages/sdk/client), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`ssh`](../packages/ssh/ssh) |
 | [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ssh`](../packages/ssh/ssh), [`subprocess`](../packages/subprocess/subprocess) |
 | [`api-remotes`](../packages/api/remotes) | `api` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`api-gateway`](../packages/api/gateway), [`commands`](../packages/interaction/commands), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`credentials`](../packages/credentials/credentials), [`file-reference`](../packages/context/file-reference), [`goal`](../packages/goal/goal), [`host-capability-management`](../packages/host/capability-management), [`host-plugin-inventory`](../packages/host/plugin-inventory), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`message-feedback`](../packages/feedback/message-feedback), [`queue`](../packages/queue/queue), [`remote-hosts`](../packages/ssh/remote-hosts), [`scheduler`](../packages/schedule/scheduler), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-reference`](../packages/context/session-reference), [`settings`](../packages/settings/settings), [`typert-registry`](../packages/typert/registry), [`workspace-file-write`](../packages/host/workspace-file-write) |
+| [`chat-bridge`](../packages/chat/chat-bridge) | `chat` | [`chat-adapter`](../packages/chat/chat-adapter), [`chat-harniverse-client`](../packages/chat/chat-harniverse-client), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`storage-domain`](../packages/storage/storage-domain) |
 | [`client-runtime`](../packages/client/runtime) | `client` | [`api-remotes`](../packages/api/remotes), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol), [`typert-registry`](../packages/typert/registry) |
 | [`client-ui-settings`](../packages/client/ui-settings) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
 | [`client-ui-settings-models`](../packages/client/ui-settings-models) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/runtime-diagnostics/invariants) |

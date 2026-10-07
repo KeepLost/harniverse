@@ -125,6 +125,13 @@ describe('loadProfile', () => {
     expect(existsSync(join(home, 'profiles'))).toBe(false)
   })
 
+  it('inspects the chat template as a shared composition', () => {
+    const anchor = stageInstallation({ '@deepseek-ai/dsh-chat-app': { patch: '[]\n', homeOwnership: 'shared' } })
+    const home = tmp()
+    expect(loadProfile('t', 'chat', anchor, home, { readOnly: true }).homeOwnership).toBe('shared')
+    expect(existsSync(join(home, 'profiles'))).toBe(false)
+  })
+
   it.each([
     { bundles: ['shared-a', 'shared-b'], expected: 'shared' },
     { bundles: ['shared-a', 'default'], expected: 'exclusive' },

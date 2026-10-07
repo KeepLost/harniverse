@@ -6,13 +6,13 @@ This reference defines the profile, web-alias, plugin-management, and config-dum
 
 ## Profile boot
 
-`dsh --profile <name>` boots the profile at `$DSH_HOME/profiles/<name>`. Before preparing it, the launcher inspects bundle metadata read-only and acquires the required [home and profile leases](../../../packages/boot/app-boot/README.md#profiles). Compositions default to exclusive home ownership; a nonempty bundle list whose every bundle declares shared ownership may coexist with that owner. The shipped auth bundle declares sharing, so `dsh auth` works while Web runs. A second invocation of the same profile is refused before profile writes, and leases left by dead processes are reclaimed.
+`dsh --profile <name>` boots the profile at `$DSH_HOME/profiles/<name>`. Before preparing it, the launcher inspects bundle metadata read-only and acquires the required [home and profile leases](../../../packages/boot/app-boot/README.md#profiles). Compositions default to exclusive home ownership; a nonempty bundle list whose every bundle declares shared ownership may coexist with that owner. The shipped auth and chat bundles declare sharing, so `dsh auth` and `dsh chat` work while Web runs. A second invocation of the same profile is refused before profile writes, and leases left by dead processes are reclaimed.
 
 The effective tree is composed over an empty root by applying, in order: each bundle patch named in the profile manifest's `dsh.profile.bundles` list, the profile's own `cordis.patch.yml`, the home-level `$DSH_HOME/cordis.patch.yml` (machine-local preferences shared by every profile, so it outranks the per-profile layer), and each `--patch <path>` overlay in argv order. Later layers win per row; a patch replaces the targeted row's complete `config` value rather than deep-merging keys, and may insert new rows. A parse, schema, resolution, or plugin boot failure is reported and exits nonzero. SIGINT and SIGTERM drain the mounted root before releasing ownership; failed or timed-out tree disposal retains the leases until process exit.
 
 Bundle names resolve from the dsh installation first, then from the profile directory. In-box bundles (`@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, `@deepseek-ai/dsh-headless`) therefore always come from the same installation as the running `dsh`; out-of-tree bundles come from the profile's pnpm-managed `node_modules`. A bare plugin `name` in any patch row resolves through the profile directory's Node parent-walk, which reaches the maintained installation fallback `$DSH_HOME/profiles/node_modules` (one symlink per package the installation's app and bundles depend on, healed on every launch).
 
-The `web` and `headless` profiles auto-initialize from shipped templates on first use (`web`: base + web-app; `headless`: base + headless). Any other missing profile fails loud with a hint to run `dsh plugin --profile <name> add <package>`.
+The `web` and `headless` profiles auto-initialize from shipped templates on first use (`web`: base + web-app; `headless`: base + headless; `auth`: auth-app, behind `dsh auth`; `chat`: chat-app, behind `dsh chat`). Any other missing profile fails loud with a hint to run `dsh plugin --profile <name> add <package>`.
 
 ### App arguments
 
@@ -20,7 +20,7 @@ The launcher's flags come first and end at the first token it does not recognize
 
 A composition mounts once. An ordinary plugin injects `cmdlineArgs`, parses this app's arguments, and provides what it resolved as a service; each row configured from flags injects that service, and Loader waits for it before evaluating the row's config (`port: !!js ctx.webStartup.port ?? 3080`). A flag therefore beats the value written beside it. This precedence requires the row to retain that expression; a user patch that replaces the whole `config` with literals removes the runtime read. Help and rejected arguments request exit — nonzero for a rejection, 0 for help — without activating rows that depend on the provider's service. A live `cordis.patch.yml` edit re-evaluates expressions against services that are still up, so it cannot reset a served port.
 
-Launcher flags must come before app arguments, and the launcher's parser consumes one `--`: an app argument that must arrive as a literal `--` needs `-- --`. A first app argument equal to `web` or `plugin` selects that subcommand instead. `ctx.cmdlineArgs.get()` is a shared immutable read: multiple plugins may parse the same snapshot, while a profile with no reader ignores its app arguments.
+Launcher flags must come before app arguments, and the launcher's parser consumes one `--`: an app argument that must arrive as a literal `--` needs `-- --`. A first app argument equal to `web`, `auth`, `chat`, or `plugin` selects that subcommand instead. `ctx.cmdlineArgs.get()` is a shared immutable read: multiple plugins may parse the same snapshot, while a profile with no reader ignores its app arguments.
 
 The shipped apps own these command lines:
 
@@ -28,6 +28,7 @@ The shipped apps own these command lines:
 |---|---|
 | `web` | `--host`, `--port`, repeatable `--trusted-host`, `--dangerously-skip-authentication` |
 | `headless` | the task text, as the positional argument |
+| `chat` | `run` (the default), `init`, `status [--origin <url>]`, `rotate-key` |
 
 A one-shot task (`dsh --profile headless "run the tests"`) creates one fresh persisted Agent through the core registry, submits the task, waits for quiescence, and flushes the Session before deriving the last non-empty assistant text and final `turn/end` reason from its durable interval. It prints the text on stdout and exits 0 for `completed`, else 1. An invocation with no task is a usage error from that app. The shipped headless profile mounts no ApiProxy, Host, HTTP server, Web runtime, or browser client; a successful run writes nothing to stderr and opens no listening port.
 

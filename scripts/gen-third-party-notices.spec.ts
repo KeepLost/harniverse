@@ -29,6 +29,13 @@ describe('THIRD_PARTY_NOTICES.md', () => {
     expect(generated).toContain('It depends on the third-party software listed below.')
     expect(readFileSync(resolve(root, 'THIRD_PARTY_NOTICES.md'), 'utf8'), 'stale notices — run `pnpm run gen-third-party-notices`').toBe(generated)
   })
+
+  it('discloses every ported source file it names as existing in the repository', () => {
+    const section = render().split('## Ported source')[1]!.split('## First-party native packages')[0]!
+    const files = [...section.matchAll(/\]\((packages\/[^)]+)\)/g)].map(match => match[1]!)
+    expect(files.length).toBeGreaterThan(0)
+    for (const file of files) expect(readFileSync(resolve(root, file), 'utf8'), file).toContain('THIRD_PARTY_NOTICES.md')
+  })
 })
 
 /** Build the (manifests, names) pair `tierExternalDeps` consumes. */

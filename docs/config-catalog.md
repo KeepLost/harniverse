@@ -601,6 +601,189 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
 Source: [`packages/shell/bash-sandbox/src/index.ts:36`](../packages/shell/bash-sandbox/src/index.ts)
 
+<a id="deepseek-aidsh-chat-adapter-fake"></a>
+
+## `@deepseek-ai/dsh-chat-adapter-fake`
+
+Requires: `chatAdapters`
+
+```ts config-catalog
+/** Plugin row config mounting one fake adapter. */
+export interface Config {
+  /** Fake platform id. */
+  platform: string
+  /** Fake bot instance id. */
+  botId: string
+  /** Capability overrides applied over {@link FAKE_CAPABILITIES}. */
+  capabilities?: Partial<ChatAdapterCapabilities>
+}
+```
+
+Depends on: [`ChatAdapterCapabilities`](../packages/chat/chat-adapter/src/index.ts)
+
+Source: [`packages/test-support/chat-adapter-fake/src/index.ts:263`](../packages/test-support/chat-adapter-fake/src/index.ts)
+
+<a id="deepseek-aidsh-chat-adapter-feishu"></a>
+
+## `@deepseek-ai/dsh-chat-adapter-feishu`
+
+Requires: `chatAdapters` · `credentials`
+
+```ts config-catalog
+/** Provider configuration. */
+export interface Config {
+  /** One adapter is registered per configured app. */
+  apps: AppConfig[]
+}
+
+/** One configured app. */
+export interface AppConfig {
+  /** Feishu app id (`cli_...`). */
+  appId: string
+  /** Credential reference holding the app secret. */
+  secretRef: string
+  /** Open-platform origin: `https://open.feishu.cn` (Feishu) or `https://open.larksuite.com` (Lark). */
+  domain: string
+}
+```
+
+Source: [`packages/chat/chat-adapter-feishu/src/index.ts:34`](../packages/chat/chat-adapter-feishu/src/index.ts)
+
+<a id="deepseek-aidsh-chat-adapter-telegram"></a>
+
+## `@deepseek-ai/dsh-chat-adapter-telegram`
+
+Requires: `chatAdapters` · `credentials`
+
+```ts config-catalog
+/** Provider configuration. */
+export interface Config {
+  /** One adapter is registered per configured bot. */
+  bots: BotConfig[]
+}
+
+/** One configured bot. */
+export interface BotConfig {
+  /** Credential reference holding the bot token (`<id>:<secret>`). */
+  tokenRef: string
+  /** Server-side long-poll wait per `getUpdates` call. */
+  pollTimeoutSeconds: number
+  /** Bot API origin; the default is Telegram's public endpoint. */
+  baseUrl: string
+}
+```
+
+Source: [`packages/chat/chat-adapter-telegram/src/index.ts:29`](../packages/chat/chat-adapter-telegram/src/index.ts)
+
+<a id="deepseek-aidsh-chat-app"></a>
+
+## `@deepseek-ai/dsh-chat-app`
+
+Requires: `chatStartup` · `credentials` · `storageDomain`
+
+```ts config-catalog
+/** Runner configuration. */
+export interface Config {
+  /** What this invocation does; `run` leaves the mounted bridge serving. */
+  operation: ChatOperation
+  /** Harniverse origin `status` probes. */
+  origin?: string
+  /** Harness home holding the Grant registry and the profile patch. */
+  dshHome?: string
+}
+
+/** What one `dsh chat` invocation does. */
+export type ChatOperation = 'run' | 'init' | 'status' | 'rotate-key'
+```
+
+Source: [`packages/bundle/chat-app/src/index.ts:38`](../packages/bundle/chat-app/src/index.ts)
+
+<a id="deepseek-aidsh-chat-bridge"></a>
+
+## `@deepseek-ai/dsh-chat-bridge`
+
+Requires: `chatAdapters` · `harniverseClient` · `storageDomain`
+
+```ts config-catalog
+/** Bridge deployment configuration. */
+export interface Config {
+  /** Static owner identities; further owners join with the one-time code `dsh chat init` prints. */
+  owners: OwnerConfig[]
+  /** The member whitelist; a sender outside it (and outside `owners`) is ignored. */
+  members: MemberConfig[]
+  /** Alias to absolute workspace root; aliases, never paths, appear in chat. */
+  workspaceAliases: Record<string, string>
+  /** Root for sessions that use no alias; `~` expands to the user's home. */
+  imRoot: string
+  /** Lifetimes of one-time pairing codes. */
+  pairing: {
+    /** Lifetime of a member code issued by `/invite`. */
+    memberCodeTtlMs: number
+    /** Lifetime of an owner code printed by `dsh chat init`. */
+    ownerCodeTtlMs: number
+  }
+  /** Time an approval card waits for an answer before it is rejected. */
+  approvalTimeoutMs: number
+  /** Time a question card waits for an answer before it is cancelled. */
+  questionTimeoutMs: number
+  /** Limits on files a user sends to the bot. */
+  inbound: {
+    /** Files accepted per message. */
+    maxFiles: number
+    /** Largest accepted file. */
+    maxFileBytes: number
+    /** Largest image sent inline to the model instead of as a stored attachment. */
+    maxInlineImageBytes: number
+  }
+  /** Limits on files the bridge sends back. */
+  outbound: {
+    /** Largest file sent back to the chat. */
+    maxFileBytes: number
+  }
+  /** Edit coalescing window for streamed replies. */
+  streamIntervalMs: number
+  /** Processed inbound message ids retained for duplicate suppression. */
+  seenLimit: number
+}
+
+/** One owner identity. Owners hold every grantable command. */
+export interface OwnerConfig {
+  /** Platform id of the adapter the owner writes through (`telegram`, `feishu`, ...). */
+  platform: string
+  /** Platform user id of the owner. */
+  userId: string
+  /** Agent Profile owner sessions start with; the Harniverse default when omitted. */
+  agentProfile?: string
+  /** Workspace aliases owner sessions may use; the IM root when empty. */
+  workspaces: string[]
+}
+
+/** One whitelisted member. */
+export interface MemberConfig {
+  /** Stable name used by `/invite`, logs, and the IM-root subdirectory. */
+  id: string
+  /** Platform id of the adapter the member writes through. */
+  platform: string
+  /** Static identity; when omitted the member joins by a one-time pairing code. */
+  userId?: string
+  /** Grantable commands the member may use; everything else is refused. */
+  commands: GrantableCommand[]
+  /** Workspace aliases (keys of `workspaceAliases`) the member may use. */
+  workspaces: string[]
+  /** Agent Profile every session of this member starts with. */
+  agentProfile?: string
+  /** Forward all of this member's requests to this remote runtime (lowercase v4 UUID). */
+  dshRemoteHost?: string
+  /** Whether the member may answer approvals raised by their own sessions. */
+  answerOwnApprovals: boolean
+}
+
+/** A command a member whitelist can grant. */
+export type GrantableCommand = (typeof GRANTABLE_COMMANDS)[number]
+```
+
+Source: [`packages/chat/chat-bridge/src/members.ts:53`](../packages/chat/chat-bridge/src/members.ts)
+
 <a id="deepseek-aidsh-client-connection"></a>
 
 ## `@deepseek-ai/dsh-client-connection`
@@ -4175,6 +4358,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-api-gateway` — requires `typert` ([`packages/api/gateway/src/index.ts`](../packages/api/gateway/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-capabilities` ([`packages/capability/capabilities/src/index.ts`](../packages/capability/capabilities/src/index.ts))
+- `@deepseek-ai/dsh-chat-adapter` ([`packages/chat/chat-adapter/src/index.ts`](../packages/chat/chat-adapter/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `webServer` · `loader` · `connection` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
@@ -4217,6 +4401,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-voice-input` ([`packages/client/ui-voice-input/src/index.ts`](../packages/client/ui-voice-input/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workflow-run` ([`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-workspace-editor` ([`packages/client/ui-workspace-editor/src/index.ts`](../packages/client/ui-workspace-editor/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))
 - `@deepseek-ai/dsh-command-context` — requires `commands` ([`packages/context/command-context/src/index.ts`](../packages/context/command-context/src/index.ts))
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
@@ -4266,6 +4451,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
 - `@deepseek-ai/dsh-user-questions` ([`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
+- `@deepseek-ai/dsh-workspace-file-write` — requires `workspaceRegistry` · `fs` ([`packages/host/workspace-file-write/src/index.ts`](../packages/host/workspace-file-write/src/index.ts))
 
 ## Seam packages (not directly loadable)
 
@@ -4301,6 +4487,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
 - `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
+- `@deepseek-ai/dsh-chat-harniverse-client` ([`packages/chat/chat-harniverse-client/src/index.ts`](../packages/chat/chat-harniverse-client/src/index.ts))
 - `@deepseek-ai/dsh-client-authentication` ([`packages/client/authentication/src/index.ts`](../packages/client/authentication/src/index.ts))
 - `@deepseek-ai/dsh-client-schema-form` ([`packages/client/schema-form/src/index.ts`](../packages/client/schema-form/src/index.ts))
 - `@deepseek-ai/dsh-client-store` ([`packages/client/store/src/index.ts`](../packages/client/store/src/index.ts))

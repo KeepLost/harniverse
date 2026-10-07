@@ -689,6 +689,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'chatAdapters',
+    summary: 'The chat adapter registry.',
+    description: 'The chat adapter registry. Owns the set of mounted adapters keyed by `platform:botId`; a duplicate key fails loud and every registration\'s disposer removes exactly its own entry.',
+    methods: [
+      {
+        signature: 'register(adapter: ChatAdapter): () => void',
+        description: 'Register one adapter for the lifetime of the calling effect scope. `chat-adapter/registered` fires after the entry is readable and `chat-adapter/unregistered` after it is gone.',
+        parameters: [{ name: 'adapter', description: 'the platform adapter to mount.' }],
+        returns: 'the exact Cordis effect disposer; calling it twice is harmless.',
+        throws: ['when `platform:botId` is already registered.'],
+      },
+      {
+        signature: 'get(platform: ChatPlatformId, botId: string): ChatAdapter | undefined',
+        description: 'Read one registered adapter.',
+        parameters: [{ name: 'platform', description: 'adapter platform id.' }, { name: 'botId', description: 'adapter bot instance id.' }],
+        returns: 'the adapter, or undefined while unregistered.',
+      },
+      {
+        signature: 'list(): readonly ChatAdapter[]',
+        description: 'Snapshot every mounted adapter.',
+        parameters: [],
+        returns: 'adapters in registration order.',
+      },
+    ],
+  },
+  {
     key: 'clientModules',
     summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + plugin resource route + index tap.',
     description: 'The web plugin table service: incremental `dsh.client` scan + wire composition + plugin resource route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',
@@ -960,15 +986,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'metadata only, never content; undefined for an absent path.',
       },
       {
-        signature: 'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
+        signature: 'abstract readText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<string>',
         description: 'Read the whole regular text file as a single decoded string.',
-        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the read.' }],
-        returns: 'the full decoded UTF-8 content.',
+        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the read.' }, { name: 'opts', description: 'decode controls: explicit encoding, UTF-only boundary, decision receiver.' }],
+        returns: 'the full decoded content (BOM bytes stripped, never a U+FEFF prefix).',
       },
       {
-        signature: 'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
-        description: 'Stream the whole regular text file as decoded text chunks (same text semantics as readText, for large files). The backend owns cross-chunk UTF-8 decoding and binary rejection so the policy layer never touches raw bytes.',
-        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the stream, including between chunks.' }],
+        signature: 'abstract streamText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<AsyncIterable<string>>',
+        description: 'Stream the whole regular text file as decoded text chunks (same text semantics as readText, for large files). The backend owns cross-chunk decoding and binary rejection so the policy layer never touches raw bytes; a legacy-encoding file degrades to whole-buffer decode before chunking, so the memory bound is the file size.',
+        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the stream, including between chunks.' }, { name: 'opts', description: 'decode controls: explicit encoding, UTF-only boundary, decision receiver.' }],
         returns: 'the chunk iterable, decoded and validated like {@link readText}.',
       },
       {
@@ -1146,6 +1172,73 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: '@Remote({ exportName: \'reload\', requiredCapability: \'harniverse.administer\' }) async reload(): Promise<void>',
         description: 'Re-resolve settings and re-apply the global budget (`harniverse.administer`).',
         parameters: [],
+      },
+    ],
+  },
+  {
+    key: 'harniverseClient',
+    summary: 'The `/api` client service.',
+    description: 'The `/api` client service.',
+    methods: [
+      {
+        signature: 'async call<M extends UnaryMethod>(method: M, payload: unknown, options: CallOptions = {}): Promise<UnaryValue<M>>',
+        description: 'Call one method of the closed unary table.',
+        parameters: [{ name: 'method', description: 'a key of `UNARY_ENDPOINTS`; any other method is refused locally.' }, { name: 'payload', description: 'method payload.' }, { name: 'options', description: 'remote host, idempotency key, cancellation.' }],
+        returns: 'the schema-validated response value.',
+        throws: ['{HarniverseError} `endpoint-denied` for a method outside the table, `rpc-rejected` for a business error.'],
+      },
+      {
+        signature: 'async typert(endpoint: TypertEndpoint, args: Record<string, unknown>, options: CallOptions = {}): Promise<unknown>',
+        description: 'Call one endpoint of the closed Typert table.',
+        parameters: [{ name: 'endpoint', description: '`commands/execute`; any other endpoint is refused locally.' }, { name: 'args', description: 'the Typert `args` object.' }, { name: 'options', description: 'remote host, idempotency key, cancellation.' }],
+        returns: 'the raw response value.',
+      },
+      {
+        signature: 'describeHost(options: CallOptions = {}): Promise<HostDescription>',
+        description: 'Describe the Host behind this client (or one remote runtime).',
+        parameters: [{ name: 'options', description: 'remote host and cancellation.' }],
+        returns: 'the boot identity and version.',
+      },
+      {
+        signature: 'async respond(rpcId: string, result: RespondResult, options: CallOptions = {}): Promise<RespondReceipt>',
+        description: 'Answer a pending approval or question frame.',
+        parameters: [{ name: 'rpcId', description: 'the `rpcId` of the `approval/requested` or `question/requested` server request.' }, { name: 'result', description: 'the response result slot.' }, { name: 'options', description: 'remote host and cancellation.' }],
+        returns: 'the carrier receipt; `not-pending` means a faster responder won.',
+      },
+      {
+        signature: 'async upload( data: Uint8Array<ArrayBuffer>, meta: { name?: string; mediaType?: string }, options: CallOptions = {}, ): Promise<UploadedAttachment>',
+        description: 'Upload one file for a later `session.prompt` file part.',
+        parameters: [{ name: 'data', description: 'file bytes.' }, { name: 'meta', description: 'display name and media type.' }, { name: 'options', description: 'remote host and cancellation.' }],
+        returns: 'the stored attachment handle.',
+      },
+      {
+        signature: 'openMux(options: MuxOptions): HarniverseMux',
+        description: 'Open a resumable event mux whose lifetime is bound to the calling effect scope.',
+        parameters: [{ name: 'options', description: 'frame handler, resume cursors, and optional remote host.' }],
+        returns: 'the mux, already connecting.',
+      },
+      {
+        signature: 'async authorization(): Promise<string>',
+        description: 'Produce the `Authorization` header value for one request or socket upgrade.',
+        parameters: [],
+        returns: '`Bearer <Access Token>`, renewed before the token expires.',
+        throws: ['`authentication-failed` when the challenge exchange fails.'],
+      },
+      {
+        signature: 'muxUrl(cursors: Readonly<Record<string, number>>, remoteHost: string | undefined): URL',
+        description: 'Build the `events.mux` WebSocket URL that resumes the given cursors.',
+        parameters: [{ name: 'cursors', description: 'last applied event seq per session id; omitted when empty.' }, { name: 'remoteHost', description: 'remote runtime to forward to, or undefined for the local Host.' }],
+        returns: 'the `ws:` or `wss:` URL.',
+      },
+      {
+        signature: 'learnIdentity(principal: WirePrincipal): void',
+        description: 'Record the principal a mux frame carried, so later mutating calls send a matching `expectedPrincipal`.',
+        parameters: [{ name: 'principal', description: 'the principal the carrier reported.' }],
+      },
+      {
+        signature: 'warn(message: string, error?: unknown): void',
+        description: 'Log a warning through the plugin logger.',
+        parameters: [{ name: 'message', description: 'what happened.' }, { name: 'error', description: 'the cause, appended to the message when present.' }],
       },
     ],
   },
@@ -3428,6 +3521,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'workspaceFileWrite',
+    summary: 'The workspace file-editing Remote.',
+    description: 'The workspace file-editing Remote. Methods are addressed by Workspace id (never a Session): the workbench is a Workspace-scoped surface shared by every session of that Workspace and usable with none of them running.',
+    methods: [
+      {
+        signature: '@Remote({ exportName: \'open\', requiredCapability: \'harniverse.operate\' }) async open(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileOpenResult>',
+        description: 'Read one complete editable file (`harniverse.operate`).',
+        parameters: [{ name: 'workspaceId', description: 'registered Workspace owning the file.' }, { name: 'path', description: 'workspace-relative file path.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'LF-normalized content with its version and decode decision.',
+      },
+      {
+        signature: '@Remote({ exportName: \'stat\', requiredCapability: \'harniverse.operate\' }) async stat(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileStatResult>',
+        description: 'Probe one editable path\'s authoritative version (`harniverse.operate`). The editor calls this after a watch frame; the watch frame\'s own version string is a different format and must never be compared with this one.',
+        parameters: [{ name: 'workspaceId', description: 'registered Workspace owning the file.' }, { name: 'path', description: 'workspace-relative file path.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'the file\'s `FsVersion`, or `absent` when the path is gone.',
+      },
+      {
+        signature: '@Remote({ exportName: \'save\', requiredCapability: \'harniverse.operate\' }) async save( workspaceId: WorkspaceId, path: string, request: WorkspaceFileSaveRequest, signal: AbortSignal, ): Promise<WorkspaceFileSaveResult>',
+        description: 'Save one edited file under a version CAS on the editor\'s observed version (`harniverse.operate`). The original encoding, byte order mark, and line-ending style are re-derived from the file on disk inside the CAS window, never trusted from the wire; a file that changed after the editor\'s open refuses with `stale-version` and the current version.',
+        parameters: [{ name: 'workspaceId', description: 'registered Workspace owning the file.' }, { name: 'path', description: 'workspace-relative file path.' }, { name: 'request', description: 'LF content, the base version, and the idempotency id.' }, { name: 'signal', description: 'request cancellation; a committed write survives it.' }],
+        returns: 'the version the write produced.',
+      },
+    ],
+  },
+  {
     key: 'workspaceRegistry',
     summary: 'Durable workspace registry.',
     description: 'Durable workspace registry. Startup waits for `sessionPersistence`, builds one canonical-cwd header index, and completes the one-time history bootstrap before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.',
@@ -3666,6 +3784,38 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Capability topology or composition changed; consumers refetch their target.',
     description: 'Capability topology or composition changed; consumers refetch their target. @mode emit',
     parameters: [],
+  },
+  {
+    name: 'chat-adapter/registered',
+    mode: 'emit',
+    signature: '\'chat-adapter/registered\'(adapter: ChatAdapter): void',
+    summary: 'An adapter became resolvable in the registry.',
+    description: 'An adapter became resolvable in the registry.',
+    parameters: [{ name: 'adapter', description: 'the registered adapter.' }],
+  },
+  {
+    name: 'chat-adapter/unregistered',
+    mode: 'emit',
+    signature: '\'chat-adapter/unregistered\'(adapter: ChatAdapter): void',
+    summary: 'An adapter left the registry; its `run` loop must stop.',
+    description: 'An adapter left the registry; its `run` loop must stop.',
+    parameters: [{ name: 'adapter', description: 'the adapter that no longer resolves.' }],
+  },
+  {
+    name: 'chat-bridge/dispatch',
+    mode: 'emit',
+    signature: '\'chat-bridge/dispatch\'(info: { phase: \'start\' | \'end\'; key: string }): void',
+    summary: 'A queued conversation task started or finished.',
+    description: 'A queued conversation task started or finished. Tasks of one conversation key never overlap.',
+    parameters: [{ name: 'info', description: 'the phase and the conversation key.' }],
+  },
+  {
+    name: 'chat-harniverse/request',
+    mode: 'emit',
+    signature: '\'chat-harniverse/request\'(info: { kind: \'unary\' | \'typert\' | \'respond\' | \'upload\' | \'mux\'; target: string }): void',
+    summary: 'A request is about to leave the client.',
+    description: 'A request is about to leave the client. The package invariant checks that `target` belongs to the closed endpoint table of its `kind`.',
+    parameters: [{ name: 'info', description: 'request kind and the endpoint, method, or path it addresses.' }],
   },
   {
     name: 'commands/change',
@@ -4092,6 +4242,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'info', description: 'the run\'s identity snapshot (id + meta).' }],
   },
   {
+    name: 'workspace-file/saved',
+    mode: 'emit',
+    signature: '\'workspace-file/saved\'(event: WorkspaceFileSavedEvent): void',
+    summary: 'One user file edit committed through the workbench editor.',
+    description: 'One user file edit committed through the workbench editor. Emitted at the write\'s commit point only; listeners are synchronous recorders whose failures the emitter logs rather than propagates.',
+    parameters: [{ name: 'event', description: 'the committed write\'s workspace/path/version facts.' }],
+  },
+  {
     name: 'workspace/session-activity',
     mode: 'waterfall',
     signature: '\'workspace/session-activity\'( request: SessionActivityRequest, next: () => Promise<readonly SessionActivity[]>, ): Promise<readonly SessionActivity[]>',
@@ -4514,6 +4672,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CapturedRemoteProfile',
     declaration: 'export type CapturedRemoteProfile = z.infer<typeof capturedProfileSchema>;',
+  },
+  {
+    name: 'ChatAdapter',
+    declaration: 'export interface ChatAdapter {\n    readonly platform: ChatPlatformId;\n    readonly botId: string;\n    readonly capabilities: ChatAdapterCapabilities;\n    run(sink: ChatInboundSink, signal: AbortSignal): Promise<void>;\n    stop(): Promise<void>;\n    send(route: ChatRoute, message: OutboundMessage): Promise<SentRef>;\n    edit?(ref: SentRef, message: OutboundMessage): Promise<void>;\n    recall?(ref: SentRef): Promise<void>;\n    sendInteraction?(route: ChatRoute, prompt: InteractionPrompt): Promise<SentRef>;\n    settleInteraction?(ref: SentRef, state: InteractionSettlement): Promise<void>;\n    sendFile?(route: ChatRoute, file: OutboundFile): Promise<SentRef>;\n    fetchAttachment(ref: ChatAttachmentRef, maxBytes: number, signal: AbortSignal): Promise<{\n        stream: ReadableStream;\n        mediaType: string;\n    }>;\n    setTyping?(route: ChatRoute): Promise<void>;\n    directRoute(userId: string): ChatRoute | undefined;\n}',
+  },
+  {
+    name: 'ChatAdapterCapabilities',
+    declaration: 'export interface ChatAdapterCapabilities {\n    groupChats: boolean;\n    threads: boolean;\n    editOutbound: boolean;\n    editWindowMs: number | null;\n    minEditIntervalMs: number;\n    maxTextLength: number;\n    textFormat: \'plain\' | \'telegram-html\' | \'lark-md\' | (string & {});\n    interactionButtons: boolean;\n    reactions: boolean;\n    typingIndicator: boolean;\n    inboundFiles: boolean;\n    outboundFiles: boolean;\n    maxFileBytes: number;\n}',
+  },
+  {
+    name: 'ChatAttachmentRef',
+    declaration: 'export interface ChatAttachmentRef {\n    attachmentId: string;\n    name?: string;\n    mediaType?: string;\n    bytes?: number;\n}',
+  },
+  {
+    name: 'ChatIdentity',
+    declaration: 'export interface ChatIdentity {\n    userId: string;\n    alternateId?: string;\n    displayName?: string;\n    isBot: boolean;\n}',
+  },
+  {
+    name: 'ChatInbound',
+    declaration: 'export type ChatInbound = {\n    type: \'message\';\n    messageId: string;\n    route: ChatRoute;\n    sender: ChatIdentity;\n    addressed: boolean;\n    replyToMessageId?: string;\n    text: string;\n    controlText: string;\n    attachments: ChatAttachmentRef[];\n    platformTime: number;\n} | {\n    type: \'message-edited\';\n    messageId: string;\n    route: ChatRoute;\n    sender: ChatIdentity;\n    text: string;\n    controlText: string;\n    platformTime: number;\n} | {\n    type: \'message-deleted\';\n    messageId: string;\n    route: ChatRoute;\n    platformTime: number;\n} | {\n    type: \'interaction\';\n    interactionId: string;\n    actionId: string;\n    value?: string;\n    route: ChatRoute;\n    sender: ChatIdentity;\n};',
+  },
+  {
+    name: 'ChatInboundSink',
+    declaration: 'export interface ChatInboundSink {\n    accept(event: ChatInbound): Promise<void>;\n}',
+  },
+  {
+    name: 'ChatPlatformId',
+    declaration: 'export type ChatPlatformId = \'telegram\' | \'feishu\' | (string & {});',
+  },
+  {
+    name: 'ChatRoute',
+    declaration: 'export interface ChatRoute {\n    kind: \'direct\' | \'group\';\n    chatId: string;\n    threadId?: string;\n}',
   },
   {
     name: 'ChildModelRoute',
@@ -4988,12 +5178,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FsPathInfo {\n    version: FsVersion;\n    type: \'file\' | \'directory\' | \'symlink\' | \'other\';\n    size?: number;\n}',
   },
   {
+    name: 'FsReadTextOptions',
+    declaration: 'export interface FsReadTextOptions {\n    encoding?: string;\n    utfOnly?: boolean;\n    onDecision?: (decision: FsTextEncoding) => void;\n}',
+  },
+  {
     name: 'FsTarget',
     declaration: 'export interface FsTarget {\n    targetKey: FsTargetKey;\n    displayPath: string;\n}',
   },
   {
     name: 'FsTargetKey',
     declaration: 'export type FsTargetKey = Branded<\'FsTargetKey\'>;',
+  },
+  {
+    name: 'FsTextEncoding',
+    declaration: 'export interface FsTextEncoding {\n    encoding: string;\n    source: \'explicit\' | \'sticky\' | \'bom\' | \'utf8\' | \'host\' | \'locale\' | \'fallback\';\n    bom: boolean;\n    eol: \'LF\' | \'CRLF\';\n}',
   },
   {
     name: 'FsVersion',
@@ -5068,6 +5266,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type GovernorTier = \'cgroup\' | \'rlimit\' | \'observe\';',
   },
   {
+    name: 'HarniverseMux',
+    declaration: 'export class HarniverseMux {\n    constructor(private readonly host: MuxHost, private readonly options: MuxOptions);\n    get resumeCursors(): Readonly<Record<string, number>>;\n    whenOpen(): Promise<void>;\n    start(): void;\n    close(): void;\n}',
+  },
+  {
     name: 'Hello',
     declaration: 'export type Hello = z.infer<typeof helloSchema>;',
   },
@@ -5090,6 +5292,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'HostConfig',
     declaration: 'export interface HostConfig {\n    name: string;\n    host: string;\n    port: number;\n    username: string;\n    fingerprint: string;\n    platform: RemotePlatform;\n    architecture: RemoteArchitecture;\n    dshHome?: string;\n    authentication: HostAuthentication;\n    reverseMappings: ReverseMapping[];\n}',
+  },
+  {
+    name: 'HostDescription',
+    declaration: 'export interface HostDescription {\n    bootId: string;\n    version?: string;\n    cwd?: string;\n}',
   },
   {
     name: 'HostRecord',
@@ -5138,6 +5344,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InboxTarget',
     declaration: 'export type InboxTarget = \'next-turn\' | \'next-step\';',
+  },
+  {
+    name: 'InteractionPrompt',
+    declaration: 'export interface InteractionPrompt {\n    kind: \'approval\' | \'question\';\n    body: string;\n    actions: Array<{\n        id: string;\n        label: string;\n    }>;\n}',
+  },
+  {
+    name: 'InteractionSettlement',
+    declaration: 'export type InteractionSettlement = \'answered\' | \'expired\' | \'superseded\';',
   },
   {
     name: 'InvariantFailure',
@@ -5540,6 +5754,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelRouteSnapshot {\n    readonly id: string;\n    readonly name?: string;\n    readonly targets: readonly ModelSelection[];\n}',
   },
   {
+    name: 'MuxDelivery',
+    declaration: 'export interface MuxDelivery {\n    rpcId: string;\n    frame: MuxFrame;\n    remoteHost?: string;\n}',
+  },
+  {
+    name: 'MuxHost',
+    declaration: 'export interface MuxHost {\n    readonly config: MuxTiming;\n    authorization(): Promise<string>;\n    muxUrl(cursors: Readonly<Record<string, number>>, remoteHost: string | undefined): URL;\n    learnIdentity(principal: WirePrincipal): void;\n    describeHost(options?: CallOptions): Promise<HostDescription>;\n    warn(message: string, error?: unknown): void;\n}',
+  },
+  {
+    name: 'MuxOptions',
+    declaration: 'export interface MuxOptions {\n    remoteHost?: string | undefined;\n    cursors?: Record<string, number> | undefined;\n    onFrame(delivery: MuxDelivery): void | Promise<void>;\n    onCursor?(sessionId: string, seq: number): void;\n    onHostRestart?(previousBootId: string, bootId: string): void;\n    onState?(state: MuxState): void;\n}',
+  },
+  {
+    name: 'MuxState',
+    declaration: 'export type MuxState = \'connecting\' | \'open\' | \'reconnecting\' | \'closed\';',
+  },
+  {
+    name: 'MuxTiming',
+    declaration: 'export interface MuxTiming {\n    muxRenewAfterMs: number;\n    reconnectMinMs: number;\n    reconnectMaxMs: number;\n}',
+  },
+  {
     name: 'NotificationEnvelope',
     declaration: 'export type NotificationEnvelope<K extends NotificationEventType = NotificationEventType> = {\n    [P in K]: {\n        specVersion: 1;\n        eventId: NotificationEventId;\n        type: P;\n        occurredAt: string;\n        subject: NotificationSubject;\n        data: NotificationEventMap[P];\n    };\n}[K];',
   },
@@ -5574,6 +5808,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OneShotSubagentDescriptorData',
     declaration: 'export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n}',
+  },
+  {
+    name: 'OutboundFile',
+    declaration: 'export interface OutboundFile {\n    filePath: string;\n    fileName: string;\n    mediaType?: string;\n    bytes: number;\n}',
+  },
+  {
+    name: 'OutboundMessage',
+    declaration: 'export interface OutboundMessage {\n    text: string;\n    replyToMessageId?: string;\n}',
   },
   {
     name: 'PermissionSelect',
@@ -5872,6 +6114,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResourceSample {\n    readonly t: number;\n    readonly cpuTicks: number;\n    readonly rssBytes: number;\n    readonly pssBytes?: number;\n    readonly readBytes: number;\n    readonly writeBytes: number;\n    readonly fdCount: number;\n    readonly netTxBytes?: number;\n    readonly netRxBytes?: number;\n}',
   },
   {
+    name: 'RespondReceipt',
+    declaration: 'export type RespondReceipt = {\n    accepted: true;\n} | {\n    accepted: false;\n    reason: \'not-pending\' | \'bad-response\' | \'authentication-principal-mismatch\';\n};',
+  },
+  {
+    name: 'RespondResult',
+    declaration: 'export type RespondResult = {\n    ok: true;\n    value: unknown;\n} | {\n    ok: false;\n    error: {\n        code: string;\n        message: string;\n        details: Record<string, unknown>;\n    };\n};',
+  },
+  {
     name: 'RestoredSessionOptions',
     declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n    readonly history?: SessionHistorySource;\n    readonly surface?: {\n        readonly nodes: readonly number[];\n        readonly replaceGeneration: number;\n    };\n}',
   },
@@ -6034,6 +6284,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SearchResultView',
     declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
+    name: 'SentRef',
+    declaration: 'export interface SentRef {\n    messageId: string;\n    route: ChatRoute;\n}',
   },
   {
     name: 'ServerResponse',
@@ -6645,7 +6899,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessCollect',
-    declaration: 'export interface SubprocessCollect {\n    maxBytes: number;\n    spill?: {\n        maxBytes: number;\n    };\n}',
+    declaration: 'export interface SubprocessCollect {\n    maxBytes: number;\n    spill?: {\n        maxBytes: number;\n    };\n    decoding?: SubprocessOutputDecoding;\n}',
   },
   {
     name: 'SubprocessCollectedOutputs',
@@ -6682,6 +6936,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubprocessOutcome',
     declaration: 'export interface SubprocessOutcome {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n}',
+  },
+  {
+    name: 'SubprocessOutputDecoding',
+    declaration: 'export type SubprocessOutputDecoding = {\n    readonly kind: \'utf-8\';\n} | {\n    readonly kind: \'mixed\';\n    readonly legacy: readonly string[];\n};',
   },
   {
     name: 'SubprocessOutputMode',
@@ -7028,6 +7286,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TypertDocumentation {\n    readonly description?: string;\n    readonly summary?: string;\n    readonly tags: readonly TypertDocTag[];\n    readonly jsDoc?: string;\n}',
   },
   {
+    name: 'TypertEndpoint',
+    declaration: 'export type TypertEndpoint = (typeof TYPERT_ENDPOINTS)[number];',
+  },
+  {
     name: 'TypertEventModel',
     declaration: 'export interface TypertEventModel extends TypertDocumentation {\n    readonly name: string;\n    readonly mode?: string;\n    readonly signature: string;\n}',
   },
@@ -7066,6 +7328,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
+  },
+  {
+    name: 'UnaryMethod',
+    declaration: 'export type UnaryMethod = keyof typeof UNARY_ENDPOINTS;',
+  },
+  {
+    name: 'UnaryValue',
+    declaration: 'export type UnaryValue<M extends UnaryMethod> = z.infer<(typeof UNARY_ENDPOINTS)[M][\'value\']>;',
+  },
+  {
+    name: 'UploadedAttachment',
+    declaration: 'export interface UploadedAttachment {\n    attachmentId: string;\n    bytes: number;\n    name?: string;\n    mediaType?: string;\n}',
   },
   {
     name: 'UpsertHostInput',
@@ -7176,6 +7450,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebUpgradeRoute {\n    path: string;\n    handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;\n}',
   },
   {
+    name: 'WirePrincipal',
+    declaration: 'export type WirePrincipal = z.infer<typeof principalSchema>;',
+  },
+  {
     name: 'WorkflowAgentEndInfo',
     declaration: 'export interface WorkflowAgentEndInfo extends WorkflowAgentInfo {\n    outcome: WorkflowAgentOutcome;\n}',
   },
@@ -7224,8 +7502,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
   },
   {
+    name: 'WorkspaceFileEncodingSource',
+    declaration: 'export type WorkspaceFileEncodingSource = \'explicit\' | \'sticky\' | \'bom\' | \'utf8\' | \'host\' | \'locale\' | \'fallback\';',
+  },
+  {
+    name: 'WorkspaceFileOpenResult',
+    declaration: 'export interface WorkspaceFileOpenResult {\n    readonly content: string;\n    readonly version: string;\n    readonly bytes: number;\n    readonly encoding: string;\n    readonly encodingSource: WorkspaceFileEncodingSource;\n    readonly bom: boolean;\n    readonly eol: \'LF\' | \'CRLF\';\n}',
+  },
+  {
     name: 'WorkspaceFilesApi',
-    declaration: 'export interface WorkspaceFilesApi {\n    list(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        entries: WorkspaceFileEntry[];\n        truncated: boolean;\n    }>>;\n    search(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        query: string;\n        include?: string[];\n        exclude?: string[];\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        entries: WorkspaceFileEntry[];\n        truncated: boolean;\n    }>>;\n    read(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        content: string;\n        bytes: number;\n        truncated: boolean;\n    }>>;\n    readBinary(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        dataBase64: string;\n        mediaType: string;\n        bytes: number;\n    }>>;\n    watchFiles(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n    }>, signal: AbortSignal): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>>;\n}',
+    declaration: 'export interface WorkspaceFilesApi {\n    list(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        entries: WorkspaceFileEntry[];\n        truncated: boolean;\n    }>>;\n    search(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        query: string;\n        include?: string[];\n        exclude?: string[];\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        entries: WorkspaceFileEntry[];\n        truncated: boolean;\n    }>>;\n    read(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path: string;\n        encoding?: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        content: string;\n        bytes: number;\n        truncated: boolean;\n        encoding: string;\n        encodingSource: \'explicit\' | \'sticky\' | \'bom\' | \'utf8\' | \'host\' | \'locale\' | \'fallback\';\n        bom: boolean;\n        eol: \'LF\' | \'CRLF\';\n    }>>;\n    readBinary(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        dataBase64: string;\n        mediaType: string;\n        bytes: number;\n    }>>;\n    watchFiles(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n    }>, signal: AbortSignal): AsyncIterable<RpcRequest<WorkspaceFileWatchFrame>>;\n}',
+  },
+  {
+    name: 'WorkspaceFileSavedEvent',
+    declaration: 'export interface WorkspaceFileSavedEvent {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly version: string;\n    readonly bytes: number;\n}',
+  },
+  {
+    name: 'WorkspaceFileSaveRequest',
+    declaration: 'export interface WorkspaceFileSaveRequest {\n    readonly content: string;\n    readonly baseVersion: string;\n    readonly saveId: string;\n}',
+  },
+  {
+    name: 'WorkspaceFileSaveResult',
+    declaration: 'export interface WorkspaceFileSaveResult {\n    readonly version: string;\n}',
+  },
+  {
+    name: 'WorkspaceFileStatResult',
+    declaration: 'export type WorkspaceFileStatResult = {\n    readonly version: string;\n} | {\n    readonly absent: true;\n};',
   },
   {
     name: 'WorkspaceGitApi',

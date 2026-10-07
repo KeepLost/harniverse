@@ -207,6 +207,7 @@
         "./packages/mcp/*/src/invariant.ts",
         "./packages/capability/*/src/invariant.ts",
         "./packages/identity/*/src/invariant.ts",
+        "./packages/chat/*/src/invariant.ts",
         "./packages/test-support/*/src/invariant.ts"
       ],
       // host/client package names prefix the group dir (dsh-client-<dir>), so
@@ -216,6 +217,7 @@
       "@deepseek-ai/dsh-client-*/invariant": ["./packages/client/*/src/invariant.ts"],
       "@deepseek-ai/dsh-headless/startup": ["./packages/bundle/headless/src/startup.ts"],
       "@deepseek-ai/dsh-auth-app/startup": ["./packages/bundle/auth-app/src/startup.ts"],
+      "@deepseek-ai/dsh-chat-app/startup": ["./packages/bundle/chat-app/src/startup.ts"],
       "@deepseek-ai/dsh-web-app/startup": ["./packages/bundle/web-app/src/startup.ts"],
       "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
        // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
@@ -361,6 +363,7 @@
         "./packages/mcp/*/src",
         "./packages/capability/*/src",
         "./packages/identity/*/src",
+        "./packages/chat/*/src",
         "./packages/test-support/*/src",
         "./packages/host/*/src",
         "./packages/client/*/src"

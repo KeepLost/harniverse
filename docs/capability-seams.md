@@ -11,6 +11,14 @@ flowchart LR
   svc_authentication["ctx.authentication<br/>Inbound network authentication"]
   pkg_authentication_local["authentication-local"]
   pkg_client_connection["client-connection"]
+  pkg_chat_adapter["chat-adapter"]
+  svc_chatAdapters["ctx.chatAdapters<br/>Chat platform adapters"]
+  pkg_chat_adapter_telegram["chat-adapter-telegram"]
+  pkg_chat_adapter_feishu["chat-adapter-feishu"]
+  pkg_chat_adapter_fake["chat-adapter-fake"]
+  pkg_chat_bridge["chat-bridge"]
+  pkg_chat_harniverse_client["chat-harniverse-client"]
+  svc_harniverseClient["ctx.harniverseClient<br/>Operator client of the Harniverse /api"]
   pkg_speech["speech"]
   svc_speech["ctx.speech<br/>Speech recognition"]
   pkg_speech_sensevoice["speech-sensevoice"]
@@ -284,6 +292,11 @@ flowchart LR
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
   pkg_capabilities --> svc_capabilities
+  pkg_chat_adapter --> svc_chatAdapters
+  pkg_chat_adapter_fake --> svc_chatAdapters
+  pkg_chat_adapter_feishu --> svc_chatAdapters
+  pkg_chat_adapter_telegram --> svc_chatAdapters
+  pkg_chat_harniverse_client --> svc_harniverseClient
   pkg_commands --> svc_commands
   pkg_compaction --> svc_compaction
   pkg_compaction_basic --> svc_compaction
@@ -415,6 +428,7 @@ flowchart LR
   svc_authentication --> pkg_client_connection
   svc_capabilities --> pkg_agent_presets
   svc_capabilities --> pkg_mcp_client
+  svc_chatAdapters --> pkg_chat_bridge
   svc_clientModules --> pkg_hmr
   svc_compaction --> pkg_command_compact
   svc_compaction --> pkg_tool_compaction
@@ -432,6 +446,7 @@ flowchart LR
   svc_fs --> pkg_tool_fs
   svc_governor --> pkg_client_ui_governor
   svc_governor --> pkg_tool_bash
+  svc_harniverseClient --> pkg_chat_bridge
   svc_hmrCoordination --> pkg_app_boot
   svc_invariants --> pkg_agent
   svc_invariants --> pkg_agent_loop
@@ -561,6 +576,8 @@ flowchart LR
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.authentication` | `seam` | [`authentication`](../packages/auth/authentication) | [`authentication-local`](../packages/auth/authentication-local) | [`client-connection`](../packages/client/connection) | - | The provider owns admission state, token revisions, browser sessions, lease, and records; Connection owns HTTP and WebSocket protocol enforcement. |
+| `ctx.chatAdapters` | `seam` | [`chat-adapter`](../packages/chat/chat-adapter) | [`chat-adapter-telegram`](../packages/chat/chat-adapter-telegram), [`chat-adapter-feishu`](../packages/chat/chat-adapter-feishu), [`chat-adapter-fake`](../packages/test-support/chat-adapter-fake) | [`chat-bridge`](../packages/chat/chat-bridge) | - | The registry owns the platform-neutral adapter contract and live adapter identity; each adapter owns one platform transport; the bridge owns admission, commands, and rendering. |
+| `ctx.harniverseClient` | `core` | [`chat-harniverse-client`](../packages/chat/chat-harniverse-client) | - | [`chat-bridge`](../packages/chat/chat-bridge) | - | The client is the only package that calls /api for the chat bridge: it signs in with the operator Grant, keeps the event stream, and refuses requests outside its closed endpoint table. |
 | `ctx.speech` | `seam` | [`speech`](../packages/speech/speech) | [`speech-sensevoice`](../packages/speech/speech-sensevoice), [`speech-openai`](../packages/speech/speech-openai) | [`speech-settings`](../packages/speech/speech-settings), [`host-apiproxy`](../packages/host/apiproxy) | - | The seam owns WAV validation and provider resolution; recognizers own preparation and inference; the apiproxy exposes transcribe/prepare to clients. |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | `host-runtime`, [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileReferences` | `seam` | [`file-reference`](../packages/context/file-reference) | [`file-reference-local`](../packages/context/file-reference-local) | [`client-ui-reference`](../packages/client/ui-reference) | - | The abstract service returns path-only candidates in the addressed Agent workspace; the local provider owns bounded indexing and the browser consumer renders capability-gated completion without reading file contents. |

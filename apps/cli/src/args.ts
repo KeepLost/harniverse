@@ -78,6 +78,7 @@ Examples:
   dsh --profile web --help                   the web app's own flags and help
   dsh auth device approve <request> --profile owner
                                                approve the first owner device
+  dsh chat init                              register the chat bridge Grant and print an owner pairing code
   dsh plugin --profile tui add <package>     install a plugin into the tui profile
 `
 
@@ -207,6 +208,18 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .action((args: string[]) => {
       rejectParentOptions('auth')
       resolved = { mode: 'profile', profile: 'auth', patches: [], args }
+    })
+
+  const chat = program.command('chat').description('bridge IM platforms to a local Harniverse (alias of --profile chat); app arguments follow')
+  chat
+    .helpOption(false)
+    .allowUnknownOption()
+    .passThroughOptions()
+    .enablePositionalOptions()
+    .argument('[args...]', 'arguments for the chat bridge app (see: dsh chat --help)')
+    .action((args: string[]) => {
+      rejectParentOptions('chat')
+      resolved = { mode: 'profile', profile: 'chat', patches: [], args }
     })
 
   try {
