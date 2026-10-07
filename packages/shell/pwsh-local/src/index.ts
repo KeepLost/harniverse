@@ -93,6 +93,7 @@ export { candidatePwshPaths, resolvePwshPath } from './resolve.ts'
  * the UTF-8 preamble still decodes line-wise. A UTF-8 host keeps plain UTF-8
  * (byte-identical to the historical collector).
  * @param priors - the host priors to derive the legacy list from.
+ * @returns plain UTF-8, or mixed decoding over the host's legacy code pages.
  */
 export function pwshOutputDecoding(priors: HostPriors): SubprocessOutputDecoding {
   const legacy = outputLegacyForCodePage(priors.oemcp, priors.acp)

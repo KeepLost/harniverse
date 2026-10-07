@@ -345,6 +345,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections.',
   },
   {
+    key: 'workspaceFileWrite',
+    pkg: 'workspace-file-write',
+    title: 'Workbench file-editing Remote',
+    mode: 'core',
+    consumers: ['client-ui-workspace-editor'],
+    note: 'Owns Workspace-scoped editable open, version probe, and version-checked save over ctx.fs behind harniverse.operate, then notifies live sessions of each saved path; the workbench editor occupant reaches it through the gateway.',
+  },
+  {
     key: 'sessionDelivery',
     pkg: 'session-delivery',
     title: 'Ordinary-session next-turn delivery',

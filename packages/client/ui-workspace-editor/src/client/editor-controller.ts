@@ -350,7 +350,10 @@ export class WorkspaceEditorController {
   }
 }
 
-/** Mint a Host-acceptable save id (`^[\w-]{1,128}$`). */
+/**
+ * Mint a Host-acceptable save id (`^[\w-]{1,128}$`).
+ * @returns a fresh `save-` prefixed id, unique per call.
+ */
 export function mintSaveId(): string {
   const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()

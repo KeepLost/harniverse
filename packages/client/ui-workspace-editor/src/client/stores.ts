@@ -51,7 +51,12 @@ export interface WorkspaceEditorState {
   byMachine: Record<string, Record<string, WorkspaceEditorDraftEntry>>
 }
 
-/** Draft key for one workspace-relative path. */
+/**
+ * Build the draft key for one workspace-relative path.
+ * @param workspaceId - workspace that owns the file.
+ * @param path - workspace-relative file path.
+ * @returns the key under which the file's draft entry is stored.
+ */
 export function editorKey(workspaceId: string, path: string): string {
   return `${workspaceId}\u0000${path}`
 }
@@ -66,12 +71,23 @@ export function createWorkspaceEditorStore(): SnapshotStore<WorkspaceEditorState
   return createSnapshotStore<WorkspaceEditorState>({ byMachine: {} })
 }
 
-/** Read one entry partition. */
+/**
+ * Read one machine's entry partition.
+ * @param state - current draft-account snapshot.
+ * @param machine - machine key that partitions the entries.
+ * @returns the partition's entries, or an empty record when the machine has none.
+ */
 export function editorPartition(state: WorkspaceEditorState, machine: string): Record<string, WorkspaceEditorDraftEntry> {
   return state.byMachine[machine] ?? {}
 }
 
-/** Read one entry. */
+/**
+ * Read one draft entry.
+ * @param state - current draft-account snapshot.
+ * @param machine - machine key that partitions the entries.
+ * @param key - draft key from {@link editorKey}.
+ * @returns the entry, or `undefined` when none exists for the key.
+ */
 export function editorEntry(state: WorkspaceEditorState, machine: string, key: string): WorkspaceEditorDraftEntry | undefined {
   return editorPartition(state, machine)[key]
 }

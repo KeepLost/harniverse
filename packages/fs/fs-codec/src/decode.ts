@@ -22,6 +22,8 @@ const BOM_TABLE: readonly { readonly bytes: readonly number[]; readonly encoding
 /**
  * Sniff a byte order mark. A UTF-16LE BOM also clears the NUL binary gate for
  * the rest of the walk (UTF-16 text of ASCII range legitimately contains NULs).
+ * @param bytes - the file's leading bytes.
+ * @returns the BOM's encoding, or `undefined` when no recognized BOM leads the buffer.
  */
 export function sniffBom(bytes: Uint8Array): { encoding: string; bom: true } | undefined {
   for (const entry of BOM_TABLE) {
@@ -32,7 +34,11 @@ export function sniffBom(bytes: Uint8Array): { encoding: string; bom: true } | u
   return undefined
 }
 
-/** Whether the byte is a UTF-8 continuation byte (10xxxxxx). */
+/**
+ * Whether the byte is a UTF-8 continuation byte (10xxxxxx).
+ * @param byte - the byte to classify; `undefined` (an out-of-range read) is never a continuation.
+ * @returns `true` for a continuation byte.
+ */
 export function isUtf8Continuation(byte: number | undefined): boolean {
   return byte !== undefined && byte >= 0x80 && byte <= 0xbf
 }
@@ -52,6 +58,8 @@ function utf8SequenceLength(lead: number): number {
  * lead plus an incomplete run, stays unconsumed. Every ASCII-compatible
  * legacy lead byte is either a UTF-8 lead or a continuation-range byte, so
  * this boundary also never splits a dangling legacy sequence.
+ * @param bytes - the buffer whose tail may end inside a sequence.
+ * @returns the length of the longest prefix that ends on a sequence boundary.
  */
 export function utf8BoundaryEnd(bytes: Uint8Array): number {
   const last = bytes.length - 1
@@ -69,7 +77,11 @@ export function utf8BoundaryEnd(bytes: Uint8Array): number {
   return bytes.length
 }
 
-/** Bytes of the BOM to reproduce on write-back for an encoding, if any. */
+/**
+ * Bytes of the BOM to reproduce on write-back for an encoding, if any.
+ * @param encoding - canonical encoding name.
+ * @returns the BOM bytes, or `undefined` when the encoding has no recognized BOM.
+ */
 export function bomBytesFor(encoding: string): Uint8Array | undefined {
   const entry = BOM_TABLE.find(candidate => candidate.encoding === encoding)
   return entry === undefined ? undefined : Uint8Array.from(entry.bytes)
@@ -78,6 +90,7 @@ export function bomBytesFor(encoding: string): Uint8Array | undefined {
 /**
  * Whether iconv-lite knows the encoding name (accepts its alias spellings).
  * @param name - the caller-supplied encoding name.
+ * @returns `true` when iconv-lite can decode and encode the name.
  */
 export function encodingExists(name: string): boolean {
   return iconv.encodingExists(name)

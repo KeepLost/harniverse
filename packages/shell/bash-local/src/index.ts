@@ -48,6 +48,7 @@ const DEFAULT_MAX_SPILL_BYTES = 64 * 1024 * 1024
  * or unset locale keeps plain UTF-8 — byte-identical to the historical
  * collector on UTF-8 hosts. `LANG` is deliberately never rewritten.
  * @param env - the merged environment the child will run with.
+ * @returns plain UTF-8, or mixed decoding over the locale's legacy charset.
  */
 export function bashOutputDecoding(env: NodeJS.ProcessEnv): SubprocessOutputDecoding {
   const priors: HostPriors = hostPriorsSync({ platform: 'linux', env })

@@ -9,7 +9,7 @@ export const name = 'stub-adapter-provider'
 export const inject = ['chatAdapters']
 
 /** Row config. */
-export interface Config {
+interface Config {
   platform: string
   botId: string
 }

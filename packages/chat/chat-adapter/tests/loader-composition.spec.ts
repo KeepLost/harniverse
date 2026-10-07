@@ -9,7 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import ChatAdapters from '../src/index.ts'
-import * as Provider from './fixtures/mount-provider.ts'
+import { apply, inject, name } from './fixtures/mount-provider.ts'
 
 let root: string | undefined
 let context: Context | undefined
@@ -31,7 +31,7 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-chat-adapter', ChatAdapters],
-    ['stub-adapter-provider', Provider],
+    ['stub-adapter-provider', { name, inject, apply }],
   ])
   context.loader.internal = {
     version: 'v2',

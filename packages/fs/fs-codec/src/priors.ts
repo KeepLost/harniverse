@@ -169,7 +169,11 @@ const LANGUAGE_PRIORS: Readonly<Record<string, string>> = {
 
 const WESTERN_LANGUAGES = new Set(['en', 'fr', 'de', 'es', 'it', 'nl', 'pt', 'da', 'nb', 'nn', 'sv', 'fi', 'is', 'eu', 'ca', 'gl'])
 
-/** Resolve the file-encoding candidate carried by the host's ANSI/OEM prior, if any. */
+/**
+ * Resolve the file-encoding candidate carried by the host's ANSI/OEM prior, if any.
+ * @param priors - the host's code page and locale facts.
+ * @returns the candidate encoding, or `undefined` when the host implies none.
+ */
 export function hostFilePrior(priors: HostPriors): string | undefined {
   if (priors.acp !== undefined) return ACP_PRIORS[priors.acp]
   const charset = priors.localeCharset
@@ -181,7 +185,11 @@ export function hostFilePrior(priors: HostPriors): string | undefined {
   return CHARSET_PRIORS[charset]
 }
 
-/** Resolve the encoding candidate inferred from the locale language alone (UTF-8 charset). */
+/**
+ * Resolve the encoding candidate inferred from the locale language alone (UTF-8 charset).
+ * @param priors - the host's code page and locale facts.
+ * @returns the candidate encoding, or `undefined` when the locale implies none.
+ */
 export function localeLanguagePrior(priors: HostPriors): string | undefined {
   if (priors.acp !== undefined) return undefined
   const language = priors.localeLanguage
@@ -219,7 +227,12 @@ const OUTPUT_CP_NAMES: Readonly<Record<number, string>> = {
   875: 'cp875',
 }
 
-/** Legacy output-decoding list for a code page: OEM consoles first, ANSI second. */
+/**
+ * Legacy output-decoding list for a code page: OEM consoles first, ANSI second.
+ * @param codePage - the console (OEM) code page, when known.
+ * @param acp - the ANSI code page, when known.
+ * @returns the distinct iconv names of the non-UTF-8 code pages, OEM first.
+ */
 export function outputLegacyForCodePage(codePage: number | undefined, acp: number | undefined): string[] {
   const legacy: string[] = []
   if (codePage !== undefined && codePage !== 65001) {

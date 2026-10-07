@@ -81,7 +81,11 @@ function validateEncodingName(name: string): string {
   return name
 }
 
-/** The `[Encoding: …]` annotation line for a decision, or `undefined` for UTF-8 reads. */
+/**
+ * The `[Encoding: …]` annotation line for a decision, or `undefined` for UTF-8 reads.
+ * @param decision - the read's encoding decision; absent when the Provider reports none.
+ * @returns the annotation line, or `undefined` when there is nothing to disclose.
+ */
 export function readEncodingAnnotation(decision: FsTextEncoding | undefined): string | undefined {
   return decision === undefined ? undefined : encodingAnnotation(decision.encoding, decision.source)
 }

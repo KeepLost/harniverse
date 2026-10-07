@@ -52,7 +52,7 @@ type FsTargetKey = Branded<'FsTargetKey'>
 type FsVersion = Branded<'FsVersion'>
 ```
 
-`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让消费方在读取前拒绝目录和特殊文件；`size` 让文本消费方无需通过失败探测即可选择 `readText` 还是 `streamText`。文本消费方在消费 `streamText` 时执行自己的保留量上限。文本读取接受可选的解码控制：`encoding` 指定 iconv-lite 编码名，要么成功要么点名失败；`utfOnly` 把读取限制在 UTF 家族（skills、指令、配置依赖的边界）；`onDecision` 接收最终确定的 `FsTextEncoding` 决定（`{ encoding, source, bom, eol }`），受守卫的写回将复现该决定。遗留解码、其候选顺序与按版本的粘性决定记录由本地提供方经由 [dsh-fs-codec](../../packages/fs/fs-codec/README.zh.md) 拥有。原始字节消费方调用 `readBytes(target, signal, maxBytes)`；其必填的完整内容上限会使已知或读取中发现的超限以 `FS_TOO_LARGE` 失败，不会截断结果或无界缓冲。
+`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让消费方在读取前拒绝目录和特殊文件；`size` 让文本消费方无需通过失败探测即可选择 `readText` 还是 `streamText`。文本消费方在消费 `streamText` 时执行自己的保留量上限。原始字节消费方调用 `readBytes(target, signal, maxBytes)`；其必填的完整内容上限会使已知或读取中发现的超限以 `FS_TOO_LARGE` 失败，不会截断结果或无界缓冲。
 
 ```ts type-equiv
 /**
@@ -108,6 +108,49 @@ interface FsDirEntry {
   version?: FsVersion
   /** Byte size of a regular file, when the backend can report it. */
   size?: number
+}
+```
+
+文本读取接受 `FsReadTextOptions` 中的可选解码控制：`encoding` 指定 iconv-lite 编码名，要么成功要么点名失败；`utfOnly` 把读取限制在 UTF 家族（skills、指令、配置依赖的边界）；`onDecision` 接收最终确定的 `FsTextEncoding` 决定（`{ encoding, source, bom, eol }`），受守卫的写回将复现该决定。遗留解码、其候选顺序与按版本的粘性决定记录由本地提供方经由 [dsh-fs-codec](../../packages/fs/fs-codec/README.md) 拥有。
+
+```ts type-equiv
+/**
+ * Optional decode controls for a text read. `encoding` names an iconv-lite
+ * encoding and wins or fails by name; `utfOnly` restricts the read to the
+ * UTF family (BOM or strict UTF-8) with no legacy guessing — the boundary
+ * consumers such as skills, instructions, and configuration rely on.
+ */
+interface FsReadTextOptions {
+  /** Explicit iconv-lite encoding name; a name that cannot decode the bytes fails the read. */
+  encoding?: string
+  /** Accept only BOM-marked UTF family or strict UTF-8; ignore `encoding` and legacy candidates. */
+  utfOnly?: boolean
+  /**
+   * Receiver of the settled {@link FsTextEncoding} decision, called once
+   * after a successful read (before or while the first chunk is produced).
+   * Consumers that annotate output (tool read views, previews) use this;
+   * plain text consumers ignore it.
+   */
+  onDecision?: (decision: FsTextEncoding) => void
+}
+```
+
+```ts type-equiv
+/**
+ * The decode decision accompanying a text read: what encoding the provider
+ * settled on, where it came from, and which byte order mark / line-ending
+ * style a guarded write-back must reproduce. `source: 'utf8'` decisions are
+ * the historical contract; every other source is a legacy-compatible read.
+ */
+interface FsTextEncoding {
+  /** Canonical provider encoding name (iconv-lite spelling, e.g. `gb18030`). */
+  encoding: string
+  /** Which candidate produced the decision. */
+  source: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+  /** Whether the file's bytes began with the encoding's byte order mark. */
+  bom: boolean
+  /** Dominant line-ending style of the decoded text. */
+  eol: 'LF' | 'CRLF'
 }
 ```
 
@@ -235,6 +278,8 @@ interface FileReadOutcome {
   /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
   next?: ReadCursor
+  /** Ready-made `[Encoding: …]` annotation; absent for UTF-8 reads (byte-identical output). */
+  encoding?: string
 }
 ```
 
@@ -391,20 +436,23 @@ abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Pro
  * Read the whole regular text file as a single decoded string.
  * @param target - the resolved target to read.
  * @param signal - aborts the read.
- * @returns the full decoded UTF-8 content.
+ * @param opts - decode controls: explicit encoding, UTF-only boundary, decision receiver.
+ * @returns the full decoded content (BOM bytes stripped, never a U+FEFF prefix).
  */
-abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+abstract readText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<string>
 
 /**
  * Stream the whole regular text file as decoded text chunks (same text
  * semantics as {@link readText}, for large files). The backend owns
- * cross-chunk UTF-8 decoding and binary rejection so the policy layer never
- * touches raw bytes.
+ * cross-chunk decoding and binary rejection so the policy layer never
+ * touches raw bytes; a legacy-encoding file degrades to whole-buffer
+ * decode before chunking, so the memory bound is the file size.
  * @param target - the resolved target to read.
  * @param signal - aborts the stream, including between chunks.
+ * @param opts - decode controls: explicit encoding, UTF-only boundary, decision receiver.
  * @returns the chunk iterable, decoded and validated like {@link readText}.
  */
-abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+abstract streamText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<AsyncIterable<string>>
 
 /**
  * Read the whole regular file as raw bytes with no decoding or binary
@@ -459,7 +507,7 @@ abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: 
 
 Types: [SandboxExecutionPolicy](sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:86`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:108`](../../packages/fs/fs/src/index.ts)
 
 <a id="fs-events"></a>
 
@@ -482,7 +530,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:66`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:68`](../../packages/fs/fs/src/index.ts)
 
 <a id="fsobserved--emit"></a>
 
@@ -503,7 +551,7 @@ Record an authoritative positive or negative observation. Listeners must be sync
 'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
 ```
 
-Source: [`packages/fs/fs/src/index.ts:76`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:78`](../../packages/fs/fs/src/index.ts)
 
 <a id="fswrite-intent--waterfall"></a>
 
@@ -523,5 +571,5 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:58`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:60`](../../packages/fs/fs/src/index.ts)
 <!-- END GENERATED cordis-surface -->

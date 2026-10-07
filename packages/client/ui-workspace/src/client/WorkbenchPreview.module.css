@@ -221,8 +221,8 @@
   flex: none;
   max-width: 110px;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-s);
-  background: var(--dsw-alias-fill-transparent-hover, transparent);
+  border-radius: 6px;
+  background: transparent;
   color: var(--dsw-alias-label-secondary);
   font: var(--dsw-font-xxxs-11);
   padding: 1px 2px;

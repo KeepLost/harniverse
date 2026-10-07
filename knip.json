@@ -184,6 +184,11 @@
         "zod"
       ]
     },
+    "packages/host/workspace-file-write": {
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
     "packages/client/ui-primitives": {
       "entry": [
         "tests/**/*.spec.tsx"

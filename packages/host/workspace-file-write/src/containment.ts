@@ -14,7 +14,13 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { WorkspaceFileWriteErrorCode } from './types.ts'
 
-/** Fail a path gate with the shared error vocabulary of this Remote. */
+/**
+ * Fail a path gate with the shared error vocabulary of this Remote.
+ * @param code - the Remote error code for the refused rule.
+ * @param message - the human-readable refusal reason.
+ * @param details - structured context attached to the error.
+ * @returns the error to throw.
+ */
 export function pathError(
   code: WorkspaceFileWriteErrorCode,
   message: string,
@@ -23,7 +29,11 @@ export function pathError(
   return new RemoteError<WorkspaceFileWriteErrorCode>(code, message, details)
 }
 
-/** Whether a workspace-relative path contains a `.git` path segment. */
+/**
+ * Whether a workspace-relative path contains a `.git` path segment.
+ * @param path - the workspace-relative request path; `/` and `\` both separate segments.
+ * @returns `true` when any segment is `.git`.
+ */
 export function hasGitSegment(path: string): boolean {
   return path.split(/[/\\]/).includes('.git')
 }

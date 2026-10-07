@@ -29,6 +29,7 @@ export const zh = {
   'editor.watchUnsupported': '文件变动监视不可用，外部修改不会自动提示',
 } as const
 
+/** English dictionary; it carries the same key set as `zh`. */
 export const en = {
   'editor.save': 'Save',
   'editor.saveAria': 'Save changes to {name}',

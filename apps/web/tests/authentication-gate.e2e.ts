@@ -1,5 +1,5 @@
 /** Authenticated Web composition blocks plugin loading until device approval. */
-import type { Browser, BrowserContext, Page } from 'playwright'
+import type { Browser, BrowserContext, Page, Route } from 'playwright'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
@@ -140,10 +140,20 @@ describe('web e2e: authentication gate', () => {
     })
     const prompt = 'Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop.'
     const settled = scaffold.whenTurnSettled(60_000)
+    // The sibling shares this context's cookie jar and is still hydrating: any request it sent while
+    // the cookie is missing would renew it before the send below is refused. Hold its Host traffic
+    // until the page's own refusal and renewal have completed.
+    const hostTraffic = /\/(?:api|auth)\//u
+    const heldByRoute: Route[] = []
+    const holdSibling = (route: Route): void => { heldByRoute.push(route) }
+    await sibling.route(hostTraffic, holdSibling)
     await page.context().clearCookies()
     await input.fill(prompt)
     await input.press('Enter')
     const id = await settled
+    await sibling.unroute(hostTraffic, holdSibling)
+    // A request the sibling abandoned while held reports its Route as already handled.
+    await Promise.allSettled(heldByRoute.map(route => route.continue()))
     expect(statuses).toEqual([401, 200])
     expect(exchanges).toBe(1)
     expect(navigations).toBe(0)

@@ -3,7 +3,7 @@
 // dsh-fs-local serves an editable open, a version-checked save through the
 // same per-target lock the Agent tools use, a durable byte-exact write-back,
 // and the non-waking Agent notice over the real agent inbox.
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -46,7 +46,8 @@ afterEach(async () => {
 
 /** Boot the real composition from a generated cordis.yml. */
 async function boot(): Promise<Context> {
-  root = await mkdtemp(join(tmpdir(), 'dsh-workspace-file-write-loader-'))
+  // The Workspace registry stores the canonical path; macOS tmpdir() sits behind the /var -> /private/var link.
+  root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-workspace-file-write-loader-')))
   const project = join(root, 'project')
   await mkdir(project)
   await writeFile(join(project, 'notes.md'), '# one\n\nfirst\n', 'utf8')

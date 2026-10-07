@@ -130,6 +130,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   userQuestions: 'user-questions.md',
   web: 'web.md',
   workflowEngine: 'workflow.md',
+  workspaceFileWrite: 'workspace.md',
   workspaceRegistry: 'workspace.md',
 }
 
@@ -191,6 +192,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'subprocess': 'subprocess.md',
   'workspace': 'workspace.md',
+  'workspace-file': 'workspace.md',
   'governor': 'governor.md',
   'agent': 'core.md',
   'agent-loop': 'core.md',
@@ -375,8 +377,10 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   FsInfo: 'filesystem.md',
   FsObservation: 'filesystem.md',
   FsPathInfo: 'filesystem.md',
+  FsReadTextOptions: 'filesystem.md',
   FsObservationActor: 'filesystem.md',
   FsTarget: 'filesystem.md',
+  FsTextEncoding: 'filesystem.md',
   FsVersion: 'filesystem.md',
   FsWriteIntent: 'filesystem.md',
   FsWriteOutcome: 'filesystem.md',
@@ -822,6 +826,11 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkflowAgentEndInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowAgentInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowResultInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
+  WorkspaceFileSavedEvent: 'commit-point event payload is owned by packages/host/workspace-file-write/README.md',
+  WorkspaceFileOpenResult: 'editable-open result is owned by packages/host/workspace-file-write/README.md',
+  WorkspaceFileSaveRequest: 'version-checked save request is owned by packages/host/workspace-file-write/README.md',
+  WorkspaceFileSaveResult: 'committed save result is owned by packages/host/workspace-file-write/README.md',
+  WorkspaceFileStatResult: 'version probe result is owned by packages/host/workspace-file-write/README.md',
 }
 
 /** Repository data policy consumed by the Cordis catalog projector. */

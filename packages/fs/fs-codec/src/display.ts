@@ -26,7 +26,11 @@ const DISPLAY_NAMES: Readonly<Record<string, string>> = {
   'koi8-u': 'KOI8-U',
 }
 
-/** Display spelling for an encoding name, falling back to the raw name. */
+/**
+ * Display spelling for an encoding name, falling back to the raw name.
+ * @param encoding - canonical encoding name.
+ * @returns the spelling shown in annotations and the editor status line.
+ */
 export function displayEncoding(encoding: string): string {
   if (DISPLAY_NAMES[encoding] !== undefined) return DISPLAY_NAMES[encoding]
   if (encoding.startsWith('windows-') || encoding.startsWith('iso-8859-')) return encoding.replace(/^./, character => character.toUpperCase())
@@ -50,6 +54,7 @@ export const SOURCE_LABELS: Readonly<Record<EncodingSource, string>> = {
  * byte-identical to a UTF-8-only harness.
  * @param encoding - canonical encoding name from the decision.
  * @param source - the decision's source.
+ * @returns the annotation text, or `undefined` for UTF-8.
  */
 export function encodingAnnotation(encoding: string, source: EncodingSource): string | undefined {
   if (encoding === 'utf-8') return undefined

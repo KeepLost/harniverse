@@ -433,12 +433,22 @@
     },
     {
       "doc": "docs/subsystems/filesystem.md",
+      "symbol": "FsReadTextOptions",
+      "source": "packages/fs/fs/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsTarget",
       "source": "packages/fs/fs/src/types.ts"
     },
     {
       "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsTargetKey",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/filesystem.md",
+      "symbol": "FsTextEncoding",
       "source": "packages/fs/fs/src/types.ts"
     },
     {

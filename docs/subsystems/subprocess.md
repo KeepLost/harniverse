@@ -327,7 +327,7 @@ abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:167`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:168`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocess-events"></a>
 
@@ -349,7 +349,7 @@ One metered spawn's tree fully exited. Follows the matching `subprocess/spawned`
 'subprocess/exited'(event: SubprocessMeteredExit): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:96`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:97`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessspawned--emit"></a>
 
@@ -369,7 +369,7 @@ One metered spawn started: a process spawned with a SubprocessCorrelation is now
 'subprocess/spawned'(event: SubprocessMeteredSpawn): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:89`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:90`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessterminal-exited--emit"></a>
 
@@ -386,7 +386,7 @@ One metered terminal session fully exited.
 'subprocess/terminal-exited'(event: SubprocessMeteredTerminalExit): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:109`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:110`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessterminal-spawned--emit"></a>
 
@@ -404,5 +404,5 @@ One metered terminal session became live (PTY spawns carry their own POSIX sessi
 'subprocess/terminal-spawned'(event: SubprocessMeteredTerminalSpawn): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:103`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:104`](../../packages/subprocess/subprocess/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -17,7 +17,7 @@
   align-items: center;
   gap: 10px;
   padding: 4px 12px;
-  border-bottom: 1px solid var(--dsw-alias-border-l);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
   flex: none;
 }
 
@@ -68,7 +68,7 @@
   flex-direction: column;
   gap: 4px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--dsw-alias-border-l);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-multi-select);
   font-size: 12px;
   flex: none;
@@ -89,7 +89,7 @@
 }
 
 .diff {
-  border-top: 1px solid var(--dsw-alias-border-l);
+  border-top: 1px solid var(--dsw-alias-border-l1);
   padding-top: 6px;
   max-height: 40%;
   overflow: auto;
@@ -120,7 +120,7 @@
 .editor :global(.cm-gutters) {
   color: var(--dsw-alias-label-tertiary);
   background: transparent;
-  border-right: 1px solid var(--dsw-alias-border-l);
+  border-right: 1px solid var(--dsw-alias-border-l1);
 }
 
 .editor :global(.cm-activeLine),

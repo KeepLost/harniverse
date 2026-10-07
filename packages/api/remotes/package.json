@@ -107,7 +107,6 @@
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
-    "@deepseek-ai/dsh-typert-registry": "workspace:^",
-    "@deepseek-ai/dsh-workspace-file-write": "workspace:^"
+    "@deepseek-ai/dsh-typert-registry": "workspace:^"
   }
 }

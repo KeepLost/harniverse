@@ -3,7 +3,7 @@
  * lexical gates (NUL, `.git`, escape), realpath identity (symlink refusal),
  * tolerant absent canonicalization, and the io arms (oversized path).
  */
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -14,7 +14,8 @@ import {
 let root: string | undefined
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'dsh-wfw-containment-'))
+  // The registered root is canonical by contract; macOS tmpdir() sits behind the /var -> /private/var link.
+  root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-wfw-containment-')))
 })
 
 afterEach(async () => {

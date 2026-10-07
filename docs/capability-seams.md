@@ -110,6 +110,9 @@ flowchart LR
   pkg_workspace["workspace"]
   svc_messageFeedback["ctx.messageFeedback<br/>Lifecycle-bound message feedback"]
   svc_workspaceRegistry["ctx.workspaceRegistry<br/>Workspace entity registry"]
+  pkg_workspace_file_write["workspace-file-write"]
+  svc_workspaceFileWrite["ctx.workspaceFileWrite<br/>Workbench file-editing Remote"]
+  pkg_client_ui_workspace_editor["client-ui-workspace-editor"]
   pkg_session_delivery["session-delivery"]
   svc_sessionDelivery["ctx.sessionDelivery<br/>Ordinary-session next-turn delivery"]
   pkg_session_delivery_local["session-delivery-local"]
@@ -414,6 +417,7 @@ flowchart LR
   pkg_workflow --> svc_workflowEngine
   pkg_workflow_worker_thread --> svc_workflowEngine
   pkg_workspace --> svc_workspaceRegistry
+  pkg_workspace_file_write --> svc_workspaceFileWrite
   svc_agentDefaultModel --> pkg_headless
   svc_agentDefaultModel --> pkg_host_apiproxy
   svc_agentLoop --> pkg_agent_spine_demo
@@ -569,6 +573,7 @@ flowchart LR
   svc_webServer --> pkg_modules
   svc_workflowEngine --> pkg_tool_ralph
   svc_workflowEngine --> pkg_tool_workflow
+  svc_workspaceFileWrite --> pkg_client_ui_workspace_editor
   svc_workspaceRegistry --> pkg_apiproxy
   svc_fs -. event gate .-> pkg_fs_observation_policy
 ```
@@ -604,6 +609,7 @@ flowchart LR
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace), [`message-feedback`](../packages/feedback/message-feedback), [`notification-http`](../packages/notification/notification-http) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
 | `ctx.messageFeedback` | `core` | [`message-feedback`](../packages/feedback/message-feedback) | - | - | - | Owns local per-assistant-message feedback, lifecycle and target validation, per-item compare-and-set, and the Host unary Remote contract without entering Session history or telemetry. |
 | `ctx.workspaceRegistry` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
+| `ctx.workspaceFileWrite` | `core` | [`workspace-file-write`](../packages/host/workspace-file-write) | - | [`client-ui-workspace-editor`](../packages/client/ui-workspace-editor) | - | Owns Workspace-scoped editable open, version probe, and version-checked save over ctx.fs behind harniverse.operate, then notifies live sessions of each saved path; the workbench editor occupant reaches it through the gateway. |
 | `ctx.sessionDelivery` | `seam` | [`session-delivery`](../packages/session-query/session-delivery) | [`session-delivery-local`](../packages/session-query/session-delivery-local) | [`tool-session-delivery`](../packages/session-query/tool-session-delivery) | - | The interface acknowledges inbox acceptance only; the local Provider resolves live or persisted ordinary Agents, while the model Consumer never waits for completion or a reply. |
 | `ctx.contextReset` | `core` | [`context-reset`](../packages/context/context-reset) | - | [`command-reset`](../packages/context/command-reset), [`scheduler`](../packages/schedule/scheduler) | - | Shadows every current surface node with one durable anchor-and-marker pair under surface-fold validation; idle-maintenance only, and display history cuts initial pages at the reset anchor. |
 | `ctx.scheduler` | `core` | [`scheduler`](../packages/schedule/scheduler) | - | - | - | Central storage-domain records with at/after/every rules; delivery reaches live roots through the idle maintenance phase and cold sessions through the resume sequence, with optional pre-delivery resets and lazily created job sessions. |

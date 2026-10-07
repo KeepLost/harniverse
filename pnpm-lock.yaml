@@ -4483,9 +4483,6 @@ importers:
       '@codemirror/view':
         specifier: 6.43.13
         version: 6.43.13
-      diff:
-        specifier: 9.0.0
-        version: 9.0.0
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -11859,6 +11856,9 @@ importers:
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs
+      '@deepseek-ai/dsh-fs-codec':
+        specifier: workspace:^
+        version: link:../../packages/fs/fs-codec
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:^
         version: link:../../packages/fs/fs-local

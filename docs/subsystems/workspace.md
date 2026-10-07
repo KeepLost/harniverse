@@ -125,6 +125,8 @@ Sessions get their cwd at create time from whoever creates them, not from this r
 
 [dsh-host-apiproxy](../../packages/host/apiproxy) is the product consumer: it serves workspace CRUD to GUI clients over `ctx.workspaceRegistry` and performs the create-session-then-attach flow above. [dsh-agent-instructions](../../packages/context/agent-instructions) is **not** a consumer despite the name: it discovers AGENTS.md-style instruction files under an agent's own cwd and never touches `ctx.workspaceRegistry` — the shared word refers to the user's working directory, not to this registry's entities.
 
+[dsh-workspace-file-write](../../packages/host/workspace-file-write) is a second consumer: its `ctx.workspaceFileWrite` Remote resolves a registered workspace by id for the workbench editor's open, stat, and save, and emits `workspace-file/saved` at each committed save. Its wire types and path rules are owned by its [README](../../packages/host/workspace-file-write/README.md).
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -148,6 +150,50 @@ abstract capability(): DirectoryPickerCapability
 ```
 
 Source: [`packages/host/directory-picker/src/index.ts:146`](../../packages/host/directory-picker/src/index.ts)
+
+<a id="ctxworkspacefilewrite--workspacefilewriteservice"></a>
+
+### `ctx.workspaceFileWrite` — `WorkspaceFileWriteService`
+
+The workspace file-editing Remote. Methods are addressed by Workspace id (never a Session): the workbench is a Workspace-scoped surface shared by every session of that Workspace and usable with none of them running.
+
+```ts cordis-catalog
+/**
+ * Read one complete editable file (`harniverse.operate`).
+ * @param workspaceId - registered Workspace owning the file.
+ * @param path - workspace-relative file path.
+ * @param signal - request cancellation.
+ * @returns LF-normalized content with its version and decode decision.
+ */
+@Remote({ exportName: 'open', requiredCapability: 'harniverse.operate' }) async open(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileOpenResult>
+
+/**
+ * Probe one editable path's authoritative version (`harniverse.operate`).
+ * The editor calls this after a watch frame; the watch frame's own version
+ * string is a different format and must never be compared with this one.
+ * @param workspaceId - registered Workspace owning the file.
+ * @param path - workspace-relative file path.
+ * @param signal - request cancellation.
+ * @returns the file's `FsVersion`, or `absent` when the path is gone.
+ */
+@Remote({ exportName: 'stat', requiredCapability: 'harniverse.operate' }) async stat(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileStatResult>
+
+/**
+ * Save one edited file under a version CAS on the editor's observed
+ * version (`harniverse.operate`). The original encoding, byte order mark,
+ * and line-ending style are re-derived from the file on disk inside the
+ * CAS window, never trusted from the wire; a file that changed after the
+ * editor's open refuses with `stale-version` and the current version.
+ * @param workspaceId - registered Workspace owning the file.
+ * @param path - workspace-relative file path.
+ * @param request - LF content, the base version, and the idempotency id.
+ * @param signal - request cancellation; a committed write survives it.
+ * @returns the version the write produced.
+ */
+@Remote({ exportName: 'save', requiredCapability: 'harniverse.operate' }) async save( workspaceId: WorkspaceId, path: string, request: WorkspaceFileSaveRequest, signal: AbortSignal, ): Promise<WorkspaceFileSaveResult>
+```
+
+Source: [`packages/host/workspace-file-write/src/index.ts:119`](../../packages/host/workspace-file-write/src/index.ts)
 
 <a id="ctxworkspaceregistry--workspaceregistry"></a>
 
@@ -336,4 +382,27 @@ Stop a session's running work because the caller archived it with `stopActivity`
 ```
 
 Source: [`packages/workspace/workspace/src/index.ts:144`](../../packages/workspace/workspace/src/index.ts)
+
+<a id="workspace-file-events"></a>
+
+### `workspace-file/*` events
+
+<a id="workspace-filesaved--emit"></a>
+
+#### `workspace-file/saved` — emit
+
+One user file edit committed through the workbench editor. Emitted at the write's commit point only; listeners are synchronous recorders whose failures the emitter logs rather than propagates.
+
+```ts cordis-catalog
+/**
+ * One user file edit committed through the workbench editor. Emitted at
+ * the write's commit point only; listeners are synchronous recorders
+ * whose failures the emitter logs rather than propagates.
+ * @param event - the committed write's workspace/path/version facts.
+ * @mode emit
+ */
+'workspace-file/saved'(event: WorkspaceFileSavedEvent): void
+```
+
+Source: [`packages/host/workspace-file-write/src/index.ts:86`](../../packages/host/workspace-file-write/src/index.ts)
 <!-- END GENERATED cordis-surface -->

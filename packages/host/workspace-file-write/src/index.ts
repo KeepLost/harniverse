@@ -444,13 +444,21 @@ export function deliverEditNotices(
   }
 }
 
-/** The model-facing, path-only notice text. */
+/**
+ * The model-facing, path-only notice text.
+ * @param path - the workspace-relative path the user saved.
+ * @returns the notice sentence naming the path.
+ */
 export function noticeText(path: string): string {
   return `The user saved an edit to ${JSON.stringify(path)} in the workbench editor. `
     + 'Your earlier view of that file may be stale; read it again before editing it or relying on its earlier contents.'
 }
 
-/** Build the injected inbox message for one saved path. */
+/**
+ * Build the injected inbox message for one saved path.
+ * @param path - the workspace-relative path the user saved.
+ * @returns the plugin-sourced system-injection message carrying the notice.
+ */
 export function noticeMessage(path: string): UserMessage {
   return createUserMessage({
     content: [{ type: 'text', text: noticeText(path) }],
