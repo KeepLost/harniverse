@@ -331,7 +331,7 @@ describe('workspace-file-write save', () => {
     }, signal())).rejects.toMatchObject({ code: 'path-invalid' })
   })
 
-  it('preserves the executable mode bit across a save', async () => {
+  it.skipIf(process.platform === 'win32')('preserves the executable mode bit across a save', async () => {
     const { chmodSync } = await import('node:fs')
     await writeFile(join(root ?? '.', 'run.sh'), '#!/bin/sh\necho hi\n')
     chmodSync(join(root ?? '.', 'run.sh'), 0o755)

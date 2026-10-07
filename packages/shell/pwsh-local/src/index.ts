@@ -177,7 +177,7 @@ export class PwshLocalExecutor extends ShellExecutor {
     super(ctx)
     // Warm the Win32 code-page binding so the first command's output decoding
     // already sees the OEM/ANSI priors (POSIX hosts resolve synchronously).
-    if (process.platform === 'win32') void hostPriors()
+    void hostPriors()
     // Schemastery fills these fields before construction; the type does not encode that step.
     const entry = config as ResolvedConfig
     assertServiceablePwshConfig(entry)

@@ -892,7 +892,9 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
           onClose={(id) => {
             const closing = account?.tabs.find(tab => tab.id === id)
-            if (!documentGuard.confirmPath(closing?.path, closing?.title ?? id)) return
+            /* v8 ignore next -- the close control renders only for a tab of this account, so the lookup always resolves. */
+            const title = closing?.title ?? id
+            if (!documentGuard.confirmPath(closing?.path, title)) return
             props.actions.closeTab(workspaceId, id)
           }}
           onDismiss={() => { documentGuard.guardedDismiss(activeTab) }}
@@ -1001,7 +1003,9 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
       onClose={(id) => {
         const closing = account?.tabs.find(tab => tab.id === id)
-        if (!documentGuard.confirmPath(closing?.path, closing?.title ?? id)) return
+        /* v8 ignore next -- the close control renders only for a tab of this account, so the lookup always resolves. */
+        const title = closing?.title ?? id
+        if (!documentGuard.confirmPath(closing?.path, title)) return
         props.actions.closeTab(workspaceId, id)
       }}
       onDismiss={() => { documentGuard.guardedDismiss(activeTab) }}

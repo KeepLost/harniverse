@@ -91,6 +91,23 @@ describe('preview-document occupancy', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
+  it('reports the occupant dirty facts and close requests with the document path and title', () => {
+    const editor = seat({
+      render: owner => (
+        <div>
+          <button type="button" onClick={() => { owner.onDirtyChange(true) }}>make dirty</button>
+          <button type="button" onClick={() => { owner.onRequestClose() }}>ask close</button>
+        </div>
+      ),
+    })
+    const view = render(<WorkbenchPreview {...previewProps({ editor })} />)
+    fireEvent.click(view.getByRole('button', { name: 'make dirty' }))
+    expect(editor.onDirtyChange).toHaveBeenCalledWith('src/main.ts', true)
+    expect(editor.onRequestClose).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: 'ask close' }))
+    expect(editor.onRequestClose).toHaveBeenCalledWith('src/main.ts', 'main.ts')
+  })
+
   it('passes the explicit-encoding fallback to the occupant and hides it otherwise', () => {
     const explicit = { ...codeTab, encoding: 'gb18030', encodingSource: 'explicit' as const }
     const editor = seat()

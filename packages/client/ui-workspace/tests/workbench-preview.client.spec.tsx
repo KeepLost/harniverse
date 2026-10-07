@@ -207,6 +207,15 @@ describe('WorkbenchPreview encoding surface', () => {
     expect(view.getByText(/LF/)).toBeTruthy()
   })
 
+  it('appends the BOM fact to the encoding label only for a BOM file', () => {
+    const view = render(<WorkbenchPreview {...previewProps({ tabs: [gbkTab], activeTabId: 'file:a/legacy.txt' })} />)
+    expect(view.queryByText(/BOM/)).toBeNull()
+    view.rerender(
+      <WorkbenchPreview {...previewProps({ tabs: [{ ...gbkTab, encoding: 'utf-8', bom: true }], activeTabId: 'file:a/legacy.txt' })} />,
+    )
+    expect(view.getByText(/utf-8 · BOM · LF/)).toBeTruthy()
+  })
+
   it('offers reopen-with-encoding and forwards the selected encoding', () => {
     const onReopenEncoding = vi.fn()
     const view = render(

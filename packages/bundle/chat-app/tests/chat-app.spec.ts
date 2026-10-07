@@ -159,7 +159,8 @@ describe('dsh chat init', () => {
     const credentials = await credentialsOf(home)
     expect(credentials).toContain(`DSH_CHAT_BRIDGE_GRANT_ID: ${grant.id}`)
     expect(credentials).toContain('DSH_CHAT_BRIDGE_SIGNING:')
-    expect((await stat(join(home, 'chat-bridge', 'credentials.yaml'))).mode & 0o077).toBe(0)
+    // POSIX permission bits do not exist on Windows (ACLs own access there).
+    if (process.platform !== 'win32') expect((await stat(join(home, 'chat-bridge', 'credentials.yaml'))).mode & 0o077).toBe(0)
     expect(await readFile(join(resolveProfileDir('chat', home), 'patch.yml'), 'utf8')).toContain('- id: chat-bridge')
     expect(ownerCode(result.out)).toMatch(/^[0-9A-Z]{5}-[0-9A-Z]{5}$/)
   })
