@@ -424,7 +424,7 @@ export function deliverEditNotices(
     if (cwd === undefined) continue
     let canonical: string
     try {
-      canonical = realpathSync(cwd)
+      canonical = realpathSync.native(cwd)
     } catch {
       continue
     }

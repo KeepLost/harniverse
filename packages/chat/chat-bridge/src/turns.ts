@@ -17,6 +17,17 @@ const PLACEHOLDER = '...'
 
 type Dict = Record<string, unknown>
 
+/**
+ * The last path segment of a presented path, for the user-facing notice.
+ * Splits on both separators: the path is model-supplied and may be a Windows
+ * absolute path (`C:\\dir\\f.txt`) or a POSIX one, independent of the host.
+ * @param path - the path as the model presented it.
+ * @returns the final segment.
+ */
+function noticeName(path: string): string | undefined {
+  return path.split(/[\\/]/).at(-1)
+}
+
 function dict(value: unknown): Dict {
   return typeof value === 'object' && value !== null ? value as Dict : {}
 }
@@ -200,7 +211,7 @@ export class TurnRenderer {
       const checked = await checkDeliverable(live.record.cwd, path, cap)
       if (!checked.ok) {
         this.log.warn(`not delivering ${JSON.stringify(path)}: ${checked.reason}`)
-        await this.messenger.reply(adapter, route, `Not sending ${JSON.stringify(path.split('/').at(-1))}: ${checked.reason}.`)
+        await this.messenger.reply(adapter, route, `Not sending ${JSON.stringify(noticeName(path))}: ${checked.reason}.`)
         continue
       }
       try {

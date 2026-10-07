@@ -1,7 +1,7 @@
 /**
  * Containment-rule specs over the real filesystem: registered-root liveness,
  * lexical gates (NUL, `.git`, escape), realpath identity (symlink refusal),
- * tolerant absent canonicalization, and the io arms (oversized path).
+ * tolerant absent canonicalization, and the io arms (unresolvable path).
  */
 import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -72,11 +72,10 @@ describe('canonicalTarget', () => {
   })
 
   it('refuses an unresolvable path with the io code', async () => {
-    // A path beyond the kernel name limit fails realpath with ENAMETOOLONG,
-    // which is neither absent nor a permission fault.
-    const long = 'x'.repeat(300)
-    const segments = Array.from({ length: 40 }, () => long).join('/')
-    const contained = await containedRoot(root as string, segments)
+    // A NUL byte fails realpath's own argument validation on every platform
+    // with a code that is neither absent nor a permission fault. Path length
+    // is no substitute: Windows reports an over-long component as absent.
+    const contained = { root: root as string, relative: 'bad\0name', target: join(root as string, 'bad\0name') }
     await expect(canonicalTarget(contained)).rejects.toMatchObject({ code: 'io' })
   })
 })

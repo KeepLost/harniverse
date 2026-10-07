@@ -68,7 +68,7 @@ interface HarnessOptions {
 /** Boot the service over the real local backend plus controlled registry/agents stubs. */
 async function harness(options: HarnessOptions = {}) {
   const paths = options.workspacePaths ?? [root as string]
-  const canonical = paths.map(path => realpathSync(path))
+  const canonical = paths.map(path => realpathSync.native(path))
   const agentStubs = [
     ...(options.agentCwds ?? []).map((cwd, index) => ({
       id: `agent-${String(index)}`,
@@ -117,7 +117,7 @@ async function stubOrderHarness(options: HarnessOptions) {
   ctx = new Context()
   await ctx.plugin(LocalFileSystem, { cwd: root as string })
   ;(ctx.fs as LocalFileSystem).resolvePriors = async () => ({})
-  const canonical = realpathSync(root as string)
+  const canonical = realpathSync.native(root as string)
   ctx.provide('workspaceRegistry', {
     get: (id: string) => (id === 'ws-0' ? { id: 'ws-0', path: canonical } : undefined),
   })

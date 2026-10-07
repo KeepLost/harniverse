@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import * as ServiceInvariant from '@deepseek-ai/dsh-workspace-file-write/invariant'
+import * as ServiceInvariant from '../src/invariant.ts'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 
 describe('invariant companion', () => {

@@ -28,6 +28,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/endpoints-*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

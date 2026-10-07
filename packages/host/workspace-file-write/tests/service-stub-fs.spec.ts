@@ -77,7 +77,7 @@ async function stubHarness(fs: ReturnType<typeof stubFs>, paths: readonly string
   ctx = new Context()
   ctx.provide('fs', fs as never)
   ctx.provide('workspaceRegistry', {
-    get: (id: string) => (id === 'ws-0' ? { id: 'ws-0', path: realpathSync(root as string) } : undefined),
+    get: (id: string) => (id === 'ws-0' ? { id: 'ws-0', path: realpathSync.native(root as string) } : undefined),
   })
   await ctx.plugin(WorkspaceFileWriteService)
   return { service: ctx.workspaceFileWrite, ws: WorkspaceId('ws-0'), signal: () => new AbortController().signal }

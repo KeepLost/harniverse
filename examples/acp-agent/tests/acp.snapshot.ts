@@ -369,11 +369,14 @@ const SCENARIOS: Scenario[] = [
   // zh_CN.GBK scenario environment (deterministic host prior). The model reads
   // the GBK fixture (decoded GB18030 with the [Encoding: …] annotation), edits
   // it, and the byte-exact GBK write-back lands in the scenario workspace.
+  // POSIX only: Windows derives the host prior from GetACP, never from LC_ALL,
+  // so the scenario's GBK environment cannot pin the prior there.
   {
     name: 'fs-read-encoding',
     hasModelTurn: true,
     recorded: false,
     env: { LC_ALL: 'zh_CN.GBK' },
+    posixOnly: true,
   },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'fs-delete-recreate', hasModelTurn: true, recorded: true },

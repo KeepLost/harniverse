@@ -28,9 +28,25 @@ describe('hostPriors — POSIX locale precedence', () => {
 
 describe('bare no-dependency resolution', () => {
   it('reads the ambient platform and environment', async () => {
-    const sync = hostPriorsSync()
-    expect(typeof sync).toBe('object')
-    expect(await hostPriors()).toEqual(sync)
+    const beforeWarm = hostPriorsSync()
+    expect(typeof beforeWarm).toBe('object')
+    const resolved = await hostPriors()
+    if (process.platform === 'win32') {
+      // Windows reads GetACP/GetOEMCP through koffi, so the sync form is `{}`
+      // until the async form has warmed the cache, and the async form returns
+      // the machine's numeric code pages (or `{}` for a UTF-8 ACP / koffi miss).
+      // Locale environment variables are never consulted there.
+      expect(Object.keys(resolved).every(key => key === 'acp' || key === 'oemcp')).toBe(true)
+      if (resolved.acp !== undefined) {
+        expect(Number.isInteger(resolved.acp)).toBe(true)
+        expect(Number.isInteger(resolved.oemcp)).toBe(true)
+        expect(hostPriorsSync()).toEqual(resolved)
+      }
+    } else {
+      // POSIX parses the same environment synchronously and asynchronously.
+      expect(resolved).toEqual(beforeWarm)
+      expect(hostPriorsSync()).toEqual(resolved)
+    }
   })
 })
 

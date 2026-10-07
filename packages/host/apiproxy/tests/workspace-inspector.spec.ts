@@ -4,7 +4,7 @@ import { open, type FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodeForWrite } from '@deepseek-ai/dsh-fs-codec'
 import {
   WORKSPACE_BINARY_BYTE_LIMIT,
@@ -23,6 +23,23 @@ import {
 } from '../src/workspace-inspector.ts'
 
 const execFileAsync = promisify(execFile)
+
+// `readWorkspaceFile` resolves the machine's host priors itself. On Windows those
+// come from GetACP/GetOEMCP (never from LC_ALL), so the tests pin the priors here
+// instead of leaking the runner's code page into the decoded result.
+const hostPriorsMock = vi.hoisted(() => vi.fn<() => Promise<Record<string, unknown>>>(async () => ({})))
+vi.mock('@deepseek-ai/dsh-fs-codec', async importOriginal => ({
+  ...await importOriginal<typeof import('@deepseek-ai/dsh-fs-codec')>(),
+  hostPriors: hostPriorsMock,
+}))
+
+/** The priors of a GBK machine, spelled the way the POSIX locale parser yields them. */
+const GBK_HOST_PRIORS = { localeCharset: 'gbk', localeLanguage: 'zh', localeTerritory: 'CN' }
+
+beforeEach(() => {
+  hostPriorsMock.mockReset()
+  hostPriorsMock.mockResolvedValue({})
+})
 
 function tempWorkspace(): string {
   return realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-inspector-')))
@@ -199,7 +216,7 @@ describe('workspace file inspection', () => {
 })
 
 describe('workspace file inspection — legacy encodings', () => {
-  /** Pin the host prior to a GBK machine so detection is deterministic. */
+  /** Encode `text` the way a legacy machine would have written it. */
   function fixture(text: string, encoding: string): Buffer {
     const outcome = encodeForWrite(text, encoding)
     if (!outcome.ok) throw new Error('fixture not encodable')
@@ -207,19 +224,15 @@ describe('workspace file inspection — legacy encodings', () => {
   }
 
   it('decodes a GBK file through the host-locale prior and reports the decision', async () => {
-    vi.stubEnv('LC_ALL', 'zh_CN.GBK')
-    try {
-      const root = tempWorkspace()
-      writeFileSync(join(root, 'gbk.txt'), fixture('老机器上的说明\r\n第二行\r\n第三行\n', 'gb18030'))
-      const result = await readWorkspaceFile(root, 'gbk.txt', new AbortController().signal)
-      expect(result.content).toBe('老机器上的说明\r\n第二行\r\n第三行\n')
-      expect(result.encoding).toBe('gb18030')
-      expect(result.encodingSource).toBe('host')
-      expect(result.bom).toBe(false)
-      expect(result.eol).toBe('CRLF')
-    } finally {
-      vi.unstubAllEnvs()
-    }
+    hostPriorsMock.mockResolvedValue(GBK_HOST_PRIORS)
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'gbk.txt'), fixture('老机器上的说明\r\n第二行\r\n第三行\n', 'gb18030'))
+    const result = await readWorkspaceFile(root, 'gbk.txt', new AbortController().signal)
+    expect(result.content).toBe('老机器上的说明\r\n第二行\r\n第三行\n')
+    expect(result.encoding).toBe('gb18030')
+    expect(result.encodingSource).toBe('host')
+    expect(result.bom).toBe(false)
+    expect(result.eol).toBe('CRLF')
   })
 
   it('decodes a UTF-16LE file with BOM even though it contains NULs', async () => {
@@ -246,15 +259,11 @@ describe('workspace file inspection — legacy encodings', () => {
   })
 
   it('rejects NUL-containing files without a UTF-16 BOM', async () => {
-    vi.stubEnv('LC_ALL', 'zh_CN.GBK')
-    try {
-      const root = tempWorkspace()
-      writeFileSync(join(root, 'bin'), Buffer.from([0x68, 0x00, 0x69]))
-      await expect(readWorkspaceFile(root, 'bin', new AbortController().signal))
-        .rejects.toMatchObject({ code: 'workspace-file-binary' })
-    } finally {
-      vi.unstubAllEnvs()
-    }
+    hostPriorsMock.mockResolvedValue(GBK_HOST_PRIORS)
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'bin'), Buffer.from([0x68, 0x00, 0x69]))
+    await expect(readWorkspaceFile(root, 'bin', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-file-binary' })
   })
 
   it('trims a truncated read to a sequence boundary before decoding', async () => {

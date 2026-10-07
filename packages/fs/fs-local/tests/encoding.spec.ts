@@ -35,6 +35,9 @@ beforeEach(async () => {
   ctx = new Context()
   fiber = await ctx.plugin(LocalFileSystem, { cwd: dir })
   fs = ctx.fs as LocalFileSystem
+  // Never inherit the machine's code page (Windows GetACP) or locale: tests that
+  // need a legacy prior opt in through `mountWithPriors`.
+  fs.resolvePriors = async () => ({})
 })
 afterEach(async () => {
   await fiber.dispose()
@@ -341,14 +344,26 @@ describe('stream fast-path tail arms', () => {
     }).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
   })
 
-  it('fails a continuation-only prefix on the streaming path', async () => {
+  it('fails a continuation-only prefix on the streaming path when no legacy prior applies', async () => {
+    await mountWithPriors({})
     await writeFile(join(dir, 'cont-only.txt'), Buffer.from([0x80, 0x80, 0x0a]))
     const target = await fs.resolve('cont-only.txt')
-    // The whole continuation run is trimmed from the prefix check, and the
-    // streaming decoder then handles (or rejects) the orphan bytes itself.
+    // The whole continuation run is trimmed from the prefix check; without a
+    // host or locale prior no legacy candidate is tried, so the orphan bytes reject.
+    await expect(async () => {
+      for await (const _chunk of await fs.streamText(target)) {
+        // Rejection precedes any delivered chunk.
+      }
+    }).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+  })
+
+  it('decodes a continuation-only prefix through the western locale prior', async () => {
+    await mountWithPriors({ localeCharset: 'utf-8', localeLanguage: 'en', localeTerritory: 'US' })
+    await writeFile(join(dir, 'cont-only.txt'), Buffer.from([0x80, 0x80, 0x0a]))
+    const target = await fs.resolve('cont-only.txt')
     let streamed = ''
     for await (const chunk of await fs.streamText(target)) streamed += chunk
-    expect(typeof streamed).toBe('string')
+    expect(streamed).toBe('\u20ac\u20ac\n')
   })
 })
 

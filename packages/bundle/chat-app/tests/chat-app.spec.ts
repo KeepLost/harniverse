@@ -4,7 +4,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -122,7 +122,7 @@ async function mount(
     },
   } as unknown as NonNullable<typeof ctx.loader.internal>
   const exited = new Promise<number>((resolve) => { provideCmdline(ctx, { args, exit: resolve }) })
-  const patches = [...loadOverlayPatches('chat-app test', pathToFileURL(PATCH.pathname).pathname), ...extraPatches]
+  const patches = [...loadOverlayPatches('chat-app test', fileURLToPath(PATCH)), ...extraPatches]
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(join(root, 'cordis.yml')).href, patches } })
   await ctx.loader.await()
   return { ctx, exited, capture: () => ({ out, err }) }
