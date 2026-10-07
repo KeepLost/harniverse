@@ -48,6 +48,13 @@ describe('bare no-dependency resolution', () => {
       expect(hostPriorsSync()).toEqual(resolved)
     }
   })
+
+  it('falls back to the process environment for the POSIX branch on every host', async () => {
+    // Forcing the POSIX branch keeps the ambient-env fallback covered on
+    // Windows too, where the unforced call takes the Win32 branch instead.
+    expect(hostPriorsSync({ platform: 'linux' })).toEqual(hostPriorsSync({ platform: 'linux', env: process.env }))
+    expect(await hostPriors({ platform: 'linux' })).toEqual(await hostPriors({ platform: 'linux', env: process.env }))
+  })
 })
 
 describe('hostFilePrior — charset spelling table', () => {
