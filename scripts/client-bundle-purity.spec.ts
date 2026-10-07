@@ -141,7 +141,8 @@ describe('client bundle purity gate', () => {
       }
     }
     expect(violations).toEqual([])
-  })
+    // Parses every client source file, so the default 5 s budget flakes under coverage load.
+  }, 60_000)
 })
 
 describe('client bundle debug artifacts', () => {

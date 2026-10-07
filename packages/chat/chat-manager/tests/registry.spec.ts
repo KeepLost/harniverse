@@ -132,6 +132,10 @@ describe('bot registry', () => {
       })
     }
 
+    it('a path the platform refuses to stat', async () => {
+      await expect(new BotRegistry('home\0nul').load()).rejects.toThrow('not a valid chat bot registry')
+    })
+
     it.skipIf(process.platform === 'win32')('a home that is not a directory', async () => {
       const root = await home()
       await writeFile(join(root, 'file'), 'x')
