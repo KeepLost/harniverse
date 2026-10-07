@@ -127,3 +127,57 @@ describe('createWorkspaceWorkbenchStore', () => {
     expect(store.getSnapshot().byWorkspace.a).toMatchObject({ activeTabId: 'one', previewOpen: true })
   })
 })
+
+describe('document preview mode and unsaved-edit facts', () => {
+  const tab = (id: string) => ({ id, path: id.slice(5), title: id.slice(5), kind: 'markdown' as const, loading: false, content: '#' })
+
+  it('records a per-tab mode that defaults to absent and survives tab selection', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.openTab('a', tab('file:one.md'))
+    expect(store.getSnapshot().byWorkspace.a?.previewMode).toEqual({})
+    actions.setPreviewMode('a', 'file:one.md', 'edit')
+    actions.openTab('a', tab('file:two.md'))
+    actions.selectTab('a', 'file:one.md')
+    expect(store.getSnapshot().byWorkspace.a?.previewMode).toEqual({ 'file:one.md': 'edit' })
+    actions.setPreviewMode('a', 'file:one.md', 'preview')
+    expect(store.getSnapshot().byWorkspace.a?.previewMode).toEqual({ 'file:one.md': 'preview' })
+  })
+
+  it('tracks unsaved-edit facts per tab and only writes when the fact changes', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.openTab('a', tab('file:one.md'))
+    const before = store.getSnapshot()
+    actions.setDocumentDirty('a', 'file:one.md', false)
+    expect(store.getSnapshot()).toBe(before)
+    actions.setDocumentDirty('a', 'file:one.md', true)
+    expect(store.getSnapshot().byWorkspace.a?.documentDirty).toEqual({ 'file:one.md': true })
+    actions.setDocumentDirty('a', 'file:one.md', false)
+    expect(store.getSnapshot().byWorkspace.a?.documentDirty).toEqual({})
+  })
+
+  it('drops the mode and the dirty fact with the closed tab only', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.openTab('a', tab('file:one.md'))
+    actions.openTab('a', tab('file:two.md'))
+    actions.setPreviewMode('a', 'file:one.md', 'edit')
+    actions.setPreviewMode('a', 'file:two.md', 'edit')
+    actions.setDocumentDirty('a', 'file:one.md', true)
+    actions.setDocumentDirty('a', 'file:two.md', true)
+    actions.closeTab('a', 'file:one.md')
+    expect(store.getSnapshot().byWorkspace.a?.previewMode).toEqual({ 'file:two.md': 'edit' })
+    expect(store.getSnapshot().byWorkspace.a?.documentDirty).toEqual({ 'file:two.md': true })
+  })
+
+  it('prunes mode and dirty facts of tabs that no longer exist when a Workspace becomes active again', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.openTab('a', tab('file:kept.md'))
+    actions.openTab('a', { ...tab('file:gone.md'), loading: true })
+    actions.setPreviewMode('a', 'file:kept.md', 'edit')
+    actions.setPreviewMode('a', 'file:gone.md', 'edit')
+    actions.setDocumentDirty('a', 'file:kept.md', true)
+    actions.setDocumentDirty('a', 'file:gone.md', true)
+    actions.ensureWorkspace('a')
+    expect(store.getSnapshot().byWorkspace.a?.previewMode).toEqual({ 'file:kept.md': 'edit' })
+    expect(store.getSnapshot().byWorkspace.a?.documentDirty).toEqual({ 'file:kept.md': true })
+  })
+})

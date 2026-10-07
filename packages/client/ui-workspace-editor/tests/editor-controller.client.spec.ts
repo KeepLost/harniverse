@@ -115,7 +115,8 @@ describe('WorkspaceEditorController save lifecycle', () => {
     controller.attach('host', 'ws-1', 'a.ts')
     await vi.waitFor(() => { expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toBeDefined() })
     controller.markDirty('host', 'ws-1', 'a.ts')
-    await controller.save('host', 'ws-1', 'a.ts', 'edited\n')
+    // A landed save resolves true so the occupant can tell the owner.
+    await expect(controller.save('host', 'ws-1', 'a.ts', 'edited\n')).resolves.toBe(true)
     expect(wire.calls.at(-1)).toMatchObject({ method: 'save' })
     expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toMatchObject({
       draft: 'edited\n', baseVersion: 'v2', savedVersion: 'v2', status: 'clean',
@@ -128,7 +129,7 @@ describe('WorkspaceEditorController save lifecycle', () => {
     const controller = new WorkspaceEditorController(store, wire)
     controller.attach('host', 'ws-1', 'a.ts')
     await vi.waitFor(() => { expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toBeDefined() })
-    await controller.save('host', 'ws-1', 'a.ts', 'x')
+    await expect(controller.save('host', 'ws-1', 'a.ts', 'x')).resolves.toBe(false)
     expect(wire.calls.filter(call => call.method === 'save')).toHaveLength(0)
   })
 
@@ -141,7 +142,7 @@ describe('WorkspaceEditorController save lifecycle', () => {
     controller.attach('host', 'ws-1', 'a.ts')
     await vi.waitFor(() => { expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toBeDefined() })
     controller.markDirty('host', 'ws-1', 'a.ts')
-    await controller.save('host', 'ws-1', 'a.ts', 'mine\n')
+    await expect(controller.save('host', 'ws-1', 'a.ts', 'mine\n')).resolves.toBe(false)
     expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toMatchObject({
       status: 'conflict',
       conflict: { currentVersion: 'v9', diskContent: 'disk body\n' },
@@ -158,7 +159,7 @@ describe('WorkspaceEditorController save lifecycle', () => {
     controller.markDirty('host', 'ws-1', 'a.ts')
     await controller.save('host', 'ws-1', 'a.ts', 'mine\n')
     wire.queue('save', ok({ version: 'v10' }))
-    await controller.confirmOverwrite('host', 'ws-1', 'a.ts', 'mine\n')
+    await expect(controller.confirmOverwrite('host', 'ws-1', 'a.ts', 'mine\n')).resolves.toBe(true)
     const request = wire.calls.at(-1)?.args[0] as { baseVersion: string; content: string }
     expect(request).toMatchObject({ baseVersion: 'v9', content: 'mine\n' })
     expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toMatchObject({
@@ -174,7 +175,7 @@ describe('WorkspaceEditorController save lifecycle', () => {
     controller.attach('host', 'ws-1', 'a.ts')
     await vi.waitFor(() => { expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toBeDefined() })
     controller.markDirty('host', 'ws-1', 'a.ts')
-    await controller.save('host', 'ws-1', 'a.ts', 'emoji\n')
+    await expect(controller.save('host', 'ws-1', 'a.ts', 'emoji\n')).resolves.toBe(false)
     expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toMatchObject({
       status: 'error', error: 'U+1F389 at line 2 column 7',
     })
@@ -305,8 +306,8 @@ describe('WorkspaceEditorController defensive arms', () => {
     // No attach: every verb addresses a missing entry.
     controller.markDirty('host', 'ws-1', 'none.ts')
     controller.detach('host', 'ws-1', 'none.ts', { draft: 'x', history: undefined })
-    await controller.save('host', 'ws-1', 'none.ts', 'x')
-    await controller.confirmOverwrite('host', 'ws-1', 'none.ts', 'x')
+    await expect(controller.save('host', 'ws-1', 'none.ts', 'x')).resolves.toBe(false)
+    await expect(controller.confirmOverwrite('host', 'ws-1', 'none.ts', 'x')).resolves.toBe(false)
     await controller.reload('host', 'ws-1', 'none.ts')
     await controller.externalChange('host', 'ws-1', 'none.ts')
     expect(store.getSnapshot().byMachine).toEqual({})
@@ -391,7 +392,7 @@ describe('WorkspaceEditorController defensive arms', () => {
       }
     })
     release(ok({ version: 'v9' }))
-    await settle
+    await expect(settle).resolves.toBe(false)
     expect(editorEntry(store.getSnapshot(), 'host', editorKey('ws-1', 'a.ts'))).toBeUndefined()
   })
 

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The workbench preview's editing occupant: a CodeMirror 6 editor registered into the two `preview-document` holes ui-workspace declares (`workbench.preview.document` for the drawer placement, `shell.overlay.preview.document` for the overlay placement). Composing this package turns editable preview families (code/text/markdown/html/csv/tsv) into manual-save editors over the `workspaceFileWrite` Remote; removing the row returns the preview to its read-only render, byte-identical to the pre-editor surface.
+The workbench preview's editing occupant: a CodeMirror 6 editor registered into the two `preview-document` holes ui-workspace declares (`workbench.preview.document` for the drawer placement, `shell.overlay.preview.document` for the overlay placement). Composing this package gives editable preview families (code/text/markdown/html/csv/tsv) a **Preview / Edit** toggle: Preview (the default) keeps the rendered preview, and Edit mounts this occupant as a manual-save editor over the `workspaceFileWrite` Remote. The owner mounts the occupant only in Edit mode, and keeps Edit disabled for a file re-opened with an explicit encoding. Removing the row returns the preview to its read-only render with no toggle, byte-identical to the pre-editor surface.
 
 ## Editing model
 
@@ -10,11 +10,13 @@ Manual save only — `Ctrl/Cmd+S` inside the editor (the editor is focused, so t
 
 ## Draft account and conflicts
 
-Drafts live in the plugin's own store, keyed by machine/`workspaceId`/path: `{draft, baseVersion, eol, encoding, bom, status, conflict?}` plus the serialized CodeMirror undo history (`EditorState.toJSON({history})`). The account survives overlay↔drawer placement switches (each switch serializes the live editor state and the next occupant restores it, undo history included) and machine switches (registrations re-bind to the new machine while every entry stays addressed under the machine it was edited on; a `beforeunload` guard warns while any draft is unsaved). Saves run their own lifecycle — never through the workbench's request fence, so switching Workspaces mid-save cannot abort it — and a retried save reuses its Host-side `saveId` idempotency.
+Drafts live in the plugin's own store, keyed by machine/`workspaceId`/path: `{draft, baseVersion, eol, encoding, bom, status, conflict?}` plus the serialized CodeMirror undo history (`EditorState.toJSON({history})`). The account survives overlay↔drawer placement switches and Preview↔Edit toggles (each unmount serializes the live editor state and the next occupant restores it, undo history included) and machine switches (registrations re-bind to the new machine while every entry stays addressed under the machine it was edited on; a `beforeunload` guard warns while any draft is unsaved). Saves run their own lifecycle — never through the workbench's request fence, so switching Workspaces mid-save cannot abort it — and a retried save reuses its Host-side `saveId` idempotency.
 
 A lost CAS race (`stale-version`) or an external change observed through the file-level watch (version-compared via `stat`; own-save echoes are suppressed) surfaces the conflict bar: compare changes (a unified diff of disk vs. draft), discard-and-reload, or overwrite the disk version. Unmappable-character and size refusals surface the Host's typed message.
 
 The occupant owns Escape while focus is inside it (the preview's window-capture close defers); a fallen-through Escape asks the owner to close, and the owner confirms before closing a dirty document.
+
+The dirty fact (`onDirtyChange`) is not retracted when the occupant unmounts while the account still holds a dirty, saving, or conflicting draft, so the owner keeps confirming a close from Preview mode or another tab. It reports `false` when the entry settles clean; a save that lands after the occupant unmounted retracts the fact itself. After every landed save (and every confirmed conflict overwrite) the occupant calls the owner's optional `onSaved`, which the workbench answers with a silent re-read so the rendered preview shows the saved text. A Host-refused document (mixed line endings, not text, over 1 MiB) renders a read-only notice in Edit mode; Preview shows the file again.
 
 ## Dependencies
 

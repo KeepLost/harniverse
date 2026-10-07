@@ -2,7 +2,7 @@
 
 中文 | [English](README.md)
 
-工作台预览的编辑占用者：一个注册进 ui-workspace 声明的两个 `preview-document` 洞（抽屉位的 `workbench.preview.document`、overlay 位的 `shell.overlay.preview.document`）的 CodeMirror 6 编辑器。组合本包后，可编辑的预览族（code/text/markdown/html/csv/tsv）成为经 `workspaceFileWrite` Remote 手动保存的编辑器；移除该行则预览回到只读渲染，与编辑器出现之前的字节完全一致。
+工作台预览的编辑占用者：一个注册进 ui-workspace 声明的两个 `preview-document` 洞（抽屉位的 `workbench.preview.document`、overlay 位的 `shell.overlay.preview.document`）的 CodeMirror 6 编辑器。组合本包后，可编辑的预览族（code/text/markdown/html/csv/tsv）获得「预览／编辑」切换：预览（默认）保持渲染后的预览，「编辑」则挂载本占用者，成为经 `workspaceFileWrite` Remote 手动保存的编辑器。所有者只在「编辑」模式下挂载占用者，并对以指定编码重新打开的文件保持「编辑」置灰。移除该行则预览回到只读渲染且不显示切换，与编辑器出现之前的字节完全一致。
 
 ## 编辑模型
 
@@ -10,11 +10,13 @@
 
 ## 草稿与冲突
 
-草稿保存在插件自有 store 中，按 机器/`workspaceId`/路径 键控：`{draft, baseVersion, eol, encoding, bom, status, conflict?}` 以及序列化的 CodeMirror 撤销历史（`EditorState.toJSON({history})`）。该账户在 overlay↔抽屉切换中存活（每次切换序列化活动编辑器状态，下一个占用者连同撤销历史一并恢复），也在机器切换中存活（注册重新绑定到新机器，而每个条目仍归属其编辑时的机器；存在未保存草稿时 `beforeunload` 守卫会警告）。保存运行独立生命周期——绝不经过工作台的请求围栏，因此切换 Workspace 不会中止在途保存——重试的保存复用 Host 侧的 `saveId` 幂等。
+草稿保存在插件自有 store 中，按 机器/`workspaceId`/路径 键控：`{draft, baseVersion, eol, encoding, bom, status, conflict?}` 以及序列化的 CodeMirror 撤销历史（`EditorState.toJSON({history})`）。该账户在 overlay↔抽屉切换与预览↔编辑切换中存活（每次卸载序列化活动编辑器状态，下一个占用者连同撤销历史一并恢复），也在机器切换中存活（注册重新绑定到新机器，而每个条目仍归属其编辑时的机器；存在未保存草稿时 `beforeunload` 守卫会警告）。保存运行独立生命周期——绝不经过工作台的请求围栏，因此切换 Workspace 不会中止在途保存——重试的保存复用 Host 侧的 `saveId` 幂等。
 
 CAS 竞争失败（`stale-version`）或经文件级 watch 观察到的外部改动（经 `stat` 比较版本；自身保存的回声被抑制）弹出冲突条：对比修改（磁盘与草稿的统一 diff）、放弃并重新加载、或覆盖磁盘版本。不可映射字符与超限拒绝原样呈现 Host 的类型化消息。
 
 占用者在焦点位于其内部时接管 Escape（预览的 window 捕获关闭让位）；未被占用的 Escape 请求所有者关闭，所有者在关闭脏文档前先确认。
+
+占用者卸载时，只要账户仍持有脏、保存中或冲突的草稿，就不会撤回脏事实（`onDirtyChange`），因此所有者在预览模式或其他标签下关闭时仍会确认；条目落定为干净时才上报 `false`，卸载之后才完成的保存则由其自身撤回该事实。每次保存成功（以及每次确认的冲突覆盖）之后，占用者调用所有者可选的 `onSaved`，工作台以静默重读作答，使渲染后的预览显示已保存的文本。Host 拒绝的文档（混合换行、非文本、超过 1 MiB）在「编辑」模式下渲染只读提示；切到「预览」即可再次看到文件内容。
 
 ## 依赖
 

@@ -125,13 +125,13 @@ export class WorkspaceEditorController {
    * @param workspaceId - owning Workspace.
    * @param path - workspace-relative document path.
    * @param content - the editor's complete current text.
-   * @returns resolution after the settlement lands in the draft store.
+   * @returns whether the text landed on disk, after the settlement is in the draft store.
    */
-  async save(machine: string, workspaceId: string, path: string, content: string): Promise<void> {
+  async save(machine: string, workspaceId: string, path: string, content: string): Promise<boolean> {
     const key = editorKey(workspaceId, path)
     const entry = editorEntry(this.store.getSnapshot(), machine, key)
-    if (entry === undefined || (entry.status !== 'dirty' && entry.status !== 'error')) return
-    await this.commit(machine, workspaceId, path, key, content, entry.baseVersion)
+    if (entry === undefined || (entry.status !== 'dirty' && entry.status !== 'error')) return false
+    return await this.commit(machine, workspaceId, path, key, content, entry.baseVersion)
   }
 
   /**
@@ -141,13 +141,13 @@ export class WorkspaceEditorController {
    * @param workspaceId - owning Workspace.
    * @param path - workspace-relative document path.
    * @param content - the editor's complete current text.
-   * @returns resolution after the settlement lands in the draft store.
+   * @returns whether the text landed on disk, after the settlement is in the draft store.
    */
-  async confirmOverwrite(machine: string, workspaceId: string, path: string, content: string): Promise<void> {
+  async confirmOverwrite(machine: string, workspaceId: string, path: string, content: string): Promise<boolean> {
     const key = editorKey(workspaceId, path)
     const entry = editorEntry(this.store.getSnapshot(), machine, key)
-    if (entry === undefined || entry.status !== 'conflict' || entry.conflict === undefined) return
-    await this.commit(machine, workspaceId, path, key, content, entry.conflict.currentVersion)
+    if (entry === undefined || entry.status !== 'conflict' || entry.conflict === undefined) return false
+    return await this.commit(machine, workspaceId, path, key, content, entry.conflict.currentVersion)
   }
 
   /**
@@ -213,7 +213,7 @@ export class WorkspaceEditorController {
     this.update(machine, key, entry => ({ ...entry, status: 'unavailable', error: result.error.message }))
   }
 
-  /** Run one CAS save and settle the outcome into the draft store. */
+  /** Run one CAS save and settle the outcome into the draft store; true when the text landed. */
   private async commit(
     machine: string,
     workspaceId: string,
@@ -221,14 +221,14 @@ export class WorkspaceEditorController {
     key: string,
     content: string,
     baseVersion: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const saveId = mintSaveId()
     this.update(machine, key, ({ conflict: _conflict, error: _error, ...entry }) => ({
       ...entry, draft: content, status: 'saving',
     }))
     const result = await this.wire.save(workspaceId, path, { content, baseVersion, saveId }, new AbortController().signal)
     const current = editorEntry(this.store.getSnapshot(), machine, key)
-    if (current === undefined) return
+    if (current === undefined) return false
     if (result.ok) {
       const { version } = result.value
       this.update(machine, key, ({ conflict: _conflict, error: _error, ...entry }) => ({
@@ -239,7 +239,7 @@ export class WorkspaceEditorController {
         // whose live document moved on re-marks the entry dirty.
         status: 'clean',
       }))
-      return
+      return true
     }
     if (result.error.code === 'stale-version') {
       const details = result.error.details as { currentVersion?: string }
@@ -250,9 +250,10 @@ export class WorkspaceEditorController {
         status: 'conflict',
         conflict: { currentVersion, diskContent: disk.ok ? disk.value.content : null },
       }))
-      return
+      return false
     }
     this.update(machine, key, entry => ({ ...entry, status: 'error', error: result.error.message }))
+    return false
   }
 
   /** Start or join the file-level watch subscription for one document. */

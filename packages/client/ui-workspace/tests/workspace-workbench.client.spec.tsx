@@ -212,6 +212,7 @@ function mountWorkbench(
     section: () => section,
     sections,
     switchSession(next: string) { current = sid(next); view.rerender(element()) },
+    setDrawer(next: boolean) { options.drawer = next; view.rerender(element()) },
     mutateSession(sessionId: string, patch: { updatedAt?: number; running?: boolean }) {
       const summary = sessions[sid(sessionId)]
       if (summary === undefined) throw new Error(`unknown session ${sessionId}`)
@@ -1313,10 +1314,12 @@ describe('preview-document dirty guard', () => {
       return <div data-editor-occupant tabIndex={-1}>editor</div>
     }) as unknown as WorkspaceWorkbenchProps['renderSlot']
     const accountStore = store as unknown as { getSnapshot(): { byWorkspace: Record<string, { tabs: unknown[] }> } }
+    // Edit mode is a per-tab store fact, so seeding it mounts the occupant.
+    store.actions.setPreviewMode(workspace('a', 's-a').workspaceId, 'file:src/main.ts', 'edit')
     const view = mountWorkbench({}, { drawer: true, store, renderSlot })
     expect(accountStore.getSnapshot().byWorkspace[workspace('a', 's-a').workspaceId as string]?.tabs).toHaveLength(1)
     await waitFor(() => { expect(view.container.querySelector('[data-editor-occupant]')).toBeTruthy() })
-    seat?.onDirtyChange(true)
+    act(() => { seat?.onDirtyChange(true) })
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const close = view.container.querySelector('[role="tablist"] [aria-label="关闭 main.ts"]') as HTMLButtonElement
     fireEvent.click(close)
@@ -1354,6 +1357,10 @@ describe('preview-document dirty guard across placements', () => {
       }, { drawer, renderSlot: slot, overlayRenderSlot: slot })
       fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
       const region = await view.findByRole('region', { name: '工作区文件预览' })
+      // A freshly opened document shows its rendered preview; the occupant mounts on Edit.
+      await within(region).findByText('x')
+      expect(owners).toHaveLength(0)
+      fireEvent.click(within(region).getByRole('button', { name: '编辑' }))
       await waitFor(() => { expect(owners.length).toBeGreaterThan(0) })
       const latest = (): OccupantOwner => owners.at(-1) as OccupantOwner
       const account = () => view.instance.getSnapshot().byWorkspace.a
@@ -1413,6 +1420,95 @@ describe('preview-document dirty guard across placements', () => {
       expect(confirmSpy).not.toHaveBeenCalled()
       expect(account()?.previewOpen).toBe(false)
     })
+
+    it('keeps the unsaved-edit fact across a toggle to Preview: the notice shows and closing still confirms', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { region, latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      fireEvent.click(within(region).getByRole('button', { name: '预览' }))
+      expect(region.querySelector('[data-editor-occupant]')).toBeNull()
+      expect(within(region).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+      expect(account()?.tabs).toHaveLength(1)
+      fireEvent.click(within(region).getByRole('button', { name: '关闭文件预览' }))
+      expect(account()?.previewOpen).toBe(true)
+
+      // The editor returns with the fact intact.
+      fireEvent.click(within(region).getByRole('button', { name: '编辑' }))
+      expect(region.querySelector('[data-editor-occupant]')).toBeTruthy()
+      expect(within(region).queryByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeNull()
+      confirmSpy.mockReturnValue(true)
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(account()?.tabs).toHaveLength(0)
+    })
+
+    it('drops the unsaved-edit fact and the mode with the closed tab', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      const { view, region, latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      expect(account()?.documentDirty).toEqual({ 'file:main.ts': true })
+      expect(account()?.previewMode).toEqual({ 'file:main.ts': 'edit' })
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).toHaveBeenCalledTimes(1)
+      expect(account()?.documentDirty).toEqual({})
+      expect(account()?.previewMode).toEqual({})
+
+      // Reopening starts from the default Preview with nothing left to confirm.
+      confirmSpy.mockClear()
+      fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
+      const reopened = await view.findByRole('region', { name: '工作区文件预览' })
+      expect(reopened.querySelector('[data-editor-occupant]')).toBeNull()
+      fireEvent.click(within(reopened).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).not.toHaveBeenCalled()
+    })
+
+    it('clears the stale-preview notice when the dirty fact is retracted while the editor is unmounted', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { region, latest, account } = await mount()
+      const owner = latest()
+      act(() => { owner.onDirtyChange(true) })
+      fireEvent.click(within(region).getByRole('button', { name: '预览' }))
+      expect(within(region).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+      // A save that settles after the unmount retracts through the owner handle it captured.
+      act(() => { owner.onDirtyChange(false) })
+      expect(within(region).queryByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeNull()
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).not.toHaveBeenCalled()
+      expect(account()?.tabs).toHaveLength(0)
+    })
+  })
+
+  it('keeps the mode and the unsaved-edit fact when the preview moves between placements', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const owners: OccupantOwner[] = []
+    const slot = occupant(owners)
+    const view = mountWorkbench({
+      listFiles: vi.fn(async () => ({ path: '', entries: [main], truncated: false })),
+      readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+        path, content: 'x\n', bytes: 2, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const,
+      })),
+    }, { drawer: false, renderSlot: slot, overlayRenderSlot: slot })
+    fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
+    const overlay = await view.findByRole('region', { name: '工作区文件预览' })
+    fireEvent.click(await within(overlay).findByRole('button', { name: '编辑' }))
+    await waitFor(() => { expect(owners.length).toBeGreaterThan(0) })
+    act(() => { (owners.at(-1) as OccupantOwner).onDirtyChange(true) })
+
+    view.setDrawer(true)
+    const drawer = await view.findByRole('region', { name: '工作区文件预览' })
+    expect(drawer.querySelector('[data-editor-occupant]')).toBeTruthy()
+    fireEvent.click(within(drawer).getByRole('button', { name: '预览' }))
+    expect(within(drawer).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+
+    view.setDrawer(false)
+    const back = await view.findByRole('region', { name: '工作区文件预览' })
+    expect(back.querySelector('[data-editor-occupant]')).toBeNull()
+    expect(within(back).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+    fireEvent.click(within(back).getByRole('button', { name: '关闭 main.ts' }))
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+    expect(view.instance.getSnapshot().byWorkspace.a?.tabs).toHaveLength(1)
   })
 
   it('keeps the overlay preview on its read-only renderer while the hole is unoccupied', async () => {

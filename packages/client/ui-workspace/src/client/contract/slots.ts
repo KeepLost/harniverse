@@ -83,10 +83,13 @@ export type DirectoryFlowSlotName =
 
 /**
  * Owner share of the two preview-document holes: the complete conversation
- * between the read-only preview and a composed editing occupant. The occupant
- * owns the document's draft, its save lifecycle, and its conflict handling;
- * the owner keeps rendering the read-only families for tabs outside the
- * editable set and confirms before closing a dirty document.
+ * between the read-only preview and a composed editing occupant. An editable
+ * document shows its rendered preview by default; the owner mounts the
+ * occupant only while the document's Preview / Edit toggle is on Edit. The
+ * occupant owns the document's draft, its save lifecycle, and its conflict
+ * handling; the owner keeps rendering the read-only families for tabs outside
+ * the editable set and confirms before closing a dirty document, including one
+ * whose occupant is unmounted in Preview mode.
  */
 export interface PreviewDocumentOwnerProps {
   /** Workspace owning the document. */
@@ -102,13 +105,24 @@ export interface PreviewDocumentOwnerProps {
   /** Which placement renders the occupant. */
   placement: 'overlay' | 'in-column'
   /**
-   * Present when preview-level facts already rule editing out (an explicit
-   * encoding re-open the editor cannot reproduce); the occupant renders its
-   * read-only fallback notice instead of an editable surface.
+   * Present when preview-level facts already rule editing out; the occupant
+   * renders its read-only fallback notice instead of an editable surface. The
+   * shipped workbench never mounts the occupant for such a document (it keeps
+   * Edit disabled), so it does not send this.
    */
   readOnlyFallback?: { reason: string }
-  /** Report the document's dirty fact; the owner confirms before closing a dirty document. */
+  /**
+   * Report the document's dirty fact; the owner confirms before closing a
+   * dirty document. Unmounting the occupant does not retract the fact: it
+   * stands while the occupant's draft account still holds unsaved edits.
+   */
   onDirtyChange(dirty: boolean): void
+  /**
+   * The occupant saved the document (a version-checked save or a confirmed
+   * conflict overwrite landed); the owner re-reads the file so the rendered
+   * preview shows the saved text.
+   */
+  onSaved?(): void
   /** The occupant requests the owner to close the preview after its own Escape handling. */
   onRequestClose(): void
 }

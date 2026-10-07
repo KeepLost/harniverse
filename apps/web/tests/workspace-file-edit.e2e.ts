@@ -1,9 +1,10 @@
 /**
- * Workbench preview edit + save through the real assembly: the composed
- * ui-workspace-editor occupant takes over an editable family, a manual save
- * reaches the workspace-file-write Remote, and the committed bytes re-encode
- * faithfully (CRLF restore). The read-only golden composition lives in the
- * sibling workbench suite; this one composes the default bundle with the
+ * Workbench preview edit + save through the real assembly: an editable family
+ * opens on its rendered preview, the Edit mode mounts the composed
+ * ui-workspace-editor occupant, a manual save reaches the workspace-file-write
+ * Remote, the committed bytes re-encode faithfully (CRLF restore), and the
+ * Preview mode shows the saved text. The read-only golden composition lives in
+ * the sibling workbench suite; this one composes the default bundle with the
  * editor row enabled.
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -69,12 +70,20 @@ afterAll(async () => {
   await scaffold?.close()
 })
 
-it('edits an editable family and saves through the workspace-file-write Remote', async () => {
+it('previews by default, edits through the Edit mode, saves through the workspace-file-write Remote, and previews the saved text', async () => {
   await page.getByRole('button', { name: 'Open workspace workbench' }).click()
   const workbench = page.getByRole('complementary', { name: 'Workspace workbench' })
   await workbench.waitFor({ timeout: 15_000 })
   await workbench.getByRole('tabpanel').getByRole('button', { name: /notes\.md$/ }).click()
 
+  // Preview is the default: the rendered Markdown heading, no editor seat.
+  const preview = page.getByRole('region', { name: 'Workspace file preview' })
+  await preview.getByRole('heading', { name: 'Notes', exact: true }).waitFor({ timeout: 15_000 })
+  expect(await page.locator('[data-workspace-editor]').count()).toBe(0)
+  const modes = preview.getByRole('group', { name: 'Preview and edit mode' })
+  expect(await modes.getByRole('button', { name: 'Preview', exact: true }).getAttribute('aria-pressed')).toBe('true')
+
+  await modes.getByRole('button', { name: 'Edit', exact: true }).click()
   const editor = page.locator('[data-workspace-editor]')
   await editor.waitFor({ timeout: 15_000 })
   await editor.getByText('No changes').waitFor({ timeout: 15_000 })
@@ -84,10 +93,24 @@ it('edits an editable family and saves through the workspace-file-write Remote',
   await page.keyboard.type('# Edited notes\n')
   await editor.getByText('Unsaved changes').waitFor({ timeout: 15_000 })
 
+  // Unsaved edits survive a toggle to Preview, which says it shows the saved version.
+  await modes.getByRole('button', { name: 'Preview', exact: true }).click()
+  await preview.getByText('Preview shows the saved version; there are unsaved changes').waitFor({ timeout: 15_000 })
+  await preview.getByRole('heading', { name: 'Notes', exact: true }).waitFor({ timeout: 15_000 })
+  expect(await page.locator('[data-workspace-editor]').count()).toBe(0)
+  await modes.getByRole('button', { name: 'Edit', exact: true }).click()
+  await editor.getByText('Unsaved changes').waitFor({ timeout: 15_000 })
+
   await page.getByRole('button', { name: 'Save changes to notes.md' }).click()
   await editor.getByText('No changes').waitFor({ timeout: 15_000 })
 
   // The save restores the file's original CRLF style byte-for-byte.
   const disk = await readFile(join(workspaceDir, 'notes.md'), 'utf8')
   expect(disk).toBe('# Edited notes\r\n')
+
+  // Preview shows the saved text without reopening the file.
+  await modes.getByRole('button', { name: 'Preview', exact: true }).click()
+  await preview.getByRole('heading', { name: 'Edited notes', exact: true }).waitFor({ timeout: 15_000 })
+  expect(await page.locator('[data-workspace-editor]').count()).toBe(0)
+  expect(await preview.getByText('Preview shows the saved version').count()).toBe(0)
 }, 120_000)

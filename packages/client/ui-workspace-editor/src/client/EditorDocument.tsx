@@ -3,11 +3,12 @@
  * toolbar, dirty/failure status, and the conflict bar (reload / compare /
  * overwrite). Everything reactive arrives through the owner props and the
  * injected face; the draft account lives in the plugin store, so switching
- * the preview placement (overlay ↔ drawer) unmounts this component, gets
- * its document state serialized into the store, and remounts it with the
- * undo history restored. Escape reaches this surface before the preview's
- * window-capture close (the preview defers while focus is inside
- * `[data-workspace-editor]`).
+ * the preview placement (overlay ↔ drawer) or the owner's Preview / Edit mode
+ * unmounts this component, gets its document state serialized into the store,
+ * and remounts it with the undo history restored. The owner learns of landed
+ * saves (`onSaved`) and keeps the dirty fact while the draft is held. Escape
+ * reaches this surface before the preview's window-capture close (the preview
+ * defers while focus is inside `[data-workspace-editor]`).
  * @module ui-workspace-editor/EditorDocument
  */
 import { useEffect, useRef, useState } from 'react'
@@ -41,10 +42,10 @@ export interface WorkspaceEditorInjected {
   readonly detach: (workspaceId: string, path: string, snapshot: EditorSnapshot | undefined) => void
   /** Mark the document dirty from a live edit. */
   readonly markDirty: (workspaceId: string, path: string) => void
-  /** Save the current text under the version CAS. */
-  readonly save: (workspaceId: string, path: string, content: string) => Promise<void>
-  /** Overwrite after an explicit conflict confirmation. */
-  readonly confirmOverwrite: (workspaceId: string, path: string, content: string) => Promise<void>
+  /** Save the current text under the version CAS; resolves true when it landed on disk. */
+  readonly save: (workspaceId: string, path: string, content: string) => Promise<boolean>
+  /** Overwrite after an explicit conflict confirmation; resolves true when it landed on disk. */
+  readonly confirmOverwrite: (workspaceId: string, path: string, content: string) => Promise<boolean>
   /** Discard the draft and re-open from disk. */
   readonly reload: (workspaceId: string, path: string) => Promise<void>
 }
@@ -61,6 +62,35 @@ export type WorkspaceEditorDocumentProps = PreviewDocumentOwnerProps & Omit<Work
 interface EditorViewLike {
   readonly state: { toJSON(fields?: Record<string, unknown>): unknown; doc: { toString(): string } }
   destroy(): void
+}
+
+/** One attachment of the occupant to a document; `live` drops when the lifecycle effect releases it. */
+interface Attachment {
+  live: boolean
+}
+
+/**
+ * Save through one controller verb and tell the owner when it landed. A save
+ * that settles after the occupant unmounted (a Preview toggle or tab switch
+ * mid-save) leaves no mounted effect to report the clean entry, so it
+ * retracts the dirty fact itself. The callbacks are those of the document
+ * that saved, captured before the occupant can be reused for another one.
+ * @param current - the occupant's props at the moment of saving.
+ * @param attached - the attachment that was live when the save started.
+ * @param verb - the controller verb to run.
+ * @param text - the editor's complete current text.
+ */
+function persist(
+  current: WorkspaceEditorDocumentProps,
+  attached: Attachment,
+  verb: 'save' | 'confirmOverwrite',
+  text: string,
+): void {
+  void current[verb](current.workspaceId, current.path, text).then((saved) => {
+    if (!saved) return
+    if (!attached.live) current.onDirtyChange(false)
+    current.onSaved?.()
+  })
 }
 
 /** Serialize the live editor state for the draft store. */
@@ -85,10 +115,14 @@ export function WorkspaceEditorDocument(props: WorkspaceEditorDocumentProps): Re
   // members are created once per registration; identity-stable deps hold.
   const verbs = useRef(props)
   verbs.current = props
+  const attachment = useRef<Attachment>({ live: false })
   useEffect(() => {
     const { workspaceId, path, attach } = verbs.current
+    const attached: Attachment = { live: true }
+    attachment.current = attached
     attach(workspaceId, path)
     return () => {
+      attached.live = false
       const current = verbs.current
       current.detach(workspaceId, path, snapshotOf(viewRef.current))
     }
@@ -128,7 +162,7 @@ export function WorkspaceEditorDocument(props: WorkspaceEditorDocumentProps): Re
         /* v8 ignore next -- the keymap fires only while its view is mounted,
            which is exactly when viewRef holds it. */
         if (live === null) return
-        void verbs.current.save(workspaceId, path, live.state.doc.toString())
+        persist(verbs.current, attachment.current, 'save', live.state.doc.toString())
       },
       onRequestClose: () => {
         verbs.current.onRequestClose()
@@ -153,12 +187,13 @@ export function WorkspaceEditorDocument(props: WorkspaceEditorDocumentProps): Re
     verbs.current.markDirty(props.workspaceId, props.path)
   }, [props.path, props.workspaceId, settledClean])
 
-  // Report the dirty fact upward; the owner confirms before closing.
+  // Report the dirty fact upward; the owner confirms before closing. Unmounting
+  // (a Preview toggle, another tab) retracts nothing: the draft account still
+  // holds the edits, so the fact stands until the entry settles clean.
   const dirty = status === 'dirty' || status === 'saving' || status === 'conflict'
   useEffect(() => {
     verbs.current.onDirtyChange(dirty)
-    return () => { verbs.current.onDirtyChange(false) }
-  }, [dirty])
+  }, [dirty, props.path, props.workspaceId])
 
   /* v8 ignore next -- split always returns at least one element, so the
      fallback spelling is unreachable for every string path. */
@@ -210,11 +245,7 @@ export function WorkspaceEditorDocument(props: WorkspaceEditorDocumentProps): Re
                view; the ref is empty solely inside the create-effect window
                before paint, which no click can target. */
             if (live === null) return
-            if (status === 'conflict') {
-              void props.confirmOverwrite(props.workspaceId, props.path, live.state.doc.toString())
-            } else {
-              void props.save(props.workspaceId, props.path, live.state.doc.toString())
-            }
+            persist(props, attachment.current, status === 'conflict' ? 'confirmOverwrite' : 'save', live.state.doc.toString())
           }}
         >
           {status === 'conflict' ? props.t('editor.conflictOverwrite') : props.t('editor.save')}

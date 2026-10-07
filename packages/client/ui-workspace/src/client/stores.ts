@@ -94,6 +94,8 @@ export type WorkbenchSection = 'files' | 'search' | 'changes'
 export type WorkbenchPreviewKind = 'markdown' | 'html' | 'code' | 'text' | 'csv' | 'tsv' | 'image' | 'pdf' | 'diff'
 /** Git status side whose diff entries are visible. */
 export type WorkbenchGitArea = 'worktree' | 'staged'
+/** Which surface an editable document tab shows: its rendered preview or the composed editor. */
+export type WorkbenchPreviewMode = 'preview' | 'edit'
 
 /** One open file or Git diff, including its ephemeral request result. */
 export interface WorkbenchTab {
@@ -169,6 +171,14 @@ export interface WorkspaceWorkbenchAccount {
    * reopening a file returns to the same set rather than reloading it.
    */
   previewOpen: boolean
+  /** Per-tab surface choice shared by both preview placements; a tab without an entry shows its preview. */
+  previewMode: Record<string, WorkbenchPreviewMode>
+  /**
+   * Tabs whose editor occupant holds unsaved edits. Both placements read and
+   * write it, so the close confirmation and the stale-preview notice agree
+   * while the editor is unmounted (Preview mode, another tab, the other placement).
+   */
+  documentDirty: Record<string, true>
   search: WorkbenchSearch
   gitArea: WorkbenchGitArea
   git: WorkbenchGit | null
@@ -202,6 +212,8 @@ type WorkspaceWorkbenchActions = {
   closeTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string) => void
   setSearch: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchSearch) => void
   setPreviewOpen: (draft: WorkspaceWorkbenchState, workspaceId: string, open: boolean) => void
+  setPreviewMode: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string, mode: WorkbenchPreviewMode) => void
+  setDocumentDirty: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string, dirty: boolean) => void
   setGitArea: (draft: WorkspaceWorkbenchState, workspaceId: string, area: WorkbenchGitArea) => void
   setGit: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchGit) => void
   setFileWatch: (draft: WorkspaceWorkbenchState, workspaceId: string, mode: 'auto' | 'manual') => void
@@ -215,6 +227,8 @@ function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
     tabs: [],
     activeTabId: null,
     previewOpen: false,
+    previewMode: {},
+    documentDirty: {},
     search: emptyWorkbenchSearch(),
     gitArea: 'worktree',
     git: null,
@@ -226,6 +240,12 @@ function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
 /** A search account with no query, no filters, and no result. */
 function emptyWorkbenchSearch(): WorkbenchSearch {
   return { query: '', include: '', exclude: '', filtersOpen: false, entries: [], truncated: false, loading: false }
+}
+
+/** A copy of `record` without `key`. */
+function omitKey<V>(record: Record<string, V>, key: string): Record<string, V> {
+  const { [key]: _omitted, ...rest } = record
+  return rest
 }
 
 function workbenchAccount(draft: WorkspaceWorkbenchState, workspaceId: string): WorkspaceWorkbenchAccount {
@@ -256,6 +276,13 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
           )
         }
         account.tabs = account.tabs.filter(tab => !tab.loading)
+        const openTabIds = new Set(account.tabs.map(tab => tab.id))
+        account.previewMode = Object.fromEntries(
+          Object.entries(account.previewMode).filter(([tabId]) => openTabIds.has(tabId)),
+        )
+        account.documentDirty = Object.fromEntries(
+          Object.entries(account.documentDirty).filter(([tabId]) => openTabIds.has(tabId)),
+        )
         if (account.tabs.length === 0) account.previewOpen = false
         if (account.activeTabId !== null && !account.tabs.some(tab => tab.id === account.activeTabId)) {
           account.activeTabId = account.tabs.at(-1)?.id ?? null
@@ -296,6 +323,8 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
         const index = account.tabs.findIndex(entry => entry.id === tabId)
         if (index === -1) return
         account.tabs.splice(index, 1)
+        account.previewMode = omitKey(account.previewMode, tabId)
+        account.documentDirty = omitKey(account.documentDirty, tabId)
         if (account.activeTabId === tabId) {
           account.activeTabId = account.tabs[Math.min(index, account.tabs.length - 1)]?.id ?? null
         }
@@ -305,6 +334,12 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
       },
       setSearch: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).search = value },
       setPreviewOpen: (d, workspaceId, open) => { workbenchAccount(d, workspaceId).previewOpen = open },
+      setPreviewMode: (d, workspaceId, tabId, mode) => { workbenchAccount(d, workspaceId).previewMode[tabId] = mode },
+      setDocumentDirty: (d, workspaceId, tabId, dirty) => {
+        const account = workbenchAccount(d, workspaceId)
+        if (dirty) account.documentDirty[tabId] = true
+        else if (tabId in account.documentDirty) account.documentDirty = omitKey(account.documentDirty, tabId)
+      },
       setGitArea: (d, workspaceId, area) => { workbenchAccount(d, workspaceId).gitArea = area },
       setGit: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).git = value },
       setFileWatch: (d, workspaceId, mode) => { workbenchAccount(d, workspaceId).fileWatch = mode },
