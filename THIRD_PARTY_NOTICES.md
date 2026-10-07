@@ -35,6 +35,17 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript) | SEE LICENSE IN README.md |
 | [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) | MIT |
 | [`@babel/code-frame`](https://github.com/babel/babel) | MIT |
+| [`@codemirror/commands`](https://code.haverbeke.berlin/codemirror/commands) | MIT |
+| [`@codemirror/lang-css`](https://github.com/codemirror/lang-css) | MIT |
+| [`@codemirror/lang-html`](https://code.haverbeke.berlin/codemirror/lang-html) | MIT |
+| [`@codemirror/lang-javascript`](https://github.com/codemirror/lang-javascript) | MIT |
+| [`@codemirror/lang-json`](https://github.com/codemirror/lang-json) | MIT |
+| [`@codemirror/lang-markdown`](https://code.haverbeke.berlin/codemirror/lang-markdown) | MIT |
+| [`@codemirror/lang-python`](https://github.com/codemirror/lang-python) | MIT |
+| [`@codemirror/language`](https://code.haverbeke.berlin/codemirror/language) | MIT |
+| [`@codemirror/search`](https://code.haverbeke.berlin/codemirror/search) | MIT |
+| [`@codemirror/state`](https://code.haverbeke.berlin/codemirror/state) | MIT |
+| [`@codemirror/view`](https://code.haverbeke.berlin/codemirror/view) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
 | [`@eslint-community/regexpp`](https://github.com/eslint-community/regexpp) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |

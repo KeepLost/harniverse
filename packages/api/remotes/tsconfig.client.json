@@ -63,6 +63,9 @@
       "path": "../../ssh/remote-hosts"
     },
     {
+      "path": "../../host/workspace-file-write"
+    },
+    {
       "path": "../../typert/protocol"
     }
   ]

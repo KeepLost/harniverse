@@ -11,6 +11,16 @@
       - img
   - tabpanel "tracked.ts · changed":
     - text: ⁨tracked.ts⁩
+    - combobox "Reopen with encoding":
+      - option "Auto-detect" [selected]
+      - option "UTF-8"
+      - option "GB18030 / GBK"
+      - option "Big5"
+      - option "Shift_JIS"
+      - option "EUC-JP"
+      - option "EUC-KR"
+      - option "Windows-1251"
+      - option "Windows-1252"
     - button "Close file preview":
       - img
     - text: diff --git a/tracked.ts b/tracked.ts index 6ace33e..81a1053 100644 --- a/tracked.ts +++ b/tracked.ts @@ -1 +1 @@ -export const state = 1 +export const state = 2

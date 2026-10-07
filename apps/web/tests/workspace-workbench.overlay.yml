@@ -5,3 +5,9 @@
 - id: api-gateway
   config:
     nativeOpen: true
+# This suite pins the READ-ONLY workbench composition: with the optional
+# ui-workspace-editor row disabled, editable families keep their read-only
+# renderers byte-identically, which is exactly the fallback contract this
+# golden asserts. The editor-visible path has its own package specs.
+- id: ui-workspace-editor
+  disabled: true

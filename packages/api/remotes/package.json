@@ -59,7 +59,8 @@
     "@deepseek-ai/dsh-governor": "workspace:^",
     "@deepseek-ai/dsh-queue": "workspace:^",
     "@deepseek-ai/dsh-remote-hosts": "workspace:^",
-    "@deepseek-ai/dsh-typert-protocol": "workspace:^"
+    "@deepseek-ai/dsh-typert-protocol": "workspace:^",
+    "@deepseek-ai/dsh-workspace-file-write": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -83,7 +84,8 @@
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
-    "@deepseek-ai/dsh-typert-registry": "workspace:^"
+    "@deepseek-ai/dsh-typert-registry": "workspace:^",
+    "@deepseek-ai/dsh-workspace-file-write": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -105,6 +107,7 @@
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
-    "@deepseek-ai/dsh-typert-registry": "workspace:^"
+    "@deepseek-ai/dsh-typert-registry": "workspace:^",
+    "@deepseek-ai/dsh-workspace-file-write": "workspace:^"
   }
 }

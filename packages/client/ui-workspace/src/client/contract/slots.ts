@@ -60,6 +60,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
     'sidebar.workspaces.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
+    /**
+     * Preview-document hole inside the drawer placement's document preview
+     * (declared by the workbench entry). Occupied by the composed editor
+     * plugin; an empty hole keeps the read-only preview, byte-identical to
+     * the pre-editor surface.
+     */
+    'workbench.preview.document': { kind: 'single'; scope: 'root'; owner: PreviewDocumentOwnerProps }
+    /**
+     * Preview-document hole inside the overlay placement's document preview
+     * (declared by the shell.overlay preview entry). Same owner contract and
+     * occupant as the drawer hole.
+     */
+    'shell.overlay.preview.document': { kind: 'single'; scope: 'root'; owner: PreviewDocumentOwnerProps }
   }
 }
 
@@ -67,6 +80,43 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export type DirectoryFlowSlotName =
   | 'conversation.hero.workspace.directoryFlow'
   | 'sidebar.workspaces.directoryFlow'
+
+/**
+ * Owner share of the two preview-document holes: the complete conversation
+ * between the read-only preview and a composed editing occupant. The occupant
+ * owns the document's draft, its save lifecycle, and its conflict handling;
+ * the owner keeps rendering the read-only families for tabs outside the
+ * editable set and confirms before closing a dirty document.
+ */
+export interface PreviewDocumentOwnerProps {
+  /** Workspace owning the document. */
+  workspaceId: WorkspaceId
+  /** Workspace-relative document path. */
+  path: string
+  /** Preview family of the document; only editable families receive an occupant. */
+  kind: 'markdown' | 'html' | 'code' | 'text' | 'csv' | 'tsv'
+  /** Language id the preview derived for the document, when it found one. */
+  language?: string
+  /** Whether this placement is the visible one. */
+  active: boolean
+  /** Which placement renders the occupant. */
+  placement: 'overlay' | 'in-column'
+  /**
+   * Present when preview-level facts already rule editing out (an explicit
+   * encoding re-open the editor cannot reproduce); the occupant renders its
+   * read-only fallback notice instead of an editable surface.
+   */
+  readOnlyFallback?: { reason: string }
+  /** Report the document's dirty fact; the owner confirms before closing a dirty document. */
+  onDirtyChange(dirty: boolean): void
+  /** The occupant requests the owner to close the preview after its own Escape handling. */
+  onRequestClose(): void
+}
+
+/** The two preview-document holes; the editor plugin registers one component into both. */
+export type PreviewDocumentSlotName =
+  | 'workbench.preview.document'
+  | 'shell.overlay.preview.document'
 
 /**
  * Directory-picking share both trigger surfaces consume. Occupancy rides the
@@ -216,18 +266,21 @@ export type WorkspaceWorkbenchInjected = {
   /**
    * Reserved reactive compartment: true while the connected Host can open
    * paths with a native application (its description reports
-   * `canOpenPath`).
+   * `canOpenPath`), and whether the drawer placement's preview-document
+   * hole has an occupant.
    */
   hooks: {
     /** The Host's native path-open capability. */
     canOpenPath: HostObservable<boolean>
+    /** Occupancy of the `workbench.preview.document` hole. */
+    previewDocumentOccupied: HostObservable<boolean>
   }
 }
 
 /** Full top-level workbench props: session runtime, shared store, callbacks, and locale. */
 export type WorkspaceWorkbenchProps =
   PropsRuntime<'workbench'>
-  & PropsRenderSlots<'workbench.section.tab' | 'workbench.section.panel'>
+  & PropsRenderSlots<'workbench.section.tab' | 'workbench.section.panel' | 'workbench.preview.document'>
   & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
   & InjectFace<WorkspaceWorkbenchInjected>
   & PropsLocale<'workspace'>
@@ -244,6 +297,8 @@ export type WorkspacePreviewInjected = {
   hooks: {
     /** The Host's native path-open capability. */
     canOpenPath: HostObservable<boolean>
+    /** Occupancy of the `shell.overlay.preview.document` hole. */
+    overlayDocumentOccupied: HostObservable<boolean>
   }
 }
 
@@ -256,6 +311,7 @@ export type WorkspacePreviewInjected = {
  */
 export type WorkspacePreviewOverlayProps =
   PropsRuntime<'shell.overlay'>
+  & PropsRenderSlots<'shell.overlay.preview.document'>
   & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
   & InjectFace<WorkspacePreviewInjected>
   & PropsLocale<'workspace'>

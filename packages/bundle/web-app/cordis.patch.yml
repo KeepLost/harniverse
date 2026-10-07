@@ -163,6 +163,14 @@
     - id: terminal-controller
       name: '@deepseek-ai/dsh-api-terminal-controller'
 
+    # Workspace-scoped user file editing for the workbench preview: the
+    # open/stat/save Remote behind the optional ui-workspace-editor plugin.
+    # Composed here so every web Host — local and remote — serves the editing
+    # endpoints; saves ride the shared /api RPC channel under
+    # harniverse.operate and never pass the Agent sandbox or approval paths.
+    - id: workspace-file-write
+      name: '@deepseek-ai/dsh-workspace-file-write'
+
     # Session-scoped HOST browser pages for the browser panel: a real browser
     # process driven over CDP, so a page's own traffic leaves the harness host
     # instead of the user's device. Exposed through the gateway's browser/*
@@ -321,6 +329,11 @@
 
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
+
+    # Workbench 预览的编辑占用者：CodeMirror 6 编辑器经 ui-workspace 的
+    # preview-document 双洞贡献，未组合此行时预览保持只读，字节不变。
+    - id: ui-workspace-editor
+      name: '@deepseek-ai/dsh-client-ui-workspace-editor'
 
     # Input triggers: the '/' | '@' pipeline (ui-input-trigger), the command surface over
     # it (ui-commands), and the two reference sources (ui-skill / ui-subagent).

@@ -1,0 +1,96 @@
+{
+  "name": "@deepseek-ai/dsh-client-ui-workspace-editor",
+  "description": "CodeMirror 6 workbench-preview editor occupant: manual save with version conflict handling over the workspace-file-write Remote",
+  "version": "1.0.0-rc.2",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-api-remotes"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "bundle": "tsdown",
+    "watch": "tsdown --watch"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/client/ui-workspace-editor"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-css": "6.3.1",
+    "@codemirror/lang-html": "6.4.12",
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/lang-python": "6.2.1",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "diff": "9.0.0",
+    "react": "^18.2.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-api-remotes": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
+    "@deepseek-ai/dsh-client-locale": "workspace:^",
+    "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-api-remotes": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
+    "@deepseek-ai/dsh-client-locale": "workspace:^",
+    "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@types/react": "~18.3.1"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/invariant.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts"
+  ]
+}

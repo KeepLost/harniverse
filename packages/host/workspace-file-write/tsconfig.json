@@ -1,0 +1,45 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../../fs/fs-codec"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../workspace/workspace"
+    }
+  ]
+}

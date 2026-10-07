@@ -9,18 +9,19 @@
  * drawer. Closed keeps the subtree mounted, so tabs survive a dismiss.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   CodeBlock, IconCloseOutline16, IconRightUpOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceWorkbenchProps } from './contract/slots.ts'
+import type { PreviewDocumentOwnerProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
 import type { WorkbenchTab } from './stores.ts'
 import { parseCsvPreview } from './preview-kind.ts'
 import css from './WorkbenchPreview.module.css'
 
 type WorkbenchTranslate = WorkspaceWorkbenchProps['t']
 
-const FOCUSABLE_SELECTOR = 'iframe, button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE_SELECTOR = 'iframe, button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
 
 function visibleFocusableDescendants(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter((element) => {
@@ -200,8 +201,25 @@ const REOPEN_ENCODINGS: readonly { value: string; label: string }[] = [
   { value: 'windows-1252', label: 'Windows-1252' },
 ]
 
+/** Preview families an editing occupant may take over; every other family stays read-only. */
+const EDITABLE_KINDS: ReadonlySet<WorkbenchTab['kind']> = new Set(['markdown', 'html', 'code', 'text', 'csv', 'tsv'])
+
+/** Editor-occupant wiring the preview threads from its entry's renderSlot seat. */
+export interface EditorSeat {
+  /** Workspace owning the previewed documents. */
+  workspaceId: string
+  /** Which placement this surface renders. */
+  placement: 'overlay' | 'in-column'
+  /** Render the preview-document occupant for one document, or null while the hole is empty. */
+  render: (owner: PreviewDocumentOwnerProps) => ReactNode
+  /** Report a document's dirty fact; the entry confirms before closing a dirty document. */
+  onDirtyChange: (path: string, dirty: boolean) => void
+  /** The occupant requested the preview to close after its own Escape handling; a dirty document confirms first. */
+  onRequestClose: (path: string, title: string) => void
+}
+
 /** Package-internal preview dispatcher, exported for direct component accounting. */
-export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal, onReopenEncoding }: {
+export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal, onReopenEncoding, editor }: {
   tab: WorkbenchTab | undefined
   onDismiss: () => void
   t: WorkbenchTranslate
@@ -210,6 +228,8 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal, on
   onOpenExternal?: () => void
   /** Re-read the previewed file with an explicit encoding (`undefined` re-detects); text tabs only. */
   onReopenEncoding?: (encoding: string | undefined) => void
+  /** Editor-occupant wiring; absent keeps every family on its read-only renderer. */
+  editor?: EditorSeat
 }) {
   const objectUrlState = useObjectUrl(tab)
   const objectUrl = objectUrlState !== undefined && tab !== undefined
@@ -233,7 +253,27 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal, on
   else if (tab.content === undefined && objectUrl === undefined) body = <div className={css.emptyPreview}>{t('workbench.previewUnavailable')}</div>
   else {
     const content = tab.content as string
-    switch (tab.kind) {
+    // An editable family with an occupied preview-document hole renders the
+    // occupant; every other combination keeps the read-only renderer, so an
+    // uncomposed editor plugin leaves the surface byte-identical.
+    const editorNode = editor !== undefined && EDITABLE_KINDS.has(tab.kind) && tab.truncated !== true
+      ? editor.render({
+        workspaceId: editor.workspaceId as PreviewDocumentOwnerProps['workspaceId'],
+        path: tab.path,
+        // EDITABLE_KINDS gated the render; the cast only satisfies the union.
+        kind: tab.kind as PreviewDocumentOwnerProps['kind'],
+        ...(tab.language === undefined ? {} : { language: tab.language }),
+        active: true,
+        placement: editor.placement,
+        ...(tab.encodingSource === 'explicit'
+          ? { readOnlyFallback: { reason: t('workbench.editorUnavailableExplicit') } }
+          : {}),
+        onDirtyChange: (dirty) => { editor.onDirtyChange(tab.path, dirty) },
+        onRequestClose: () => { editor.onRequestClose(tab.path, tab.title) },
+      })
+      : null
+    if (editorNode != null) body = editorNode
+    else switch (tab.kind) {
       case 'markdown': body = <article className={css.markdownPreview}><MarkdownText text={content} /></article>; break
       case 'html': body = <iframe className={css.htmlPreview} title={tab.title} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={content} onLoad={event => onFrameLoad?.(event.currentTarget)} />; break
       case 'code': body = <div className={css.codePreview}><CodeBlock code={content} lang={tab.language} /></div>; break
@@ -320,6 +360,8 @@ export function WorkbenchPreview(props: {
   onDismiss: () => void
   /** Re-read the active file tab with an explicit encoding; absent hides the selector. */
   onReopenEncoding?: (path: string, encoding: string | undefined) => void
+  /** Editor-occupant wiring; absent keeps every family on its read-only renderer. */
+  editor?: EditorSeat
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const restoreFocus = useRef<HTMLElement | null>(null)
@@ -382,6 +424,11 @@ export function WorkbenchPreview(props: {
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      // The preview-document occupant owns Escape while focus is inside it
+      // (its search panel, multi-cursor dismissal, its own close request);
+      // the event reaches the occupant's keymap only when this capture
+      // listener lets it pass.
+      if (event.target instanceof Element && event.target.closest('[data-workspace-editor]') !== null) return
       event.preventDefault()
       // The preview is nested inside the shell drawer on narrow screens. Stop
       // its document listener from also closing the whole workbench.
@@ -435,6 +482,7 @@ export function WorkbenchPreview(props: {
         t={props.t}
         onDismiss={props.onDismiss}
         onFrameLoad={bindFrame}
+        {...(props.editor === undefined ? {} : { editor: props.editor })}
         {...(props.onOpenExternal === undefined ? {} : { onOpenExternal: props.onOpenExternal })}
         {...(props.onReopenEncoding === undefined || activeTab === undefined ? {} : {
           onReopenEncoding: (encoding: string | undefined) => { props.onReopenEncoding?.(activeTab.path, encoding) },

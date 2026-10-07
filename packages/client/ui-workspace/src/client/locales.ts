@@ -154,6 +154,8 @@ export const zh = {
   'workbench.encodingLabel': '编码',
   'workbench.encodingAuto': '自动检测',
   'workbench.encodingReopen': '以指定编码重新打开',
+  'workbench.dirtyConfirm': '「{name}」有未保存的修改。关闭后将保留草稿，重新打开时可恢复。仍要关闭吗？',
+  'workbench.editorUnavailableExplicit': '此文件以指定编码打开，编辑需要自动检测通过往返校验的编码',
 } satisfies Record<string, string>
 
 /** The workspace namespace key union. */
@@ -309,4 +311,6 @@ export const en = {
   'workbench.encodingLabel': 'Encoding',
   'workbench.encodingAuto': 'Auto-detect',
   'workbench.encodingReopen': 'Reopen with encoding',
+  'workbench.dirtyConfirm': '"{name}" has unsaved changes. Closing keeps the draft and reopening restores it. Close anyway?',
+  'workbench.editorUnavailableExplicit': 'This file was opened with an explicit encoding; editing requires one the auto-detection round-trip validates',
 } satisfies Record<WorkspaceKey, string>

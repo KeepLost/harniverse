@@ -1,4 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   IconBranchOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
@@ -8,12 +9,13 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceFileEntry } from '@deepseek-ai/dsh-client-runtime/client'
 import { ChangeFeed, resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspacePreviewOverlayProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
+import type { PreviewDocumentOwnerProps, WorkspacePreviewOverlayProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
 import type {
   WorkbenchDirectory, WorkbenchGitArea, WorkbenchSearch, WorkbenchSection, WorkbenchTab,
 } from './stores.ts'
 import { previewType } from './preview-kind.ts'
 import { WorkbenchPreview } from './WorkbenchPreview.tsx'
+import type { EditorSeat } from './WorkbenchPreview.tsx'
 import css from './WorkspaceWorkbench.module.css'
 
 type WorkbenchTranslate = WorkspaceWorkbenchProps['t']
@@ -338,6 +340,55 @@ export function ChangesPanel(props: {
   )
 }
 
+/** Editor-occupant seat plus the dirty-document guard shared by both preview placements. */
+interface PreviewDocumentGuard {
+  /** The seat threaded into the preview; undefined while no Workspace resolves or the hole is unoccupied. */
+  seat: EditorSeat | undefined
+  /** Whether closing one document may proceed; a dirty document confirms first. */
+  confirmPath: (path: string | undefined, title: string) => boolean
+  /** Dismiss the preview; a dirty active document confirms first. */
+  guardedDismiss: (active: WorkbenchTab | undefined) => void
+}
+
+/**
+ * Track the preview documents' dirty facts and gate every close path behind
+ * one confirmation. The dirty set is ref-held (the guard reads it
+ * imperatively; nothing renders from it).
+ */
+function usePreviewDocumentGuard(options: {
+  workspaceId: string | undefined
+  placement: 'overlay' | 'in-column'
+  occupied: boolean
+  renderPreviewDocument: (owner: PreviewDocumentOwnerProps) => ReactNode
+  t: WorkbenchTranslate
+  dismiss: () => void
+}): PreviewDocumentGuard {
+  const dirtyPaths = useRef(new Set<string>())
+  const { t, dismiss } = options
+  const confirmPath = useCallback((path: string | undefined, title: string) => {
+    if (path === undefined || !dirtyPaths.current.has(path)) return true
+    return window.confirm(t('workbench.dirtyConfirm', { name: title }))
+  }, [t])
+  const guardedDismiss = useCallback((active: WorkbenchTab | undefined) => {
+    if (active !== undefined && !confirmPath(active.path, active.title)) return
+    dismiss()
+  }, [confirmPath, dismiss])
+  const seat: EditorSeat | undefined = options.workspaceId === undefined || !options.occupied ? undefined : {
+    workspaceId: options.workspaceId,
+    placement: options.placement,
+    render: owner => options.renderPreviewDocument(owner),
+    onDirtyChange: (path, dirty) => {
+      if (dirty) dirtyPaths.current.add(path)
+      else dirtyPaths.current.delete(path)
+    },
+    onRequestClose: (path, title) => {
+      if (!confirmPath(path, title)) return
+      dismiss()
+    },
+  }
+  return { seat, confirmPath, guardedDismiss }
+}
+
 /** Top-level read-only Workspace workbench occupying the shell's workbench slot. */
 export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const sessionId = props.useSessions((state) => {
@@ -658,12 +709,24 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     props.searchFiles, query, requestKey, runRequest, workspace, workspaceId,
   ])
 
+  const drawerDocumentOccupied = props.usePreviewDocumentOccupied(occupied => occupied)
   const section = props.section
   const directories = account?.directories ?? {}
   const expanded = expandedDirectories
   const previewOpenExternal = canOpenPath && activeTab !== undefined && activeTab.kind !== 'diff' && !activeTab.loading && activeTab.error === undefined
     ? () => { openExternal(activeTab.path) }
     : undefined
+  const documentGuard = usePreviewDocumentGuard({
+    workspaceId,
+    placement: 'in-column',
+    occupied: drawerDocumentOccupied,
+    renderPreviewDocument: owner => props.renderSlot('workbench.preview.document', owner),
+    t: props.t,
+    dismiss: () => {
+      /* v8 ignore next -- the dismiss callback renders only with a resolved Workspace. */
+      if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
+    },
+  })
   const searchAccount: WorkbenchSearch = search
     ?? { query: '', include: '', exclude: '', filtersOpen: false, entries: [], truncated: false, loading: false }
   const git = account?.git
@@ -827,9 +890,14 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           placement="in-column"
           t={props.t}
           onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
-          onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
-          onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+          onClose={(id) => {
+            const closing = account?.tabs.find(tab => tab.id === id)
+            if (!documentGuard.confirmPath(closing?.path, closing?.title ?? id)) return
+            props.actions.closeTab(workspaceId, id)
+          }}
+          onDismiss={() => { documentGuard.guardedDismiss(activeTab) }}
           onReopenEncoding={reopenWithEncoding}
+          {...(documentGuard.seat === undefined ? {} : { editor: documentGuard.seat })}
         />
       )}
     </aside>
@@ -906,9 +974,22 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       && (!props.rightOpen || props.rightMode !== 'workbench')
     ) props.actions.setPreviewOpen(workspaceId, false)
   }, [account?.previewOpen, props.actions, props.rightMode, props.rightOpen, workspaceId])
+  const overlayDocumentOccupied = props.useOverlayDocumentOccupied(occupied => occupied)
+  const documentGuard = usePreviewDocumentGuard({
+    workspaceId,
+    placement: 'overlay',
+    occupied: overlayDocumentOccupied,
+    renderPreviewDocument: owner => props.renderSlot('shell.overlay.preview.document', owner),
+    t: props.t,
+    dismiss: () => {
+      /* v8 ignore next -- the dismiss callback renders only with a resolved Workspace. */
+      if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
+    },
+  })
   if (workspaceId === undefined || props.rightDrawer || !props.rightOpen || props.rightMode !== 'workbench') return null
   return (
     <WorkbenchPreview
+      {...(documentGuard.seat === undefined ? {} : { editor: documentGuard.seat })}
       tabs={account?.tabs ?? []}
       activeTabId={account?.activeTabId ?? null}
       open={account?.previewOpen === true}
@@ -918,8 +999,12 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       placement="overlay"
       t={props.t}
       onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
-      onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
-      onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+      onClose={(id) => {
+        const closing = account?.tabs.find(tab => tab.id === id)
+        if (!documentGuard.confirmPath(closing?.path, closing?.title ?? id)) return
+        props.actions.closeTab(workspaceId, id)
+      }}
+      onDismiss={() => { documentGuard.guardedDismiss(activeTab) }}
       onReopenEncoding={reopenWithEncoding}
     />
   )

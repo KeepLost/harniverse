@@ -118,6 +118,8 @@ function mountWorkbench(
     initialSessions?: Record<string, { updatedAt?: number; running?: boolean }>
     canOpenPath?: boolean
     watchFiles?: WorkspaceFileWatch
+    renderSlot?: WorkspaceWorkbenchProps['renderSlot']
+    previewDocumentOccupied?: boolean
   } = {},
 ) {
   let current = 'current' in options ? options.current : sid('s-a')
@@ -176,7 +178,8 @@ function mountWorkbench(
         section={section}
         select={selectSection}
         request={undefined}
-        renderSlot={() => null}
+        renderSlot={options.renderSlot ?? (() => null)}
+        usePreviewDocumentOccupied={selector => selector(options.previewDocumentOccupied ?? true)}
         t={t}
         useCanOpenPath={canOpenPath}
         {...(options.watchFiles === undefined ? {} : { watchFiles: options.watchFiles })}
@@ -190,8 +193,10 @@ function mountWorkbench(
         rightMode={rightMode}
         rightOpen={rightOpen}
         rightDrawer={options.drawer ?? false}
+        renderSlot={() => null}
         t={t}
         useCanOpenPath={canOpenPath}
+        useOverlayDocumentOccupied={selector => selector(options.previewDocumentOccupied ?? true)}
         openPath={services.openPath}
         readFile={services.readFile}
       />
@@ -1290,5 +1295,33 @@ describe('workbench watch-driven file refresh', () => {
     await advance(5_000)
     expect(listFiles).toHaveBeenCalledTimes(1)
     view.unmount()
+  })
+})
+
+describe('preview-document dirty guard', () => {
+  it('confirms before closing a dirty document tab and keeps it on cancel', async () => {
+    const store = createWorkspaceWorkbenchStore().create()
+    store.actions.openTab(workspace('a', 's-a').workspaceId, {
+      id: 'file:src/main.ts', path: 'src/main.ts', title: 'main.ts', kind: 'code', loading: false, content: 'x\n',
+    })
+    let seat: { onDirtyChange(dirty: boolean): void; onRequestClose(path: string, title: string): void } | undefined
+    const renderSlot = ((key: string, owner: unknown) => {
+      if (key !== 'workbench.preview.document') return null
+      seat = owner as typeof seat
+      return <div data-editor-occupant tabIndex={-1}>editor</div>
+    }) as unknown as WorkspaceWorkbenchProps['renderSlot']
+    const accountStore = store as unknown as { getSnapshot(): { byWorkspace: Record<string, { tabs: unknown[] }> } }
+    const view = mountWorkbench({}, { drawer: true, store, renderSlot })
+    expect(accountStore.getSnapshot().byWorkspace[workspace('a', 's-a').workspaceId as string]?.tabs).toHaveLength(1)
+    await waitFor(() => { expect(view.container.querySelector('[data-editor-occupant]')).toBeTruthy() })
+    seat?.onDirtyChange(true)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const close = view.container.querySelector('[role="tablist"] [aria-label="关闭 main.ts"]') as HTMLButtonElement
+    fireEvent.click(close)
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+    expect(accountStore.getSnapshot().byWorkspace[workspace('a', 's-a').workspaceId as string]?.tabs).toHaveLength(1)
+    confirmSpy.mockReturnValue(true)
+    fireEvent.click(close)
+    expect(accountStore.getSnapshot().byWorkspace[workspace('a', 's-a').workspaceId as string]?.tabs).toHaveLength(0)
   })
 })
