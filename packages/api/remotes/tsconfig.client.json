@@ -66,6 +66,9 @@
       "path": "../../host/workspace-file-write"
     },
     {
+      "path": "../../chat/chat-manager"
+    },
+    {
       "path": "../../typert/protocol"
     }
   ]

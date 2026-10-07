@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/chat-bridge.md
-chat-bridge.md: e881bebbcfbcaeac5aa792e837700455e0aec0df
-chat-bridge.zh.md: 9b536d89fd867e1db7d2253c4efbf980bd141742
+chat-bridge.md: be54dba6126e665260f9c615fb49745bec8a0842
+chat-bridge.zh.md: 133b88df8250c8836ab6f8bd736cfa2022c766ad

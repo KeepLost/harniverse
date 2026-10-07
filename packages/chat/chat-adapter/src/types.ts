@@ -4,6 +4,8 @@
  * @module @deepseek-ai/dsh-chat-adapter/types
  */
 
+import type { Context } from '@deepseek-ai/cordis'
+
 /** Open platform identity: shipped adapters use `telegram` and `feishu`. */
 export type ChatPlatformId = 'telegram' | 'feishu' | (string & {})
 
@@ -162,4 +164,58 @@ export interface ChatAdapter {
   setTyping?(route: ChatRoute): Promise<void>
   /** Direct-chat route for one user, when the platform can address them proactively. */
   directRoute(userId: string): ChatRoute | undefined
+}
+
+/** One credential or setting a platform needs before it can mount a bot. */
+export interface ChatPlatformField {
+  /** Stable key: 'token', 'appId', 'appSecret', 'baseUrl', 'domain'. */
+  key: string
+  /** Chinese product label. */
+  label: string
+  /** Secret fields are stored as credentials and never returned to a browser. */
+  secret: boolean
+  required: boolean
+  placeholder?: string
+  hint?: string
+  /** Closed choice list; the UI renders a select. */
+  options?: ReadonlyArray<{ value: string; label: string }>
+}
+
+/** Identity a platform reports for a validated bot. */
+export interface ChatBotIdentity {
+  botId: string
+  displayName: string
+}
+
+/** One bot a host manages: its non-secret values and the credential names holding its secrets. */
+export interface ChatManagedBot {
+  /** Non-secret field values by field key (defaults already applied by the caller only for fields it was given). */
+  values: Readonly<Record<string, string>>
+  /** Credential name holding each secret field's value, by field key. */
+  secretRefs: Readonly<Record<string, string>>
+}
+
+/**
+ * What a platform provider tells a host about itself: the fields a user fills
+ * in, how to validate them, and how to mount one adapter per managed bot. A
+ * host stays generic over platforms by reading these descriptors from
+ * `ctx.chatAdapters`.
+ */
+export interface ChatPlatformDescriptor {
+  readonly platform: ChatPlatformId
+  /** Channel name shown in the UI, e.g. 'Telegram', '飞书'. */
+  readonly label: string
+  readonly fields: readonly ChatPlatformField[]
+  /**
+   * Validate a full set of field values (secrets included, as typed) by calling the platform once.
+   * Resolves the bot identity; rejects with ChatAdapterError (classified: auth-failed, network, ...) otherwise.
+   * Must not log or echo secret values. Honors `signal`.
+   */
+  probe(values: Readonly<Record<string, string>>, signal: AbortSignal): Promise<ChatBotIdentity>
+  /**
+   * Mount exactly one adapter for a managed bot in the caller's scope: resolve secrets from `ctx.credentials`
+   * through `bot.secretRefs`, fail the mount (throw) when a secret is unset/malformed, and register the adapter with
+   * `ctx.effect(() => ctx.chatAdapters.register(adapter))`.
+   */
+  mount(ctx: Context, bot: ChatManagedBot): Promise<void>
 }

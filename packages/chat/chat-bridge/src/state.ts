@@ -12,6 +12,8 @@ import { defineDomain, domainTable, type Domain } from '@deepseek-ai/dsh-storage
 export const memberBindingSchema = z.object({
   role: z.enum(['owner', 'member']),
   memberId: z.string().optional(),
+  /** Display name the identity had when it redeemed an owner code. */
+  displayName: z.string().optional(),
   pairedAt: z.number(),
 })
 /** The stored value type of `memberBindingSchema`. */

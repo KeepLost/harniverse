@@ -171,6 +171,33 @@
     - id: workspace-file-write
       name: '@deepseek-ai/dsh-workspace-file-write'
 
+    # IM chat bots (Telegram, Feishu) managed from the Settings page. The
+    # manager runs the chat bridge INSIDE this process: it mounts the bridge
+    # and its Harniverse client itself when the first bot is enabled, signs in
+    # with its own `chat-bridge` Grant, and exposes the chatBots Remote that
+    # the page calls. This is why chat-harniverse-client and chat-bridge have no
+    # rows here. The platform rows below only register their descriptors; bots
+    # live in $DSH_HOME/chat-bots.json, so their `bots`/`apps` lists stay empty.
+    # Do not also run `dsh chat` against a bot managed here: two processes
+    # polling one bot conflict, and the bridge then stops that bot.
+    - id: chat-adapters
+      name: '@deepseek-ai/dsh-chat-adapter'
+
+    - id: chat-telegram
+      name: '@deepseek-ai/dsh-chat-adapter-telegram'
+      config:
+        bots: []
+
+    - id: chat-feishu
+      name: '@deepseek-ai/dsh-chat-adapter-feishu'
+      config:
+        apps: []
+
+    - id: chat-manager
+      name: '@deepseek-ai/dsh-chat-manager'
+      config:
+        dshHome: !!js dshHomePath()
+
     # Session-scoped HOST browser pages for the browser panel: a real browser
     # process driven over CDP, so a page's own traffic leaves the harness host
     # instead of the user's device. Exposed through the gateway's browser/*
@@ -305,6 +332,12 @@
     # authorized management Remote; the inventory tab remains read-only.
     - id: ui-settings-capabilities
       name: '@deepseek-ai/dsh-client-ui-settings-capabilities'
+
+    # IM 机器人 settings section over the chatBots Remote: platform channels,
+    # bot cards, and owner pairing. Hosts without the chat manager never
+    # mount the namespace, so the section stays absent there.
+    - id: ui-settings-im
+      name: '@deepseek-ai/dsh-client-ui-settings-im'
 
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'

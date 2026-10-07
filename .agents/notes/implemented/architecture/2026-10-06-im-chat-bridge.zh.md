@@ -12,7 +12,9 @@ Status: implemented
 
 ## Decision
 
-聊天桥是一个独立进程 `dsh chat`，它是 `/api` 的客户端。它不增加 endpoint，也不向 web 组合增加插件。多用户行为只存在于桥内部：谁可以和它对话、每个人可以运行哪些命令、审批发往何处。认证桥的[公钥 Grant](2026-08-17-public-key-grant-authentication.md)是普通的 operator Grant，只有 `harniverse.observe` 和 `harniverse.operate`。
+聊天桥是 `/api` 的客户端，作为独立进程 `dsh chat` 运行。它不给 `/api` 增加 endpoint。多用户行为只存在于桥内部：谁可以和它对话、每个人可以运行哪些命令、审批发往何处。认证桥的[公钥 Grant](2026-08-17-public-key-grant-authentication.md)是普通的 operator Grant，只有 `harniverse.observe` 和 `harniverse.operate`。
+
+web 组合也在 Host 进程内承载桥，并由设置页管理。该部署由[内嵌桥 Agent Note](2026-10-08-im-settings-embedded-bridge.md)负责记录，并取代本 Agent Note 中“桥不向 web 组合增加插件”的表述。桥本身、它的安全姿态以及下文所述的无界面 `dsh chat` 进程保持不变。
 
 ### 包拓扑
 
@@ -22,6 +24,7 @@ Status: implemented
 | `packages/chat/chat-harniverse-client` | `ctx.harniverseClient`：唯一调用 `/api` 的代码，endpoint 表封闭 |
 | `packages/chat/chat-bridge` | Consumer：准入、配对、封闭命令表、审批路由、流式回复、持久状态 |
 | `packages/chat/chat-adapter-telegram`、`packages/chat/chat-adapter-feishu` | 平台 provider |
+| `packages/chat/chat-manager` | Host 插件，在 web Host 进程内运行桥并提供设置页，见[内嵌桥 Agent Note](2026-10-08-im-settings-embedded-bridge.md) |
 | `packages/test-support/chat-adapter-fake` | 供桥测试和无密钥 e2e 使用的脚本化平台 |
 | `packages/bundle/chat-app` | `chat` profile：随附的 patch、`dsh chat` 命令、`init`、`status` 和 `rotate-key` |
 
@@ -67,6 +70,8 @@ Telegram 使用 `fetch` 调用 Bot API，采用长轮询，不用 SDK。飞书�
 
 **作为 web 组合中的插件。** 它会共享进程并绕过 Grant，代价是把平台凭据、长期出站连接和聊天策略放进服务浏览器的进程，并使聊天无法脱离 web UI 运行。
 
+[内嵌桥 Agent Note](2026-10-08-im-settings-embedded-bridge.md)就设置页而言取代了这一否决：web 组合承载一个管理器插件，它在 Host 进程内运行桥，使用自己的最小权限 `chat-bridge` Grant 登录而不是绕过 Grant，并保留 `dsh chat` 作为脱离 web UI 运行聊天的方式。
+
 **让 dsh-im 与 Harniverse 并行运行。** dsh-im 有自己的会话模型和发布节奏。把其成熟的平台代码移植进本仓库的插件架构，可以共用一套凭据存储、一个 Grant、一个状态域和一套测试。
 
 **固定的 guest、member、trusted、owner 档位、密钥遮蔽、审计日志和速率配额。** 隔离已经来自按成员选择 Profile 或远端主机，而遮蔽无法让共享文件系统变安全。档位表承诺的会比它能强制的更多。
@@ -79,7 +84,7 @@ Telegram 使用 `fetch` 调用 Bot API，采用长轮询，不用 SDK。飞书�
 
 ## Consequences
 
-桥的交付不改动 `/api` 和 web 组合，新平台只需一个实现 `ChatAdapter` 的包。chat profile 与 Web 共存，Grant 丢失或轮换后用两条命令即可恢复。
+桥的交付不改动 `/api`，新平台只需一个实现 `ChatAdapter` 的包。chat profile 与 Web 共存，Grant 丢失或轮换后用两条命令即可恢复。
 
 Telegram 和飞书只对照脚本化的服务器验证过。尚无运行使用过真实的 bot token 或飞书应用，所以首次在真实平台上使用时，群隐私设置、编辑窗口或事件载荷的差异可能暴露出 fixture 没有覆盖的问题。
 

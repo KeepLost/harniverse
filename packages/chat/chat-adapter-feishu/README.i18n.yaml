@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/chat/chat-adapter-feishu/README.md
-README.md: 7d5c433437444fa4870a9882d24d0678c7a9957d
-README.zh.md: 9582e89d11814d1dbb78dcb6a370841c6a0fd5f5
+README.md: 693b5e04de2523782c8a50812df8fbd4a5f4452a
+README.zh.md: 0e6754067a2f22b70117880e58b330dc71e91021

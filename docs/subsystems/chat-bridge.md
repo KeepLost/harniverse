@@ -2,7 +2,7 @@
 
 English | [中文](chat-bridge.zh.md)
 
-The chat bridge connects messaging platforms to a running Harniverse. The [adapter Service Definition](../../packages/chat/chat-adapter) owns the one platform-neutral contract; [`chat-adapter-telegram`](../../packages/chat/chat-adapter-telegram) and [`chat-adapter-feishu`](../../packages/chat/chat-adapter-feishu) implement it, and [`chat-adapter-fake`](../../packages/test-support/chat-adapter-fake) is the scripted platform tests use. The [`chat-harniverse-client`](../../packages/chat/chat-harniverse-client) is the only package that calls `/api`, and the [`chat-bridge`](../../packages/chat/chat-bridge) consumer joins the two sides. The [`chat-app`](../../packages/bundle/chat-app) bundle composes them into `dsh chat`. The bridge is a client of `/api`, authenticated by one operator Grant; it adds no endpoint and no multi-user concept to Harniverse.
+The chat bridge connects messaging platforms to a running Harniverse. The [adapter Service Definition](../../packages/chat/chat-adapter) owns the one platform-neutral contract; [`chat-adapter-telegram`](../../packages/chat/chat-adapter-telegram) and [`chat-adapter-feishu`](../../packages/chat/chat-adapter-feishu) implement it, and [`chat-adapter-fake`](../../packages/test-support/chat-adapter-fake) is the scripted platform tests use. The [`chat-harniverse-client`](../../packages/chat/chat-harniverse-client) is the only package that calls `/api`, and the [`chat-bridge`](../../packages/chat/chat-bridge) consumer joins the two sides. The [`chat-app`](../../packages/bundle/chat-app) bundle composes them into `dsh chat`. The bridge is a client of `/api`, authenticated by one operator Grant; it adds no endpoint and no multi-user concept to Harniverse. In the web Host, the [`chat-manager`](../../packages/chat/chat-manager) plugin runs the same bridge in-process for the Settings section "IM 机器人" of [`ui-settings-im`](../../packages/client/ui-settings-im); its registry, `chatBots` Remote, and lifecycle are under Chat manager below.
 
 Source: [`packages/chat/chat-adapter/src/types.ts`](../../packages/chat/chat-adapter/src/types.ts)
 
@@ -182,15 +182,30 @@ type ChatAdapterErrorCode =
 
 `ctx.chatAdapters` registers adapters. Registering returns the disposer that removes it, a second live `platform:botId` throws, and the `chat-adapter/registered` and `chat-adapter/unregistered` events let the bridge attach and detach run loops as adapters mount and dispose.
 
+### Platform descriptors
+
+A platform provider also registers a `ChatPlatformDescriptor`, which tells a host how to list, validate, and mount bots of its platform, so the host holds no platform names. `ctx.chatAdapters.registerPlatform(descriptor)` returns the effect disposer and throws when the platform id is already registered; `platforms()` lists descriptors in registration order and `platform(id)` reads one. The registry emits `chat-platform/registered` after a descriptor is readable and `chat-platform/unregistered` after it is gone.
+
+| Type | Members |
+| --- | --- |
+| `ChatPlatformDescriptor` | `platform` (`ChatPlatformId`), `label` (Chinese channel name), `fields` (`ChatPlatformField[]`), `probe(values, signal)`, `mount(ctx, bot)` |
+| `ChatPlatformField` | `key`, Chinese `label`, `secret`, `required`, optional `placeholder` and `hint`, and optional `options`, a closed `{ value, label }` list that a UI renders as a select |
+| `ChatBotIdentity` | `botId` and `displayName`, as the platform reports them for a validated bot |
+| `ChatManagedBot` | `values`, the non-secret field values by key, and `secretRefs`, the credential name that holds each secret field, by key |
+
+`probe` validates a complete set of typed values, secrets included, with one platform call and resolves the `ChatBotIdentity`. It rejects with a `ChatAdapterError` (`auth-failed` for rejected or malformed credentials, `network` for an unreachable platform or an aborted call), never logs or echoes a secret, and honors its signal. `mount` registers exactly one adapter for a `ChatManagedBot` in the caller's scope: it resolves secrets through `ctx.credentials`, throws while one is unset or malformed, and installs the adapter with `ctx.effect(() => ctx.chatAdapters.register(adapter))`, so disposing the caller's scope removes it. Telegram and Feishu export descriptors: Telegram's probe calls `getMe`, and Feishu's fetches a tenant token and then reads the bot info.
+
 ## Harniverse client
 
 `ctx.harniverseClient` signs in with the operator Grant: it reads the Grant id and the P-256 signing key from credentials, exchanges a signed challenge for an Access Token, and renews the token before it expires. Its endpoint table is closed; any other request is refused locally.
 
 | Kind | Endpoints |
 | --- | --- |
-| Unary | `api.describe`, `host.describe`, `session.list`, `session.create`, `session.history`, `session.workStatus`, `session.models`, `session.selectModel`, `session.rename`, `session.prompt`, `session.updateQueue`, `session.cancel` |
+| Unary | `api.describe`, `host.describe`, `session.list`, `session.create`, `session.history`, `session.workStatus`, `session.models`, `session.selectModel`, `session.selectModelTarget`, `session.rename`, `session.prompt`, `session.updateQueue`, `session.cancel` |
 | Typert | `commands/execute` |
 | Carrier | `respond`, `attachment/upload`, `events.mux` |
+
+`session.selectModelTarget` selects a model for one session and, unlike `session.selectModel`, does not save it as the Host's default model.
 
 Calls share one options type, and the few values that leave the client are typed.
 
@@ -254,9 +269,9 @@ Every mutating call carries an `Idempotency-Key` derived from the platform messa
 
 ## Bridge
 
-`chat-bridge` decides who may do what. It stores its state in the `chat_bridge` storage domain, whose tables are `members` (paired identities), `codes` (one-time pairing codes, stored as SHA-256 hashes), `groups` (bound group chats), `bindings` (the session and workspace alias a conversation uses), `sessions` (sessions the bridge created, written before `session.create`), `seen` (processed message ids), and `cursors` (event-stream positions).
+`chat-bridge` decides who may do what. It stores its state in the `chat_bridge` storage domain, whose tables are `members` (paired identities), `codes` (one-time pairing codes, stored as SHA-256 hashes), `groups` (bound group chats), `bindings` (the session and workspace alias a conversation uses), `sessions` (sessions the bridge created, written before `session.create`), `seen` (processed message ids), and `cursors` (event-stream positions). A `members` row of an owner also keeps the display name the owner had when redeeming a code.
 
-Access is default-deny. Owners come from configuration or from the one-time code `dsh chat init` prints. A member joins by a configured static id or by a one-time code an owner issues with `/invite`. A sender outside both sets receives at most one pairing hint per hour. A member runs only the commands the configuration grants, in only the workspace aliases it lists; chat text never contains an absolute path.
+Access is default-deny. Owners come from configuration or from a one-time code: the one `dsh chat init` prints, or one a host requests through `ctx.chatBridge`. A member joins by a configured static id or by a one-time code an owner issues with `/invite`. A sender outside both sets receives at most one pairing hint per hour. A member runs only the commands the configuration grants, in only the workspace aliases it lists; chat text never contains an absolute path.
 
 The command table is closed. Text that starts with `/` and names a command outside it is refused and never reaches the model, and no command changes permissions, exports data, or passes through to `/api`.
 
@@ -274,9 +289,73 @@ Replies stream into one edited message where the platform allows edits and arriv
 
 The deployment fields are catalogued in the [config catalog](../config-catalog.md#deepseek-aidsh-chat-bridge).
 
+### Embedding and the management service
+
+`Config.embedded` (default `false`) marks a bridge that runs inside another host process: a poll conflict then only sets the adapter status, and the bridge never reads `appExit` or asks the process to exit. While the bridge is mounted it provides `ctx.chatBridge`, which a host plugin uses to read and manage it.
+
+| Method | Behavior |
+| --- | --- |
+| `adapterState(platform, botId)` | `{ state, message? }` of a mounted adapter, or `undefined` while none is attached; `state` is `running`, `reconnecting`, `credential-rejected`, `conflict`, or `stopped` |
+| `issueOwnerCode()` | A one-time owner pairing code and its absolute expiry, valid for the configured owner code lifetime |
+| `owners()` | Configured owners first, then paired owners, each with `key` (`platform:userId`), `platform`, `userId`, `displayName`, and `pairedAt` (`0` for an owner that exists only in configuration) |
+| `unpairOwner(key)` | Deletes a paired owner binding; `false` for an absent key, a member binding, or a configured owner |
+| `useBotSettings(provider)` | Registers per-bot defaults and returns the disposer of that registration |
+
+A `BotSettingsProvider` maps `(platform, botId)` to `ChatBotSettings` or `undefined`, and the first provider that answers for the bot wins. `ChatBotSettings` has `workspace` (an absolute path), `model` (`provider`, `model`, and optional `reasoningEffort`), and `agentProfile` (an Agent Preset id). The bridge reads the defaults when it creates a session for an owner, never for a member, and they shape only sessions created afterwards.
+
+A relative `workspace` is ignored with a warning. A valid one replaces the `imRoot` owner directory, but an owner's configured workspace alias still wins. `agentProfile` applies when the owner has none configured. The model is selected with `session.selectModelTarget` right after `session.create` succeeds; a failed selection is logged and leaves the session on its own model.
+
 ## The `dsh chat` app
 
-The [`chat-app`](../../packages/bundle/chat-app) bundle mounts the adapter registry, the client, the Telegram and Feishu providers, storage, and the bridge for `dsh chat` and `dsh chat run`. `dsh chat init` registers the bridge Grant and prints an owner code, `dsh chat status` reports its health, and `dsh chat rotate-key` replaces the signing key and Grant; these three mount only the storage, credentials, and runner rows. The bundle declares shared home ownership, so all four work while Web runs.
+The [`chat-app`](../../packages/bundle/chat-app) bundle mounts the adapter registry, the client, the Telegram and Feishu providers, storage, and the bridge for `dsh chat` and `dsh chat run`. `dsh chat init` registers the bridge Grant and prints an owner code, `dsh chat status` reports its health, and `dsh chat rotate-key` replaces the signing key and Grant; these three mount only the storage, credentials, and runner rows. The bundle declares shared home ownership, so all four work while Web runs. The web Host can run the same bridge in-process, described under Chat manager; `dsh chat run` and the embedded bridge must not poll the same bot.
+
+## Chat manager
+
+[`chat-manager`](../../packages/chat/chat-manager) is the Host plugin behind the Settings section "IM 机器人". It provides `ctx.chatManager`, owns the registry of managed bots and their secrets, runs the bridge inside the web Host process, and serves the `chatBots` Typert Remote that [`ui-settings-im`](../../packages/client/ui-settings-im) calls. Payload shapes, the secret view, and the remaining limits are in the [package README](../../packages/chat/chat-manager/README.md).
+
+### Registry and secrets
+
+`$DSH_HOME/chat-bots.json` is a schema-validated document (`version: 1`, at most 32 bots) written atomically with mode `0600`. An entry holds the bot id (`bot_` and eight hexadecimal digits), platform, alias, the identity the platform reported, the non-secret field values, the keys of the secret fields, `enabled`, the defaults for owner sessions, and the creation and last check times. A secret field is stored in the credential store as `DSH_CHAT_BOT_<BOT ID>_<FIELD>`. Secrets are write-only: the registry, every response, every log line, and every error message omit them, and a bot view shows only whether a secret is configured and, for a long one, its last four characters.
+
+### Remote namespace
+
+`snapshot` requires `harniverse.observe`. Every other call requires `harniverse.administer`, the capability that also guards `credentials.set` and the remote-host registry, because adding a bot stores credentials and opens an inbound control channel to the Host.
+
+| Call | Behavior |
+| --- | --- |
+| `snapshot()` | The connectable platforms with their fields, every bot with its live state, the paired owners, and the bridge state; it does not wait for a running mutation |
+| `addBot({ platform, alias?, values })` | Validates the values against the platform descriptor, verifies them with one `probe` call, rejects a platform and `botId` that are already registered, stores the secrets, writes the entry, and starts the bot |
+| `updateBot({ id, alias?, enabled?, settings? })` | Renames a bot, enables or disables it, or changes its owner-session defaults; enabling or disabling mounts or unmounts only that bot |
+| `checkBot({ id })` | Probes the stored credentials and returns `{ ok, message?, checkedAt }`; a platform failure is `ok: false`, not an error |
+| `retryBot({ id })` | Mounts an enabled bot again and retries a failed bridge start |
+| `removeBot({ id })` | Unmounts the bot, deletes its credentials, and removes its entry |
+| `issueOwnerCode()` | A one-time owner pairing code and its expiry; the owner sends `/pair <code>` to a bot in a private chat |
+| `unpairOwner({ key })` | Removes a paired owner; `false` for an absent key or a configured owner |
+
+### Errors
+
+Every failure is a `RemoteError` with the wire code `chat-bot-failed`. The stable `details.reason` is one of the following, and the Chinese `message` carries neither a secret nor a platform's own text.
+
+| Reason | Cause |
+| --- | --- |
+| `invalid-input` | Unknown platform, invalid field, alias, or settings value, a relative workspace path, the bot limit, or retrying a disabled bot |
+| `invalid-credentials` | The probe failed with `auth-failed` |
+| `unreachable` | Any other probe failure, including the 15-second timeout |
+| `duplicate-bot` | The same platform and `botId` is already registered |
+| `not-found` | No bot has that id |
+| `bridge-unavailable` | An owner call needed the bridge and it cannot start |
+
+### Lifecycle
+
+The manager mounts `chat-harniverse-client` and then `chat-bridge` with `embedded: true` as child plugin scopes, and one more child scope per enabled bot that calls the platform descriptor's `mount`. The bridge starts when the Host starts with an enabled bot, when a bot is added or enabled, and when `issueOwnerCode` or `unpairOwner` needs it. It stops, bots first, then the bridge, then the client, when the last enabled bot is disabled or removed. A bridge started only for an owner call stays up until a bot has been enabled and the last enabled bot later goes away, or the Host stops.
+
+A bot whose mount throws is in state `error` without affecting another bot. A failed bridge start shows every enabled bot as `error` until the next mutation, owner call, or `retryBot` tries again. A bot's state is one of `disabled`, `starting`, `online`, `reconnecting`, or `error`, derived at every `snapshot` from the bridge's adapter state, so the Settings section polls and needs no event.
+
+The bridge signs in with the API-client Grant `chat-bridge`, which holds `harniverse.observe` and `harniverse.operate` only and appears in the user's Grants list. The manager provisions it, with a P-256 key in the credential `DSH_CHAT_BRIDGE_SIGNING`, on the first start and reuses both afterwards. The client origin is `http://127.0.0.1:<port>` for an HTTP web server and `https://localhost:<port>` for HTTPS. An instance that runs with authentication bypass cannot host the bridge, and the manager reports that as a bridge error.
+
+### Composition
+
+The web composition mounts `chat-adapters`, `chat-telegram` with `bots: []`, `chat-feishu` with `apps: []`, and `chat-manager`, and its browser roster mounts `ui-settings-im`. The provider rows only register their platform descriptors; the bots live in the registry. There is no row for `chat-harniverse-client` or `chat-bridge`. The embedded bridge keeps its pairings in the web Host's storage, apart from the `dsh chat` profile's, so an owner paired in one pairs again in the other.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -290,7 +369,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.chatAdapters` — `ChatAdapters`
 
-The chat adapter registry. Owns the set of mounted adapters keyed by `platform:botId`; a duplicate key fails loud and every registration's disposer removes exactly its own entry.
+The chat adapter registry. Owns the set of mounted adapters keyed by `platform:botId` and the platform descriptors keyed by platform id; a duplicate key fails loud and every registration's disposer removes exactly its own entry.
 
 ```ts cordis-catalog
 /**
@@ -316,9 +395,153 @@ get(platform: ChatPlatformId, botId: string): ChatAdapter | undefined
  * @returns adapters in registration order.
  */
 list(): readonly ChatAdapter[]
+
+/**
+ * Register one platform descriptor for the lifetime of the calling effect
+ * scope. `chat-platform/registered` fires after the entry is readable and
+ * `chat-platform/unregistered` after it is gone.
+ * @param descriptor - the platform's fields, probe, and mount.
+ * @returns the exact Cordis effect disposer; calling it twice is harmless.
+ * @throws when the platform id is already registered.
+ */
+registerPlatform(descriptor: ChatPlatformDescriptor): () => void
+
+/**
+ * Snapshot every registered platform descriptor.
+ * @returns descriptors in registration order.
+ */
+platforms(): readonly ChatPlatformDescriptor[]
+
+/**
+ * Read one registered platform descriptor.
+ * @param id - platform id.
+ * @returns the descriptor, or undefined while unregistered.
+ */
+platform(id: ChatPlatformId): ChatPlatformDescriptor | undefined
 ```
 
-Source: [`packages/chat/chat-adapter/src/index.ts:58`](../../packages/chat/chat-adapter/src/index.ts)
+Source: [`packages/chat/chat-adapter/src/index.ts:75`](../../packages/chat/chat-adapter/src/index.ts)
+
+<a id="ctxchatbridge--chatbridgeservice"></a>
+
+### `ctx.chatBridge` — `ChatBridgeService`
+
+What a host plugin may read and manage on the running chat bridge.
+
+```ts cordis-catalog
+/**
+ * Run state of one mounted adapter.
+ * @param platform - platform id of the adapter.
+ * @param botId - bot id of the adapter.
+ * @returns the state, or undefined while the adapter is not attached.
+ */
+adapterState(platform: string, botId: string): AdapterStatus | undefined
+
+/**
+ * Issue a one-time owner pairing code, the way `dsh chat init` does.
+ * @returns the plaintext code, shown once, and its absolute expiry in ms since the epoch.
+ */
+issueOwnerCode(): Promise<{ code: string; expiresAt: number }>
+
+/**
+ * Paired owners (bridge state `members` rows with role owner) plus configured owners.
+ * @returns one view per owner identity, configured owners first.
+ */
+owners(): readonly OwnerView[]
+
+/**
+ * Remove a paired owner binding.
+ * @param key - an {@link OwnerView.key}.
+ * @returns false when the key is absent, not an owner, or an owner of the static configuration.
+ */
+unpairOwner(key: string): Promise<boolean>
+
+/**
+ * Provide per-bot defaults, consulted whenever a new session of an owner is created; the first provider
+ * that returns settings for the bot wins.
+ * @param provider - settings of the bot `(platform, botId)`, or undefined for none.
+ * @returns a disposer that removes this registration.
+ */
+useBotSettings(provider: BotSettingsProvider): () => void
+```
+
+Source: [`packages/chat/chat-bridge/src/types.ts:45`](../../packages/chat/chat-bridge/src/types.ts)
+
+<a id="ctxchatmanager--chatmanager"></a>
+
+### `ctx.chatManager` — `ChatManager`
+
+The chat-bot manager. Mutations and the owner operations run one at a time; `snapshot` reads without waiting for them.
+
+```ts cordis-catalog
+/**
+ * Everything the Settings page renders: the connectable platforms, every bot with its live state, the paired
+ * owners, and the embedded bridge's state. Owners are listed only while the bridge runs.
+ * @returns the snapshot; it carries no secret value.
+ */
+@Remote({ requiredCapability: 'harniverse.observe' }) async snapshot(): Promise<ChatBotsSnapshot>
+
+/**
+ * Validate a bot's fields, verify them with one platform call, store its secrets, register it, and start it.
+ * @param input - platform, optional alias, and the typed field values.
+ * @param signal - request cancellation.
+ * @returns the new bot; a failed start is reported in its `state`.
+ * @throws {ChatBotError} `invalid-input`, `invalid-credentials`, `unreachable`, or `duplicate-bot`.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async addBot(input: AddChatBotInput, signal: AbortSignal): Promise<ChatBotView>
+
+/**
+ * Change a bot's alias, enabled flag, or defaults for new owner sessions. Defaults apply to sessions created
+ * afterwards without restarting the bot; enabling or disabling mounts or unmounts only this bot.
+ * @param input - the bot id and the fields to change.
+ * @returns the updated bot.
+ * @throws {ChatBotError} `not-found` or `invalid-input`.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) updateBot(input: UpdateChatBotInput): Promise<ChatBotView>
+
+/**
+ * Verify a bot's stored credentials with one platform call and refresh its identity and check time.
+ * @param input - the bot id.
+ * @param signal - request cancellation.
+ * @returns the outcome; a platform failure is `ok: false` with a safe message, never a thrown error.
+ * @throws {ChatBotError} `not-found`.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async checkBot(input: ChatBotIdInput, signal: AbortSignal): Promise<CheckChatBotResult>
+
+/**
+ * Remount an enabled bot that is in `error` or `reconnecting`; a failed bridge start is attempted again too.
+ * @param input - the bot id.
+ * @returns the bot after the attempt.
+ * @throws {ChatBotError} `not-found`, or `invalid-input` for a disabled bot.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) retryBot(input: ChatBotIdInput): Promise<ChatBotView>
+
+/**
+ * Unmount a bot, delete its credentials, and remove it from the registry. The embedded bridge stops with the
+ * last enabled bot.
+ * @param input - the bot id.
+ * @throws {ChatBotError} `not-found`.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) removeBot(input: ChatBotIdInput): Promise<void>
+
+/**
+ * Issue a one-time owner pairing code. The bridge starts on demand, because an owner needs a code before the
+ * first bot is useful, and it then runs until a later change finds no enabled bot.
+ * @returns the plaintext code, shown once, and its expiry.
+ * @throws {ChatBotError} `bridge-unavailable` when the bridge cannot start.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) issueOwnerCode(): Promise<ChatOwnerCode>
+
+/**
+ * Remove a paired owner. The bridge starts on demand like {@link issueOwnerCode}.
+ * @param input - the owner key from the snapshot.
+ * @returns false when the key is absent or belongs to an owner of the static configuration.
+ * @throws {ChatBotError} `bridge-unavailable` when the bridge cannot start.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) unpairOwner(input: UnpairOwnerInput): Promise<boolean>
+```
+
+Source: [`packages/chat/chat-manager/src/index.ts:175`](../../packages/chat/chat-manager/src/index.ts)
 
 <a id="ctxharniverseclient--harniverseclient"></a>
 
@@ -428,7 +651,7 @@ An adapter became resolvable in the registry.
 'chat-adapter/registered'(adapter: ChatAdapter): void
 ```
 
-Source: [`packages/chat/chat-adapter/src/index.ts:43`](../../packages/chat/chat-adapter/src/index.ts)
+Source: [`packages/chat/chat-adapter/src/index.ts:47`](../../packages/chat/chat-adapter/src/index.ts)
 
 <a id="chat-adapterunregistered--emit"></a>
 
@@ -445,7 +668,7 @@ An adapter left the registry; its `run` loop must stop.
 'chat-adapter/unregistered'(adapter: ChatAdapter): void
 ```
 
-Source: [`packages/chat/chat-adapter/src/index.ts:49`](../../packages/chat/chat-adapter/src/index.ts)
+Source: [`packages/chat/chat-adapter/src/index.ts:53`](../../packages/chat/chat-adapter/src/index.ts)
 
 <a id="chat-bridge-events"></a>
 
@@ -466,7 +689,7 @@ A queued conversation task started or finished. Tasks of one conversation key ne
 'chat-bridge/dispatch'(info: { phase: 'start' | 'end'; key: string }): void
 ```
 
-Source: [`packages/chat/chat-bridge/src/index.ts:32`](../../packages/chat/chat-bridge/src/index.ts)
+Source: [`packages/chat/chat-bridge/src/index.ts:42`](../../packages/chat/chat-bridge/src/index.ts)
 
 <a id="chat-harniverse-events"></a>
 
@@ -489,4 +712,42 @@ A request is about to leave the client. The package invariant checks that `targe
 ```
 
 Source: [`packages/chat/chat-harniverse-client/src/client.ts:41`](../../packages/chat/chat-harniverse-client/src/client.ts)
+
+<a id="chat-platform-events"></a>
+
+### `chat-platform/*` events
+
+<a id="chat-platformregistered--emit"></a>
+
+#### `chat-platform/registered` — emit
+
+A platform descriptor became resolvable in the registry.
+
+```ts cordis-catalog
+/**
+ * A platform descriptor became resolvable in the registry.
+ * @param descriptor - the registered descriptor.
+ * @mode emit
+ */
+'chat-platform/registered'(descriptor: ChatPlatformDescriptor): void
+```
+
+Source: [`packages/chat/chat-adapter/src/index.ts:59`](../../packages/chat/chat-adapter/src/index.ts)
+
+<a id="chat-platformunregistered--emit"></a>
+
+#### `chat-platform/unregistered` — emit
+
+A platform descriptor left the registry.
+
+```ts cordis-catalog
+/**
+ * A platform descriptor left the registry.
+ * @param descriptor - the descriptor that no longer resolves.
+ * @mode emit
+ */
+'chat-platform/unregistered'(descriptor: ChatPlatformDescriptor): void
+```
+
+Source: [`packages/chat/chat-adapter/src/index.ts:65`](../../packages/chat/chat-adapter/src/index.ts)
 <!-- END GENERATED cordis-surface -->

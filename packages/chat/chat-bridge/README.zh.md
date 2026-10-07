@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-聊天桥核心。它消费 `ctx.chatAdapters`（[适配器契约](../chat-adapter/README.md)）和 `ctx.harniverseClient`（[`/api` 客户端](../chat-harniverse-client/README.md)），把状态保存在一个 storage domain 中，并让白名单内的 IM 成员驱动 Harniverse 会话。`/api` 仍是单用户的本机 API：桥只是一个 operator 客户端，成员之间的所有区分都只存在于本包内部。它是函数插件（`name`、`inject`、`Config`、`apply`），用于独立的 Cordis 应用，绝不是 web 组合的插件，并且不监听任何端口。
+聊天桥核心。它消费 `ctx.chatAdapters`（[适配器契约](../chat-adapter/README.md)）和 `ctx.harniverseClient`（[`/api` 客户端](../chat-harniverse-client/README.md)），把状态保存在一个 storage domain 中，并让白名单内的 IM 成员驱动 Harniverse 会话。`/api` 仍是单用户的本机 API：桥只是一个 operator 客户端，成员之间的所有区分都只存在于本包内部。它是函数插件（`name`、`inject`、`Config`、`apply`），不监听任何端口。`dsh chat` profile 把它作为一行挂载；宿主插件也可以用 `embedded` 把它挂载进自己的进程（web Host 的 `chat-manager` 就是这样做的），并通过 `ctx.chatBridge` 管理它，详见“嵌入与管理服务”。
 
 安全依赖五条固定规则。准入默认拒绝。命令表是闭合的。审批交给 owner。`danger-full-access` 不可达，因为没有任何命令能修改权限。成员之间的隔离取决于其配置的 Agent Profile 或远端运行时所提供的能力。
 
@@ -21,11 +21,12 @@
 | `inbound` | 5 个文件，每个 20 MiB，4 MiB 以内图片内联 | 更大的图片和其他文件经 `attachment/upload` 上传。 |
 | `outbound.maxFileBytes` | 20 MiB | 同时受平台 `maxFileBytes` 限制。 |
 | `streamIntervalMs`、`seenLimit` | 800、2000 | 编辑合并间隔；保留的入站消息 id 数。 |
+| `embedded` | `false` | 桥运行在宿主进程内时由宿主插件设置。此时轮询冲突只会更新适配器状态；桥不会读取 `appExit`，也不会请求进程退出。 |
 
 ## 准入与配对
 
 - 发送者只有匹配 owner、带静态 `userId` 的成员或已持久化的配对时才能行动。未配对的私聊消息被忽略；发送者最多每小时收到一次发送 `/pair <code>` 的提示。未配对的群消息、机器人消息和未指向机器人的群消息被静默丢弃。
-- 配对码是取自系统 CSPRNG 的十位 Crockford base32 字符。只存其 SHA-256，兑换即删除，并带有自身过期时间。`dsh chat init` 打印 owner 码。owner 的 `/invite <member>` 为一个没有静态身份的已配置成员签发绑定该成员的码；兑换后该平台身份与成员绑定。`/revoke` 解除绑定。
+- 配对码是取自系统 CSPRNG 的十位 Crockford base32 字符。只存其 SHA-256，兑换即删除，并带有自身过期时间。`dsh chat init` 打印 owner 码，`ctx.chatBridge.issueOwnerCode()` 以同样的方式签发 owner 码；兑换时发送者的显示名会存入 owner 绑定。owner 的 `/invite <member>` 为一个没有静态身份的已配置成员签发绑定该成员的码；兑换后该平台身份与成员绑定。`/revoke` 解除绑定。
 - 群聊只有在 owner 于群内发送 `/pair-group` 之后才可用；此后任何已配对的发送者都可以指向机器人。群会话是共享的，因此 Profile 或远端主机与该会话不同的发送者会被拒绝。
 - 每个入站消息 id 都会被记住；重复投递被忽略。同一会话（`botId:kind:chatId[:threadId]`）的消息严格逐条执行。
 
@@ -44,7 +45,7 @@
 
 ## 会话、工作区与隔离
 
-会话中的第一条 prompt 会创建会话。桥先写入会话记录，再以预分配的 `chat-<uuid>` id 调用 `session.create`，因此中途崩溃后可用同一 id 重放。工作目录是成员所选的别名（`/ws`），否则是第一个别名，否则是 `imRoot`。Agent Profile 是成员的 `agentProfile`。
+会话中的第一条 prompt 会创建会话。桥先写入会话记录，再以预分配的 `chat-<uuid>` id 调用 `session.create`，因此中途崩溃后可用同一 id 重放。工作目录是成员所选的别名（`/ws`），否则是第一个别名，否则是 `imRoot`。Agent Profile 是成员的 `agentProfile`。owner 的会话可以改用按机器人设置的默认值，取代 `imRoot` 目录和默认 Profile，见“嵌入与管理服务”中的机器人默认值。
 
 桥自身不增加任何隔离。把成员的 `agentProfile` 指向 SSH 执行 Profile，会让会话的文件、进程和沙箱落在受信的 SSH 主机上。设置 `dshRemoteHost` 会把该成员的所有 HTTP 和事件流流量转发到远端运行时；桥为每个主机各保留一条事件流和一组游标。
 
@@ -64,9 +65,30 @@
 
 一个 storage domain（`chat_bridge`）保存配对、配对码哈希、已绑定的群、会话绑定、会话、保留的消息 id 和每条流的续传游标。只有运行中的桥写入它；`dsh chat status` 读取它。等待回合的 prompt 和进行中的回复不会持久化，因此重启会丢失进行中的回复。
 
+## 嵌入与管理服务
+
+桥所在的行挂载期间会提供 `ctx.chatBridge`（`ChatBridgeService`），该行被销毁时撤回。
+
+| 方法 | 行为 |
+|---|---|
+| `adapterState(platform, botId)` | 已挂载适配器的 `{ state, message? }`；没有挂载时为 `undefined`。`state` 为 `running`、`reconnecting`、`credential-rejected`、`conflict` 或 `stopped`（适配器的 `run` 未被中止就结束）。`message` 是 `/status` 对 `reconnecting`、`credential-rejected`、`conflict` 显示的那句话。 |
+| `issueOwnerCode()` | 一次性 owner 配对码及其绝对过期时间，有效期为 `pairing.ownerCodeTtlMs`；发送者用 `/pair` 兑换。 |
+| `owners()` | 先列配置的 owner，再列已配对的 owner，每个身份一项：`key`、`platform`、`userId`、`displayName`（发送过显示名的已配对 owner）、`pairedAt`（只存在于配置中的 owner 为 `0`）。 |
+| `unpairOwner(key)` | 删除已配对的 owner 绑定。键不存在、是成员绑定或属于配置中的 owner 时返回 `false`。 |
+| `useBotSettings(provider)` | 注册按机器人的默认值，返回这次注册的销毁函数。 |
+
+### 机器人默认值
+
+`provider(platform, botId)` 为收到消息的机器人返回 `ChatBotSettings`（`workspace`、`agentProfile`、`model`），没有则返回 `undefined`；最先注册且给出答案的提供方生效。默认值只在为 **owner** 创建新会话时应用。成员保持自己的授权、目录和 Profile，永远不读取它们。
+
+- `workspace` 必须是绝对路径，相对路径会被忽略并记录警告。它取代 `imRoot/owner` 目录；owner 已配置的工作区别名仍然优先。
+- owner 没有配置 `agentProfile` 时才使用 `agentProfile`，用于 `session.create` 和会话记录。`/whoami` 会显示它，`/new <profile>` 也接受它。
+- `model` 在 `session.create` 成功之后立即通过 `session.selectModelTarget` 选定，只作用于这个新会话；Host 的共享默认模型不会改变。失败只记录日志，不会使会话失败。`/model` 命令仍使用 `session.selectModel`。
+- 默认值只影响之后创建的会话。没有配置 `agentProfile` 的 owner 在默认值变化时继续使用已绑定的会话，`/new` 才会按当前默认值创建新会话。配置了 `agentProfile` 的 owner 在会话 Profile 与之不同时仍会换成新会话。
+
 ## 导出
 
-`apply`、`name`、`inject`、`Config`、`validateConfig`、配对辅助函数（`generateCode`、`hashCode`、`issueCode`、`redeemCode`）、`bridgeDomainSpec`、`parseInput`、`COMMAND_TABLE` 与 `splitMessageText`。`chat-app` 使用配对辅助函数和状态规格来打印 owner 码。
+`apply`、`name`、`inject`、`Config`、`validateConfig`、配对辅助函数（`generateCode`、`hashCode`、`issueCode`、`redeemCode`）、`bridgeDomainSpec`、`parseInput`、`COMMAND_TABLE` 与 `splitMessageText`。服务类型为 `ChatBridgeService`、`ChatBotSettings`、`BotSettingsProvider`、`OwnerView`、`AdapterRunState` 与 `AdapterStatus`。`chat-app` 使用配对辅助函数和状态规格来打印 owner 码。
 
 ## Model Experience
 
@@ -84,6 +106,20 @@ A group prompt grows by the prefix, typically under 20 tokens. Direct prompts ar
 
 Append-only: the prefix belongs to the newly appended user message and does not alter earlier request tokens.
 
+### Bot defaults
+
+#### What the model sees
+
+Nothing the bridge writes. A bot's default Agent Preset and model apply to a new owner session before its first prompt, and to that session only; the Preset and the model own everything the model sees.
+
+#### Token effect
+
+None from the bridge. The chosen Preset's prompt sections and tools determine the request size.
+
+#### KV Cache effect
+
+Neutral: the selection happens before the first request, so no earlier tokens exist to invalidate. A later change of the defaults affects only sessions created afterwards.
+
 ## Known Limitations and Deferred Work
 
 - 等待回合的 prompt 和进行中的回复保存在内存里；桥重启会丢弃它们，游标重放也不会重新投递其 prompt 已丢失的回复。
@@ -91,3 +127,4 @@ Append-only: the prefix belongs to the newly appended user message and does not 
 - 表情回应、语音、位置、消息编辑和删除都被忽略。被编辑的消息不会重新运行已发送的 prompt。
 - 工作区别名和 `imRoot` 由实际运行会话的主机解释；桥无法检查远端路径是否存在。
 - 一个群共享一个会话；Profile 与创建者不同的成员必须使用私聊。
+- 没有配置 `agentProfile` 的 owner 会接受任何 Profile 的已绑定会话，包括 owner 配置去掉某个 Profile 之前创建的会话；`/new` 会按当前 Profile 创建会话。

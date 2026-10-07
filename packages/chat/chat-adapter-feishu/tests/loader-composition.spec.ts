@@ -61,7 +61,28 @@ function consumer(events: ChatInbound[]): { name: string; inject: string[]; appl
   }
 }
 
-async function load(credentials: Record<string, string>, row: string[], events: ChatInbound[] = []): Promise<Context> {
+/** One managed bot as the chat manager stand-in receives it. */
+interface ManagedRow {
+  platform: string
+  values: Record<string, string>
+  secretRefs: Record<string, string>
+}
+
+/** A stand-in for the chat manager: mounts each configured managed bot through the descriptor its platform registered. */
+const manager = {
+  name: 'test-manager',
+  inject: ['chatAdapters', 'credentials'],
+  async apply(ctx: Context, config: { bots: ManagedRow[] }): Promise<void> {
+    for (const bot of config.bots) await ctx.chatAdapters.platform(bot.platform)!.mount(ctx, bot)
+  },
+}
+
+async function load(
+  credentials: Record<string, string>,
+  row: string[],
+  events: ChatInbound[] = [],
+  after: string[] = [],
+): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-feishu-loader-'))
   const credentialsPath = join(root, 'credentials.yaml')
   await writeFile(credentialsPath, Object.entries(credentials).map(([key, value]) => `${key}: ${value}\n`).join(''), { mode: 0o600 })
@@ -72,6 +93,7 @@ async function load(credentials: Record<string, string>, row: string[], events: 
     '- name: test-consumer',
     "- name: '@deepseek-ai/dsh-chat-adapter-feishu'",
     ...row,
+    ...after,
     '',
   ].join('\n'))
   context = new Context()
@@ -82,6 +104,7 @@ async function load(credentials: Record<string, string>, row: string[], events: 
     ['@deepseek-ai/dsh-credentials-local', CredentialsLocal],
     ['@deepseek-ai/dsh-chat-adapter', ChatAdapters],
     ['test-consumer', consumer(events)],
+    ['test-manager', manager],
     ['@deepseek-ai/dsh-chat-adapter-feishu', Feishu],
   ])
   context.loader.internal = {
@@ -119,6 +142,7 @@ describe('real Loader composition', () => {
     expect(unloaded).toEqual([])
     const adapter = loaded.chatAdapters.get('feishu', APP_ID)
     expect(adapter).toBeDefined()
+    expect(loaded.chatAdapters.platforms()).toEqual([Feishu.feishuDescriptor])
     await vi.waitFor(() => { expect(socket.listenerCount('message')).toBe(1) })
     socket.emit('open')
     socket.emit('message', Buffer.from(encodeFrame({
@@ -150,9 +174,13 @@ describe('real Loader composition', () => {
     vi.useRealTimers()
   })
 
-  it('registers nothing for an empty app list and removes the adapter with its fiber', async () => {
-    const empty = await load({}, [])
+  it('registers only the platform descriptor for an empty app list, and removes everything with its fiber', async () => {
+    const empty = await load({}, ['  config:', '    apps: []'])
     expect(empty.chatAdapters.list()).toHaveLength(0)
+    expect(empty.chatAdapters.platform('feishu')).toBe(Feishu.feishuDescriptor)
+    const row = [...empty.loader.entries()].find(candidate => candidate.options.name === '@deepseek-ai/dsh-chat-adapter-feishu')
+    await row!.fiber!.dispose()
+    expect(empty.chatAdapters.platforms()).toEqual([])
     await empty.fiber.dispose()
     context = undefined
     fakes()
@@ -160,6 +188,28 @@ describe('real Loader composition', () => {
     const entry = [...loaded.loader.entries()].find(candidate => candidate.options.name === '@deepseek-ai/dsh-chat-adapter-feishu')
     await entry!.fiber!.dispose()
     expect(loaded.chatAdapters.get('feishu', APP_ID)).toBeUndefined()
+    expect(loaded.chatAdapters.platform('feishu')).toBeUndefined()
+  })
+
+  it('lets a generic host probe and mount a managed app through the registered descriptor', async () => {
+    const { server, socket } = fakes()
+    const events: ChatInbound[] = []
+    const managed = ['- name: test-manager', '  config:', '    bots:', '      - platform: feishu', '        values:', `          appId: ${APP_ID}`, '        secretRefs:', '          appSecret: FEISHU_MANAGED']
+    const loaded = await load({ FEISHU_MANAGED: 's3cret' }, [], events, managed)
+    const descriptor = loaded.chatAdapters.platform('feishu')!
+    expect(await descriptor.probe({ appId: APP_ID, appSecret: 'typed-secret' }, new AbortController().signal)).toEqual({ botId: APP_ID, displayName: APP_ID })
+    expect(server.to('/open-apis/auth/v3/tenant_access_token/internal').at(-1)?.json).toMatchObject({ app_secret: 'typed-secret' })
+    expect(loaded.chatAdapters.get('feishu', APP_ID)).toBeDefined()
+    await vi.waitFor(() => { expect(socket.listenerCount('message')).toBe(1) })
+    const host = [...loaded.loader.entries()].find(candidate => candidate.options.name === 'test-manager')
+    await host!.fiber!.dispose()
+    expect(loaded.chatAdapters.get('feishu', APP_ID)).toBeUndefined()
+    expect(loaded.chatAdapters.platform('feishu')).toBe(Feishu.feishuDescriptor)
+  })
+
+  it('rejects a second provider row for the same platform', async () => {
+    fakes()
+    await expect(load({}, [], [], ["- name: '@deepseek-ai/dsh-chat-adapter-feishu'"])).rejects.toThrow('platform feishu is already registered')
   })
 
   it('refuses to mount with a malformed app id, a missing secret, or a duplicate app', async () => {

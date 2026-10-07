@@ -78,6 +78,14 @@ async function load(client: FakeClient, bridgeRow: string[]): Promise<Context> {
   return context
 }
 
+function inbound(adapter: FakeChatAdapter, userId: string, text: string, id: string, displayName?: string): Promise<void> {
+  return adapter.enqueue({
+    type: 'message', messageId: id, route: { kind: 'direct', chatId: userId },
+    sender: { userId, isBot: false, ...displayName === undefined ? {} : { displayName } },
+    addressed: true, text, controlText: text, attachments: [], platformTime: 1,
+  })
+}
+
 const BRIDGE_ROW = [
   '    owners:',
   '      - platform: fake',
@@ -103,10 +111,7 @@ describe('real Loader composition', () => {
     expect(unloaded).toEqual([])
     const adapter = loaded.chatAdapters.get('fake', 'loader-bot') as FakeChatAdapter
     await vi.waitFor(() => { expect(adapter.running).toBe(true) })
-    const say = (userId: string, text: string, id: string): Promise<void> => adapter.enqueue({
-      type: 'message', messageId: id, route: { kind: 'direct', chatId: userId }, sender: { userId, isBot: false },
-      addressed: true, text, controlText: text, attachments: [], platformTime: 1,
-    })
+    const say = (userId: string, text: string, id: string): Promise<void> => inbound(adapter, userId, text, id)
     await say('9', 'hello?', 'm0')
     expect(adapter.transcript).toHaveLength(1)
     const state = loaded.storageDomain.get(bridgeDomainSpec.name) as unknown as BridgeState
@@ -126,6 +131,24 @@ describe('real Loader composition', () => {
     const persisted = JSON.parse(await readFile(join(root!, 'storage', 'chat_bridge.json'), 'utf8')) as { tables: { members: Record<string, unknown>; sessions: Record<string, unknown> } }
     expect(Object.keys(persisted.tables.members)).toEqual(['fake:9'])
     expect(Object.keys(persisted.tables.sessions)).toEqual([sessionId])
+  })
+
+  it('provides ctx.chatBridge once the row mounts, and an issued owner code pairs through the platform', async () => {
+    const loaded = await load(new FakeClient(), [...BRIDGE_ROW, '    embedded: true'])
+    const service = loaded.chatBridge
+    expect(service).toBeDefined()
+    expect(loaded.get('chatBridge')).toBe(service)
+    const adapter = loaded.chatAdapters.get('fake', 'loader-bot') as FakeChatAdapter
+    await vi.waitFor(() => { expect(service.adapterState('fake', 'loader-bot')).toEqual({ state: 'running' }) })
+    const { code } = await service.issueOwnerCode()
+    await inbound(adapter, '9', `/pair ${code}`, 'p1', 'Dana')
+    expect(adapter.transcript.map(entry => entry.kind === 'send' ? entry.message.text : undefined)).toContain('Paired as owner. Send /help for the commands.')
+    const owners = service.owners()
+    expect(owners.map(({ key, displayName, pairedAt }) => [key, displayName, pairedAt > 0])).toEqual([['fake:1', undefined, false], ['fake:9', 'Dana', true]])
+    expect(await service.unpairOwner('fake:9')).toBe(true)
+    expect(service.owners().map(owner => owner.key)).toEqual(['fake:1'])
+    await context!.fiber.dispose()
+    expect(loaded.get('chatBridge')).toBeUndefined()
   })
 
   it('refuses a configuration that names an unknown workspace alias at load time', async () => {

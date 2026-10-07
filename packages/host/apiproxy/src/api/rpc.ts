@@ -169,6 +169,13 @@ export interface RpcErrorDetailsMap {
    * showing a wire message.
    */
   'remote-host-failed': { reason: string }
+  /**
+   * A chat-bot management call failed. `reason` is the chat-manager package's
+   * own closed code (`invalid-input`, `invalid-credentials`, `unreachable`,
+   * `duplicate-bot`, `not-found`, `bridge-unavailable`); the message is a
+   * Chinese sentence free of secrets, so the Settings page shows or maps it.
+   */
+  'chat-bot-failed': { reason: string }
   'internal': {}
   /** The same idempotency key was reused with a different operation payload. */
   'idempotency-key-reused': { key: string }
@@ -254,6 +261,7 @@ export const RPC_ERROR_CODES = [
   'browser-limit-reached',
   'browser-navigation-refused',
   'remote-host-failed',
+  'chat-bot-failed',
   'internal',
   'idempotency-key-reused',
   'operation-not-found',

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The Feishu/Lark provider for the unified chat adapter registry ([contract](../chat-adapter/README.md)). It is a function plugin (`name`, `inject`, `Config`, `apply`, no default export) that injects `chatAdapters` and `credentials` and registers one adapter per configured app. Events arrive over the platform's outbound long connection, so no public ingress is needed. The Open API runs over plain `fetch` and the connection over `ws`; the official SDK is not a dependency. The long-connection protocol follows `@larksuiteoapi/node-sdk` 1.73.0 and the event wiring follows dsh-im, both MIT ([notice](../../../THIRD_PARTY_NOTICES.md)).
+The Feishu/Lark provider for the unified chat adapter registry ([contract](../chat-adapter/README.md)). It is a function plugin (`name`, `inject`, `Config`, `apply`, no default export) that injects `chatAdapters` and `credentials`, registers the Feishu platform descriptor, and registers one adapter per configured app. Events arrive over the platform's outbound long connection, so no public ingress is needed. The Open API runs over plain `fetch` and the connection over `ws`; the official SDK is not a dependency. The long-connection protocol follows `@larksuiteoapi/node-sdk` 1.73.0 and the event wiring follows dsh-im, both MIT ([notice](../../../THIRD_PARTY_NOTICES.md)).
 
 ## Config
 
@@ -12,7 +12,21 @@ The Feishu/Lark provider for the unified chat adapter registry ([contract](../ch
 | `apps[].secretRef` | string | — | Credential reference holding the app secret. Required. |
 | `apps[].domain` | string | `https://open.feishu.cn` | Use `https://open.larksuite.com` for Lark. |
 
-Mounting rejects a malformed app id or an unset secret. The secret is resolved again at every tenant-token fetch, so a rotated secret applies at the next token refresh (tokens last two hours) without a restart.
+`apps: []` is valid and registers only the platform descriptor. Mounting rejects a malformed app id or an unset secret. The secret is resolved again at every tenant-token fetch, so a rotated secret applies at the next token refresh (tokens last two hours) without a restart.
+
+## Platform descriptor
+
+`feishuDescriptor` (`platform: feishu`, label `飞书`) is registered through `ctx.chatAdapters.registerPlatform` when the row mounts, so a host can list, validate, and mount Feishu apps without an `apps` entry. It declares three fields:
+
+| Field | Secret | Notes |
+|---|---|---|
+| `appId` | no | Required. `cli_` followed by alphanumerics; it becomes the `botId`. |
+| `appSecret` | yes | Required. |
+| `domain` | no | Optional choice between `https://open.feishu.cn` (飞书（中国）, the default when blank) and `https://open.larksuite.com` (Lark（国际）). |
+
+`probe` rejects a malformed app id or a blank secret with `auth-failed` before any request. It then fetches a tenant token with the typed secret and reads `GET /open-apis/bot/v3/info`, the call the adapter makes on connecting, so a refusal there surfaces at probe time instead of at the first connection. It resolves `botId` as the app id and `displayName` as the bot's `app_name`, else the app id. Failures classify as for the connection: rejected credentials are `auth-failed`, 429 is `rate-limited`, and anything else, including an abort, any other platform refusal (the platform's message is kept), and a `domain` outside the two choices, is `network`. The secret never appears in an error message.
+
+`mount` is the per-app body of the `apps` list. The secret resolves from the credential named by `secretRefs.appSecret`, with the same failures as above plus a missing `secretRefs.appSecret`.
 
 ## Behavior
 
@@ -33,9 +47,11 @@ Mounting rejects a malformed app id or an unset secret. The secret is resolved a
 | Other failures while sending or recalling | `send-failed` |
 | Other failures while updating a card | `edit-failed` |
 
+`probe` classifies as the connection does. A malformed app id and a blank secret are `auth-failed`.
+
 ## Test status
 
-The adapter is verified only against a fake Open API, a fake socket, a loopback `ws` server, and recorded-shape event fixtures. The frame codec is byte-compared to the vendor protobuf layout. No real Feishu app has been used. To light it up, create a Feishu app with a bot, enable the long-connection event subscription for message receive and card action triggers, store the app secret in the credentials provider, set `apps: [{ appId, secretRef }]` in the bridge profile patch, start `dsh chat`, and pair the owner in a private chat with the bot.
+The adapter and the descriptor are verified only against a fake Open API, a fake socket, a loopback `ws` server, recorded-shape event fixtures, and a real Loader composition in which a stand-in host probes and mounts a managed app. The frame codec is byte-compared to the vendor protobuf layout. No real Feishu app has been used. To light it up, create a Feishu app with a bot, enable the long-connection event subscription for message receive and card action triggers, store the app secret in the credentials provider, set `apps: [{ appId, secretRef }]` in the bridge profile patch, start `dsh chat`, and pair the owner in a private chat with the bot.
 
 ## Model Experience
 

@@ -4,6 +4,8 @@
 
 dsh 浏览器表层组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 [`dsh-base`](../base/README.md) 之上，插入带认证的 Web 宿主行和浏览器插件名录、向操作员显示运行时 warning 与 error 的 Cordis 控制台 logger、始终挂载的客户端插件重载链（[`dsh-client-hmr`](../../client/hmr/README.md)）、每个 Web 组合都挂载的 [`dsh-harness-source`](../../context/harness-source/README.md) checkout 根路径上下文，以及本包的 `web-runtime` 粘合插件。该粘合插件解析已构建的前端 dist，只采样一次依赖 bind 的 LAN 信任信息并提供给请求信任栅栏和客户端名录，挂载 [`frontend-static`](../../host/frontend-static/README.md) fallback 所有者并把 `/auth/manage` 声明为显式 pathname 入口，在 `surfaceContext` 为 true 时注册 Web 表层动态上下文及 `DSH_WEB_URL`，并在 Loader 树结算后打印实际 HTTP 或 HTTPS URL。缺失资产与未声明 pathname 返回 404，而非浏览器壳。普通 `web-startup` 提供方（[`src/startup.ts`](src/startup.ts)）解析 `--host`、`--port`、可重复的 `--trusted-host`、成对的 `--tls-cert`／`--tls-key`、`--dangerously-skip-authentication` 与 `--help`，并在任何 listener 绑定前提供 `webStartup`。显式 `0.0.0.0` host 必须带 TLS 参数对，connection 插件会拒绝任何非回环 listener 上的认证 bypass。成功认证活动仍保留在 owner-only `$DSH_HOME/auth/access.jsonl` 审计中，不会重复输出到终端。[`dsh-headless`](../headless/README.md) 是同一 base 之上的同级表层，不挂载本组合包。
 
+设置分区“IM 机器人”由这些行支撑：`chat-adapters`、提供方行 `chat-telegram`（`bots: []`）与 `chat-feishu`（`apps: []`）、[`chat-manager`](../../chat/chat-manager/README.md)，以及浏览器行 `ui-settings-im`。提供方行只注册各自的平台描述符，机器人保存在管理器的注册表中。`chat-harniverse-client` 与 `chat-bridge` 没有对应的行，因为启用机器人时由管理器在 Host 进程内挂载它们。`dsh chat` 与管理器不得轮询同一个机器人。
+
 ## 模型体验
 
 ### Harness 源码与 Web 表层上下文

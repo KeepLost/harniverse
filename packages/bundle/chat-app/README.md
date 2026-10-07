@@ -12,6 +12,8 @@ The standalone IM chat bridge bundle. `dsh chat` boots this profile; it mounts n
 
 Platform tokens, the Grant id, and the signing key live in `$DSH_HOME/chat-bridge/credentials.yaml` (mode 0600); bridge state lives under `$DSH_HOME/chat-bridge/storage`. Both are separate from the web composition's storage. Edit the bridge and the platform rows through the profile patch; a patch replaces a row's whole config.
 
+The web Host can instead run the bridge in-process, with bots added from the Settings section "IM 机器人" ([`chat-manager`](../../chat/chat-manager/README.md)). That embedded bridge keeps its own credentials, storage, and pairings, and two processes polling one bot conflict, so run a given bot in one of the two.
+
 The run-only rows use the Loader's `disabled` key, which is evaluated once when a row is created and cannot see a service a sibling plugin publishes later. The shipped patch therefore reads the launcher's `cmdlineArgs` snapshot and enables them for exactly no arguments or `run`. The matching default-to-run rule is in `src/startup.ts`; keep the two in step.
 
 Its manifest declares `dsh.bundle.homeOwnership: "shared"`, so `init`, `status`, and `rotate-key` work while Web holds the home lease (see [profile ownership](../../boot/app-boot/README.md#profiles)).

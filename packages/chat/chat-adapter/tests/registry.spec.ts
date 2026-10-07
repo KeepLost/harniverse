@@ -2,8 +2,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import ChatAdapters, { ChatAdapterError, chatAdapterKey, type ChatAdapter } from '../src/index.ts'
+import ChatAdapters, { ChatAdapterError, chatAdapterKey, type ChatAdapter, type ChatPlatformDescriptor } from '../src/index.ts'
 import { stubAdapter } from './fixtures/stub-adapter.ts'
+import { stubDescriptor } from './fixtures/stub-descriptor.ts'
 
 async function registry(): Promise<Context> {
   const ctx = new Context()
@@ -75,6 +76,86 @@ describe('chatAdapters registry', () => {
     ctx.chatAdapters.register(stubAdapter('telegram', 'bot-1'))
     expect(() => { ctx.chatAdapters.register(stubAdapter('telegram', 'bot-1')) }).toThrow('already registered')
     expect(seen).toHaveLength(1)
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('chatAdapters platform registry', () => {
+  it('registers, reads, and removes a descriptor through the returned disposer', async () => {
+    const ctx = await registry()
+    const descriptor = stubDescriptor('telegram')
+    const dispose = ctx.chatAdapters.registerPlatform(descriptor)
+    expect(ctx.chatAdapters.platform('telegram')).toBe(descriptor)
+    expect(ctx.chatAdapters.platforms()).toEqual([descriptor])
+    dispose()
+    dispose()
+    expect(ctx.chatAdapters.platform('telegram')).toBeUndefined()
+    expect(ctx.chatAdapters.platforms()).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a duplicate platform id and keeps the first owner', async () => {
+    const ctx = await registry()
+    const first = stubDescriptor('telegram')
+    ctx.chatAdapters.registerPlatform(first)
+    expect(() => { ctx.chatAdapters.registerPlatform(stubDescriptor('telegram')) })
+      .toThrow('chatAdapters: platform telegram is already registered')
+    expect(ctx.chatAdapters.platform('telegram')).toBe(first)
+    await ctx.fiber.dispose()
+  })
+
+  it('preserves registration order and keeps platforms independent of adapters', async () => {
+    const ctx = await registry()
+    ctx.chatAdapters.registerPlatform(stubDescriptor('telegram'))
+    ctx.chatAdapters.registerPlatform(stubDescriptor('feishu'))
+    expect(ctx.chatAdapters.platforms().map(entry => entry.platform)).toEqual(['telegram', 'feishu'])
+    expect(ctx.chatAdapters.platform('slack')).toBeUndefined()
+    expect(ctx.chatAdapters.list()).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('allows re-registration after disposal', async () => {
+    const ctx = await registry()
+    ctx.chatAdapters.registerPlatform(stubDescriptor('telegram'))()
+    const second = stubDescriptor('telegram')
+    expect(() => { ctx.chatAdapters.registerPlatform(second) }).not.toThrow()
+    expect(ctx.chatAdapters.platform('telegram')).toBe(second)
+    await ctx.fiber.dispose()
+  })
+
+  it('emits registered after the entry is readable and unregistered after it is gone', async () => {
+    const ctx = await registry()
+    const seen: string[] = []
+    ctx.on('chat-platform/registered', (descriptor) => {
+      seen.push(`registered:${descriptor.platform}:${String(ctx.chatAdapters.platform(descriptor.platform) === descriptor)}`)
+    }, { global: true })
+    ctx.on('chat-platform/unregistered', (descriptor) => {
+      seen.push(`unregistered:${descriptor.platform}:${String(ctx.chatAdapters.platform(descriptor.platform) === undefined)}`)
+    }, { global: true })
+    ctx.chatAdapters.registerPlatform(stubDescriptor('telegram'))()
+    expect(seen).toEqual(['registered:telegram:true', 'unregistered:telegram:true'])
+    await ctx.fiber.dispose()
+  })
+
+  it('emits no registered event for a rejected duplicate', async () => {
+    const ctx = await registry()
+    const seen: ChatPlatformDescriptor[] = []
+    ctx.on('chat-platform/registered', (descriptor) => { seen.push(descriptor) }, { global: true })
+    ctx.chatAdapters.registerPlatform(stubDescriptor('telegram'))
+    expect(() => { ctx.chatAdapters.registerPlatform(stubDescriptor('telegram')) }).toThrow('already registered')
+    expect(seen).toHaveLength(1)
+    await ctx.fiber.dispose()
+  })
+
+  it('removes the descriptor when its registering fiber is disposed', async () => {
+    const ctx = await registry()
+    const fiber = await ctx.plugin({
+      inject: ['chatAdapters'],
+      apply(scope: Context) { scope.effect(() => scope.chatAdapters.registerPlatform(stubDescriptor('telegram'))) },
+    })
+    expect(ctx.chatAdapters.platform('telegram')).toBeDefined()
+    await fiber.dispose()
+    expect(ctx.chatAdapters.platform('telegram')).toBeUndefined()
     await ctx.fiber.dispose()
   })
 })

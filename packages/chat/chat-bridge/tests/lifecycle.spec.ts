@@ -114,6 +114,48 @@ describe('adapter run loops', () => {
     await vi.waitFor(() => { expect(dup.runs).toBe(1) })
   })
 
+  it('only reports a poll conflict when embedded and never requests exit', async () => {
+    const dup = new ScriptedAdapter({ botId: 'dup' })
+    dup.script = [() => Promise.reject(new ChatAdapterError('poll-conflict', 'fake', '409'))]
+    const h = await boot({ config: { embedded: true, members: [member()] } })
+    h.ctx.chatAdapters.register(dup)
+    await vi.waitFor(() => { expect(h.ctx.chatBridge.adapterState('fake', 'dup')?.state).toBe('conflict') })
+    await h.say('100', '/status')
+    expect(h.sent().at(-1)).toContain('Platform fake:dup: another instance is polling this bot; stopped')
+    expect(h.exits).toEqual([])
+  })
+
+  it('maps every adapter status to a run state and message, and forgets a detached adapter', async () => {
+    vi.useFakeTimers(FAKE_TIMERS)
+    const flaky = new ScriptedAdapter({ botId: 'flaky' })
+    flaky.script = [() => Promise.reject(new ChatAdapterError('network', 'fake', 'reset'))]
+    const bad = new ScriptedAdapter({ botId: 'bad' })
+    bad.script = [() => Promise.reject(new ChatAdapterError('auth-failed', 'fake', '401'))]
+    const dup = new ScriptedAdapter({ botId: 'dup' })
+    dup.script = [() => Promise.reject(new ChatAdapterError('poll-conflict', 'fake', '409'))]
+    const gone = new ScriptedAdapter({ botId: 'gone' })
+    gone.script = [() => Promise.resolve()]
+    const h = await boot({ config: { embedded: true, members: [member()] } })
+    const { chatBridge } = h.ctx
+    expect(chatBridge.adapterState('fake', 'missing')).toBeUndefined()
+    expect(chatBridge.adapterState('fake', 'fake-bot')).toEqual({ state: 'running' })
+    h.ctx.chatAdapters.register(flaky)
+    h.ctx.chatAdapters.register(bad)
+    const detach = h.ctx.chatAdapters.register(dup)
+    h.ctx.chatAdapters.register(gone)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(chatBridge.adapterState('fake', 'flaky')).toEqual({ state: 'reconnecting', message: 'platform connection interrupted, reconnecting' })
+    expect(chatBridge.adapterState('fake', 'bad')).toEqual({ state: 'credential-rejected', message: 'the platform credential is invalid, contact the owner' })
+    expect(chatBridge.adapterState('fake', 'dup')).toEqual({ state: 'conflict', message: 'another instance is polling this bot; stopped' })
+    expect(chatBridge.adapterState('fake', 'gone')).toEqual({ state: 'stopped' })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(chatBridge.adapterState('fake', 'flaky')).toEqual({ state: 'running' })
+    await h.say('100', '/status')
+    expect(h.sent().at(-1)).toContain('Platform fake:gone: stopped')
+    detach()
+    expect(chatBridge.adapterState('fake', 'dup')).toBeUndefined()
+  })
+
   it('stays quiet when an adapter fails while it is being stopped', async () => {
     const stubborn = new ScriptedAdapter({ botId: 'stubborn' })
     stubborn.stopFails = true

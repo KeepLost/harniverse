@@ -20,6 +20,13 @@ export const UNARY_ENDPOINTS = {
   'session.workStatus': { mutating: false, value: z.looseObject({ messageId: z.string(), status: messageState }) },
   'session.models': { mutating: false, value: z.looseObject({ current: z.looseObject({ provider: z.string(), model: z.string() }), groups: z.array(z.looseObject({ id: z.string(), name: z.string(), models: z.array(z.looseObject({ id: z.string(), name: z.string() })) })) }) },
   'session.selectModel': { mutating: true, value: z.looseObject({ selected: z.looseObject({ provider: z.string(), model: z.string() }) }) },
+  'session.selectModelTarget': {
+    mutating: true,
+    value: z.looseObject({
+      target: z.looseObject({ kind: z.string() }),
+      selected: z.looseObject({ provider: z.string(), model: z.string() }),
+    }),
+  },
   'session.rename': { mutating: true, value: z.looseObject({ title: z.string(), seq: z.number() }) },
   'session.prompt': { mutating: true, value: z.looseObject({ accepted: z.literal(true), messageId: z.string(), operationId: z.string() }) },
   'session.updateQueue': { mutating: true, value: z.looseObject({ accepted: z.literal(true), messageId: z.string(), status: messageState }) },

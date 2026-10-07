@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/chat/chat-harniverse-client/README.md
-README.md: d9e6bf285579e065233ff5dff82f7c727ee28992
-README.zh.md: 41535d20359adfacf1143a3dd34ebd75f30202a9
+README.md: 60e1f02838224cfada965b63e61be11933fdbe43
+README.zh.md: 64a2adb02a9389c91b0e4dd640098a04c9cf5ce2

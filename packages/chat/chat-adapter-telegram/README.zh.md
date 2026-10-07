@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-统一聊天适配器注册表（[契约](../chat-adapter/README.md)）的 Telegram 提供方。它是函数插件（`name`、`inject`、`Config`、`apply`，无默认导出），注入 `chatAdapters` 和 `credentials`，并为每个已配置的机器人注册一个适配器。它通过纯 `fetch` 调用 Bot API，不依赖第三方 SDK，以 `getUpdates` 向外轮询，不需要公网入口。请求构造、错误元数据和提及处理按 MIT 许可从 dsh-im 移植（[声明](../../../THIRD_PARTY_NOTICES.md)）。
+统一聊天适配器注册表（[契约](../chat-adapter/README.md)）的 Telegram 提供方。它是函数插件（`name`、`inject`、`Config`、`apply`，无默认导出），注入 `chatAdapters` 和 `credentials`，注册 Telegram 平台描述符，并为每个已配置的机器人注册一个适配器。它通过纯 `fetch` 调用 Bot API，不依赖第三方 SDK，以 `getUpdates` 向外轮询，不需要公网入口。请求构造、错误元数据和提及处理按 MIT 许可从 dsh-im 移植（[声明](../../../THIRD_PARTY_NOTICES.md)）。
 
 ## 配置
 
@@ -12,7 +12,20 @@
 | `bots[].pollTimeoutSeconds` | number | `25` | 服务端长轮询等待时间，1 到 50。 |
 | `bots[].baseUrl` | string | `https://api.telegram.org/` | Bot API origin。 |
 
-挂载时会解析每个 token 一次：凭据缺失或值不是机器人 token 会使挂载失败，数字前缀成为适配器的 `botId`。此后每次请求都会重新解析凭据，因此轮换后的 token 无需重启即可用于下一个请求。
+`bots: []` 是合法配置，只注册平台描述符。挂载时会解析每个 token 一次：凭据缺失或值不是机器人 token 会使挂载失败，数字前缀成为适配器的 `botId`。此后每次请求都会重新解析凭据，因此轮换后的 token 无需重启即可用于下一个请求。
+
+## 平台描述符
+
+行挂载时，`telegramDescriptor`（`platform: telegram`，label 为 `Telegram`）经 `ctx.chatAdapters.registerPlatform` 注册，因此宿主无需 `bots` 条目即可列出、校验和挂载 Telegram 机器人。它声明两个字段：
+
+| 字段 | Secret | 说明 |
+|---|---|---|
+| `token` | 是 | 必填。来自 @BotFather 的机器人 token。 |
+| `baseUrl` | 否 | 可选的 Bot API origin；留空使用 `https://api.telegram.org/`。必须是 http(s) URL。 |
+
+`probe` 先在发出任何请求之前，以 `auth-failed` 拒绝不是机器人 token 的值，再经与适配器相同的客户端和传输调用 `getMe`。`botId` 解析为 token 的数字前缀，`displayName` 解析为机器人的名字，否则为 `@username`，再否则为 `botId`。失败的分类与轮询一致：401 为 `auth-failed`，429 为 `rate-limited`，其余（包括中止，以及不是 http(s) URL 的 `baseUrl`）为 `network`。token 从不出现在错误消息中。
+
+`mount` 是 `bots` 列表中单个机器人的挂载过程。token 从 `secretRefs.token` 指名的凭据解析，失败情形同上，另加缺少 `secretRefs.token`；`pollTimeoutSeconds` 取默认值 `25`。
 
 ## 行为
 
@@ -34,9 +47,11 @@
 | 发送时的其他失败 | `send-failed` |
 | 编辑时的其他失败 | `edit-failed` |
 
+`probe` 的分类与轮询一致。不是机器人 token 的值为 `auth-failed`。
+
 ## 测试状态
 
-该适配器仅通过由录制形状夹具驱动的伪 Bot API 和真实 Loader 组合验证；从未使用真实的机器人 token。要启用它：把 token 存入凭据提供方（`dsh chat init` 会写出模板），在桥的 profile patch 中设置 `bots: [{ tokenRef: <name> }]`，启动 `dsh chat`，并在与机器人的私聊中配对 owner。机器人不能联系尚未启动它的用户。
+该适配器与描述符仅通过由录制形状夹具驱动的伪 Bot API 和真实 Loader 组合验证（组合中由一个替身宿主探测并挂载受管机器人）；从未使用真实的机器人 token。要启用它：把 token 存入凭据提供方（`dsh chat init` 会写出模板），在桥的 profile patch 中设置 `bots: [{ tokenRef: <name> }]`，启动 `dsh chat`，并在与机器人的私聊中配对 owner。机器人不能联系尚未启动它的用户。
 
 ## Model Experience
 

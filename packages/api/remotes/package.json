@@ -56,6 +56,7 @@
     "lib/types/**/*.d.ts"
   ],
   "dependencies": {
+    "@deepseek-ai/dsh-chat-manager": "workspace:^",
     "@deepseek-ai/dsh-governor": "workspace:^",
     "@deepseek-ai/dsh-queue": "workspace:^",
     "@deepseek-ai/dsh-remote-hosts": "workspace:^",
@@ -67,6 +68,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-presets": "workspace:^",
     "@deepseek-ai/dsh-api-gateway": "workspace:^",
+    "@deepseek-ai/dsh-chat-manager": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:^",
     "@deepseek-ai/dsh-credentials": "workspace:^",

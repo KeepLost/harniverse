@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/chat/chat-adapter-telegram/README.md
-README.md: 5fbccc1c45a710bb01e8560934344f458e8b0c57
-README.zh.md: 695d30fb8b8aae169e7156ad338b4dbc1c1703ae
+README.md: e7daefbe787ac6c814930364ad509d36da91428c
+README.zh.md: 1eedb41d364d6c677d172e31f5f3f42e4e39322b

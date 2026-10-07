@@ -47,7 +47,19 @@ Adapters throw `ChatAdapterError` with a closed `code`; the bridge maps each cod
 
 `get(platform, botId)` and `list()` read the live set. The registry emits `chat-adapter/registered` after an entry is readable and `chat-adapter/unregistered` after it is gone; a consumer subscribes to these to start and stop each adapter's `run` loop.
 
-Platform providers are function plugins that export `name`, `inject`, `Config`, and `apply` and inject `chatAdapters`: [`chat-adapter-telegram`](../chat-adapter-telegram/README.md), [`chat-adapter-feishu`](../chat-adapter-feishu/README.md), and the test-support [`chat-adapter-fake`](../../test-support/chat-adapter-fake/README.md).
+Platform providers are function plugins that export `name`, `inject`, `Config`, and `apply`, inject `chatAdapters`, and register their platform descriptor: [`chat-adapter-telegram`](../chat-adapter-telegram/README.md), [`chat-adapter-feishu`](../chat-adapter-feishu/README.md), and the test-support [`chat-adapter-fake`](../../test-support/chat-adapter-fake/README.md).
+
+## Platform descriptors
+
+A provider also tells hosts how to connect a bot of its platform, so a host stays generic over platforms and holds no platform names. `ChatPlatformDescriptor` carries the `platform` id, a Chinese `label` for the channel, the `fields` a user fills in, `probe`, and `mount`. The package root exports the types.
+
+| Member | Contract |
+|---|---|
+| `fields` | `ChatPlatformField` entries: `key`, Chinese `label`, `secret`, `required`, and optional `placeholder`, `hint`, and a closed `options` list that a UI renders as a select. A secret field is stored as a credential and never returned to a browser. |
+| `probe(values, signal)` | Validates a complete set of typed field values, secrets included, with one platform call, and resolves the `ChatBotIdentity` (`botId`, `displayName`). Rejects with `ChatAdapterError`: `auth-failed` for rejected or malformed credentials, `network` for an unreachable platform or an aborted call. Never logs or echoes a secret. |
+| `mount(ctx, bot)` | Registers exactly one adapter for a `ChatManagedBot` in the caller's scope. `bot.values` holds the non-secret field values and `bot.secretRefs` the credential name of each secret field. Resolves the secrets from `ctx.credentials`, throws while one is unset or malformed, and installs with `ctx.effect(() => ctx.chatAdapters.register(adapter))`, so disposing the caller's scope removes the adapter. |
+
+`registerPlatform(descriptor)` returns the Cordis effect disposer and throws when the platform id is already registered. `platforms()` lists descriptors in registration order and `platform(id)` reads one. The registry emits `chat-platform/registered` after a descriptor is readable and `chat-platform/unregistered` after it is gone. The package invariant checks that each platform id is live at most once and readable exactly while its events say so.
 
 ## Model Experience
 
@@ -62,4 +74,5 @@ None; the registry performs no model request.
 - Attachments are fetched whole through `fetchAttachment`; the contract has no resumable or partial download.
 - `ChatRoute` carries one optional `threadId`; platforms with nested threads flatten to their outermost thread.
 - The registry is per process and holds no durable state; the bridge persists conversation state itself.
+- `ChatAdapterErrorCode` has no code for invalid non-credential input, so a provider reports a malformed address or site from `probe` as `network` with an explanatory message.
 - No reaction, voice, or location inbound event exists; adding one requires a new closed `ChatInbound` variant and consumer handling.

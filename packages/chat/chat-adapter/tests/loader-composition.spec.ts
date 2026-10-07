@@ -10,6 +10,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import ChatAdapters from '../src/index.ts'
 import { apply, inject, name } from './fixtures/mount-provider.ts'
+import * as platformProvider from './fixtures/platform-provider.ts'
 
 let root: string | undefined
 let context: Context | undefined
@@ -32,6 +33,7 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-chat-adapter', ChatAdapters],
     ['stub-adapter-provider', { name, inject, apply }],
+    ['stub-platform-provider', { name: platformProvider.name, inject: platformProvider.inject, apply: platformProvider.apply }],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -49,6 +51,10 @@ const registryRow = "- name: '@deepseek-ai/dsh-chat-adapter'"
 
 function providerRows(botId: string): string[] {
   return ['- name: stub-adapter-provider', '  config:', '    platform: telegram', `    botId: ${botId}`]
+}
+
+function platformRow(platform: string): string[] {
+  return ['- name: stub-platform-provider', '  config:', `    platform: ${platform}`]
 }
 
 describe('real Loader composition', () => {
@@ -72,5 +78,25 @@ describe('real Loader composition', () => {
   it('fails the Loader load when a second row mounts the same platform:botId', async () => {
     await expect(loadYaml([registryRow, ...providerRows('clash'), ...providerRows('clash')]))
       .rejects.toThrow('already registered')
+  })
+
+  it('exposes platform descriptors from provider rows in row order', async () => {
+    const loaded = await loadYaml([registryRow, ...platformRow('telegram'), ...platformRow('feishu'), ...providerRows('bot-1')])
+    expect(loaded.chatAdapters.platforms().map(entry => entry.platform)).toEqual(['telegram', 'feishu'])
+    expect(loaded.chatAdapters.platform('feishu')?.label).toBe('feishu')
+    expect(loaded.chatAdapters.list().map(entry => entry.botId)).toEqual(['bot-1'])
+  })
+
+  it('removes the descriptor when the provider fiber is disposed', async () => {
+    const loaded = await loadYaml([registryRow, ...platformRow('telegram')])
+    expect(loaded.chatAdapters.platform('telegram')).toBeDefined()
+    const entry = [...loaded.loader.entries()].find(candidate => candidate.options.name === 'stub-platform-provider')
+    await entry!.fiber!.dispose()
+    expect(loaded.chatAdapters.platform('telegram')).toBeUndefined()
+  })
+
+  it('fails the Loader load when a second row registers the same platform', async () => {
+    await expect(loadYaml([registryRow, ...platformRow('telegram'), ...platformRow('telegram')]))
+      .rejects.toThrow('platform telegram is already registered')
   })
 })

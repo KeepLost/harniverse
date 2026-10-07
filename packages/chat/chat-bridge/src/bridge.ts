@@ -6,7 +6,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import {
   ChatAdapterError, chatAdapterKey,
   type ChatAdapter, type ChatInbound, type ChatInboundSink, type ChatRoute,
@@ -26,6 +26,7 @@ import type { BridgeClient } from './ports.ts'
 import { KeyedQueue, conversationKey } from './router.ts'
 import type { BridgeState, BridgeSessionRecord } from './state.ts'
 import { TurnRenderer } from './turns.ts'
+import type { AdapterStatus, BotSettingsProvider, ChatBotSettings, ChatBridgeService, OwnerView } from './types.ts'
 import { assertNever } from './never.ts'
 import { truncate, withSenderPrefix } from './render.ts'
 
@@ -89,7 +90,8 @@ export class Bridge {
   private readonly queue: KeyedQueue
   private readonly live = new Map<string, LiveSession>()
   private readonly runners = new Map<string, { controller: AbortController; adapter: ChatAdapter; done: Promise<void> }>()
-  private readonly adapterStatus = new Map<string, string>()
+  private readonly adapterStatus = new Map<string, AdapterStatus>()
+  private readonly botSettingProviders = new Set<{ provider: BotSettingsProvider }>()
   private readonly muxes = new Map<string, HarniverseMux>()
   private readonly muxStates = new Map<string, MuxState>()
   private readonly cursors = new Map<string, Record<string, number>>()
@@ -174,26 +176,27 @@ export class Bridge {
     let failures = 0
     const stopped = (): boolean => signal.aborted
     while (!stopped()) {
-      this.adapterStatus.set(key, 'running')
+      this.adapterStatus.set(key, { state: 'running' })
       const startedAt = Date.now()
       try {
         await adapter.run(sink, signal)
+        if (!stopped()) this.adapterStatus.set(key, { state: 'stopped' })
         return
       } catch (error) {
         if (stopped()) return
         const code = error instanceof ChatAdapterError ? error.code : 'network'
         if (code === 'auth-failed') {
-          this.adapterStatus.set(key, 'the platform credential is invalid, contact the owner')
+          this.adapterStatus.set(key, { state: 'credential-rejected', message: 'the platform credential is invalid, contact the owner' })
           this.o.log.warn(`adapter ${key} stopped: credential rejected`, error)
           return
         }
         if (code === 'poll-conflict') {
-          this.adapterStatus.set(key, 'another instance is polling this bot; stopped')
+          this.adapterStatus.set(key, { state: 'conflict', message: 'another instance is polling this bot; stopped' })
           this.o.log.warn(`adapter ${key} stopped: another instance is polling this bot`, error)
           this.o.exit?.(1)
           return
         }
-        this.adapterStatus.set(key, 'platform connection interrupted, reconnecting')
+        this.adapterStatus.set(key, { state: 'reconnecting', message: 'platform connection interrupted, reconnecting' })
         if (Date.now() - startedAt >= HEALTHY_RUN_MS) failures = 0
         const wait = code === 'rate-limited' && error instanceof ChatAdapterError
           ? error.retryAfterMs ?? 0
@@ -434,7 +437,10 @@ export class Bridge {
     if (grant === undefined) {
       await this.messenger.reply(adapter, event.route, 'That pairing code is not valid or has expired.')
     } else if (grant.kind === 'owner') {
-      await members.put(key, { role: 'owner', pairedAt: Date.now() })
+      await members.put(key, {
+        role: 'owner', pairedAt: Date.now(),
+        ...event.sender.displayName === undefined ? {} : { displayName: event.sender.displayName },
+      })
       this.o.log.info(`chat-bridge: ${key} paired as owner`)
       await this.messenger.reply(adapter, event.route, 'Paired as owner. Send /help for the commands.')
     } else if (member === undefined || member.platform !== adapter.platform || member.userId !== undefined || taken) {
@@ -502,13 +508,13 @@ export class Bridge {
     return [
       `${actor.key} - ${actor.role}${actor.memberId === undefined ? '' : ` ${actor.memberId}`}`,
       `Workspace: ${binding?.workspace ?? actor.workspaces[0] ?? '(default)'}`,
-      `Profile: ${actor.agentProfile ?? '(default)'}`,
+      `Profile: ${this.profileFor(h) ?? '(default)'}`,
       `Isolation: ${actor.remoteHost === undefined ? 'this host' : 'remote host'}`,
     ].join('\n')
   }
 
   private async status(h: Handling): Promise<string> {
-    const lines = [...this.adapterStatus].map(([key, status]) => `Platform ${key}: ${status}`)
+    const lines = [...this.adapterStatus].map(([key, status]) => `Platform ${key}: ${status.message ?? status.state}`)
     for (const [stream, state] of this.muxStates) lines.push(`Harniverse events (${stream}): ${state}`)
     try {
       const host = await this.o.client.describeHost(h.actor.remoteHost === undefined ? {} : { remoteHost: h.actor.remoteHost })
@@ -542,12 +548,36 @@ export class Bridge {
 
   private isolated(h: Handling, record: BridgeSessionRecord): boolean {
     const { actor } = h
-    return record.agentProfile === actor.agentProfile && record.remoteHost === actor.remoteHost
+    // Bot defaults only shape sessions created later, so an owner without a configured Preset accepts any session Preset.
+    const presetFree = actor.role === 'owner' && actor.agentProfile === undefined
+    return (presetFree || record.agentProfile === actor.agentProfile) && record.remoteHost === actor.remoteHost
       && (record.workspace === undefined || actor.workspaces.includes(record.workspace))
   }
 
+  /** Bot defaults for the adapter that received the message; members never read them. */
+  private botSettings(h: Handling): ChatBotSettings | undefined {
+    if (h.actor.role !== 'owner') return undefined
+    for (const { provider } of this.botSettingProviders) {
+      const settings = provider(h.adapter.platform, h.adapter.botId)
+      if (settings !== undefined) return settings
+    }
+    return undefined
+  }
+
+  /** The Agent Preset a new session of this sender starts with. */
+  private profileFor(h: Handling): string | undefined {
+    return h.actor.agentProfile ?? this.botSettings(h)?.agentProfile
+  }
+
+  private botWorkspace(settings: ChatBotSettings | undefined): string | undefined {
+    const workspace = settings?.workspace
+    if (workspace === undefined || isAbsolute(workspace)) return workspace
+    this.o.log.warn(`ignoring the bot workspace ${JSON.stringify(workspace)}: it is not an absolute path`)
+    return undefined
+  }
+
   private async newCommand(h: Handling, profile: string): Promise<string> {
-    if (profile !== '' && profile !== h.actor.agentProfile) return 'That profile is not available to you.'
+    if (profile !== '' && profile !== this.profileFor(h)) return 'That profile is not available to you.'
     const live = await this.createSession(h)
     return `Started a new session (...${live.record.sessionId.slice(-8)}).`
   }
@@ -555,6 +585,8 @@ export class Bridge {
   private async createSession(h: Handling): Promise<LiveSession> {
     const { actor, adapter, event } = h
     const { config, state } = this.o
+    const settings = this.botSettings(h)
+    const profile = actor.agentProfile ?? settings?.agentProfile
     const bindings = state.table('bindings')
     const previous = bindings.get(h.conversation)
     const workspace = previous?.workspace !== undefined && actor.workspaces.includes(previous.workspace)
@@ -562,21 +594,21 @@ export class Bridge {
       : actor.workspaces[0]
     // Every alias an actor may use was validated against `workspaceAliases` at load time.
     const aliased = workspace === undefined ? undefined : config.workspaceAliases[workspace]
-    const cwd = aliased ?? join(expandHomePath(config.imRoot), actor.role === 'owner' ? 'owner' : join('members', actor.label))
+    const cwd = aliased ?? this.botWorkspace(settings) ?? join(expandHomePath(config.imRoot), actor.role === 'owner' ? 'owner' : join('members', actor.label))
     const sessionId = `chat-${randomUUID()}`
     const record: BridgeSessionRecord = {
       sessionId, ownerKey: actor.key, botId: adapter.botId, platform: adapter.platform,
       route: event.route, cwd, createdAt: Date.now(),
       ...workspace === undefined ? {} : { workspace },
       ...actor.remoteHost === undefined ? {} : { remoteHost: actor.remoteHost },
-      ...actor.agentProfile === undefined ? {} : { agentProfile: actor.agentProfile },
+      ...profile === undefined ? {} : { agentProfile: profile },
     }
     // The bridge state is written before the API call so a crash in between can be replayed with the same id.
     await state.table('sessions').put(sessionId, record)
     await bindings.put(h.conversation, { sessionId, ...workspace === undefined ? {} : { workspace } })
     try {
       await this.o.client.call('session.create', {
-        sessionId, cwd, ...actor.agentProfile === undefined ? {} : { agentProfile: actor.agentProfile },
+        sessionId, cwd, ...profile === undefined ? {} : { agentProfile: profile },
       }, {
         idempotencyKey: this.idempotencyKey(adapter, event.messageId),
         ...actor.remoteHost === undefined ? {} : { remoteHost: actor.remoteHost },
@@ -589,7 +621,25 @@ export class Bridge {
     }
     const live = liveSession(record)
     this.live.set(sessionId, live)
+    if (settings?.model !== undefined) await this.selectBotModel(h, live, settings.model)
     return live
+  }
+
+  /**
+   * Select the bot's model for the session just created and for that session only; unlike `session.selectModel`
+   * it never changes the Host's shared default model. A failure leaves the session on its own model.
+   */
+  private async selectBotModel(h: Handling, live: LiveSession, model: NonNullable<ChatBotSettings['model']>): Promise<void> {
+    const { sessionId } = live.record
+    const { provider, model: id, reasoningEffort } = model
+    try {
+      await this.o.client.call('session.selectModelTarget', {
+        sessionId,
+        target: { kind: 'model', selection: { provider, model: id, ...reasoningEffort === undefined ? {} : { reasoningEffort } } },
+      }, { idempotencyKey: this.idempotencyKey(h.adapter, `${h.event.messageId}:default-model`), ...this.remote(live) })
+    } catch (error) {
+      this.o.log.warn(`applying the default model to session ${sessionId} failed`, error)
+    }
   }
 
   /** The session this conversation talks to, creating one when none fits. */
@@ -756,6 +806,56 @@ export class Bridge {
     }
     await groups.delete(key)
     return 'This group is no longer connected.'
+  }
+
+  // ---- management service ----
+
+  /**
+   * The management surface `ctx.chatBridge` exposes.
+   * @returns a service bound to this bridge.
+   */
+  service(): ChatBridgeService {
+    return {
+      adapterState: (platform, botId) => this.adapterStatus.get(chatAdapterKey(platform, botId)),
+      issueOwnerCode: () => this.issueOwnerCode(),
+      owners: () => this.ownerViews(),
+      unpairOwner: key => this.unpairOwner(key),
+      useBotSettings: provider => this.useBotSettings(provider),
+    }
+  }
+
+  private useBotSettings(provider: BotSettingsProvider): () => void {
+    const entry = { provider }
+    this.botSettingProviders.add(entry)
+    return () => { this.botSettingProviders.delete(entry) }
+  }
+
+  private async issueOwnerCode(): Promise<{ code: string; expiresAt: number }> {
+    const expiresAt = Date.now() + this.o.config.pairing.ownerCodeTtlMs
+    return { code: await issueCode(this.o.state.table('codes'), { kind: 'owner', expiresAt }), expiresAt }
+  }
+
+  private ownerViews(): OwnerView[] {
+    const configured = this.o.config.owners.map(({ platform, userId }): OwnerView => (
+      { key: identityKey(platform, userId), platform, userId, pairedAt: 0 }
+    ))
+    const taken = new Set(configured.map(view => view.key))
+    const paired = [...this.o.state.table('members').entries()].flatMap(([key, binding]): OwnerView[] => {
+      if (binding.role !== 'owner' || taken.has(key)) return []
+      const split = key.indexOf(':')
+      return [{
+        key, platform: key.slice(0, split), userId: key.slice(split + 1), pairedAt: binding.pairedAt,
+        ...binding.displayName === undefined ? {} : { displayName: binding.displayName },
+      }]
+    })
+    return [...configured, ...paired]
+  }
+
+  private async unpairOwner(key: string): Promise<boolean> {
+    const { config, state } = this.o
+    if (config.owners.some(owner => identityKey(owner.platform, owner.userId) === key)) return false
+    const members = state.table('members')
+    return members.get(key)?.role === 'owner' && await members.delete(key)
   }
 
   // ---- prompts ----

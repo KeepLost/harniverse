@@ -123,6 +123,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The client is the only package that calls /api for the chat bridge: it signs in with the operator Grant, keeps the event stream, and refuses requests outside its closed endpoint table.',
   },
   {
+    key: 'chatBridge',
+    pkg: 'chat-bridge',
+    title: 'Embedded chat bridge control surface',
+    mode: 'core',
+    consumers: ['chat-manager'],
+    note: 'The bridge owns pairing codes, owner bindings, and the per-bot defaults applied to owner sessions; the manager reads and drives them while it embeds the bridge in the host.',
+  },
+  {
+    key: 'chatManager',
+    pkg: 'chat-manager',
+    title: 'Settings-managed chat bots',
+    mode: 'core',
+    consumers: ['ui-settings-im'],
+    note: 'The manager owns the bot registry, write-only secrets, the bridge Grant, and the lifecycle of the embedded bridge and its per-bot platform scopes; the settings page only calls its Remote methods.',
+  },
+  {
     key: 'speech',
     pkg: 'speech',
     title: 'Speech recognition',

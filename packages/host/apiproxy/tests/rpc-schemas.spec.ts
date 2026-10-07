@@ -118,6 +118,15 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'idempotency-key-reused', message: 'm', details: { key: 'k' } }).code).toBe('idempotency-key-reused')
   })
 
+  it('carries the chat-bot management failure reason on the closed vocabulary', () => {
+    const failure = { code: 'chat-bot-failed', message: '这个机器人已经添加过了', details: { reason: 'duplicate-bot' } }
+    expect(rpcErrorSchema.parse(failure)).toEqual(failure)
+    expect(serverResponseSchema.parse({
+      type: 'server-response', rpcId: 'r1', result: { ok: false, error: failure }, authentication: { kind: 'bypass' },
+    }).result).toEqual({ ok: false, error: failure })
+    expect(() => rpcErrorSchema.parse({ code: 'chat-bot-failed', message: 'm', details: {} })).toThrow()
+  })
+
   it('rejects a known code with missing details', () => {
     expect(() => rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: {} })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: {} })).toThrow()

@@ -133,6 +133,31 @@ describe('unary calls', () => {
     expect(envelope(carrier.to('/api/session.prompt')[0]!).rpcId).toBe('rpc-chosen')
   })
 
+  it('sets the model of one session through selectModelTarget as an idempotent mutation', async () => {
+    const { client, carrier } = await boot()
+    const target = { kind: 'model', selection: { provider: 'p', model: 'm', reasoningEffort: 'high' } }
+    const value = { target, selected: { provider: 'p', model: 'm', reasoningEffort: 'high' } }
+    carrier.ok('POST /api/host.describe', HOST)
+    carrier.ok('POST /api/session.selectModelTarget', value)
+    const result = await client.call('session.selectModelTarget', { sessionId: 's1', target }, { idempotencyKey: 'key-model' })
+    expect(result.selected).toMatchObject({ provider: 'p', model: 'm' })
+    expect(result.target.kind).toBe('model')
+    const request = carrier.to('/api/session.selectModelTarget')[0]!
+    expect(request.headers.get('idempotency-key')).toBe('key-model')
+    expect(envelope(request)).toMatchObject({
+      type: 'client-request', method: 'session.selectModelTarget', payload: { sessionId: 's1', target }, expectedPrincipal: carrier.identity,
+    })
+  })
+
+  it('rejects a selectModelTarget value without a target kind or a selected model', async () => {
+    const { client, carrier } = await boot()
+    carrier.ok('POST /api/host.describe', HOST)
+    carrier.ok('POST /api/session.selectModelTarget', { target: {}, selected: { provider: 'p', model: 'm' } })
+    expect(await failure(client.call('session.selectModelTarget', { sessionId: 's1' }))).toMatchObject({ code: 'protocol-violation' })
+    carrier.ok('POST /api/session.selectModelTarget', { target: { kind: 'model' }, selected: { provider: 'p' } })
+    expect(await failure(client.call('session.selectModelTarget', { sessionId: 's1' }))).toMatchObject({ code: 'protocol-violation' })
+  })
+
   it('omits Idempotency-Key when the caller supplies none', async () => {
     const { client, carrier } = await boot()
     carrier.ok('POST /api/host.describe', HOST)

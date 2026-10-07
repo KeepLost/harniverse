@@ -9,15 +9,19 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import { chatAdapterKey } from './key.ts'
-import type { ChatAdapter, ChatPlatformId } from './types.ts'
+import type { ChatAdapter, ChatPlatformDescriptor, ChatPlatformId } from './types.ts'
 
 export type {
   ChatAdapter,
   ChatAdapterCapabilities,
   ChatAttachmentRef,
+  ChatBotIdentity,
   ChatIdentity,
   ChatInbound,
   ChatInboundSink,
+  ChatManagedBot,
+  ChatPlatformDescriptor,
+  ChatPlatformField,
   ChatPlatformId,
   ChatRoute,
   InteractionPrompt,
@@ -47,16 +51,30 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'chat-adapter/unregistered'(adapter: ChatAdapter): void
+    /**
+     * A platform descriptor became resolvable in the registry.
+     * @param descriptor - the registered descriptor.
+     * @mode emit
+     */
+    'chat-platform/registered'(descriptor: ChatPlatformDescriptor): void
+    /**
+     * A platform descriptor left the registry.
+     * @param descriptor - the descriptor that no longer resolves.
+     * @mode emit
+     */
+    'chat-platform/unregistered'(descriptor: ChatPlatformDescriptor): void
   }
 }
 
 /**
  * The chat adapter registry. Owns the set of mounted adapters keyed by
- * `platform:botId`; a duplicate key fails loud and every registration's
- * disposer removes exactly its own entry.
+ * `platform:botId` and the platform descriptors keyed by platform id; a
+ * duplicate key fails loud and every registration's disposer removes exactly
+ * its own entry.
  */
 export default class ChatAdapters extends Service {
   private readonly adapters = new Map<string, ChatAdapter>()
+  private readonly descriptors = new Map<ChatPlatformId, ChatPlatformDescriptor>()
 
   constructor(ctx: Context) {
     super(ctx, 'chatAdapters')
@@ -100,5 +118,44 @@ export default class ChatAdapters extends Service {
    */
   list(): readonly ChatAdapter[] {
     return [...this.adapters.values()]
+  }
+
+  /**
+   * Register one platform descriptor for the lifetime of the calling effect
+   * scope. `chat-platform/registered` fires after the entry is readable and
+   * `chat-platform/unregistered` after it is gone.
+   * @param descriptor - the platform's fields, probe, and mount.
+   * @returns the exact Cordis effect disposer; calling it twice is harmless.
+   * @throws when the platform id is already registered.
+   */
+  registerPlatform(descriptor: ChatPlatformDescriptor): () => void {
+    const id = descriptor.platform
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    return this.ctx.effect(function* (this: ChatAdapters) {
+      if (this.descriptors.has(id)) throw new Error(`chatAdapters: platform ${id} is already registered`)
+      this.descriptors.set(id, descriptor)
+      yield () => {
+        this.descriptors.delete(id)
+        this.ctx.emit('chat-platform/unregistered', descriptor)
+      }
+      this.ctx.emit('chat-platform/registered', descriptor)
+    }.bind(this), 'chatAdapters.registerPlatform()')
+  }
+
+  /**
+   * Snapshot every registered platform descriptor.
+   * @returns descriptors in registration order.
+   */
+  platforms(): readonly ChatPlatformDescriptor[] {
+    return [...this.descriptors.values()]
+  }
+
+  /**
+   * Read one registered platform descriptor.
+   * @param id - platform id.
+   * @returns the descriptor, or undefined while unregistered.
+   */
+  platform(id: ChatPlatformId): ChatPlatformDescriptor | undefined {
+    return this.descriptors.get(id)
   }
 }

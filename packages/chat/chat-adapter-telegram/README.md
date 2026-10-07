@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The Telegram provider for the unified chat adapter registry ([contract](../chat-adapter/README.md)). It is a function plugin (`name`, `inject`, `Config`, `apply`, no default export) that injects `chatAdapters` and `credentials` and registers one adapter per configured bot. It speaks the Bot API over plain `fetch` with no third-party SDK, polls outward with `getUpdates`, and needs no public ingress. The request shaping, error metadata, and mention handling are ported from dsh-im under the MIT License ([notice](../../../THIRD_PARTY_NOTICES.md)).
+The Telegram provider for the unified chat adapter registry ([contract](../chat-adapter/README.md)). It is a function plugin (`name`, `inject`, `Config`, `apply`, no default export) that injects `chatAdapters` and `credentials`, registers the Telegram platform descriptor, and registers one adapter per configured bot. It speaks the Bot API over plain `fetch` with no third-party SDK, polls outward with `getUpdates`, and needs no public ingress. The request shaping, error metadata, and mention handling are ported from dsh-im under the MIT License ([notice](../../../THIRD_PARTY_NOTICES.md)).
 
 ## Config
 
@@ -12,7 +12,20 @@ The Telegram provider for the unified chat adapter registry ([contract](../chat-
 | `bots[].pollTimeoutSeconds` | number | `25` | Server-side long-poll wait, 1 to 50. |
 | `bots[].baseUrl` | string | `https://api.telegram.org/` | Bot API origin. |
 
-Mounting resolves each token once: a missing credential or a value that is not a bot token fails the mount, and the numeric prefix becomes the adapter's `botId`. Afterwards every request resolves the credential again, so a rotated token applies to the next request without a restart.
+`bots: []` is valid and registers only the platform descriptor. Mounting resolves each token once: a missing credential or a value that is not a bot token fails the mount, and the numeric prefix becomes the adapter's `botId`. Afterwards every request resolves the credential again, so a rotated token applies to the next request without a restart.
+
+## Platform descriptor
+
+`telegramDescriptor` (`platform: telegram`, label `Telegram`) is registered through `ctx.chatAdapters.registerPlatform` when the row mounts, so a host can list, validate, and mount Telegram bots without a `bots` entry. It declares two fields:
+
+| Field | Secret | Notes |
+|---|---|---|
+| `token` | yes | Required. The bot token from @BotFather. |
+| `baseUrl` | no | Optional Bot API origin; blank selects `https://api.telegram.org/`. Must be an http(s) URL. |
+
+`probe` rejects a value that is not a bot token with `auth-failed` before any request, then calls `getMe` through the same client and transport as the adapter. It resolves `botId` as the token's numeric prefix and `displayName` as the bot's first name, else `@username`, else the `botId`. Failures classify as for polling: 401 is `auth-failed`, 429 is `rate-limited`, and anything else, including an abort and a `baseUrl` that is not an http(s) URL, is `network`. The token never appears in an error message.
+
+`mount` is the per-bot body of the `bots` list. The token resolves from the credential named by `secretRefs.token`, with the same failures as above plus a missing `secretRefs.token`; `pollTimeoutSeconds` is the `25` default.
 
 ## Behavior
 
@@ -34,9 +47,11 @@ Mounting resolves each token once: a missing credential or a value that is not a
 | Other failures while sending | `send-failed` |
 | Other failures while editing | `edit-failed` |
 
+`probe` classifies as polling does. A value that is not a bot token is `auth-failed`.
+
 ## Test status
 
-The adapter is verified only against a fake Bot API driven by recorded-shape fixtures and by a real Loader composition; no real bot token has been used. To light it up, store a token in the credentials provider (`dsh chat init` writes a template), set `bots: [{ tokenRef: <name> }]` in the bridge profile patch, start `dsh chat`, and pair the owner in a private chat with the bot. The bot cannot message a user who has not started it first.
+The adapter and the descriptor are verified only against a fake Bot API driven by recorded-shape fixtures and by a real Loader composition in which a stand-in host probes and mounts a managed bot; no real bot token has been used. To light it up, store a token in the credentials provider (`dsh chat init` writes a template), set `bots: [{ tokenRef: <name> }]` in the bridge profile patch, start `dsh chat`, and pair the owner in a private chat with the bot. The bot cannot message a user who has not started it first.
 
 ## Model Experience
 

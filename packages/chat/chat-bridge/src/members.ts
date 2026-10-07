@@ -88,6 +88,8 @@ export interface Config {
   streamIntervalMs: number
   /** Processed inbound message ids retained for duplicate suppression. */
   seenLimit: number
+  /** Run inside another host process: a poll conflict is reported but never asks the process to exit. */
+  embedded: boolean
 }
 
 /**
@@ -111,6 +113,7 @@ export interface ConfigInput {
   outbound?: Partial<Config['outbound']>
   streamIntervalMs?: number
   seenLimit?: number
+  embedded?: boolean
 }
 
 /** Lifetime of an owner pairing code unless the configuration sets another. */
@@ -154,6 +157,7 @@ export const Config: z<ConfigInput, Config> = z.object({
   }).default({ maxFileBytes: 20 * 1024 * 1024 }),
   streamIntervalMs: z.number().step(1).min(0).default(800),
   seenLimit: z.number().step(1).min(1).default(2_000),
+  embedded: z.boolean().default(false),
 })
 
 const REMOTE_HOST_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/

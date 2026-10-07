@@ -47,7 +47,19 @@
 
 `get(platform, botId)` 与 `list()` 读取当前集合。条目可读之后注册表发出 `chat-adapter/registered`，条目消失之后发出 `chat-adapter/unregistered`；消费者订阅二者来启动和停止各适配器的 `run` 循环。
 
-平台提供方是导出 `name`、`inject`、`Config` 和 `apply` 并注入 `chatAdapters` 的函数插件：[`chat-adapter-telegram`](../chat-adapter-telegram/README.md)、[`chat-adapter-feishu`](../chat-adapter-feishu/README.md)，以及测试支撑包 [`chat-adapter-fake`](../../test-support/chat-adapter-fake/README.md)。
+平台提供方是导出 `name`、`inject`、`Config` 和 `apply`、注入 `chatAdapters` 并注册其平台描述符的函数插件：[`chat-adapter-telegram`](../chat-adapter-telegram/README.md)、[`chat-adapter-feishu`](../chat-adapter-feishu/README.md)，以及测试支撑包 [`chat-adapter-fake`](../../test-support/chat-adapter-fake/README.md)。
+
+## 平台描述符
+
+提供方还会告诉宿主如何连接其平台的机器人，因此宿主对平台保持泛型，不持有任何平台名。`ChatPlatformDescriptor` 包含 `platform` id、渠道的中文 `label`、用户要填写的 `fields`、`probe` 和 `mount`。包根导出这些类型。
+
+| 成员 | 契约 |
+|---|---|
+| `fields` | `ChatPlatformField` 条目：`key`、中文 `label`、`secret`、`required`，以及可选的 `placeholder`、`hint` 和封闭的 `options` 列表（UI 渲染为下拉选择）。secret 字段作为凭据存储，从不返回给浏览器。 |
+| `probe(values, signal)` | 用一次平台调用校验一组完整的已输入字段值（含 secret），并 resolve `ChatBotIdentity`（`botId`、`displayName`）。以 `ChatAdapterError` 拒绝：凭据被拒或格式错误为 `auth-failed`，平台不可达或调用被中止为 `network`。从不记录或回显 secret。 |
+| `mount(ctx, bot)` | 在调用方的作用域内为一个 `ChatManagedBot` 注册恰好一个适配器。`bot.values` 保存非 secret 字段值，`bot.secretRefs` 保存各 secret 字段的凭据名。从 `ctx.credentials` 解析 secret，任一未设置或格式错误时抛错，并以 `ctx.effect(() => ctx.chatAdapters.register(adapter))` 安装，因此销毁调用方作用域会移除该适配器。 |
+
+`registerPlatform(descriptor)` 返回 Cordis effect 的 disposer，并在平台 id 已注册时抛错。`platforms()` 按注册顺序列出描述符，`platform(id)` 读取单个描述符。描述符可读之后注册表发出 `chat-platform/registered`，消失之后发出 `chat-platform/unregistered`。包的 invariant 检查每个平台 id 至多存活一次，且恰在其事件所述的时段内可读。
 
 ## Model Experience
 
@@ -62,4 +74,5 @@ None; the registry performs no model request.
 - 附件通过 `fetchAttachment` 整体获取；契约没有可续传或部分下载。
 - `ChatRoute` 只带一个可选 `threadId`；具有嵌套线程的平台会压平为最外层线程。
 - 注册表按进程存在，不保存持久状态；会话状态由桥自行持久化。
+- `ChatAdapterErrorCode` 没有表示非凭据输入无效的 code，因此提供方在 `probe` 中把格式错误的地址或站点报告为 `network` 并附带说明性消息。
 - 不存在表情回应、语音或位置的入站事件；新增需要在闭合的 `ChatInbound` 中加入新变体并由消费者处理。

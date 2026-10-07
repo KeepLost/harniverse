@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-06-im-chat-bridge.md
-2026-10-06-im-chat-bridge.md: f60d56daa027bbdc59f0fff2ad4862192ce4eb6a
-2026-10-06-im-chat-bridge.zh.md: a5c60faa03d2044d13a9f39609d1a49d92c8b36a
+2026-10-06-im-chat-bridge.md: 8f3eb97d7ae18c535a623eac3ea2892ebd59e58c
+2026-10-06-im-chat-bridge.zh.md: 65b1f3d01116562fed6d3653bfe5ed121caf7dc5

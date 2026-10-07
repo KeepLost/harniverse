@@ -12,6 +12,8 @@
 
 平台令牌、Grant id 和签名密钥保存在 `$DSH_HOME/chat-bridge/credentials.yaml`（权限 0600）；桥接状态保存在 `$DSH_HOME/chat-bridge/storage`。两者都与 Web 组合的存储分开。通过 profile patch 编辑桥接行和平台行；patch 会替换该行的整个 config。
 
+web Host 也可以改为在进程内运行桥，机器人从设置分区“IM 机器人”添加（[`chat-manager`](../../chat/chat-manager/README.md)）。该内嵌桥有自己的凭据、存储和配对记录，两个进程轮询同一个机器人会冲突，所以同一个机器人只在两者之一中运行。
+
 仅运行时的行使用 Loader 的 `disabled` 键，它在创建行时只求值一次，看不到兄弟插件稍后发布的服务。因此随附的 patch 读取启动器的 `cmdlineArgs` 快照，仅在无参数或参数为 `run` 时启用它们。对应的默认运行规则位于 `src/startup.ts`，两处必须保持一致。
 
 其 manifest（元数据清单）声明 `dsh.bundle.homeOwnership: "shared"`，因此 Web 持有 home 租约时，`init`、`status` 和 `rotate-key` 仍然可用（参见 [profile 所有权](../../boot/app-boot/README.md#profiles)）。

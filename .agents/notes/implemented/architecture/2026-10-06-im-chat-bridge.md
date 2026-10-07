@@ -12,7 +12,9 @@ The first platforms are Telegram and Feishu. Both can be reached by outbound con
 
 ## Decision
 
-The chat bridge is a separate process, `dsh chat`, that is a client of `/api`. It adds no endpoint and no plugin to the web composition. Multi-user behavior exists only inside the bridge: who may talk to it, which commands each person may run, and where approvals go. The [public-key Grant](2026-08-17-public-key-grant-authentication.md) that authenticates the bridge is an ordinary operator Grant with `harniverse.observe` and `harniverse.operate` and nothing more.
+The chat bridge is a client of `/api` that runs as the separate process `dsh chat`. It adds no endpoint to `/api`. Multi-user behavior exists only inside the bridge: who may talk to it, which commands each person may run, and where approvals go. The [public-key Grant](2026-08-17-public-key-grant-authentication.md) that authenticates the bridge is an ordinary operator Grant with `harniverse.observe` and `harniverse.operate` and nothing more.
+
+The web composition also hosts the bridge inside the Host process, managed from the Settings page. The [embedded bridge note](2026-10-08-im-settings-embedded-bridge.md) owns that deployment and supersedes this note's statement that the bridge adds no plugin to the web composition. The bridge itself, its security posture, and the headless `dsh chat` process described below are unchanged.
 
 ### Package topology
 
@@ -22,6 +24,7 @@ The chat bridge is a separate process, `dsh chat`, that is a client of `/api`. I
 | `packages/chat/chat-harniverse-client` | `ctx.harniverseClient`: the only code that calls `/api`, with a closed endpoint table |
 | `packages/chat/chat-bridge` | Consumer: admission, pairing, the closed command table, approval routing, streaming replies, durable state |
 | `packages/chat/chat-adapter-telegram`, `packages/chat/chat-adapter-feishu` | Platform providers |
+| `packages/chat/chat-manager` | Host plugin that runs the bridge inside the web Host process and serves the Settings page, see the [embedded bridge note](2026-10-08-im-settings-embedded-bridge.md) |
 | `packages/test-support/chat-adapter-fake` | Scripted platform for bridge tests and the keyless e2e |
 | `packages/bundle/chat-app` | The `chat` profile: the shipped patch, the `dsh chat` command, `init`, `status`, and `rotate-key` |
 
@@ -67,6 +70,8 @@ The bridge core runs against `chat-adapter-fake` and a scripted client with cove
 
 **A plugin in the web composition.** It would share the process and skip the Grant, at the price of putting platform credentials, long-lived outbound connections, and chat policy in the process that serves the browser, and of making chat impossible to run without the web UI.
 
+The [embedded bridge note](2026-10-08-im-settings-embedded-bridge.md) supersedes this rejection for the Settings page: the web composition hosts a manager plugin that runs the bridge in the Host process, signs in with its own least-privilege `chat-bridge` Grant instead of skipping it, and leaves `dsh chat` as the way to run chat without the web UI.
+
 **Running dsh-im beside Harniverse.** dsh-im has its own session model and release cadence. Porting its proven platform code into this repository's plugin architecture keeps one credential store, one Grant, one state domain, and one test suite.
 
 **Fixed guest, member, trusted, and owner tiers, secret masking, an audit log, and rate quotas.** Isolation already comes from choosing the Profile or remote host per member, and masking cannot make a shared filesystem safe. A tier table would promise more than it enforces.
@@ -79,7 +84,7 @@ The bridge core runs against `chat-adapter-fake` and a scripted client with cove
 
 ## Consequences
 
-The bridge ships without any change to `/api` or the web composition, and a new platform costs one package implementing `ChatAdapter`. The chat profile coexists with Web, and a lost or rotated Grant is recoverable with two commands.
+The bridge ships without any change to `/api`, and a new platform costs one package implementing `ChatAdapter`. The chat profile coexists with Web, and a lost or rotated Grant is recoverable with two commands.
 
 Telegram and Feishu are verified only against scripted servers. No run has used a real bot token or Feishu app, so first use on a real platform may surface differences in group privacy settings, edit windows, or event payloads that fixtures do not model.
 

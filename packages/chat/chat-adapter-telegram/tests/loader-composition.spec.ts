@@ -44,7 +44,28 @@ function consumer(events: ChatInbound[]): { name: string; inject: string[]; appl
   }
 }
 
-async function load(credentials: Record<string, string>, telegramRow: string[], events: ChatInbound[] = []): Promise<Context> {
+/** One managed bot as the chat manager stand-in receives it. */
+interface ManagedRow {
+  platform: string
+  values: Record<string, string>
+  secretRefs: Record<string, string>
+}
+
+/** A stand-in for the chat manager: mounts each configured managed bot through the descriptor its platform registered. */
+const manager = {
+  name: 'test-manager',
+  inject: ['chatAdapters', 'credentials'],
+  async apply(ctx: Context, config: { bots: ManagedRow[] }): Promise<void> {
+    for (const bot of config.bots) await ctx.chatAdapters.platform(bot.platform)!.mount(ctx, bot)
+  },
+}
+
+async function load(
+  credentials: Record<string, string>,
+  telegramRow: string[],
+  events: ChatInbound[] = [],
+  after: string[] = [],
+): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-telegram-loader-'))
   const credentialsPath = join(root, 'credentials.yaml')
   await writeFile(credentialsPath, Object.entries(credentials).map(([key, value]) => `${key}: ${value}\n`).join(''), { mode: 0o600 })
@@ -58,6 +79,7 @@ async function load(credentials: Record<string, string>, telegramRow: string[], 
     '- name: test-consumer',
     "- name: '@deepseek-ai/dsh-chat-adapter-telegram'",
     ...telegramRow,
+    ...after,
     '',
   ].join('\n'))
   context = new Context()
@@ -68,6 +90,7 @@ async function load(credentials: Record<string, string>, telegramRow: string[], 
     ['@deepseek-ai/dsh-credentials-local', CredentialsLocal],
     ['@deepseek-ai/dsh-chat-adapter', ChatAdapters],
     ['test-consumer', consumer(events)],
+    ['test-manager', manager],
     ['@deepseek-ai/dsh-chat-adapter-telegram', Telegram],
   ])
   context.loader.internal = {
@@ -95,6 +118,7 @@ describe('real Loader composition', () => {
     expect(unloaded).toEqual([])
     const adapter = loaded.chatAdapters.get('telegram', '777000')
     expect(adapter).toBeDefined()
+    expect(loaded.chatAdapters.platforms()).toEqual([Telegram.telegramDescriptor])
     await vi.waitFor(() => { expect(events).toHaveLength(1) })
     expect(events[0]).toMatchObject({ type: 'message', controlText: 'hello there' })
     expect(server.of('getUpdates')[0]?.payload.timeout).toBe(5)
@@ -115,9 +139,13 @@ describe('real Loader composition', () => {
     await expect(loaded.chatAdapters.get('telegram', '777000')!.send({ kind: 'direct', chatId: '42' }, { text: 'no token' })).rejects.toMatchObject({ code: 'send-failed' })
   })
 
-  it('registers nothing for an empty bot list and removes the adapter with its fiber', async () => {
-    const empty = await load({}, [])
+  it('registers only the platform descriptor for an empty bot list, and removes everything with its fiber', async () => {
+    const empty = await load({}, ['  config:', '    bots: []'])
     expect(empty.chatAdapters.list()).toHaveLength(0)
+    expect(empty.chatAdapters.platform('telegram')).toBe(Telegram.telegramDescriptor)
+    const row = [...empty.loader.entries()].find(candidate => candidate.options.name === '@deepseek-ai/dsh-chat-adapter-telegram')
+    await row!.fiber!.dispose()
+    expect(empty.chatAdapters.platforms()).toEqual([])
     await empty.fiber.dispose()
     context = undefined
     const server = new FakeBotApi()
@@ -126,6 +154,29 @@ describe('real Loader composition', () => {
     const entry = [...loaded.loader.entries()].find(candidate => candidate.options.name === '@deepseek-ai/dsh-chat-adapter-telegram')
     await entry!.fiber!.dispose()
     expect(loaded.chatAdapters.get('telegram', '777000')).toBeUndefined()
+    expect(loaded.chatAdapters.platform('telegram')).toBeUndefined()
+  })
+
+  it('lets a generic host probe and mount a managed bot through the registered descriptor', async () => {
+    const server = new FakeBotApi()
+    Telegram.internals.fetch = server.fetch
+    server.pending(fixtures.privateText)
+    const events: ChatInbound[] = []
+    const managed = ['- name: test-manager', '  config:', '    bots:', '      - platform: telegram', '        values: {}', '        secretRefs:', '          token: TG_MANAGED']
+    const loaded = await load({ TG_MANAGED: TOKEN }, [], events, managed)
+    const descriptor = loaded.chatAdapters.platform('telegram')!
+    expect(await descriptor.probe({ token: TOKEN }, new AbortController().signal)).toEqual({ botId: '777000', displayName: '@HarniBot' })
+    expect(loaded.chatAdapters.get('telegram', '777000')).toBeDefined()
+    await vi.waitFor(() => { expect(events).toHaveLength(1) })
+    expect(events[0]).toMatchObject({ type: 'message', controlText: 'hello there' })
+    const host = [...loaded.loader.entries()].find(candidate => candidate.options.name === 'test-manager')
+    await host!.fiber!.dispose()
+    expect(loaded.chatAdapters.get('telegram', '777000')).toBeUndefined()
+    expect(loaded.chatAdapters.platform('telegram')).toBe(Telegram.telegramDescriptor)
+  })
+
+  it('rejects a second provider row for the same platform', async () => {
+    await expect(load({}, [], [], ["- name: '@deepseek-ai/dsh-chat-adapter-telegram'"])).rejects.toThrow('platform telegram is already registered')
   })
 
   it('refuses to mount with a missing or malformed token, and a duplicate bot', async () => {

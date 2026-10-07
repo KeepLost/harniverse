@@ -647,7 +647,7 @@ export interface AppConfig {
 }
 ```
 
-Source: [`packages/chat/chat-adapter-feishu/src/index.ts:34`](../packages/chat/chat-adapter-feishu/src/index.ts)
+Source: [`packages/chat/chat-adapter-feishu/src/index.ts:21`](../packages/chat/chat-adapter-feishu/src/index.ts)
 
 <a id="deepseek-aidsh-chat-adapter-telegram"></a>
 
@@ -673,7 +673,7 @@ export interface BotConfig {
 }
 ```
 
-Source: [`packages/chat/chat-adapter-telegram/src/index.ts:29`](../packages/chat/chat-adapter-telegram/src/index.ts)
+Source: [`packages/chat/chat-adapter-telegram/src/index.ts:18`](../packages/chat/chat-adapter-telegram/src/index.ts)
 
 <a id="deepseek-aidsh-chat-app"></a>
 
@@ -744,6 +744,8 @@ export interface Config {
   streamIntervalMs: number
   /** Processed inbound message ids retained for duplicate suppression. */
   seenLimit: number
+  /** Run inside another host process: a poll conflict is reported but never asks the process to exit. */
+  embedded: boolean
 }
 
 /** One owner identity. Owners hold every grantable command. */
@@ -783,6 +785,22 @@ export type GrantableCommand = (typeof GRANTABLE_COMMANDS)[number]
 ```
 
 Source: [`packages/chat/chat-bridge/src/members.ts:53`](../packages/chat/chat-bridge/src/members.ts)
+
+<a id="deepseek-aidsh-chat-manager"></a>
+
+## `@deepseek-ai/dsh-chat-manager`
+
+Requires: `chatAdapters` · `credentials` · `webServer` · `authentication` · `storageDomain`
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Harness home holding `chat-bots.json` and the authentication Grant registry; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+}
+```
+
+Source: [`packages/chat/chat-manager/src/index.ts:54`](../packages/chat/chat-manager/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -4387,6 +4405,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-capabilities` ([`packages/client/ui-settings-capabilities/src/index.ts`](../packages/client/ui-settings-capabilities/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-im` ([`packages/client/ui-settings-im/src/index.ts`](../packages/client/ui-settings-im/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-models` ([`packages/client/ui-settings-models/src/index.ts`](../packages/client/ui-settings-models/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` ([`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugins` ([`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts))

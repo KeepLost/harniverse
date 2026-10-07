@@ -206,7 +206,7 @@ describe('configuration', () => {
       owners: [], members: [], imRoot: '~/HarniverseIM', approvalTimeoutMs: 600_000, questionTimeoutMs: 1_800_000,
       pairing: { memberCodeTtlMs: 86_400_000, ownerCodeTtlMs: 900_000 },
       inbound: { maxFiles: 5, maxFileBytes: 20 * 1024 * 1024, maxInlineImageBytes: 4 * 1024 * 1024 },
-      outbound: { maxFileBytes: 20 * 1024 * 1024 }, streamIntervalMs: 800, seenLimit: 2_000,
+      outbound: { maxFileBytes: 20 * 1024 * 1024 }, streamIntervalMs: 800, seenLimit: 2_000, embedded: false,
     })
   })
 

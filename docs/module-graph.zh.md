@@ -155,6 +155,7 @@ flowchart TD
     pkg_chat_adapter_telegram["chat-adapter-telegram"]
     pkg_chat_bridge["chat-bridge"]
     pkg_chat_harniverse_client["chat-harniverse-client"]
+    pkg_chat_manager["chat-manager"]
   end
   subgraph group_client["packages/client"]
     pkg_client_authentication["client-authentication"]
@@ -191,6 +192,7 @@ flowchart TD
     pkg_client_ui_settings["client-ui-settings"]
     pkg_client_ui_settings_capabilities["client-ui-settings-capabilities"]
     pkg_client_ui_settings_general["client-ui-settings-general"]
+    pkg_client_ui_settings_im["client-ui-settings-im"]
     pkg_client_ui_settings_models["client-ui-settings-models"]
     pkg_client_ui_settings_plugin_inventory["client-ui-settings-plugin-inventory"]
     pkg_client_ui_settings_plugins["client-ui-settings-plugins"]
@@ -1602,9 +1604,26 @@ flowchart TD
   pkg_subprocess_ssh --> pkg_invariants
   pkg_subprocess_ssh --> pkg_ssh
   pkg_subprocess_ssh --> pkg_subprocess
+  pkg_chat_bridge --> pkg_chat_adapter
+  pkg_chat_bridge --> pkg_chat_harniverse_client
+  pkg_chat_bridge --> pkg_home_paths
+  pkg_chat_bridge --> pkg_invariants
+  pkg_chat_bridge --> pkg_storage_domain
+  pkg_chat_manager --> pkg_authentication
+  pkg_chat_manager --> pkg_authentication_local
+  pkg_chat_manager --> pkg_chat_adapter
+  pkg_chat_manager --> pkg_chat_bridge
+  pkg_chat_manager --> pkg_chat_harniverse_client
+  pkg_chat_manager --> pkg_credentials
+  pkg_chat_manager --> pkg_home_paths
+  pkg_chat_manager --> pkg_host_webserver
+  pkg_chat_manager --> pkg_invariants
+  pkg_chat_manager --> pkg_storage_domain
+  pkg_chat_manager --> pkg_typert_protocol
   pkg_api_remotes --> pkg_agent
   pkg_api_remotes --> pkg_agent_presets
   pkg_api_remotes --> pkg_api_gateway
+  pkg_api_remotes --> pkg_chat_manager
   pkg_api_remotes --> pkg_commands
   pkg_api_remotes --> pkg_cordis_host_runner
   pkg_api_remotes --> pkg_credentials
@@ -1624,11 +1643,6 @@ flowchart TD
   pkg_api_remotes --> pkg_settings
   pkg_api_remotes --> pkg_typert_registry
   pkg_api_remotes --> pkg_workspace_file_write
-  pkg_chat_bridge --> pkg_chat_adapter
-  pkg_chat_bridge --> pkg_chat_harniverse_client
-  pkg_chat_bridge --> pkg_home_paths
-  pkg_chat_bridge --> pkg_invariants
-  pkg_chat_bridge --> pkg_storage_domain
   pkg_client_runtime --> pkg_api_remotes
   pkg_client_runtime --> pkg_compaction
   pkg_client_runtime --> pkg_invariants
@@ -1666,6 +1680,15 @@ flowchart TD
   pkg_client_ui_input_trigger --> pkg_client_ui_primitives
   pkg_client_ui_input_trigger --> pkg_client_ui_slots
   pkg_client_ui_input_trigger --> pkg_invariants
+  pkg_client_ui_settings_im --> pkg_api_remotes
+  pkg_client_ui_settings_im --> pkg_client_connection
+  pkg_client_ui_settings_im --> pkg_client_locale
+  pkg_client_ui_settings_im --> pkg_client_runtime
+  pkg_client_ui_settings_im --> pkg_client_ui_primitives
+  pkg_client_ui_settings_im --> pkg_client_ui_settings
+  pkg_client_ui_settings_im --> pkg_client_ui_slots
+  pkg_client_ui_settings_im --> pkg_invariants
+  pkg_client_ui_settings_im --> pkg_typert_protocol
   pkg_client_ui_settings_plugin_inventory --> pkg_api_remotes
   pkg_client_ui_settings_plugin_inventory --> pkg_client_locale
   pkg_client_ui_settings_plugin_inventory --> pkg_client_runtime
@@ -2252,14 +2275,16 @@ flowchart TD
 | [`remote-hosts`](../packages/ssh/remote-hosts) | `ssh` | [`brand`](../packages/util/brand), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`host-directory-picker`](../packages/host/directory-picker), [`invariants`](../packages/runtime-diagnostics/invariants), [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh), [`sdk-client`](../packages/sdk/client), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`ssh`](../packages/ssh/ssh) |
 | [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ssh`](../packages/ssh/ssh), [`subprocess`](../packages/subprocess/subprocess) |
-| [`api-remotes`](../packages/api/remotes) | `api` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`api-gateway`](../packages/api/gateway), [`commands`](../packages/interaction/commands), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`credentials`](../packages/credentials/credentials), [`file-reference`](../packages/context/file-reference), [`goal`](../packages/goal/goal), [`host-capability-management`](../packages/host/capability-management), [`host-plugin-inventory`](../packages/host/plugin-inventory), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`message-feedback`](../packages/feedback/message-feedback), [`queue`](../packages/queue/queue), [`remote-hosts`](../packages/ssh/remote-hosts), [`scheduler`](../packages/schedule/scheduler), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-reference`](../packages/context/session-reference), [`settings`](../packages/settings/settings), [`typert-registry`](../packages/typert/registry), [`workspace-file-write`](../packages/host/workspace-file-write) |
 | [`chat-bridge`](../packages/chat/chat-bridge) | `chat` | [`chat-adapter`](../packages/chat/chat-adapter), [`chat-harniverse-client`](../packages/chat/chat-harniverse-client), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`storage-domain`](../packages/storage/storage-domain) |
+| [`chat-manager`](../packages/chat/chat-manager) | `chat` | [`authentication`](../packages/auth/authentication), [`authentication-local`](../packages/auth/authentication-local), [`chat-adapter`](../packages/chat/chat-adapter), [`chat-bridge`](../packages/chat/chat-bridge), [`chat-harniverse-client`](../packages/chat/chat-harniverse-client), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol) |
+| [`api-remotes`](../packages/api/remotes) | `api` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`api-gateway`](../packages/api/gateway), [`chat-manager`](../packages/chat/chat-manager), [`commands`](../packages/interaction/commands), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`credentials`](../packages/credentials/credentials), [`file-reference`](../packages/context/file-reference), [`goal`](../packages/goal/goal), [`host-capability-management`](../packages/host/capability-management), [`host-plugin-inventory`](../packages/host/plugin-inventory), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`message-feedback`](../packages/feedback/message-feedback), [`queue`](../packages/queue/queue), [`remote-hosts`](../packages/ssh/remote-hosts), [`scheduler`](../packages/schedule/scheduler), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-reference`](../packages/context/session-reference), [`settings`](../packages/settings/settings), [`typert-registry`](../packages/typert/registry), [`workspace-file-write`](../packages/host/workspace-file-write) |
 | [`client-runtime`](../packages/client/runtime) | `client` | [`api-remotes`](../packages/api/remotes), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol), [`typert-registry`](../packages/typert/registry) |
 | [`client-ui-settings`](../packages/client/ui-settings) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
 | [`client-ui-settings-models`](../packages/client/ui-settings-models) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-test-runtime`](../packages/test-support/client-runtime) | `test-support` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`host-apiproxy`](../packages/host/apiproxy), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-locale`](../packages/client/locale) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-input-trigger`](../packages/client/ui-input-trigger) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-ui-settings-im`](../packages/client/ui-settings-im) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol) |
 | [`client-ui-settings-plugin-inventory`](../packages/client/ui-settings-plugin-inventory) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-settings-plugins`](../packages/client/ui-settings-plugins) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |

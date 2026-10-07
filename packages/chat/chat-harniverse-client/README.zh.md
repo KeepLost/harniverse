@@ -25,7 +25,7 @@
 | 类别 | 条目 |
 |---|---|
 | Unary 读 | `api.describe`、`host.describe`、`session.list`、`session.history`、`session.workStatus`、`session.models` |
-| Unary 变更 | `session.create`、`session.selectModel`、`session.rename`、`session.prompt`、`session.updateQueue`、`session.cancel` |
+| Unary 变更 | `session.create`、`session.selectModel`、`session.selectModelTarget`、`session.rename`、`session.prompt`、`session.updateQueue`、`session.cancel` |
 | Typert | `commands/execute` |
 | 载体 | `POST /api/respond`、`POST /api/attachment/upload`、`GET /api/events.mux`（WebSocket） |
 

@@ -691,7 +691,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'chatAdapters',
     summary: 'The chat adapter registry.',
-    description: 'The chat adapter registry. Owns the set of mounted adapters keyed by `platform:botId`; a duplicate key fails loud and every registration\'s disposer removes exactly its own entry.',
+    description: 'The chat adapter registry. Owns the set of mounted adapters keyed by `platform:botId` and the platform descriptors keyed by platform id; a duplicate key fails loud and every registration\'s disposer removes exactly its own entry.',
     methods: [
       {
         signature: 'register(adapter: ChatAdapter): () => void',
@@ -711,6 +711,123 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Snapshot every mounted adapter.',
         parameters: [],
         returns: 'adapters in registration order.',
+      },
+      {
+        signature: 'registerPlatform(descriptor: ChatPlatformDescriptor): () => void',
+        description: 'Register one platform descriptor for the lifetime of the calling effect scope. `chat-platform/registered` fires after the entry is readable and `chat-platform/unregistered` after it is gone.',
+        parameters: [{ name: 'descriptor', description: 'the platform\'s fields, probe, and mount.' }],
+        returns: 'the exact Cordis effect disposer; calling it twice is harmless.',
+        throws: ['when the platform id is already registered.'],
+      },
+      {
+        signature: 'platforms(): readonly ChatPlatformDescriptor[]',
+        description: 'Snapshot every registered platform descriptor.',
+        parameters: [],
+        returns: 'descriptors in registration order.',
+      },
+      {
+        signature: 'platform(id: ChatPlatformId): ChatPlatformDescriptor | undefined',
+        description: 'Read one registered platform descriptor.',
+        parameters: [{ name: 'id', description: 'platform id.' }],
+        returns: 'the descriptor, or undefined while unregistered.',
+      },
+    ],
+  },
+  {
+    key: 'chatBridge',
+    summary: 'What a host plugin may read and manage on the running chat bridge.',
+    description: 'What a host plugin may read and manage on the running chat bridge.',
+    methods: [
+      {
+        signature: 'adapterState(platform: string, botId: string): AdapterStatus | undefined',
+        description: 'Run state of one mounted adapter.',
+        parameters: [{ name: 'platform', description: 'platform id of the adapter.' }, { name: 'botId', description: 'bot id of the adapter.' }],
+        returns: 'the state, or undefined while the adapter is not attached.',
+      },
+      {
+        signature: 'issueOwnerCode(): Promise<{ code: string; expiresAt: number }>',
+        description: 'Issue a one-time owner pairing code, the way `dsh chat init` does.',
+        parameters: [],
+        returns: 'the plaintext code, shown once, and its absolute expiry in ms since the epoch.',
+      },
+      {
+        signature: 'owners(): readonly OwnerView[]',
+        description: 'Paired owners (bridge state `members` rows with role owner) plus configured owners.',
+        parameters: [],
+        returns: 'one view per owner identity, configured owners first.',
+      },
+      {
+        signature: 'unpairOwner(key: string): Promise<boolean>',
+        description: 'Remove a paired owner binding.',
+        parameters: [{ name: 'key', description: 'an {@link OwnerView.key}.' }],
+        returns: 'false when the key is absent, not an owner, or an owner of the static configuration.',
+      },
+      {
+        signature: 'useBotSettings(provider: BotSettingsProvider): () => void',
+        description: 'Provide per-bot defaults, consulted whenever a new session of an owner is created; the first provider that returns settings for the bot wins.',
+        parameters: [{ name: 'provider', description: 'settings of the bot `(platform, botId)`, or undefined for none.' }],
+        returns: 'a disposer that removes this registration.',
+      },
+    ],
+  },
+  {
+    key: 'chatManager',
+    summary: 'The chat-bot manager.',
+    description: 'The chat-bot manager. Mutations and the owner operations run one at a time; `snapshot` reads without waiting for them.',
+    methods: [
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.observe\' }) async snapshot(): Promise<ChatBotsSnapshot>',
+        description: 'Everything the Settings page renders: the connectable platforms, every bot with its live state, the paired owners, and the embedded bridge\'s state. Owners are listed only while the bridge runs.',
+        parameters: [],
+        returns: 'the snapshot; it carries no secret value.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async addBot(input: AddChatBotInput, signal: AbortSignal): Promise<ChatBotView>',
+        description: 'Validate a bot\'s fields, verify them with one platform call, store its secrets, register it, and start it.',
+        parameters: [{ name: 'input', description: 'platform, optional alias, and the typed field values.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'the new bot; a failed start is reported in its `state`.',
+        throws: ['{ChatBotError} `invalid-input`, `invalid-credentials`, `unreachable`, or `duplicate-bot`.'],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) updateBot(input: UpdateChatBotInput): Promise<ChatBotView>',
+        description: 'Change a bot\'s alias, enabled flag, or defaults for new owner sessions. Defaults apply to sessions created afterwards without restarting the bot; enabling or disabling mounts or unmounts only this bot.',
+        parameters: [{ name: 'input', description: 'the bot id and the fields to change.' }],
+        returns: 'the updated bot.',
+        throws: ['{ChatBotError} `not-found` or `invalid-input`.'],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async checkBot(input: ChatBotIdInput, signal: AbortSignal): Promise<CheckChatBotResult>',
+        description: 'Verify a bot\'s stored credentials with one platform call and refresh its identity and check time.',
+        parameters: [{ name: 'input', description: 'the bot id.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'the outcome; a platform failure is `ok: false` with a safe message, never a thrown error.',
+        throws: ['{ChatBotError} `not-found`.'],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) retryBot(input: ChatBotIdInput): Promise<ChatBotView>',
+        description: 'Remount an enabled bot that is in `error` or `reconnecting`; a failed bridge start is attempted again too.',
+        parameters: [{ name: 'input', description: 'the bot id.' }],
+        returns: 'the bot after the attempt.',
+        throws: ['{ChatBotError} `not-found`, or `invalid-input` for a disabled bot.'],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) removeBot(input: ChatBotIdInput): Promise<void>',
+        description: 'Unmount a bot, delete its credentials, and remove it from the registry. The embedded bridge stops with the last enabled bot.',
+        parameters: [{ name: 'input', description: 'the bot id.' }],
+        throws: ['{ChatBotError} `not-found`.'],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) issueOwnerCode(): Promise<ChatOwnerCode>',
+        description: 'Issue a one-time owner pairing code. The bridge starts on demand, because an owner needs a code before the first bot is useful, and it then runs until a later change finds no enabled bot.',
+        parameters: [],
+        returns: 'the plaintext code, shown once, and its expiry.',
+        throws: ['{ChatBotError} `bridge-unavailable` when the bridge cannot start.'],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) unpairOwner(input: UnpairOwnerInput): Promise<boolean>',
+        description: 'Remove a paired owner. The bridge starts on demand like issueOwnerCode.',
+        parameters: [{ name: 'input', description: 'the owner key from the snapshot.' }],
+        returns: 'false when the key is absent or belongs to an owner of the static configuration.',
+        throws: ['{ChatBotError} `bridge-unavailable` when the bridge cannot start.'],
       },
     ],
   },
@@ -3818,6 +3935,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'info', description: 'request kind and the endpoint, method, or path it addresses.' }],
   },
   {
+    name: 'chat-platform/registered',
+    mode: 'emit',
+    signature: '\'chat-platform/registered\'(descriptor: ChatPlatformDescriptor): void',
+    summary: 'A platform descriptor became resolvable in the registry.',
+    description: 'A platform descriptor became resolvable in the registry.',
+    parameters: [{ name: 'descriptor', description: 'the registered descriptor.' }],
+  },
+  {
+    name: 'chat-platform/unregistered',
+    mode: 'emit',
+    signature: '\'chat-platform/unregistered\'(descriptor: ChatPlatformDescriptor): void',
+    summary: 'A platform descriptor left the registry.',
+    description: 'A platform descriptor left the registry.',
+    parameters: [{ name: 'descriptor', description: 'the descriptor that no longer resolves.' }],
+  },
+  {
     name: 'commands/change',
     mode: 'emit',
     signature: '\'commands/change\'(): void',
@@ -4278,6 +4411,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
   {
+    name: 'AdapterRunState',
+    declaration: 'export type AdapterRunState = \'running\' | \'reconnecting\' | \'credential-rejected\' | \'conflict\' | \'stopped\';',
+  },
+  {
+    name: 'AdapterStatus',
+    declaration: 'export interface AdapterStatus {\n    readonly state: AdapterRunState;\n    readonly message?: string;\n}',
+  },
+  {
+    name: 'AddChatBotInput',
+    declaration: 'export interface AddChatBotInput {\n    platform: string;\n    alias?: string;\n    values: Record<string, string>;\n}',
+  },
+  {
     name: 'Agent',
     declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly inbox: Inbox;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n    send(message: UserMessage, target: InboxTarget, wakeup: boolean): void;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
   },
@@ -4530,6 +4675,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
   },
   {
+    name: 'BotSettingsProvider',
+    declaration: 'export type BotSettingsProvider = (platform: string, botId: string) => ChatBotSettings | undefined;',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
@@ -4686,6 +4835,50 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ChatAttachmentRef {\n    attachmentId: string;\n    name?: string;\n    mediaType?: string;\n    bytes?: number;\n}',
   },
   {
+    name: 'ChatBotIdentity',
+    declaration: 'export interface ChatBotIdentity {\n    botId: string;\n    displayName: string;\n}',
+  },
+  {
+    name: 'ChatBotIdInput',
+    declaration: 'export interface ChatBotIdInput {\n    id: string;\n}',
+  },
+  {
+    name: 'ChatBotModelView',
+    declaration: 'export interface ChatBotModelView {\n    provider: string;\n    model: string;\n    reasoningEffort?: string;\n}',
+  },
+  {
+    name: 'ChatBotSecretView',
+    declaration: 'export interface ChatBotSecretView {\n    configured: boolean;\n    tail: string;\n}',
+  },
+  {
+    name: 'ChatBotSettings',
+    declaration: 'export interface ChatBotSettings {\n    workspace?: string;\n    model?: {\n        provider: string;\n        model: string;\n        reasoningEffort?: string;\n    };\n    agentProfile?: string;\n}',
+  },
+  {
+    name: 'ChatBotSettingsPatch',
+    declaration: 'export interface ChatBotSettingsPatch {\n    workspace?: string | null;\n    model?: ChatBotModelView | null;\n    agentProfile?: string | null;\n}',
+  },
+  {
+    name: 'ChatBotSettingsView',
+    declaration: 'export interface ChatBotSettingsView {\n    workspace?: string;\n    model?: ChatBotModelView;\n    agentProfile?: string;\n}',
+  },
+  {
+    name: 'ChatBotsSnapshot',
+    declaration: 'export interface ChatBotsSnapshot {\n    platforms: ChatPlatformView[];\n    bots: ChatBotView[];\n    owners: ChatOwnerView[];\n    bridge: ChatBridgeStatus;\n    bridgeMessage?: string;\n}',
+  },
+  {
+    name: 'ChatBotState',
+    declaration: 'export type ChatBotState = \'starting\' | \'online\' | \'reconnecting\' | \'error\' | \'disabled\';',
+  },
+  {
+    name: 'ChatBotView',
+    declaration: 'export interface ChatBotView {\n    id: string;\n    platform: string;\n    alias: string;\n    identity: {\n        botId: string;\n        displayName: string;\n    };\n    values: Record<string, string>;\n    secrets: Record<string, ChatBotSecretView>;\n    enabled: boolean;\n    state: ChatBotState;\n    message?: string;\n    checkedAt?: number;\n    settings: ChatBotSettingsView;\n    createdAt: number;\n}',
+  },
+  {
+    name: 'ChatBridgeStatus',
+    declaration: 'export type ChatBridgeStatus = \'stopped\' | \'starting\' | \'running\' | \'error\';',
+  },
+  {
     name: 'ChatIdentity',
     declaration: 'export interface ChatIdentity {\n    userId: string;\n    alternateId?: string;\n    displayName?: string;\n    isBot: boolean;\n}',
   },
@@ -4698,12 +4891,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ChatInboundSink {\n    accept(event: ChatInbound): Promise<void>;\n}',
   },
   {
+    name: 'ChatManagedBot',
+    declaration: 'export interface ChatManagedBot {\n    values: Readonly<Record<string, string>>;\n    secretRefs: Readonly<Record<string, string>>;\n}',
+  },
+  {
+    name: 'ChatOwnerCode',
+    declaration: 'export interface ChatOwnerCode {\n    code: string;\n    expiresAt: number;\n}',
+  },
+  {
+    name: 'ChatOwnerView',
+    declaration: 'export interface ChatOwnerView {\n    key: string;\n    platform: string;\n    userId: string;\n    displayName?: string;\n    pairedAt: number;\n}',
+  },
+  {
+    name: 'ChatPlatformDescriptor',
+    declaration: 'export interface ChatPlatformDescriptor {\n    readonly platform: ChatPlatformId;\n    readonly label: string;\n    readonly fields: readonly ChatPlatformField[];\n    probe(values: Readonly<Record<string, string>>, signal: AbortSignal): Promise<ChatBotIdentity>;\n    mount(ctx: Context, bot: ChatManagedBot): Promise<void>;\n}',
+  },
+  {
     name: 'ChatPlatformId',
     declaration: 'export type ChatPlatformId = \'telegram\' | \'feishu\' | (string & {});',
   },
   {
+    name: 'ChatPlatformView',
+    declaration: 'export interface ChatPlatformView {\n    platform: string;\n    label: string;\n    fields: readonly ChatPlatformField[];\n}',
+  },
+  {
     name: 'ChatRoute',
     declaration: 'export interface ChatRoute {\n    kind: \'direct\' | \'group\';\n    chatId: string;\n    threadId?: string;\n}',
+  },
+  {
+    name: 'CheckChatBotResult',
+    declaration: 'export interface CheckChatBotResult {\n    ok: boolean;\n    message?: string;\n    checkedAt: number;\n}',
   },
   {
     name: 'ChildModelRoute',
@@ -5818,6 +6035,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface OutboundMessage {\n    text: string;\n    replyToMessageId?: string;\n}',
   },
   {
+    name: 'OwnerView',
+    declaration: 'export interface OwnerView {\n    key: string;\n    platform: string;\n    userId: string;\n    displayName?: string;\n    pairedAt: number;\n}',
+  },
+  {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
@@ -5868,10 +6089,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PresetCompositionRecipe',
     declaration: 'export interface PresetCompositionRecipe {\n    readonly rowId: string;\n    readonly canonical: EntryOptions;\n    readonly canonicalBaseUrl: string;\n    readonly source?: EntryOptions;\n    readonly sourceBaseUrl?: string;\n}',
-  },
-  {
-    name: 'PresetOption',
-    declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
   },
   {
     name: 'PresetSpec',
@@ -7336,6 +7553,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UnaryValue',
     declaration: 'export type UnaryValue<M extends UnaryMethod> = z.infer<(typeof UNARY_ENDPOINTS)[M][\'value\']>;',
+  },
+  {
+    name: 'UnpairOwnerInput',
+    declaration: 'export interface UnpairOwnerInput {\n    key: string;\n}',
+  },
+  {
+    name: 'UpdateChatBotInput',
+    declaration: 'export interface UpdateChatBotInput {\n    id: string;\n    alias?: string;\n    enabled?: boolean;\n    settings?: ChatBotSettingsPatch;\n}',
   },
   {
     name: 'UploadedAttachment',

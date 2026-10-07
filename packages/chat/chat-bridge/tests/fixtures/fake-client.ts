@@ -90,6 +90,10 @@ export class FakeClient {
       case 'session.updateQueue': return { accepted: true, messageId: payload.itemId, status: { state: 'discarded' } }
       case 'session.models': return { current: { provider: 'p', model: 'm1' }, groups: [{ id: 'p', name: 'P', models: [{ id: 'm1', name: 'M1' }, { id: 'm2', name: 'M2' }] }] }
       case 'session.selectModel': return { selected: { provider: payload.provider, model: payload.model } }
+      case 'session.selectModelTarget': {
+        const target = payload.target as { kind: string; selection: Record<string, unknown> }
+        return { target, selected: target.selection }
+      }
       case 'session.history': return { events: [], hasMore: false }
       case 'commands/execute': return { commandId: 'c1', result: { kind: 'success', text: 'Compacted.' } }
       default: throw new Error(`FakeClient: no default answer for ${method}`)

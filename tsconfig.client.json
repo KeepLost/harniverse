@@ -107,6 +107,7 @@
     { "path": "./packages/client/ui-settings-general" },
      { "path": "./packages/client/ui-settings-models" },
     { "path": "./packages/client/ui-settings-capabilities" },
+    { "path": "./packages/client/ui-settings-im" },
     { "path": "./packages/client/ui-settings-plugin-inventory" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/web" },

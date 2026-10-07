@@ -25,7 +25,7 @@ Only these endpoints can reach `/api`. Any other method or Typert endpoint throw
 | Kind | Entries |
 |---|---|
 | Unary reads | `api.describe`, `host.describe`, `session.list`, `session.history`, `session.workStatus`, `session.models` |
-| Unary mutations | `session.create`, `session.selectModel`, `session.rename`, `session.prompt`, `session.updateQueue`, `session.cancel` |
+| Unary mutations | `session.create`, `session.selectModel`, `session.selectModelTarget`, `session.rename`, `session.prompt`, `session.updateQueue`, `session.cancel` |
 | Typert | `commands/execute` |
 | Carrier | `POST /api/respond`, `POST /api/attachment/upload`, `GET /api/events.mux` (WebSocket) |
 
