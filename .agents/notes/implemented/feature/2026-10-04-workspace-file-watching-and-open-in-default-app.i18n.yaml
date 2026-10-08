@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-04-workspace-file-watching-and-open-in-default-app.md
-2026-10-04-workspace-file-watching-and-open-in-default-app.md: b7df7a62e18a17482226a5a8dca409f44daf438b
-2026-10-04-workspace-file-watching-and-open-in-default-app.zh.md: 0eedf45a58337e78877d2da5f3e7909af04e9975
+2026-10-04-workspace-file-watching-and-open-in-default-app.md: ebb9dd7ad14da35fbc0e58c79f05a0f292cfb790
+2026-10-04-workspace-file-watching-and-open-in-default-app.zh.md: e9f1655afcbe1130ea630e3fb20639277bc43bb1
