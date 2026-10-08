@@ -13,6 +13,7 @@
 | [`web-search-tavily/`](web-search-tavily/README.md) | 通过 Tavily 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-brave/`](web-search-brave/README.md) | 通过 Brave 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-kagi/`](web-search-kagi/README.md) | 通过 Kagi 提供 web 搜索 | 注册到 `ctx.web` |
+| [`web-search-cloudflare/`](web-search-cloudflare/README.md) | 通过 Cloudflare Web Search API 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-firecrawl/`](web-firecrawl/README.md) | 提供 Firecrawl Search 与 Scrape | 注册到 `ctx.web` |
 | [`web-fetch-http/`](web-fetch-http/README.md) | 抓取公共 HTTP 和 HTTPS 资源 | 注册到 `ctx.web` |
 | [`tool-web/`](tool-web/README.md) | 向模型公开 web 搜索和抓取 | 注册到 `ctx.tools` |

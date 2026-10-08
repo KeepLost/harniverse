@@ -26,7 +26,7 @@
 
 ## 设置同步
 
-快照按命名空间包含完整、未脱敏的本地**用户设置节**。支持 `llm-deepseek`、`llm-pi-ai`、`agent-default-model`、`model-profiles`、`model-routes`、`web`、`web-search-deepseek`、`web-search-exa`、`web-search-perplexity`、`web-search-tavily`、`web-search-brave`、`web-search-kagi` 和 `web-firecrawl`。
+快照按命名空间包含完整、未脱敏的本地**用户设置节**。支持 `llm-deepseek`、`llm-pi-ai`、`agent-default-model`、`model-profiles`、`model-routes`、`web`、`web-search-deepseek`、`web-search-exa`、`web-search-perplexity`、`web-search-tavily`、`web-search-brave`、`web-search-kagi`、`web-search-cloudflare` 和 `web-firecrawl`。
 
 提交的每个命名空间必须已经在远端注册，且值必须为对象。未知、无关或未注册的命名空间在写入前被拒绝。插件通过 `ctx.settings.replace()` 替换每个受支持且已注册的命名空间，保留其所有者的 schema 和语义验证。省略的命名空间收到 `{}`；省略的字段重新继承组合值与 schema 默认值。无关设置保持原样。若本地组合默认值需要覆盖远端默认值，应明确提交本地解析后的值。
 

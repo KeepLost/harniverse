@@ -57,7 +57,11 @@ describe('dsh-base bundle', () => {
     expect(rows.filter(row => row.id === 'web-search-perplexity')).toEqual([expect.objectContaining({
       name: '@deepseek-ai/dsh-web-search-perplexity',
     })])
+    expect(rows.filter(row => row.id === 'web-search-cloudflare')).toEqual([expect.objectContaining({
+      name: '@deepseek-ai/dsh-web-search-cloudflare',
+    })])
     expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-web-search-cloudflare': 'workspace:^',
       '@deepseek-ai/dsh-web-search-deepseek': 'workspace:^',
       '@deepseek-ai/dsh-web-search-exa': 'workspace:^',
       '@deepseek-ai/dsh-web-search-perplexity': 'workspace:^',

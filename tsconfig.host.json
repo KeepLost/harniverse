@@ -294,6 +294,7 @@
     { "path": "./packages/web/web-search-tavily" },
     { "path": "./packages/web/web-search-brave" },
     { "path": "./packages/web/web-search-kagi" },
+    { "path": "./packages/web/web-search-cloudflare" },
     { "path": "./packages/web/web-firecrawl" },
     { "path": "./packages/web/web-fetch-http" },
     { "path": "./packages/web/tool-web" },

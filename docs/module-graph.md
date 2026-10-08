@@ -79,6 +79,7 @@ flowchart TD
     pkg_web_fetch_http["web-fetch-http"]
     pkg_web_firecrawl["web-firecrawl"]
     pkg_web_search_brave["web-search-brave"]
+    pkg_web_search_cloudflare["web-search-cloudflare"]
     pkg_web_search_deepseek["web-search-deepseek"]
     pkg_web_search_exa["web-search-exa"]
     pkg_web_search_kagi["web-search-kagi"]
@@ -606,6 +607,11 @@ flowchart TD
   pkg_web_search_brave --> pkg_launch_environment
   pkg_web_search_brave --> pkg_settings
   pkg_web_search_brave --> pkg_web
+  pkg_web_search_cloudflare --> pkg_credentials
+  pkg_web_search_cloudflare --> pkg_invariants
+  pkg_web_search_cloudflare --> pkg_launch_environment
+  pkg_web_search_cloudflare --> pkg_settings
+  pkg_web_search_cloudflare --> pkg_web
   pkg_web_search_exa --> pkg_credentials
   pkg_web_search_exa --> pkg_invariants
   pkg_web_search_exa --> pkg_launch_environment
@@ -2106,6 +2112,7 @@ flowchart TD
 | [`web-fetch-http`](../packages/web/web-fetch-http) | `web` | [`http-proxy`](../packages/util/http-proxy), [`invariants`](../packages/runtime-diagnostics/invariants), [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
 | [`web-firecrawl`](../packages/web/web-firecrawl) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
 | [`web-search-brave`](../packages/web/web-search-brave) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
+| [`web-search-cloudflare`](../packages/web/web-search-cloudflare) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
 | [`web-search-kagi`](../packages/web/web-search-kagi) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |

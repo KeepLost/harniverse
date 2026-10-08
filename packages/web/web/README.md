@@ -15,6 +15,7 @@ This package owns the Service Definition role of the web capability. Unlike shel
 | `@deepseek-ai/dsh-web-search-tavily` | Search provider: Tavily |
 | `@deepseek-ai/dsh-web-search-brave` | Search provider: Brave |
 | `@deepseek-ai/dsh-web-search-kagi` | Search provider: Kagi |
+| `@deepseek-ai/dsh-web-search-cloudflare` | Search provider: Cloudflare Web Search API |
 | `@deepseek-ai/dsh-web-firecrawl` | Aggregate Search and Scrape provider: Firecrawl |
 | `@deepseek-ai/dsh-web-fetch-http` | Fetch provider: anonymous public HTTP(S) |
 | `@deepseek-ai/dsh-tool-web` | Consumer: the model-facing `web_search` / `web_fetch` tool schemas over `ctx.web` |

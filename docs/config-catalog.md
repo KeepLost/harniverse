@@ -4214,6 +4214,39 @@ export interface Config {
 
 Source: [`packages/web/web-search-brave/src/index.ts:33`](../packages/web/web-search-brave/src/index.ts)
 
+<a id="deepseek-aidsh-web-search-cloudflare"></a>
+
+## `@deepseek-ai/dsh-web-search-cloudflare`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for Cloudflare Web Search and its live settings section. */
+export interface Config {
+  /** Literal API token; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved for each search. */
+  apiKeyEnv?: string
+  /** Cloudflare account id; required before the first search. */
+  accountId?: string
+  /** AI Gateway the search is routed through. */
+  gatewayId?: string
+  /** Upstream engine Cloudflare uses: `ceramic`, `exa`, or `linkup`. */
+  engine?: CloudflareSearchEngine
+  /** Alias of a provider key stored on the gateway, to bill the engine directly. */
+  byokAlias?: string
+  /** Cloudflare API base; `/accounts/{accountId}/ai/websearch/` is appended. */
+  baseURL?: string
+  /** Maximum characters kept from each result description. */
+  snippetMaxChars?: number
+}
+
+/** One upstream engine Cloudflare can route a search to. */
+export type CloudflareSearchEngine = typeof CLOUDFLARE_ENGINES[number]
+```
+
+Source: [`packages/web/web-search-cloudflare/src/index.ts:42`](../packages/web/web-search-cloudflare/src/index.ts)
+
 <a id="deepseek-aidsh-web-search-deepseek"></a>
 
 ## `@deepseek-ai/dsh-web-search-deepseek`
