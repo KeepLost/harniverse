@@ -4,7 +4,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import { SecretField, SelectField, ValueField } from './fields.tsx'
 import { PluginCard } from './PluginCard.tsx'
 import type {
-  BraveWebSearchState, DeepSeekWebSearchState, ExaWebSearchState,
+  BraveWebSearchState, CloudflareWebSearchState, DeepSeekWebSearchState, ExaWebSearchState,
   FirecrawlWebSearchState, KagiWebSearchState, PerplexityWebSearchState,
   TavilyWebSearchState, WebSearchCardState,
   WebSearchCardFace,
@@ -50,6 +50,7 @@ export function WebSearchCard(props: WebSearchCardProps) {
           { value: 'tavily', label: t('webSearchProviderTavily') },
           { value: 'brave', label: t('webSearchProviderBrave') },
           { value: 'kagi', label: t('webSearchProviderKagi') },
+          { value: 'cloudflare', label: t('webSearchProviderCloudflare') },
           { value: 'firecrawl', label: t('webSearchProviderFirecrawl') },
         ]}
         onEdit={(text) => { props.edit('selector.searchProvider', text) }}
@@ -190,6 +191,9 @@ function SearchProviderFields(props: { t: T; state: WebSearchCardState; edit: Ed
   if (props.state.selectedProvider === 'kagi') {
     return <KagiFields t={props.t} state={props.state.kagi} edit={props.edit} reset={props.reset} />
   }
+  if (props.state.selectedProvider === 'cloudflare') {
+    return <CloudflareFields t={props.t} state={props.state.cloudflare} edit={props.edit} reset={props.reset} />
+  }
   return <FirecrawlFields t={props.t} state={props.state.firecrawl} edit={props.edit} reset={props.reset} />
 }
 
@@ -325,6 +329,40 @@ function KagiFields(props: { t: T; state: KagiWebSearchState; edit: Edit; reset:
         id="plugin-config-web-search-kagi-base-url" label="webSearchBaseUrl" hint="webSearchBaseUrlHint"
         state={props.state.baseURL} address="kagi.baseURL"
       />
+    </>
+  )
+}
+
+function CloudflareFields(props: { t: T; state: CloudflareWebSearchState; edit: Edit; reset: Reset }) {
+  if (!props.state.available) return <ProviderUnavailable t={props.t} />
+  const common = { t: props.t, disabled: !props.state.writable, edit: props.edit, reset: props.reset }
+  return (
+    <>
+      <ProviderSecret
+        t={props.t} id="plugin-config-web-search-cloudflare-key"
+        label="webSearchCloudflareApiKey" state={props.state}
+        address="cloudflare.apiKey" edit={props.edit}
+      />
+      <ProviderValue {...common} id="plugin-config-web-search-cloudflare-account-id" label="webSearchCloudflareAccountId" hint="webSearchCloudflareAccountIdHint" state={props.state.accountId} address="cloudflare.accountId" />
+      <ProviderValue {...common} id="plugin-config-web-search-cloudflare-gateway-id" label="webSearchCloudflareGatewayId" hint="webSearchCloudflareGatewayIdHint" state={props.state.gatewayId} address="cloudflare.gatewayId" />
+      <SelectField
+        {...fieldFrame(props.t)}
+        id="plugin-config-web-search-cloudflare-engine"
+        label={props.t('webSearchCloudflareEngine')}
+        hint={props.t('webSearchCloudflareEngineHint')}
+        disabled={!props.state.writable}
+        {...props.state.engine}
+        options={[
+          { value: 'ceramic', label: 'Ceramic.ai' },
+          { value: 'exa', label: 'Exa' },
+          { value: 'linkup', label: 'Linkup' },
+        ]}
+        onEdit={(text) => { props.edit('cloudflare.engine', text) }}
+        onReset={() => { props.reset('cloudflare.engine') }}
+      />
+      <ProviderValue {...common} id="plugin-config-web-search-cloudflare-byok-alias" label="webSearchCloudflareByokAlias" hint="webSearchCloudflareByokAliasHint" state={props.state.byokAlias} address="cloudflare.byokAlias" />
+      <ProviderValue {...common} id="plugin-config-web-search-cloudflare-base-url" label="webSearchBaseUrl" hint="webSearchBaseUrlHint" state={props.state.baseURL} address="cloudflare.baseURL" />
+      <ProviderValue {...common} numeric id="plugin-config-web-search-cloudflare-snippet-max-chars" label="webSearchCloudflareSnippetMaxChars" hint="webSearchCloudflareSnippetMaxCharsHint" state={props.state.snippetMaxChars} address="cloudflare.snippetMaxChars" />
     </>
   )
 }

@@ -32,7 +32,7 @@ import { AGENT_LOOP_NS, AgentLoopCardController } from './agent-loop-card-contro
 import { SHELL_NS, BashCardController } from './bash-card-controller.ts'
 import { COMPACTION_NS, CompactionCardController } from './compaction-card-controller.ts'
 import {
-  WEB_FIRECRAWL_NS, WEB_NS, WEB_SEARCH_BRAVE_NS, WEB_SEARCH_DEEPSEEK_NS,
+  WEB_FIRECRAWL_NS, WEB_NS, WEB_SEARCH_BRAVE_NS, WEB_SEARCH_CLOUDFLARE_NS, WEB_SEARCH_DEEPSEEK_NS,
   WEB_SEARCH_EXA_NS, WEB_SEARCH_KAGI_NS, WEB_SEARCH_PERPLEXITY_NS, WEB_SEARCH_TAVILY_NS,
   WebSearchCardController,
 } from './web-search-card-controller.ts'
@@ -77,6 +77,7 @@ export function apply(ctx: ClientContext): void {
     tavily: ctx.settingsScope.bind({ namespace: WEB_SEARCH_TAVILY_NS }),
     brave: ctx.settingsScope.bind({ namespace: WEB_SEARCH_BRAVE_NS }),
     kagi: ctx.settingsScope.bind({ namespace: WEB_SEARCH_KAGI_NS }),
+    cloudflare: ctx.settingsScope.bind({ namespace: WEB_SEARCH_CLOUDFLARE_NS }),
     firecrawl: ctx.settingsScope.bind({ namespace: WEB_FIRECRAWL_NS }),
   }, api)
 

@@ -16,6 +16,7 @@ import {
   type BraveWebSearchSettings,
   type FirecrawlWebSearchSettings,
   type KagiWebSearchSettings,
+  type CloudflareWebSearchSettings,
   type PerplexityWebSearchSettings,
   type TavilyWebSearchSettings,
   type WebSettings,
@@ -63,6 +64,7 @@ function webSearchController(credentials = credentialsApi({
   const tavily = stubSettingsScope<TavilyWebSearchSettings>()
   const brave = stubSettingsScope<BraveWebSearchSettings>()
   const kagi = stubSettingsScope<KagiWebSearchSettings>()
+  const cloudflare = stubSettingsScope<CloudflareWebSearchSettings>()
   const firecrawl = stubSettingsScope<FirecrawlWebSearchSettings>()
   const controller = new WebSearchCardController(
     {
@@ -73,6 +75,7 @@ function webSearchController(credentials = credentialsApi({
       tavily: tavily.scope,
       brave: brave.scope,
       kagi: kagi.scope,
+      cloudflare: cloudflare.scope,
       firecrawl: firecrawl.scope,
     },
     credentials.api,
@@ -88,9 +91,10 @@ function webSearchController(credentials = credentialsApi({
   tavily.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
   brave.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
   kagi.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
+  cloudflare.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
   firecrawl.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
   return {
-    selector, deepseek, exa, perplexity, tavily, brave, kagi, firecrawl,
+    selector, deepseek, exa, perplexity, tavily, brave, kagi, cloudflare, firecrawl,
     credentials, controller, face: controller.inject(),
   }
 }
@@ -647,6 +651,7 @@ describe('WebSearchCardController', () => {
       tavily: { available: true },
       brave: { available: true },
       kagi: { available: true },
+      cloudflare: { available: true },
       firecrawl: { available: true },
       selectedFetchProvider: 'http',
     })
@@ -657,7 +662,7 @@ describe('WebSearchCardController', () => {
     expect(selector.set).not.toHaveBeenCalled()
   })
 
-  it('projects the tavily, brave, and kagi forms when each is selected', () => {
+  it('projects the tavily, brave, kagi, and cloudflare forms when each is selected', () => {
     const { face } = webSearchController()
 
     face.edit('selector.searchProvider', 'tavily')
@@ -668,6 +673,9 @@ describe('WebSearchCardController', () => {
 
     face.edit('selector.searchProvider', 'kagi')
     expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'kagi', dirty: true })
+
+    face.edit('selector.searchProvider', 'cloudflare')
+    expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'cloudflare', dirty: true })
   })
 
   it('projects both capability selectors and routes every added provider field', () => {
@@ -677,6 +685,12 @@ describe('WebSearchCardController', () => {
     face.edit('tavily.includeRawContent', 'true')
     face.edit('brave.maxResults', '6')
     face.edit('kagi.baseURL', 'https://kagi.test')
+    face.edit('cloudflare.accountId', 'abc123')
+    face.edit('cloudflare.gatewayId', 'team-gw')
+    face.edit('cloudflare.engine', 'linkup')
+    face.edit('cloudflare.byokAlias', 'mine')
+    face.edit('cloudflare.baseURL', 'https://cloudflare.test')
+    face.edit('cloudflare.snippetMaxChars', '500')
     face.edit('firecrawl.includeSearchContent', 'true')
     face.edit('firecrawl.searchContentMaxChars', '2000')
     face.edit('firecrawl.maxChars', '4000')
@@ -686,6 +700,14 @@ describe('WebSearchCardController', () => {
     expect(state.tavily.includeRawContent.text).toBe('true')
     expect(state.brave.maxResults.text).toBe('6')
     expect(state.kagi.baseURL.text).toBe('https://kagi.test')
+    expect(state.cloudflare).toMatchObject({
+      accountId: { text: 'abc123' },
+      gatewayId: { text: 'team-gw' },
+      engine: { text: 'linkup' },
+      byokAlias: { text: 'mine' },
+      baseURL: { text: 'https://cloudflare.test' },
+      snippetMaxChars: { text: '500' },
+    })
     expect(state.firecrawl).toMatchObject({
       includeSearchContent: { text: 'true' },
       searchContentMaxChars: { text: '2000' },
@@ -827,6 +849,7 @@ describe('WebSearchCardController', () => {
       expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['TAVILY_API_KEY'] })
       expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['BRAVE_API_KEY'] })
       expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['KAGI_API_KEY'] })
+      expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['CLOUDFLARE_API_TOKEN'] })
       expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['FIRECRAWL_API_KEY'] })
     })
     fixture.credentials.describe.mockImplementation(({ refs }: { refs: string[] }) => Promise.resolve({
@@ -839,6 +862,7 @@ describe('WebSearchCardController', () => {
     fixture.face.edit('tavily.apiKey', ' tavily-secret ')
     fixture.face.edit('brave.apiKey', ' brave-secret ')
     fixture.face.edit('kagi.apiKey', ' kagi-secret ')
+    fixture.face.edit('cloudflare.apiKey', ' cloudflare-secret ')
     fixture.face.edit('firecrawl.apiKey', ' firecrawl-secret ')
 
     await fixture.controller.save()
@@ -850,6 +874,7 @@ describe('WebSearchCardController', () => {
       [{ ref: 'TAVILY_API_KEY', value: 'tavily-secret' }],
       [{ ref: 'BRAVE_API_KEY', value: 'brave-secret' }],
       [{ ref: 'KAGI_API_KEY', value: 'kagi-secret' }],
+      [{ ref: 'CLOUDFLARE_API_TOKEN', value: 'cloudflare-secret' }],
       [{ ref: 'FIRECRAWL_API_KEY', value: 'firecrawl-secret' }],
     ])
     expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({ dirty: false, failed: false })

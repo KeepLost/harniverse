@@ -14,7 +14,7 @@ export type PluginsSettingsLocaleKey =
   | 'webSearchProvider' | 'webSearchProviderHint' | 'webSearchProviderUnavailable'
   | 'webSearchProviderDeepSeek' | 'webSearchProviderExa' | 'webSearchProviderPerplexity'
   | 'webSearchProviderTavily' | 'webSearchProviderBrave' | 'webSearchProviderKagi'
-  | 'webSearchProviderFirecrawl'
+  | 'webSearchProviderCloudflare' | 'webSearchProviderFirecrawl'
   | 'webSearchFetchProvider' | 'webSearchFetchProviderHint'
   | 'webSearchFetchProviderHttp' | 'webSearchFetchProviderFirecrawl'
   | 'webSearchBooleanTrue' | 'webSearchBooleanFalse'
@@ -39,6 +39,11 @@ export type PluginsSettingsLocaleKey =
   | 'webSearchTavilyMaxResultsHint'
   | 'webSearchBraveApiKey' | 'webSearchBraveMaxResults' | 'webSearchBraveMaxResultsHint'
   | 'webSearchKagiApiKey'
+  | 'webSearchCloudflareApiKey' | 'webSearchCloudflareAccountId' | 'webSearchCloudflareAccountIdHint'
+  | 'webSearchCloudflareGatewayId' | 'webSearchCloudflareGatewayIdHint'
+  | 'webSearchCloudflareEngine' | 'webSearchCloudflareEngineHint'
+  | 'webSearchCloudflareByokAlias' | 'webSearchCloudflareByokAliasHint'
+  | 'webSearchCloudflareSnippetMaxChars' | 'webSearchCloudflareSnippetMaxCharsHint'
   | 'webSearchFirecrawlApiKey' | 'webSearchFirecrawlIncludeSearchContent'
   | 'webSearchFirecrawlIncludeSearchContentHint' | 'webSearchFirecrawlSearchContentMaxChars'
   | 'webSearchFirecrawlSearchContentMaxCharsHint' | 'webSearchFirecrawlMaxChars'
@@ -94,6 +99,7 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   webSearchProviderTavily: 'Tavily',
   webSearchProviderBrave: 'Brave',
   webSearchProviderKagi: 'Kagi',
+  webSearchProviderCloudflare: 'Cloudflare',
   webSearchProviderFirecrawl: 'Firecrawl',
   webSearchFetchProvider: 'Fetch provider',
   webSearchFetchProviderHint: 'The provider used when a Web page is fetched.',
@@ -146,6 +152,17 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   webSearchBraveMaxResults: 'Default result count',
   webSearchBraveMaxResultsHint: 'Results returned when a request does not set its own limit.',
   webSearchKagiApiKey: 'Kagi API key',
+  webSearchCloudflareApiKey: 'Cloudflare API token',
+  webSearchCloudflareAccountId: 'Account ID',
+  webSearchCloudflareAccountIdHint: 'Your 32-character Cloudflare account ID; searches are billed to this account.',
+  webSearchCloudflareGatewayId: 'AI Gateway ID',
+  webSearchCloudflareGatewayIdHint: 'The AI Gateway that routes the search. Every account has one named default.',
+  webSearchCloudflareEngine: 'Search engine',
+  webSearchCloudflareEngineHint: 'The engine Cloudflare queries. Ceramic.ai is the default; each engine is billed at its own list price.',
+  webSearchCloudflareByokAlias: 'Provider key alias',
+  webSearchCloudflareByokAliasHint: 'Optional. Alias of an engine key stored on the gateway, to bill the engine directly instead of using AI Gateway credits.',
+  webSearchCloudflareSnippetMaxChars: 'Snippet length (characters)',
+  webSearchCloudflareSnippetMaxCharsHint: 'Longest description kept from each result; longer text is cut to protect model context.',
   webSearchFirecrawlApiKey: 'Firecrawl API key',
   webSearchFirecrawlIncludeSearchContent: 'Include search content',
   webSearchFirecrawlIncludeSearchContentHint: 'Include bounded markdown content with Firecrawl search results.',
@@ -205,6 +222,7 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   webSearchProviderTavily: 'Tavily',
   webSearchProviderBrave: 'Brave',
   webSearchProviderKagi: 'Kagi',
+  webSearchProviderCloudflare: 'Cloudflare',
   webSearchProviderFirecrawl: 'Firecrawl',
   webSearchFetchProvider: '抓取提供方',
   webSearchFetchProviderHint: '抓取网页时使用的提供方。',
@@ -257,6 +275,17 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   webSearchBraveMaxResults: '默认结果数',
   webSearchBraveMaxResultsHint: '请求未指定数量时返回多少条结果。',
   webSearchKagiApiKey: 'Kagi API Key',
+  webSearchCloudflareApiKey: 'Cloudflare API Token',
+  webSearchCloudflareAccountId: '账户 ID',
+  webSearchCloudflareAccountIdHint: 'Cloudflare 账户的 32 位 ID，搜索费用计入该账户。',
+  webSearchCloudflareGatewayId: 'AI Gateway ID',
+  webSearchCloudflareGatewayIdHint: '转发搜索请求的 AI Gateway。每个账户都有一个名为 default 的网关。',
+  webSearchCloudflareEngine: '搜索引擎',
+  webSearchCloudflareEngineHint: 'Cloudflare 实际查询的引擎。Ceramic.ai 是 Cloudflare 的默认引擎，各引擎按各自的标价计费。',
+  webSearchCloudflareByokAlias: '提供方密钥别名',
+  webSearchCloudflareByokAliasHint: '可选。网关上已保存的引擎密钥别名，设置后直接向引擎付费，不再消耗 AI Gateway 额度。',
+  webSearchCloudflareSnippetMaxChars: '摘要长度（字符）',
+  webSearchCloudflareSnippetMaxCharsHint: '每条结果保留的描述最大长度，超出部分会被截断以保护模型上下文。',
   webSearchFirecrawlApiKey: 'Firecrawl API Key',
   webSearchFirecrawlIncludeSearchContent: '包含搜索内容',
   webSearchFirecrawlIncludeSearchContentHint: '在 Firecrawl 搜索结果中包含有长度限制的 Markdown 内容。',
