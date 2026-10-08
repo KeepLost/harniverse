@@ -1,6 +1,7 @@
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { detectImage, probeImage } from '../src/image.ts'
+import { requireSharp } from '../src/sharp.ts'
 
 async function raster(format: 'png' | 'jpeg' | 'webp' | 'gif'): Promise<Uint8Array> {
   const image = sharp({
@@ -47,5 +48,13 @@ describe('raster decoding', () => {
       create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
     }).tiff().toBuffer()
     await expect(probeImage(unsupported)).rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+  })
+
+  it('never hands SVG bytes to the librsvg decoder', async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="3" height="2"/>')
+    await expect(detectImage(svg)).rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+    await expect(probeImage(svg)).rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+    await expect(requireSharp()(svg).metadata()).rejects.toThrow('unsupported image format')
+    await expect(detectImage(await raster('png'))).resolves.toMatchObject({ mediaType: 'image/png' })
   })
 })
