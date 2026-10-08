@@ -37,6 +37,6 @@ describe('secret credentials', () => {
     expect(secretView(undefined)).toEqual({ configured: false, tail: '' })
     expect(secretView('short-secret')).toEqual({ configured: true, tail: '' })
     expect(secretView('0123456789abcdef')).toEqual({ configured: true, tail: 'cdef' })
-    expect(secretView('123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw')).toEqual({ configured: true, tail: 'Dsaw' })
+    expect(secretView(`123456789:${'x'.repeat(31)}Dsaw`)).toEqual({ configured: true, tail: 'Dsaw' })
   })
 })
