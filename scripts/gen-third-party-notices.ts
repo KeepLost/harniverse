@@ -130,6 +130,49 @@ const RUNTIME_MODEL_ASSETS = [
   },
 ]
 
+/** One upstream project whose source first-party files port or derive from. */
+interface PortedOrigin {
+  name: string
+  license: string
+  /** The upstream copyright line, when the ported portion is verbatim or close to it. */
+  copyright?: string
+  repo: string
+  role: string
+  files: readonly string[]
+}
+
+/**
+ * Source code first-party packages carry that was ported or derived from
+ * other MIT-licensed projects without a package dependency on them, so no
+ * manifest can disclose it. Each ported file keeps a header naming its origin
+ * and pointing here.
+ */
+const PORTED_SOURCE: readonly PortedOrigin[] = [
+  {
+    name: 'dsh-im',
+    license: 'MIT',
+    copyright: 'Copyright (c) 2026 xmanrui',
+    repo: 'https://github.com/xmanrui/dsh-im',
+    role: 'the Telegram Bot API client and update normalization, the Feishu long-connection wiring, and the throttled editable message stream of the chat bridge',
+    files: [
+      'packages/chat/chat-adapter-telegram/src/api.ts',
+      'packages/chat/chat-adapter-telegram/src/normalize.ts',
+      'packages/chat/chat-adapter-feishu/src/runtime.ts',
+      'packages/chat/chat-bridge/src/render.ts',
+    ],
+  },
+  {
+    name: '@larksuiteoapi/node-sdk',
+    license: 'MIT',
+    repo: 'https://github.com/larksuite/node-sdk',
+    role: 'the `pbbp2.Frame` message layout and the long-connection protocol that the Feishu adapter implements without depending on the SDK',
+    files: [
+      'packages/chat/chat-adapter-feishu/src/frame.ts',
+      'packages/chat/chat-adapter-feishu/src/runtime.ts',
+    ],
+  },
+]
+
 /** The `package.json` fields this generator reads. */
 export interface Manifest {
   name?: string
@@ -774,6 +817,14 @@ Files the local speech recognizer downloads at runtime. They are pinned by sha25
 | Asset | License | Role |
 | --- | --- | --- |
 ${RUNTIME_MODEL_ASSETS.map(asset => `| [\`${asset.name}\`](${asset.repo}) | ${asset.license} | ${asset.role} |`).join('\n')}
+
+## Ported source
+
+Source files that were ported or derived from other MIT-licensed projects without a package dependency on them. Each listed file keeps a header naming its origin; the upstream copyright and license apply to the ported portions.
+
+| Origin | License | Role | Files |
+| --- | --- | --- | --- |
+${PORTED_SOURCE.map(origin => `| [\`${origin.name}\`](${origin.repo}) | ${origin.license}${origin.copyright === undefined ? '' : `, ${origin.copyright}`} | ${origin.role} | ${origin.files.map(file => `[\`${file}\`](${file})`).join('<br>')} |`).join('\n')}
 
 ## First-party native packages
 

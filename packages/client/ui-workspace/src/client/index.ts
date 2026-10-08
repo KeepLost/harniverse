@@ -25,6 +25,7 @@ import { WorkspaceWorkbenchButton } from './WorkspaceWorkbenchButton.tsx'
 
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
+  PreviewDocumentOwnerProps, PreviewDocumentSlotName,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
 } from './contract/slots.ts'
 export type { WorkspaceKey } from './locales.ts'
@@ -142,6 +143,15 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
     createWorkspace: (input) => { current(); return ctx.workspaces.create(input) },
     hooks: { directoryFlow: pickerFlowSource },
   })
+  // Occupancy of the preview-document holes (the renderSlot result for an
+  // empty single slot is an empty fragment, not null, so the preview must
+  // gate on occupancy before offering the seat to its document renderer).
+  const documentOccupancy = (hole: 'workbench.preview.document' | 'shell.overlay.preview.document'): HostObservable<boolean> => ({
+    getSnapshot: () => ctx.slots.entries(hole).length > 0,
+    subscribe: listener => ctx.slots.subscribe(hole, listener),
+  })
+  const drawerDocumentSource = documentOccupancy('workbench.preview.document')
+  const overlayDocumentSource = documentOccupancy('shell.overlay.preview.document')
   // Each registration declares its directory-flow child in the same call;
   // slot injection follows both the owner and declaration HMR lifetimes.
   yield ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
@@ -195,14 +205,14 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
       current()
       return ctx.workspaces.searchFiles(workspaceId, query, filters, signal)
     },
-    readFile: (workspaceId, path, signal) => { current(); return ctx.workspaces.readFile(workspaceId, path, signal) },
+    readFile: (workspaceId, path, opts, signal) => { current(); return ctx.workspaces.readFile(workspaceId, path, opts, signal) },
     readBinaryFile: (workspaceId, path, signal) => { current(); return ctx.workspaces.readBinaryFile(workspaceId, path, signal) },
     gitStatus: (workspaceId, signal) => { current(); return ctx.workspaces.gitStatus(workspaceId, signal) },
     gitCommits: (workspaceId, limit, signal) => { current(); return ctx.workspaces.gitCommits(workspaceId, limit, signal) },
     gitDiff: (workspaceId, path, staged, signal) => { current(); return ctx.workspaces.gitDiff(workspaceId, path, staged, signal) },
     openPath,
     ...(watchFiles === undefined ? {} : { watchFiles }),
-    hooks: { canOpenPath: canOpenPathSource },
+    hooks: { canOpenPath: canOpenPathSource, previewDocumentOccupied: drawerDocumentSource },
   })
   yield ctx.slots.inject('workbench', () => ctx.slots.register(
     {
@@ -212,9 +222,12 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
       locale: NS,
       // Contributed sections (browser, terminal, …): one tab beside the
       // shipped files/changes/search tabs, one body inside the tabpanel.
+      // The preview-document hole carries the drawer placement's editable
+      // document surface (the optional editor plugin's occupant).
       children: {
         'workbench.section.tab': { kind: 'list', scope: 'root' },
         'workbench.section.panel': { kind: 'list', scope: 'root' },
+        'workbench.preview.document': { kind: 'single', scope: 'root' },
       },
     },
     WorkspaceWorkbench,
@@ -225,7 +238,8 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
   // It carries only the native open-path action and its capability.
   const previewInjected = (): WorkspacePreviewInjected => ({
     openPath,
-    hooks: { canOpenPath: canOpenPathSource },
+    readFile: (workspaceId, path, opts, signal) => { current(); return ctx.workspaces.readFile(workspaceId, path, opts, signal) },
+    hooks: { canOpenPath: canOpenPathSource, overlayDocumentOccupied: overlayDocumentSource },
   })
   yield ctx.slots.inject('shell.overlay', () => ctx.slots.register(
     {
@@ -235,6 +249,9 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
       store: workbenchStore,
       inject: previewInjected,
       locale: NS,
+      // The overlay placement's editable document surface: same owner
+      // contract as the drawer hole, occupied by the same editor component.
+      children: { 'shell.overlay.preview.document': { kind: 'single', scope: 'root' } },
     },
     WorkspaceWorkbenchPreviewOverlay,
   ))

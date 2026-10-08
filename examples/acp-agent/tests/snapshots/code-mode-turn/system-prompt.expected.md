@@ -4,11 +4,11 @@ You are working on the machine {{machine}} ({{environment}}). The working direct
 
 `run_code` is the only tool you can call directly — a tool call naming any other tool fails. Reach every tool the SDK declares below from inside the program.
 
-Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines.
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines. Legacy-encoded files decode automatically; an FS_NOT_TEXT result lists encodings you can pass as encoding to re-read the file.
 
 Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
 
-Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+Use the edit tool for targeted changes to existing text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
 Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call. On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 
@@ -61,7 +61,7 @@ interface ToolArgsMap {
     /** Optional positive safe-integer limit on automatic continuation rounds. */
     max_goal_rounds?: number;
   } & Record<string, JsonValue>;
-  /** Edit an existing UTF-8 text file by replacing literal text. */
+  /** Edit an existing text file by replacing literal text. */
   edit: {
     /** Path to edit, resolved by the filesystem backend. */
     file_path: string;
@@ -113,7 +113,7 @@ interface ToolArgsMap {
     /** Optional positive safe-integer round cap, bounded by the deployment ceiling. */
     maxRounds?: number;
   } & Record<string, JsonValue>;
-  /** Read a UTF-8 text file and return line-numbered content. */
+  /** Read a text file and return line-numbered content. Files decode as UTF-8 by default; legacy encodings are detected from the machine locale, or name one with encoding. */
   read: {
     /** Path to read, resolved by the filesystem backend. */
     file_path: string;
@@ -121,8 +121,10 @@ interface ToolArgsMap {
     offset?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
-    /** 0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read. */
+    /** 0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read; it counts UTF-8 bytes of the decoded text regardless of the file's encoding. */
     line_byte_offset?: number;
+    /** Optional encoding name (iconv-lite spelling, e.g. gbk, big5, shiftjis, utf-16le). Omit to auto-detect; an FS_NOT_TEXT result lists encodings that can decode the file. */
+    encoding?: string;
   } & Record<string, JsonValue>;
   /** Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. This call returns no answer from the subagent — only confirmation that the message was delivered — so use it to give it more work. A failure means the message was NOT delivered. */
   send_message: {
@@ -234,11 +236,11 @@ interface ToolArgsMap {
     /** Register the run as a workflow job and return its ids immediately; collect output with job_output and stop with job_kill. The parent turn does not wait for the script. */
     run_in_background?: boolean;
   } & Record<string, JsonValue>;
-  /** Create or fully replace a UTF-8 text file. */
+  /** Create or fully replace a text file. */
   write: {
     /** Path to write, resolved by the filesystem backend. */
     file_path: string;
-    /** Full UTF-8 text content to write. */
+    /** Full text content to write. New files are UTF-8; a read legacy file is written back in its original encoding. */
     content: string;
     /** Omit for ordinary operations. Set only when retrying the exact same operation after a sandbox denial, using the narrowest strictly wider mode; never send the current or a narrower mode. */
     sandbox_permissions?: "workspace-write" | "danger-full-access";
@@ -389,6 +391,7 @@ interface ToolOutputMap {
       complete?: boolean;
     }[];
     totalLines?: number;
+    encoding?: string;
     next?: {
       offset: number;
       lineByteOffset: number;

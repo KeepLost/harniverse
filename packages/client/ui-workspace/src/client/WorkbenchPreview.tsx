@@ -9,18 +9,19 @@
  * drawer. Closed keeps the subtree mounted, so tabs survive a dismiss.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   CodeBlock, IconCloseOutline16, IconRightUpOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceWorkbenchProps } from './contract/slots.ts'
-import type { WorkbenchTab } from './stores.ts'
+import type { PreviewDocumentOwnerProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
+import type { WorkbenchPreviewMode, WorkbenchTab } from './stores.ts'
 import { parseCsvPreview } from './preview-kind.ts'
 import css from './WorkbenchPreview.module.css'
 
 type WorkbenchTranslate = WorkspaceWorkbenchProps['t']
 
-const FOCUSABLE_SELECTOR = 'iframe, button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE_SELECTOR = 'iframe, button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
 
 function visibleFocusableDescendants(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter((element) => {
@@ -188,14 +189,60 @@ export function TabStrip(props: {
   )
 }
 
-/** Package-internal preview dispatcher, exported for direct component accounting. */
-export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: {
+/** Encodings offered by the "reopen with encoding" selector, iconv names as values. */
+const REOPEN_ENCODINGS: readonly { value: string; label: string }[] = [
+  { value: 'utf-8', label: 'UTF-8' },
+  { value: 'gb18030', label: 'GB18030 / GBK' },
+  { value: 'big5', label: 'Big5' },
+  { value: 'shiftjis', label: 'Shift_JIS' },
+  { value: 'eucjp', label: 'EUC-JP' },
+  { value: 'cp949', label: 'EUC-KR' },
+  { value: 'windows-1251', label: 'Windows-1251' },
+  { value: 'windows-1252', label: 'Windows-1252' },
+]
+
+/** Preview families an editing occupant may take over; every other family stays read-only. */
+const EDITABLE_KINDS: ReadonlySet<WorkbenchTab['kind']> = new Set(['markdown', 'html', 'code', 'text', 'csv', 'tsv'])
+
+/** Editor-occupant wiring the preview threads from its entry's renderSlot seat. */
+export interface EditorSeat {
+  /** Workspace owning the previewed documents. */
+  workspaceId: string
+  /** Which placement this surface renders. */
+  placement: 'overlay' | 'in-column'
+  /** Render the preview-document occupant for one document, or null while the hole is empty. */
+  render: (owner: PreviewDocumentOwnerProps) => ReactNode
+  /** Whether a document holds unsaved edits (the preview then shows the saved version with a notice). */
+  isDirty: (path: string) => boolean
+  /** Report a document's dirty fact; the entry confirms before closing a dirty document. */
+  onDirtyChange: (path: string, dirty: boolean) => void
+  /** The occupant saved a document; the entry re-reads it so the preview shows the saved text. */
+  onSaved: (path: string) => void
+  /** The occupant requested the preview to close after its own Escape handling; a dirty document confirms first. */
+  onRequestClose: (path: string, title: string) => void
+}
+
+/**
+ * Package-internal preview dispatcher, exported for direct component
+ * accounting. An editable family shows its rendered preview unless the owner's
+ * mode selects the editor seat; the header toggle appears exactly while that
+ * choice exists.
+ */
+export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal, onReopenEncoding, editor, mode = 'preview', onModeChange }: {
   tab: WorkbenchTab | undefined
   onDismiss: () => void
   t: WorkbenchTranslate
   onFrameLoad?: (frame: HTMLIFrameElement) => void
   /** Open the previewed file with the Host's default application; absent hides the action. */
   onOpenExternal?: () => void
+  /** Re-read the previewed file with an explicit encoding (`undefined` re-detects); text tabs only. */
+  onReopenEncoding?: (encoding: string | undefined) => void
+  /** Editor-occupant wiring; absent keeps every family on its read-only renderer. */
+  editor?: EditorSeat
+  /** Surface the tab shows while editor-eligible; absent means its rendered preview. */
+  mode?: WorkbenchPreviewMode | undefined
+  /** Switch the tab's surface; absent hides the Preview / Edit toggle and keeps the preview. */
+  onModeChange?: (mode: WorkbenchPreviewMode) => void
 }) {
   const objectUrlState = useObjectUrl(tab)
   const objectUrl = objectUrlState !== undefined && tab !== undefined
@@ -213,13 +260,35 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: 
       </div>
     )
   }
+  // The Preview / Edit toggle exists only where an occupant could take the
+  // document; an explicit-encoding re-open stays in Preview because the
+  // editor cannot reproduce its bytes.
+  const editable = editor !== undefined && onModeChange !== undefined && tab.content !== undefined
+    && EDITABLE_KINDS.has(tab.kind) && tab.truncated !== true
+  const explicit = tab.encodingSource === 'explicit'
+  const editing = editable && mode === 'edit' && !explicit
   let body
   if (tab.loading) body = <div className={css.emptyPreview}>{t('workbench.previewReading', { name: tab.title })}</div>
   else if (tab.error !== undefined) body = <div className={css.previewError}>{tab.error}</div>
   else if (tab.content === undefined && objectUrl === undefined) body = <div className={css.emptyPreview}>{t('workbench.previewUnavailable')}</div>
   else {
     const content = tab.content as string
-    switch (tab.kind) {
+    const editorNode = editing
+      ? editor.render({
+        workspaceId: editor.workspaceId as PreviewDocumentOwnerProps['workspaceId'],
+        path: tab.path,
+        // EDITABLE_KINDS gated the render; the cast only satisfies the union.
+        kind: tab.kind as PreviewDocumentOwnerProps['kind'],
+        ...(tab.language === undefined ? {} : { language: tab.language }),
+        active: true,
+        placement: editor.placement,
+        onDirtyChange: (dirty) => { editor.onDirtyChange(tab.path, dirty) },
+        onSaved: () => { editor.onSaved(tab.path) },
+        onRequestClose: () => { editor.onRequestClose(tab.path, tab.title) },
+      })
+      : null
+    if (editorNode != null) body = editorNode
+    else switch (tab.kind) {
       case 'markdown': body = <article className={css.markdownPreview}><MarkdownText text={content} /></article>; break
       case 'html': body = <iframe className={css.htmlPreview} title={tab.title} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={content} onLoad={event => onFrameLoad?.(event.currentTarget)} />; break
       case 'code': body = <div className={css.codePreview}><CodeBlock code={content} lang={tab.language} /></div>; break
@@ -242,6 +311,49 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: 
         {/* Right-to-left ellipsis keeps the filename visible on a long path;
             the bidi isolate stops the base direction from reordering it. */}
         <span className={css.previewPath} title={tab.path}>&#8296;{tab.path}&#8297;</span>
+        {editable && (
+          <div className={css.modeToggle} role="group" aria-label={t('workbench.modeAria')}>
+            <button
+              type="button"
+              data-active={!editing || undefined}
+              aria-pressed={!editing}
+              onClick={() => { onModeChange('preview') }}
+            >
+              {t('workbench.modePreview')}
+            </button>
+            <button
+              type="button"
+              data-active={editing || undefined}
+              aria-pressed={editing}
+              disabled={explicit}
+              title={explicit ? t('workbench.editorUnavailableExplicit') : undefined}
+              onClick={() => { onModeChange('edit') }}
+            >
+              {t('workbench.modeEdit')}
+            </button>
+          </div>
+        )}
+        {tab.encoding !== undefined && (
+          <small>
+            {t('workbench.encodingLabel')}: {tab.encoding}
+            {tab.bom ? ' · BOM' : ''} · {tab.eol}
+          </small>
+        )}
+        {onReopenEncoding !== undefined && (
+          <select
+            className={css.encodingSelect}
+            aria-label={t('workbench.encodingReopen')}
+            value={tab.encodingSource === 'explicit' ? tab.encoding : ''}
+            onChange={(event) => {
+              onReopenEncoding(event.currentTarget.value === '' ? undefined : event.currentTarget.value)
+            }}
+          >
+            <option value="">{t('workbench.encodingAuto')}</option>
+            {REOPEN_ENCODINGS.map(entry => (
+              <option key={entry.value} value={entry.value}>{entry.label}</option>
+            ))}
+          </select>
+        )}
         {tab.bytes !== undefined && <small>{tab.bytes.toLocaleString()} B</small>}
         {onOpenExternal !== undefined && tab.error === undefined && (
           <button
@@ -257,6 +369,9 @@ export function FilePreview({ tab, onDismiss, t, onFrameLoad, onOpenExternal }: 
           <IconCloseOutline16 />
         </button>
       </div>
+      {editable && !editing && editor.isDirty(tab.path) && (
+        <div className={css.staleNotice} role="status">{t('workbench.previewStale')}</div>
+      )}
       <div className={css.previewBody}>{body}</div>
       {tab.truncated && <div className={css.previewNotice}>{t('workbench.previewTruncated')}</div>}
     </div>
@@ -283,6 +398,14 @@ export function WorkbenchPreview(props: {
   onSelect: (id: string) => void
   onClose: (id: string) => void
   onDismiss: () => void
+  /** Re-read the active file tab with an explicit encoding; absent hides the selector. */
+  onReopenEncoding?: (path: string, encoding: string | undefined) => void
+  /** Editor-occupant wiring; absent keeps every family on its read-only renderer. */
+  editor?: EditorSeat
+  /** Surface the active tab shows; absent means its rendered preview. */
+  mode?: WorkbenchPreviewMode | undefined
+  /** Switch one tab's surface; absent hides the Preview / Edit toggle. */
+  onModeChange?: (tabId: string, mode: WorkbenchPreviewMode) => void
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const restoreFocus = useRef<HTMLElement | null>(null)
@@ -326,7 +449,7 @@ export function WorkbenchPreview(props: {
   }
   useEffect(() => clearFrameListeners, [
     activeTab?.content, activeTab?.dataBase64, activeTab?.error, activeTab?.id,
-    activeTab?.kind, activeTab?.loading, activeTab?.mediaType, props.open, props.placement,
+    activeTab?.kind, activeTab?.loading, activeTab?.mediaType, props.mode, props.open, props.placement,
   ])
   useLayoutEffect(() => { ref.current?.toggleAttribute('inert', !props.open) }, [props.open])
   useEffect(() => {
@@ -345,6 +468,11 @@ export function WorkbenchPreview(props: {
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      // The preview-document occupant owns Escape while focus is inside it
+      // (its search panel, multi-cursor dismissal, its own close request);
+      // the event reaches the occupant's keymap only when this capture
+      // listener lets it pass.
+      if (event.target instanceof Element && event.target.closest('[data-workspace-editor]') !== null) return
       event.preventDefault()
       // The preview is nested inside the shell drawer on narrow screens. Stop
       // its document listener from also closing the whole workbench.
@@ -398,7 +526,15 @@ export function WorkbenchPreview(props: {
         t={props.t}
         onDismiss={props.onDismiss}
         onFrameLoad={bindFrame}
+        mode={props.mode}
+        {...(props.editor === undefined ? {} : { editor: props.editor })}
+        {...(props.onModeChange === undefined || activeTab === undefined ? {} : {
+          onModeChange: (mode: WorkbenchPreviewMode) => { props.onModeChange?.(activeTab.id, mode) },
+        })}
         {...(props.onOpenExternal === undefined ? {} : { onOpenExternal: props.onOpenExternal })}
+        {...(props.onReopenEncoding === undefined || activeTab === undefined ? {} : {
+          onReopenEncoding: (encoding: string | undefined) => { props.onReopenEncoding?.(activeTab.path, encoding) },
+        })}
       />
     </div>
   )

@@ -397,7 +397,11 @@ export const sessionWorkStatusRequestSchema = z.object({
 
 const sessionWorkDeliverySchema = z.union([z.literal('queue'), z.literal('steer')]) as z.ZodType<SessionWorkDelivery>
 
-const sessionWorkStatusSchema = z.discriminatedUnion('state', [
+/**
+ * Wire schema of {@link SessionWorkStatus}; exported because the RPC error
+ * body carries the same lifecycle inside `queue-item-not-found` details.
+ */
+export const sessionWorkStatusSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('unknown') }),
   z.object({ state: z.literal('queued'), delivery: sessionWorkDeliverySchema }),
   z.object({

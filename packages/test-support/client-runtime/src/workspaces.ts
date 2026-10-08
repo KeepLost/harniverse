@@ -113,21 +113,29 @@ export class TestWorkspaces implements IWorkspaces {
     return { path: path ?? '', entries: [], truncated: false }
   }
 
-  async readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+  async readFile(workspaceId: WorkspaceId, path: string, opts?: { encoding?: string }, signal?: AbortSignal): Promise<{
     path: string
     content: string
     bytes: number
     truncated: boolean
+    encoding: string
+    encodingSource: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+    bom: boolean
+    eol: 'LF' | 'CRLF'
   }> {
-    this.calls.push({ method: 'readFile', args: [workspaceId, path, signal] })
+    this.calls.push({ method: 'readFile', args: [workspaceId, path, opts, signal] })
     const stub = this.stubs.get('readFile')
-    if (stub !== undefined) return await stub(workspaceId, path, signal) as {
+    if (stub !== undefined) return await stub(workspaceId, path, opts, signal) as {
       path: string
       content: string
       bytes: number
       truncated: boolean
+      encoding: string
+      encodingSource: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+      bom: boolean
+      eol: 'LF' | 'CRLF'
     }
-    return { path, content: '', bytes: 0, truncated: false }
+    return { path, content: '', bytes: 0, truncated: false, encoding: 'utf-8', encodingSource: 'utf8', bom: false, eol: 'LF' }
   }
 
   async searchFiles(

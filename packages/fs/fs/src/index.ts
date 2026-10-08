@@ -18,6 +18,7 @@ import type {
   FsPathInfo,
   FsObservation,
   FsTarget,
+  FsTextEncoding,
   FsVersion,
   FsWriteIntent,
   FsWriteOutcome,
@@ -37,6 +38,7 @@ export type {
   FsObservation,
   FsPathInfo,
   FsTarget,
+  FsTextEncoding,
   FsWriteIntent,
   FsWriteOutcome,
 } from './types.ts'
@@ -75,6 +77,26 @@ declare module '@deepseek-ai/cordis' {
      */
     'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
   }
+}
+
+/**
+ * Optional decode controls for a text read. `encoding` names an iconv-lite
+ * encoding and wins or fails by name; `utfOnly` restricts the read to the
+ * UTF family (BOM or strict UTF-8) with no legacy guessing — the boundary
+ * consumers such as skills, instructions, and configuration rely on.
+ */
+export interface FsReadTextOptions {
+  /** Explicit iconv-lite encoding name; a name that cannot decode the bytes fails the read. */
+  encoding?: string
+  /** Accept only BOM-marked UTF family or strict UTF-8; ignore `encoding` and legacy candidates. */
+  utfOnly?: boolean
+  /**
+   * Receiver of the settled {@link FsTextEncoding} decision, called once
+   * after a successful read (before or while the first chunk is produced).
+   * Consumers that annotate output (tool read views, previews) use this;
+   * plain text consumers ignore it.
+   */
+  onDecision?: (decision: FsTextEncoding) => void
 }
 
 /**
@@ -171,20 +193,23 @@ export abstract class FileSystem extends Service {
    * Read the whole regular text file as a single decoded string.
    * @param target - the resolved target to read.
    * @param signal - aborts the read.
-   * @returns the full decoded UTF-8 content.
+   * @param opts - decode controls: explicit encoding, UTF-only boundary, decision receiver.
+   * @returns the full decoded content (BOM bytes stripped, never a U+FEFF prefix).
    */
-  abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+  abstract readText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<string>
 
   /**
    * Stream the whole regular text file as decoded text chunks (same text
    * semantics as {@link readText}, for large files). The backend owns
-   * cross-chunk UTF-8 decoding and binary rejection so the policy layer never
-   * touches raw bytes.
+   * cross-chunk decoding and binary rejection so the policy layer never
+   * touches raw bytes; a legacy-encoding file degrades to whole-buffer
+   * decode before chunking, so the memory bound is the file size.
    * @param target - the resolved target to read.
    * @param signal - aborts the stream, including between chunks.
+   * @param opts - decode controls: explicit encoding, UTF-only boundary, decision receiver.
    * @returns the chunk iterable, decoded and validated like {@link readText}.
    */
-  abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+  abstract streamText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<AsyncIterable<string>>
 
   /**
    * Read the whole regular file as raw bytes with no decoding or binary

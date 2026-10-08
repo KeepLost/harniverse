@@ -8,6 +8,7 @@ Profile bundles: npm packages whose manifest declares `"dsh": { "bundle": { "pat
 |---|---|---|
 | [`base/`](base/README.md) | The shared dsh core every profile applies first | — (patch only) |
 | [`auth-app/`](auth-app/README.md) | One-shot local device and API-client Grant management with no network service | mounts `auth-runner` |
+| [`chat-app/`](chat-app/README.md) | IM chat bridge: Telegram and Feishu to a local Harniverse through one operator Grant, with `init`, `status`, and `rotate-key` maintenance | mounts `chat-runner`, `chat-bridge` |
 | [`web-app/`](web-app/README.md) | Browser surface: web patch layer + runtime glue plugin | mounts rows |
 | [`headless/`](headless/README.md) | Direct one-shot task mode over base, with no Host or Web layer | mounts `headless-runner` |
 

@@ -122,11 +122,13 @@ export type MuxFrame =
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
    * Complete transient inbox state after every enqueue, mutation, claim, or
-   * discard. Pending work is not model-visible and therefore has no durable
-   * session event; the whole snapshot makes edit, deletion, cancel, and
-   * reconnect converge through one authoritative signal. `session/queue`
-   * covers both resolved placements: queued items render
-   * in QueueDock, while pending steering renders at the conversation tail.
+   * discard. Pending work lives in durable `agent/inbox/spliced` events (the
+   * log's record of what was admitted and how it left the inbox) while this
+   * whole snapshot is the live convergence signal: it makes edit, recall,
+   * claim, cancel, and reconnect land on one authoritative value without
+   * replaying the splice history. `session/queue` covers both resolved
+   * placements: queued items render in QueueDock, while pending steering
+   * renders at the conversation tail.
    */
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   /**

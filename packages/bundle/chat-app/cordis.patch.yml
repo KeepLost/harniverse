@@ -1,0 +1,67 @@
+# The dsh chat profile: a standalone bridge between IM platforms and a local
+# Harniverse. It mounts no web server, authentication provider, or agent, and
+# listens on no port. Every row except the startup, storage, credentials, and
+# runner rows mounts only for `run`; init, status, and rotate-key are one-shot
+# maintenance over the same storage and credentials.
+#
+# `disabled` is evaluated once, when the row is created, and cannot see a
+# service that a sibling plugin publishes later. The run-only rows therefore
+# read the launcher's argument snapshot (`cmdlineArgs`, provided before the tree
+# mounts): they mount for exactly `dsh chat` and `dsh chat run`. Keep this in
+# step with the default-to-run rule in src/startup.ts.
+#
+# Edit the bridge and platform rows through the profile patch
+# ($DSH_HOME/profiles/chat/patch.yml): a patch replaces a row's whole config.
+
+- insert:
+    - id: chat-startup
+      name: '@deepseek-ai/dsh-chat-app/startup'
+
+    # Bridge state and secrets live under the profile's own directory, apart
+    # from the web composition's storages and credentials.
+    - id: storage
+      name: '@deepseek-ai/dsh-storage'
+
+    - id: storage-json
+      name: '@deepseek-ai/dsh-storage-json'
+      config:
+        root: !!js dshHomePath('chat-bridge', 'storage')
+
+    - id: storage-domain
+      name: '@deepseek-ai/dsh-storage-domain'
+      config:
+        backend: json
+
+    # Platform tokens, the Grant id, and the Grant private key (0600).
+    - id: credentials
+      name: '@deepseek-ai/dsh-credentials-local'
+      config:
+        path: !!js dshHomePath('chat-bridge', 'credentials.yaml')
+
+    - id: chat-adapters
+      name: '@deepseek-ai/dsh-chat-adapter'
+      disabled: !!js (['', 'run'].includes((ctx.get('cmdlineArgs')?.get() ?? []).join(' ')) === false)
+
+    - id: chat-client
+      name: '@deepseek-ai/dsh-chat-harniverse-client'
+      disabled: !!js (['', 'run'].includes((ctx.get('cmdlineArgs')?.get() ?? []).join(' ')) === false)
+
+    - id: chat-telegram
+      name: '@deepseek-ai/dsh-chat-adapter-telegram'
+      disabled: !!js (['', 'run'].includes((ctx.get('cmdlineArgs')?.get() ?? []).join(' ')) === false)
+
+    - id: chat-feishu
+      name: '@deepseek-ai/dsh-chat-adapter-feishu'
+      disabled: !!js (['', 'run'].includes((ctx.get('cmdlineArgs')?.get() ?? []).join(' ')) === false)
+
+    - id: chat-bridge
+      name: '@deepseek-ai/dsh-chat-bridge'
+      disabled: !!js (['', 'run'].includes((ctx.get('cmdlineArgs')?.get() ?? []).join(' ')) === false)
+
+    - id: chat-runner
+      name: '@deepseek-ai/dsh-chat-app'
+      inject: [chatStartup]
+      config:
+        operation: !!js ctx.chatStartup.operation
+        origin: !!js ctx.chatStartup.origin
+        dshHome: !!js process.env.DSH_HOME

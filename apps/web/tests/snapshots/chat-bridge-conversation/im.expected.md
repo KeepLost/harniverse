@@ -1,0 +1,8 @@
+- fake-1: "Send /pair <code> to join. Ask an owner for a pairing code."
+- fake-2: "That pairing code is not valid or has expired."
+- fake-3: "Paired as owner. Send /help for the commands."
+- fake-4: "That pairing code is not valid or has expired."
+- fake-5: "Unknown command. Send /help for the list."
+- fake-6: "Unknown command. Send /help for the list."
+- fake-7: "Unknown command. Send /help for the list."
+- fake-8: "LIGHTHOUSE keeps watch."

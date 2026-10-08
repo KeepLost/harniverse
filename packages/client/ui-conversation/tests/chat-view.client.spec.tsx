@@ -156,6 +156,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const openFile = vi.fn<(path: string) => void>()
   const loadOlder = vi.fn()
   const inspectCall = vi.fn<(callId: string) => void>()
+  const recallSteering = vi.fn<ChatViewSlotProps['recallSteering']>(() => Promise.resolve())
   // In-memory scroll memory matching the apply.ts per-session map contract.
   let savedScroll: ReturnType<ChatViewSlotProps['chatScroll']['read']> = null
   const chatScroll: ChatViewSlotProps['chatScroll'] = {
@@ -290,6 +291,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     inspectCall,
     chatScroll,
     forkAt,
+    recallSteering,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     externalLinks: { open: () => true },
@@ -299,7 +301,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
   return {
     set, ChatView, props, openDetails, openFile, loadOlder, inspectCall,
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, setSelection, toolOwners, recallSteering,
   }
 }
 
@@ -518,7 +520,7 @@ describe('ChatView', () => {
     expect(h.forkAt).toHaveBeenCalledWith(1)
   })
 
-  it('keeps a later pending occurrence visible when it reuses a durable MessageId', () => {
+  it('keeps a later pending occurrence visible when it reuses a durable MessageId', async () => {
     const pending = {
       id: 'steer-occurrence-later' as never,
       messageId: 'shared-steer-message' as never,
@@ -539,6 +541,67 @@ describe('ChatView', () => {
 
     expect(view.getAllByText('same steering')).toHaveLength(2)
     expect(view.container.querySelectorAll('[data-pending-steering]')).toHaveLength(1)
+  })
+
+  it('offers pending-steering recall while running or parked, hidden for subagents', async () => {
+    const pending = {
+      id: 'steer-recall' as never,
+      messageId: 'steer-recall-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'take it back' }],
+      preview: 'take it back',
+      text: 'take it back',
+    }
+    const h = makeHarness({ queue: [pending], running: true })
+    const view = render(<h.ChatView {...h.props} />)
+
+    const recall = view.getByRole('button', { name: '撤回插话' })
+    fireEvent.click(recall)
+    expect(h.recallSteering).toHaveBeenCalledWith('steer-recall', pending.content)
+    await act(async () => { await Promise.resolve() })
+
+    // A parked steering (Stop keeps the inbox) still recalls while idle.
+    act(() => { h.set({ running: false }) })
+    fireEvent.click(view.getByRole('button', { name: '撤回插话' }))
+    expect(h.recallSteering).toHaveBeenCalledTimes(2)
+
+    // Subagent sessions hide the action, mirroring the QueueDock mutability rule.
+    act(() => {
+      h.set({
+        subagent: {
+          address: { parentSessionId: 'p' as SessionId, childSessionId: SID, mode: 'continuable' as const },
+          parentAvailable: true,
+        },
+      })
+    })
+    expect(view.queryByRole('button', { name: '撤回插话' })).toBeNull()
+  })
+
+  it('disables the recall action while one recall is in flight', async () => {
+    let settleRecall: (() => void) | undefined
+    const recallSteering = vi.fn(() => new Promise<void>((resolve) => { settleRecall = resolve }))
+    const pending = {
+      id: 'steer-busy' as never,
+      messageId: 'steer-busy-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'in flight' }],
+      preview: 'in flight',
+      text: 'in flight',
+    }
+    const h = makeHarness({ queue: [pending], running: true })
+    h.props.recallSteering = recallSteering
+    const view = render(<h.ChatView {...h.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '撤回插话' }))
+    const busy = view.getByRole('button', { name: '撤回插话' })
+    expect(busy).toHaveProperty('disabled', true)
+    fireEvent.click(busy)
+    expect(recallSteering).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      settleRecall?.()
+      await Promise.resolve()
+    })
+    expect(view.getByRole('button', { name: '撤回插话' })).toHaveProperty('disabled', false)
   })
 
   it('animates only the latest unresolved model retry', () => {

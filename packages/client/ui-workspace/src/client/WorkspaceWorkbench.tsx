@@ -1,4 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   IconBranchOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
@@ -6,17 +7,19 @@ import {
   IconRefreshOutline16, IconRightUpOutline16, IconSearchOutline16,
   IconSettingsOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceFileEntry } from '@deepseek-ai/dsh-client-runtime/client'
+import type { IWorkspaces, WorkspaceFileEntry } from '@deepseek-ai/dsh-client-runtime/client'
 import { ChangeFeed, resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspacePreviewOverlayProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
+import type { PreviewDocumentOwnerProps, WorkspacePreviewOverlayProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
 import type {
   WorkbenchDirectory, WorkbenchGitArea, WorkbenchSearch, WorkbenchSection, WorkbenchTab,
 } from './stores.ts'
 import { previewType } from './preview-kind.ts'
 import { WorkbenchPreview } from './WorkbenchPreview.tsx'
+import type { EditorSeat } from './WorkbenchPreview.tsx'
 import css from './WorkspaceWorkbench.module.css'
 
 type WorkbenchTranslate = WorkspaceWorkbenchProps['t']
+type TextRead = Awaited<ReturnType<IWorkspaces['readFile']>>
 
 /** Section tabs in render order; the glyph is the affordance on a narrow region. */
 const SECTIONS: ReadonlyArray<{ section: WorkbenchSection; labelKey: 'workbench.files' | 'workbench.search' | 'workbench.changes' }> = [
@@ -31,6 +34,22 @@ const WORKBENCH_REVALIDATE_DEBOUNCE_MS = 500
 function basename(path: string): string {
   /* v8 ignore next -- split always returns at least one element, including for an empty string. */
   return path.split('/').pop() ?? path
+}
+
+/** Tab id the workbench gives one opened file. */
+function fileTabId(path: string): string {
+  return `file:${path}`
+}
+
+/** The tab a finished text read of one file yields, with the decode facts the read reported. */
+function readTab(path: string, value: TextRead): WorkbenchTab {
+  const descriptor = previewType(path)
+  return {
+    id: fileTabId(path), path, title: basename(path), kind: descriptor.kind, loading: false,
+    ...(descriptor.language === undefined ? {} : { language: descriptor.language }),
+    content: value.content, bytes: value.bytes, truncated: value.truncated,
+    encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
+  }
 }
 
 function extension(path: string): string {
@@ -338,6 +357,60 @@ export function ChangesPanel(props: {
   )
 }
 
+/** Editor-occupant seat plus the dirty-document guard shared by both preview placements. */
+interface PreviewDocumentGuard {
+  /** The seat threaded into the preview; undefined while no Workspace resolves or the hole is unoccupied. */
+  seat: EditorSeat | undefined
+  /** Whether closing one document may proceed; a dirty document confirms first. */
+  confirmPath: (path: string | undefined, title: string) => boolean
+  /** Dismiss the preview; a dirty active document confirms first. */
+  guardedDismiss: (active: WorkbenchTab | undefined) => void
+}
+
+/**
+ * Gate every close path behind one confirmation over the Workspace account's
+ * unsaved-edit facts. The facts live in the shared store, so both placements
+ * agree on them and they stand while the occupant is unmounted (Preview mode,
+ * another tab, the other placement).
+ */
+function usePreviewDocumentGuard(options: {
+  workspaceId: string | undefined
+  placement: 'overlay' | 'in-column'
+  occupied: boolean
+  renderPreviewDocument: (owner: PreviewDocumentOwnerProps) => ReactNode
+  /** Unsaved-edit facts of the Workspace account, keyed by tab id. */
+  dirtyTabs: Record<string, true> | undefined
+  actions: Pick<WorkspaceWorkbenchProps['actions'], 'setDocumentDirty'>
+  /** Re-read one saved file so the rendered preview shows its saved text. */
+  refreshSaved: (path: string) => void
+  t: WorkbenchTranslate
+  dismiss: () => void
+}): PreviewDocumentGuard {
+  const { t, dismiss, dirtyTabs, actions, workspaceId } = options
+  const isDirty = useCallback((path: string) => dirtyTabs?.[fileTabId(path)] === true, [dirtyTabs])
+  const confirmPath = useCallback((path: string | undefined, title: string) => {
+    if (path === undefined || !isDirty(path)) return true
+    return window.confirm(t('workbench.dirtyConfirm', { name: title }))
+  }, [isDirty, t])
+  const guardedDismiss = useCallback((active: WorkbenchTab | undefined) => {
+    if (active !== undefined && !confirmPath(active.path, active.title)) return
+    dismiss()
+  }, [confirmPath, dismiss])
+  const seat: EditorSeat | undefined = workspaceId === undefined || !options.occupied ? undefined : {
+    workspaceId,
+    placement: options.placement,
+    render: owner => options.renderPreviewDocument(owner),
+    isDirty,
+    onDirtyChange: (path, dirty) => { actions.setDocumentDirty(workspaceId, fileTabId(path), dirty) },
+    onSaved: options.refreshSaved,
+    onRequestClose: (path, title) => {
+      if (!confirmPath(path, title)) return
+      dismiss()
+    },
+  }
+  return { seat, confirmPath, guardedDismiss }
+}
+
 /** Top-level read-only Workspace workbench occupying the shell's workbench slot. */
 export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const sessionId = props.useSessions((state) => {
@@ -355,6 +428,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const workspaceId = workspace?.workspaceId as string | undefined
   const account = props.useStore(state => workspaceId === undefined ? undefined : state.byWorkspace[workspaceId])
   const activeTab = account?.tabs.find(tab => tab.id === account.activeTabId)
+  const activeMode = activeTab === undefined ? undefined : account?.previewMode[activeTab.id]
   const runRequest = useRequestFence(workspaceId)
   const canOpenPath = props.useCanOpenPath(capable => capable)
   const openExternal = useCallback((relativePath: string) => {
@@ -467,10 +541,11 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
       )
     } else {
       runRequest(
-        signal => props.readFile(workspace.workspaceId, entry.path, signal),
+        signal => props.readFile(workspace.workspaceId, entry.path, undefined, signal),
         (value) => {
           props.actions.updateTab(workspaceId, {
             ...pending, content: value.content, bytes: value.bytes, truncated: value.truncated, loading: false,
+            encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
           })
         },
         (error) => { props.actions.updateTab(workspaceId, { ...pending, loading: false, error }) },
@@ -478,6 +553,46 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
       )
     }
   }, [account?.tabs, props.actions, props.readBinaryFile, props.readFile, runRequest, workspace, workspaceId])
+
+  // "Reopen with encoding": re-reads one text tab with an explicit encoding
+  // (or re-detects), keeping the tab identity so the surface does not move.
+  const reopenWithEncoding = useCallback((entryPath: string, encoding: string | undefined) => {
+    /* v8 ignore next -- the selector renders only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    const id = `file:${entryPath}`
+    const descriptor = previewType(entryPath)
+    const pending: WorkbenchTab = {
+      id, path: entryPath, title: basename(entryPath), kind: descriptor.kind, loading: true,
+      ...(descriptor.language === undefined ? {} : { language: descriptor.language }),
+      ...(encoding === undefined ? {} : { encoding, encodingSource: 'explicit' as const }),
+    }
+    props.actions.openTab(workspaceId, pending)
+    runRequest(
+      signal => props.readFile(workspace.workspaceId, entryPath, encoding === undefined ? undefined : { encoding }, signal),
+      (value) => {
+        props.actions.updateTab(workspaceId, {
+          ...pending, content: value.content, bytes: value.bytes, truncated: value.truncated, loading: false,
+          encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
+        })
+      },
+      (error) => { props.actions.updateTab(workspaceId, { ...pending, loading: false, error }) },
+      `tab:${id}`,
+    )
+  }, [props.actions, props.readFile, runRequest, workspace, workspaceId])
+
+  // Re-read a file the editor just saved so the rendered preview shows the
+  // saved text. Silent: the tab never enters the loading state, so the open
+  // editor and the tab strip do not flash.
+  const refreshSaved = useCallback((entryPath: string) => {
+    /* v8 ignore next -- the editor occupant renders only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    runRequest(
+      signal => props.readFile(workspace.workspaceId, entryPath, undefined, signal),
+      (value) => { props.actions.updateTab(workspaceId, readTab(entryPath, value)) },
+      (error) => { console.warn('refresh after save failed:', error) },
+      `tab:${fileTabId(entryPath)}`,
+    )
+  }, [props.actions, props.readFile, runRequest, workspace, workspaceId])
 
   const loadGit = useCallback((silent = false) => {
     /* v8 ignore next -- Git actions render only after an initialized Workspace account resolves. */
@@ -631,12 +746,27 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     props.searchFiles, query, requestKey, runRequest, workspace, workspaceId,
   ])
 
+  const drawerDocumentOccupied = props.usePreviewDocumentOccupied(occupied => occupied)
   const section = props.section
   const directories = account?.directories ?? {}
   const expanded = expandedDirectories
   const previewOpenExternal = canOpenPath && activeTab !== undefined && activeTab.kind !== 'diff' && !activeTab.loading && activeTab.error === undefined
     ? () => { openExternal(activeTab.path) }
     : undefined
+  const documentGuard = usePreviewDocumentGuard({
+    workspaceId,
+    placement: 'in-column',
+    occupied: drawerDocumentOccupied,
+    renderPreviewDocument: owner => props.renderSlot('workbench.preview.document', owner),
+    dirtyTabs: account?.documentDirty,
+    actions: props.actions,
+    refreshSaved,
+    t: props.t,
+    dismiss: () => {
+      /* v8 ignore next -- the dismiss callback renders only with a resolved Workspace. */
+      if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
+    },
+  })
   const searchAccount: WorkbenchSearch = search
     ?? { query: '', include: '', exclude: '', filtersOpen: false, entries: [], truncated: false, loading: false }
   const git = account?.git
@@ -800,8 +930,18 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           placement="in-column"
           t={props.t}
           onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
-          onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
-          onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+          onClose={(id) => {
+            const closing = account?.tabs.find(tab => tab.id === id)
+            /* v8 ignore next -- the close control renders only for a tab of this account, so the lookup always resolves. */
+            const title = closing?.title ?? id
+            if (!documentGuard.confirmPath(closing?.path, title)) return
+            props.actions.closeTab(workspaceId, id)
+          }}
+          onDismiss={() => { documentGuard.guardedDismiss(activeTab) }}
+          onReopenEncoding={reopenWithEncoding}
+          mode={activeMode}
+          onModeChange={(tabId, mode) => { props.actions.setPreviewMode(workspaceId, tabId, mode) }}
+          {...(documentGuard.seat === undefined ? {} : { editor: documentGuard.seat })}
         />
       )}
     </aside>
@@ -831,6 +971,7 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
   const workspaceId = workspace?.workspaceId as string | undefined
   const account = props.useStore(state => workspaceId === undefined ? undefined : state.byWorkspace[workspaceId])
   const activeTab = account?.tabs.find(tab => tab.id === account.activeTabId)
+  const activeMode = activeTab === undefined ? undefined : account?.previewMode[activeTab.id]
   const canOpenPath = props.useCanOpenPath(capable => capable)
   const openExternal = useCallback((relativePath: string) => {
     /* v8 ignore next -- the preview renders only after a Workspace account resolves. */
@@ -842,6 +983,38 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
   const previewOpenExternal = canOpenPath && activeTab !== undefined && activeTab.kind !== 'diff' && !activeTab.loading && activeTab.error === undefined
     ? () => { openExternal(activeTab.path) }
     : undefined
+  // "Reopen with encoding" on the overlay copy: same tab identity, explicit
+  // encoding re-read through the shared store account.
+  const reopenWithEncoding = useCallback((entryPath: string, encoding: string | undefined) => {
+    /* v8 ignore next -- the selector renders only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    const id = `file:${entryPath}`
+    const descriptor = previewType(entryPath)
+    const pending: WorkbenchTab = {
+      id, path: entryPath, title: basename(entryPath), kind: descriptor.kind, loading: true,
+      ...(descriptor.language === undefined ? {} : { language: descriptor.language }),
+      ...(encoding === undefined ? {} : { encoding, encodingSource: 'explicit' as const }),
+    }
+    props.actions.openTab(workspaceId, pending)
+    void props.readFile(workspace.workspaceId, entryPath, encoding === undefined ? undefined : { encoding })
+      .then((value) => {
+        props.actions.updateTab(workspaceId, {
+          ...pending, content: value.content, bytes: value.bytes, truncated: value.truncated, loading: false,
+          encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
+        })
+      })
+      .catch((error: unknown) => {
+        props.actions.updateTab(workspaceId, { ...pending, loading: false, error: String(error) })
+      })
+  }, [props.actions, props.readFile, workspace, workspaceId])
+  // Same silent post-save re-read as the drawer placement, through the shared store account.
+  const refreshSaved = useCallback((entryPath: string) => {
+    /* v8 ignore next -- the editor occupant renders only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    void props.readFile(workspace.workspaceId, entryPath)
+      .then((value) => { props.actions.updateTab(workspaceId, readTab(entryPath, value)) })
+      .catch((error: unknown) => { console.warn('refresh after save failed:', error) })
+  }, [props.actions, props.readFile, workspace, workspaceId])
   useEffect(() => {
     return () => {
       if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
@@ -854,9 +1027,25 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       && (!props.rightOpen || props.rightMode !== 'workbench')
     ) props.actions.setPreviewOpen(workspaceId, false)
   }, [account?.previewOpen, props.actions, props.rightMode, props.rightOpen, workspaceId])
+  const overlayDocumentOccupied = props.useOverlayDocumentOccupied(occupied => occupied)
+  const documentGuard = usePreviewDocumentGuard({
+    workspaceId,
+    placement: 'overlay',
+    occupied: overlayDocumentOccupied,
+    renderPreviewDocument: owner => props.renderSlot('shell.overlay.preview.document', owner),
+    dirtyTabs: account?.documentDirty,
+    actions: props.actions,
+    refreshSaved,
+    t: props.t,
+    dismiss: () => {
+      /* v8 ignore next -- the dismiss callback renders only with a resolved Workspace. */
+      if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
+    },
+  })
   if (workspaceId === undefined || props.rightDrawer || !props.rightOpen || props.rightMode !== 'workbench') return null
   return (
     <WorkbenchPreview
+      {...(documentGuard.seat === undefined ? {} : { editor: documentGuard.seat })}
       tabs={account?.tabs ?? []}
       activeTabId={account?.activeTabId ?? null}
       open={account?.previewOpen === true}
@@ -866,8 +1055,17 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       placement="overlay"
       t={props.t}
       onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
-      onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
-      onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+      onClose={(id) => {
+        const closing = account?.tabs.find(tab => tab.id === id)
+        /* v8 ignore next -- the close control renders only for a tab of this account, so the lookup always resolves. */
+        const title = closing?.title ?? id
+        if (!documentGuard.confirmPath(closing?.path, title)) return
+        props.actions.closeTab(workspaceId, id)
+      }}
+      onDismiss={() => { documentGuard.guardedDismiss(activeTab) }}
+      onReopenEncoding={reopenWithEncoding}
+      mode={activeMode}
+      onModeChange={(tabId, mode) => { props.actions.setPreviewMode(workspaceId, tabId, mode) }}
     />
   )
 }

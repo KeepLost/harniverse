@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -118,6 +119,9 @@ function mountWorkbench(
     initialSessions?: Record<string, { updatedAt?: number; running?: boolean }>
     canOpenPath?: boolean
     watchFiles?: WorkspaceFileWatch
+    renderSlot?: WorkspaceWorkbenchProps['renderSlot']
+    overlayRenderSlot?: ComponentProps<typeof WorkspaceWorkbenchPreviewOverlay>['renderSlot']
+    previewDocumentOccupied?: boolean
   } = {},
 ) {
   let current = 'current' in options ? options.current : sid('s-a')
@@ -141,7 +145,7 @@ function mountWorkbench(
     searchFiles: vi.fn(async (
       _workspaceId: WorkspaceId, _query: string, _filters, _signal?: AbortSignal,
     ) => ({ entries: [], truncated: false })),
-    readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _signal?: AbortSignal) => ({ path, content: '', bytes: 0, truncated: false })),
+    readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _opts?: { encoding?: string }, _signal?: AbortSignal) => ({ path, content: '', bytes: 0, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const })),
     readBinaryFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _signal?: AbortSignal) => ({ path, dataBase64: '', mediaType: 'image/png', bytes: 0 })),
     gitStatus: vi.fn(async (_workspaceId: WorkspaceId, _signal?: AbortSignal) => ({ branch: null, entries: [], truncated: false })),
     gitCommits: vi.fn(async (_workspaceId: WorkspaceId, _limit?: number, _signal?: AbortSignal) => ({ commits: [], truncated: false })),
@@ -176,7 +180,8 @@ function mountWorkbench(
         section={section}
         select={selectSection}
         request={undefined}
-        renderSlot={() => null}
+        renderSlot={options.renderSlot ?? (() => null)}
+        usePreviewDocumentOccupied={selector => selector(options.previewDocumentOccupied ?? true)}
         t={t}
         useCanOpenPath={canOpenPath}
         {...(options.watchFiles === undefined ? {} : { watchFiles: options.watchFiles })}
@@ -190,9 +195,12 @@ function mountWorkbench(
         rightMode={rightMode}
         rightOpen={rightOpen}
         rightDrawer={options.drawer ?? false}
+        renderSlot={options.overlayRenderSlot ?? (() => null)}
         t={t}
         useCanOpenPath={canOpenPath}
+        useOverlayDocumentOccupied={selector => selector(options.previewDocumentOccupied ?? true)}
         openPath={services.openPath}
+        readFile={services.readFile}
       />
     </>
   )
@@ -204,6 +212,7 @@ function mountWorkbench(
     section: () => section,
     sections,
     switchSession(next: string) { current = sid(next); view.rerender(element()) },
+    setDrawer(next: boolean) { options.drawer = next; view.rerender(element()) },
     mutateSession(sessionId: string, patch: { updatedAt?: number; running?: boolean }) {
       const summary = sessions[sid(sessionId)]
       if (summary === undefined) throw new Error(`unknown session ${sessionId}`)
@@ -739,11 +748,15 @@ describe('WorkspaceWorkbench', () => {
       truncated: path === undefined,
     }))
     const searchFiles = vi.fn(async () => ({ entries: [nested], truncated: true }))
-    const readFile = vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+    const readFile = vi.fn(async (_workspaceId: WorkspaceId, path: string, _opts?: { encoding?: string }) => ({
       path,
       content: path.endsWith('.md') ? '# Workbench title' : 'export const ready = true',
       bytes: 42,
       truncated: path.endsWith('.md'),
+      encoding: 'utf-8',
+      encodingSource: 'utf8' as const,
+      bom: false,
+      eol: 'LF' as const,
     }))
     const gitStatus = vi.fn(async () => ({
       branch: 'dev',
@@ -768,7 +781,7 @@ describe('WorkspaceWorkbench', () => {
     expect(screen.getByRole('tab', { name: '文件' }).getAttribute('aria-selected')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /^MDREADME\.md$/ }))
     expect(await screen.findByRole('heading', { name: 'Workbench title' })).toBeTruthy()
-    expect(readFile).toHaveBeenCalledWith(wid('a'), 'README.md', expect.any(AbortSignal))
+    expect(readFile).toHaveBeenCalledWith(wid('a'), 'README.md', undefined, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole('button', { name: /^MDREADME\.md$/ }))
     expect(readFile.mock.calls.filter(call => call[1] === 'README.md')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: '刷新文件树' }))
@@ -795,7 +808,7 @@ describe('WorkspaceWorkbench', () => {
       )
     })
     fireEvent.click(await screen.findByRole('button', { name: /src\/main\.ts/ }))
-    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'src/main.ts', expect.any(AbortSignal)) })
+    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'src/main.ts', undefined, expect.any(AbortSignal)) })
     expect(mounted.container.querySelector('pre')?.textContent).toBe('export const ready = true')
     fireEvent.click(screen.getByRole('tab', { name: 'README.md' }))
     fireEvent.click(screen.getByRole('button', { name: '关闭 main.ts' }))
@@ -809,7 +822,7 @@ describe('WorkspaceWorkbench', () => {
     expect(screen.getByText('initial')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '刷新 Git 变更' }))
     fireEvent.click(await screen.findByRole('button', { name: /\?.*new\.ts/ }))
-    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'new.ts', expect.any(AbortSignal)) })
+    await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'new.ts', undefined, expect.any(AbortSignal)) })
     fireEvent.click(screen.getByRole('button', { name: '暂存区' }))
     fireEvent.click(await screen.findByRole('button', { name: /M.*src\/main\.ts/ }))
     await waitFor(() => { expect(gitDiff).toHaveBeenCalledWith(wid('a'), 'src/main.ts', true, expect.any(AbortSignal)) })
@@ -844,7 +857,7 @@ describe('WorkspaceWorkbench', () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const view = mountWorkbench({
       listFiles: vi.fn(async () => ({ path: '', entries: [readme], truncated: false })),
-      readFile: vi.fn(async () => ({ path: 'README.md', content: 'drawer body', bytes: 11, truncated: false })),
+      readFile: vi.fn(async () => ({ path: 'README.md', content: 'drawer body', bytes: 11, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const })),
     }, { drawer: true })
 
     fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
@@ -863,7 +876,7 @@ describe('WorkspaceWorkbench', () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const view = mountWorkbench({
       listFiles: vi.fn(async () => ({ path: '', entries: [readme], truncated: false })),
-      readFile: vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false })),
+      readFile: vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const })),
     })
 
     fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
@@ -1032,7 +1045,7 @@ describe('WorkspaceWorkbench', () => {
     const view = mountWorkbench({
       listFiles: vi.fn(async () => ({ path: '', entries: [readme, notes], truncated: false })),
       readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
-        path, content: `body of ${path}`, bytes: 12, truncated: false,
+        path, content: `body of ${path}`, bytes: 12, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const,
       })),
     }, { drawer: true })
 
@@ -1156,7 +1169,7 @@ describe('workbench open-in-default-application actions', () => {
   it('announces an open failure as a diagnostic without breaking the tree or preview', async () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
-    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }))
     const openPath = vi.fn(async () => { throw new Error('no desktop') })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true })
@@ -1176,7 +1189,7 @@ describe('workbench open-in-default-application actions', () => {
   it('offers the preview header action on the docked workbench panel too', async () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
-    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }))
     const openPath = vi.fn(async () => {})
     // Drawer mode collapses the overlay variant, so the panel's own preview
     // is the only rendered region.
@@ -1192,7 +1205,7 @@ describe('workbench open-in-default-application actions', () => {
   it('offers the preview header action for a loaded file only with the capability', async () => {
     const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
     const listFiles = vi.fn(async () => ({ path: '', entries: [readme], truncated: false }))
-    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false }))
+    const readFile = vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }))
     const openPath = vi.fn(async () => {})
     const view = mountWorkbench({ listFiles, readFile, openPath }, { canOpenPath: true })
 
@@ -1285,5 +1298,278 @@ describe('workbench watch-driven file refresh', () => {
     await advance(5_000)
     expect(listFiles).toHaveBeenCalledTimes(1)
     view.unmount()
+  })
+})
+
+describe('preview-document dirty guard', () => {
+  it('confirms before closing a dirty document tab and keeps it on cancel', async () => {
+    const store = createWorkspaceWorkbenchStore().create()
+    store.actions.openTab(workspace('a', 's-a').workspaceId, {
+      id: 'file:src/main.ts', path: 'src/main.ts', title: 'main.ts', kind: 'code', loading: false, content: 'x\n',
+    })
+    let seat: { onDirtyChange(dirty: boolean): void; onRequestClose(path: string, title: string): void } | undefined
+    const renderSlot = ((key: string, owner: unknown) => {
+      if (key !== 'workbench.preview.document') return null
+      seat = owner as typeof seat
+      return <div data-editor-occupant tabIndex={-1}>editor</div>
+    }) as unknown as WorkspaceWorkbenchProps['renderSlot']
+    const accountStore = store as unknown as { getSnapshot(): { byWorkspace: Record<string, { tabs: unknown[] }> } }
+    // Edit mode is a per-tab store fact, so seeding it mounts the occupant.
+    store.actions.setPreviewMode(workspace('a', 's-a').workspaceId, 'file:src/main.ts', 'edit')
+    const view = mountWorkbench({}, { drawer: true, store, renderSlot })
+    expect(accountStore.getSnapshot().byWorkspace[workspace('a', 's-a').workspaceId as string]?.tabs).toHaveLength(1)
+    await waitFor(() => { expect(view.container.querySelector('[data-editor-occupant]')).toBeTruthy() })
+    act(() => { seat?.onDirtyChange(true) })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const close = view.container.querySelector('[role="tablist"] [aria-label="关闭 main.ts"]') as HTMLButtonElement
+    fireEvent.click(close)
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+    expect(accountStore.getSnapshot().byWorkspace[workspace('a', 's-a').workspaceId as string]?.tabs).toHaveLength(1)
+    confirmSpy.mockReturnValue(true)
+    fireEvent.click(close)
+    expect(accountStore.getSnapshot().byWorkspace[workspace('a', 's-a').workspaceId as string]?.tabs).toHaveLength(0)
+  })
+})
+
+/** The owner handle a mounted editor occupant receives for one document. */
+interface OccupantOwner { path: string; onDirtyChange(dirty: boolean): void; onRequestClose(): void }
+
+describe('preview-document dirty guard across placements', () => {
+  const main: WorkspaceFileEntry = { name: 'main.ts', path: 'main.ts', kind: 'file' }
+  const occupant = (owners: OccupantOwner[]) => ((key: string, owner: unknown) => {
+    if (key !== 'workbench.preview.document' && key !== 'shell.overlay.preview.document') return null
+    owners.push(owner as OccupantOwner)
+    return <div data-editor-occupant tabIndex={-1}>editor</div>
+  }) as never
+
+  describe.each([
+    { placement: 'in-column drawer', drawer: true },
+    { placement: 'overlay', drawer: false },
+  ])('$placement', ({ drawer }) => {
+    const mount = async () => {
+      const owners: OccupantOwner[] = []
+      const slot = occupant(owners)
+      const view = mountWorkbench({
+        listFiles: vi.fn(async () => ({ path: '', entries: [main], truncated: false })),
+        readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+          path, content: 'x\n', bytes: 2, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const,
+        })),
+      }, { drawer, renderSlot: slot, overlayRenderSlot: slot })
+      fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
+      const region = await view.findByRole('region', { name: '工作区文件预览' })
+      // A freshly opened document shows its rendered preview; the occupant mounts on Edit.
+      await within(region).findByText('x')
+      expect(owners).toHaveLength(0)
+      fireEvent.click(within(region).getByRole('button', { name: '编辑' }))
+      await waitFor(() => { expect(owners.length).toBeGreaterThan(0) })
+      const latest = (): OccupantOwner => owners.at(-1) as OccupantOwner
+      const account = () => view.instance.getSnapshot().byWorkspace.a
+      return { view, region, latest, account }
+    }
+
+    it('closes a clean tab without confirming and after the dirty fact is cleared', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { region, latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      act(() => { latest().onDirtyChange(false) })
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).not.toHaveBeenCalled()
+      expect(account()?.tabs).toHaveLength(0)
+    })
+
+    it('keeps a dirty tab on a dismissed confirmation and closes it once confirmed', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { region, latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+      expect(account()?.tabs).toHaveLength(1)
+      confirmSpy.mockReturnValue(true)
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(account()?.tabs).toHaveLength(0)
+    })
+
+    it('confirms before dismissing the preview over a dirty document', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { region, latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      fireEvent.click(within(region).getByRole('button', { name: '关闭文件预览' }))
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+      expect(account()?.previewOpen).toBe(true)
+      confirmSpy.mockReturnValue(true)
+      fireEvent.click(within(region).getByRole('button', { name: '关闭文件预览' }))
+      expect(account()?.previewOpen).toBe(false)
+    })
+
+    it('honours a close request from the editor only after confirming a dirty document', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      act(() => { latest().onRequestClose() })
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+      expect(account()?.previewOpen).toBe(true)
+      confirmSpy.mockReturnValue(true)
+      act(() => { latest().onRequestClose() })
+      expect(account()?.previewOpen).toBe(false)
+    })
+
+    it('closes the preview on an editor close request for a clean document without confirming', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { latest, account } = await mount()
+      act(() => { latest().onRequestClose() })
+      expect(confirmSpy).not.toHaveBeenCalled()
+      expect(account()?.previewOpen).toBe(false)
+    })
+
+    it('keeps the unsaved-edit fact across a toggle to Preview: the notice shows and closing still confirms', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { region, latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      fireEvent.click(within(region).getByRole('button', { name: '预览' }))
+      expect(region.querySelector('[data-editor-occupant]')).toBeNull()
+      expect(within(region).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+      expect(account()?.tabs).toHaveLength(1)
+      fireEvent.click(within(region).getByRole('button', { name: '关闭文件预览' }))
+      expect(account()?.previewOpen).toBe(true)
+
+      // The editor returns with the fact intact.
+      fireEvent.click(within(region).getByRole('button', { name: '编辑' }))
+      expect(region.querySelector('[data-editor-occupant]')).toBeTruthy()
+      expect(within(region).queryByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeNull()
+      confirmSpy.mockReturnValue(true)
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(account()?.tabs).toHaveLength(0)
+    })
+
+    it('drops the unsaved-edit fact and the mode with the closed tab', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      const { view, region, latest, account } = await mount()
+      act(() => { latest().onDirtyChange(true) })
+      expect(account()?.documentDirty).toEqual({ 'file:main.ts': true })
+      expect(account()?.previewMode).toEqual({ 'file:main.ts': 'edit' })
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).toHaveBeenCalledTimes(1)
+      expect(account()?.documentDirty).toEqual({})
+      expect(account()?.previewMode).toEqual({})
+
+      // Reopening starts from the default Preview with nothing left to confirm.
+      confirmSpy.mockClear()
+      fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
+      const reopened = await view.findByRole('region', { name: '工作区文件预览' })
+      expect(reopened.querySelector('[data-editor-occupant]')).toBeNull()
+      fireEvent.click(within(reopened).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).not.toHaveBeenCalled()
+    })
+
+    it('clears the stale-preview notice when the dirty fact is retracted while the editor is unmounted', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const { region, latest, account } = await mount()
+      const owner = latest()
+      act(() => { owner.onDirtyChange(true) })
+      fireEvent.click(within(region).getByRole('button', { name: '预览' }))
+      expect(within(region).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+      // A save that settles after the unmount retracts through the owner handle it captured.
+      act(() => { owner.onDirtyChange(false) })
+      expect(within(region).queryByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeNull()
+      fireEvent.click(within(region).getByRole('button', { name: '关闭 main.ts' }))
+      expect(confirmSpy).not.toHaveBeenCalled()
+      expect(account()?.tabs).toHaveLength(0)
+    })
+  })
+
+  it('keeps the mode and the unsaved-edit fact when the preview moves between placements', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const owners: OccupantOwner[] = []
+    const slot = occupant(owners)
+    const view = mountWorkbench({
+      listFiles: vi.fn(async () => ({ path: '', entries: [main], truncated: false })),
+      readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+        path, content: 'x\n', bytes: 2, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const,
+      })),
+    }, { drawer: false, renderSlot: slot, overlayRenderSlot: slot })
+    fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
+    const overlay = await view.findByRole('region', { name: '工作区文件预览' })
+    fireEvent.click(await within(overlay).findByRole('button', { name: '编辑' }))
+    await waitFor(() => { expect(owners.length).toBeGreaterThan(0) })
+    act(() => { (owners.at(-1) as OccupantOwner).onDirtyChange(true) })
+
+    view.setDrawer(true)
+    const drawer = await view.findByRole('region', { name: '工作区文件预览' })
+    expect(drawer.querySelector('[data-editor-occupant]')).toBeTruthy()
+    fireEvent.click(within(drawer).getByRole('button', { name: '预览' }))
+    expect(within(drawer).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+
+    view.setDrawer(false)
+    const back = await view.findByRole('region', { name: '工作区文件预览' })
+    expect(back.querySelector('[data-editor-occupant]')).toBeNull()
+    expect(within(back).getByText('预览显示的是已保存的版本，有尚未保存的修改')).toBeTruthy()
+    fireEvent.click(within(back).getByRole('button', { name: '关闭 main.ts' }))
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('main.ts'))
+    expect(view.instance.getSnapshot().byWorkspace.a?.tabs).toHaveLength(1)
+  })
+
+  it('keeps the overlay preview on its read-only renderer while the hole is unoccupied', async () => {
+    const owners: OccupantOwner[] = []
+    const view = mountWorkbench({
+      listFiles: vi.fn(async () => ({ path: '', entries: [main], truncated: false })),
+      readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+        path, content: 'read only body', bytes: 14, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const,
+      })),
+    }, { drawer: false, previewDocumentOccupied: false, overlayRenderSlot: occupant(owners) })
+    fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
+    const region = await view.findByRole('region', { name: '工作区文件预览' })
+    expect(await within(region).findByText(/read only body/)).toBeTruthy()
+    expect(region.querySelector('[data-editor-occupant]')).toBeNull()
+    expect(owners).toHaveLength(0)
+  })
+})
+
+describe.each([
+  { placement: 'in-column drawer', drawer: true, failure: 'reread failed' },
+  { placement: 'overlay', drawer: false, failure: 'Error: reread failed' },
+])('reopen with encoding ($placement)', ({ drawer, failure }) => {
+  const notes: WorkspaceFileEntry = { name: 'main.ts', path: 'main.ts', kind: 'file' }
+  const plain: WorkspaceFileEntry = { name: 'notes.txt', path: 'notes.txt', kind: 'file' }
+
+  it('re-reads with the chosen encoding, re-detects on auto, and surfaces a read failure', async () => {
+    const readFile = vi.fn(async (_workspaceId: WorkspaceId, path: string, opts?: { encoding?: string }) => ({
+      path, content: 'body', bytes: 4, truncated: false,
+      encoding: opts?.encoding ?? 'utf-8',
+      encodingSource: opts?.encoding === undefined ? 'utf8' as const : 'explicit' as const,
+      bom: opts?.encoding !== undefined, eol: 'LF' as const,
+    }))
+    const view = mountWorkbench({
+      listFiles: vi.fn(async () => ({ path: '', entries: [notes, plain], truncated: false })),
+      readFile,
+    }, { drawer })
+    fireEvent.click(await view.findByRole('button', { name: /^TSmain\.ts$/ }))
+    const region = await view.findByRole('region', { name: '工作区文件预览' })
+    const select = await within(region).findByRole('combobox', { name: '以指定编码重新打开' }) as HTMLSelectElement
+    await waitFor(() => { expect(within(region).getByText(/utf-8 · LF/)).toBeTruthy() })
+    expect(select.value).toBe('')
+
+    fireEvent.change(select, { target: { value: 'big5' } })
+    await waitFor(() => { expect(within(region).getByText(/big5 · BOM · LF/)).toBeTruthy() })
+    expect(readFile.mock.calls.at(-1)?.slice(0, 3)).toEqual([wid('a'), 'main.ts', { encoding: 'big5' }])
+    expect(select.value).toBe('big5')
+
+    fireEvent.change(select, { target: { value: '' } })
+    await waitFor(() => { expect(within(region).getByText(/utf-8 · LF/)).toBeTruthy() })
+    expect(readFile.mock.calls.at(-1)?.slice(0, 3)).toEqual([wid('a'), 'main.ts', undefined])
+    expect(select.value).toBe('')
+
+    readFile.mockRejectedValueOnce(new Error('reread failed'))
+    fireEvent.change(select, { target: { value: 'gb18030' } })
+    expect(await within(region).findByText(failure)).toBeTruthy()
+    expect(select.value).toBe('gb18030')
+
+    fireEvent.click(view.getByRole('button', { name: /^TXTnotes\.txt$/ }))
+    await waitFor(() => { expect(view.instance.getSnapshot().byWorkspace.a?.activeTabId).toBe('file:notes.txt') })
+    fireEvent.change(await within(region).findByRole('combobox', { name: '以指定编码重新打开' }), { target: { value: 'big5' } })
+    await waitFor(() => { expect(within(region).getByText(/big5 · BOM · LF/)).toBeTruthy() })
+    expect(readFile.mock.calls.at(-1)?.slice(0, 3)).toEqual([wid('a'), 'notes.txt', { encoding: 'big5' }])
   })
 })

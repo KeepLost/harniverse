@@ -1,0 +1,26 @@
+.badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.badge[data-platform='telegram'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.badge[data-platform='feishu'] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.glyph {
+  display: block;
+}

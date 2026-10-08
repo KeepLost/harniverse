@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-08-im-settings-embedded-bridge.md
+2026-10-08-im-settings-embedded-bridge.md: 68fc5d6ba323fbcd54640b2e11d1ef637c58abbb
+2026-10-08-im-settings-embedded-bridge.zh.md: 3db0e0b2cfbeabc476256d3cad9e8bd5551ba305

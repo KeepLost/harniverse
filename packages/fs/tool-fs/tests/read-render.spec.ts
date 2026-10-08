@@ -424,3 +424,26 @@ describe('readMetaFromMeta', () => {
     expect(readMetaFromMeta({ ...twoLines, lines: [{ number: 3, text: 'c' }], totalLines: 2 })).toBeUndefined()
   })
 })
+
+describe('formatReadOutput — encoding annotation', () => {
+  it('appends the annotation line after the footer when present', () => {
+    const withEncoding = formatReadOutput('/abs/a', {
+      offset: 1,
+      lines: [{ number: 1, text: 'x' }],
+      totalLines: 1,
+      encoding: '[Encoding: GB18030 (host code page)]',
+    })
+    expect(withEncoding).toContain('(End of file - total 1 lines)\n[Encoding: GB18030 (host code page)]')
+  })
+
+  it('stays byte-identical without an annotation', () => {
+    const plain = formatReadOutput('/abs/a', { offset: 1, lines: [{ number: 1, text: 'x' }], totalLines: 1 })
+    expect(plain).not.toContain('[Encoding:')
+  })
+
+  it('readMetaFromMeta round-trips a valid encoding and rejects a non-string', () => {
+    const good = { path: '/abs/a', offset: 1, lines: [{ number: 1, text: 'x' }], encoding: '[Encoding: Big5 (explicit)]' }
+    expect(readMetaFromMeta(good)?.encoding).toBe('[Encoding: Big5 (explicit)]')
+    expect(readMetaFromMeta({ ...good, encoding: 7 })).toBeUndefined()
+  })
+})

@@ -19,6 +19,9 @@
     - button "Agent 预设":
       - img
       - text: Agent 预设
+    - button "IM 机器人":
+      - img
+      - text: IM 机器人
     - button "语音输入":
       - img
       - text: 语音输入

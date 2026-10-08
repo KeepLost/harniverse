@@ -92,12 +92,20 @@ export interface IWorkspaces {
     entries: WorkspaceFileEntry[]
     truncated: boolean
   }>
-  /** Read one UTF-8 text file inside a registered Workspace. */
-  readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+  /**
+   * Read one text file inside a registered Workspace, decoded as UTF-8 or the
+   * host-locale legacy prior; `encoding` re-opens it with an explicit
+   * iconv-lite encoding name (the "reopen with encoding" action).
+   */
+  readFile(workspaceId: WorkspaceId, path: string, opts?: { encoding?: string }, signal?: AbortSignal): Promise<{
     path: string
     content: string
     bytes: number
     truncated: boolean
+    encoding: string
+    encodingSource: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+    bom: boolean
+    eol: 'LF' | 'CRLF'
   }>
   /**
    * Follow filesystem changes under one Workspace directory (the Host watch

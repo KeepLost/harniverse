@@ -12,6 +12,8 @@ import {
   IconEditOutline16, IconQueueOutline14, IconSendOutline14, IconTrashOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
+import { queueRecallFailureKey } from '../contract/queue.ts'
+import { QueueMutationError } from '../service.ts'
 import { NS } from '../locales.ts'
 import css from './QueueDock.module.css'
 
@@ -99,14 +101,14 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
   const applyAction = async (
     itemId: QueueItemId,
     action: QueueAction,
-    failure: string,
+    failure: (error: unknown) => string,
   ): Promise<boolean> => {
     setBusy(itemId)
     try {
       await updateQueue(itemId, action)
       return true
-    } catch {
-      notify('error', failure)
+    } catch (error) {
+      notify('error', failure(error))
       return false
     } finally {
       setBusy(current => current === itemId ? null : current)
@@ -118,9 +120,15 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
     if (await applyAction(
       editing.id,
       { kind: 'edit', content: [{ type: 'text', text: editing.text }] },
-      t('queue.editFailed'),
+      () => t('queue.editFailed'),
     )) setEditing(null)
   }
+
+  // The recall refusal carries the occurrence's durable lifecycle when the
+  // Host resolved one, so the notice separates a model-read batch from an
+  // already-recalled occurrence instead of guessing "started sending".
+  const recallFailure = (error: unknown): string =>
+    t(queueRecallFailureKey(error instanceof QueueMutationError ? error.status : undefined))
 
   return (
     <div className={css.dock} data-queue-dock="">
@@ -213,7 +221,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                             void applyAction(
                               row.id,
                               { kind: 'remove' },
-                              t('queue.removeFailed'),
+                              recallFailure,
                             )
                           }}
                         >
@@ -231,7 +239,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                             void applyAction(
                               row.id,
                               { kind: 'steer' },
-                              t('queue.steerFailed'),
+                              () => t('queue.steerFailed'),
                             )
                           }}
                         >

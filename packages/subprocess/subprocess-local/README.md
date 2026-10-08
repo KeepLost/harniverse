@@ -26,6 +26,8 @@ Indirectly, through Consumers (today the bash executor family behind `dsh-tool-b
 No direct invalidation; the named consumers own any request-prefix changes.
 
 ## Known Limitations and Deferred Work
+- **Mixed decoding is line-granular and stream-level** — a legacy line decodes through ONE legacy list (host OEM then ANSI, or the child locale); a line whose first bytes are a legacy lead overlapping the UTF-8 continuation range is judged as a whole, and a block-size edge case can mis-decode the first line of a stream whose console and ANSI code pages differ. GB18030 4-byte sequences never cross a returned `nextOffset` (whole-window decoding), but a partial legacy tail is held unread until more bytes or stream end.
+
 
 - **Windows tree support is best-effort** — termination routes through `taskkill /PID <pid> /T /F` with all outcomes contained (absent tree, races, missing binary), and liveness falls back to the direct-child boundary.
 - **Windows terminal signalling is console-wide** — SIGINT is a `\x03` Ctrl-C input write; SIGTSTP and SIGHUP are unavailable. TERM-to-KILL teardown uses identity-fenced `taskkill /T`, but native Windows CI must exercise ConPTY, Toolhelp32, Ctrl-C, taskkill escalation, and missing node-pty exit events before platform validation is claimed.

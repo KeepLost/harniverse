@@ -38,6 +38,8 @@ Indirectly, through `dsh-tool-bash`, which renders this executor's bounded stdou
 No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
+- **Legacy output decoding never rewrites `LANG`** — a legacy-locale child decodes invalid output lines through its own charset; a UTF-8, C, or unset locale keeps plain UTF-8 (byte-identical to a UTF-8-only collector), so a mixed-encoding program output still yields mojibake on its UTF-8 lines.
+
 
 - **Unconfined by itself** — this executor always runs commands with the harness process's authority; deployments needing confinement compose [`dsh-bash-sandbox`](../bash-sandbox/README.md), while per-call allow/deny/ask policy belongs on `tools/pre-execute`.
 - **No persistent shell or PTY** — every call starts a fresh non-login command shell (`/bin/zsh -c` on macOS, `bash -c` elsewhere); cwd-only persistence and interactive terminal sessions remain deferred until a real workflow requires them.

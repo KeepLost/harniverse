@@ -64,8 +64,12 @@ interface SubprocessCollect {
     /** Whole-stream byte cap; a larger stream discards its now-incomplete spill. */
     maxBytes: number
   }
+  /** Output decoding; omitted means UTF-8. */
+  decoding?: SubprocessOutputDecoding
 }
 ```
+
+收集到的输出经由 [`dsh-fs-codec`](../../packages/fs/fs-codec/README.md) 对完整的保留窗口解码：默认的 UTF-8 规格与原有收集器一致，只是末尾不完整的序列会保持未读，直到更多字节或流结束到达，因此返回的 `nextOffset` 可能落在最新保留字节之前，增量读取绝不会切开一个字符。`mixed` 规格逐行判断——合法的 UTF-8 行保持 UTF-8，只有非法行才经由该流的遗留代码页解码（PowerShell：主机 OEM 再 ANSI；bash：子进程最终的 locale 字符集）。从外来偏移量恢复、起点落在字符中间的窗口，会把开头的片段按 UTF-8 解码而不回退，因为若干遗留首字节与 UTF-8 续字节范围重叠。执行器根据主机先验派生该规格（`pwshOutputDecoding`、`bashOutputDecoding`）；UTF-8 主机的输出保持逐字节一致。
 
 ```ts type-equiv
 /**
@@ -323,7 +327,7 @@ abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:167`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:168`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocess-events"></a>
 
@@ -345,7 +349,7 @@ One metered spawn's tree fully exited. Follows the matching `subprocess/spawned`
 'subprocess/exited'(event: SubprocessMeteredExit): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:96`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:97`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessspawned--emit"></a>
 
@@ -365,7 +369,7 @@ One metered spawn started: a process spawned with a SubprocessCorrelation is now
 'subprocess/spawned'(event: SubprocessMeteredSpawn): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:89`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:90`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessterminal-exited--emit"></a>
 
@@ -382,7 +386,7 @@ One metered terminal session fully exited.
 'subprocess/terminal-exited'(event: SubprocessMeteredTerminalExit): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:109`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:110`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessterminal-spawned--emit"></a>
 
@@ -400,5 +404,5 @@ One metered terminal session became live (PTY spawns carry their own POSIX sessi
 'subprocess/terminal-spawned'(event: SubprocessMeteredTerminalSpawn): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:103`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:104`](../../packages/subprocess/subprocess/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import { LocalBashExecutor, bashOutputDecoding } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { commandShellArgv, defaultCommandShellPath } from '@deepseek-ai/dsh-shell'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -36,6 +36,20 @@ async function readUntil(proc: ShellProcess, expected: string, timeoutMs = 5_000
   }
   throw new Error(`process output did not include ${JSON.stringify(expected)}; accumulated ${JSON.stringify(all)}`)
 }
+
+
+describe('bashOutputDecoding (pure)', () => {
+  it('decodes a legacy-locale stream through its charset', () => {
+    expect(bashOutputDecoding({ LC_ALL: 'zh_CN.GBK' })).toEqual({ kind: 'mixed', legacy: ['gb18030'] })
+    expect(bashOutputDecoding({ LANG: 'ja_JP.eucJP' })).toEqual({ kind: 'mixed', legacy: ['eucjp'] })
+  })
+
+  it('keeps plain UTF-8 for UTF-8, C, and unset locales (byte-identical output)', () => {
+    expect(bashOutputDecoding({ LC_ALL: 'en_US.UTF-8' })).toEqual({ kind: 'utf-8' })
+    expect(bashOutputDecoding({ LANG: 'C' })).toEqual({ kind: 'utf-8' })
+    expect(bashOutputDecoding({})).toEqual({ kind: 'utf-8' })
+  })
+})
 
 describe('LocalBashExecutor.run', () => {
   it('selects zsh directly on macOS and keeps bash on Linux', () => {

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { constants, type Dirent, type Stats } from 'node:fs'
 import { open, opendir, realpath, stat, type FileHandle } from 'node:fs/promises'
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { hostPriors, sniffAndDecode, utf8BoundaryEnd } from '@deepseek-ai/dsh-fs-codec'
 import {
   compileGlobFilter, WORKSPACE_SEARCH_DEFAULT_EXCLUDES,
 } from './api/workspace-glob.ts'
@@ -385,21 +386,53 @@ function decodeUtf8Prefix(bytes: Uint8Array): string {
       // A truncated final code point needs at most three bytes removed.
     }
   }
+  /* v8 ignore next 2 -- reaching this needs four consecutive undecodable bytes at a diff truncation point. */
   throw new WorkspaceInspectorError('workspace-file-binary', 'workspace file is not valid UTF-8 text')
 }
 
 /**
- * Read a bounded UTF-8 text prefix from one canonically contained Workspace file.
+ * Cut a truncated read at a sequence boundary so no decoder sees half of a
+ * character: UTF-16 reads align to code units, everything else to the shared
+ * UTF-8 boundary (which also never splits a dangling legacy lead).
+ */
+function trimIncompleteTail(bytes: Uint8Array, truncated: boolean): Uint8Array {
+  if (!truncated) return bytes
+  if (bytes.length >= 2 && (bytes[0] === 0xff && bytes[1] === 0xfe || bytes[0] === 0xfe && bytes[1] === 0xff)) {
+    return bytes.subarray(0, bytes.length - (bytes.length - 2) % 2)
+  }
+  return bytes.subarray(0, utf8BoundaryEnd(bytes))
+}
+
+/** The result of one decoded preview read: content plus the decision that produced it. */
+export interface WorkspaceTextPreview {
+  path: string
+  content: string
+  bytes: number
+  truncated: boolean
+  encoding: string
+  encodingSource: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+  bom: boolean
+  eol: 'LF' | 'CRLF'
+}
+
+/**
+ * Read a bounded text prefix from one canonically contained Workspace file,
+ * decoded through the shared codec: BOMs, strict UTF-8, the host-locale
+ * legacy prior, or an explicitly named encoding. NUL bytes without a UTF-16
+ * BOM reject as binary; a truncated read is cut at the last newline so no
+ * partial sequence reaches a decoder.
  * @param root - registered canonical Workspace root.
  * @param path - Workspace-relative regular file.
  * @param signal - caller cancellation signal.
- * @returns UTF-8 content, full byte size, and truncation state.
+ * @param opts - optional explicit iconv-lite encoding name to re-open with.
+ * @returns decoded content, full byte size, truncation state, and the decision.
  */
 export async function readWorkspaceFile(
   root: string,
   path: string,
   signal: AbortSignal,
-): Promise<{ path: string; content: string; bytes: number; truncated: boolean }> {
+  opts: { encoding?: string } = {},
+): Promise<WorkspaceTextPreview> {
   const target = await containedPath(root, path, signal)
   let handle
   try {
@@ -413,15 +446,33 @@ export async function readWorkspaceFile(
       throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} changed while reading`, path)
     }
     signal.throwIfAborted()
-    let content: string
-    try {
-      content = decodeUtf8Prefix(buffer.subarray(0, bytesRead))
-    } catch {
-      // decodeUtf8Prefix reports exactly one condition; name the file it was
-      // reading, which the shared decoder cannot know.
-      throw new WorkspaceInspectorError('workspace-file-binary', `workspace file ${JSON.stringify(path)} is not valid UTF-8 text`, path)
+    const truncated = info.size > bytesRead
+    const sample = trimIncompleteTail(buffer.subarray(0, bytesRead), truncated)
+    const outcome = sniffAndDecode(sample, {
+      ...(opts.encoding === undefined ? {} : { explicit: opts.encoding }),
+      priors: await hostPriors(),
+    })
+    if (!outcome.ok) {
+      const requested = opts.encoding ?? ''
+      /* v8 ignore start -- the probe list's total pages leave no reachable zero-candidate rejection. */
+      const detail = outcome.reason === 'explicit'
+        ? `workspace file ${JSON.stringify(path)} is not decodable as ${requested}`
+        : outcome.candidates.length > 0
+          ? `workspace file ${JSON.stringify(path)} is not decodable text (viable encodings: ${outcome.candidates.join(', ')})`
+          : `workspace file ${JSON.stringify(path)} is not valid text`
+      /* v8 ignore stop */
+      throw new WorkspaceInspectorError('workspace-file-binary', detail, path)
     }
-    return { path, content, bytes: info.size, truncated: info.size > bytesRead }
+    return {
+      path,
+      content: outcome.text,
+      bytes: info.size,
+      truncated,
+      encoding: outcome.decision.encoding,
+      encodingSource: outcome.decision.source,
+      bom: outcome.decision.bom,
+      eol: outcome.decision.eol,
+    }
   } catch (error: unknown) {
     signal.throwIfAborted()
     if (error instanceof WorkspaceInspectorError) throw error

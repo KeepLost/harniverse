@@ -68,6 +68,17 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['--help'] })
   })
 
+  it('routes the chat alias without interpreting the app grammar', () => {
+    expect(parse(['chat']))
+      .toEqual({ mode: 'profile', profile: 'chat', patches: [], args: [] })
+    expect(parse(['chat', 'init']))
+      .toEqual({ mode: 'profile', profile: 'chat', patches: [], args: ['init'] })
+    expect(parse(['chat', 'status', '--origin', 'http://127.0.0.1:4000']))
+      .toEqual({ mode: 'profile', profile: 'chat', patches: [], args: ['status', '--origin', 'http://127.0.0.1:4000'] })
+    expect(parse(['chat', '--help']))
+      .toEqual({ mode: 'profile', profile: 'chat', patches: [], args: ['--help'] })
+  })
+
   it('routes profile and web config dumps', () => {
     expect(parse(['--profile', 'web', '--dump-config']))
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: false, patches: [] })
@@ -129,6 +140,7 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', 'plugin', 'add', 'y'])).toBe(1)
     expect(exitCode(['--profile', 'x', 'auth', 'grant', 'list'])).toBe(1)
+    expect(exitCode(['--profile', 'x', 'chat', 'status'])).toBe(1)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

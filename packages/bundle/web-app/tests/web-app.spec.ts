@@ -120,6 +120,28 @@ describe('web-app runtime glue', () => {
     })
   })
 
+  it('composes the chat bot manager with the platform descriptors and without a standalone bridge or client row', () => {
+    const root = fileURLToPath(new URL('..', import.meta.url))
+    const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
+
+    expect(patch).toMatch(/id: chat-adapters\s+name: '@deepseek-ai\/dsh-chat-adapter'\n/)
+    expect(patch).toMatch(/id: chat-telegram\s+name: '@deepseek-ai\/dsh-chat-adapter-telegram'\s+config:\s+bots: \[\]/)
+    expect(patch).toMatch(/id: chat-feishu\s+name: '@deepseek-ai\/dsh-chat-adapter-feishu'\s+config:\s+apps: \[\]/)
+    expect(patch).toMatch(/id: chat-manager\s+name: '@deepseek-ai\/dsh-chat-manager'\s+config:\s+dshHome: !!js dshHomePath\(\)/)
+    // The manager mounts the bridge and its client itself, inside its own scope.
+    expect(patch).not.toMatch(/name: '@deepseek-ai\/dsh-chat-bridge'/)
+    expect(patch).not.toMatch(/name: '@deepseek-ai\/dsh-chat-harniverse-client'/)
+    expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-chat-adapter': 'workspace:^',
+      '@deepseek-ai/dsh-chat-adapter-feishu': 'workspace:^',
+      '@deepseek-ai/dsh-chat-adapter-telegram': 'workspace:^',
+      '@deepseek-ai/dsh-chat-manager': 'workspace:^',
+    })
+  })
+
   it('mounts dist serving, prompt section, bash variables, and prints the URL with the LAN snapshot', async () => {
     stageDist()
     const ctx = new Context()

@@ -12,6 +12,8 @@ import type { FsInfo, FsTarget, FsWriteIntent } from '@deepseek-ai/dsh-fs'
 import { sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { encodingAnnotation } from '@deepseek-ai/dsh-fs-codec'
+import type { FsTextEncoding } from '@deepseek-ai/dsh-fs'
 import { buildWindow } from '@deepseek-ai/dsh-tool-fs/read-render'
 import type { FileTextLine, ReadCursor } from '@deepseek-ai/dsh-tool-fs/read-render'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -250,7 +252,10 @@ async function viewPath(
   if (info.type !== 'file') {
     throw new FsError(`cannot view "${target.displayPath}": not a regular file or directory`, 'FS_NOT_REGULAR_FILE')
   }
-  const chunks = await ctx.fs.streamText(target, exec.signal)
+  let decision: FsTextEncoding | undefined
+  const chunks = await ctx.fs.streamText(target, exec.signal, {
+    onDecision: (value) => { decision = value },
+  })
   async function* preserveTrailingEmptyLine() {
     let sawText = false
     let endsWithNewline = false
@@ -299,7 +304,9 @@ async function viewPath(
     ...rangeComplete || window.next === undefined ? {} : { next: window.next },
   }
   ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
-  return maybeTruncate(formatFileView(target.displayPath, viewWindow, viewRange), maxOutputChars)
+  const annotation = decision === undefined ? undefined : encodingAnnotation(decision.encoding, decision.source)
+  const rendered = formatFileView(target.displayPath, viewWindow, viewRange)
+  return maybeTruncate(annotation === undefined ? rendered : `${rendered}\n${annotation}`, maxOutputChars)
 }
 
 function assertMutationInputSize(info: FsInfo, target: FsTarget, maxBytes: number): void {

@@ -194,3 +194,58 @@ describe('WorkbenchPreview focus management', () => {
     outside.remove()
   })
 })
+
+describe('WorkbenchPreview encoding surface', () => {
+  const gbkTab = {
+    id: 'file:a/legacy.txt', path: 'a/legacy.txt', title: 'legacy.txt', kind: 'code' as const, loading: false,
+    content: '第一行\n', encoding: 'gb18030', encodingSource: 'host' as const, bom: false, eol: 'LF' as const,
+  }
+
+  it('shows a text encoding label with BOM and eol facts, not only color', () => {
+    const view = render(<WorkbenchPreview {...previewProps({ tabs: [gbkTab], activeTabId: 'file:a/legacy.txt' })} />)
+    expect(view.getByText(/gb18030/)).toBeTruthy()
+    expect(view.getByText(/LF/)).toBeTruthy()
+  })
+
+  it('appends the BOM fact to the encoding label only for a BOM file', () => {
+    const view = render(<WorkbenchPreview {...previewProps({ tabs: [gbkTab], activeTabId: 'file:a/legacy.txt' })} />)
+    expect(view.queryByText(/BOM/)).toBeNull()
+    view.rerender(
+      <WorkbenchPreview {...previewProps({ tabs: [{ ...gbkTab, encoding: 'utf-8', bom: true }], activeTabId: 'file:a/legacy.txt' })} />,
+    )
+    expect(view.getByText(/utf-8 · BOM · LF/)).toBeTruthy()
+  })
+
+  it('offers reopen-with-encoding and forwards the selected encoding', () => {
+    const onReopenEncoding = vi.fn()
+    const view = render(
+      <WorkbenchPreview
+        {...previewProps({ tabs: [gbkTab], activeTabId: 'file:a/legacy.txt' })}
+        onReopenEncoding={onReopenEncoding}
+      />,
+    )
+    const select = view.getByRole('combobox', { name: '以指定编码重新打开' }) as HTMLSelectElement
+    expect(select.value).toBe('')
+    fireEvent.change(select, { target: { value: 'big5' } })
+    expect(onReopenEncoding).toHaveBeenCalledWith('a/legacy.txt', 'big5')
+    fireEvent.change(select, { target: { value: '' } })
+    expect(onReopenEncoding).toHaveBeenLastCalledWith('a/legacy.txt', undefined)
+  })
+
+  it('keeps the explicit selection marked after reopening explicitly', () => {
+    const explicitTab = { ...gbkTab, encoding: 'big5', encodingSource: 'explicit' as const }
+    const view = render(
+      <WorkbenchPreview
+        {...previewProps({ tabs: [explicitTab], activeTabId: 'file:a/legacy.txt' })}
+        onReopenEncoding={vi.fn()}
+      />,
+    )
+    const select = view.getByRole('combobox', { name: '以指定编码重新打开' }) as HTMLSelectElement
+    expect(select.value).toBe('big5')
+  })
+
+  it('hides the selector when no reopen callback is provided', () => {
+    const view = render(<WorkbenchPreview {...previewProps({ tabs: [gbkTab], activeTabId: 'file:a/legacy.txt' })} />)
+    expect(view.queryByRole('combobox')).toBeNull()
+  })
+})

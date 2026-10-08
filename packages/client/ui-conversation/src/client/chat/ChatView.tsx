@@ -146,7 +146,7 @@ function TurnStatus({ startTime, t }: {
  */
 export function ChatView({
   useSession, useSessions, useStore, actions, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
-  fileMentions, externalLinks, t,
+  recallSteering, fileMentions, externalLinks, t,
 }: ChatViewSlotProps) {
   const order = useSession(s => s.chat.order)
   const nodeStore = useSession(s => s.chat.nodes)
@@ -155,6 +155,9 @@ export function ChatView({
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
+  // Same mutability rule as the QueueDock strip: a subagent's queue is not
+  // client-addressable, so its parked steering offers no recall either.
+  const steeringRecallable = useSession(s => s.subagent === null)
   const compactionProgress = useSession(s => s.compactionProgress ?? null)
   const openState = useSession(s => s.openState)
   const openError = useSession(s => s.openError)
@@ -436,7 +439,13 @@ export function ChatView({
               wait, tool execution, streaming) so it never flickers per step. */}
           {running && <TurnStatus startTime={runningTurnStart} t={t} />}
           {pendingSteering.map(item => (
-            <PendingSteeringBubble key={item.id} content={item.content} loadImage={loadImage} t={t} />
+            <PendingSteeringBubble
+              key={item.id}
+              content={item.content}
+              loadImage={loadImage}
+              onRecall={steeringRecallable ? () => recallSteering(item.id, item.content) : undefined}
+              t={t}
+            />
           ))}
         </div>
         {!atBottom && (

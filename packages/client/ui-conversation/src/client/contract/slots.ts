@@ -22,6 +22,7 @@ import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
+import type { QueueItemId } from './queue.ts'
 
 /** Browser-owned image that has not crossed the durable host boundary. */
 export interface ComposerAttachment {
@@ -740,6 +741,14 @@ export interface ChatViewInjected {
   }
   /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void
+  /**
+   * Recall one still-pending steering occurrence before the loop claims it.
+   * The Host remove runs first and every downstream effect — composer refill
+   * with the handle-stripped plain text, clipboard copy past a non-empty
+   * draft, attachment and failure notices — happens only on that verdict, so
+   * a lost race never resurrects the text in the composer.
+   */
+  recallSteering: (itemId: QueueItemId, content: readonly unknown[]) => Promise<void>
   /**
    * Prose file-mention vocabulary for one closing message, from the optional
    * {@link ChatFileMentions} service (resolved lazily per call, so composing

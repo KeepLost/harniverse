@@ -107,6 +107,21 @@ it.each([
   }
 }, 25_000)
 
+it('runs the real chat composition beside an exclusive home owner', async () => {
+  root = await mkdtemp(join(tmpdir(), 'dsh-chat-coexist-'))
+  const home = join(root, 'home')
+  const owner = await acquireHomeOwnership(home)
+  try {
+    const result = await invoke(home, ['chat', 'status', '--origin', 'http://127.0.0.1:9'])
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stdout).toContain('signing key: missing')
+    expect(result.stdout).toContain('harniverse http://127.0.0.1:9: unreachable')
+    await expect(acquireHomeOwnership(home)).rejects.toThrow(/already running/)
+  } finally {
+    await owner.release()
+  }
+}, 25_000)
+
 it.each(['web', 'headless'])('refuses a second %s before profile writes', async (profile) => {
   root = await mkdtemp(join(tmpdir(), 'dsh-profile-refused-'))
   const home = join(root, 'home')

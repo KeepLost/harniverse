@@ -35,6 +35,17 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript) | SEE LICENSE IN README.md |
 | [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) | MIT |
 | [`@babel/code-frame`](https://github.com/babel/babel) | MIT |
+| [`@codemirror/commands`](https://code.haverbeke.berlin/codemirror/commands) | MIT |
+| [`@codemirror/lang-css`](https://github.com/codemirror/lang-css) | MIT |
+| [`@codemirror/lang-html`](https://code.haverbeke.berlin/codemirror/lang-html) | MIT |
+| [`@codemirror/lang-javascript`](https://github.com/codemirror/lang-javascript) | MIT |
+| [`@codemirror/lang-json`](https://github.com/codemirror/lang-json) | MIT |
+| [`@codemirror/lang-markdown`](https://code.haverbeke.berlin/codemirror/lang-markdown) | MIT |
+| [`@codemirror/lang-python`](https://github.com/codemirror/lang-python) | MIT |
+| [`@codemirror/language`](https://code.haverbeke.berlin/codemirror/language) | MIT |
+| [`@codemirror/search`](https://code.haverbeke.berlin/codemirror/search) | MIT |
+| [`@codemirror/state`](https://code.haverbeke.berlin/codemirror/state) | MIT |
+| [`@codemirror/view`](https://code.haverbeke.berlin/codemirror/view) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
 | [`@eslint-community/regexpp`](https://github.com/eslint-community/regexpp) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
@@ -58,6 +69,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`fflate`](https://github.com/101arrowz/fflate) | MIT |
+| [`iconv-lite`](https://github.com/ashtuchkin/iconv-lite) | MIT |
 | [`immer`](https://github.com/immerjs/immer) | MIT |
 | [`js-yaml`](https://github.com/nodeca/js-yaml) | MIT |
 | [`katex`](https://github.com/KaTeX/KaTeX) | MIT |
@@ -207,6 +219,15 @@ Files the local speech recognizer downloads at runtime. They are pinned by sha25
 | [`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 (model.int8.onnx, model.onnx, tokens.txt)`](https://github.com/csukuangfj/sherpa-onnx) | Apache-2.0 | local SenseVoice speech-recognition weights downloaded on demand into `$DSH_HOME/speech/sensevoice` |
 | [`silero_vad.onnx`](https://github.com/snakers4/silero-vad) | MIT | Silero voice-activity detector downloaded on demand for speech segmentation |
 | [`onnxruntime (bundled inside sherpa-onnx-node)`](https://github.com/microsoft/onnxruntime) | MIT | CPU inference engine shipped inside the `sherpa-onnx-node` native binding |
+
+## Ported source
+
+Source files that were ported or derived from other MIT-licensed projects without a package dependency on them. Each listed file keeps a header naming its origin; the upstream copyright and license apply to the ported portions.
+
+| Origin | License | Role | Files |
+| --- | --- | --- | --- |
+| [`dsh-im`](https://github.com/xmanrui/dsh-im) | MIT, Copyright (c) 2026 xmanrui | the Telegram Bot API client and update normalization, the Feishu long-connection wiring, and the throttled editable message stream of the chat bridge | [`packages/chat/chat-adapter-telegram/src/api.ts`](packages/chat/chat-adapter-telegram/src/api.ts)<br>[`packages/chat/chat-adapter-telegram/src/normalize.ts`](packages/chat/chat-adapter-telegram/src/normalize.ts)<br>[`packages/chat/chat-adapter-feishu/src/runtime.ts`](packages/chat/chat-adapter-feishu/src/runtime.ts)<br>[`packages/chat/chat-bridge/src/render.ts`](packages/chat/chat-bridge/src/render.ts) |
+| [`@larksuiteoapi/node-sdk`](https://github.com/larksuite/node-sdk) | MIT | the `pbbp2.Frame` message layout and the long-connection protocol that the Feishu adapter implements without depending on the SDK | [`packages/chat/chat-adapter-feishu/src/frame.ts`](packages/chat/chat-adapter-feishu/src/frame.ts)<br>[`packages/chat/chat-adapter-feishu/src/runtime.ts`](packages/chat/chat-adapter-feishu/src/runtime.ts) |
 
 ## First-party native packages
 

@@ -1,7 +1,10 @@
 // Web e2e scenarios for both steering entry points: QueueDock strictly
 // transfers one queued occurrence, while the complementary composer gestures
 // choose Queue or Steer. The question tool supplies a deterministic pending-
-// steering snapshot before the step can drain.
+// steering snapshot before the step can drain; the recall scenarios withdraw
+// that pending steering again — once while the question holds the step
+// boundary open, once after Stop parks it — proving neither case admits the
+// interjection into the next model request.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -48,6 +51,13 @@ const STEER_ALL_MID = join(STEER_ALL_DIR, 'mid-steer.expected.md')
 const STEER_ALL_SETTLED = join(STEER_ALL_DIR, 'settled.expected.md')
 const STEER_ONE = 'Interjection: include the word BANANA in your final reply.'
 const STEER_TWO = 'Interjection: include the word ORANGE in your final reply.'
+
+// Recall scenarios: an override-only fixture (no recorded session.jsonl) —
+// call 0 keeps the turn open with a question-tool call, call 1 is the reply
+// after the question resolves WITHOUT the recalled interjection.
+const RECALL_DIR = fileURLToPath(new URL('./snapshots/steering-recall', import.meta.url))
+const RECALL_FIXTURE = join(RECALL_DIR, 'session.jsonl')
+const RECALL_OVERRIDE = join(RECALL_DIR, 'replay.override.json')
 
 /** Concatenated assistant text deltas — the model-visible reply body. */
 function assistantText(events: SessionEvent[]): string {
@@ -127,7 +137,10 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     if (MODE !== 'record') {
       expect(await page.getByText(STEER, { exact: true }).count()).toBe(1)
       expect(await pendingSteering.count()).toBe(1)
+      // The pending projection stays pre-admission: no edit affordance, but
+      // the recall action is live (withdraw before the loop claims it).
       expect(await page.getByRole('button', { name: 'Edit queued message' }).count()).toBe(0)
+      expect(await pendingSteering.getByRole('button', { name: 'Recall message' }).count()).toBe(1)
       await waitForAgentPresetLabel(page)
       // The trailing ContextMeter and the stats line arrive on projections
       // that a mid-turn frame cannot wait for (their push rides step
@@ -298,7 +311,7 @@ describe('web e2e: composer shortcut follows the swapped busy behavior', () => {
 
     // Remove the asserted Queue row, then finish the recorded question turn
     // so replay teardown still proves that every fixture call was consumed.
-    await queuedRow.getByRole('button', { name: 'Remove queued message' }).click()
+    await queuedRow.getByRole('button', { name: 'Recall queued message' }).click()
     const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: 30_000 })
     await composer.getByRole('radio', { name: 'Yes' }).click()
@@ -421,5 +434,142 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
     await assertFixtureInventory(STEER_ALL_DIR, [
       'replay.override.json', 'mid-steer.expected.md', 'settled.expected.md',
     ])
+  })
+})
+
+describe('web e2e: recalling pending steering keeps it out of the model request', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  const sessionEvents: SessionEvent[] = []
+
+  beforeAll(async () => {
+    scaffold = await launchWebScaffold({
+      replayFixture: RECALL_FIXTURE,
+      replayOverride: RECALL_OVERRIDE,
+      paceMs: REPLAY_PACE_MS,
+    })
+    scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    await page.getByText('Standard mode', { exact: true }).waitFor({ timeout: 10_000 })
+  }, 120_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+  })
+
+  it('withdraws the interjection from the bubble and refills the composer', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-steering-recall'))
+    const input = page.locator('textarea').first()
+    await input.waitFor({ timeout: 10_000 })
+    const settled = scaffold.whenTurnSettled(30_000)
+    await input.fill(PROMPT)
+    await input.press('Enter')
+    await page.getByRole('button', { name: 'Stop generating' }).waitFor({ timeout: 10_000 })
+
+    // The question holds the step boundary open, so the direct steer stays
+    // pending at the conversation tail instead of being claimed.
+    await input.fill(STEER)
+    await input.press('Meta+Enter')
+    const composer = page.locator('[data-question-key]')
+    await composer.waitFor({ timeout: 30_000 })
+    const pendingSteering = page.locator('[data-pending-steering]').filter({ hasText: STEER })
+    await pendingSteering.waitFor({ timeout: 10_000 })
+
+    await pendingSteering.getByRole('button', { name: 'Recall message' }).click()
+    // The host remove retires the bubble; the interjection never becomes a
+    // user/message. (The draft refill is asserted after the answer returns
+    // the plain composer — the question takeover replaces the textarea.)
+    await expect.poll(() => page.locator('[data-pending-steering]').count(), { timeout: 10_000 }).toBe(0)
+    expect(claimedMessages(sessionEvents, STEER)).toHaveLength(0)
+
+    await composer.getByRole('radio', { name: 'Yes' }).click()
+    await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
+    await settled
+    expect(claimedMessages(sessionEvents, STEER)).toHaveLength(0)
+    expect(assistantText(sessionEvents)).not.toContain('BANANA')
+    // The recalled text refilled the composer draft on the success verdict
+    // (the refilled draft also renders in the composer's measurement mirror).
+    await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe(STEER)
+    expect(await page.locator('[data-question-key]').count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 90_000)
+})
+
+describe('web e2e: recalling steering parked by Stop before the next send', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  const sessionEvents: SessionEvent[] = []
+
+  beforeAll(async () => {
+    scaffold = await launchWebScaffold({
+      replayFixture: RECALL_FIXTURE,
+      replayOverride: RECALL_OVERRIDE,
+      paceMs: REPLAY_PACE_MS,
+    })
+    scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    await page.getByText('Standard mode', { exact: true }).waitFor({ timeout: 10_000 })
+  }, 120_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+  })
+
+  it('recalls the parked interjection while idle so the next turn excludes it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-steering-recall-parked'))
+    const input = page.locator('textarea').first()
+    await input.waitFor({ timeout: 10_000 })
+    await input.fill(PROMPT)
+    await input.press('Enter')
+    await page.getByRole('button', { name: 'Stop generating' }).waitFor({ timeout: 10_000 })
+
+    // The steer lands while the first response is still streaming, so it
+    // parks in next-step instead of being claimed at a step boundary.
+    await input.fill(STEER)
+    await input.press('Meta+Enter')
+    const pendingSteering = page.locator('[data-pending-steering]').filter({ hasText: STEER })
+    await pendingSteering.waitFor({ timeout: 10_000 })
+
+    // Stop parks the pending steering (keepInbox) and returns the composer.
+    await page.getByRole('button', { name: 'Stop generating' }).click()
+    await expect.poll(() => page.getByRole('button', { name: 'Stop generating' }).count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(() => input.isEnabled(), { timeout: 10_000 }).toBe(true)
+    expect(await pendingSteering.count()).toBe(1)
+
+    await pendingSteering.getByRole('button', { name: 'Recall message' }).click()
+    await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe(STEER)
+    await expect.poll(() => page.locator('[data-pending-steering]').count(), { timeout: 10_000 }).toBe(0)
+
+    // The next send wakes a fresh turn: without the recall, the parked
+    // interjection would ride into this request (claim drains next-step first).
+    const settled = scaffold.whenTurnSettled(30_000)
+    await input.fill('Continue.')
+    await input.press('Enter')
+    await settled
+    expect(claimedMessages(sessionEvents, STEER)).toHaveLength(0)
+    expect(assistantText(sessionEvents)).not.toContain('BANANA')
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 90_000)
+
+  it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
+    await assertFixtureInventory(RECALL_DIR, ['replay.override.json'])
   })
 })

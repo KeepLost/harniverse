@@ -8,6 +8,7 @@ Profile 组合包：在 manifest（元数据清单）中声明 `"dsh": { "bundle
 |---|---|---|
 | [`base/`](base/README.md) | 每个 profile 最先应用的共享 dsh 核心 | —（仅 patch） |
 | [`auth-app/`](auth-app/README.md) | 不挂载网络服务的一次性本地设备和 API client Grant 管理 | 挂载 `auth-runner` |
+| [`chat-app/`](chat-app/README.md) | IM 聊天桥接：通过一个操作员 Grant 把 Telegram 和飞书接到本地 Harniverse，并提供 `init`、`status`、`rotate-key` 维护操作 | 挂载 `chat-runner`、`chat-bridge` |
 | [`web-app/`](web-app/README.md) | 浏览器表层：web patch 层 + 运行时粘合插件 | 挂载多条配置行 |
 | [`headless/`](headless/README.md) | 直接运行在 base 之上的一次性任务模式，不含 Host 或 Web 层 | 挂载 `headless-runner` |
 

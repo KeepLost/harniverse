@@ -2751,7 +2751,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       updateQueue: request => err(request, {
         code: 'queue-item-not-found',
         message: 'fixture has no pending queue item',
-        details: { itemId: request.payload.itemId },
+        details: { itemId: request.payload.itemId, status: { state: 'unknown' as const } },
       }),
       cancel: (request) => {
         const replay = replays.get(request.payload.sessionId)
@@ -3083,6 +3083,10 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         }
         return ok(request, {
           path: request.payload.path, content, bytes: new TextEncoder().encode(content).byteLength, truncated: false,
+          encoding: request.payload.encoding ?? 'utf-8',
+          encodingSource: request.payload.encoding === undefined ? 'utf8' as const : 'explicit' as const,
+          bom: false,
+          eol: 'LF' as const,
         })
       },
       readBinary: (request, signal) => {

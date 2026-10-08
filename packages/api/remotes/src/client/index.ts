@@ -13,6 +13,8 @@ import schedulerRemote from '@deepseek-ai/dsh-scheduler/remote'
 import governorRemote from '@deepseek-ai/dsh-governor/remote'
 import queueRemote from '@deepseek-ai/dsh-queue/remote'
 import remoteHostsRemote from '@deepseek-ai/dsh-remote-hosts/remote'
+import workspaceFileWriteRemote from '@deepseek-ai/dsh-workspace-file-write/remote'
+import chatBotsRemote from '@deepseek-ai/dsh-chat-manager/remote'
 import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 
 export type { TypertClientRemote as ClientRemote } from '@deepseek-ai/dsh-typert-protocol'
@@ -47,6 +49,8 @@ export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 export type {} from '@deepseek-ai/dsh-host-capability-management/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 export type {} from '@deepseek-ai/dsh-session-reference/remote'
+export type {} from '@deepseek-ai/dsh-workspace-file-write/remote'
+export type {} from '@deepseek-ai/dsh-chat-manager/remote'
 // The forwarded-event allowlist's selection seat: without it in the consumer's
 // compilation face `TypertRemoteEvent` is `never` and every `$on` call fails.
 export type { ApiRemoteForwardedEvent } from '../types.ts'
@@ -125,6 +129,36 @@ export type {
 export type { JsonValue } from '@deepseek-ai/dsh-session/types'
 export type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
 export type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-reference/types'
+export type {
+  WorkspaceFileEncodingSource,
+  WorkspaceFileOpenResult,
+  WorkspaceFileSaveRequest,
+  WorkspaceFileSaveResult,
+  WorkspaceFileStatResult,
+  WorkspaceFileWriteErrorCode,
+  WorkspaceFileWriteFailure,
+} from '@deepseek-ai/dsh-workspace-file-write/types'
+export type {
+  AddChatBotInput,
+  ChatBotErrorCode,
+  ChatBotFailure,
+  ChatBotIdInput,
+  ChatBotModelView,
+  ChatBotSecretView,
+  ChatBotSettingsPatch,
+  ChatBotSettingsView,
+  ChatBotState,
+  ChatBotsSnapshot,
+  ChatBotView,
+  ChatBridgeStatus,
+  ChatOwnerCode,
+  ChatOwnerView,
+  ChatPlatformField,
+  ChatPlatformView,
+  CheckChatBotResult,
+  UnpairOwnerInput,
+  UpdateChatBotInput,
+} from '@deepseek-ai/dsh-chat-manager/types'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -157,6 +191,8 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       governorRemote,
       queueRemote,
       remoteHostsRemote,
+      workspaceFileWriteRemote,
+      chatBotsRemote,
     ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }

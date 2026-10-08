@@ -9,6 +9,7 @@ import {
   taskkillProcessTree,
 } from '../src/spawn.ts'
 import { OutputCollector, prepareManagedProcessBinding, reportSpillFailureToStderr } from '../src/output.ts'
+import { encodeForWrite } from '@deepseek-ai/dsh-fs-codec'
 import type { SpillOptions } from '../src/output.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -1135,5 +1136,96 @@ describe('environment and spill-file hardening', () => {
     setTimeout(() => { controller.abort() }, 50)
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
+  })
+})
+
+describe('OutputCollector — legacy output decoding', () => {
+  /** Deterministic 1-9-byte chunk sizes for the mixed-stream tests. */
+  function seededChunkSizes(seed: number, count: number): number[] {
+    const sizes: number[] = []
+    let state = seed
+    for (let index = 0; index < count; index++) {
+      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648
+      sizes.push(1 + (state % 9))
+    }
+    return sizes
+  }
+
+  function fixture(text: string, encoding: string): Buffer {
+    const outcome = encodeForWrite(text, encoding)
+    if (!outcome.ok) throw new Error('fixture not encodable')
+    return Buffer.from(outcome.bytes)
+  }
+
+  it('decodes a mixed UTF-8/GBK stream with zero errors across random incremental chunks', () => {
+    const gbk = fixture('老机器输出第一行\n', 'gb18030')
+    const utf8 = Buffer.from('plain utf8 line\n', 'utf8')
+    const gbk2 = fixture('第二行结束\n', 'gb18030')
+    const stream = Buffer.concat([gbk, utf8, gbk2])
+    const expected = '老机器输出第一行\nplain utf8 line\n第二行结束\n'
+    const collector = new OutputCollector(1 << 20, 'mixed', undefined, { kind: 'mixed', legacy: ['gb18030'] })
+    let text = ''
+    let offset = 0
+    let cursor = 0
+    for (const size of seededChunkSizes(42, 64)) {
+      if (cursor >= stream.length) break
+      collector.push(stream.subarray(cursor, Math.min(cursor + size, stream.length)))
+      cursor += size
+      const read = collector.readFrom(offset)
+      text += read.text
+      offset = read.nextOffset
+    }
+    collector.seal()
+    const tail = collector.readFrom(offset)
+    text += tail.text
+    expect(text).toBe(expected)
+  })
+
+  it('holds back an incomplete UTF-8 tail so incremental reads never split a character', () => {
+    const collector = new OutputCollector(1 << 16, 'utf8-hold', undefined)
+    const text = 'héllo ÿ'
+    const bytes = Buffer.from(text, 'utf8')
+    // Cut inside the final two-byte ÿ: the incomplete sequence stays unread.
+    collector.push(bytes.subarray(0, bytes.length - 1))
+    const partial = collector.readFrom(0)
+    expect(partial.text).toBe('héllo ')
+    // The held-back ÿ lead byte sits at index 7; the next read resumes there.
+    expect(partial.nextOffset).toBe(7)
+    collector.push(bytes.subarray(bytes.length - 1))
+    collector.seal()
+    const rest = collector.readFrom(partial.nextOffset)
+    expect(partial.text + rest.text).toBe(text)
+  })
+
+  it('releases the held tail at stream end', () => {
+    const collector = new OutputCollector(1 << 16, 'final-release', undefined)
+    collector.push(Buffer.concat([Buffer.from('ok\n'), Buffer.from([0xc3])]))
+    const held = collector.readFrom(0)
+    expect(held.text).toBe('ok\n')
+    collector.seal()
+    const done = collector.readFrom(held.nextOffset)
+    expect(held.text + done.text).toBe('ok\n\ufffd')
+  })
+
+  it('treats a foreign fromByte that sliced a character as UTF-8, not legacy', () => {
+    const whole = fixture('你好\n', 'gb18030')
+    const collector = new OutputCollector(1 << 16, 'foreign', undefined, { kind: 'mixed', legacy: ['gb18030'] })
+    collector.push(whole)
+    collector.seal()
+    // Resuming from byte 1 starts inside the two-byte character.
+    const foreign = collector.readFrom(1)
+    expect(foreign.text).toBe(whole.subarray(1).toString('utf8'))
+  })
+
+  it('decodes a GB18030 4-byte sequence straddling incremental reads', () => {
+    const text = 'x'.repeat(100) + '\u{20000}' + 'y'.repeat(50) + '\n'
+    const stream = fixture(text, 'gb18030')
+    const collector = new OutputCollector(1 << 16, 'gb4', undefined, { kind: 'mixed', legacy: ['gb18030'] })
+    collector.push(stream.subarray(0, 102))
+    const first = collector.readFrom(0)
+    collector.push(stream.subarray(102))
+    collector.seal()
+    const rest = collector.readFrom(first.nextOffset)
+    expect(first.text + rest.text).toBe(text)
   })
 })

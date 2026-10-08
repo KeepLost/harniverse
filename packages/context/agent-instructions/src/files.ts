@@ -338,7 +338,7 @@ async function readBounded(
   try {
     const chunks = fileSystem === undefined || file.target === undefined
       ? nodeTextChunks(file.absolutePath, signal)
-      : await fileSystem.streamText(file.target, signal)
+      : await fileSystem.streamText(file.target, signal, { utfOnly: true })
     const parts: string[] = []
     let bytes = 0
     for await (const chunk of chunks) {

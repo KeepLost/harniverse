@@ -64,8 +64,12 @@ interface SubprocessCollect {
     /** Whole-stream byte cap; a larger stream discards its now-incomplete spill. */
     maxBytes: number
   }
+  /** Output decoding; omitted means UTF-8. */
+  decoding?: SubprocessOutputDecoding
 }
 ```
+
+Collected output decodes through [`dsh-fs-codec`](../../packages/fs/fs-codec/README.md) over whole retained windows: the default UTF-8 spec matches the historical collector except that an incomplete trailing sequence stays unread until more bytes or stream end arrive, so a returned `nextOffset` may sit before the newest retained byte and incremental reads never split a character. The `mixed` spec judges line by line — valid UTF-8 lines stay UTF-8, and only an invalid line decodes through the stream's legacy code pages (PowerShell: host OEM then ANSI; bash: the child's final locale charset). A window resumed from a foreign offset that starts mid-character decodes that leading fragment as UTF-8 rather than falling back, because several legacy lead bytes overlap the UTF-8 continuation range. The executors derive the spec from host priors (`pwshOutputDecoding`, `bashOutputDecoding`); UTF-8 hosts keep byte-identical output.
 
 ```ts type-equiv
 /**
@@ -323,7 +327,7 @@ abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:167`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:168`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocess-events"></a>
 
@@ -345,7 +349,7 @@ One metered spawn's tree fully exited. Follows the matching `subprocess/spawned`
 'subprocess/exited'(event: SubprocessMeteredExit): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:96`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:97`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessspawned--emit"></a>
 
@@ -365,7 +369,7 @@ One metered spawn started: a process spawned with a SubprocessCorrelation is now
 'subprocess/spawned'(event: SubprocessMeteredSpawn): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:89`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:90`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessterminal-exited--emit"></a>
 
@@ -382,7 +386,7 @@ One metered terminal session fully exited.
 'subprocess/terminal-exited'(event: SubprocessMeteredTerminalExit): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:109`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:110`](../../packages/subprocess/subprocess/src/index.ts)
 
 <a id="subprocessterminal-spawned--emit"></a>
 
@@ -400,5 +404,5 @@ One metered terminal session became live (PTY spawns carry their own POSIX sessi
 'subprocess/terminal-spawned'(event: SubprocessMeteredTerminalSpawn): void
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:103`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:104`](../../packages/subprocess/subprocess/src/index.ts)
 <!-- END GENERATED cordis-surface -->

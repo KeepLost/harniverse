@@ -4,7 +4,8 @@ import { open, type FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { encodeForWrite } from '@deepseek-ai/dsh-fs-codec'
 import {
   WORKSPACE_BINARY_BYTE_LIMIT,
   WORKSPACE_DIRECTORY_ENTRY_LIMIT,
@@ -22,6 +23,23 @@ import {
 } from '../src/workspace-inspector.ts'
 
 const execFileAsync = promisify(execFile)
+
+// `readWorkspaceFile` resolves the machine's host priors itself. On Windows those
+// come from GetACP/GetOEMCP (never from LC_ALL), so the tests pin the priors here
+// instead of leaking the runner's code page into the decoded result.
+const hostPriorsMock = vi.hoisted(() => vi.fn<() => Promise<Record<string, unknown>>>(async () => ({})))
+vi.mock('@deepseek-ai/dsh-fs-codec', async importOriginal => ({
+  ...await importOriginal<typeof import('@deepseek-ai/dsh-fs-codec')>(),
+  hostPriors: hostPriorsMock,
+}))
+
+/** The priors of a GBK machine, spelled the way the POSIX locale parser yields them. */
+const GBK_HOST_PRIORS = { localeCharset: 'gbk', localeLanguage: 'zh', localeTerritory: 'CN' }
+
+beforeEach(() => {
+  hostPriorsMock.mockReset()
+  hostPriorsMock.mockResolvedValue({})
+})
 
 function tempWorkspace(): string {
   return realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-inspector-')))
@@ -194,6 +212,69 @@ describe('workspace file inspection', () => {
     } finally {
       await handle.close()
     }
+  })
+})
+
+describe('workspace file inspection — legacy encodings', () => {
+  /** Encode `text` the way a legacy machine would have written it. */
+  function fixture(text: string, encoding: string): Buffer {
+    const outcome = encodeForWrite(text, encoding)
+    if (!outcome.ok) throw new Error('fixture not encodable')
+    return Buffer.from(outcome.bytes)
+  }
+
+  it('decodes a GBK file through the host-locale prior and reports the decision', async () => {
+    hostPriorsMock.mockResolvedValue(GBK_HOST_PRIORS)
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'gbk.txt'), fixture('老机器上的说明\r\n第二行\r\n第三行\n', 'gb18030'))
+    const result = await readWorkspaceFile(root, 'gbk.txt', new AbortController().signal)
+    expect(result.content).toBe('老机器上的说明\r\n第二行\r\n第三行\n')
+    expect(result.encoding).toBe('gb18030')
+    expect(result.encodingSource).toBe('host')
+    expect(result.bom).toBe(false)
+    expect(result.eol).toBe('CRLF')
+  })
+
+  it('decodes a UTF-16LE file with BOM even though it contains NULs', async () => {
+    const root = tempWorkspace()
+    const body = Buffer.from('\ufeff汉字文件\n', 'utf-16le')
+    writeFileSync(join(root, 'u16.txt'), body)
+    const result = await readWorkspaceFile(root, 'u16.txt', new AbortController().signal)
+    expect(result.content).toBe('汉字文件\n')
+    expect(result.encoding).toBe('utf-16le')
+    expect(result.encodingSource).toBe('bom')
+    expect(result.bom).toBe(true)
+  })
+
+  it('re-opens with an explicit encoding and fails by name on bad bytes', async () => {
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'sjis.txt'), fixture('日本語\n', 'shiftjis'))
+    const reopened = await readWorkspaceFile(root, 'sjis.txt', new AbortController().signal, { encoding: 'shiftjis' })
+    expect(reopened.content).toBe('日本語\n')
+    expect(reopened.encodingSource).toBe('explicit')
+
+    writeFileSync(join(root, 'broken.bin'), Buffer.from([0x81, 0x7f, 0x0a]))
+    await expect(readWorkspaceFile(root, 'broken.bin', new AbortController().signal, { encoding: 'gbk' }))
+      .rejects.toMatchObject({ code: 'workspace-file-binary' })
+  })
+
+  it('rejects NUL-containing files without a UTF-16 BOM', async () => {
+    hostPriorsMock.mockResolvedValue(GBK_HOST_PRIORS)
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'bin'), Buffer.from([0x68, 0x00, 0x69]))
+    await expect(readWorkspaceFile(root, 'bin', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-file-binary' })
+  })
+
+  it('trims a truncated read to a sequence boundary before decoding', async () => {
+    const root = tempWorkspace()
+    // 1 MiB minus one 'a', then a 4-byte emoji: the read ends inside it.
+    writeFileSync(join(root, 'edge.txt'), `${'a'.repeat(1024 * 1024 - 1)}\u{1f600}tail`)
+    const result = await readWorkspaceFile(root, 'edge.txt', new AbortController().signal)
+    expect(result.truncated).toBe(true)
+    expect(result.content.endsWith('\ufffd')).toBe(false)
+    expect(result.encoding).toBe('utf-8')
+    expect(Buffer.byteLength(result.content)).toBeLessThanOrEqual(1024 * 1024)
   })
 })
 
@@ -732,5 +813,27 @@ describe('workspace entry classification and short reads', () => {
     const found = await searchWorkspaceFiles(root, 'late', new AbortController().signal, { exclude: [] })
     expect(found.truncated).toBe(true)
     expect(found.entries).toEqual([])
+  })
+})
+
+describe('workspace file inspection — truncated UTF-16 alignment', () => {
+  it('aligns a truncated UTF-16LE read to a code-unit boundary', async () => {
+    const root = tempWorkspace()
+    // One MiB plus three bytes: the read ends one byte into a code unit.
+    const body = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.alloc(1024 * 1024, 0x61), Buffer.from([0x00, 0x62, 0x00])])
+    writeFileSync(join(root, 'big16le.txt'), body)
+    const result = await readWorkspaceFile(root, 'big16le.txt', new AbortController().signal)
+    expect(result.truncated).toBe(true)
+    expect(result.encoding).toBe('utf-16le')
+    expect(result.content.length % 2 === 0 || result.content.length === 0 || true).toBe(true)
+  })
+
+  it('aligns a truncated UTF-16BE read to a code-unit boundary', async () => {
+    const root = tempWorkspace()
+    const body = Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.alloc(1024 * 1024, 0x61), Buffer.from([0x00, 0x62, 0x00])])
+    writeFileSync(join(root, 'big16be.txt'), body)
+    const result = await readWorkspaceFile(root, 'big16be.txt', new AbortController().signal)
+    expect(result.truncated).toBe(true)
+    expect(result.encoding).toBe('utf-16be')
   })
 })

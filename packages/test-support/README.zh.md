@@ -8,6 +8,7 @@
 |---|---|
 | [`acp-snapshot/`](acp-snapshot/README.md) | 提供 ACP（Agent Client Protocol）快照测试工具包 |
 | [`agent-loop-testkit/`](agent-loop-testkit/README.md) | 为 AgentLoop 测试挂载共享先决条件 |
+| [`chat-adapter-fake/`](chat-adapter-fake/README.md) | 为桥测试和无密钥 e2e 提供脚本化的聊天平台适配器 |
 | [`invariants/`](../runtime-diagnostics/invariants/README.md) | 运行开发期运行时约定断言 |
 | [`loader-smoke/`](loader-smoke/README.md) | 启动由 Loader 组合的应用以执行冒烟测试 |
 | [`llm-mock-server/`](llm-mock-server/README.md) | 提供确定性的 OpenAI 兼容故障服务器 |

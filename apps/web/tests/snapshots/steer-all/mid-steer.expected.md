@@ -33,8 +33,12 @@
 - text: "Interjection: include the word BANANA in your final reply."
 - button "Copy":
   - img
+- button "Recall message":
+  - img
 - text: "Interjection: include the word ORANGE in your final reply."
 - button "Copy":
+  - img
+- button "Recall message":
   - img
 - region "Ready to continue?":
   - text: Checkpoint

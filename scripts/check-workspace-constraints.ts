@@ -141,6 +141,10 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // Profile bundles publish their dsh.bundle.patch layer beside the lib.
   '@deepseek-ai/dsh-base': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-auth-app': ['cordis.patch.yml'],
+  '@deepseek-ai/dsh-chat-app': ['cordis.patch.yml'],
+  // The invariant companion shares one bundler chunk with the entry; Node must resolve it.
+  '@deepseek-ai/dsh-chat-adapter': ['lib/key-*.js'],
+  '@deepseek-ai/dsh-chat-harniverse-client': ['lib/endpoints-*.js'],
   '@deepseek-ai/dsh-web-app': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-headless': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],

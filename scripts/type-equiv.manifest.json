@@ -87,6 +87,71 @@
       "source": "packages/api/browser-controller/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "CallOptions",
+      "source": "packages/chat/chat-harniverse-client/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "ChatAdapter",
+      "source": "packages/chat/chat-adapter/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "ChatAdapterCapabilities",
+      "source": "packages/chat/chat-adapter/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "ChatAdapterErrorCode",
+      "source": "packages/chat/chat-adapter/src/error.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "ChatIdentity",
+      "source": "packages/chat/chat-adapter/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "ChatInbound",
+      "source": "packages/chat/chat-adapter/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "ChatPlatformId",
+      "source": "packages/chat/chat-adapter/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "ChatRoute",
+      "source": "packages/chat/chat-adapter/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "HostDescription",
+      "source": "packages/chat/chat-harniverse-client/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "InteractionPrompt",
+      "source": "packages/chat/chat-adapter/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "RespondReceipt",
+      "source": "packages/chat/chat-harniverse-client/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "RespondResult",
+      "source": "packages/chat/chat-harniverse-client/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/chat-bridge.md",
+      "symbol": "UploadedAttachment",
+      "source": "packages/chat/chat-harniverse-client/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/client-modules.md",
       "symbol": "WebBootEntry",
       "source": "packages/client/modules/src/client/manifest.ts"
@@ -368,12 +433,22 @@
     },
     {
       "doc": "docs/subsystems/filesystem.md",
+      "symbol": "FsReadTextOptions",
+      "source": "packages/fs/fs/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsTarget",
       "source": "packages/fs/fs/src/types.ts"
     },
     {
       "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsTargetKey",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/filesystem.md",
+      "symbol": "FsTextEncoding",
       "source": "packages/fs/fs/src/types.ts"
     },
     {

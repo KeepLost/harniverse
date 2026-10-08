@@ -1,0 +1,72 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.channel {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.channel:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.channel[aria-current='true'] {
+  background: var(--dsw-alias-interactive-bg-active);
+  font-weight: 600;
+}
+
+.channel:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 11.5px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Narrow container (a phone settings sheet): channels become a horizontal strip. */
+@container (max-width: 480px) {
+  .list {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .channel {
+    width: auto;
+    flex: none;
+  }
+}

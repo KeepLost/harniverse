@@ -26,6 +26,8 @@ Windows 进程树终止以大小写不敏感的方式解析 `SystemRoot`，通�
 不会直接导致 KV Cache 失效；请求前缀变更由上述消费方负责。
 
 ## 已知限制与暂缓事项
+- **混合解码是行粒度且流级的**：遗留行经单一遗留列表（主机 OEM 后 ANSI，或子进程 locale）解码；行首字节是与 UTF-8 续字节区间重叠的遗留前导时按整行判定，控制台与 ANSI 代码页不同的流在块极小的边界情况下首行可能解码错误。GB18030 4 字节序列绝不会跨返回的 `nextOffset`（整窗口解码），但不完整的遗留尾部会保留到更多字节或流结束之后。
+
 
 - **Windows 进程树支持仅为尽力而为**：终止经由 `taskkill /PID <pid> /T /F` 完成，所有结果都被就地吸收，不向外抛出（进程树已不存在、竞态、二进制缺失），存活探测则回退到直接子进程边界。
 - **Windows 终端信号是控制台级的**：SIGINT 以 `\x03` Ctrl-C 输入写入投递；SIGTSTP 与 SIGHUP 不可用。TERM→KILL 拆卸使用身份围栏保护的 `taskkill /T`；在声明平台验证前，原生 Windows CI 必须覆盖 ConPTY、Toolhelp32、Ctrl-C、taskkill 升级与 node-pty 退出事件缺失。

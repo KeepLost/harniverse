@@ -639,7 +639,7 @@ Standalone view/create/unique literal replace/line insert tool over the filesyst
 
 ### `edit`
 
-Edit an existing UTF-8 text file by replacing literal text.
+Edit an existing text file by replacing literal text.
 
 ```json
 {
@@ -674,7 +674,7 @@ Source: [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts
 
 ### `read`
 
-Read a UTF-8 text file and return line-numbered content.
+Read a text file and return line-numbered content. Files decode as UTF-8 by default; legacy encodings are detected from the machine locale, or name one with encoding.
 
 ```json
 {
@@ -694,7 +694,11 @@ Read a UTF-8 text file and return line-numbered content.
     },
     "line_byte_offset": {
       "type": "number",
-      "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read."
+      "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read; it counts UTF-8 bytes of the decoded text regardless of the file's encoding."
+    },
+    "encoding": {
+      "type": "string",
+      "description": "Optional encoding name (iconv-lite spelling, e.g. gbk, big5, shiftjis, utf-16le). Omit to auto-detect; an FS_NOT_TEXT result lists encodings that can decode the file."
     }
   },
   "required": [
@@ -728,7 +732,7 @@ Source: [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts
 
 ### `write`
 
-Create or fully replace a UTF-8 text file.
+Create or fully replace a text file.
 
 ```json
 {
@@ -740,7 +744,7 @@ Create or fully replace a UTF-8 text file.
     },
     "content": {
       "type": "string",
-      "description": "Full UTF-8 text content to write."
+      "description": "Full text content to write. New files are UTF-8; a read legacy file is written back in its original encoding."
     }
   },
   "required": [

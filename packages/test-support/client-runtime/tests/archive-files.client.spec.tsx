@@ -24,8 +24,8 @@ describe('TestWorkspaces file and git verbs', () => {
       path: 'src', entries: [], truncated: false,
     })
     await expect(workspaces.listFiles(wid('ws'))).resolves.toEqual({ path: '', entries: [], truncated: false })
-    await expect(workspaces.readFile(wid('ws'), 'a.ts', controller.signal)).resolves.toEqual({
-      path: 'a.ts', content: '', bytes: 0, truncated: false,
+    await expect(workspaces.readFile(wid('ws'), 'a.ts', undefined, controller.signal)).resolves.toEqual({
+      path: 'a.ts', content: '', bytes: 0, truncated: false, encoding: 'utf-8', encodingSource: 'utf8', bom: false, eol: 'LF',
     })
     await expect(workspaces.searchFiles(wid('ws'), 'query', { include: ['*.ts'], exclude: [] }, controller.signal)).resolves.toEqual({
       entries: [], truncated: false,
@@ -46,7 +46,7 @@ describe('TestWorkspaces file and git verbs', () => {
     expect(workspaces.calls).toEqual([
       { method: 'listFiles', args: [wid('ws'), 'src', controller.signal] },
       { method: 'listFiles', args: [wid('ws'), undefined, undefined] },
-      { method: 'readFile', args: [wid('ws'), 'a.ts', controller.signal] },
+      { method: 'readFile', args: [wid('ws'), 'a.ts', undefined, controller.signal] },
       { method: 'searchFiles', args: [wid('ws'), 'query', { include: ['*.ts'], exclude: [] }, controller.signal] },
       { method: 'readBinaryFile', args: [wid('ws'), 'p.png', controller.signal] },
       { method: 'gitStatus', args: [wid('ws'), controller.signal] },

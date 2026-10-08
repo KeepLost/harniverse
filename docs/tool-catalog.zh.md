@@ -643,7 +643,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `edit`
 
-通过替换字面量文本来编辑现有 UTF-8 文本文件。
+通过替换字面量文本来编辑现有文本文件。
 
 ```json
 {
@@ -678,7 +678,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `read`
 
-读取 UTF-8 文本文件，并返回带行号的内容。
+读取文本文件，并返回带行号的内容。文件默认按 UTF-8 解码；遗留编码会依据本机 locale 检测，也可用 encoding 指定编码。
 
 ```json
 {
@@ -698,7 +698,11 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
     },
     "line_byte_offset": {
       "type": "number",
-      "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read."
+      "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read; it counts UTF-8 bytes of the decoded text regardless of the file's encoding."
+    },
+    "encoding": {
+      "type": "string",
+      "description": "Optional encoding name (iconv-lite spelling, e.g. gbk, big5, shiftjis, utf-16le). Omit to auto-detect; an FS_NOT_TEXT result lists encodings that can decode the file."
     }
   },
   "required": [
@@ -732,7 +736,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 
 ### `write`
 
-创建或完全替换 UTF-8 文本文件。
+创建或完全替换文本文件。
 
 ```json
 {
@@ -744,7 +748,7 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
     },
     "content": {
       "type": "string",
-      "description": "Full UTF-8 text content to write."
+      "description": "Full text content to write. New files are UTF-8; a read legacy file is written back in its original encoding."
     }
   },
   "required": [

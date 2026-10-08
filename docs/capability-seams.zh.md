@@ -13,6 +13,18 @@ flowchart LR
   svc_authentication["ctx.authentication<br/>Inbound network authentication"]
   pkg_authentication_local["authentication-local"]
   pkg_client_connection["client-connection"]
+  pkg_chat_adapter["chat-adapter"]
+  svc_chatAdapters["ctx.chatAdapters<br/>Chat platform adapters"]
+  pkg_chat_adapter_telegram["chat-adapter-telegram"]
+  pkg_chat_adapter_feishu["chat-adapter-feishu"]
+  pkg_chat_adapter_fake["chat-adapter-fake"]
+  pkg_chat_bridge["chat-bridge"]
+  pkg_chat_harniverse_client["chat-harniverse-client"]
+  svc_harniverseClient["ctx.harniverseClient<br/>Operator client of the Harniverse /api"]
+  svc_chatBridge["ctx.chatBridge<br/>Embedded chat bridge control surface"]
+  pkg_chat_manager["chat-manager"]
+  svc_chatManager["ctx.chatManager<br/>Settings-managed chat bots"]
+  pkg_ui_settings_im["ui-settings-im"]
   pkg_speech["speech"]
   svc_speech["ctx.speech<br/>Speech recognition"]
   pkg_speech_sensevoice["speech-sensevoice"]
@@ -104,6 +116,9 @@ flowchart LR
   pkg_workspace["workspace"]
   svc_messageFeedback["ctx.messageFeedback<br/>Lifecycle-bound message feedback"]
   svc_workspaceRegistry["ctx.workspaceRegistry<br/>Workspace entity registry"]
+  pkg_workspace_file_write["workspace-file-write"]
+  svc_workspaceFileWrite["ctx.workspaceFileWrite<br/>Workbench file-editing Remote"]
+  pkg_client_ui_workspace_editor["client-ui-workspace-editor"]
   pkg_session_delivery["session-delivery"]
   svc_sessionDelivery["ctx.sessionDelivery<br/>Ordinary-session next-turn delivery"]
   pkg_session_delivery_local["session-delivery-local"]
@@ -286,6 +301,13 @@ flowchart LR
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
   pkg_capabilities --> svc_capabilities
+  pkg_chat_adapter --> svc_chatAdapters
+  pkg_chat_adapter_fake --> svc_chatAdapters
+  pkg_chat_adapter_feishu --> svc_chatAdapters
+  pkg_chat_adapter_telegram --> svc_chatAdapters
+  pkg_chat_bridge --> svc_chatBridge
+  pkg_chat_harniverse_client --> svc_harniverseClient
+  pkg_chat_manager --> svc_chatManager
   pkg_commands --> svc_commands
   pkg_compaction --> svc_compaction
   pkg_compaction_basic --> svc_compaction
@@ -403,6 +425,7 @@ flowchart LR
   pkg_workflow --> svc_workflowEngine
   pkg_workflow_worker_thread --> svc_workflowEngine
   pkg_workspace --> svc_workspaceRegistry
+  pkg_workspace_file_write --> svc_workspaceFileWrite
   svc_agentDefaultModel --> pkg_headless
   svc_agentDefaultModel --> pkg_host_apiproxy
   svc_agentLoop --> pkg_agent_spine_demo
@@ -417,6 +440,9 @@ flowchart LR
   svc_authentication --> pkg_client_connection
   svc_capabilities --> pkg_agent_presets
   svc_capabilities --> pkg_mcp_client
+  svc_chatAdapters --> pkg_chat_bridge
+  svc_chatBridge --> pkg_chat_manager
+  svc_chatManager --> pkg_ui_settings_im
   svc_clientModules --> pkg_hmr
   svc_compaction --> pkg_command_compact
   svc_compaction --> pkg_tool_compaction
@@ -434,6 +460,7 @@ flowchart LR
   svc_fs --> pkg_tool_fs
   svc_governor --> pkg_client_ui_governor
   svc_governor --> pkg_tool_bash
+  svc_harniverseClient --> pkg_chat_bridge
   svc_hmrCoordination --> pkg_app_boot
   svc_invariants --> pkg_agent
   svc_invariants --> pkg_agent_loop
@@ -556,6 +583,7 @@ flowchart LR
   svc_webServer --> pkg_modules
   svc_workflowEngine --> pkg_tool_ralph
   svc_workflowEngine --> pkg_tool_workflow
+  svc_workspaceFileWrite --> pkg_client_ui_workspace_editor
   svc_workspaceRegistry --> pkg_apiproxy
   svc_fs -. event gate .-> pkg_fs_observation_policy
 ```
@@ -563,6 +591,10 @@ flowchart LR
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.authentication` | `seam` | [`authentication`](../packages/auth/authentication) | [`authentication-local`](../packages/auth/authentication-local) | [`client-connection`](../packages/client/connection) | - | The provider owns admission state, token revisions, browser sessions, lease, and records; Connection owns HTTP and WebSocket protocol enforcement. |
+| `ctx.chatAdapters` | `seam` | [`chat-adapter`](../packages/chat/chat-adapter) | [`chat-adapter-telegram`](../packages/chat/chat-adapter-telegram), [`chat-adapter-feishu`](../packages/chat/chat-adapter-feishu), [`chat-adapter-fake`](../packages/test-support/chat-adapter-fake) | [`chat-bridge`](../packages/chat/chat-bridge) | - | The registry owns the platform-neutral adapter contract and live adapter identity; each adapter owns one platform transport; the bridge owns admission, commands, and rendering. |
+| `ctx.harniverseClient` | `core` | [`chat-harniverse-client`](../packages/chat/chat-harniverse-client) | - | [`chat-bridge`](../packages/chat/chat-bridge) | - | The client is the only package that calls /api for the chat bridge: it signs in with the operator Grant, keeps the event stream, and refuses requests outside its closed endpoint table. |
+| `ctx.chatBridge` | `core` | [`chat-bridge`](../packages/chat/chat-bridge) | - | [`chat-manager`](../packages/chat/chat-manager) | - | The bridge owns pairing codes, owner bindings, and the per-bot defaults applied to owner sessions; the manager reads and drives them while it embeds the bridge in the host. |
+| `ctx.chatManager` | `core` | [`chat-manager`](../packages/chat/chat-manager) | - | `ui-settings-im` | - | The manager owns the bot registry, write-only secrets, the bridge Grant, and the lifecycle of the embedded bridge and its per-bot platform scopes; the settings page only calls its Remote methods. |
 | `ctx.speech` | `seam` | [`speech`](../packages/speech/speech) | [`speech-sensevoice`](../packages/speech/speech-sensevoice), [`speech-openai`](../packages/speech/speech-openai) | [`speech-settings`](../packages/speech/speech-settings), [`host-apiproxy`](../packages/host/apiproxy) | - | The seam owns WAV validation and provider resolution; recognizers own preparation and inference; the apiproxy exposes transcribe/prepare to clients. |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | `host-runtime`, [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileReferences` | `seam` | [`file-reference`](../packages/context/file-reference) | [`file-reference-local`](../packages/context/file-reference-local) | [`client-ui-reference`](../packages/client/ui-reference) | - | The abstract service returns path-only candidates in the addressed Agent workspace; the local provider owns bounded indexing and the browser consumer renders capability-gated completion without reading file contents. |
@@ -589,6 +621,7 @@ flowchart LR
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace), [`message-feedback`](../packages/feedback/message-feedback), [`notification-http`](../packages/notification/notification-http) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
 | `ctx.messageFeedback` | `core` | [`message-feedback`](../packages/feedback/message-feedback) | - | - | - | Owns local per-assistant-message feedback, lifecycle and target validation, per-item compare-and-set, and the Host unary Remote contract without entering Session history or telemetry. |
 | `ctx.workspaceRegistry` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
+| `ctx.workspaceFileWrite` | `core` | [`workspace-file-write`](../packages/host/workspace-file-write) | - | [`client-ui-workspace-editor`](../packages/client/ui-workspace-editor) | - | Owns Workspace-scoped editable open, version probe, and version-checked save over ctx.fs behind harniverse.operate, then notifies live sessions of each saved path; the workbench editor occupant reaches it through the gateway. |
 | `ctx.sessionDelivery` | `seam` | [`session-delivery`](../packages/session-query/session-delivery) | [`session-delivery-local`](../packages/session-query/session-delivery-local) | [`tool-session-delivery`](../packages/session-query/tool-session-delivery) | - | The interface acknowledges inbox acceptance only; the local Provider resolves live or persisted ordinary Agents, while the model Consumer never waits for completion or a reply. |
 | `ctx.contextReset` | `core` | [`context-reset`](../packages/context/context-reset) | - | [`command-reset`](../packages/context/command-reset), [`scheduler`](../packages/schedule/scheduler) | - | Shadows every current surface node with one durable anchor-and-marker pair under surface-fold validation; idle-maintenance only, and display history cuts initial pages at the reset anchor. |
 | `ctx.scheduler` | `core` | [`scheduler`](../packages/schedule/scheduler) | - | - | - | Central storage-domain records with at/after/every rules; delivery reaches live roots through the idle maintenance phase and cold sessions through the resume sequence, with optional pre-delivery resets and lazily created job sessions. |

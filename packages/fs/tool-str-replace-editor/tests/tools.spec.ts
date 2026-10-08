@@ -210,6 +210,22 @@ describe('tool-str-replace-editor', () => {
     expect(readText).not.toHaveBeenCalled()
   })
 
+  it('annotates a legacy-decoded view with the encoding and its source', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'legacy.txt')
+    await writeFile(sample, 'alpha\nbeta\n')
+    async function* generated() {
+      yield 'alpha\nbeta\n'
+    }
+    ctx.fs.streamText = async (_target: unknown, _signal: unknown, opts: { onDecision?: (decision: unknown) => void }) => {
+      opts?.onDecision?.({ encoding: 'gb18030', source: 'host', bom: false, eol: 'LF' })
+      return generated()
+    }
+    const result = text(await call(ctx, owner, { command: 'view', path: sample }))
+    expect(result).toContain('     2  beta')
+    expect(result.trimEnd().endsWith('[Encoding: GB18030 (host code page)]')).toBe(true)
+  })
+
   it('returns a bounded, strictly advancing cursor for a 24 MiB newline-free stream', async () => {
     const { ctx, root, owner } = await setup({ maxOutputChars: 1024 })
     const sample = join(root, 'giant.txt')

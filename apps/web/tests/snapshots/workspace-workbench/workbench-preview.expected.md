@@ -4,7 +4,18 @@
     - button "Close README.md":
       - img
   - tabpanel "README.md":
-    - text: ⁨README.md⁩ 40 B
+    - text: "⁨README.md⁩ Encoding: utf-8 · LF"
+    - combobox "Reopen with encoding":
+      - option "Auto-detect" [selected]
+      - option "UTF-8"
+      - option "GB18030 / GBK"
+      - option "Big5"
+      - option "Shift_JIS"
+      - option "EUC-JP"
+      - option "EUC-KR"
+      - option "Windows-1251"
+      - option "Windows-1252"
+    - text: 40 B
     - button "Open this file in the default application":
       - img
     - button "Close file preview":

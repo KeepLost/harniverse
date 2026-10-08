@@ -94,6 +94,118 @@ describe('session.status', () => {
     await ctx.fiber.dispose()
   })
 
+  it('removes a pending next-step user message and reports the discard', async () => {
+    const { ctx, session, agent, api } = await harness()
+    const message = createUserMessage({ content: [{ type: 'text', text: 'wait, no' }], source: { kind: 'user' } })
+    agent.inbox.append('next-step', message)
+
+    const recalled = valueOf(await api.sessions.updateQueue(request({
+      sessionId: session.id,
+      itemId: message.id,
+      action: { kind: 'remove' },
+    })))
+    expect(recalled).toEqual({
+      accepted: true,
+      messageId: message.id,
+      status: { state: 'discarded', delivery: 'steer' },
+    })
+    expect(agent.inbox.nextStep).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses non-user next-step rows for every mutation while next-turn stays source-agnostic', async () => {
+    const { ctx, session, agent, api } = await harness()
+    const context = createUserMessage({
+      content: [{ type: 'text', text: 'task finished' }],
+      source: { kind: 'plugin', plugin: 'background' },
+    })
+    agent.inbox.append('next-step', context)
+    const queued = createUserMessage({
+      content: [{ type: 'text', text: 'plugin follow-up' }],
+      source: { kind: 'plugin', plugin: 'queue' },
+    })
+    agent.inbox.append('next-turn', queued)
+
+    const refused = await api.sessions.updateQueue(request({
+      sessionId: session.id,
+      itemId: context.id,
+      action: { kind: 'remove' },
+    }))
+    expect(refused.result.ok).toBe(false)
+    if (!refused.result.ok) {
+      expect(refused.result.error.code).toBe('queue-item-not-user')
+      expect(refused.result.error.details).toEqual({ itemId: context.id })
+    }
+    const refusedEdit = await api.sessions.updateQueue(request({
+      sessionId: session.id,
+      itemId: context.id,
+      action: { kind: 'edit', content: [{ type: 'text', text: 'edited' }] },
+    }))
+    expect(refusedEdit.result.ok).toBe(false)
+    if (!refusedEdit.result.ok) expect(refusedEdit.result.error.code).toBe('queue-item-not-user')
+    expect(agent.inbox.nextStep).toEqual([context])
+
+    const allowed = valueOf(await api.sessions.updateQueue(request({
+      sessionId: session.id,
+      itemId: queued.id,
+      action: { kind: 'remove' },
+    })))
+    expect(allowed).toMatchObject({ messageId: queued.id, status: { state: 'discarded', delivery: 'queue' } })
+    expect(agent.inbox.nextTurn).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('carries the durable lifecycle when the address is no longer pending', async () => {
+    const { ctx, session, agent, api } = await harness()
+    const claimed = createUserMessage({ content: [{ type: 'text', text: 'claimed' }], source: { kind: 'user' } })
+    agent.inbox.append('next-step', claimed)
+    session.append('turn/start', { turn: 4 })
+    agent.inbox.claim('next-step', 4)
+    const afterClaim = await api.sessions.updateQueue(request({
+      sessionId: session.id,
+      itemId: claimed.id,
+      action: { kind: 'remove' },
+    }))
+    expect(afterClaim.result.ok).toBe(false)
+    if (!afterClaim.result.ok) {
+      expect(afterClaim.result.error.code).toBe('queue-item-not-found')
+      expect(afterClaim.result.error.details).toEqual({
+        itemId: claimed.id,
+        status: { state: 'claimed', turn: 4, delivery: 'steer' },
+      })
+    }
+
+    const discarded = createUserMessage({ content: [{ type: 'text', text: 'gone' }], source: { kind: 'user' } })
+    agent.inbox.append('next-step', discarded)
+    agent.inbox.remove(discarded.id)
+    const afterDiscard = await api.sessions.updateQueue(request({
+      sessionId: session.id,
+      itemId: discarded.id,
+      action: { kind: 'remove' },
+    }))
+    expect(afterDiscard.result.ok).toBe(false)
+    if (!afterDiscard.result.ok) {
+      expect(afterDiscard.result.error.code).toBe('queue-item-not-found')
+      expect(afterDiscard.result.error.details).toEqual({
+        itemId: discarded.id,
+        status: { state: 'discarded', delivery: 'steer' },
+      })
+    }
+
+    const cold = ctx.sessions.create()
+    const coldResult = await api.sessions.updateQueue(request({
+      sessionId: cold.id,
+      itemId: claimed.id,
+      action: { kind: 'remove' },
+    }))
+    expect(coldResult.result.ok).toBe(false)
+    if (!coldResult.result.ok) {
+      expect(coldResult.result.error.code).toBe('queue-item-not-found')
+      expect(coldResult.result.error.details).toEqual({ itemId: claimed.id, status: { state: 'unknown' } })
+    }
+    await ctx.fiber.dispose()
+  })
+
   it('returns one boot-fenced snapshot of durable and process-local state', async () => {
     const { ctx, session, agent, api } = await harness()
     const message = createUserMessage({

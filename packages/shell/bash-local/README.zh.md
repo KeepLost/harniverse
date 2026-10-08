@@ -38,6 +38,8 @@
 不会直接导致 KV Cache 失效；请求前缀变更由具名消费方负责。
 
 ## 已知限制与暂缓事项
+- **遗留输出解码绝不改写 `LANG`**：遗留 locale 子进程的非法输出行按其字符集解码；UTF-8、C 或未设置 locale 保持纯 UTF-8（与纯 UTF-8 收集器逐字节一致），混合编码的程序输出在 UTF-8 行上仍为乱码。
+
 
 - **自身不提供隔离**：此执行器始终以 harness 进程的权限运行命令；需要隔离的部署可以组合 [`dsh-bash-sandbox`](../bash-sandbox/README.md)，每次调用的 allow/deny/ask 策略则属于 `tools/pre-execute`。
 - **没有持久 shell 或 PTY**：每次调用都启动新的非登录命令 shell（macOS 上为 `/bin/zsh -c`，其他平台为 `bash -c`）；仅持久化 cwd 与交互式终端会话均继续暂缓，直到真实工作流需要它们。

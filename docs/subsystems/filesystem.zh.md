@@ -111,6 +111,49 @@ interface FsDirEntry {
 }
 ```
 
+文本读取接受 `FsReadTextOptions` 中的可选解码控制：`encoding` 指定 iconv-lite 编码名，要么成功要么点名失败；`utfOnly` 把读取限制在 UTF 家族（skills、指令、配置依赖的边界）；`onDecision` 接收最终确定的 `FsTextEncoding` 决定（`{ encoding, source, bom, eol }`），受守卫的写回将复现该决定。遗留解码、其候选顺序与按版本的粘性决定记录由本地提供方经由 [dsh-fs-codec](../../packages/fs/fs-codec/README.md) 拥有。
+
+```ts type-equiv
+/**
+ * Optional decode controls for a text read. `encoding` names an iconv-lite
+ * encoding and wins or fails by name; `utfOnly` restricts the read to the
+ * UTF family (BOM or strict UTF-8) with no legacy guessing — the boundary
+ * consumers such as skills, instructions, and configuration rely on.
+ */
+interface FsReadTextOptions {
+  /** Explicit iconv-lite encoding name; a name that cannot decode the bytes fails the read. */
+  encoding?: string
+  /** Accept only BOM-marked UTF family or strict UTF-8; ignore `encoding` and legacy candidates. */
+  utfOnly?: boolean
+  /**
+   * Receiver of the settled {@link FsTextEncoding} decision, called once
+   * after a successful read (before or while the first chunk is produced).
+   * Consumers that annotate output (tool read views, previews) use this;
+   * plain text consumers ignore it.
+   */
+  onDecision?: (decision: FsTextEncoding) => void
+}
+```
+
+```ts type-equiv
+/**
+ * The decode decision accompanying a text read: what encoding the provider
+ * settled on, where it came from, and which byte order mark / line-ending
+ * style a guarded write-back must reproduce. `source: 'utf8'` decisions are
+ * the historical contract; every other source is a legacy-compatible read.
+ */
+interface FsTextEncoding {
+  /** Canonical provider encoding name (iconv-lite spelling, e.g. `gb18030`). */
+  encoding: string
+  /** Which candidate produced the decision. */
+  source: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+  /** Whether the file's bytes began with the encoding's byte order mark. */
+  bom: boolean
+  /** Dominant line-ending style of the decoded text. */
+  eol: 'LF' | 'CRLF'
+}
+```
+
 ## 写入与编辑守卫（提供方约定）
 
 `writeText` 和 `editText` 的版本守卫都是可选的：省略守卫时执行无条件的裸提供方变更，提供守卫时则执行相应的条件检查。`writeText` 的守卫是 `FsWriteIntent`：`createIfAbsent` 在目标缺失时创建，目标已存在时以 `FS_NOT_OBSERVED` 拒绝；即使目标在提供方初始探测后才出现，也必须拒绝，因为发布操作本身不得替换。`replaceIfVersion` 仅在目标存在且版本匹配时替换，否则报 `FS_STALE_VERSION`。省略 `expected` 则无条件创建或覆盖。联合类型本身只包含两种有守卫的意图；「无守卫」通过省略表达，因此 write 和 edit 都使用同一个可选的 `expected` 字段。
@@ -235,6 +278,8 @@ interface FileReadOutcome {
   /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
   next?: ReadCursor
+  /** Ready-made `[Encoding: …]` annotation; absent for UTF-8 reads (byte-identical output). */
+  encoding?: string
 }
 ```
 
@@ -266,9 +311,10 @@ type FsErrorCode =
   | 'FS_AMBIGUOUS_EDIT'
   | 'FS_EDIT_NOT_FOUND'
   | 'FS_ABORTED'
+  | 'FS_UNMAPPABLE'
 ```
 
-目录列表使用 `FS_NOT_DIRECTORY`、`FS_PERMISSION_DENIED` 与 `FS_IO_ERROR` 区分已存在但并非目录的目标、被拒绝的列表操作和意外的后端 I/O 失败。`FS_SANDBOX_DENIED` 是强制执行沙箱的后端（`dsh-fs-sandbox`）所作的策略拒绝——模式边界拒绝了写入/编辑——与 `FS_PERMISSION_DENIED`（宿主内核拒绝）不同。`FS_NOT_OBSERVED` 表示策略插件没有此所有者的先前观测记录（或 `createIfAbsent` 遇到了现有文件）。`FS_NOT_FOUND` 也表示策略因确认缺失而拒绝 edit。`FS_STALE_VERSION` 表示后端版本不再与观测到的版本匹配（或提供方本身收到针对缺失目标的 edit）。新鲜度授权没有部分/完整之分，因此不存在 `FS_PARTIAL_OBSERVATION`。
+`FS_UNMAPPABLE` 表示受守卫的写回无法以文件记录的编码表示某个字符（`dsh-fs-local` 在暂存之前拒绝写入，绝不发布 `?` 字节）。目录列表使用 `FS_NOT_DIRECTORY`、`FS_PERMISSION_DENIED` 与 `FS_IO_ERROR` 区分已存在但并非目录的目标、被拒绝的列表操作和意外的后端 I/O 失败。`FS_SANDBOX_DENIED` 是强制执行沙箱的后端（`dsh-fs-sandbox`）所作的策略拒绝——模式边界拒绝了写入/编辑——与 `FS_PERMISSION_DENIED`（宿主内核拒绝）不同。`FS_NOT_OBSERVED` 表示策略插件没有此所有者的先前观测记录（或 `createIfAbsent` 遇到了现有文件）。`FS_NOT_FOUND` 也表示策略因确认缺失而拒绝 edit。`FS_STALE_VERSION` 表示后端版本不再与观测到的版本匹配（或提供方本身收到针对缺失目标的 edit）。新鲜度授权没有部分/完整之分，因此不存在 `FS_PARTIAL_OBSERVATION`。
 
 ## 文件 IO 不设超时
 
@@ -390,20 +436,23 @@ abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Pro
  * Read the whole regular text file as a single decoded string.
  * @param target - the resolved target to read.
  * @param signal - aborts the read.
- * @returns the full decoded UTF-8 content.
+ * @param opts - decode controls: explicit encoding, UTF-only boundary, decision receiver.
+ * @returns the full decoded content (BOM bytes stripped, never a U+FEFF prefix).
  */
-abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+abstract readText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<string>
 
 /**
  * Stream the whole regular text file as decoded text chunks (same text
  * semantics as {@link readText}, for large files). The backend owns
- * cross-chunk UTF-8 decoding and binary rejection so the policy layer never
- * touches raw bytes.
+ * cross-chunk decoding and binary rejection so the policy layer never
+ * touches raw bytes; a legacy-encoding file degrades to whole-buffer
+ * decode before chunking, so the memory bound is the file size.
  * @param target - the resolved target to read.
  * @param signal - aborts the stream, including between chunks.
+ * @param opts - decode controls: explicit encoding, UTF-only boundary, decision receiver.
  * @returns the chunk iterable, decoded and validated like {@link readText}.
  */
-abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+abstract streamText(target: FsTarget, signal?: AbortSignal, opts?: FsReadTextOptions): Promise<AsyncIterable<string>>
 
 /**
  * Read the whole regular file as raw bytes with no decoding or binary
@@ -458,7 +507,7 @@ abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: 
 
 Types: [SandboxExecutionPolicy](sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:86`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:108`](../../packages/fs/fs/src/index.ts)
 
 <a id="fs-events"></a>
 
@@ -481,7 +530,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:66`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:68`](../../packages/fs/fs/src/index.ts)
 
 <a id="fsobserved--emit"></a>
 
@@ -502,7 +551,7 @@ Record an authoritative positive or negative observation. Listeners must be sync
 'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
 ```
 
-Source: [`packages/fs/fs/src/index.ts:76`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:78`](../../packages/fs/fs/src/index.ts)
 
 <a id="fswrite-intent--waterfall"></a>
 
@@ -522,5 +571,5 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:58`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:60`](../../packages/fs/fs/src/index.ts)
 <!-- END GENERATED cordis-surface -->

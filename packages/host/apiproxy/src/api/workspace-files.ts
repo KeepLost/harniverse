@@ -46,16 +46,30 @@ export interface WorkspaceFilesApi {
     truncated: boolean
   }>>
 
-  /** Read a fixed-size UTF-8 prefix of one canonically contained regular file. */
+  /**
+   * Read a fixed-size text prefix of one canonically contained regular file,
+   * decoded as UTF-8 or the host-locale legacy prior; `encoding` re-opens the
+   * file with an explicit iconv-lite encoding name.
+   */
   read(request: RpcRequest<{
     workspaceId: WorkspaceId
     path: string
+    /** Optional explicit iconv-lite encoding name to decode with. */
+    encoding?: string
   }>, signal: AbortSignal): Promise<RpcResponse<{
     path: string
     content: string
     /** Full file size at the read handle. */
     bytes: number
     truncated: boolean
+    /** Canonical encoding name the content was decoded with. */
+    encoding: string
+    /** Which decode candidate produced the decision. */
+    encodingSource: 'explicit' | 'sticky' | 'bom' | 'utf8' | 'host' | 'locale' | 'fallback'
+    /** Whether the file's bytes began with the encoding's byte order mark. */
+    bom: boolean
+    /** Dominant line-ending style of the decoded content. */
+    eol: 'LF' | 'CRLF'
   }>>
 
   /** Read one complete, bounded image or PDF as base64 for a browser object URL. */

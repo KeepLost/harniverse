@@ -30,5 +30,8 @@ export function remediateFsError(error: unknown, displayPath: string): unknown {
   if (error.code === 'FS_STALE_VERSION') {
     return new FsError(`${error.message} — re-read the file, then retry`, error.code, { cause: error })
   }
+  if (error.code === 'FS_UNMAPPABLE') {
+    return new FsError(`${error.message} — use characters the file's encoding can represent`, error.code, { cause: error })
+  }
   return error
 }

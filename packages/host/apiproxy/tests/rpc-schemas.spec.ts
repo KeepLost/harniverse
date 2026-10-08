@@ -102,7 +102,13 @@ describe('rpcErrorSchema', () => {
       details: { provider: 'p', model: 'm' },
     }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
-    expect(rpcErrorSchema.parse({ code: 'queue-item-not-found', message: 'm', details: { itemId: 'i' } }).code).toBe('queue-item-not-found')
+    expect(rpcErrorSchema.parse({
+      code: 'queue-item-not-found',
+      message: 'm',
+      details: { itemId: 'i', status: { state: 'unknown' } },
+    }).code).toBe('queue-item-not-found')
+    expect(rpcErrorSchema.parse({ code: 'queue-item-not-user', message: 'm', details: { itemId: 'i' } }).code)
+      .toBe('queue-item-not-user')
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
@@ -110,6 +116,15 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'credential-rejected', message: 'm', details: { ref: 'r' } }).code).toBe('credential-rejected')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
     expect(rpcErrorSchema.parse({ code: 'idempotency-key-reused', message: 'm', details: { key: 'k' } }).code).toBe('idempotency-key-reused')
+  })
+
+  it('carries the chat-bot management failure reason on the closed vocabulary', () => {
+    const failure = { code: 'chat-bot-failed', message: '这个机器人已经添加过了', details: { reason: 'duplicate-bot' } }
+    expect(rpcErrorSchema.parse(failure)).toEqual(failure)
+    expect(serverResponseSchema.parse({
+      type: 'server-response', rpcId: 'r1', result: { ok: false, error: failure }, authentication: { kind: 'bypass' },
+    }).result).toEqual({ ok: false, error: failure })
+    expect(() => rpcErrorSchema.parse({ code: 'chat-bot-failed', message: 'm', details: {} })).toThrow()
   })
 
   it('rejects a known code with missing details', () => {

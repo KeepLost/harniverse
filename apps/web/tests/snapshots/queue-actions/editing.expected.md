@@ -28,7 +28,7 @@
     - text: Queue item to remove
     - button "Edit queued message":
       - img
-    - button "Remove queued message":
+    - button "Recall queued message":
       - img
     - button "Steer queued message":
       - img

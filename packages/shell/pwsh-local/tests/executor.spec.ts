@@ -15,7 +15,7 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { PwshLocalExecutor, ENCODING_PREAMBLE, candidatePwshPaths, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+import { PwshLocalExecutor, ENCODING_PREAMBLE, candidatePwshPaths, pwshOutputDecoding, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SubprocessRuntime from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -148,6 +148,18 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
       PATH: store,
       SystemRoot: join(dir, 'no-windows'),
     }, 'win32')).toBe('pwsh')
+  })
+})
+
+describe('pwshOutputDecoding (pure, every platform)', () => {
+  it('keeps plain UTF-8 on a UTF-8 host and when the probe is unavailable', () => {
+    expect(pwshOutputDecoding({})).toEqual({ kind: 'utf-8' })
+    expect(pwshOutputDecoding({ acp: 65001, oemcp: 65001 })).toEqual({ kind: 'utf-8' })
+  })
+
+  it('derives the mixed legacy list from the host priors with OEM before ANSI', () => {
+    expect(pwshOutputDecoding({ acp: 936, oemcp: 936 })).toEqual({ kind: 'mixed', legacy: ['gb18030'] })
+    expect(pwshOutputDecoding({ acp: 1251, oemcp: 866 })).toEqual({ kind: 'mixed', legacy: ['cp866', 'windows-1251'] })
   })
 })
 

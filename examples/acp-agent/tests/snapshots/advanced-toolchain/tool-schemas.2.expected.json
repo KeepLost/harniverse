@@ -264,7 +264,7 @@
     },
     {
       "name": "edit",
-      "description": "Edit an existing UTF-8 text file by replacing literal text.",
+      "description": "Edit an existing text file by replacing literal text.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -419,7 +419,7 @@
     },
     {
       "name": "read",
-      "description": "Read a UTF-8 text file and return line-numbered content.",
+      "description": "Read a text file and return line-numbered content. Files decode as UTF-8 by default; legacy encodings are detected from the machine locale, or name one with encoding.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -437,7 +437,11 @@
           },
           "line_byte_offset": {
             "type": "number",
-            "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read."
+            "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read; it counts UTF-8 bytes of the decoded text regardless of the file's encoding."
+          },
+          "encoding": {
+            "type": "string",
+            "description": "Optional encoding name (iconv-lite spelling, e.g. gbk, big5, shiftjis, utf-16le). Omit to auto-detect; an FS_NOT_TEXT result lists encodings that can decode the file."
           }
         },
         "required": [
@@ -799,7 +803,7 @@
     },
     {
       "name": "write",
-      "description": "Create or fully replace a UTF-8 text file.",
+      "description": "Create or fully replace a text file.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -809,7 +813,7 @@
           },
           "content": {
             "type": "string",
-            "description": "Full UTF-8 text content to write."
+            "description": "Full text content to write. New files are UTF-8; a read legacy file is written back in its original encoding."
           },
           "sandbox_permissions": {
             "type": "string",
