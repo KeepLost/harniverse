@@ -69,7 +69,7 @@ describe('probe', () => {
   it('takes the bot id from the token prefix and trims the typed values', async () => {
     const server = serve()
     server.script('getMe', { result: { id: 123456789, first_name: 'Other' } })
-    const token = '123456789:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+    const token = `123456789:${'x'.repeat(35)}`
     expect(await telegramDescriptor.probe({ token: `  ${token}\n`, baseUrl: '   ' }, signal())).toEqual({ botId: '123456789', displayName: 'Other' })
     expect(server.calls[0]?.url.href).toBe(`https://api.telegram.org/bot${token}/getMe`)
   })

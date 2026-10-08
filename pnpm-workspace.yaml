@@ -37,7 +37,18 @@ overrides:
   fast-uri@3: 3.1.8
   hono@4: 4.13.7
   js-yaml: '4.3.2'
-  smol-toml: '1.7.1'
+  # CVE-2026-103923 (GHSA-238p-pmpm-9mq7): every katex before 0.18.2 is
+  # affected, and the 0.16 line pulled in by mermaid and
+  # micromark-extension-math has no patch release — collapse to one version.
+  katex: '0.18.2'
+  # GHSA-r4xh-jqrq-34v2: quadratic parse() in smol-toml <= 1.8.0.
+  smol-toml: '1.9.0'
+  # CVE-2026-93749 (GHSA-68fv-2mgg-jv7q): source-map-js < 1.2.2, reached
+  # through postcss and the Vue compiler (build time only).
+  source-map-js: '1.2.2'
+  # GHSA-g2v6-rqmx-r4w6: @vue/server-renderer < 3.5.42 via vitepress
+  # (documentation site build only); vue pins its @vue/* siblings exactly.
+  vue: '3.5.42'
   nanoid: '3.3.18'
   postcss: '8.5.26'
   protobufjs: '7.6.5'
