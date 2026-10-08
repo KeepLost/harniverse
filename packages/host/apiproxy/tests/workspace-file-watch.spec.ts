@@ -1346,6 +1346,36 @@ describe('watchWorkspaceFiles generator boundary', () => {
     }
   })
 
+  it('serves a burst that settles while its predecessor frame is unpulled (scripted watcher)', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      writeFileSync(join(project, 'lag.md'), '0')
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'lag.md', { open: opener, debounceMs: 1 })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        writeFileSync(join(project, 'lag.md'), '1')
+        handles[0]?.fire('change', 'lag.md')
+        const first = presentChange(await nextRaw(watchFeed.feed))
+        // The second burst settles while the feed is suspended at its yield, so
+        // the next wait skips parking; the scripted watcher keeps this
+        // independent of any OS delivery time.
+        writeFileSync(join(project, 'lag.md'), '22')
+        handles[0]?.fire('change', 'lag.md')
+        await new Promise((resolve) => { setTimeout(resolve, 30) })
+        const second = presentChange(await nextRaw(watchFeed.feed))
+        expect(second.version).not.toBe(first.version)
+        await expectNoRaw(watchFeed.feed)
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   describe('reconciliation of unreported state', () => {
     /** Stat-shaped probe answer; only the fields the version token reads. */
     const PROBED = { dev: 1n, ino: 2n, mtimeNs: 3n, size: 4n }
