@@ -221,6 +221,27 @@ async function nextRaw(
   })
 }
 
+/** Assert the raw feed stays silent for `quietMs`. */
+async function expectNoRaw(
+  iterator: AsyncIterator<WorkspaceFileWatchFrame>,
+  quietMs = 200,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = lazyTimeout(quietMs, () => { resolve() })
+    void iterator.next().then((step) => {
+      clearTimeout(timer)
+      if (step.done === true) {
+        resolve()
+        return
+      }
+      reject(new Error(`unexpected frame: ${JSON.stringify(step.value)}`))
+    }, (error: unknown) => {
+      clearTimeout(timer)
+      reject(error instanceof Error ? error : new Error(String(error)))
+    })
+  })
+}
+
 /** Assert the feed rejects on the next pull, failing after `timeoutMs` of silence. */
 async function rejectionOf(
   iterator: AsyncIterator<WorkspaceFileWatchFrame>,
@@ -1413,7 +1434,7 @@ describe('watchWorkspaceFiles generator boundary', () => {
           while (probe.calls() < 5) {
             await new Promise((resolve) => { setTimeout(resolve, 5) })
           }
-          await expectNoFrame(watchFeed.feed)
+          await expectNoRaw(watchFeed.feed)
         } finally {
           await watchFeed.dispose()
         }
@@ -1436,7 +1457,7 @@ describe('watchWorkspaceFiles generator boundary', () => {
           handles[0]?.fire('change', 'a.md')
           presentChange(await nextRaw(watchFeed.feed))
           // Several probe periods pass with the reported state matching disk.
-          await expectNoFrame(watchFeed.feed, 250)
+          await expectNoRaw(watchFeed.feed, 250)
         } finally {
           await watchFeed.dispose()
         }
