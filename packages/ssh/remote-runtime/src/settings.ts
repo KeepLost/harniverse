@@ -6,7 +6,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 export const SYNC_SETTINGS_NAMESPACES = [
   'llm-deepseek', 'llm-pi-ai', 'agent-default-model', 'model-profiles', 'model-routes',
   'web', 'web-search-deepseek', 'web-search-exa', 'web-search-perplexity',
-  'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-firecrawl',
+  'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-search-cloudflare', 'web-firecrawl',
 ] as const
 
 /**

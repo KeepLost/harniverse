@@ -146,6 +146,7 @@
     "@deepseek-ai/dsh-web-fetch-http": "workspace:^",
     "@deepseek-ai/dsh-web-firecrawl": "workspace:^",
     "@deepseek-ai/dsh-web-search-brave": "workspace:^",
+    "@deepseek-ai/dsh-web-search-cloudflare": "workspace:^",
     "@deepseek-ai/dsh-web-search-deepseek": "workspace:^",
     "@deepseek-ai/dsh-web-search-exa": "workspace:^",
     "@deepseek-ai/dsh-web-search-kagi": "workspace:^",

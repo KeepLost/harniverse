@@ -13,6 +13,7 @@ This family provides provider-neutral web search and fetch operations plus the m
 | [`web-search-tavily/`](web-search-tavily/README.md) | Provides web search through Tavily | registers on `ctx.web` |
 | [`web-search-brave/`](web-search-brave/README.md) | Provides web search through Brave | registers on `ctx.web` |
 | [`web-search-kagi/`](web-search-kagi/README.md) | Provides web search through Kagi | registers on `ctx.web` |
+| [`web-search-cloudflare/`](web-search-cloudflare/README.md) | Provides web search through Cloudflare's Web Search API | registers on `ctx.web` |
 | [`web-firecrawl/`](web-firecrawl/README.md) | Provides Firecrawl Search and Scrape | registers on `ctx.web` |
 | [`web-fetch-http/`](web-fetch-http/README.md) | Fetches public HTTP and HTTPS resources | registers on `ctx.web` |
 | [`tool-web/`](tool-web/README.md) | Exposes web search and fetch to the model | registers on `ctx.tools` |

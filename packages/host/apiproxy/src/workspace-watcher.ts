@@ -4,7 +4,8 @@
  * streams coalesced invalidations. A currently missing target is legal — the
  * feed watches its nearest existing ancestor instead, so the target's
  * creation still fires. Each subscription owns exactly one live watcher and
- * closes it on unsubscribe, abort, or failure.
+ * closes it on unsubscribe, abort, or failure. A periodic probe of the target
+ * reconciles state the watcher never reported.
  */
 
 import { watch } from 'node:fs'
@@ -15,6 +16,8 @@ import { relativePath, sameFilesystemPath, WorkspaceInspectorError } from './wor
 
 /** Default trailing coalescing window for one subscription's watcher bursts. */
 export const DEFAULT_FILE_WATCH_DEBOUNCE_MS = 50
+/** Default period of the reconciliation probe that backs the watcher. */
+const DEFAULT_FILE_WATCH_RECONCILE_MS = 500
 /** Default cap on concurrent watch subscriptions per workspace. */
 export const DEFAULT_FILE_WATCH_MAX_PER_WORKSPACE = 64
 
@@ -37,6 +40,8 @@ export type WatchOpener = (
 export interface WorkspaceWatchOptions {
   /** Trailing coalescing window in milliseconds for raw watcher bursts. */
   debounceMs?: number
+  /** Period in milliseconds of the probe that reconciles state the watcher never reported. */
+  reconcileMs?: number
   /** fs.watch boundary; defaults to node:fs watch with a non-persistent handle. */
   open?: WatchOpener
   /** Anchor-resolution lstat boundary; defaults to node:fs/promises lstat. */
@@ -55,6 +60,17 @@ export class WorkspaceWatchError extends Error {
     super(message)
     this.name = 'WorkspaceWatchError'
   }
+}
+
+/** Probe token of a target that does not exist. */
+const ABSENT_VERSION = 'absent'
+
+/**
+ * Wire version of one stat.
+ * @param info - bigint stat of the target.
+ */
+function versionOf(info: { dev: bigint; ino: bigint; mtimeNs: bigint; size: bigint }): string {
+  return `${info.dev}:${info.ino}:${info.mtimeNs}:${info.size}`
 }
 
 /** Current stat of one existing target: the wire version plus the watcher-identity pair. */
@@ -107,7 +123,7 @@ async function metadataOf(target: string, signal: AbortSignal): Promise<TargetMe
   })
   if (info === null) return undefined
   return {
-    version: `${info.dev}:${info.ino}:${info.mtimeNs}:${info.size}`,
+    version: versionOf(info),
     identity: `${info.dev}:${info.ino}`,
   }
 }
@@ -162,6 +178,7 @@ export async function* watchWorkspaceFiles(
     while (await feed.nextChange()) {
       signal.throwIfAborted()
       const metadata = await metadataOf(feed.target, signal)
+      feed.acknowledge(metadata)
       yield {
         kind: 'change',
         change: metadata === undefined
@@ -184,6 +201,7 @@ class TargetWatch {
   /** Absolute lexical target (validated by relativePath at construction). */
   readonly target: string
   private readonly debounceMs: number
+  private readonly reconcileMs: number
   private readonly open: WatchOpener
   /** Anchor-resolution stat boundaries, injectable for cross-platform error-code tests. */
   private readonly lstat: typeof lstat
@@ -197,6 +215,11 @@ class TargetWatch {
   private watcherAlive = false
   private recursiveSupported = true
   private timer: NodeJS.Timeout | undefined
+  private reconcileTimer: NodeJS.Timeout | undefined
+  /** Probe token of the state the consumer last received (or the state at `ready`). */
+  private known = ABSENT_VERSION
+  /** Whether the previous probe already disagreed with `known`. */
+  private drifting = false
   private settled = false
   private wake: (() => void) | undefined
   private stopped = false
@@ -206,6 +229,7 @@ class TargetWatch {
     this.requestPath = path
     this.target = relativePath(root, path)
     this.debounceMs = options.debounceMs ?? DEFAULT_FILE_WATCH_DEBOUNCE_MS
+    this.reconcileMs = options.reconcileMs ?? DEFAULT_FILE_WATCH_RECONCILE_MS
     this.open = options.open ?? openNodeWatch
     this.lstat = options.lstat ?? lstat
     this.realpath = options.realpath ?? realpath
@@ -217,6 +241,17 @@ class TargetWatch {
    */
   async start(signal: AbortSignal): Promise<void> {
     await this.openWatcher(signal)
+    this.known = await this.probe()
+    this.armReconcile()
+  }
+
+  /**
+   * Record the state a yielded frame carries so the probe measures drift from it.
+   * @param emitted - the stat the frame carries, undefined for absent.
+   */
+  acknowledge(emitted: TargetMetadata | undefined): void {
+    this.known = emitted?.version ?? ABSENT_VERSION
+    this.drifting = false
   }
 
   /**
@@ -272,6 +307,7 @@ class TargetWatch {
     this.stopped = true
     if (this.timer !== undefined) clearTimeout(this.timer)
     this.timer = undefined
+    clearTimeout(this.reconcileTimer)
     this.closeWatcher()
     this.wake?.()
   }
@@ -287,6 +323,36 @@ class TargetWatch {
     }
     if (this.watcherSuffix !== '' && !relevantToSuffix(filename, this.watcherSuffix)) return
     this.schedule()
+  }
+
+  /**
+   * Current probe token of the target. A target that cannot be inspected reads
+   * as absent: it differs from any readable state, and the stat behind the
+   * resulting frame surfaces the real error.
+   */
+  private async probe(): Promise<string> {
+    const info = await this.lstat(this.target, { bigint: true }).catch(() => null)
+    return info === null ? ABSENT_VERSION : versionOf(info)
+  }
+
+  private armReconcile(): void {
+    this.reconcileTimer = setTimeout(() => { void this.reconcile() }, this.reconcileMs)
+    this.reconcileTimer.unref()
+  }
+
+  /**
+   * One reconciliation tick. Disagreement with the last reported state on two
+   * consecutive ticks means the watcher never reported it, so a burst is
+   * scheduled; a healthy watcher reports within one period and clears the
+   * disagreement first.
+   */
+  private async reconcile(): Promise<void> {
+    const current = await this.probe()
+    if (this.stopped) return
+    const drifted = current !== this.known
+    if (drifted && this.drifting) this.schedule()
+    this.drifting = drifted
+    this.armReconcile()
   }
 
   /** Start the trailing debounce window; bursts inside it collapse into one wake. */

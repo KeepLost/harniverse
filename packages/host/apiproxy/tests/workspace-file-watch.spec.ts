@@ -221,6 +221,27 @@ async function nextRaw(
   })
 }
 
+/** Assert the raw feed stays silent for `quietMs`. */
+async function expectNoRaw(
+  iterator: AsyncIterator<WorkspaceFileWatchFrame>,
+  quietMs = 200,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = lazyTimeout(quietMs, () => { resolve() })
+    void iterator.next().then((step) => {
+      clearTimeout(timer)
+      if (step.done === true) {
+        resolve()
+        return
+      }
+      reject(new Error(`unexpected frame: ${JSON.stringify(step.value)}`))
+    }, (error: unknown) => {
+      clearTimeout(timer)
+      reject(error instanceof Error ? error : new Error(String(error)))
+    })
+  })
+}
+
 /** Assert the feed rejects on the next pull, failing after `timeoutMs` of silence. */
 async function rejectionOf(
   iterator: AsyncIterator<WorkspaceFileWatchFrame>,
@@ -483,9 +504,7 @@ describe('workspace.files.watch frames', () => {
       try {
         expect(await nextFrame(watch.iterator)).toEqual({ kind: 'ready' })
         writeFileSync(join(root, 'project', 'notes.md'), 'created')
-        // macOS FSEvents coalesces under a loaded runner; one delivery may
-        // exceed the 4s helper default, so the creation wait gets a wide budget.
-        const created = presentChange(await nextFrame(watch.iterator, 15_000))
+        const created = presentChange(await nextFrame(watch.iterator))
         expect(created.absolutePath).toBe(join(root, 'project', 'notes.md'))
       } finally {
         await watch.dispose()
@@ -493,10 +512,7 @@ describe('workspace.files.watch frames', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  // macOS FSEvents can coalesce one creation delivery past vitest's 5s
-  // default test budget on a loaded darwin-parity runner; the 15s frame
-  // wait above needs the test budget to cover it.
-  }, 20_000)
+  })
 
   it('watches a deeply missing target until its creation surfaces', async () => {
     const { api, root } = await harness()
@@ -1328,5 +1344,182 @@ describe('watchWorkspaceFiles generator boundary', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('serves a burst that settles while its predecessor frame is unpulled (scripted watcher)', async () => {
+    const root = freshRoot()
+    try {
+      const project = join(root, 'project')
+      mkdirSync(project)
+      writeFileSync(join(project, 'lag.md'), '0')
+      const { opener, handles } = scriptedWatcher()
+      const watchFeed = openFeed(project, 'lag.md', { open: opener, debounceMs: 1 })
+      try {
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        writeFileSync(join(project, 'lag.md'), '1')
+        handles[0]?.fire('change', 'lag.md')
+        const first = presentChange(await nextRaw(watchFeed.feed))
+        // The second burst settles while the feed is suspended at its yield, so
+        // the next wait skips parking; the scripted watcher keeps this
+        // independent of any OS delivery time.
+        writeFileSync(join(project, 'lag.md'), '22')
+        handles[0]?.fire('change', 'lag.md')
+        await new Promise((resolve) => { setTimeout(resolve, 30) })
+        const second = presentChange(await nextRaw(watchFeed.feed))
+        expect(second.version).not.toBe(first.version)
+        await expectNoRaw(watchFeed.feed)
+      } finally {
+        await watchFeed.dispose()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  describe('reconciliation of unreported state', () => {
+    /** Stat-shaped probe answer; only the fields the version token reads. */
+    const PROBED = { dev: 1n, ino: 2n, mtimeNs: 3n, size: 4n }
+
+    /** Probe results are `undefined` for a missing target, else the stat answer. */
+    function probeSeam(answer: (call: number) => typeof PROBED | undefined | 'gate'): {
+      lstatSeam: typeof lstat
+      calls: () => number
+      release: () => void
+    } {
+      let calls = 0
+      let release = (): void => {}
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      const lstatSeam = (async (path: string, options?: { bigint?: boolean }) => {
+        if (options?.bigint !== true) return lstat(path)
+        const result = answer(calls++)
+        if (result === 'gate') await gate
+        if (result === undefined || result === 'gate') {
+          throw Object.assign(new Error('no such file'), { code: 'ENOENT' })
+        }
+        return result
+      }) as typeof lstat
+      return { lstatSeam, calls: () => calls, release }
+    }
+
+    it('reports the creation of a missing target the watcher never reported', async () => {
+      const root = freshRoot()
+      try {
+        const project = join(root, 'project')
+        mkdirSync(project)
+        const { opener } = scriptedWatcher()
+        const watchFeed = openFeed(project, 'notes.md', { open: opener, reconcileMs: 10 })
+        try {
+          expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+          // Quiet ticks over a still-missing target must not report anything.
+          await new Promise((resolve) => { setTimeout(resolve, 60) })
+          writeFileSync(join(project, 'notes.md'), 'created')
+          const created = presentChange(await nextRaw(watchFeed.feed))
+          expect(created.absolutePath).toBe(join(project, 'notes.md'))
+        } finally {
+          await watchFeed.dispose()
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    it('reports the removal of a present directory the watcher never reported', async () => {
+      const root = freshRoot()
+      try {
+        const project = join(root, 'project')
+        mkdirSync(join(project, 'nested'), { recursive: true })
+        const { opener } = scriptedWatcher()
+        const watchFeed = openFeed(project, 'nested', { open: opener, reconcileMs: 10 })
+        try {
+          expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+          rmSync(join(project, 'nested'), { recursive: true })
+          expect(await nextRaw(watchFeed.feed)).toEqual({
+            kind: 'change',
+            change: { absolutePath: join(project, 'nested'), absent: true },
+          })
+        } finally {
+          await watchFeed.dispose()
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    it('does not report a disagreement that clears before the next tick', async () => {
+      const root = freshRoot()
+      try {
+        const project = join(root, 'project')
+        mkdirSync(project)
+        // Probe 0 seeds the known state (missing); probe 1 sees a transient
+        // creation; every later probe sees the target missing again.
+        const probe = probeSeam(call => (call === 1 ? PROBED : undefined))
+        const { opener } = scriptedWatcher()
+        const watchFeed = openFeed(project, 'notes.md', {
+          open: opener,
+          reconcileMs: 5,
+          lstat: probe.lstatSeam,
+        })
+        try {
+          expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+          while (probe.calls() < 5) {
+            await new Promise((resolve) => { setTimeout(resolve, 5) })
+          }
+          await expectNoRaw(watchFeed.feed)
+        } finally {
+          await watchFeed.dispose()
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    it('does not repeat a frame the watcher reports within one period', async () => {
+      const root = freshRoot()
+      try {
+        const project = join(root, 'project')
+        mkdirSync(project)
+        writeFileSync(join(project, 'a.md'), '0')
+        const { opener, handles } = scriptedWatcher()
+        const watchFeed = openFeed(project, 'a.md', { open: opener, reconcileMs: 40, debounceMs: 5 })
+        try {
+          expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+          writeFileSync(join(project, 'a.md'), '11')
+          handles[0]?.fire('change', 'a.md')
+          presentChange(await nextRaw(watchFeed.feed))
+          // Several probe periods pass with the reported state matching disk.
+          await expectNoRaw(watchFeed.feed, 250)
+        } finally {
+          await watchFeed.dispose()
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    it('stops probing once the feed closes with a probe in flight', async () => {
+      const root = freshRoot()
+      try {
+        const project = join(root, 'project')
+        mkdirSync(project)
+        // Probe 0 seeds the known state; probe 1 parks on the gate.
+        const probe = probeSeam(call => (call === 1 ? 'gate' : undefined))
+        const { opener } = scriptedWatcher()
+        const watchFeed = openFeed(project, 'notes.md', {
+          open: opener,
+          reconcileMs: 5,
+          lstat: probe.lstatSeam,
+        })
+        expect(await nextRaw(watchFeed.feed)).toEqual({ kind: 'ready' })
+        while (probe.calls() < 2) {
+          await new Promise((resolve) => { setTimeout(resolve, 5) })
+        }
+        await watchFeed.dispose()
+        probe.release()
+        await new Promise((resolve) => { setTimeout(resolve, 60) })
+        expect(probe.calls()).toBe(2)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
   })
 })

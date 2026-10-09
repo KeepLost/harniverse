@@ -61,6 +61,7 @@
           - option "Tavily"
           - option "Brave"
           - option "Kagi"
+          - option "Cloudflare"
           - option "Firecrawl"
         - paragraph: 新的网页搜索将使用这个提供方。
         - text: 抓取提供方

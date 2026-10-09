@@ -140,7 +140,7 @@ describe('ui-settings-plugins apply', () => {
 
   it.each([
     'EXA_API_KEY', 'PERPLEXITY_API_KEY', 'TAVILY_API_KEY', 'BRAVE_API_KEY',
-    'KAGI_API_KEY', 'FIRECRAWL_API_KEY',
+    'KAGI_API_KEY', 'CLOUDFLARE_API_TOKEN', 'FIRECRAWL_API_KEY',
   ])('invalidates the matching %s credential only', async (ref) => {
     const { ctx, slots, describeCredentials } = await bench()
     declareRoot(slots)

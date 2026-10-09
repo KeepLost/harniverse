@@ -415,6 +415,12 @@ describe('WebSearchCard', () => {
     apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
     baseURL: field(''),
   })
+  const cloudflareState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    accountId: field(''), gatewayId: field('default'), engine: field('ceramic'),
+    byokAlias: field(''), baseURL: field(''), snippetMaxChars: field('2000'),
+  })
   const firecrawlState = () => ({
     ...settled,
     apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
@@ -434,6 +440,7 @@ describe('WebSearchCard', () => {
       tavily: tavilyState(),
       brave: braveState(),
       kagi: kagiState(),
+      cloudflare: cloudflareState(),
       firecrawl: firecrawlState(),
       ...state,
     })
@@ -450,7 +457,7 @@ describe('WebSearchCard', () => {
     expect([...screen.getByLabelText(en.webSearchProvider).querySelectorAll('option')].map(option => option.textContent)).toEqual([
       en.webSearchProviderDeepSeek, en.webSearchProviderExa, en.webSearchProviderPerplexity,
       en.webSearchProviderTavily, en.webSearchProviderBrave, en.webSearchProviderKagi,
-      en.webSearchProviderFirecrawl,
+      en.webSearchProviderCloudflare, en.webSearchProviderFirecrawl,
     ])
     expect([...screen.getByLabelText(en.webSearchFetchProvider).querySelectorAll('option')].map(option => option.textContent)).toEqual([
       en.webSearchFetchProviderHttp, en.webSearchFetchProviderFirecrawl,
@@ -492,6 +499,47 @@ describe('WebSearchCard', () => {
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
     expect(screen.getByLabelText(en[key])).toBeTruthy()
+  })
+
+  it('renders every Cloudflare control and routes edits and resets with scoped addresses', () => {
+    const actions = renderWebSearch({
+      selectedProvider: 'cloudflare',
+      cloudflare: {
+        ...cloudflareState(),
+        accountId: field('abc123', { overridden: true }),
+        engine: field('exa', { overridden: true }),
+      },
+    })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect([...screen.getByLabelText(en.webSearchCloudflareEngine).querySelectorAll('option')].map(option => option.textContent))
+      .toEqual(['Ceramic.ai', 'Exa', 'Linkup'])
+    fireEvent.change(screen.getByLabelText(en.webSearchCloudflareApiKey), { target: { value: 'cf-secret' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchCloudflareAccountId), { target: { value: 'def456' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchCloudflareGatewayId), { target: { value: 'team-gw' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchCloudflareEngine), { target: { value: 'linkup' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchCloudflareByokAlias), { target: { value: 'mine' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchBaseUrl), { target: { value: 'https://cloudflare.test' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchCloudflareSnippetMaxChars), { target: { value: '500' } })
+    const resets = screen.getAllByRole('button', { name: en.reset })
+    expect(resets).toHaveLength(2)
+    fireEvent.click(resets[0]!)
+    fireEvent.click(resets[1]!)
+
+    expect(actions.edit.mock.calls).toEqual([
+      ['cloudflare.apiKey', 'cf-secret'],
+      ['cloudflare.accountId', 'def456'],
+      ['cloudflare.gatewayId', 'team-gw'],
+      ['cloudflare.engine', 'linkup'],
+      ['cloudflare.byokAlias', 'mine'],
+      ['cloudflare.baseURL', 'https://cloudflare.test'],
+      ['cloudflare.snippetMaxChars', '500'],
+    ])
+    expect(actions.resetField.mock.calls).toEqual([
+      ['cloudflare.accountId'],
+      ['cloudflare.engine'],
+    ])
+    expect(screen.queryByLabelText(en.webSearchDeepSeekModel)).toBeNull()
   })
 
   it('routes provider selection and DeepSeek controls with scoped addresses', () => {
@@ -606,11 +654,12 @@ describe('WebSearchCard', () => {
     ['tavily', 'tavily'],
     ['brave', 'brave'],
     ['kagi', 'kagi'],
+    ['cloudflare', 'cloudflare'],
     ['firecrawl', 'firecrawl'],
   ] as const)('keeps the selector visible when %s settings are unavailable', (selectedProvider, key) => {
     const states = {
       deepseek: deepseekState, exa: exaState, perplexity: perplexityState, tavily: tavilyState,
-      brave: braveState, kagi: kagiState, firecrawl: firecrawlState,
+      brave: braveState, kagi: kagiState, cloudflare: cloudflareState, firecrawl: firecrawlState,
     }
     const provider = states[key]()
     renderWebSearch({ selectedProvider, [key]: { ...provider, available: false } })

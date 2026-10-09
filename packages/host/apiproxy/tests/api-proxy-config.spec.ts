@@ -426,6 +426,9 @@ describe('settings domain', () => {
     ctx.settings.register(settingsNamespace('web-search-kagi'), z.object({
       baseURL: z.string(),
     }))
+    ctx.settings.register(settingsNamespace('web-search-cloudflare'), z.object({
+      baseURL: z.string(),
+    }))
     ctx.settings.register(settingsNamespace('web-firecrawl'), z.object({
       baseURL: z.string(),
     }))
@@ -436,7 +439,7 @@ describe('settings domain', () => {
       'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation',
       'shell', 'agent-loop', 'compaction', 'web-search-deepseek', 'web', 'web-search-exa',
       'web-search-perplexity', 'web-search-tavily', 'web-search-brave',
-      'web-search-kagi', 'web-firecrawl',
+      'web-search-kagi', 'web-search-cloudflare', 'web-firecrawl',
     ])
     const permission = expectOk(await api.settings.mutate(request({
       ns: 'permission',
@@ -485,6 +488,7 @@ describe('settings domain', () => {
       ['web-search-tavily', 'baseURL', 'https://tavily.test/v1'],
       ['web-search-brave', 'baseURL', 'https://brave.test/v1'],
       ['web-search-kagi', 'baseURL', 'https://kagi.test/v1'],
+      ['web-search-cloudflare', 'baseURL', 'https://cloudflare.test/client/v4'],
       ['web-firecrawl', 'baseURL', 'https://firecrawl.test/v2'],
     ] as const) {
       const view = expectOk(await api.settings.mutate(request({

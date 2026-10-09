@@ -239,7 +239,7 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
 const WEB_SETTINGS_NAMESPACES = [
   'agent-loop', 'compaction', 'governor', 'shell', 'locale', 'permission', 'speech', 'ui-conversation', 'ui-theme',
   'web', 'web-search-deepseek', 'web-search-exa', 'web-search-perplexity',
-  'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-firecrawl',
+  'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-search-cloudflare', 'web-firecrawl',
 ] as const
 
 /** Maximum decoded WAV bytes admitted by one speech.transcribe request. */

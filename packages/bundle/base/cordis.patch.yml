@@ -449,6 +449,9 @@
     - id: web-search-kagi
       name: '@deepseek-ai/dsh-web-search-kagi'
 
+    - id: web-search-cloudflare
+      name: '@deepseek-ai/dsh-web-search-cloudflare'
+
     - id: web-firecrawl
       name: '@deepseek-ai/dsh-web-firecrawl'
       config:

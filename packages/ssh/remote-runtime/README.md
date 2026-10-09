@@ -25,7 +25,7 @@ Every authenticated Remote call refreshes an owner-liveness lease. When no owner
 
 ## Settings synchronization
 
-The snapshot contains complete, unredacted local **user sections**, keyed by namespace. The supported names are `llm-deepseek`, `llm-pi-ai`, `agent-default-model`, `model-profiles`, `model-routes`, `web`, `web-search-deepseek`, `web-search-exa`, `web-search-perplexity`, `web-search-tavily`, `web-search-brave`, `web-search-kagi`, and `web-firecrawl`.
+The snapshot contains complete, unredacted local **user sections**, keyed by namespace. The supported names are `llm-deepseek`, `llm-pi-ai`, `agent-default-model`, `model-profiles`, `model-routes`, `web`, `web-search-deepseek`, `web-search-exa`, `web-search-perplexity`, `web-search-tavily`, `web-search-brave`, `web-search-kagi`, `web-search-cloudflare`, and `web-firecrawl`.
 
 Each present namespace must be registered remotely and contain an object. Unknown, unrelated, and unregistered namespaces reject before writes. Each supported registered namespace is replaced through `ctx.settings.replace()`, preserving its owner's schema and semantic validation. Omitted namespaces receive `{}`; omitted fields re-inherit composition values and schema defaults. Unrelated settings are untouched. Supply resolved local values explicitly when local composition defaults must override remote defaults.
 

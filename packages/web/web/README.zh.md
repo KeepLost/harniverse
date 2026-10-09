@@ -15,6 +15,7 @@
 | `@deepseek-ai/dsh-web-search-tavily` | 搜索提供方：Tavily |
 | `@deepseek-ai/dsh-web-search-brave` | 搜索提供方：Brave |
 | `@deepseek-ai/dsh-web-search-kagi` | 搜索提供方：Kagi |
+| `@deepseek-ai/dsh-web-search-cloudflare` | 搜索提供方：Cloudflare Web Search API |
 | `@deepseek-ai/dsh-web-firecrawl` | 聚合搜索与 Scrape 提供方：Firecrawl |
 | `@deepseek-ai/dsh-web-fetch-http` | 抓取提供方：匿名公共 HTTP(S) |
 | `@deepseek-ai/dsh-tool-web` | Consumer：面向模型的 `web_search`／`web_fetch` 工具 schema，构建于 `ctx.web` 之上 |

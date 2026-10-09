@@ -21,12 +21,14 @@ export const WEB_SEARCH_TAVILY_NS = 'web-search-tavily'
 export const WEB_SEARCH_BRAVE_NS = 'web-search-brave'
 /** Kagi provider settings namespace. */
 export const WEB_SEARCH_KAGI_NS = 'web-search-kagi'
+/** Cloudflare provider settings namespace. */
+export const WEB_SEARCH_CLOUDFLARE_NS = 'web-search-cloudflare'
 /** Firecrawl provider settings namespace shared by search and fetch. */
 export const WEB_FIRECRAWL_NS = 'web-firecrawl'
 
 /** Provider ids accepted by the Web runtime selector. */
 export const WEB_SEARCH_PROVIDER_IDS = [
-  'deepseek-official', 'exa', 'perplexity', 'tavily', 'brave', 'kagi', 'firecrawl',
+  'deepseek-official', 'exa', 'perplexity', 'tavily', 'brave', 'kagi', 'cloudflare', 'firecrawl',
 ] as const
 /** A selectable Web search provider id. */
 export type WebSearchProviderId = typeof WEB_SEARCH_PROVIDER_IDS[number]
@@ -87,6 +89,17 @@ export interface BraveWebSearchSettings {
 export interface KagiWebSearchSettings {
   apiKeyEnv?: string
   baseURL?: string
+}
+
+/** Live Cloudflare Web search settings. */
+export interface CloudflareWebSearchSettings {
+  apiKeyEnv?: string
+  accountId?: string
+  gatewayId?: string
+  engine?: 'ceramic' | 'exa' | 'linkup'
+  byokAlias?: string
+  baseURL?: string
+  snippetMaxChars?: number
 }
 
 /** Live Firecrawl Web search and fetch settings. */
@@ -160,6 +173,16 @@ export interface KagiWebSearchState extends ProviderCredentialState {
   baseURL: CardFieldState
 }
 
+/** Cloudflare provider form projected into the aggregate card. */
+export interface CloudflareWebSearchState extends ProviderCredentialState {
+  accountId: CardFieldState
+  gatewayId: CardFieldState
+  engine: CardFieldState
+  byokAlias: CardFieldState
+  baseURL: CardFieldState
+  snippetMaxChars: CardFieldState
+}
+
 /** Firecrawl provider form projected into the aggregate card. */
 export interface FirecrawlWebSearchState extends ProviderCredentialState {
   baseURL: CardFieldState
@@ -179,6 +202,7 @@ export interface WebSearchCardState extends CardShell {
   tavily: TavilyWebSearchState
   brave: BraveWebSearchState
   kagi: KagiWebSearchState
+  cloudflare: CloudflareWebSearchState
   firecrawl: FirecrawlWebSearchState
 }
 
@@ -196,6 +220,7 @@ export interface WebSearchScopes {
   tavily: SettingsScope<TavilyWebSearchSettings>
   brave: SettingsScope<BraveWebSearchSettings>
   kagi: SettingsScope<KagiWebSearchSettings>
+  cloudflare: SettingsScope<CloudflareWebSearchSettings>
   firecrawl: SettingsScope<FirecrawlWebSearchSettings>
 }
 
@@ -208,6 +233,7 @@ export class WebSearchCardController {
   private readonly tavilyForm: CardForm<TavilyWebSearchSettings>
   private readonly braveForm: CardForm<BraveWebSearchSettings>
   private readonly kagiForm: CardForm<KagiWebSearchSettings>
+  private readonly cloudflareForm: CardForm<CloudflareWebSearchSettings>
   private readonly firecrawlForm: CardForm<FirecrawlWebSearchSettings>
   private readonly store: SnapshotStore<WebSearchCardState>
   private readonly credentials: Record<WebSearchProviderId, CredentialState> = {
@@ -217,6 +243,7 @@ export class WebSearchCardController {
     tavily: credential('TAVILY_API_KEY'),
     brave: credential('BRAVE_API_KEY'),
     kagi: credential('KAGI_API_KEY'),
+    cloudflare: credential('CLOUDFLARE_API_TOKEN'),
     firecrawl: credential('FIRECRAWL_API_KEY'),
   }
   private saving = false
@@ -273,6 +300,15 @@ export class WebSearchCardController {
       scopes.kagi,
       [textField('baseURL')],
       [{ field: API_KEY_FIELD, write: value => this.writeKey('kagi', value) }],
+    )
+    this.cloudflareForm = new CardForm(
+      scopes.cloudflare,
+      [
+        textField('accountId'), textField('gatewayId'),
+        selectField('engine', ['ceramic', 'exa', 'linkup']), textField('byokAlias'),
+        textField('baseURL'), positiveIntegerField('snippetMaxChars'),
+      ],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('cloudflare', value) }],
     )
     this.firecrawlForm = new CardForm(
       scopes.firecrawl,
@@ -345,6 +381,7 @@ export class WebSearchCardController {
     const tavily = this.tavilyState()
     const brave = this.braveState()
     const kagi = this.kagiState()
+    const cloudflare = this.cloudflareState()
     const firecrawl = this.firecrawlState()
     const selected = selectedProvider === 'deepseek-official'
       ? deepseek
@@ -352,11 +389,12 @@ export class WebSearchCardController {
         : selectedProvider === 'perplexity' ? perplexity
           : selectedProvider === 'tavily' ? tavily
             : selectedProvider === 'brave' ? brave
-              : selectedProvider === 'kagi' ? kagi : firecrawl
+              : selectedProvider === 'kagi' ? kagi
+                : selectedProvider === 'cloudflare' ? cloudflare : firecrawl
     const selectedProviders = selectedFetchProvider === 'firecrawl' && selectedProvider !== 'firecrawl'
       ? [selected, firecrawl]
       : [selected]
-    const forms = [selector, deepseek, exa, perplexity, tavily, brave, kagi, firecrawl]
+    const forms = [selector, deepseek, exa, perplexity, tavily, brave, kagi, cloudflare, firecrawl]
     return {
       available: selector.available,
       writable: selector.writable || selectedProviders.some(provider => (
@@ -375,6 +413,7 @@ export class WebSearchCardController {
       tavily,
       brave,
       kagi,
+      cloudflare,
       firecrawl,
     }
   }
@@ -442,6 +481,18 @@ export class WebSearchCardController {
     }
   }
 
+  private cloudflareState(): CloudflareWebSearchState {
+    return {
+      ...this.providerShell('cloudflare', this.cloudflareForm),
+      accountId: this.cloudflareForm.field('accountId'),
+      gatewayId: this.cloudflareForm.field('gatewayId'),
+      engine: this.cloudflareForm.field('engine'),
+      byokAlias: this.cloudflareForm.field('byokAlias'),
+      baseURL: this.cloudflareForm.field('baseURL'),
+      snippetMaxChars: this.cloudflareForm.field('snippetMaxChars'),
+    }
+  }
+
   private firecrawlState(): FirecrawlWebSearchState {
     return {
       ...this.providerShell('firecrawl', this.firecrawlForm),
@@ -466,11 +517,12 @@ export class WebSearchCardController {
     CardForm<WebSettings>, CardForm<DeepSeekWebSearchSettings>,
     CardForm<ExaWebSearchSettings>, CardForm<PerplexityWebSearchSettings>,
     CardForm<TavilyWebSearchSettings>, CardForm<BraveWebSearchSettings>,
-    CardForm<KagiWebSearchSettings>, CardForm<FirecrawlWebSearchSettings>,
+    CardForm<KagiWebSearchSettings>, CardForm<CloudflareWebSearchSettings>,
+    CardForm<FirecrawlWebSearchSettings>,
   ] {
     return [
       this.selectorForm, this.deepseekForm, this.exaForm, this.perplexityForm,
-      this.tavilyForm, this.braveForm, this.kagiForm, this.firecrawlForm,
+      this.tavilyForm, this.braveForm, this.kagiForm, this.cloudflareForm, this.firecrawlForm,
     ]
   }
 
@@ -483,6 +535,7 @@ export class WebSearchCardController {
     if (prefix === 'tavily') return this.tavilyForm.actions()
     if (prefix === 'brave') return this.braveForm.actions()
     if (prefix === 'kagi') return this.kagiForm.actions()
+    if (prefix === 'cloudflare') return this.cloudflareForm.actions()
     if (prefix === 'firecrawl') return this.firecrawlForm.actions()
     throw new Error(`web search card has no form ${prefix}`)
   }
@@ -496,6 +549,7 @@ export class WebSearchCardController {
     if (provider === 'tavily') return this.scopes.tavily
     if (provider === 'brave') return this.scopes.brave
     if (provider === 'kagi') return this.scopes.kagi
+    if (provider === 'cloudflare') return this.scopes.cloudflare
     return this.scopes.firecrawl
   }
 
@@ -563,6 +617,7 @@ function defaultRef(provider: WebSearchProviderId): string {
   if (provider === 'tavily') return 'TAVILY_API_KEY'
   if (provider === 'brave') return 'BRAVE_API_KEY'
   if (provider === 'kagi') return 'KAGI_API_KEY'
+  if (provider === 'cloudflare') return 'CLOUDFLARE_API_TOKEN'
   return 'FIRECRAWL_API_KEY'
 }
 
