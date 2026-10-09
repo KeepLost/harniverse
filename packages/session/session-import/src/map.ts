@@ -1,10 +1,11 @@
 /**
  * Lossy foreign-event mapping into current native session events. Only the
  * display-bearing vocabulary maps — user and assistant messages, tool calls
- * and results (including official v4's first-class tool-role results), and
- * the turn/step markers whose payloads are shape-identical. Everything else
- * is skipped and counted; mapped messages carry fresh local identities and
- * truthful placeholders for unsupported blocks.
+ * and results (including official v4's first-class tool-role results), the
+ * turn/step markers whose payloads are shape-identical, and the latest
+ * session title. Everything else is skipped and counted; mapped messages
+ * carry fresh local identities and truthful placeholders for unsupported
+ * blocks.
  *
  * @module @deepseek-ai/dsh-session-import
  */
@@ -12,7 +13,10 @@
 import { CallId, createAssistantMessage, createUserMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionEventType, SessionEventMap, SurfaceOp } from '@deepseek-ai/dsh-session'
+// Type-only: the `session/title` SessionEventMap merge the imported title lands in.
+import type {} from '@deepseek-ai/dsh-session-title'
 import { ForeignLogError } from './foreign.ts'
+import { leadingGraphemes } from './text.ts'
 import type { ForeignRawEvent, ForeignSessionLog } from './foreign.ts'
 
 /** One mapped event before sequence numbers are assigned densely. */
@@ -29,6 +33,8 @@ export interface ForeignMapping {
 }
 
 const PLACEHOLDER_TYPES = new Set(['turn/start', 'turn/end', 'step/start', 'step/end'])
+/** Display budget of one imported title, in graphemes. */
+const IMPORTED_TITLE_MAX_CHARACTERS = 120
 const SIMPLE_TURN_END_REASONS = new Set(['completed', 'blocked', 'max-tokens', 'interrupted'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -44,6 +50,18 @@ function eventTime(time: unknown, fallback: number): number {
 }
 
 /** Rebuild one foreign content-block list with local identities. */
+/**
+ * Read one foreign `session/title` payload as a one-line display title.
+ * @param data - the foreign title event's payload, unvalidated.
+ * @returns the normalized title, or undefined when it carries no usable text.
+ */
+function importedTitle(data: unknown): string | undefined {
+  if (!isRecord(data) || typeof data.title !== 'string') return undefined
+  const oneLine = data.title.replace(/\p{Cc}+/gu, ' ').replace(/\s+/gu, ' ').trim()
+  if (oneLine === '') return undefined
+  return leadingGraphemes(oneLine, IMPORTED_TITLE_MAX_CHARACTERS)
+}
+
 function mapBlocks(blocks: unknown): ContentBlock[] {
   if (!Array.isArray(blocks)) return [{ type: 'text', text: '[imported malformed content omitted]' }]
   const mapped: ContentBlock[] = []
@@ -283,6 +301,7 @@ export function mapForeignSessionEvents(log: ForeignSessionLog, defaultTime: num
   let nextTurn = 1
   let nextStep = 1
   const surface: Array<{ foreign: number; local: number }> = []
+  let latestTitle: { title: string; time: number } | undefined
   const identities = new Map<string, ReturnType<typeof createUserMessage>['id']>()
   const closeStep = (time: number) => {
     if (turn !== undefined && step !== undefined) events.push({ type: 'step/end', time, data: { turn, step } })
@@ -295,6 +314,14 @@ export function mapForeignSessionEvents(log: ForeignSessionLog, defaultTime: num
   }
   for (const raw of log.events) {
     const time = eventTime(raw.time, defaultTime)
+    if (raw.type === 'session/title') {
+      // Latest wins: only the final usable title maps; superseded and
+      // unusable ones count as skipped.
+      const title = importedTitle(raw.data)
+      if (title === undefined || latestTitle !== undefined) skipped += 1
+      if (title !== undefined) latestTitle = { title, time }
+      continue
+    }
     if (['user/message', 'assistant/message', 'tool/result'].includes(String(raw.type))) {
       const data = isRecord(raw.data) ? raw.data : {}
       const message = raw.type === 'user/message' ? data : isRecord(data.message) ? data.message : {}
@@ -374,6 +401,15 @@ export function mapForeignSessionEvents(log: ForeignSessionLog, defaultTime: num
     }
   }
   closeTurn(events.at(-1)?.time ?? defaultTime)
+  if (latestTitle !== undefined) {
+    // An imported title is explicit provenance, not a derivation from these
+    // messages, so it records the user source that cites no message seqs.
+    events.push({
+      type: 'session/title',
+      time: Math.max(latestTitle.time, events.at(-1)?.time ?? defaultTime),
+      data: { title: latestTitle.title, messageSeqs: [], source: { kind: 'user' } },
+    })
+  }
   return { events, skipped }
 }
 

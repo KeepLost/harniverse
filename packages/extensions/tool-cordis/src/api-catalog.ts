@@ -2209,11 +2209,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Import foreign session logs as archival native sessions. The service owns the whole settlement — classification refusal, lossy mapping, durable persistence, and source-artifact retention happen together or not at all.',
     methods: [
       {
+        signature: 'describe(artifact: Uint8Array): ForeignArtifactSummary',
+        description: 'Read what one foreign artifact would import as, without persisting.',
+        parameters: [{ name: 'artifact', description: 'the exact source bytes (plain JSONL or Zstandard-framed).' }],
+        returns: 'the artifact\'s provenance, display facts, and archive identity.',
+        throws: ['{@link ForeignLogError} when the artifact cannot be decoded, parsed, classified as an official generation, or mapped.'],
+      },
+      {
         signature: 'async import(options: ImportForeignSessionOptions): Promise<ImportedSession>',
         description: 'Import one foreign artifact as a settled archival session.',
         parameters: [{ name: 'options', description: 'source bytes or path, authorized destination workspace, and optional target/posture.' }],
         returns: 'the imported session\'s identity and lossy-mapping counts.',
-        throws: ['when the artifact cannot be read or parsed, its version is `current` (native logs restore, not import) or unknown, the posture is invalid, the target id already exists, or the backend cannot preserve the source artifact beside the mapped session.'],
+        throws: ['{@link ImportConflictError} when the archive identity already exists; {@link ForeignLogError} when the artifact cannot be decoded, parsed, or mapped, or its version is `current` (native logs restore, not import) or unknown; `TypeError` for an invalid posture or destination; and an `Error` when the backend cannot preserve the source artifact beside the mapped session.'],
       },
     ],
   },
@@ -4151,6 +4158,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'session', description: 'the session whose buffered events must reach durable storage.' }],
   },
   {
+    name: 'session/imported',
+    mode: 'emit',
+    signature: '\'session/imported\'(header: SessionHeader): void',
+    summary: 'One archival import settled durably.',
+    description: 'One archival import settled durably. The session is persisted but not attached in memory, so carriers that announce new sessions to clients listen here instead of `session/created`.',
+    parameters: [{ name: 'header', description: 'the imported archive\'s immutable header.' }],
+  },
+  {
     name: 'settings/description-changed',
     mode: 'emit',
     signature: '\'settings/description-changed\'(revision: number): void',
@@ -5367,8 +5382,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
   },
   {
-    name: 'ForeignSessionFormat',
-    declaration: 'export type ForeignSessionFormat = \'current\' | \'official-v1\' | \'official-v2\' | \'official-v3\' | \'official-v4\' | \'unknown\';',
+    name: 'ForeignArtifactSummary',
+    declaration: 'export interface ForeignArtifactSummary {\n    readonly format: ImportedSessionFormat;\n    readonly sourceSessionId: string;\n    readonly sourceCwd: string | undefined;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly title: string | undefined;\n    readonly preview: string | undefined;\n    readonly turns: number;\n    readonly sessionId: SessionId;\n    readonly lineage: string;\n}',
   },
   {
     name: 'FsDirEntry',
@@ -5544,7 +5559,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ImportedSession',
-    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly format: Exclude<ForeignSessionFormat, \'current\' | \'unknown\'>;\n    readonly artifactName: string;\n    readonly mappedEvents: number;\n    readonly skippedEvents: number;\n}',
+    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly format: ImportedSessionFormat;\n    readonly artifactName: string;\n    readonly sourceSessionId: string;\n    readonly title?: string;\n    readonly mappedEvents: number;\n    readonly skippedEvents: number;\n}',
+  },
+  {
+    name: 'ImportedSessionFormat',
+    declaration: 'export type ImportedSessionFormat = \'official-v1\' | \'official-v2\' | \'official-v3\' | \'official-v4\';',
   },
   {
     name: 'ImportForeignSessionOptions',

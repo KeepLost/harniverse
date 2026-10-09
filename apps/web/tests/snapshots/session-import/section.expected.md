@@ -1,0 +1,50 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+    - button "模型策略":
+      - img
+      - text: 模型策略
+    - button "插件":
+      - img
+      - text: 插件
+    - button "资源治理":
+      - img
+      - text: 资源治理
+    - button "Agent 预设":
+      - img
+      - text: Agent 预设
+    - button "IM 机器人":
+      - img
+      - text: IM 机器人
+    - button "会话导入":
+      - img
+      - text: 会话导入
+    - button "语音输入":
+      - img
+      - text: 语音输入
+  - button "打开配置文件"
+  - button "关闭":
+    - img
+    - text: 关闭
+  - region "导入官方 DeepSeek Harness 会话":
+    - heading "导入官方 DeepSeek Harness 会话" [level=2]
+    - paragraph: 扫描当前机器上官方 DeepSeek Harness 的会话记录，导入为只读归档。打开归档后点“继续对话”，就能带着这段历史在新会话里接着聊。
+    - button "重新扫描"
+    - button "全选未导入"
+    - button "清空选择" [disabled]
+    - list "官方会话":
+      - listitem:
+        - checkbox "Use the bash tool to"
+    - text: 导入到
+    - combobox "导入到":
+      - option "原工作目录（自动创建工作区）" [selected]
+    - button "导入所选（0）" [disabled]
+    - text: 上传会话文件
+    - button "上传会话文件"
+    - text: 也可以直接上传官方的 session.vN.jsonl 或 session.vN.jsonl.zstd 文件。

@@ -38,6 +38,8 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 
 The default artifact is a standard concatenation of independent [Zstandard frames](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md): one checksummed frame containing only the header line, followed by one checksummed frame per durable append batch. The backend uses Node's built-in Zstandard API with its default compression level and exposes no level knob. Listing reads and validates only the header frame; a session whose compressed header frame is corrupt (bad magic or checksum) is omitted from `list()` instead of failing the whole listing, while targeted reads of that session still reject as corruption and never rewrite the damaged bytes. `compression: 'none'` keeps the same logical lines in the original raw representation.
 
+The package root also exports the container's whole-artifact reader for consumers that read the same framing outside a store, such as archival import of official logs: `isZstdArtifact(bytes)` tests for the frame magic, and `decodeZstdArtifact(bytes)` decodes and checksum-validates every complete frame in order, drops an EOF-torn final frame, and rejects structurally invalid bytes. Node's one-shot decoder stops after the first frame, which is why multi-frame artifacts need this reader.
+
 A root belongs to one encoding. Startup discovery and targeted lookup reject the opposite suffix with an error naming the incompatible artifact and instructing the caller to select the matching mode or a separate root. Flat `<project>/<id>.jsonl*` artifacts are also rejected instead of ignored. There is no migration, mixed-root fallback, or dual write.
 
 ## Durability and crash semantics

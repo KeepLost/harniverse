@@ -280,8 +280,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Foreign-session archival import',
     mode: 'seam',
     implementations: ['session-import'],
-    consumers: ['agent-loop'],
-    note: 'The runtime maps official v1/v2/v3 logs lossily into archival native sessions with the source artifact retained beside them; the agent loop honors the contract resume guard so imported history never executes.',
+    consumers: ['agent-loop', 'client-connection', 'host-official-session-import', 'host-apiproxy'],
+    note: 'The runtime maps official v1-v4 logs (plain or Zstandard-framed) lossily into content-addressed archival native sessions with the source artifact retained beside them; the agent loop honors the contract resume guard so imported history never executes, the HTTP route and the official-session Remote import through it, and the API proxy continues an archive into a new session from its continuation seed.',
   },
   {
     key: 'mcpResources',

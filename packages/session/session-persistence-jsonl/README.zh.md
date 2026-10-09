@@ -38,6 +38,8 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 
 默认产物是独立 [Zstandard frame](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md) 的标准拼接：一个仅包含 header 行的带 checksum frame，后跟每个持久 append 批次一个带 checksum frame。后端使用 Node 内置 Zstandard API 和默认压缩级别，不提供级别开关。列表只读取并验证 header frame；压缩 header 帧损坏（magic 或 checksum 错误）的 Session 会从 `list()` 中省略，而不是让整个列表失败，而该 Session 的定向读取仍以损坏错误拒绝，且绝不重写受损字节。`compression: 'none'` 在原始表示中保留相同逻辑行。
 
+包根还导出该容器的整件读取器，供在存储之外读取同一 framing 的消费方使用，例如官方日志的归档导入：`isZstdArtifact(bytes)` 检测 frame magic，`decodeZstdArtifact(bytes)` 按顺序解码并校验每个完整 frame 的 checksum，丢弃 EOF 截断的末帧，并拒绝结构无效的字节。Node 的一次性解码器在第一个 frame 后就停止，因此多帧产物需要这个读取器。
+
 一个根只属于一种编码。启动发现和定向查找会拒绝相反 suffix，错误会命名不兼容产物，并指示调用方选择匹配 mode 或独立根。平铺 `<project>/<id>.jsonl*` 产物也会被拒绝，而不是忽略。不提供迁移、混合根回退或双写。
 
 ## 持久性与崩溃语义

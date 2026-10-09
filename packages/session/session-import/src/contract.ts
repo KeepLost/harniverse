@@ -6,9 +6,37 @@
  * @module @deepseek-ai/dsh-session-import
  */
 
-import { SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { createHash } from 'node:crypto'
+import { SESSION_FORMAT_VERSION, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { SUPERVISION_MODES, type SupervisionMode } from '@deepseek-ai/dsh-supervision'
 import type { ForeignSessionFormat, ImportRecordEventData } from './types.ts'
+
+function digest(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
+/**
+ * The id prefix every archive minted from one foreign session shares, so a
+ * consumer can tell that some version of that session was already imported.
+ * @param foreignSessionId - the foreign session's own id.
+ * @returns the lineage prefix, ending in `-`.
+ */
+export function importLineageOf(foreignSessionId: string): string {
+  return `session-imported-${digest(foreignSessionId).slice(0, 16)}-`
+}
+
+/**
+ * The deterministic archive identity for one exact foreign log text: the same
+ * session text always maps to the same id, so importing it again is a
+ * conflict instead of a duplicate, while a source that grew since gets a new
+ * id under the same lineage prefix.
+ * @param foreignSessionId - the foreign session's own id.
+ * @param text - the decoded foreign log text.
+ * @returns the archive session id.
+ */
+export function importedSessionIdFor(foreignSessionId: string, text: string): SessionId {
+  return SessionId(`${importLineageOf(foreignSessionId)}${digest(text).slice(0, 16)}`)
+}
 
 /**
  * Classify one stored session header's `version` for import. Pure and total;

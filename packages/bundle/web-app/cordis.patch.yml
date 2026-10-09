@@ -137,6 +137,14 @@
     - id: plugin-inventory
       name: '@deepseek-ai/dsh-host-plugin-inventory'
 
+    # Discovery and archival import of official DeepSeek Harness sessions on
+    # this machine; a remote host serves its own DSH home through the same row.
+    - id: official-session-import
+      name: '@deepseek-ai/dsh-host-official-session-import'
+      config:
+        roots:
+          - !!js dshHomePath('sessions')
+
     # Authorized capability catalog, dependency planning, and Profile composition
     # writes. Diagnostics above remain observation-only.
     - id: capability-management
@@ -327,6 +335,11 @@
 
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
+
+    # Settings section importing official DeepSeek Harness sessions, plus the
+    # archive banner that continues an imported session in a new one.
+    - id: ui-session-import
+      name: '@deepseek-ai/dsh-client-ui-session-import'
 
     # Scoped Agent Profile composition. Mutation stays behind the separate
     # authorized management Remote; the inventory tab remains read-only.

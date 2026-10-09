@@ -742,6 +742,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   SpeechTranscribeInput: 'transcription input is owned by packages/speech/speech/README.md',
   SpeechTranscribeResult: 'transcription result is owned by packages/speech/speech/README.md',
   ImportedSession: 'import result contract is owned by packages/session/session-import/README.md',
+  ForeignArtifactSummary: 'import description contract is owned by packages/session/session-import/README.md',
   SubprocessMeteredSpawn: 'metering event contract is owned by packages/monitor/governor/README.md',
   SubprocessMeteredExit: 'metering event contract is owned by packages/monitor/governor/README.md',
   SubprocessMeteredTerminalSpawn: 'metering event contract is owned by packages/monitor/governor/README.md',

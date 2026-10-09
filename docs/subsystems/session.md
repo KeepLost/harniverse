@@ -1000,4 +1000,25 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 Types: [Scoped](scope.md)
 
 Source: [`packages/core/session/src/index.ts:99`](../../packages/core/session/src/index.ts)
+
+<a id="sessionimported--emit"></a>
+
+#### `session/imported` — emit
+
+One archival import settled durably. The session is persisted but not attached in memory, so carriers that announce new sessions to clients listen here instead of `session/created`.
+
+```ts cordis-catalog
+/**
+ * One archival import settled durably. The session is persisted but not
+ * attached in memory, so carriers that announce new sessions to clients
+ * listen here instead of `session/created`.
+ * @param header - the imported archive's immutable header.
+ * @mode emit
+ */
+'session/imported'(header: SessionHeader): void
+```
+
+Types: [SessionHeader](persistence.md)
+
+Source: [`packages/session/session-import/src/types.ts:71`](../../packages/session/session-import/src/types.ts)
 <!-- END GENERATED cordis-surface -->

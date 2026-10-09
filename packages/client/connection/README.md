@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-connection
 
-The Host half also exposes authenticated `POST /api/session/import`. It accepts an official foreign-session artifact only for an existing workspace, lets the caller choose supervised or unsupervised archival posture, and never creates a live Agent for the imported session.
+The Host half also exposes authenticated `POST /api/session/import`. It accepts an official foreign-session artifact (plain JSONL or Zstandard-framed) only for an existing workspace, lets the caller choose supervised or unsupervised archival posture, answers an artifact whose content was already imported with 409 and the existing archive's `sessionId`, and never creates a live Agent for the imported session.
 
 English | [中文](README.zh.md)
 

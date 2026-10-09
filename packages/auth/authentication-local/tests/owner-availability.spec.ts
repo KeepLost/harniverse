@@ -333,8 +333,8 @@ describe('batch settlement', () => {
     const ctx = await boot(dshHome)
     const exchanged = await ctx.authentication.exchangeAccessToken(await signedProof(ctx, owner, 'access-token'))
     if (exchanged.kind !== 'accepted') throw new Error('expected an Access Token')
-    const id = exchanged.value.value.split('_')[1]
-    if (id === undefined) throw new Error('expected token id')
+    // The base64url id may itself contain '_', so take the fixed-width field.
+    const id = exchanged.value.value.slice('dsha1_'.length, 'dsha1_'.length + 16)
 
     // The id resolves to a live record, so only the constant-time secret
     // comparison refuses the admission.

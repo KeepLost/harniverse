@@ -21,6 +21,26 @@ describe('foreign mapping boundaries', () => {
     expect(map([{ seq: 0, type: null, time: null, data: null }])).toEqual({ events: [], skipped: 1 })
   })
 
+  it('maps only the latest usable title, one-lined and bounded, after the history', () => {
+    const title = (seq: number, data: unknown, time = 50) => ({ seq, type: 'session/title', time, data })
+    const mapped = map([
+      title(0, { title: 'First' }),
+      title(1, null),
+      title(2, { title: 7 }),
+      title(3, { title: ' \u0007\n ' }),
+      title(4, { title: `  Second\t\nline ${'題'.repeat(200)}` }, 20),
+    ])
+    expect(mapped.skipped).toBe(4)
+    // With no history the title time never predates the session's default time.
+    expect(mapped.events).toEqual([{
+      type: 'session/title', time: 1000,
+      data: { title: `Second line ${'題'.repeat(108)}`, messageSeqs: [], source: { kind: 'user' } },
+    }])
+    // The title never predates the history it follows.
+    const late = map([...log.events.slice(0, 7), title(7, { title: 'Late' }, 1)])
+    expect(late.events.at(-1)).toMatchObject({ type: 'session/title', time: 10 })
+  })
+
   it.each([undefined, -1, 1.5, '10'])('uses the fallback for invalid event time %j', (time) => {
     expect(map([{ ...log.events[1]!, time }]).events[0]).toMatchObject({ time: 1000 })
   })

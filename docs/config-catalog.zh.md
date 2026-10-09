@@ -1346,6 +1346,24 @@ export interface Config {
 
 来源：[`packages/host/frontend-static/src/index.ts:28`](../packages/host/frontend-static/src/index.ts)
 
+<a id="deepseek-aidsh-host-official-session-import"></a>
+
+## `@deepseek-ai/dsh-host-official-session-import`
+
+Requires: `sessionImport` · `sessionPersistence` · `workspaceRegistry`
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Absolute directories holding official session logs, each laid out `<project>/<session>/session.vN.jsonl[.zstd]`. */
+  roots: string[]
+  /** Largest log, in bytes, read from disk or accepted as an upload. */
+  maxArtifactBytes: number
+}
+```
+
+来源：[`packages/host/official-session-import/src/index.ts:35`](../packages/host/official-session-import/src/index.ts)
+
 <a id="deepseek-aidsh-host-webserver"></a>
 
 ## `@deepseek-ai/dsh-host-webserver`
@@ -2643,7 +2661,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-来源：[`packages/session/session-persistence-jsonl/src/index.ts:172`](../packages/session/session-persistence-jsonl/src/index.ts)
+来源：[`packages/session/session-persistence-jsonl/src/index.ts:173`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-persistence-sqlite"></a>
 
@@ -4441,6 +4459,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-remote-hosts` ([`packages/client/ui-remote-hosts/src/index.ts`](../packages/client/ui-remote-hosts/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-scheduler` ([`packages/client/ui-scheduler/src/index.ts`](../packages/client/ui-scheduler/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-session-import` ([`packages/client/ui-session-import/src/index.ts`](../packages/client/ui-session-import/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-capabilities` ([`packages/client/ui-settings-capabilities/src/index.ts`](../packages/client/ui-settings-capabilities/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))

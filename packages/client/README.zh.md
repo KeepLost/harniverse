@@ -43,6 +43,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-settings-models/`](ui-settings-models/README.md) | 提供模型提供方配置与 DeepSeek 配置引导。 |
 | [`ui-settings-plugin-inventory/`](ui-settings-plugin-inventory/README.md) | 向“插件”设置贡献只读的 Host 插件清单和诊断。 |
 | [`ui-settings-im/`](ui-settings-im/README.md) | 提供“IM 机器人”设置分区：通过 `chatBots` Remote 管理平台渠道、机器人卡片和 owner 配对。 |
+| [`ui-session-import/`](ui-session-import/README.md) | 提供基于 `officialSessionImport` Remote 的“会话导入”设置分区，以及把导入会话继续为新会话的归档停靠栏。 |
 
 每个子文档负责自身的约定和详细行为。[slot 系统标准](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md)与 [Web 客户端架构 Agent Note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md)负责跨包组合与加载决策。
 

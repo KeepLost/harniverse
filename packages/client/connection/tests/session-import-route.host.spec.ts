@@ -4,7 +4,8 @@ import { Context } from '@deepseek-ai/cordis'
 import type { AuthenticationDecision, AuthenticationPrincipal, InboundAuthentication } from '@deepseek-ai/dsh-authentication'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { ForeignLogError } from '@deepseek-ai/dsh-session-import'
+import { ForeignLogError, ImportConflictError } from '@deepseek-ai/dsh-session-import'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import { registerSessionImportRoute } from '../src/session-import-route.ts'
 
@@ -259,6 +260,20 @@ describe('authenticated session import route', () => {
         artifact: Buffer.from('foreign bytes'), cwd: '/authorized/project', posture: { supervisionMode: 'supervised' },
       })
       expect(mountedRoute.workspace.attachSession).toHaveBeenCalledExactlyOnceWith('session-imported')
+    } finally { await mountedRoute.dispose() }
+  })
+
+  it('answers an already-imported artifact with 409 naming the existing archive', async () => {
+    const mountedRoute = await mounted(operator)
+    mountedRoute.importer.mockRejectedValue(new ImportConflictError(SessionId('session-imported-a-b')))
+    try {
+      const result = response()
+      await mountedRoute.route.handler(request('foreign bytes', { 'x-session-workspace': 'workspace-1' }), result.value)
+      expect(result.state).toEqual({
+        status: 409,
+        body: JSON.stringify({ error: 'this session was already imported as "session-imported-a-b"', sessionId: 'session-imported-a-b' }),
+      })
+      expect(mountedRoute.workspace.attachSession).not.toHaveBeenCalled()
     } finally { await mountedRoute.dispose() }
   })
 

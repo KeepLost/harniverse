@@ -6,6 +6,7 @@ import goalsRemote from '@deepseek-ai/dsh-goal/remote'
 import dynamicRemote from '@deepseek-ai/dsh-cordis-host-runner/remote'
 import fileReferencesRemote from '@deepseek-ai/dsh-file-reference/remote'
 import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote'
+import officialSessionImportRemote from '@deepseek-ai/dsh-host-official-session-import/remote'
 import capabilityManagementRemote from '@deepseek-ai/dsh-host-capability-management/remote'
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
@@ -42,10 +43,23 @@ export type {
   PluginDiagnosticReport,
   PluginInventorySnapshot,
 } from '@deepseek-ai/dsh-host-plugin-inventory/types'
+export type {
+  OfficialImportFailureReason,
+  OfficialImportOutcome,
+  OfficialImportResult,
+  OfficialImportTarget,
+  OfficialSessionCandidate,
+  OfficialSessionFormat,
+  OfficialSessionScan,
+  OfficialSessionStatus,
+  OfficialSessionUnreadable,
+  OfficialSessionUnreadableReason,
+} from '@deepseek-ai/dsh-host-official-session-import/types'
 export type {} from '@deepseek-ai/dsh-commands/remote'
 export type {} from '@deepseek-ai/dsh-goal/remote'
 export type {} from '@deepseek-ai/dsh-file-reference/remote'
 export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'
+export type {} from '@deepseek-ai/dsh-host-official-session-import/remote'
 export type {} from '@deepseek-ai/dsh-host-capability-management/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 export type {} from '@deepseek-ai/dsh-session-reference/remote'
@@ -184,6 +198,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       dynamicRemote,
       fileReferencesRemote,
       pluginInventoryRemote,
+      officialSessionImportRemote,
       capabilityManagementRemote,
       messageFeedbackRemote,
       sessionReferencesRemote,

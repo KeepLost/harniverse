@@ -1,7 +1,7 @@
 /** Authenticated archival import through the existing HTTP connection plugin. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-import'
-import { ForeignLogError } from '@deepseek-ai/dsh-session-import'
+import { ForeignLogError, ImportConflictError } from '@deepseek-ai/dsh-session-import'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
@@ -62,6 +62,9 @@ export function registerSessionImportRoute(
         }
         reply(201, { ...result, workspaceId, attached })
       } catch (error) {
+        if (error instanceof ImportConflictError) {
+          reply(409, { error: error.message, sessionId: error.sessionId }); return
+        }
         const invalid = error instanceof ForeignLogError || error instanceof TypeError
         reply(invalid ? 400 : 500, { error: error instanceof Error ? error.message : 'import failed' })
       }

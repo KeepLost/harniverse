@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { setSupervisionMode } from '@deepseek-ai/dsh-supervision'
 import type {} from '@deepseek-ai/dsh-supervision'
-import { isArchivalSession } from '@deepseek-ai/dsh-session-import'
+import { continuationSeedOf, isArchivalSession } from '@deepseek-ai/dsh-session-import'
 import { AttachmentError, AttachmentId, fileHandleText } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -806,6 +806,15 @@ function jobViews(snapshots: readonly JobSnapshot[]): JobView[] {
 }
 
 /**
+ * Whether one committed event ends a session's blank phase: a turn ran, or
+ * the log is an imported archive, which can never become the reusable blank
+ * session of its workspace even when its history holds no turn.
+ */
+function endsBlank(event: SessionEvent): boolean {
+  return event.type === 'turn/start' || event.type === 'import/record'
+}
+
+/**
  * Whether the session's conversation has started: no turn has run yet (a
  * turn is one model-loop execution). Standalone plugin events — command
  * lifecycle records, plan/mode, titles, goals — never open a turn, so
@@ -813,12 +822,12 @@ function jobViews(snapshots: readonly JobSnapshot[]): JobView[] {
  * (list-hidden, reusable).
  */
 function sessionBlank(session: Session): boolean {
-  return !session.events.some(event => event.type === 'turn/start')
+  return !session.events.some(endsBlank)
 }
 
 /** Advance the Session-list hint projection by one committed event. */
 function applySessionListMetadata(state: SessionListMetadata, event: SessionEvent): SessionListMetadata {
-  const blank = state.blank && event.type !== 'turn/start'
+  const blank = state.blank && !endsBlank(event)
   const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
     ? event.time
     : state.lastPromptAt
@@ -2099,7 +2108,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       init: () => ({ blank: true, lastPromptAt: null }),
       apply: applySessionListMetadata,
       view: state => state,
-      stateVersion: 1,
+      // 2: an `import/record` marker ends the blank phase.
+      stateVersion: 2,
     })
   })
 
@@ -3741,6 +3751,97 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
           }
           return ok(request, { sessionId: childId })
+        })
+      },
+
+      async continueArchive(request) {
+        const { sessionId, workspaceId, agentProfile, modelProfile } = request.payload
+        // Deletion shares this lineage chain, so a continuation queued behind
+        // one reads the outcome (the source is gone) instead of racing it.
+        return serializeSessionLineage(sessionId, async () => {
+          const archived = archivedSessionUnavailable(sessionId)
+          if (archived !== undefined) return err(request, archived.error)
+          let source: SessionReadState
+          try {
+            source = await readSessionState(sessionId)
+          } catch (error: unknown) {
+            if (error instanceof SessionNotFound) {
+              return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+            }
+            return err(request, {
+              code: 'internal',
+              message: `continuation source unavailable for session "${sessionId}": ${String(error)}`,
+              details: {},
+            })
+          }
+          let seed: SessionEvent[]
+          try {
+            seed = continuationSeedOf(source.events)
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'fork-unavailable',
+              message: isArchivalSession(source.events)
+                ? `session "${sessionId}" cannot be continued: ${String(error)}`
+                : `session "${sessionId}" is not an imported archive`,
+              details: { sessionId },
+            })
+          }
+          let workspace: Workspace | undefined
+          if (workspaceId === undefined) {
+            workspace = ctx.workspaceRegistry.list().find(candidate => candidate.sessionIds.includes(source.id))
+          } else {
+            workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+            if (workspace === undefined) {
+              return err(request, {
+                code: 'workspace-not-found',
+                message: `workspace "${workspaceId}" not found`,
+                details: { workspaceId },
+              })
+            }
+          }
+          const cwd = workspace?.path ?? source.header.cwd ?? defaults.cwd
+          const childId = `session-${randomUUID()}` as SessionId
+          let resolvedProfile: string | undefined
+          try {
+            // A continuation is a new conversation: it composes like create,
+            // and records no lineage, so deleting the archive stays possible.
+            const composition = await composeAgent(agentProfile, true, modelProfile)
+            resolvedProfile = composition.agentProfile
+            await ctx.agents.create({
+              sessionId: childId,
+              seed,
+              meta: {
+                cwd,
+                seedLength: seed.length,
+                ...resolvedProfile === undefined ? {} : { agentProfile: resolvedProfile },
+              },
+              agentOptions: agentOptions(),
+              setup: composition.setup,
+            })
+          } catch (error: unknown) {
+            const refused = presetFailure(request, error)
+            if (refused !== undefined) return refused
+            return err(request, {
+              code: 'internal',
+              message: `failed to continue session "${sessionId}": ${String(error)}`,
+              details: {},
+            })
+          }
+          if (workspace !== undefined) {
+            try {
+              await workspace.attachSession(childId)
+            } catch (error: unknown) {
+              return err(request, {
+                code: 'workspace-attach-failed',
+                message: `session "${childId}" continues "${sessionId}" but could not attach to workspace "${workspace.id}": ${String(error)}`,
+                details: { sessionId: childId, workspaceId: workspace.id },
+              })
+            }
+          }
+          return ok(request, {
+            sessionId: childId,
+            ...resolvedProfile === undefined ? {} : { agentProfile: resolvedProfile },
+          })
         })
       },
 
@@ -5551,6 +5652,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               blank: sessionBlank(session),
               // Including cwd lets the client group the new session without refreshing the list.
               ...sessionListFields(session.header, session.events),
+            }))
+          }),
+          // An archival import persists without attaching, so it never
+          // reaches `session/created`; announce the settled header instead.
+          ctx.on('session/imported', (header: SessionHeader) => {
+            queue.push(frame({
+              type: 'host/session-added',
+              sessionId: header.id,
+              blank: false,
+              ...sessionListFields(header),
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {

@@ -93,6 +93,16 @@ export interface ISessions {
    */
   fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId>
   /**
+   * Continue an imported archive in a new live session seeded with its
+   * mapped history; on resolution the continuation is in the list store and
+   * `open()` can target it.
+   * @param opts - the archive id and the agent profile the continuation runs
+   *   (omitted: the effective default).
+   * @returns the continuation's session id.
+   * @throws when the Host refuses or the transport fails.
+   */
+  continueArchive(opts: { sessionId: SessionId; agentProfile?: string }): Promise<SessionId>
+  /**
    * Register a per-session standard-props provider (hooks become `use<Name>`
    * selector hooks on the render side; props spread verbatim).
    * @param descriptor - static member roster plus per-session resolver.

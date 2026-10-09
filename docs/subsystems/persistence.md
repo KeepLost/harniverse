@@ -8,7 +8,7 @@ The seam is a [capability seam](../../.agents/notes/implemented/architecture/202
 
 ## Foreign-session import — archival settlement over the seam
 
-[dsh-session-import](../../packages/session/session-import) composes this seam for one-way archival imports: it maps an official v1/v2/v3 export lossily into native events under the `import/record` marker, persists the mapped session through `create`/`append`, and uses `locate` to retain the source artifact verbatim beside the mapped session (`<sessionId>.source.jsonl`). A backend whose `locate` returns `undefined` cannot retain the source and is refused at import time — the artifact and the mapped log settle together or not at all.
+[dsh-session-import](../../packages/session/session-import) composes this seam for one-way archival imports: it maps an official v1/v2/v3/v4 log (plain or Zstandard-framed) lossily into native events under the `import/record` marker, refuses an id `list` already returns (archive ids derive from the log's content), persists the mapped session through `create`/`append`, and uses `locate` to retain the source artifact verbatim beside the mapped session (`<sessionId>.source.jsonl`, or `.source.jsonl.zstd` for a compressed source). A backend whose `locate` returns `undefined` cannot retain the source and is refused at import time — the artifact and the mapped log settle together or not at all.
 
 ## The flush checkpoint
 
@@ -285,18 +285,29 @@ Import foreign session logs as archival native sessions. The service owns the wh
 
 ```ts cordis-catalog
 /**
+ * Read what one foreign artifact would import as, without persisting.
+ * @param artifact - the exact source bytes (plain JSONL or Zstandard-framed).
+ * @returns the artifact's provenance, display facts, and archive identity.
+ * @throws {@link ForeignLogError} when the artifact cannot be decoded,
+ * parsed, classified as an official generation, or mapped.
+ */
+describe(artifact: Uint8Array): ForeignArtifactSummary
+
+/**
  * Import one foreign artifact as a settled archival session.
  * @param options - source bytes or path, authorized destination workspace, and optional target/posture.
  * @returns the imported session's identity and lossy-mapping counts.
- * @throws when the artifact cannot be read or parsed, its version is
- * `current` (native logs restore, not import) or unknown, the posture is
- * invalid, the target id already exists, or the backend cannot preserve
- * the source artifact beside the mapped session.
+ * @throws {@link ImportConflictError} when the archive identity already
+ * exists; {@link ForeignLogError} when the artifact cannot be decoded,
+ * parsed, or mapped, or its version is `current` (native logs restore, not
+ * import) or unknown; `TypeError` for an invalid posture or destination;
+ * and an `Error` when the backend cannot preserve the source artifact
+ * beside the mapped session.
  */
 async import(options: ImportForeignSessionOptions): Promise<ImportedSession>
 ```
 
-Source: [`packages/session/session-import/src/importer.ts:78`](../../packages/session/session-import/src/importer.ts)
+Source: [`packages/session/session-import/src/importer.ts:206`](../../packages/session/session-import/src/importer.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 

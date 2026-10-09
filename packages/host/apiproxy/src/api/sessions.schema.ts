@@ -141,6 +141,20 @@ export const sessionForkValueSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.fork'>>>
 
+/** session.continueArchive request payload (the archive plus create-style composition choices). */
+export const sessionContinueArchiveRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  workspaceId: workspaceIdSchema.optional(),
+  agentProfile: z.string().optional(),
+  modelProfile: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.continueArchive'>>>
+
+/** session.continueArchive response value (the continuation and the composition it runs). */
+export const sessionContinueArchiveValueSchema = z.object({
+  sessionId: sessionIdSchema,
+  agentProfile: z.string().optional(),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.continueArchive'>>>
+
 /** session.history request payload: exclusive backward-display or forward-event mode. */
 export const sessionHistoryRequestSchema = z.object({
   sessionId: sessionIdSchema,

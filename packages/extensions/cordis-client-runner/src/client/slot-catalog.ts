@@ -663,6 +663,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-conversation QueueDock id \'queue\'',
       'client-ui-conversation TodoDock id \'todo\'',
       'client-ui-goal GoalDock id \'goal\'',
+      'client-ui-session-import ArchiveDock id \'session-import-archive\'',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.dock\', () => ctx.slots.register(\n      { name: \'conversation.input.dock\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
@@ -1530,6 +1531,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [
       'client-ui-agent-preset AgentPresetSection id \'agent-presets\'',
       'client-ui-governor GovernorSettingsSection id \'governor\'',
+      'client-ui-session-import SessionImportSection id \'session-import\'',
       'client-ui-settings-general GeneralSection id \'general\'',
       'client-ui-settings-im ImSection id \'im\'',
       'client-ui-settings-models ModelsSection id \'models\'',

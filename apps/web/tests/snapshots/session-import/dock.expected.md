@@ -1,0 +1,10 @@
+- region "只读归档":
+  - strong: 只读归档
+  - text: 这段对话从官方 DeepSeek Harness 导入，只能查看。继续对话会用这段历史新建一个会话。 原工作目录：{{cwd}}/official-project Agent 预设
+  - combobox "Agent 预设":
+    - option "默认预设" [selected]
+    - option "标准模式"
+    - option "PTC 模式"
+    - option "极简模式"
+    - option "创造模式"
+  - button "继续对话"

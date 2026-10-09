@@ -142,6 +142,39 @@ export function createZstdFrameDecoder(): ZstdFrameDecoder {
 }
 
 /**
+ * Whether bytes open with a Zstandard frame — the container this backend and
+ * official DeepSeek Harness builds write session logs in.
+ * @param bytes - candidate artifact bytes.
+ * @returns whether the first four bytes are the Zstandard frame magic.
+ */
+export function isZstdArtifact(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && Buffer.from(bytes.buffer, bytes.byteOffset, 4).readUInt32LE(0) === ZSTD_MAGIC
+}
+
+/**
+ * Decode a complete concatenated-frame Zstandard artifact into its plaintext.
+ * Every complete frame is decoded and checksum-validated in order; an
+ * EOF-torn final frame is dropped, as the backend's own torn-tail recovery
+ * drops it.
+ * @param bytes - the artifact bytes, starting with a Zstandard frame.
+ * @returns the concatenated plaintext of every complete frame.
+ * @throws when a complete frame is structurally invalid or fails validation.
+ */
+export function decodeZstdArtifact(bytes: Uint8Array): Buffer {
+  const source = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const { frames } = scanZstdFrames(source)
+  const decoder = createZstdFrameDecoder()
+  const parts: Buffer[] = []
+  try {
+    // Each yielded buffer is valid only until the decoder advances.
+    for (const plaintext of decoder.decode(source, frames)) parts.push(Buffer.from(plaintext))
+  } finally {
+    decoder.close()
+  }
+  return Buffer.concat(parts)
+}
+
+/**
  * Recover the plaintext a structurally incomplete final frame has already
  * produced. The decode runs on an independent stream — a torn frame must not
  * pollute a shared decoder's state — and stops at input exhaustion or invalid

@@ -474,6 +474,26 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
+   * Starts a new live session that continues an imported archive. The seed
+   * is the archive's mapped history without its archival marker or notice,
+   * opened by a model-visible note about its origin, with unanswered tool
+   * requests closed by error results. The session lands in `workspaceId`, or
+   * in the workspace owning the archive (else the archive's cwd) when
+   * omitted, and records no lineage, so the archive stays deletable.
+   * `agentProfile` and `modelProfile` resolve as in `create`. A source that
+   * is not an imported archive fails with `fork-unavailable`; an unknown
+   * source with `session-not-found`. Optional: a deployment without archival
+   * imports (the fixture transport) answers `internal`.
+   */
+  continueArchive?(request: RpcRequest<{
+    sessionId: SessionId
+    workspaceId?: WorkspaceId
+    agentProfile?: string
+    modelProfile?: string
+  }>):
+  Promise<RpcResponse<{ sessionId: SessionId; agentProfile?: string }>>
+
+  /**
    * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.
    * Browser callers attach their current IANA zone;
    * the Host validates, canonicalizes, and records it on that exact user message. Omission remains

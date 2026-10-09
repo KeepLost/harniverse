@@ -185,7 +185,7 @@ export class TestSessions implements ISessions {
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
     method: 'open' | 'openSubagent' | 'setSubagentCatalogOpen' | 'refreshSubagents'
-      | 'clear' | 'search' | 'fork' | 'openArchive' | 'loadArchiveOlder' | 'deleteSession'
+      | 'clear' | 'search' | 'fork' | 'continueArchive' | 'openArchive' | 'loadArchiveOlder' | 'deleteSession'
     args: unknown[]
   }[] = []
 
@@ -505,6 +505,18 @@ export class TestSessions implements ISessions {
    */
   fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
     this.calls.push({ method: 'fork', args: [opts] })
+    return Promise.resolve(opts.sessionId)
+  }
+
+  /**
+   * Recorded continuation stub: no continuation materializes (benches
+   * asserting the full flow drive the production service; this face only
+   * proves the call).
+   * @param opts - the archive id and optional agent profile.
+   * @returns the archive id (no continuation record is created).
+   */
+  continueArchive(opts: { sessionId: SessionId; agentProfile?: string }): Promise<SessionId> {
+    this.calls.push({ method: 'continueArchive', args: [opts] })
     return Promise.resolve(opts.sessionId)
   }
 
