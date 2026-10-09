@@ -10,7 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { scopeOf } from '../src/client/agent-scope.ts'
-import { SessionCreateError, SessionRuntime } from '../src/client/sessions/service.ts'
+import { ArchiveContinuationError, SessionCreateError, SessionRuntime } from '../src/client/sessions/service.ts'
 import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
 
 const sid = (s: string): SessionId => s as SessionId
@@ -636,6 +636,45 @@ describe('fork', () => {
     await expect(b.svc.fork({ sessionId: sid('source'), increaseTitle: true }))
       .rejects.toThrow('fork child rename failed: title-invalid: rejected')
     expect(b.svc.binding(sid('child'))).toBeDefined()
+  })
+})
+
+describe('archive continuation', () => {
+  it('publishes the continuation as a non-blank, lineage-free row before resolving', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'archive', cwd: '/work' }])
+    b.api.onContinueArchive = () => Promise.resolve(ok({ sessionId: sid('continuation'), agentProfile: 'coder' }))
+    await expect(b.svc.continueArchive({ sessionId: sid('archive'), agentProfile: 'coder' })).resolves.toBe('continuation')
+    expect(b.api.callsOf('session.continueArchive')).toEqual([{ sessionId: 'archive', agentProfile: 'coder' }])
+    const row = b.svc.list.getSnapshot().byId[sid('continuation')]
+    expect(row).toMatchObject({ id: 'continuation', blank: false, cwd: '/work', agentProfile: 'coder' })
+    expect(row?.parentId).toBeUndefined()
+    expect(b.svc.binding(sid('continuation'))).toBeDefined()
+  })
+
+  it('omits an absent profile and lists a continuation published before attachment failed', async () => {
+    const b = bench()
+    b.api.onContinueArchive = () => Promise.resolve({
+      rpcId: 'attach' as never,
+      result: {
+        ok: false,
+        error: { code: 'workspace-attach-failed', message: 'ledger unavailable', details: { sessionId: sid('published'), workspaceId: 'ws' } },
+      },
+    } as never)
+    const failure = await b.svc.continueArchive({ sessionId: sid('unlisted') }).catch((error: unknown) => error)
+    expect(b.api.callsOf('session.continueArchive')).toEqual([{ sessionId: 'unlisted' }])
+    expect(failure).toBeInstanceOf(ArchiveContinuationError)
+    expect(failure).toMatchObject({ archiveSessionId: 'unlisted', rpcError: { code: 'workspace-attach-failed' } })
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('published')]).toMatchObject({ id: 'published', blank: false })
+  })
+
+  it('folds refusals and transport failures into the continuation error', async () => {
+    const b = bench()
+    b.api.onContinueArchive = () => Promise.resolve(err({ code: 'fork-unavailable', message: 'not an archive', details: { sessionId: sid('native') } }))
+    await expect(b.svc.continueArchive({ sessionId: sid('native') })).rejects.toThrow('archive continuation failed: fork-unavailable: not an archive')
+    b.api.onContinueArchive = () => Promise.reject(new Error('socket closed'))
+    await expect(b.svc.continueArchive({ sessionId: sid('native') })).rejects.toBeInstanceOf(ArchiveContinuationError)
   })
 })
 

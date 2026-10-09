@@ -38,6 +38,7 @@ import { SessionWriteLease } from './lease.ts'
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 
 export type { JsonlCompression } from './format.ts'
+export { decodeZstdArtifact, isZstdArtifact } from './zstd.ts'
 
 const DEFAULT_PACK_CHUNKS = true
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'

@@ -22,6 +22,9 @@
     - button "IM 机器人":
       - img
       - text: IM 机器人
+    - button "会话导入":
+      - img
+      - text: 会话导入
     - button "语音输入":
       - img
       - text: 语音输入

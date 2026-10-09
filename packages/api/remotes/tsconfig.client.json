@@ -42,6 +42,9 @@
       "path": "../../host/plugin-inventory"
     },
     {
+      "path": "../../host/official-session-import"
+    },
+    {
       "path": "../../host/capability-management"
     },
     {

@@ -634,6 +634,40 @@ export class SessionManager {
   }
 
   /**
+   * Contract session.continueArchive; on success merge the continuation into
+   * summaries immediately (same synchronous-addressability guarantee as
+   * fork). The continuation carries the archive's mapped history, so it is
+   * never blank, and it records no lineage. A continuation published before
+   * Workspace attachment fails is also reconciled into the list.
+   * @param opts - the archive plus the agent profile the continuation runs.
+   * @returns the continuation result.
+   */
+  async continueArchive(
+    opts: { sessionId: SessionId; agentProfile?: string },
+  ): Promise<RpcResult<{ sessionId: SessionId; agentProfile?: string }>> {
+    try {
+      const source = this.summaries.find(s => s.sessionId === opts.sessionId)
+      const { result } = await this.api.sessions.continueArchive({
+        sessionId: opts.sessionId,
+        ...opts.agentProfile === undefined ? {} : { agentProfile: opts.agentProfile },
+      })
+      const childId = result.ok
+        ? result.value.sessionId
+        : workspaceAttachSessionId(result.error)
+      if (childId !== undefined) {
+        this.recordMutation({ kind: 'upsert', summary: {
+          sessionId: childId, updatedAt: Date.now(), running: false, blank: false,
+          ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
+          ...(result.ok && result.value.agentProfile !== undefined ? { agentProfile: result.value.agentProfile } : {}),
+        } })
+      }
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
    * Open one listed session for read-only archive preview without selecting it.
    * @param sessionId - archived session to preview.
    * @returns the conversation snapshot or an RPC error.

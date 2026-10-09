@@ -3580,6 +3580,8 @@ export class FixtureApiClient extends AbstractApiClient {
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'model profile selection is unavailable', details: {} } } })
       case 'session.rename': return this.fixtureApi.sessions.rename(request)
       case 'session.fork': return this.fixtureApi.sessions.fork(request)
+      case 'session.continueArchive': return this.fixtureApi.sessions.continueArchive?.(request)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'archive continuation is unavailable', details: {} } } })
       case 'session.prompt': return this.fixtureApi.sessions.prompt(request)
       case 'session.attachment': return this.fixtureApi.sessions.attachment(request)
       case 'session.updateQueue': return this.fixtureApi.sessions.updateQueue(request)

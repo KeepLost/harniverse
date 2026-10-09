@@ -20,7 +20,8 @@ export const inject = ['invariants']
  * Validate one `import/record` event against the log before it: the marker is
  * the first event of its session, appears at most once, names a classified
  * foreign format (never `current` or `unknown`), a non-empty artifact name,
- * and a known supervision mode.
+ * optional well-typed foreign session id and working directory, and a known
+ * supervision mode.
  */
 function validateEvent(prior: SessionEvent[], event: SessionEvent, fail: InvariantFailure): void {
   if (event.type !== 'import/record') return
@@ -34,6 +35,13 @@ function validateEvent(prior: SessionEvent[], event: SessionEvent, fail: Invaria
   }
   if (typeof event.data.source.artifactName !== 'string' || event.data.source.artifactName.length === 0) {
     fail('import/record source.artifactName must be a non-empty string naming the preserved source artifact')
+  }
+  const { sessionId, cwd } = event.data.source as { sessionId?: unknown; cwd?: unknown }
+  if (sessionId !== undefined && (typeof sessionId !== 'string' || sessionId.length === 0)) {
+    fail('import/record source.sessionId, when present, must be the non-empty foreign session id')
+  }
+  if (cwd !== undefined && typeof cwd !== 'string') {
+    fail('import/record source.cwd, when present, must be the foreign working directory string')
   }
   if (!SUPERVISION_MODES.includes(event.data.posture.supervisionMode)) {
     fail(`import/record posture.supervisionMode must be one of ${SUPERVISION_MODES.join(', ')}`)

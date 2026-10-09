@@ -543,7 +543,7 @@ Source: [`packages/compaction/image-offload-policy/src/types.ts:79`](../packages
 'import/record': ImportRecordEventData
 ```
 
-Source: [`packages/session/session-import/src/types.ts:50`](../packages/session/session-import/src/types.ts)
+Source: [`packages/session/session-import/src/types.ts:58`](../packages/session/session-import/src/types.ts)
 
 ### `llm/*`
 

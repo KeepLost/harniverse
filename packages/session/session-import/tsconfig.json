@@ -25,6 +25,15 @@
       "path": "../session-persistence"
     },
     {
+      "path": "../session-persistence-jsonl"
+    },
+    {
+      "path": "../session-projection"
+    },
+    {
+      "path": "../session-title"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

@@ -90,7 +90,7 @@ export async function createContextFixture(options?: { locateUndefined?: boolean
   await ctx.plugin(SessionStore)
   let persistence: SessionPersistence
   if (options?.locateUndefined === true) {
-    persistence = { locate: () => undefined } as unknown as SessionPersistence
+    persistence = { locate: () => undefined, list: () => Promise.resolve([]) } as unknown as SessionPersistence
     ctx.provide('sessionPersistence', persistence)
   } else {
     await ctx.plugin(JsonlSessionPersistence, { root })

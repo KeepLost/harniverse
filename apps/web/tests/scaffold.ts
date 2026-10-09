@@ -394,6 +394,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       },
     },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
+    // Official sessions share the sessions root by default; scan the temp one
+    // so no scenario ever reads the user's real ~/.dsh/sessions.
+    { id: 'official-session-import', config: { roots: [persistenceRoot] } },
     // Content search is pinned to the shipped lazy-search mode so seeded-session
     // scenarios exercise the same default path without opening SQLite at boot.
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },

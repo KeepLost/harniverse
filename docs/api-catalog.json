@@ -110,6 +110,12 @@
       "stability": "stable"
     },
     {
+      "method": "session.continueArchive",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
       "method": "session.prompt",
       "requiredCapability": "harniverse.operate",
       "effect": "mutate",

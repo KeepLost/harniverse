@@ -63,6 +63,22 @@ export class SessionCreateError extends Error {
   }
 }
 
+/** Structured archive-continuation failure. */
+export class ArchiveContinuationError extends Error {
+  override readonly name = 'ArchiveContinuationError'
+
+  /**
+   * @param rpcError - Host business or folded transport error.
+   * @param archiveSessionId - the imported archive being continued.
+   */
+  constructor(
+    readonly rpcError: RpcError,
+    readonly archiveSessionId: SessionId,
+  ) {
+    super(`archive continuation failed: ${rpcError.code}: ${rpcError.message}`)
+  }
+}
+
 /** Structured session-fork failure. */
 export class SessionForkError extends Error {
   override readonly name = 'SessionForkError'
@@ -512,6 +528,22 @@ export class SessionRuntime implements ISessions {
       if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
     }
     return childId
+  }
+
+  /**
+   * Continue an imported archive in a new live session; on resolution the
+   * continuation is in the list store and open() can target it.
+   * @param opts - the archive and the agent profile the continuation runs (omitted: the effective default).
+   * @returns the continuation's session id.
+   * @throws {ArchiveContinuationError} with the archive id.
+   */
+  async continueArchive(opts: { sessionId: SessionId; agentProfile?: string }): Promise<SessionId> {
+    const manager = this.manager
+    const result = await manager.continueArchive(opts)
+    this.assertCurrent(manager)
+    if (!result.ok) throw new ArchiveContinuationError(result.error, opts.sessionId)
+    this.projectList()
+    return result.value.sessionId
   }
 
   /**

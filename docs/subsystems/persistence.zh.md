@@ -8,7 +8,7 @@
 
 ## 外部会话导入 —— 接缝之上的归档结算
 
-[dsh-session-import](../../packages/session/session-import) 组合本接缝完成单向归档导入：把官方 v1/v2/v3 导出有损映射为 `import/record` 标记之下的原生事件，经 `create`/`append` 持久化映射会话，并利用 `locate` 把源工件逐字保留在映射会话旁边（`<sessionId>.source.jsonl`）。`locate` 返回 `undefined` 的后端无法保留源件，在导入时被拒绝 —— 工件与映射日志要么一起结算，要么都不结算。
+[dsh-session-import](../../packages/session/session-import) 组合本接缝完成单向归档导入：把官方 v1/v2/v3/v4 日志（纯文本或 Zstandard 分帧）有损映射为 `import/record` 标记之下的原生事件，拒绝 `list` 已返回的 id（归档 id 由日志内容派生），经 `create`/`append` 持久化映射会话，并利用 `locate` 把源工件逐字保留在映射会话旁边（`<sessionId>.source.jsonl`；压缩源件为 `.source.jsonl.zstd`）。`locate` 返回 `undefined` 的后端无法保留源件，在导入时被拒绝 —— 工件与映射日志要么一起结算，要么都不结算。
 
 ## flush 检查点
 
@@ -285,18 +285,29 @@ Import foreign session logs as archival native sessions. The service owns the wh
 
 ```ts cordis-catalog
 /**
+ * Read what one foreign artifact would import as, without persisting.
+ * @param artifact - the exact source bytes (plain JSONL or Zstandard-framed).
+ * @returns the artifact's provenance, display facts, and archive identity.
+ * @throws {@link ForeignLogError} when the artifact cannot be decoded,
+ * parsed, classified as an official generation, or mapped.
+ */
+describe(artifact: Uint8Array): ForeignArtifactSummary
+
+/**
  * Import one foreign artifact as a settled archival session.
  * @param options - source bytes or path, authorized destination workspace, and optional target/posture.
  * @returns the imported session's identity and lossy-mapping counts.
- * @throws when the artifact cannot be read or parsed, its version is
- * `current` (native logs restore, not import) or unknown, the posture is
- * invalid, the target id already exists, or the backend cannot preserve
- * the source artifact beside the mapped session.
+ * @throws {@link ImportConflictError} when the archive identity already
+ * exists; {@link ForeignLogError} when the artifact cannot be decoded,
+ * parsed, or mapped, or its version is `current` (native logs restore, not
+ * import) or unknown; `TypeError` for an invalid posture or destination;
+ * and an `Error` when the backend cannot preserve the source artifact
+ * beside the mapped session.
  */
 async import(options: ImportForeignSessionOptions): Promise<ImportedSession>
 ```
 
-Source: [`packages/session/session-import/src/importer.ts:78`](../../packages/session/session-import/src/importer.ts)
+Source: [`packages/session/session-import/src/importer.ts:206`](../../packages/session/session-import/src/importer.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 

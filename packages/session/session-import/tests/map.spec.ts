@@ -41,7 +41,17 @@ describe('official foreign parsing and native display mapping', () => {
     const transcript = JSON.stringify(session.deriveMessages())
     expect(transcript).toContain(version === 1 ? 'PONG' : version === 4 ? 'TERMINAL_OK' : 'dsh-sdk-proof-7391')
     expect(mapped.events.some(event => event.type.startsWith('agent/inbox'))).toBe(false)
-    expect(mapped.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    expect(mapped.events.at(-2)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    // The official title lands last as an explicit, message-free title.
+    expect(mapped.events.at(-1)).toEqual({
+      type: 'session/title',
+      time: expect.any(Number) as number,
+      data: {
+        title: version === 1 ? 'Reply with exactly the word:' : version === 4 ? 'Use the bash tool to' : 'Run this exact command with',
+        messageSeqs: [],
+        source: { kind: 'user' },
+      },
+    })
     if (version === 1) {
       expect(log.events.filter(event => event.type === 'assistant/chunk').length).toBeGreaterThan(20)
       expect(mapped.events.some(event => event.type === 'assistant/chunk')).toBe(false)
@@ -69,7 +79,7 @@ describe('official foreign parsing and native display mapping', () => {
     })
     const mapped = mapForeignSessionEvents(parseForeignSessionLog(text), 1)
     expect(mapped.events.some(event => (event.type as string) === 'developer/message')).toBe(false)
-    expect(mapped.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'interrupted' } } })
+    expect(mapped.events.at(-2)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'interrupted' } } })
   })
 
   it.each([{}, { kind: '' }])('attributes an official v4 user message with source %j to the importer', async (source) => {

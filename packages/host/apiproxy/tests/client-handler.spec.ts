@@ -1219,3 +1219,31 @@ describe('model target and profile selection', () => {
     })
   })
 })
+
+describe('archive continuation carriage', () => {
+  it('round-trips continueArchive with its payload and value shape', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const record = recorderInto(seen)
+    const api = scriptedApi({
+      sessions: {
+        continueArchive: record('session.continueArchive', r => ok(r, { sessionId: sid('session-child'), agentProfile: 'default' })),
+      },
+    })
+    const continued = await client(api).sessions.continueArchive({
+      sessionId: sid('session-imported-a-b'), workspaceId: 'workspace-1' as never, agentProfile: 'default', modelProfile: 'balanced',
+    })
+    expect(continued.result).toEqual({ ok: true, value: { sessionId: 'session-child', agentProfile: 'default' } })
+    expect(seen).toEqual([{
+      method: 'session.continueArchive',
+      payload: { sessionId: 'session-imported-a-b', workspaceId: 'workspace-1', agentProfile: 'default', modelProfile: 'balanced' },
+    }])
+  })
+
+  it('reports unavailable continuation when the host session omits it', async () => {
+    const continued = await client(scriptedApi()).sessions.continueArchive({ sessionId: sid('session-imported-a-b') })
+    expect(continued.result).toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'archive continuation is unavailable', details: {} },
+    })
+  })
+})

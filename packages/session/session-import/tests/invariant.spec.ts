@@ -45,6 +45,29 @@ describe('session-import invariants', () => {
       .toThrow(/posture\.supervisionMode must be one of/)
   })
 
+  it('accepts recorded foreign provenance and rejects malformed provenance fields', async () => {
+    const accepted = await setup()
+    expect(() => accepted.session.append('import/record', {
+      ...record('official-v4', 'a.jsonl'),
+      source: { format: 'official-v4', artifactName: 'a.jsonl', sessionId: 'session-official', cwd: '/home/a' },
+    })).not.toThrow()
+    const emptyId = await setup()
+    expect(() => emptyId.session.append('import/record', {
+      ...record('official-v4', 'a.jsonl'),
+      source: { format: 'official-v4', artifactName: 'a.jsonl', sessionId: '' },
+    })).toThrow(/source\.sessionId, when present, must be the non-empty foreign session id/)
+    const numericId = await setup()
+    expect(() => numericId.session.append('import/record', {
+      ...record('official-v4', 'a.jsonl'),
+      source: { format: 'official-v4', artifactName: 'a.jsonl', sessionId: 7 as never },
+    })).toThrow(/source\.sessionId, when present/)
+    const badCwd = await setup()
+    expect(() => badCwd.session.append('import/record', {
+      ...record('official-v4', 'a.jsonl'),
+      source: { format: 'official-v4', artifactName: 'a.jsonl', cwd: 1 as never },
+    })).toThrow(/source\.cwd, when present, must be the foreign working directory string/)
+  })
+
   it('rejects a misplaced marker already present when the companion registers late', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

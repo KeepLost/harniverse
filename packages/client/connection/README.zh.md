@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-connection
 
-Host half 还提供经过认证的 `POST /api/session/import`。它只允许把官方 foreign-session artifact 导入现有 workspace，调用方可以选择 supervised 或 unsupervised 的归档 posture，导入结果不会创建运行中的 Agent。
+Host half 还提供经过认证的 `POST /api/session/import`。它只允许把官方 foreign-session artifact（纯 JSONL 或 Zstandard 分帧）导入现有 workspace，调用方可以选择 supervised 或 unsupervised 的归档 posture；内容已经导入过的 artifact 以 409 加已有归档的 `sessionId` 应答；导入结果不会创建运行中的 Agent。
 
 [English](README.md) | 中文
 

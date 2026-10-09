@@ -48,6 +48,7 @@ export interface RpcMethodMap {
   'session.selectModelProfile': NonNullable<SessionsApi['selectModelProfile']>
   'session.rename': SessionsApi['rename']
   'session.fork': SessionsApi['fork']
+  'session.continueArchive': NonNullable<SessionsApi['continueArchive']>
   'session.prompt': SessionsApi['prompt']
   'session.attachment': SessionsApi['attachment']
   'session.updateQueue': SessionsApi['updateQueue']
@@ -126,6 +127,7 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'session.selectModelProfile': 'harniverse.operate',
   'session.rename': 'harniverse.operate',
   'session.fork': 'harniverse.operate',
+  'session.continueArchive': 'harniverse.operate',
   'session.prompt': 'harniverse.operate',
   'session.attachment': 'harniverse.operate',
   'session.updateQueue': 'harniverse.operate',
@@ -204,6 +206,7 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'session.selectModelProfile': 'mutate',
   'session.rename': 'mutate',
   'session.fork': 'mutate',
+  'session.continueArchive': 'mutate',
   'session.prompt': 'mutate',
   'session.attachment': 'read',
   'session.updateQueue': 'mutate',
