@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -241,6 +241,9 @@ describe('sticky decisions', () => {
     const target = await fs.resolve('move.txt')
     await fs.readText(target)
     await writeFile(join(dir, 'move.txt'), enc('再见\n', 'gbk'))
+    // Same byte length, and two quick writes can share one timestamp tick (Windows): pin a distinct
+    // mtime so the version moves deterministically.
+    await utimes(join(dir, 'move.txt'), new Date(2000, 0, 1), new Date(2000, 0, 1))
     let decision: FsTextEncoding | undefined
     await fs.readText(await fs.resolve('move.txt'), undefined, { onDecision: (value) => { decision = value } })
     expect(decision).toMatchObject({ source: 'host' })
