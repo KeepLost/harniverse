@@ -251,8 +251,8 @@ describe('access token ledger lifecycle', () => {
     const tokens = new AccessTokenLedger(spec)
     const issued = tokens.issue(grant)
     if (issued === undefined) throw new Error('expected Access Token')
-    const id = issued.value.split('_')[1]
-    if (id === undefined) throw new Error('expected token id')
+    // The base64url id may itself contain '_', so take the fixed-width field.
+    const id = issued.value.slice('dsha1_'.length, 'dsha1_'.length + 16)
 
     // The id resolves, so only the constant-time secret comparison refuses it.
     expect(tokens.authenticate(`dsha1_${id}_${'z'.repeat(43)}`)).toBeUndefined()

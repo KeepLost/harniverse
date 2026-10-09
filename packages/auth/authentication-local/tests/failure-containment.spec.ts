@@ -213,14 +213,14 @@ describe('credential rejection shapes', () => {
     const { ctx, challenge } = await owned()
     const exchanged = await ctx.authentication.exchangeAccessToken(await challenge('access-token'))
     if (exchanged.kind !== 'accepted') throw new Error('expected an Access Token')
-    const [prefix, id] = exchanged.value.value.split('_')
-    if (prefix === undefined || id === undefined) throw new Error('expected a structured token')
+    // The base64url id may itself contain '_', so take the fixed-width field.
+    const id = exchanged.value.value.slice('dsha1_'.length, 'dsha1_'.length + 16)
 
     // The id resolves to a live record, so only the constant-time secret
     // comparison stands between the caller and an admission.
     await expect(ctx.authentication.authenticate({
       channel: 'http-api',
-      authorization: `Bearer ${prefix}_${id}_${'z'.repeat(43)}`,
+      authorization: `Bearer dsha1_${id}_${'z'.repeat(43)}`,
     })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
 
     // The genuine secret still works, so the record was not consumed.
