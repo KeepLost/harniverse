@@ -407,7 +407,7 @@
   margin: 0 2px;
   padding: 0 8px;
   border-radius: 6px;
-  background: rgba(97, 135, 216, 0.22);
+  background: var(--dsw-accent-chip);
   color: var(--dsw-alias-label-primary);
   font-size: 0.85em;
   line-height: 1.6;

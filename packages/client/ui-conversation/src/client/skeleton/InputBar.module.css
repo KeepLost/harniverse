@@ -509,7 +509,7 @@
 .chip {
   position: relative;
   border-radius: 6px;
-  background: rgba(97, 135, 216, 0.22);
+  background: var(--dsw-accent-chip);
 }
 
 .chip::before {

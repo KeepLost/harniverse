@@ -7,7 +7,7 @@
  */
 import type { SkinDefinition } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ThemeDefinition, ThemeTokens } from '@deepseek-ai/dsh-client-ui-theme/client'
-import { accentHover, accentSoft, isSafeColor } from './color.ts'
+import { accentChip, accentHover, accentSoft, isSafeColor } from './color.ts'
 import { isHexColor } from './settings.ts'
 
 /** Theme-id prefix of every catalog skin. */
@@ -55,6 +55,7 @@ export function skinTokens(skin: SkinDefinition): ThemeTokens {
     tokens['--dsw-accent'] ??= accent
     tokens['--dsw-accent-hover'] ??= accentHover(accent, skin.colorScheme)
     tokens['--dsw-accent-soft'] ??= accentSoft(accent)
+    tokens['--dsw-accent-chip'] ??= accentChip(accent)
   }
   return tokens
 }

@@ -3,7 +3,8 @@
  * conversation pane, the composer card, and the context popover read the
  * surface and material tokens (so a skin can make them translucent or glassy)
  * instead of the opaque aliases they default to, and the details occupant
- * leaves its surface to the layout column.
+ * leaves its surface to the layout column. The reference chips take their tint
+ * from the accent chip token, so they follow a user or skin accent.
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -32,6 +33,7 @@ const ROOT = '../src/client/skeleton/ConversationRoot.module.css'
 const DETAILS = '../src/client/skeleton/DetailsPanel.module.css'
 const INPUT = '../src/client/skeleton/InputBar.module.css'
 const METER = '../src/client/skeleton/ContextMeter.module.css'
+const MESSAGE = '../src/client/chat/MessageItem.module.css'
 
 describe('ConversationRoot.module.css pane surface', () => {
   it('fills the column with the pane surface token', () => {
@@ -76,5 +78,12 @@ describe('ContextMeter.module.css popover surface', () => {
     const panel = declarations(METER, '.panel')
     expect(panel.get('background')).toBe('var(--dsw-surface-popover)')
     expect(panel.get('backdrop-filter')).toBe('var(--dsw-material-popover-filter)')
+  })
+})
+
+describe('reference chips follow the accent', () => {
+  it('tints the composer chip and the transcript chip from the accent chip token, not a blue literal', () => {
+    expect(declarations(INPUT, '.chip').get('background')).toBe('var(--dsw-accent-chip)')
+    expect(declarations(MESSAGE, '.refChip').get('background')).toBe('var(--dsw-accent-chip)')
   })
 })

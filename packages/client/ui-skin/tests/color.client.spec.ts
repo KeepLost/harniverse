@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accentHover, accentSoft, HOVER_SHIFT, isSafeColor, mixHex, parseHex, toHex } from '../src/client/color.ts'
+import { accentChip, accentHover, accentSoft, HOVER_SHIFT, isSafeColor, mixHex, parseHex, toHex } from '../src/client/color.ts'
 
 describe('colour helpers', () => {
   it('round-trips hex through channels', () => {
@@ -25,6 +25,10 @@ describe('colour helpers', () => {
 
   it('keeps the soft accent translucent', () => {
     expect(accentSoft('#4176e6')).toBe('color-mix(in srgb, #4176e6 18%, transparent)')
+  })
+
+  it('tints a reference chip a little stronger than the soft state, still translucent', () => {
+    expect(accentChip('#4176e6')).toBe('color-mix(in srgb, #4176e6 22%, transparent)')
   })
 
   it('accepts only colours from the skin grammar', () => {

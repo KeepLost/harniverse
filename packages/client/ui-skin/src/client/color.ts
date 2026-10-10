@@ -19,6 +19,9 @@ export const HOVER_SHIFT = 0.2
 /** How much accent the soft tint keeps over the surface behind it. */
 export const SOFT_ALPHA_PERCENT = 18
 
+/** How much accent a reference chip keeps over the text surface it sits on. */
+export const CHIP_ALPHA_PERCENT = 22
+
 const MAX_COLOR_LENGTH = 64
 const HEX_FORMS = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const NUMBER = String.raw`[+-]?(?:\d+(?:\.\d+)?|\.\d+)%?`
@@ -102,4 +105,15 @@ export function accentHover(accent: string, scheme: 'light' | 'dark'): string {
  */
 export function accentSoft(accent: string): string {
   return `color-mix(in srgb, ${accent} ${String(SOFT_ALPHA_PERCENT)}%, transparent)`
+}
+
+/**
+ * The chip tint of an accent: the translucent wash behind an inline reference
+ * (a `@file` or `/skill` chip), a touch stronger than the soft state because it
+ * sits under body text.
+ * @param accent - `#rrggbb` accent.
+ * @returns a `color-mix()` value.
+ */
+export function accentChip(accent: string): string {
+  return `color-mix(in srgb, ${accent} ${String(CHIP_ALPHA_PERCENT)}%, transparent)`
 }

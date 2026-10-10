@@ -163,9 +163,13 @@ describe('web e2e: appearance section and custom skins', () => {
     const dialog = await openAppearance()
     await dialog.getByRole('button', { name: '强调色 #f97316' }).click()
     await expect.poll(() => bodyToken('--dsw-accent'), { timeout: 10_000 }).toBe('#f97316')
+    // The inline reference-chip wash is part of the accent family: it follows the override and returns with it.
+    await expect.poll(() => bodyToken('--dsw-accent-chip'), { timeout: 10_000 }).toContain('#f97316')
     await expect.poll(persistedSettings, { timeout: 10_000 }).toMatch(/accent: ['"]?#f97316['"]?/u)
     await dialog.getByRole('button', { name: '恢复默认' }).click()
     await expect.poll(() => bodyToken('--dsw-accent'), { timeout: 10_000 }).toBe(paletteToken('nebula', '--dsw-accent'))
+    await expect.poll(() => bodyToken('--dsw-accent-chip'), { timeout: 10_000 })
+      .toContain(paletteToken('nebula', '--dsw-accent'))
   }, 60_000)
 
   it('stores an uploaded wallpaper, paints it behind the frame, and turns on a glass material', async () => {

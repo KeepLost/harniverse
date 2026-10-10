@@ -14,7 +14,7 @@
  * @module @deepseek-ai/dsh-client-ui-skin/overrides
  */
 import type { ThemeTokenModes, ThemeTokenOverrides } from '@deepseek-ai/dsh-client-ui-theme/client'
-import { accentHover, accentSoft } from './color.ts'
+import { accentChip, accentHover, accentSoft } from './color.ts'
 import { isHexColor, type SkinSettings } from './settings.ts'
 
 /** Layer source passed to `ctx.theme.overrideTokens`. */
@@ -64,6 +64,7 @@ export function computeOverrides(input: OverrideInput): ThemeTokenOverrides {
       dark: accentHover(settings.accent, 'dark'),
     }
     layer['--dsw-accent-soft'] = both(accentSoft(settings.accent))
+    layer['--dsw-accent-chip'] = both(accentChip(settings.accent))
   }
   if (!backdropActive) return layer
   layer['--dsw-surface-pane'] = translucent('--dsw-alias-bg-base', settings.panelOpacity)

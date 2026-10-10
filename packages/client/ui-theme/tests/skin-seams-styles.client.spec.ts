@@ -52,10 +52,16 @@ describe('design-platform.css accent family', () => {
   }
   const palettes = [paletteWithAccent('body'), paletteWithAccent('body[data-ds-dark-theme]')]
 
-  it('defines accent, hover, and soft in both palettes', () => {
+  it('defines accent, hover, soft, and chip in both palettes', () => {
     for (const values of palettes) {
-      for (const name of ['--dsw-accent', '--dsw-accent-hover', '--dsw-accent-soft']) expect(values.has(name)).toBe(true)
+      for (const name of ['--dsw-accent', '--dsw-accent-hover', '--dsw-accent-soft', '--dsw-accent-chip']) {
+        expect(values.has(name)).toBe(true)
+      }
     }
+  })
+
+  it('keeps the chip tint at the pre-skin literal so the default look is unchanged', () => {
+    for (const values of palettes) expect(values.get('--dsw-accent-chip')).toBe('rgba(97, 135, 216, 0.22)')
   })
 
   it('reads the accent from the aliases a skin must restyle together', () => {

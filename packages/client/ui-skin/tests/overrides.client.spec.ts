@@ -15,13 +15,16 @@ describe('override layer', () => {
 
   it('overrides the accent family as a unit, with per-mode hover and a translucent soft tint', () => {
     const layer = computeOverrides({ settings: settings({ accent: '#4176e6' }), backdropActive: false })
-    expect(Object.keys(layer)).toEqual(['--dsw-accent', '--dsw-accent-hover', '--dsw-accent-soft'])
+    expect(Object.keys(layer)).toEqual(['--dsw-accent', '--dsw-accent-hover', '--dsw-accent-soft', '--dsw-accent-chip'])
     expect(layer['--dsw-accent']).toEqual({ light: '#4176e6', dark: '#4176e6' })
     expect(layer['--dsw-accent-hover']).toEqual({
       light: accentHover('#4176e6', 'light'), dark: accentHover('#4176e6', 'dark'),
     })
     expect(layer['--dsw-accent-soft']).toEqual({
       light: 'color-mix(in srgb, #4176e6 18%, transparent)', dark: 'color-mix(in srgb, #4176e6 18%, transparent)',
+    })
+    expect(layer['--dsw-accent-chip']).toEqual({
+      light: 'color-mix(in srgb, #4176e6 22%, transparent)', dark: 'color-mix(in srgb, #4176e6 22%, transparent)',
     })
   })
 
@@ -82,7 +85,7 @@ describe('override layer', () => {
     }
     const layer = computeOverrides({ settings: settings({ accent: '#112233', material: 'liquid' }), backdropActive: true })
     const referenced = Object.values(layer).flatMap(modes => [...modes.light.matchAll(/var\((--[a-z0-9-]+)\)/g)].map(m => m[1]!))
-    expect(Object.keys(layer).length).toBe(10)
+    expect(Object.keys(layer).length).toBe(11)
     for (const name of [...Object.keys(layer), ...referenced]) expect(declared.has(name), name).toBe(true)
   })
 })

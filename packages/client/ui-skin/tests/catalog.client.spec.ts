@@ -3,7 +3,7 @@ import type { ThemeDefinition } from '@deepseek-ai/dsh-client-ui-theme/client'
 import {
   SKIN_THEME_PREFIX, SkinThemeRegistry, skinDefinition, skinDisplayName, skinThemeId, skinTokens,
 } from '../src/client/catalog.ts'
-import { accentHover, accentSoft } from '../src/client/color.ts'
+import { accentChip, accentHover, accentSoft } from '../src/client/color.ts'
 import { skin } from './fixtures.client.ts'
 
 describe('skin themes', () => {
@@ -21,6 +21,7 @@ describe('skin themes', () => {
       '--dsw-alias-bg-base': '#000000',
       '--dsw-accent-hover': accentHover('#112233', 'dark'),
       '--dsw-accent-soft': accentSoft('#112233'),
+      '--dsw-accent-chip': accentChip('#112233'),
     })
     const light = skinTokens(skin('a', { colorScheme: 'light', tokens: { '--dsw-accent': '#112233' } }))
     expect(light['--dsw-accent-hover']).toBe(accentHover('#112233', 'light'))
@@ -28,9 +29,13 @@ describe('skin themes', () => {
 
   it('never overwrites an accent token the pack set itself', () => {
     const tokens = skinTokens(skin('a', {
-      tokens: { '--dsw-accent': '#112233', '--dsw-accent-hover': '#aaaaaa', '--dsw-accent-soft': '#bbbbbb' },
+      tokens: {
+        '--dsw-accent': '#112233', '--dsw-accent-hover': '#aaaaaa', '--dsw-accent-soft': '#bbbbbb', '--dsw-accent-chip': '#cccccc',
+      },
     }))
-    expect(tokens).toEqual({ '--dsw-accent': '#112233', '--dsw-accent-hover': '#aaaaaa', '--dsw-accent-soft': '#bbbbbb' })
+    expect(tokens).toEqual({
+      '--dsw-accent': '#112233', '--dsw-accent-hover': '#aaaaaa', '--dsw-accent-soft': '#bbbbbb', '--dsw-accent-chip': '#cccccc',
+    })
   })
 
   it('falls back to the skin accent field when the tokens carry none', () => {
@@ -38,6 +43,7 @@ describe('skin themes', () => {
       '--dsw-accent': '#445566',
       '--dsw-accent-hover': accentHover('#445566', 'dark'),
       '--dsw-accent-soft': accentSoft('#445566'),
+      '--dsw-accent-chip': accentChip('#445566'),
     })
   })
 
