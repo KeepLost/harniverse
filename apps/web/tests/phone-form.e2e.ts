@@ -222,8 +222,8 @@ describe('web e2e: phone form factor', () => {
     expect(navBoxes.every(box => Math.abs(box.y - navBoxes[0]!.y) <= 1)).toBe(true)
     expect(navBoxes[1]!.x).toBeGreaterThan(navBoxes[0]!.x)
 
-    // A contributed row gets the full content column instead of ~100px.
-    await general.click()
+    // A contributed row (the Appearance colour-mode cubes) gets the full content column instead of ~100px.
+    await dialog.getByRole('button', { name: '外观', exact: true }).click()
     const cube = dialog.locator('[class*="themeCube"]').first()
     await cube.waitFor({ timeout: 10_000 })
     const cubeBox = (await cube.boundingBox())!

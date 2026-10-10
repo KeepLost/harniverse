@@ -85,12 +85,29 @@ describe('ui-skin apply', () => {
     expect(inject).toEqual(['slots', 'locale', 'theme', 'remote', 'remote.skinLibrary', 'settingsScope'])
   })
 
-  it('registers the backdrop and the five Appearance rows at their contract ids and orders', async () => {
+  it('registers the five Appearance rows at their contract ids and orders', async () => {
     const b = await bench()
     expect(b.runtime.slots.entries('settings.appearance.item').map(entry => [entry.options.id, entry.options.order]))
       .toEqual([['skins', 30], ['accent', 40], ['wallpaper', 50], ['material', 60], ['packs', 70]])
-    expect(b.runtime.slots.entries('shell.backdrop').map(entry => [entry.options.id, entry.options.order])).toEqual([['skin', 0]])
     expect(b.runtime.slots.entries('settings.appearance.item').every(entry => entry.locale === 'settings.skin')).toBe(true)
+  })
+
+  it('occupies the backdrop slot only while something paints, so a default skin leaves the frame as it was', async () => {
+    const b = await bench()
+    const entries = (): unknown[] => b.runtime.slots.entries('shell.backdrop').map(entry => [entry.options.id, entry.options.order])
+    expect(entries()).toEqual([])
+    act(() => { b.skinScope.publish({ value: { ...SETTINGS, wallpaper: HASH_A } }) })
+    expect(entries()).toEqual([['skin', 0]])
+    // A further change that keeps painting keeps the one entry.
+    act(() => { b.skinScope.publish({ value: { ...SETTINGS, wallpaper: HASH_A, wallpaperBlur: 12 } }) })
+    expect(entries()).toEqual([['skin', 0]])
+    act(() => { b.skinScope.publish({ value: { ...SETTINGS, wallpaper: '' } }) })
+    expect(entries()).toEqual([])
+    // A skin with its own gradient occupies the slot too, until the default look returns.
+    act(() => { b.theme.setTheme('skin:abyss') })
+    expect(entries()).toEqual([['skin', 0]])
+    act(() => { b.theme.setTheme('system') })
+    expect(entries()).toEqual([])
   })
 
   it('registers each catalog skin as a theme the gallery can select', async () => {
@@ -224,6 +241,8 @@ describe('ui-skin apply', () => {
     const b = await bench()
     act(() => { b.skinScope.publish({ value: { ...SETTINGS, accent: '#123456' } }) })
     act(() => { b.theme.setTheme('skin:abyss') })
+    // The abyss gradient occupies the backdrop slot at the moment of unload.
+    expect(b.runtime.slots.entries('shell.backdrop')).toHaveLength(1)
     await b.plugin.dispose()
     // The preference outlives the unloaded plugin; the system palette renders until a skin plugin registers it again.
     expect(b.theme.getTheme()).toMatchObject({ preference: 'skin:abyss', active: { id: 'light' } })

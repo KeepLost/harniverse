@@ -118,6 +118,9 @@ describe('web e2e: official session import and continuation', () => {
     const input = page.locator('[data-composer-seat] textarea').first()
     await expect.poll(() => input.isDisabled(), { timeout: 10_000 }).toBe(true)
     expect(await input.getAttribute('placeholder')).toBe('这是只读归档，点上方的“继续对话”接着聊')
+    // The dock reads the preset roster over the wire after it shows; a capture taken before the answer lands
+    // would record the loading state and make the golden a race against the runner's speed.
+    await expect.poll(() => dock.getByRole('option').count(), { timeout: 15_000 }).toBeGreaterThan(1)
     const snapshot = await captureStableAria(page, '[aria-label="只读归档"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DOCK_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])

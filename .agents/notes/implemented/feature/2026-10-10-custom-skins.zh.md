@@ -20,7 +20,7 @@ Web UI 只有三种外观：浅色、深色与跟随系统。`ui-theme` 虽然�
 
 **启动交接没有闪烁。** `ui-theme` 现有的启动脚本紧跟 `<body>` 运行，把皮肤偏好解析为系统配色；随后库的脚本写入皮肤的 token，并把变量名列在 `body[data-ds-boot-tokens]`。快照为 `pending` 时，ui-layout 的呈现器保留这份绘制，之后把这些变量名纳入自己的收回集合并移除该属性，因此首次完整应用不会留下空档。
 
-**`dsh-client-ui-skin` 持有各设置行与背景。** 外观分区（`appearance`，order 5）归 `ui-theme` 所有，颜色模式行（order 10）与字号行（order 20）放在新的 `settings.appearance.item` 槽位。`ui-skin` 追加皮肤图库（30）、强调色（40）、壁纸（50）、材质与透明度（60）和皮肤包（70），并填充 ui-layout 新增的 `shell.backdrop` 槽位，绘制壁纸或皮肤自带的渐变。设置导航图标改为带键的 `settings.nav.icon` 槽位，由各分区的所有者自行提供。`ui-skin` 写入 `ui-skin` 设置 namespace，API 代理现已对外暴露它（`accent`、`wallpaper`、`wallpaperBlur`、`panelOpacity`、`composerOpacity`、`popoverOpacity`、`material`）。
+**`dsh-client-ui-skin` 持有各设置行与背景。** 外观分区（`appearance`，order 5）归 `ui-theme` 所有，颜色模式行（order 10）与字号行（order 20）放在新的 `settings.appearance.item` 槽位。`ui-skin` 追加皮肤图库（30）、强调色（40）、壁纸（50）、材质与透明度（60）和皮肤包（70），并填充 ui-layout 新增的 `shell.backdrop` 槽位，绘制壁纸或皮肤自带的渐变。该条目仅在有背景可绘制时才注册，因为槽位一旦被占用，框架就会把背景包装层挂成其第一个子节点，而默认外观必须让框架的 DOM 保持原样。设置导航图标改为带键的 `settings.nav.icon` 槽位，由各分区的所有者自行提供。`ui-skin` 写入 `ui-skin` 设置 namespace，API 代理现已对外暴露它（`accent`、`wallpaper`、`wallpaperBlur`、`panelOpacity`、`composerOpacity`、`popoverOpacity`、`material`）。
 
 ## 备选方案
 

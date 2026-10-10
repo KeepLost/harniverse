@@ -96,12 +96,32 @@ export function apply(ctx: ClientContext): void {
   const hooks = { skin: controller.view }
   const wallpapers = { acquireWallpaper: controller.acquireWallpaper, releaseWallpaper: controller.releaseWallpaper }
 
-  ctx.slots.inject('shell.backdrop', () => ctx.slots.register({
-    name: 'shell.backdrop',
-    id: 'skin',
-    order: 0,
-    inject: () => ({ hooks, ...wallpapers }),
-  }, Backdrop))
+  // The layer is contributed only while something paints behind the frame: an occupied slot mounts the
+  // frame's backdrop wrapper, and a default skin must leave the frame's DOM exactly as it was.
+  ctx.slots.inject('shell.backdrop', () => {
+    let entry: (() => void) | undefined
+    const sync = (): void => {
+      const paints = controller.view.getSnapshot().backdrop.kind !== 'none'
+      if (paints === (entry !== undefined)) return
+      if (paints) {
+        entry = ctx.slots.register({
+          name: 'shell.backdrop',
+          id: 'skin',
+          order: 0,
+          inject: () => ({ hooks, ...wallpapers }),
+        }, Backdrop)
+      } else {
+        (entry as () => void)()
+        entry = undefined
+      }
+    }
+    const stop = controller.view.subscribe(sync)
+    sync()
+    return () => {
+      stop()
+      entry?.()
+    }
+  })
 
   // The five rows install and roll back together with the Appearance section's declaration.
   ctx.slots.inject('settings.appearance.item', function* () {
