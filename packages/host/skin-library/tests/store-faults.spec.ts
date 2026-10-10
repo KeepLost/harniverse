@@ -11,7 +11,7 @@ vi.mock('node:fs/promises', async (original) => {
     ...actual,
     readFile: vi.fn((path: string, options?: unknown) => {
       if (path.endsWith('eio.json')) return Promise.reject(Object.assign(new Error('EIO: i/o error'), { code: 'EIO' }))
-      // A non-Error rejection is the case under test.
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- a non-Error rejection is the case under test
       if (path.endsWith('odd.json')) return Promise.reject('not an error')
       return actual.readFile(path, options as never)
     }),
