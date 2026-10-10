@@ -110,6 +110,7 @@
     { "path": "./packages/client/ui-settings-im" },
     { "path": "./packages/client/ui-settings-plugin-inventory" },
     { "path": "./packages/client/ui-session-import" },
+    { "path": "./packages/client/ui-skin" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/web" },
     { "path": "./apps/web" }

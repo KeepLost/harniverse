@@ -98,3 +98,53 @@ describe('ThemePresenter', () => {
     expect(meta?.isConnected).toBe(false)
   })
 })
+
+describe('ThemePresenter bootstrap handoff', () => {
+  const BOOT = 'data-ds-boot-tokens'
+
+  function bootPainted(): void {
+    document.body.setAttribute(DARK_ATTRIBUTE, '')
+    document.body.setAttribute(BOOT, '--dsw-alias-bg --dsw-alias-fg')
+    document.body.style.setProperty('--dsw-alias-bg', '#101014')
+    document.body.style.setProperty('--dsw-alias-fg', '#eee')
+    document.documentElement.style.colorScheme = 'dark'
+  }
+
+  it('keeps the bootstrap paint while the snapshot is pending, then retracts what the next theme leaves unset', () => {
+    bootPainted()
+    const presenter = new ThemePresenter()
+    presenter.apply({ ...snapshot('light'), pending: true })
+    expect(document.documentElement.style.colorScheme).toBe('dark')
+    expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(true)
+    expect(document.body.style.getPropertyValue('--dsw-alias-bg')).toBe('#101014')
+    expect(document.body.hasAttribute(BOOT)).toBe(true)
+    // Font size and theme-color metadata still follow the snapshot.
+    expect(document.body.style.getPropertyValue('--dsw-content-font-size')).toBe('16px')
+    expect(themeColorMeta()?.isConnected).toBe(true)
+    // The theme registers: the first full apply adopts the handed-over names.
+    presenter.apply(snapshot('dark', { '--dsw-alias-bg': '#0b0b10' }))
+    expect(document.body.hasAttribute(BOOT)).toBe(false)
+    expect(document.body.style.getPropertyValue('--dsw-alias-bg')).toBe('#0b0b10')
+    expect(document.body.style.getPropertyValue('--dsw-alias-fg')).toBe('')
+  })
+
+  it('repaints a pending snapshot when no bootstrap paint stands', () => {
+    const presenter = new ThemePresenter()
+    presenter.apply({ ...snapshot('dark'), pending: true })
+    expect(document.documentElement.style.colorScheme).toBe('dark')
+    expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(true)
+  })
+
+  it('adopts only custom-property names, once, and leaves variables it was not handed', () => {
+    bootPainted()
+    document.body.setAttribute(BOOT, '--dsw-alias-bg  color --dsw-alias-bg')
+    const presenter = new ThemePresenter()
+    presenter.apply(snapshot('dark'))
+    expect(document.body.style.getPropertyValue('--dsw-alias-bg')).toBe('')
+    expect(document.body.style.getPropertyValue('--dsw-alias-fg')).toBe('#eee')
+    presenter.apply(snapshot('dark'))
+    expect(document.body.hasAttribute(BOOT)).toBe(false)
+    presenter.dispose()
+    expect(document.body.style.getPropertyValue('--dsw-alias-fg')).toBe('#eee')
+  })
+})

@@ -15,6 +15,7 @@ dsh Web GUI 的宿主侧：所有客户端形态共享的 API 网关，以及承
 | [`directory-picker-auto/`](directory-picker-auto/README.md) | 宿主自适应选择器组合 | 挂载一个后端 |
 | [`plugin-inventory/`](plugin-inventory/README.md) | 当前插件清单与诊断的只读投影 | Remote `pluginInventory/list`、`pluginInventory/diagnose` |
 | [`official-session-import/`](official-session-import/README.md) | 在服务端机器上发现并归档导入官方 DeepSeek Harness 会话 | Remote `officialSessionImport/scan`、`officialSessionImport/importSources`、`officialSessionImport/importUpload` |
+| [`skin-library/`](skin-library/README.md) | 为浏览器提供皮肤目录、导入的皮肤包与壁纸存储，以及插件加载前的皮肤引导 | Remote `skinLibrary/list`、`skinLibrary/readWallpaper`、`skinLibrary/importPack`、`skinLibrary/removePack`、`skinLibrary/putWallpaper`、`skinLibrary/removeWallpaper` |
 
 `apiproxy` 保持传输无关；[`client/connection`](../client/connection/README.md) 提供浏览器／HTTP 载体。选择器实现可在共享 seam 后互相替换。
 

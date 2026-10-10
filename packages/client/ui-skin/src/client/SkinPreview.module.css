@@ -1,0 +1,53 @@
+/* Decorative mini window. Colours arrive as component-local --dsh-skin-pv-*
+ * properties set inline from the skin's own tokens. */
+
+.preview {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  height: 56px;
+  overflow: hidden;
+  border: 1px solid var(--dsh-skin-pv-border);
+  border-radius: 8px;
+  background-color: var(--dsh-skin-pv-bg);
+  background-image: var(--dsh-skin-pv-image, none);
+  background-size: cover;
+}
+
+.side {
+  flex: 0 0 22%;
+  background: var(--dsh-skin-pv-side);
+  border-right: 1px solid var(--dsh-skin-pv-border);
+}
+
+.main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+}
+
+.bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--dsh-skin-pv-text);
+  opacity: 0.85;
+}
+
+.short {
+  width: 60%;
+  background: var(--dsh-skin-pv-muted);
+}
+
+.accent {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--dsh-skin-pv-accent);
+}

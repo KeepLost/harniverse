@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The "IM 机器人" settings section: where a user connects Telegram and Feishu bots to Harniverse, watches their health, adjusts what each bot's conversations start with, and pairs the accounts allowed to talk to them. It is a browser-only plugin over the `chatBots` Remote of [`@deepseek-ai/dsh-chat-manager`](../../chat/chat-manager/README.md) (`ctx.remote.chatBots`); the node half registers no host behavior.
+The "IM 机器人" settings section: where a user connects Telegram and Feishu bots to Harniverse, watches their health, adjusts what each bot's conversations start with, and pairs the accounts allowed to talk to them. It is a browser-only plugin over the `chatBots` Remote of [`@deepseek-ai/dsh-chat-manager`](../../chat/chat-manager/README.md) (`ctx.remote.chatBots`); the node half registers no host behavior. The section registers its own nav glyph into the keyed `settings.nav.icon` slot under the section id `im`.
 
 ## Composition
 

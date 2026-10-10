@@ -17,9 +17,10 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (the settings invalidation rides the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-// Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' entry).
+// Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' and 'settings.nav.icon' entries).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { AgentPresetNavIcon } from './NavIcon.tsx'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
 import { AgentPresetRow } from './AgentPresetRow.tsx'
@@ -259,4 +260,8 @@ export function apply(ctx: ClientContext): void {
     locale: 'settings.agentPreset',
     inject: sectionInjected,
   }, AgentPresetSection))
+  ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
+    name: 'settings.nav.icon',
+    key: 'agent-presets',
+  }, AgentPresetNavIcon))
 }

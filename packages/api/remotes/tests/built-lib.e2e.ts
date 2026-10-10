@@ -312,7 +312,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const namespaces = [
         'commands', 'goals', 'dynamicCordisRunner', 'fileReferences', 'pluginInventory',
         'capabilityManagement', 'messageFeedback', 'sessionReferenceResolver', 'scheduler',
-        'governor', 'queue', 'remoteHosts', 'officialSessionImport',
+        'governor', 'queue', 'remoteHosts', 'officialSessionImport', 'skinLibrary',
       ]
       // The proxy also carries service metadata (ctx/name/namespace/methods) and
       // inherits the cordis Service unload path named remove -- that inherited

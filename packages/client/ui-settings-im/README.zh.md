@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-「IM 机器人」设置页：用户在这里把 Telegram、飞书机器人接入 Harniverse，查看它们的健康状况，调整每个机器人的会话起点，并为允许与机器人对话的账号配对。它是纯浏览器插件，建立在 [`@deepseek-ai/dsh-chat-manager`](../../chat/chat-manager/README.md) 的 `chatBots` Remote（`ctx.remote.chatBots`）之上；节点半不注册宿主行为。
+「IM 机器人」设置页：用户在这里把 Telegram、飞书机器人接入 Harniverse，查看它们的健康状况，调整每个机器人的会话起点，并为允许与机器人对话的账号配对。它是纯浏览器插件，建立在 [`@deepseek-ai/dsh-chat-manager`](../../chat/chat-manager/README.md) 的 `chatBots` Remote（`ctx.remote.chatBots`）之上；节点半不注册宿主行为。该分区以分区 id `im` 把自己的导航图标注册到带键的 `settings.nav.icon` slot。
 
 ## Composition
 

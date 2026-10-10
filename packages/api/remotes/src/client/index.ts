@@ -7,6 +7,7 @@ import dynamicRemote from '@deepseek-ai/dsh-cordis-host-runner/remote'
 import fileReferencesRemote from '@deepseek-ai/dsh-file-reference/remote'
 import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 import officialSessionImportRemote from '@deepseek-ai/dsh-host-official-session-import/remote'
+import skinLibraryRemote from '@deepseek-ai/dsh-host-skin-library/remote'
 import capabilityManagementRemote from '@deepseek-ai/dsh-host-capability-management/remote'
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
@@ -60,6 +61,25 @@ export type {} from '@deepseek-ai/dsh-goal/remote'
 export type {} from '@deepseek-ai/dsh-file-reference/remote'
 export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 export type {} from '@deepseek-ai/dsh-host-official-session-import/remote'
+export type {
+  ImportPackResult,
+  PutWallpaperResult,
+  SkinBackground,
+  SkinColorScheme,
+  SkinDefinition,
+  SkinGradientLayer,
+  SkinGradientStop,
+  SkinLibraryLimits,
+  SkinLibrarySnapshot,
+  SkinName,
+  SkinPackRejection,
+  SkinSource,
+  WallpaperContent,
+  WallpaperEntry,
+  WallpaperMime,
+  WallpaperRejectionReason,
+} from '@deepseek-ai/dsh-host-skin-library/types'
+export type {} from '@deepseek-ai/dsh-host-skin-library/remote'
 export type {} from '@deepseek-ai/dsh-host-capability-management/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 export type {} from '@deepseek-ai/dsh-session-reference/remote'
@@ -199,6 +219,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       fileReferencesRemote,
       pluginInventoryRemote,
       officialSessionImportRemote,
+      skinLibraryRemote,
       capabilityManagementRemote,
       messageFeedbackRemote,
       sessionReferencesRemote,

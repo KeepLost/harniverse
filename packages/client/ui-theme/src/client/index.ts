@@ -1,11 +1,13 @@
 /**
  * Browser theme registry over the `--dsw-*` token stylesheets. The service
- * owns the live theme preference (light/dark/system), resolves `system` through
- * `prefers-color-scheme`, and publishes immutable snapshots; it never touches
- * the DOM — ui-layout's presenter consumes the resolved snapshot. The Host
- * settings scope loads and stores the preference in the user-settings
- * document. The plugin also registers the Appearance preference row into the
- * settings General section — the theme feature owns its own settings surface.
+ * owns the live theme preference (light/dark/system or a registered theme id),
+ * resolves `system` through `prefers-color-scheme`, and publishes immutable
+ * snapshots; it never touches the DOM — ui-layout's presenter consumes the
+ * resolved snapshot. The Host settings scope loads and stores the preference
+ * in the user-settings document. The plugin also owns the Appearance settings
+ * section (color-mode and font-size rows plus the `settings.appearance.item`
+ * slot other features add rows to) — the theme feature owns its own settings
+ * surface.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
@@ -17,6 +19,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
+import { AppearanceSection } from './AppearanceSection.tsx'
+import { AppearanceNavIcon } from './NavIcon.tsx'
 import type { FontSizeRowInjected } from './FontSizeRow.tsx'
 import { FontSizeRow } from './FontSizeRow.tsx'
 import { createAppearanceRowStore, createFontSizeRowStore } from './settings-store.ts'
@@ -29,16 +33,17 @@ import {
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
 export type { FontSizeRowComponentProps, FontSizeRowInjected } from './FontSizeRow.tsx'
+export type { AppearanceSectionComponentProps } from './AppearanceSection.tsx'
 export type { AppearanceRowState, FontSizeRowState } from './settings-store.ts'
 export type { ThemeKey } from './locales.ts'
-export type { ContentFontSize, ThemePreference, ThemeSettings } from '../theme-settings.ts'
+export type { BuiltinThemePreference, ContentFontSize, ThemePreference, ThemeSettings } from '../theme-settings.ts'
 
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** The Appearance settings row's copy. */
+    /** The Appearance settings section's nav label and rows' copy. */
     'settings.theme': ThemeKey
   }
 }
@@ -76,7 +81,10 @@ export interface ThemeDefinition {
 
 /** Immutable theme state published on every change. */
 export interface ThemeSnapshot {
-  /** The persisted preference (may be `system`). */
+  /**
+   * The persisted preference: `system`, a built-in, or a registered theme id.
+   * An id whose theme is not currently registered resolves like `system`.
+   */
   preference: ThemePreference
   /** The persisted content font size in px (drives the body-published size axis). */
   fontSize: number
@@ -90,6 +98,14 @@ export interface ThemeSnapshot {
   themes: readonly ThemeDefinition[]
   /** Monotonic change counter (registry or active changes). */
   revision: number
+  /**
+   * Present (`true`) while the palette is not yet authoritative: the durable
+   * preference has not loaded, or it names a registered-theme id whose theme is
+   * not registered. `active` then holds the system fallback; a presenter that
+   * inherited a Host bootstrap paint keeps it instead of repainting the
+   * fallback, so the interval before the theme registers shows no flash.
+   */
+  pending?: true
 }
 
 /** One theme token exposed to pre-definition Cordis inspection. */
@@ -160,6 +176,8 @@ export class ThemeRuntime {
   private preference: ThemePreference
   private fontSize: number = DEFAULT_CONTENT_FONT_SIZE
   private revision = 0
+  /** Whether the durable section has been adopted at least once. */
+  private adopted = false
   private snapshot: ThemeSnapshot
   private readonly media: MediaQueryList | undefined
   /** Override layers by source; seq (monotonic) is the stacking order. */
@@ -181,7 +199,8 @@ export class ThemeRuntime {
     if (this.media !== undefined) {
       const media = this.media
       const onChange = (): void => {
-        if (this.preference !== 'system') return
+        // A registered theme paints regardless of the OS scheme.
+        if (this.themes.some(t => t.id === this.preference)) return
         this.publish()
       }
       ctx.effect(() => {
@@ -222,8 +241,9 @@ export class ThemeRuntime {
 
   /**
    * Switch the theme preference — the only user preference write entry.
-   * Built-in preferences are written through the settings scope and every
-   * accepted value emits `theme/change`.
+   * Ids matching {@link isThemePreference} (built-ins and namespaced theme
+   * ids) are written through the settings scope; every accepted value emits
+   * `theme/change`.
    * @param id - a registered theme id or `system`; unknown ids throw.
    */
   setTheme(id: string): void {
@@ -231,7 +251,7 @@ export class ThemeRuntime {
       throw new Error(`theme "${id}" is not registered`)
     }
     if (this.preference === id) return
-    this.preference = id as ThemePreference
+    this.preference = id
     if (isThemePreference(id)) void this.host.set(THEME_PREFERENCE_FIELD, id)
     this.publish()
   }
@@ -256,7 +276,8 @@ export class ThemeRuntime {
   private adopt(): void {
     const section = this.host.getSnapshot().value
     if (section === undefined) return
-    let changed = false
+    let changed = !this.adopted
+    this.adopted = true
     if (this.preference !== section.preference) {
       this.preference = section.preference
       changed = true
@@ -273,8 +294,8 @@ export class ThemeRuntime {
    * built-in pair counts; `system` is a preference, not a registrable id).
    * @param definition - theme id, colorScheme, and alias-token overrides.
    * @returns disposer. Disposing the theme backing the active preference
-   * resets the preference to the default so the UI never keeps tokens of an
-   * unregistered theme.
+   * keeps the preference (the theme resumes when its owner registers it
+   * again) and renders the system palette meanwhile.
    */
   register(definition: ThemeDefinition): () => void {
     if (definition.id === 'system') throw new Error('"system" is a preference, not a registrable theme id')
@@ -286,9 +307,6 @@ export class ThemeRuntime {
     return () => {
       if (!this.themes.some(t => t.id === definition.id)) return
       this.themes = this.themes.filter(t => t.id !== definition.id)
-      if (this.preference === definition.id) {
-        this.preference = DEFAULT_PREFERENCE
-      }
       this.publish()
     }
   }
@@ -321,20 +339,21 @@ export class ThemeRuntime {
   }
 
   private buildSnapshot(): ThemeSnapshot {
-    const resolvedId = this.preference === 'system'
-      ? (this.media?.matches === true ? 'dark' : 'light')
-      : this.preference
-    // Both built-ins always exist; a registered preference id resolves or has
-    // been reset by its disposer, so the lookup cannot miss.
+    // A preference naming a theme that is not registered renders as `system`.
+    const registered = this.themes.find(t => t.id === this.preference)
+    const resolvedId = registered?.id ?? (this.media?.matches === true ? 'dark' : 'light')
+    // Both built-ins always exist, so the resolved id always names a theme.
     const active = this.themes.find(t => t.id === resolvedId)
     /* v8 ignore next 2 -- needs a registry without light/dark, which register()/dispose() cannot produce */
     if (active === undefined) throw new Error(`theme registry lost "${resolvedId}"`)
+    const pending = !this.adopted || (registered === undefined && this.preference !== 'system')
     return Object.freeze({
       preference: this.preference,
       fontSize: this.fontSize,
       active: this.composeActive(active),
       themes: Object.freeze([...this.themes]),
       revision: this.revision,
+      ...(pending ? { pending: true as const } : {}),
     })
   }
 
@@ -409,8 +428,8 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope
 
 /**
  * Client plugin body: provide the theme service and register the
- * feature-owned Appearance and font-size preference rows into the General
- * section's item slot (a feature owns its settings surface).
+ * feature-owned Appearance settings section with its color-mode and font-size
+ * rows (a feature owns its settings surface).
  * @param ctx - client cordis context.
  */
 export function apply(ctx: ClientContext): void {
@@ -419,6 +438,7 @@ export function apply(ctx: ClientContext): void {
   ctx.provide('theme', theme)
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')
+  const t = ctx.locale.bind(SETTINGS_NS)
 
   const appearanceStore = createAppearanceRowStore()
   const fontSizeStore = createFontSizeRowStore()
@@ -445,16 +465,29 @@ export function apply(ctx: ClientContext): void {
       setContentFontSize: (px) => { theme.setContentFontSize(px) },
     }
   }
-  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-    name: 'settings.general.item',
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'appearance',
+    // Right after General (0): how the product looks precedes what it connects to.
+    order: 5,
+    label: () => t('section.nav'),
+    locale: SETTINGS_NS,
+    children: { 'settings.appearance.item': { kind: 'list', scope: 'root' } },
+  }, AppearanceSection))
+  ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
+    name: 'settings.nav.icon',
+    key: 'appearance',
+  }, AppearanceNavIcon))
+  ctx.slots.inject('settings.appearance.item', () => ctx.slots.register({
+    name: 'settings.appearance.item',
     id: 'appearance',
     order: 10,
     store: appearanceStore,
     locale: SETTINGS_NS,
     inject: injectedAppearance,
   }, AppearanceRow))
-  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-    name: 'settings.general.item',
+  ctx.slots.inject('settings.appearance.item', () => ctx.slots.register({
+    name: 'settings.appearance.item',
     id: 'font-size',
     order: 20,
     store: fontSizeStore,

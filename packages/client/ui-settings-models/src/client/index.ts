@@ -10,13 +10,14 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-// Type-only: pulls the shell's SlotMap merge (the 'settings.section' entry).
+// Type-only: pulls the shell's SlotMap merge (the 'settings.section' and 'settings.nav.icon' entries).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (settings/credentials invalidations ride the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import { ModelsNavIcon } from './NavIcon.tsx'
 import { ModelsSection } from './ModelsSection.tsx'
 import { ModelPolicySection } from './ModelPolicySection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
@@ -121,6 +122,11 @@ export function apply(ctx: ClientContext): void {
     label: () => t('nav'),
     inject: injected,
   }, ModelsSection))
+  // The policy page (`model-policy`) registers no glyph and shows the shell's gear.
+  ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
+    name: 'settings.nav.icon',
+    key: 'models',
+  }, ModelsNavIcon))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'model-policy',

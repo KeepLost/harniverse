@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-10-custom-skins.md
+2026-10-10-custom-skins.md: 9ee394c8b2399aabe3e7eb190950c963ee6f61b4
+2026-10-10-custom-skins.zh.md: a05b6ca051d1f89ca1752123594c87709bcfd45b

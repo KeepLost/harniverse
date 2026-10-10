@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SettingsRootComponentProps } from '../src/client/shell-contract.ts'
 import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
@@ -30,14 +31,24 @@ function mount({
     { id: 'welcome', order: -100 },
     { id: 'credential', order: 0 },
   ],
-}: { wide?: boolean; onboardingActive?: boolean; rows?: Row[]; steps?: Step[] } = {}) {
+  glyphs = {},
+}: {
+  wide?: boolean
+  onboardingActive?: boolean
+  rows?: Row[]
+  steps?: Step[]
+  /** Contributed `settings.nav.icon` content by section id; absent ids render the shell's fallback. */
+  glyphs?: Record<string, ReactNode>
+} = {}) {
   // Mutable row source standing in for the bound useSections hook; bump()
   // plays a ledger change through the same observable contract.
   let current = rows
   const listeners = new Set<() => void>()
   const renderSlot = vi.fn(
-    ((key: string, _owner: unknown, opts?: { only?: string }) => {
+    ((key: string, _owner: unknown, opts?: { only?: string; entryKey?: string; fallback?: ReactNode }) => {
       if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`} />
+      // Keyed dispatch as the renderer does it: the entry for the key, else the owner's fallback.
+      if (key === 'settings.nav.icon') return glyphs[opts?.entryKey ?? ''] ?? opts?.fallback
       return SEAT_CONTENT[key]
     }) as SettingsRootComponentProps['renderSlot'],
   )
@@ -170,27 +181,34 @@ describe('SettingsPanel navigation', () => {
     expect(screen.getByTestId('section-general')).toBeTruthy()
   })
 
-  it('gives every section a nav glyph, distinct for the ids the shell knows', () => {
-    mount({
+  it('draws each nav glyph through the keyed seat and falls back to the settings gear', () => {
+    const { renderSlot } = mount({
       rows: [
         { id: 'general', order: 0, label: 'General' },
         { id: 'models', order: 10, label: 'Models' },
-        { id: 'agent-presets', order: 20, label: 'Agent presets' },
-        { id: 'im', order: 21, label: 'IM bots' },
-        { id: 'plugins', order: 30, label: 'Plugins' },
         { id: 'contributed', order: 40, label: 'Contributed' },
       ],
+      glyphs: { models: <svg data-testid="models-glyph" width="16" height="16" /> },
     })
     openPanel()
-    // Glyphs carry no id of their own, so the drawn paths are what tells them apart.
-    const glyphs = ['General', 'Models', 'Agent presets', 'IM bots', 'Plugins', 'Contributed']
-      .map(name => screen.getByRole('button', { name }).querySelector('svg')?.innerHTML)
 
-    expect(glyphs.every(glyph => glyph !== undefined && glyph !== '')).toBe(true)
-    // The four ids the shell names get their own glyph; every other section —
-    // including one this package never heard of — shares the gear.
-    expect(new Set(glyphs.slice(0, 5)).size).toBe(5)
-    expect(glyphs[5]).toBe(glyphs[0])
+    // One keyed dispatch per row, addressed by the section id, with no owner props.
+    const dispatched = renderSlot.mock.calls.filter(call => call[0] === 'settings.nav.icon')
+    expect(dispatched.map(call => (call[2] as { entryKey?: string }).entryKey)).toEqual(['general', 'models', 'contributed'])
+    expect(dispatched.every(call => Object.keys(call[1]).length === 0)).toBe(true)
+
+    // The contributed glyph replaces the fallback inside its own nav button only.
+    const modelsButton = screen.getByRole('button', { name: 'Models' })
+    expect(modelsButton.querySelector('[data-testid="models-glyph"]')).toBeTruthy()
+    expect(modelsButton.querySelectorAll('svg')).toHaveLength(1)
+
+    // Sections with no contribution — including ids nobody registered — share the 16px gear.
+    const gearOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')
+    const gear = gearOf('General')
+    expect(gear?.getAttribute('width')).toBe('16')
+    expect(gear?.innerHTML).not.toBe('')
+    expect(gearOf('Contributed')?.innerHTML).toBe(gear?.innerHTML)
+    expect(gear?.innerHTML).not.toBe(modelsButton.querySelector('svg')?.innerHTML)
   })
 
   it('switches the rendered section on nav click', () => {

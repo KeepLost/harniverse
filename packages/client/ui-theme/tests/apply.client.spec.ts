@@ -1,6 +1,7 @@
 /** ui-theme apply wiring: service provision, settings dictionaries riding the
- * locale service, declaration-aware Appearance row registration, snapshot
- * projection into the row store, and HMR collapse recovery. */
+ * locale service, the declaration-aware Appearance section (entry, nav glyph,
+ * and the color-mode and font-size rows it declares), snapshot projection into
+ * the row store, and HMR collapse recovery. */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
@@ -14,14 +15,18 @@ import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/cli
 import type { AppearanceRowInjected, FontSizeRowInjected, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
+import { AppearanceSection } from '../src/client/AppearanceSection.tsx'
 import { FontSizeRow } from '../src/client/FontSizeRow.tsx'
+import { AppearanceNavIcon } from '../src/client/NavIcon.tsx'
 import type { createAppearanceRowStore, createFontSizeRowStore } from '../src/client/settings-store.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
 usePinnedBrowserLanguages('zh-CN')
 
-const SLOT = 'settings.general.item'
+const SLOT = 'settings.appearance.item'
+const SECTION_SLOT = 'settings.section'
+const ICON_SLOT = 'settings.nav.icon'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -72,10 +77,13 @@ async function bench(isLoopback = true) {
   }
 }
 
-/** Stand in for the settings shell: declare the General item slot from root. */
+/** Stand in for the settings shell: declare the section list and nav glyph slots from root. */
 function declareItems(slots: SlotRegistry): () => void {
   return slots.register(
-    { name: 'root', children: { [SLOT]: { kind: 'list', scope: 'root' } } } as never,
+    {
+      name: 'root',
+      children: { [SECTION_SLOT]: { kind: 'list', scope: 'root' }, [ICON_SLOT]: { kind: 'keyed', scope: 'root' } },
+    } as never,
     () => null,
   )
 }
@@ -99,19 +107,26 @@ describe('ui-theme apply', () => {
     const before = await bench()
     declareItems(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
-    expect(before.locale.bind(SETTINGS_NS)('appearance.title')).toBe('外观')
+    expect(before.locale.bind(SETTINGS_NS)('appearance.title')).toBe('颜色模式')
+    expect(before.locale.bind(SETTINGS_NS)('section.nav')).toBe('外观')
+    const section = before.slots.entries(SECTION_SLOT).find(e => e.component === AppearanceSection)!
+    expect(section.options).toMatchObject({ id: 'appearance', order: 5 })
+    expect((section.options as { label: () => string }).label()).toBe('外观')
     before.locale.setLocale('en')
-    expect(before.locale.bind(SETTINGS_NS)('appearance.title')).toBe('Appearance')
+    expect(before.locale.bind(SETTINGS_NS)('appearance.title')).toBe('Color mode')
+    expect((section.options as { label: () => string }).label()).toBe('Appearance')
     const entry = before.slots.entries(SLOT).find(e => e.component === AppearanceRow)!
     expect(entry.options).toMatchObject({ id: 'appearance', order: 10 })
+    expect(before.slots.entries(ICON_SLOT).find(e => e.component === AppearanceNavIcon)!.options)
+      .toMatchObject({ key: 'appearance' })
 
     const after = await bench()
     const fiber = after.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
+    expect(after.slots.entries(SECTION_SLOT)).toHaveLength(0)
     expect(after.slots.entries(SLOT)).toHaveLength(0)
     declareItems(after.slots)
-    await Promise.resolve()
-    expect(after.slots.entries(SLOT).some(e => e.component === AppearanceRow)).toBe(true)
+    await vi.waitFor(() => { expect(after.slots.entries(SLOT).some(e => e.component === AppearanceRow)).toBe(true) })
   })
 
   it('projects service snapshots into the row store and routes face writes back', async () => {
@@ -140,6 +155,7 @@ describe('ui-theme apply', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const theme = b.ctx.get('theme') as ThemeRuntime
 
+    await vi.waitFor(() => { expect(b.slots.entries(SLOT).some(e => e.component === FontSizeRow)).toBe(true) })
     const entry = b.slots.entries(SLOT).find(e => e.component === FontSizeRow)!
     expect(entry.options).toMatchObject({ id: 'font-size', order: 20 })
     expect(entry.locale).toBe(SETTINGS_NS)
@@ -208,16 +224,18 @@ describe('ui-theme apply', () => {
     const b = await bench()
     const host = declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries(SECTION_SLOT)).toHaveLength(1)
     expect(b.slots.entries(SLOT)).toHaveLength(2)
 
-    // Collapse: the declarer dies, the cascade removes our entry while the
-    // apply closure still holds its (now stale) disposer.
+    // Collapse: the declarer dies, the cascade removes the section and, with
+    // its declaration, the rows while the apply closure still holds its (now
+    // stale) disposers.
     host()
+    expect(b.slots.entries(SECTION_SLOT)).toHaveLength(0)
     expect(b.slots.entries(SLOT)).toHaveLength(0)
 
     declareItems(b.slots)
-    await Promise.resolve()
-    expect(b.slots.entries(SLOT).some(e => e.component === AppearanceRow)).toBe(true)
+    await vi.waitFor(() => { expect(b.slots.entries(SLOT).some(e => e.component === AppearanceRow)).toBe(true) })
   })
 
   it('teardown removes the row and the dictionaries; teardown without a declaration is quiet', async () => {
@@ -227,6 +245,8 @@ describe('ui-theme apply', () => {
     await fiber.await()
     expect(b.slots.entries(SLOT)).toHaveLength(2)
     await fiber.dispose()
+    expect(b.slots.entries(SECTION_SLOT)).toHaveLength(0)
+    expect(b.slots.entries(ICON_SLOT)).toHaveLength(0)
     expect(b.slots.entries(SLOT)).toHaveLength(0)
     // Dictionary disposal: translation falls back to the bare key.
     expect(b.locale.bind(SETTINGS_NS)('appearance.title')).toBe('appearance.title')

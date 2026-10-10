@@ -14,6 +14,7 @@ import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-t
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-agent-preset/client'
+import { AgentPresetNavIcon } from '../src/client/NavIcon.tsx'
 import { AgentPresetLabel } from '../src/client/AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from '../src/client/AgentPresetLabel.tsx'
 import { AgentPresetRow } from '../src/client/AgentPresetRow.tsx'
@@ -145,6 +146,7 @@ function declareRoot(slots: SlotRegistry): () => void {
     children: {
       'settings.general.item': { kind: 'list', scope: 'root' },
       'settings.section': { kind: 'list', scope: 'root' },
+      'settings.nav.icon': { kind: 'keyed', scope: 'root' },
       conversation: { kind: 'single', scope: 'root' },
     },
   } as never, () => null)
@@ -212,6 +214,16 @@ describe('ui-agent-preset apply', () => {
     expect(resolveSlotLabel(section.options.label)).toBe('Agent 预设')
   })
 
+  it('owns the nav glyph of the agent-presets section id', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+
+    await ctx.plugin({ inject: [...inject], apply }).await()
+
+    expect(slots.entries('settings.nav.icon').map(e => [e.options.key, e.component]))
+      .toEqual([['agent-presets', AgentPresetNavIcon]])
+  })
+
   it('registers into a declaration that arrives after apply', async () => {
     const { ctx, slots } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
@@ -219,6 +231,7 @@ describe('ui-agent-preset apply', () => {
     declareRoot(slots)
 
     await vi.waitFor(() => { expect(slots.entries('settings.section')).toHaveLength(1) })
+    await vi.waitFor(() => { expect(slots.entries('settings.nav.icon')).toHaveLength(1) })
   })
 
   it('hands each surface its own store and actions', async () => {
@@ -348,10 +361,12 @@ describe('ui-agent-preset apply', () => {
     const label = slots.entries('conversation.session.header.actions')[0]!
     expect(label.component).toBe(AgentPresetLabel)
     expect(label.options).toMatchObject({ id: 'agent-preset', order: -10 })
+    expect(slots.entries('settings.nav.icon')).toHaveLength(1)
     await fiber.dispose()
     expect(slots.entries('conversation.hero.agentPreset')).toHaveLength(0)
     expect(slots.entries('conversation.session.header.actions')).toHaveLength(0)
     expect(slots.entries('settings.section')).toHaveLength(0)
+    expect(slots.entries('settings.nav.icon')).toHaveLength(0)
     conversation()
   })
 

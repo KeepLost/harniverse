@@ -16,6 +16,7 @@ import type { ChatBotView, ChatBotsSnapshot } from '@deepseek-ai/dsh-api-remotes
 import type { ChatBotsRemote } from '../src/client/controller.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { en, zh } from '../src/client/locales.ts'
+import { ImNavIcon } from '../src/client/NavIcon.tsx'
 import { apply as hostApply } from '../src/index.ts'
 import * as Invariant from '../src/invariant.ts'
 
@@ -86,7 +87,10 @@ async function assemble(remote: ReturnType<typeof remoteDouble>, api = apiDouble
   runtime.provide('locale', locale)
   runtime.slots.installLocale(locale)
   const plugin = await runtime.mount({ apply, inject })
-  await runtime.declare({ 'settings.section': { kind: 'list', scope: 'root' } })
+  await runtime.declare({
+    'settings.section': { kind: 'list', scope: 'root' },
+    'settings.nav.icon': { kind: 'keyed', scope: 'root' },
+  })
   return { runtime, locale, plugin, api }
 }
 
@@ -105,6 +109,12 @@ describe('ui-settings-im apply', () => {
     expect(label()).toBe(zh.nav)
     await act(async () => { locale.setLocale('en') })
     expect(label()).toBe(en.nav)
+  })
+
+  it('owns the nav glyph of its section id', async () => {
+    const { runtime } = await assemble(remoteDouble())
+    expect(runtime.slots.entries('settings.nav.icon').map(e => [e.options.key, e.component]))
+      .toEqual([['im', ImNavIcon]])
   })
 
   it('renders the section from the host snapshot and drives a mutation end to end', async () => {
@@ -155,15 +165,19 @@ describe('ui-settings-im apply', () => {
   it('withdraws the section with the plugin', async () => {
     const { runtime, plugin } = await assemble(remoteDouble())
     expect(runtime.slots.entries('settings.section')).toHaveLength(1)
+    expect(runtime.slots.entries('settings.nav.icon')).toHaveLength(1)
     await plugin.dispose()
     expect(runtime.slots.entries('settings.section')).toHaveLength(0)
+    expect(runtime.slots.entries('settings.nav.icon')).toHaveLength(0)
   })
 
   it('waits for the settings declaration and joins when it appears', async () => {
     const { slots } = await bare()
     expect(slots.entries('settings.section')).toHaveLength(0)
+    expect(slots.entries('settings.nav.icon')).toHaveLength(0)
     declareSettings(slots)
     expect(slots.entries('settings.section')).toHaveLength(1)
+    expect(slots.entries('settings.nav.icon')).toHaveLength(1)
   })
 
   it('offers no native picker when the workspaces service has none', async () => {
@@ -194,7 +208,10 @@ async function bare() {
 function declareSettings(slots: SlotRegistry): void {
   slots.register({
     name: 'root',
-    children: { 'settings.section': { kind: 'list', scope: 'root' } },
+    children: {
+      'settings.section': { kind: 'list', scope: 'root' },
+      'settings.nav.icon': { kind: 'keyed', scope: 'root' },
+    },
   } as never, () => null)
 }
 

@@ -147,7 +147,11 @@
   background: var(--dsw-specific-sidebar-nav-item-active);
 }
 
+/* Seat of the section's `settings.nav.icon` glyph: a block flex box so the
+   contributed svg is the only box inside (no inline baseline gap) and never
+   shrinks against the label. */
 .navIcon {
+  display: flex;
   flex: none;
 }
 

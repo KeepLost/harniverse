@@ -15,7 +15,7 @@
   gap: 0;
   border: 1px solid var(--dsw-alias-border-inverted);
   border-radius: 12px;
-  background: var(--dsw-specific-menu);
+  background: var(--dsw-surface-popover);
   box-shadow: var(--dsw-shadow-lv3);
   /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens. The
      declaration sits on the card rather than on `.scrollable .viewport`
@@ -26,7 +26,10 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
-/* Primary card is 218 wide in the design across both hosts. */
+/* Primary card is 218 wide in the design across both hosts. The popover
+ * material (--dsw-material-popover-filter) sits on this card only: a submenu
+ * is its descendant, and a nested backdrop-filter would see only the parent's
+ * own painting, so the side card takes the fill alone. */
 .list {
   position: absolute;
   top: calc(100% + 4px);
@@ -34,6 +37,7 @@
   z-index: 100;
   min-width: 218px;
   max-width: 360px;
+  backdrop-filter: var(--dsw-material-popover-filter);
 }
 
 /* Portal mode: fixed in the viewport, coordinates supplied inline from the

@@ -31,6 +31,8 @@ const selectedSessionBlank = { current: false }
 const selectedSessionCwd = { current: '/projects/test' }
 const baselinesReady = { current: true }
 const workspaceItems = { current: [] as WorkspaceView[] }
+// Occupancy of the `shell.backdrop` slot, as the apply world's hooks source reports it.
+const backdropOccupied = { current: false }
 const t: AppFrameProps['t'] = makeTranslate(zh, commonZh)
 
 // Render-prop contract stub fed through the standard seat prop (the renderer
@@ -71,6 +73,7 @@ function mountFrame() {
     if (key === 'details') return <div data-testid="details-content" />
     if (key === 'workbench') return <div data-testid="workbench-content"><button type="button">Workbench first</button><div style={{ display: 'none' }}><button type="button">Workbench hidden</button></div><button type="button">Workbench last</button></div>
     if (key === 'conversation.empty') return <div data-testid="empty-content" />
+    if (key === 'shell.backdrop') return <div data-testid="backdrop-content" />
     return <div data-testid="other-content" />
   }) as AppFrameProps['renderSlot']
   const useSessions = ((sel: (s: SessionListState) => unknown) => {
@@ -97,6 +100,7 @@ function mountFrame() {
       renderSlot={renderSlot}
       useSessions={useSessions}
       useWorkspaces={useWorkspaces}
+      useBackdropOccupied={selector => selector(backdropOccupied.current)}
       SessionProvider={SessionProviderStub}
       t={t}
     />
@@ -129,6 +133,7 @@ beforeEach(() => {
   selectedSessionCwd.current = '/projects/test'
   baselinesReady.current = true
   workspaceItems.current = []
+  backdropOccupied.current = false
   vi.useFakeTimers()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => { cb(0) }, 16) as unknown as number)
@@ -782,6 +787,38 @@ describe('AppFrame — guard branches', () => {
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     // Track template still reflects the last non-zero viewport.
     expect(tracks(frame)).toEqual([280, 0])
+  })
+})
+
+describe('AppFrame — shell.backdrop layer', () => {
+  it('leaves the frame DOM untouched while no contributor occupies the slot', () => {
+    const { frame, slotCalls } = mountFrame()
+    // The sidebar column is still the first child: no wrapper, no frame flag.
+    expect(frame.firstElementChild?.getAttribute('class')).toContain('sidebarCol')
+    expect(frame.hasAttribute('data-backdrop')).toBe(false)
+    expect(slotCalls.map(call => call.key)).not.toContain('shell.backdrop')
+  })
+
+  it('renders an aria-hidden wrapper as the first child once a contributor occupies the slot', () => {
+    backdropOccupied.current = true
+    const { frame, slotCalls, getByTestId } = mountFrame()
+    const wrapper = frame.firstElementChild as HTMLElement
+    expect(wrapper.getAttribute('aria-hidden')).toBe('true')
+    expect(wrapper.contains(getByTestId('backdrop-content'))).toBe(true)
+    expect(wrapper.nextElementSibling?.getAttribute('class')).toContain('sidebarCol')
+    expect(frame.hasAttribute('data-backdrop')).toBe(true)
+    expect(slotCalls.find(call => call.key === 'shell.backdrop')?.props).toEqual({})
+  })
+
+  it('withdraws the wrapper and the frame flag when the last contributor leaves', () => {
+    backdropOccupied.current = true
+    const { frame, rerenderFrame, queryByTestId } = mountFrame()
+    expect(queryByTestId('backdrop-content')).not.toBeNull()
+    backdropOccupied.current = false
+    act(() => { rerenderFrame() })
+    expect(queryByTestId('backdrop-content')).toBeNull()
+    expect(frame.hasAttribute('data-backdrop')).toBe(false)
+    expect(frame.firstElementChild?.getAttribute('class')).toContain('sidebarCol')
   })
 })
 

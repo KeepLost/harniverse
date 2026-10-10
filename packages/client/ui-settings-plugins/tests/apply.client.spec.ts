@@ -14,6 +14,7 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-plugins/clien
 import type {
   ConfigurablePluginsTabInjected, PluginsSettingsSectionInjected,
 } from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+import { PluginsNavIcon } from '../src/client/NavIcon.tsx'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -47,7 +48,10 @@ async function bench() {
 function declareRoot(slots: SlotRegistry): () => void {
   return slots.register({
     name: 'root',
-    children: { 'settings.section': { kind: 'list', scope: 'root' } },
+    children: {
+      'settings.section': { kind: 'list', scope: 'root' },
+      'settings.nav.icon': { kind: 'keyed', scope: 'root' },
+    },
   } as never, () => null)
 }
 
@@ -71,6 +75,16 @@ describe('ui-settings-plugins apply', () => {
     expect(tab.options).toMatchObject({ id: 'configurable', order: 0 })
     expect(resolveSlotLabel(tab.options.label)).toBe('插件配置')
     expect(slots.spec('settings.plugin.item')).toMatchObject({ kind: 'list', scope: 'root' })
+  })
+
+  it('owns the nav glyph of the Plugins section id', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+
+    await ctx.plugin({ inject: [...inject], apply }).await()
+
+    expect(slots.entries('settings.nav.icon').map(e => [e.options.key, e.component]))
+      .toEqual([['plugins', PluginsNavIcon]])
   })
 
   it('registers one card per host-plane section it ships, in a stable order', async () => {
@@ -174,6 +188,7 @@ describe('ui-settings-plugins apply', () => {
     declareRoot(slots)
 
     await vi.waitFor(() => { expect(slots.entries('settings.section')).toHaveLength(1) })
+    await vi.waitFor(() => { expect(slots.entries('settings.nav.icon')).toHaveLength(1) })
   })
 
   it('collapses every contribution on teardown', async () => {
@@ -186,6 +201,7 @@ describe('ui-settings-plugins apply', () => {
     await fiber.dispose()
 
     expect(slots.entries('settings.section')).toHaveLength(0)
+    expect(slots.entries('settings.nav.icon')).toHaveLength(0)
     expect(slots.spec('settings.plugins.tab')).toBeUndefined()
     expect(slots.spec('settings.plugin.item')).toBeUndefined()
   })

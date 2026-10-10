@@ -228,6 +228,7 @@ Source files that were ported or derived from other MIT-licensed projects withou
 | --- | --- | --- | --- |
 | [`dsh-im`](https://github.com/xmanrui/dsh-im) | MIT, Copyright (c) 2026 xmanrui | the Telegram Bot API client and update normalization, the Feishu long-connection wiring, and the throttled editable message stream of the chat bridge | [`packages/chat/chat-adapter-telegram/src/api.ts`](packages/chat/chat-adapter-telegram/src/api.ts)<br>[`packages/chat/chat-adapter-telegram/src/normalize.ts`](packages/chat/chat-adapter-telegram/src/normalize.ts)<br>[`packages/chat/chat-adapter-feishu/src/runtime.ts`](packages/chat/chat-adapter-feishu/src/runtime.ts)<br>[`packages/chat/chat-bridge/src/render.ts`](packages/chat/chat-bridge/src/render.ts) |
 | [`@larksuiteoapi/node-sdk`](https://github.com/larksuite/node-sdk) | MIT | the `pbbp2.Frame` message layout and the long-connection protocol that the Feishu adapter implements without depending on the SDK | [`packages/chat/chat-adapter-feishu/src/frame.ts`](packages/chat/chat-adapter-feishu/src/frame.ts)<br>[`packages/chat/chat-adapter-feishu/src/runtime.ts`](packages/chat/chat-adapter-feishu/src/runtime.ts) |
+| [`dsh-dream-skin`](https://github.com/RevolutionLA/dsh-dream-skin) | MIT, Copyright (c) 2026 dsh-dream-skin contributors | the eight built-in skin palettes, remapped onto the Harniverse skinnable-token allowlist, and the pack envelope the library still accepts | [`packages/host/skin-library/src/palette.ts`](packages/host/skin-library/src/palette.ts) |
 
 ## First-party native packages
 

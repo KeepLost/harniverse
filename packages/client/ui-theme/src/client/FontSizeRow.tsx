@@ -1,8 +1,8 @@
 /**
- * Font-size preference row registered into the General section item slot:
+ * Font-size preference row registered into the Appearance section item slot:
  * title + one compact segmented control of the three content font-size tiers
  * (小 14 / 中 16 / 大 18 px). Registered by this package — the theme feature
- * owns the content font-size setting the same way it owns the appearance
+ * owns the content font-size setting the same way it owns the color-mode
  * preference. Selection follows the persisted setting, never the click echo.
  */
 import clsx from 'clsx'
@@ -21,7 +21,7 @@ export interface FontSizeRowInjected {
 
 /** Full component props: runtime share + store share + locale seat + injected face. */
 export type FontSizeRowComponentProps =
-  PropsRuntime<'settings.general.item'> & PropsStore<ReturnType<typeof createFontSizeRowStore>>
+  PropsRuntime<'settings.appearance.item'> & PropsStore<ReturnType<typeof createFontSizeRowStore>>
   & PropsLocale<'settings.theme'> & FontSizeRowInjected
 
 /** Tier order and copy keys; the px value is the persisted setting itself. */

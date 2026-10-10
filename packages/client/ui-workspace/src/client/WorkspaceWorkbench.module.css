@@ -7,7 +7,11 @@
  * Navigation sections are peer tabs along the top edge. The document region is
  * NOT part of this column: preview is a separate surface (see
  * WorkbenchPreview.module.css) that slides in from the left over the
- * conversation, because opening a file moves attention to file content. */
+ * conversation, because opening a file moves attention to file content.
+ *
+ * The workbench paints no surface of its own: the layout's details column
+ * wrapper owns it (--dsw-surface-pane, opaque in drawer mode), so a
+ * translucent surface is applied once rather than stacked twice. */
 
 .root {
   container: workbench / inline-size;
@@ -17,7 +21,6 @@
   min-width: 0;
   min-height: 0;
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-base);
   font: var(--dsw-font-xs-13);
   /* The navigation scrolls past the elevated Git selector and inherits the
      selector's l2 surface family for a consistent scrollbar pair. */
@@ -144,7 +147,6 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  background: var(--dsw-alias-bg-base);
 }
 
 .navigatorBody {

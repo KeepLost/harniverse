@@ -114,16 +114,22 @@ function aliasDefinitions(dark: boolean): Map<string, string> {
 }
 
 describe('design-platform.css link token', () => {
-  it('defines --dsw-alias-link in both palettes at the brand-blue rungs', () => {
-    expect(aliasDefinitions(false).get(LINK_TOKEN)).toBe('var(--dsw-static-deepseek-500)')
-    expect(aliasDefinitions(true).get(LINK_TOKEN)).toBe('var(--dsw-static-deepseek-400)')
+  it('points --dsw-alias-link at the accent in both palettes', () => {
+    expect(aliasDefinitions(false).get(LINK_TOKEN)).toBe('var(--dsw-accent)')
+    expect(aliasDefinitions(true).get(LINK_TOKEN)).toBe('var(--dsw-accent)')
   })
 
-  it('resolves the link token to a static scale value, not to another alias', () => {
-    // The alias layer is the only indirection in the token sheet: an alias
-    // pointing at a second alias makes the dark override order-dependent.
+  it('defines the accent at the brand-blue rungs in both palettes', () => {
+    expect(aliasDefinitions(false).get('--dsw-accent')).toBe('var(--dsw-static-deepseek-500)')
+    expect(aliasDefinitions(true).get('--dsw-accent')).toBe('var(--dsw-static-deepseek-400)')
+  })
+
+  it('resolves the accent to a static scale value, not to another alias', () => {
+    // The alias layer is the only indirection in the token sheet: the accent
+    // is a seam a skin rebinds, so it reads the static scale directly and an
+    // alias reading it adds no second hop.
     for (const definitions of [aliasDefinitions(false), aliasDefinitions(true)]) {
-      for (const reference of varReferences(definitions.get(LINK_TOKEN) ?? '')) {
+      for (const reference of varReferences(definitions.get('--dsw-accent') ?? '')) {
         expect(reference).toMatch(/^--dsw-static-/)
       }
     }

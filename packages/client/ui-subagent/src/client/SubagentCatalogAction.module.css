@@ -55,7 +55,8 @@
   padding: 4px;
   overflow: auto;
   border-radius: 12px;
-  background: var(--dsw-specific-menu);
+  background: var(--dsw-surface-popover);
+  backdrop-filter: var(--dsw-material-popover-filter);
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
   box-shadow: var(--dsw-shadow-lv3);

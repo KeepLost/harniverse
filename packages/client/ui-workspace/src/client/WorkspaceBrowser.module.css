@@ -299,25 +299,11 @@
   padding-left: 0;
 }
 
-/* Relative for the bottom fade overlay. */
 .treeBody {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  position: relative;
-}
-
-/* Bottom fade: compact overlay pinned to the visible bottom,
-   transparent -> sidebar fill so it tracks the theme. */
-.fade {
-  position: absolute;
-  left: 0;
-  right: var(--dsh-session-list-edge-inset);
-  bottom: 0;
-  height: 24px;
-  background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
-  pointer-events: none;
 }
 
 /* Wide-only content fades back in on expand remount (mirrors the shell). */
@@ -345,10 +331,20 @@
     - var(--dsh-session-list-scrollbar-width)
     - var(--dsh-session-list-scrollbar-offset)
   );
-  /* Clears the compact bottom fade overlay: at scroll end the last row sits
-     above the gradient instead of under it. */
+  /* Clears the bottom fade: at scroll end the last row sits above it. */
   padding-bottom: 16px;
   scrollbar-gutter: stable;
+  /* Bottom fade: the rows dissolve into whatever the sidebar paints behind
+     them, so it tracks the theme and any skin, including a translucent one
+     (a fill painted over the rows would stack on the sidebar's own fill and
+     darken a translucent column). The second layer keeps the scrollbar
+     strip, the part of the list that the right inset leaves, unfaded. */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent), linear-gradient(#000, #000);
+  mask-size:
+    calc(100% - var(--dsh-session-list-edge-inset) + var(--dsh-session-list-scrollbar-offset)) 100%,
+    calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-offset)) 100%;
+  mask-position: 0 0, 100% 0;
+  mask-repeat: no-repeat;
 }
 
 .flatList > * + *,

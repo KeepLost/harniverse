@@ -6,14 +6,15 @@
  * renders HERE with live parameters from the concession solve, and the
  * session-aware occupants render in fixed column positions; strict entries
  * gate themselves on current-session availability while session-maybe
- * entries retain identity. Pure component: everything arrives
- * through the three framework shares — zero cordis or framework imports,
- * zero self-made hooks.
+ * entries retain identity. The `shell.backdrop` layer renders as the frame's
+ * first child, only while a contributor occupies that slot. Pure component:
+ * everything arrives through the framework shares — zero cordis or framework
+ * imports, zero self-made hooks.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { IconPanelLeftOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   clampWidth, computeColumns, DETAILS_DRAWER_BREAKPOINT, DETAILS_MAX, DETAILS_MIN,
   SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, viewportForm, WORKBENCH_CENTER_MIN,
@@ -24,11 +25,20 @@ import {
 } from './stores.ts'
 import css from './AppFrame.module.css'
 
-/** Full composed props: runtime share + child-slot render share + store share. */
+/** Reactive facts the apply world supplies to the frame through the reserved `hooks` compartment. */
+export type AppFrameInjected = {
+  hooks: {
+    /** True while at least one entry occupies `shell.backdrop`. */
+    backdropOccupied: HostObservable<boolean>
+  }
+}
+
+/** Full composed props: runtime share + child-slot render share + store share + inject face + locale. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'center.view' | 'details' | 'workbench' | 'shell.overlay'>
+  & PropsRenderSlots<'sidebar' | 'conversation' | 'center.view' | 'details' | 'workbench' | 'shell.overlay' | 'shell.backdrop'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
+  & InjectFace<AppFrameInjected>
   & PropsLocale<'layout'>
 
 const FOCUSABLE_SELECTOR = 'iframe, button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -222,11 +232,15 @@ export function AppFrame({
   useStore,
   useSessions,
   useWorkspaces,
+  useBackdropOccupied,
   actions,
   renderSlot,
   t,
 }: AppFrameProps) {
   const panels = useStore(s => s)
+  // The renderSlot result for an empty list slot is an anchor element, not
+  // null, so the wrapper below gates on the contributor count instead.
+  const backdropOccupied = useBackdropOccupied(occupied => occupied)
   const centerView = panels.centerView
   const workbenchSection = panels.workbenchSection
   const currentSession = useSessions(s => s.current)
@@ -422,7 +436,16 @@ export function AppFrame({
       data-right-mode={right.mode}
       data-right-drawer={rightDrawer || undefined}
       data-dragging={dragging || undefined}
+      data-backdrop={backdropOccupied || undefined}
     >
+      {/* Backdrop layer: first child so it paints behind every column; only
+          mounted while a contributor occupies the slot, which leaves the
+          frame DOM unchanged for a shell without one. */}
+      {backdropOccupied && (
+        <div className={css.backdrop} aria-hidden="true">
+          {renderSlot('shell.backdrop', {})}
+        </div>
+      )}
       <FrameRegion className={css.sidebarCol} blocked={(rightDrawer || sidebarHidden) && !sidebarDrawer}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
