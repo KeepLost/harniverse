@@ -289,12 +289,18 @@ describe('failures', () => {
     expect(await store.removePack('after')).toBe(true)
   })
 
-  it('surfaces a library root that is not a directory', async () => {
+  it('refuses to write into a library root that is not a directory', async () => {
     const { dir, store } = await library()
     await writeFile(dir, 'a file where the library should be')
     await expect(store.putPack(skin('nowhere'))).rejects.toThrow()
+    await expect(store.putWallpaper(image('x'), 'image/png')).rejects.toThrow()
+  })
+
+  // Windows answers a read beneath a file with ENOENT, which reads as an absent (empty) library.
+  it.skipIf(process.platform === 'win32')('surfaces a read under a library root that is not a directory', async () => {
+    const { dir, store } = await library()
+    await writeFile(dir, 'a file where the library should be')
     await expect(store.listPacks()).rejects.toMatchObject({ code: 'ENOTDIR' })
     await expect(store.listWallpapers()).rejects.toMatchObject({ code: 'ENOTDIR' })
-    await expect(store.putWallpaper(image('x'), 'image/png')).rejects.toThrow()
   })
 })

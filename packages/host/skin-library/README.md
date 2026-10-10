@@ -140,3 +140,4 @@ None; this package never assembles or sends a provider request.
 - **Rejected files are removed by hand** — `removePack` addresses valid packs by id, so a rejected file listed in `rejected` is deleted from the packs directory directly.
 - **Boot paints colours only** — a user accent override, wash, wallpaper, and material appear after the client plugins load, so a customized skin can flash its base colours first.
 - **Private modes need POSIX** — `0o700` and `0o600` have no effect on Windows, and writes do not fsync, so a crash can lose the latest write.
+- **A file as the library root reads as empty on Windows** — Windows reports a read beneath a file as a missing path, so `list()` answers an empty library where POSIX raises `ENOTDIR`; writes fail on both.
