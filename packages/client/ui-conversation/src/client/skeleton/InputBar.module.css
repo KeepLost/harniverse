@@ -73,8 +73,11 @@
      l2-darkmode-thin pair. Fill: the input surface token (elevated in dark). */
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 22px;
-  background: var(--dsw-specific-input-major);
+  background: var(--dsw-surface-composer);
   box-shadow: var(--dsw-shadow-lv2);
+  /* Stacking context for the glass plate below. The query container already
+     forms one; stating it keeps the plate behind the card content regardless. */
+  isolation: isolate;
   /* The draft text follows the Settings font-size preference (the textarea,
      mirror, and backdrop all inherit from here, so the three layers stay in
      step); the line height keeps its 8px leading via the shared px delta. */
@@ -87,6 +90,21 @@
      (see ui-theme styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* Composer glass (--dsw-material-composer-filter). The filter rides this plate
+   rather than the card: on the card it would make the card the containing
+   block of its position:fixed descendants. The plate covers the padding box,
+   behind the card content and above the card's own fill and border, so the
+   stroke stays crisp; with the default `none` filter it paints nothing. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-composer-filter);
 }
 
 /* No-workspace trigger state: dashed l4 stroke marks the card as a pick-a-

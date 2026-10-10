@@ -171,6 +171,16 @@ const PORTED_SOURCE: readonly PortedOrigin[] = [
       'packages/chat/chat-adapter-feishu/src/runtime.ts',
     ],
   },
+  {
+    name: 'dsh-dream-skin',
+    license: 'MIT',
+    copyright: 'Copyright (c) 2026 dsh-dream-skin contributors',
+    repo: 'https://github.com/RevolutionLA/dsh-dream-skin',
+    role: 'the eight built-in skin palettes, remapped onto the Harniverse skinnable-token allowlist, and the pack envelope the library still accepts',
+    files: [
+      'packages/host/skin-library/src/palette.ts',
+    ],
+  },
 ]
 
 /** The `package.json` fields this generator reads. */

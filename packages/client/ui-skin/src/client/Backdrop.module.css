@@ -1,0 +1,29 @@
+/* Shell backdrop: sits behind the columns and never takes input. The image
+ * and blur arrive as component-local custom properties (--dsh-skin-image is
+ * a validated gradient or a blob: object URL; --dsh-skin-blur is a px length). */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Blur softens the image edge, so the layer overscans by twice the radius and
+ * the container clips the overscan. */
+.image {
+  position: absolute;
+  inset: calc(var(--dsh-skin-blur, 0px) * -2);
+  background-image: var(--dsh-skin-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: blur(var(--dsh-skin-blur, 0px));
+}
+
+/* Legibility veil: pulls a busy wallpaper toward the theme base colour. */
+.veil {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 30%, transparent);
+}

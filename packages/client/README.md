@@ -44,6 +44,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-settings-plugin-inventory/`](ui-settings-plugin-inventory/README.md) | Contributes read-only Host plugin inventory and diagnostics to Plugins settings. |
 | [`ui-settings-im/`](ui-settings-im/README.md) | Provides the IM bots settings section: platform channels, bot cards, and owner pairing over the `chatBots` Remote. |
 | [`ui-session-import/`](ui-session-import/README.md) | Provides the session-import settings section over the `officialSessionImport` Remote and the archive dock that continues an imported session. |
+| [`ui-skin/`](ui-skin/README.md) | Provides the skin gallery, accent, wallpaper, material, and imported-pack rows of the Appearance section over the `skinLibrary` Remote, and the wallpaper backdrop. |
 
 Each child reference owns its contract and detailed behavior. The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) and [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) own the cross-package composition and loading decisions.
 

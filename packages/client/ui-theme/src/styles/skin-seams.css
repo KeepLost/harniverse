@@ -1,0 +1,34 @@
+/* Skin seams: the tokens a skin rebinds without touching component CSS.
+ *
+ * Surfaces name the translucent-capable fills. Each defaults to the opaque
+ * alias it replaces, so the product looks identical until a skin rebinds it
+ * (for example to a colour-mix of the alias over transparent while a backdrop
+ * paints behind the frame). A skin rebinds the surface, never the alias it
+ * reads: rebinding `--dsw-alias-bg-base` to a value computed from itself is a
+ * cyclic reference and resolves to nothing.
+ *
+ * Materials name the `backdrop-filter` of the glass-capable surfaces. They
+ * default to `none`, which neither blurs nor creates a containing block.
+ *
+ * The rules sit on `body` like every other token sheet: custom properties
+ * resolve `var()` where they are declared, so a `:root` declaration would read
+ * the aliases before body defines them. */
+
+body {
+  /* Main panes: the frame, the conversation column, the details column, and
+     full-column center views. */
+  --dsw-surface-pane: var(--dsw-alias-bg-base);
+  /* The sidebar column. */
+  --dsw-surface-sidebar: var(--dsw-specific-sidebar-fill);
+  /* The composer card. */
+  --dsw-surface-composer: var(--dsw-specific-input-major);
+  /* Menus, selectors, and other anchored popovers. */
+  --dsw-surface-popover: var(--dsw-specific-menu);
+
+  /* Sidebar and details columns. */
+  --dsw-material-panel-filter: none;
+  /* The composer card. */
+  --dsw-material-composer-filter: none;
+  /* Menus, selectors, and other anchored popovers. */
+  --dsw-material-popover-filter: none;
+}

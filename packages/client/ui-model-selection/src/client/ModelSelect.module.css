@@ -77,7 +77,8 @@
    * Menu.module.css) so every dropdown reads as the same material. */
   border: 1px solid var(--dsw-alias-border-inverted);
   border-radius: 12px;
-  background: var(--dsw-specific-menu);
+  background: var(--dsw-surface-popover);
+  backdrop-filter: var(--dsw-material-popover-filter);
   box-shadow: var(--dsw-shadow-lv3);
   color: var(--dsw-alias-label-primary);
   /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens.

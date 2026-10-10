@@ -1,0 +1,119 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "外观":
+      - img
+      - text: 外观
+    - button "模型":
+      - img
+      - text: 模型
+    - button "模型策略":
+      - img
+      - text: 模型策略
+    - button "插件":
+      - img
+      - text: 插件
+    - button "资源治理":
+      - img
+      - text: 资源治理
+    - button "Agent 预设":
+      - img
+      - text: Agent 预设
+    - button "IM 机器人":
+      - img
+      - text: IM 机器人
+    - button "会话导入":
+      - img
+      - text: 会话导入
+    - button "语音输入":
+      - img
+      - text: 语音输入
+  - button "打开配置文件"
+  - button "关闭":
+    - img
+    - text: 关闭
+  - text: 颜色模式
+  - button "浅色":
+    - img
+    - text: 浅色
+  - button "深色":
+    - img
+    - text: 深色
+  - button "跟随系统" [pressed]:
+    - img
+    - text: 跟随系统
+  - text: 字号
+  - group "字号":
+    - button "小"
+    - button "中" [pressed]
+    - button "大"
+  - region "皮肤":
+    - heading "皮肤" [level=3]
+    - paragraph: 选一套整体配色。选择皮肤会替换上方的“颜色模式”；再次选择颜色模式即可回到默认外观。选择会被保存。
+    - radiogroup "皮肤":
+      - radio "沉静蓝 深色"
+      - radio "极光青 深色"
+      - radio "星云紫 深色"
+      - radio "余烬橙 深色"
+      - radio "午夜黑 深色"
+      - radio "iOS 扁平 浅色"
+      - radio "干净明亮 浅色"
+      - radio "Material 粉 浅色"
+  - region "强调色":
+    - heading "强调色" [level=3]
+    - paragraph: 用于链接、按钮和选中状态；恢复默认后使用当前皮肤自带的强调色。
+    - group "预设强调色":
+      - 'button "强调色 #4176e6"'
+      - 'button "强调色 #0ea5e9"'
+      - 'button "强调色 #14b8a6"'
+      - 'button "强调色 #22c55e"'
+      - 'button "强调色 #84cc16"'
+      - 'button "强调色 #f59e0b"'
+      - 'button "强调色 #f97316"'
+      - 'button "强调色 #ef4444"'
+      - 'button "强调色 #ec4899"'
+      - 'button "强调色 #a855f7"'
+      - 'button "强调色 #6366f1"'
+      - 'button "强调色 #64748b"'
+    - text: 自定义强调色
+    - textbox "自定义强调色": "#4176e6"
+    - button "恢复默认" [disabled]
+  - region "壁纸":
+    - heading "壁纸" [level=3]
+    - paragraph: 壁纸显示在界面后面，面板会按下方的透明度透出它。
+    - button "上传壁纸"
+    - button "不使用壁纸" [disabled]
+    - paragraph: 支持 PNG、JPEG、WebP，单张不超过 8 MiB，最多保留 24 张。
+    - heading "最近的壁纸" [level=4]
+    - paragraph: 还没有上传过壁纸。
+    - text: 壁纸模糊
+    - slider "壁纸模糊" [disabled]: "0"
+    - status: 0 px
+  - region "材质与透明度":
+    - heading "材质与透明度" [level=3]
+    - paragraph: 有壁纸或带背景的皮肤时，面板可以半透明并带玻璃质感。
+    - note: 先选择壁纸或带背景的皮肤，透明度和材质才会生效。
+    - radiogroup "材质":
+      - radio "关闭" [checked]
+      - radio "磨砂"
+      - radio "液态玻璃"
+    - text: 面板与侧栏不透明度
+    - slider "面板与侧栏不透明度": "82"
+    - status: 82%
+    - text: 输入框不透明度
+    - slider "输入框不透明度": "90"
+    - status: 90%
+    - text: 菜单不透明度
+    - slider "菜单不透明度": "96"
+    - status: 96%
+  - region "皮肤包":
+    - heading "皮肤包" [level=3]
+    - paragraph: 导入 harniverse.skin 格式的 .json 皮肤包，或把当前皮肤导出为模板。
+    - button "导入皮肤包"
+    - paragraph: 皮肤包是不超过 256 KiB 的 .json 文件。
+    - paragraph: 还没有导入过皮肤包。
+    - button "导出当前皮肤" [disabled]
+    - text: 选中一个皮肤后才能导出。

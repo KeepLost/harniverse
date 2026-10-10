@@ -40,6 +40,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'settings.close': { kind: 'single'; scope: 'root'; owner: SettingsHeaderOwnerProps }
     /**
+     * The nav glyph of one settings section, dispatched by section id. Register
+     * with `key: '<section id>'` (the same `id` the section's `settings.section`
+     * entry carries) to own that section's icon: the contribution renders one
+     * 16px icon element and the shell places it before the section label. The
+     * key domain is open (any section id, including one your own package
+     * registered), so a typo simply never renders. A section with no
+     * contribution shows the settings gear; a key the shipped composition
+     * already covers is replaced, not shared. The owner passes no props.
+     */
+    'settings.nav.icon': { kind: 'keyed'; scope: 'root'; owner: SettingsNavIconOwnerProps }
+    /**
      * One settings page per list entry. Registrant options carry the nav
      * identity: `id` (section key, drives `only` filtering), `order` (nav
      * position), `label` (registrant-localized display text — the registrant
@@ -75,8 +86,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * One preference row inside the General section — the additive seat for a
      * single setting that needs no page of its own (a whole page is
      * `settings.section`), contributed by the feature plugin that owns the
-     * preference (locale → Language, ui-theme → Appearance, ui-conversation →
-     * Composer Enter). Options: `id` (row key), `order` (row position). The
+     * preference (locale → Language, ui-conversation → Composer Enter). Options: `id` (row key), `order` (row position). The
      * section column only stacks rows, so a row draws its own internals,
      * including its label: nothing projects a `label` here and the owner passes
      * no props at all — copy, current value, and the write path are all yours,
@@ -86,10 +96,27 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * layer and every registrant already depends on it for `ctx.settingsScope`.
      */
     'settings.general.item': { kind: 'list'; scope: 'root'; owner: SettingsGeneralItemOwnerProps }
+    /**
+     * One row inside the Appearance section, contributed by the feature that
+     * owns the preference (ui-theme → color mode and font size, ui-skin →
+     * skin gallery, accent, wallpaper, material, packs). Options: `id` (row
+     * key), `order` (row position; ui-theme uses 10 and 20, other owners
+     * start at 30). The section column only stacks rows, so a row draws its
+     * own internals and the owner passes no props. Declared at runtime by
+     * ui-theme's Appearance entry; the type lives here for the same reason as
+     * `settings.general.item`.
+     */
+    'settings.appearance.item': { kind: 'list'; scope: 'root'; owner: SettingsAppearanceItemOwnerProps }
   }
 }
 /** Owner share of a General preference row (the section supplies nothing). */
 export interface SettingsGeneralItemOwnerProps {
+  /** Marker field: item owner props are intentionally empty. */
+  children?: never
+}
+
+/** Owner share of an Appearance row (the section supplies nothing). */
+export interface SettingsAppearanceItemOwnerProps {
   /** Marker field: item owner props are intentionally empty. */
   children?: never
 }
@@ -104,6 +131,12 @@ export interface SettingsPluginsTabOwnerProps {
 export interface SettingsTriggerOwnerProps {
   /** Whether the sidebar renders wide content (false = 56px rail, icon only). */
   wide: boolean
+}
+
+/** Owner share of a section nav glyph (the shell supplies nothing). */
+export interface SettingsNavIconOwnerProps {
+  /** Marker field: nav icon owner props are intentionally empty. */
+  children?: never
 }
 
 /** Owner share of the header title seat (the shell supplies nothing). */

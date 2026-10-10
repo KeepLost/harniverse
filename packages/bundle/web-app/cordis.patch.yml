@@ -145,6 +145,14 @@
         roots:
           - !!js dshHomePath('sessions')
 
+    # Skin catalog (built-in skins, imported packs, wallpapers) under this
+    # machine's DSH home, the ui-skin settings section, and the pre-plugin
+    # skin bootstrap; a remote host serves its own library through the same row.
+    - id: skin-library
+      name: '@deepseek-ai/dsh-host-skin-library'
+      config:
+        dir: !!js dshHomePath('skins')
+
     # Authorized capability catalog, dependency planning, and Profile composition
     # writes. Diagnostics above remain observation-only.
     - id: capability-management
@@ -340,6 +348,11 @@
     # archive banner that continues an imported session in a new one.
     - id: ui-session-import
       name: '@deepseek-ai/dsh-client-ui-session-import'
+
+    # Appearance skins: gallery, accent, wallpaper, glass material, and
+    # theme packs over the skinLibrary Remote, plus the shell backdrop.
+    - id: ui-skin
+      name: '@deepseek-ai/dsh-client-ui-skin'
 
     # Scoped Agent Profile composition. Mutation stays behind the separate
     # authorized management Remote; the inventory tab remains read-only.

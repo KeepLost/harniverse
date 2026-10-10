@@ -58,6 +58,14 @@ describe('SidebarRoot.module.css', () => {
     expect(css).toMatch(/@keyframes rail-fade-in\s*\{\s*from\s*\{\s*opacity: 0;\s*}\s*}/)
   })
 
+  it('leaves the sidebar surface to the layout column, which reads the skin-seam token', () => {
+    // Two translucent layers of one surface would compound their alpha, so the
+    // root paints no fill of its own and names neither the surface nor the
+    // opaque alias it defaults to.
+    expect(declarations('.root')?.has('background')).toBe(false)
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, ' ')).not.toMatch(/sidebar-fill|surface-sidebar/)
+  })
+
   it('gives shell rail controls the same base anchor for their shared translation', () => {
     expect(declarations('.collapsed .logoRow')?.get('justify-content')).toBe('flex-start')
     expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')

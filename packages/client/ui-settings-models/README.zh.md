@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型设置与产品引导插件。同一个 client Cordis 插件会注册 Models 页面与版本化 Harniverse RC 内测声明；提供方凭据需要在 Models 页面中显式配置，首次使用时不会出现针对特定提供方的步骤。Models 平面把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret slot）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片，且不把路由存活状态呈现为提供方状态。
+模型设置与产品引导插件。同一个 client Cordis 插件会注册 Models 页面与版本化 Harniverse RC 内测声明；提供方凭据需要在 Models 页面中显式配置，首次使用时不会出现针对特定提供方的步骤。Models 平面把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret slot）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片，且不把路由存活状态呈现为提供方状态。Models 页面还持有自己的导航图标，以分区 id `models` 注册到带键的 `settings.nav.icon` slot；模型策略页不注册图标，显示外壳的设置齿轮。
 
 该汇聚及每项 mutation 都共享 Settings 镜像的认证 principal generation fence。连接载体会集中要求每个 unary 结算在返回前匹配其发起身份，因此 ProviderEditor 与模型发现不再执行可选的响应身份检查。principal 转换会同步清空行、namespace 视图与凭据徽标，generation fence 则阻止较旧的结算发布本地状态。载体还会为 mutation 与携带 secret 的模型发现发送 expected-principal 前置条件，使 Host 在路由分发或调用提供方网络之前拒绝已经变化的 principal。
 

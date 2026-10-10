@@ -210,7 +210,13 @@ const SURFACE_PROPERTIES = ['background', 'background-color']
  * CodeBlock's banner). Family, not geometry: a floating button legitimately
  * carries a radius, a shadow, and a fixed size, so shape cannot separate them.
  */
-const SURFACE_TOKEN_PATTERN = /^--dsw-(?:alias-bg-|specific-)/
+const SURFACE_TOKEN_PATTERN = /^--dsw-(?:alias-bg-|specific-|surface-)/
+
+/**
+ * The skin seams (`--dsw-surface-*`) alias the palette surfaces they replace, so
+ * a consumer that moves onto a seam keeps the elevation it sat on.
+ */
+const seamRules = parseRules(readFileSync(new URL('skin-seams.css', STYLES), 'utf8'))
 
 /**
  * The palette's own dark elevation ladder, resolved from `design-platform.css`:
@@ -222,7 +228,7 @@ const SURFACE_TOKEN_PATTERN = /^--dsw-(?:alias-bg-|specific-)/
  */
 function elevatedRungs(): Set<string> {
   const definitions = new Map<string, string>()
-  for (const rule of platformRules) {
+  for (const rule of [...platformRules, ...seamRules]) {
     // Dark declarations come later in the sheet and overwrite the light ones,
     // which is the palette this distinction exists in.
     for (const [property, value] of rule.declarations) definitions.set(property, value)

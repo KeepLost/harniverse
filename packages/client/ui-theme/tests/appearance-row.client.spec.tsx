@@ -13,7 +13,7 @@ import type { ThemePreference } from '../src/client/index.ts'
 afterEach(cleanup)
 
 const COPY: Record<string, string> = {
-  'appearance.title': 'Appearance',
+  'appearance.title': 'Color mode',
   'appearance.light': 'Light',
   'appearance.dark': 'Dark',
   'appearance.system': 'System',
@@ -56,9 +56,16 @@ const pressed = (name: RegExp): string | null =>
 describe('AppearanceRow', () => {
   it('renders the title and three cubes with the preference cube selected', () => {
     mount('dark')
-    expect(screen.getByText('Appearance')).toBeDefined()
+    expect(screen.getByText('Color mode')).toBeDefined()
     expect(pressed(/Dark/)).toBe('true')
     expect(pressed(/Light/)).toBe('false')
+    expect(pressed(/System/)).toBe('false')
+  })
+
+  it('presses no cube while a registered theme is the preference', () => {
+    mount('skin:abyss')
+    expect(pressed(/Light/)).toBe('false')
+    expect(pressed(/Dark/)).toBe('false')
     expect(pressed(/System/)).toBe('false')
   })
 

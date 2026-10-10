@@ -1,7 +1,7 @@
 /**
  * Layout plugin, browser half: one register() call contributes AppFrame into
  * the runtime's built-in 'root' slot and, in the same breath, declares the
- * six child slots (declaration = exclusive render authority), seats the
+ * seven child slots (declaration = exclusive render authority), seats the
  * layout store (panel geometry + the center-view switch), and wires the
  * panel-action service face. ctx.layout is the cross-plugin panel-action
  * contract; navigation state lives
@@ -9,6 +9,7 @@
  * presenter, which projects ctx.theme snapshots onto document.body.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PanelActions } from './service.ts'
@@ -41,7 +42,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
   interface SlotMap {
     // The 'root' entry itself is the runtime's built-in slot (declared
-    // there); these five are the frame's children, declared by the same
+    // there); the slots below are the frame's children, declared by the same
     // register() call that contributes AppFrame. Session owners never pass
     // sessionId: the framework injects it as a standard prop.
     /**
@@ -126,6 +127,21 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * published on the frame as CSS so presentation stays out of component data.
      */
     'shell.overlay': { kind: 'list'; scope: 'root'; owner: ShellOverlayOwnerProps }
+    /**
+     * Frame-wide backdrop layer, painted behind every column: a wallpaper, a
+     * wash gradient, or any other decoration that should show through the
+     * translucent panes. Additive like `shell.overlay` — a fresh `id` joins
+     * the stack and entries order among themselves.
+     *
+     * The frame mounts the layer only while at least one entry occupies the
+     * slot, as its first child inside a wrapper that fills the frame, clips
+     * overflow, ignores pointer events, and is hidden from assistive
+     * technology. Entries therefore draw their own geometry (fill the
+     * wrapper) and carry no interaction or content a user needs; the columns
+     * above them show the backdrop through whatever the `--dsw-surface-*`
+     * tokens leave translucent.
+     */
+    'shell.backdrop': { kind: 'list'; scope: 'root'; owner: ShellBackdropOwnerProps }
   }
 }
 
@@ -182,6 +198,9 @@ export interface ShellOverlayOwnerProps {
   rightDrawer: boolean
 }
 
+/** Backdrop-layer owner share: empty — the layer is geometry-free and the frame passes it no facts. */
+export interface ShellBackdropOwnerProps {}
+
 /**
  * Workbench owner share: the frame's resolved right-region occupancy.
  *
@@ -231,14 +250,21 @@ export const inject = ['slots', 'theme', 'locale']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
-  * into 'root' with the five child-slot declarations, the layout store seat,
- * and the inject hook that hands the store's bound actions to the service.
+  * into 'root' with the seven child-slot declarations, the layout store seat,
+ * and the inject hook that hands the store's bound actions to the service and
+ * the backdrop-occupancy source to the frame.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register('layout', { zh, en }), 'ui-layout: dictionaries')
 
   const layout = new LayoutController()
+  // One source for the plugin's lifetime: the renderer caches hook bindings per
+  // source object, and the boolean snapshot is stable until occupancy moves.
+  const backdropOccupied: HostObservable<boolean> = {
+    getSnapshot: () => ctx.slots.entries('shell.backdrop').length > 0,
+    subscribe: listener => ctx.slots.subscribe('shell.backdrop', listener),
+  }
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({
@@ -251,15 +277,18 @@ export function apply(ctx: ClientContext): void {
         'details': { kind: 'single', scope: 'session' },
         'workbench': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
+        'shell.backdrop': { kind: 'list', scope: 'root' },
       },
       // Exclusive store: the factory itself — the framework instantiates per
       // entry and delivers useStore/actions to AppFrame as standard props.
       store: createLayoutStore,
-      // The hook's only side effect connects the root store to ctx.layout;
-      // conversation business actions belong to their registrants.
+      // The hook connects the root store to ctx.layout (conversation business
+      // actions belong to their registrants) and hands the frame the one
+      // reactive fact it owns no channel for: whether `shell.backdrop` has a
+      // contributor.
       inject: (actions: PanelActions) => {
         layout.attachPanels(actions)
-        return {}
+        return { hooks: { backdropOccupied } }
       },
     }, AppFrame)
     return () => {

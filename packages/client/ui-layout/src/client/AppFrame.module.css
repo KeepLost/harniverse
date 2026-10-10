@@ -4,7 +4,7 @@
   grid-template-rows: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsw-surface-pane);
   /* Collapse/expand animates the tracks on the deepsuite sider curve
      (--ds-ease-in-out / --ds-transition-duration-slow, ui-theme base.css). */
   transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
@@ -22,10 +22,29 @@
   }
 }
 
+/* shell.backdrop layer: the frame's first child, present (with the frame's
+   data-backdrop flag) only while a contributor occupies the slot. The frame
+   becomes its own stacking context, so the negative z-index puts the layer
+   between the frame fill and the columns rather than behind the frame, and
+   the glass plates below share that ordering. */
+.frame[data-backdrop] {
+  isolation: isolate;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .sidebarCol {
   min-width: 0;
   overflow: hidden;
-  background: var(--dsw-specific-sidebar-fill);
+  /* The one layer that paints the sidebar surface: the occupant stays
+     transparent, so a translucent surface is applied once, not twice. */
+  background: var(--dsw-surface-sidebar);
   border-right: 1px solid var(--dsw-alias-border-l1);
 }
 
@@ -44,6 +63,9 @@
      also where the scrim below starts. */
   box-sizing: border-box;
   width: var(--dsh-frame-sidebar-drawer-width);
+  /* The drawer covers the center column, so it keeps the opaque alias: a
+     translucent surface would show that column through it. */
+  background: var(--dsw-specific-sidebar-fill);
   box-shadow: var(--dsw-shadow-lv3);
 }
 
@@ -136,20 +158,46 @@
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-base);
+  /* The one layer that paints the details/workbench surface: occupants stay
+     transparent, so a translucent surface is applied once, not twice. */
+  background: var(--dsw-surface-pane);
 }
 
+/* The drawer covers the whole frame, so it keeps the opaque alias: a
+   translucent surface would show the covered columns through it. */
 .detailsCol[data-right-drawer] {
   position: absolute;
   inset: 0;
   z-index: 15;
   border-left: 0;
+  background: var(--dsw-alias-bg-base);
 }
 
 /* The details subtree stays mounted at zero width, so its border must not paint
    a 1px seam. The collapsed sidebar instead retains a bordered compact rail. */
 .frame[data-details-collapsed] .detailsCol {
   border-left: none;
+}
+
+/* Panel glass (--dsw-material-panel-filter) for the docked sidebar and details
+   columns, applied while a backdrop exists. The filter rides a ::before plate:
+   on the column itself it would make the column the containing block of its
+   position:fixed descendants (tooltips). The plate sits in the frame's
+   stacking context above the backdrop layer and below the column's fill and
+   content. The drawers are opaque and cover other columns, so they skip it. */
+.frame[data-backdrop]:not([data-sidebar-drawer]) .sidebarCol,
+.frame[data-backdrop] .detailsCol:not([data-right-drawer]) {
+  position: relative;
+}
+
+.frame[data-backdrop]:not([data-sidebar-drawer]) .sidebarCol::before,
+.frame[data-backdrop] .detailsCol:not([data-right-drawer])::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-panel-filter);
 }
 
 /* Drag handles are frame children (columns clip overflow): an 8px hit strip

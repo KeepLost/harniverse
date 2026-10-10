@@ -2,7 +2,9 @@
  * Settings shell root: the sidebar-foot trigger row plus the centered modal
  * panel (figma 501:29947, 1080x700) with the section nav rail. The shell is
  * a pure composition face — every piece of text (trigger label, panel title,
- * close label, sections) arrives from registrants through slots; accessible
+ * close label, sections) arrives from registrants through slots, and each
+ * section owns its nav glyph through the keyed `settings.nav.icon` slot (the
+ * settings gear stands in when a section registers none); accessible
  * names resolve to that content (trigger: its own text; dialog:
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
  * open state and the active section id are component-local viewing state;
@@ -12,21 +14,9 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'
-import {
-  IconAgentPresetOutline16, IconCloseOutline16, IconDataOutline16,
-  IconNewChatOutline16, IconPersonalizationOutline16, IconSettingsOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract.ts'
 import css from './SettingsRoot.module.css'
-
-/** Nav glyph by section id; unknown ids fall back to the settings gear. */
-function navIcon(id: string) {
-  if (id === 'models') return <IconDataOutline16 className={css.navIcon} size={16} />
-  if (id === 'agent-presets') return <IconAgentPresetOutline16 className={css.navIcon} size={16} />
-  if (id === 'im') return <IconNewChatOutline16 className={css.navIcon} size={16} />
-  if (id === 'plugins') return <IconPersonalizationOutline16 className={css.navIcon} size={16} />
-  return <IconSettingsOutline16 className={css.navIcon} size={16} />
-}
 
 type PanelProps = {
   rows: readonly SettingsSectionRow[]
@@ -74,7 +64,12 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
                 aria-current={row.id === active ? 'true' : undefined}
                 onClick={() => { onSelect(row.id) }}
               >
-                {navIcon(row.id)}
+                <span className={css.navIcon}>
+                  {renderSlot('settings.nav.icon', {}, {
+                    entryKey: row.id,
+                    fallback: <IconSettingsOutline16 size={16} />,
+                  })}
+                </span>
                 <span className={css.navLabel}>{row.label}</span>
               </button>
             ))}

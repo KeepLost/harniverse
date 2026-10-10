@@ -11,6 +11,7 @@
 @import '@deepseek-ai/dsh-client-ui-theme/styles/base.css';
 @import '@deepseek-ai/dsh-client-ui-theme/styles/design-platform.css';
 @import '@deepseek-ai/dsh-client-ui-theme/styles/gradient-shadow-text.css';
+@import '@deepseek-ai/dsh-client-ui-theme/styles/skin-seams.css';
 
 html,
 body,

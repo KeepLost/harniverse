@@ -45,6 +45,9 @@
       "path": "../../host/official-session-import"
     },
     {
+      "path": "../../host/skin-library"
+    },
+    {
       "path": "../../host/capability-management"
     },
     {

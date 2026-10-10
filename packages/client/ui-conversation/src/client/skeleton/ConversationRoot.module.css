@@ -8,7 +8,7 @@
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsw-surface-pane);
 
   /* Shared width axis for the whole column: one content width W
      (--dsh-chat-content-width) for the transcript, the dock cards
@@ -280,11 +280,12 @@
      solid below — px stops, not %, so a growing draft only widens the solid
      region and the fade band never stretches. The 0px stop is bg-base at
      zero alpha (not white, which the figma export hardcodes) so both themes
-     fade from their own base. */
+     fade from their own base. The stops read the pane surface, so the band
+     follows a skin's translucent pane instead of painting an opaque strip. */
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px,
-    var(--dsw-alias-bg-base) 36px
+    color-mix(in srgb, var(--dsw-surface-pane) 0%, transparent) 0px,
+    var(--dsw-surface-pane) 36px
   );
 }
 

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Client apply wiring under the terminal register form: ctx.layout provided,
-// ONE register() call declares the six child slots + seats the store factory
-// + wires the panel actions through the inject hook; teardown cascades
+// ONE register() call declares the seven child slots + seats the store factory
+// + wires the panel actions and the backdrop-occupancy source through the
+// inject hook; teardown cascades
 // (service unprovided + declarations gone + registration cleared). Node half
 // and the invariant companion ride along — one line exposes the aggregate
 // coverage gate still requires exercised.
@@ -12,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as themeApply, inject as themeInject, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject, LayoutController } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
 import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
@@ -40,23 +42,24 @@ describe('ui-layout client apply', () => {
     expect(inject).toEqual(['slots', 'theme', 'locale'])
   })
 
-  it('provides ctx.layout and registers AppFrame into root with the six child declarations', async () => {
+  it('provides ctx.layout and registers AppFrame into root with the seven child declarations', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.get('layout')).toBeInstanceOf(LayoutController)
     // The one register() call occupied 'root'…
     expect(slots.entries('root')).toHaveLength(1)
-    // …and declared the six children in the ledger.
+    // …and declared the seven children in the ledger.
     expect(slots.spec('sidebar')).toEqual({ kind: 'single', scope: 'root' })
     expect(slots.spec('conversation')).toEqual({ kind: 'single', scope: 'session-maybe' })
     expect(slots.spec('center.view')).toEqual({ kind: 'list', scope: 'root' })
     expect(slots.spec('details')).toEqual({ kind: 'single', scope: 'session' })
     expect(slots.spec('workbench')).toEqual({ kind: 'single', scope: 'root' })
     expect(slots.spec('shell.overlay')).toEqual({ kind: 'list', scope: 'root' })
+    expect(slots.spec('shell.backdrop')).toEqual({ kind: 'list', scope: 'root' })
   })
 
-  it('injects no business face and attaches the layout actions', async () => {
+  it('injects only the backdrop-occupancy source and attaches the layout actions', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -65,11 +68,43 @@ describe('ui-layout client apply', () => {
       retainRightAccounts: vi.fn(), toggleSidebar: vi.fn(), setNarrow: vi.fn(), openDetails: vi.fn(),
       closeDetails: vi.fn(), openWorkbench: vi.fn(), closeWorkbench: vi.fn(),
     }
-    const injected = (slots.entries('root')[0]!.inject as (actions: never) => object)(actions as never)
-    expect(injected).toEqual({})
+    const rootInject = slots.entries('root')[0]!.inject as (actions: never) => { hooks: { backdropOccupied: HostObservable<boolean> } }
+    const injected = rootInject(actions as never)
+    expect(Object.keys(injected)).toEqual(['hooks'])
+    expect(Object.keys(injected.hooks)).toEqual(['backdropOccupied'])
     const layout = ctx.get('layout') as LayoutController
     layout.toggleSidebar()
     expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+  })
+
+  it('reports shell.backdrop occupancy through one stable source and notifies on change', async () => {
+    const { ctx, slots } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const faceOf = () => (slots.entries('root')[0]!.inject as (actions: never) => { hooks: { backdropOccupied: HostObservable<boolean> } })({} as never)
+    const source = faceOf().hooks.backdropOccupied
+    // The source is created once in apply: a second inject call hands back the same object.
+    expect(faceOf().hooks.backdropOccupied).toBe(source)
+    expect(source.getSnapshot()).toBe(false)
+
+    const listener = vi.fn()
+    const unsubscribe = source.subscribe(listener)
+    const dispose = slots.register({ name: 'shell.backdrop', id: 'skin', order: 0 } as never, () => null)
+    expect(source.getSnapshot()).toBe(true)
+    // Slot notifications are microtask-batched.
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledOnce()
+
+    dispose()
+    expect(source.getSnapshot()).toBe(false)
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    unsubscribe()
+    const stray = slots.register({ name: 'shell.backdrop', id: 'late', order: 1 } as never, () => null)
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledTimes(2)
+    stray()
   })
 
   it('theme presenter applies the initial snapshot, follows theme/change, and unwinds on dispose', async () => {
@@ -105,6 +140,7 @@ describe('ui-layout client apply', () => {
     expect(ctx.get('layout')).toBeUndefined()
     expect(slots.entries('root')).toHaveLength(0)
     expect(slots.spec('sidebar')).toBeUndefined()
+    expect(slots.spec('shell.backdrop')).toBeUndefined()
     // The built-in root declaration survives entry teardown (runtime-owned).
     expect(slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
   })

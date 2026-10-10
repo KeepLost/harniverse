@@ -59,6 +59,22 @@ describe('theme boot index transform', () => {
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(dark)
   })
 
+  it.each([
+    [true, 'dark', true],
+    [false, 'light', false],
+  ] as const)('paints a registered theme id as the system palette (system=%s)', (matches, colorScheme, dark) => {
+    mockSystemDark(matches)
+    executeBootstrap('skin:abyss')
+    expect(document.documentElement.style.colorScheme).toBe(colorScheme)
+    expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(dark)
+  })
+
+  it('cannot be closed early by a preference carrying markup', () => {
+    const html = injectBootTheme('<body></body>', '</script><script>alert(1)</script>')
+    expect(html.match(/<\/script>/g)).toHaveLength(1)
+    expect(html).toContain('\\u003c/script>')
+  })
+
   it('defaults to system and falls back to light when matchMedia is unavailable', () => {
     vi.stubGlobal('matchMedia', undefined)
     executeBootstrap()

@@ -1,10 +1,11 @@
-/* Sidebar column (figma 133:7629): vertical stack, padding 12/6, sidebar
-   fill + 1px right border painted by the layout column. Collapse is a
-   slide + crossfade, not a morph: the content holds its frozen expanded
-   layout (inline width set by the component) and fades in place (.fading)
-   while the sliding column (AppFrame grid tracks) clips it; the rail layout
-   (.collapsed) only applies after the fade settles, so nothing reflows
-   mid-slide. */
+/* Sidebar column (figma 133:7629): vertical stack, padding 12/6. The sidebar
+   surface (--dsw-surface-sidebar) and the 1px right border are painted by the
+   layout column; this root stays transparent so a translucent surface is
+   applied once rather than stacked twice. Collapse is a slide + crossfade,
+   not a morph: the content holds its frozen expanded layout (inline width set
+   by the component) and fades in place (.fading) while the sliding column
+   (AppFrame grid tracks) clips it; the rail layout (.collapsed) only applies
+   after the fade settles, so nothing reflows mid-slide. */
 
 .root {
   --dsh-sidebar-inline-padding: 12px;
@@ -13,7 +14,6 @@
   height: 100%;
   padding: 6px var(--dsh-sidebar-inline-padding);
   box-sizing: border-box;
-  background: var(--dsw-specific-sidebar-fill);
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
   /* The sidebar is elevated above the conversation surface, so a revealed

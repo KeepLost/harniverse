@@ -12,9 +12,10 @@
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: the settings shell's SlotMap merge (the 'settings.section' entry)
-// and the ctx.settingsScope Context merge. Cross-plugin collaboration goes
-// through the service, never a value import (client bundle purity gate).
+// Type-only: the settings shell's SlotMap merge (the 'settings.section' and
+// 'settings.nav.icon' entries) and the ctx.settingsScope Context merge.
+// Cross-plugin collaboration goes through the service, never a value import
+// (client bundle purity gate).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
@@ -25,6 +26,7 @@ import { BashCard } from './BashCard.tsx'
 import { CompactionCard } from './CompactionCard.tsx'
 import { ConfigurablePluginsTab } from './ConfigurablePluginsTab.tsx'
 import type { ConfigurablePluginsTabInjected } from './ConfigurablePluginsTab.tsx'
+import { PluginsNavIcon } from './NavIcon.tsx'
 import { PluginsSettingsSection } from './PluginsSettingsSection.tsx'
 import type { PluginsSettingsSectionInjected, PluginsSettingsTabEntry } from './PluginsSettingsSection.tsx'
 import { WebSearchCard } from './WebSearchCard.tsx'
@@ -135,6 +137,10 @@ export function apply(ctx: ClientContext): void {
     inject: sectionInjected,
     children: { 'settings.plugins.tab': { kind: 'list', scope: 'root' } },
   }, PluginsSettingsSection))
+  ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
+    name: 'settings.nav.icon',
+    key: 'plugins',
+  }, PluginsNavIcon))
 
   // The existing configuration page is one ordinary tab. It keeps ownership
   // of the card slot and the three shipped card contributions below.

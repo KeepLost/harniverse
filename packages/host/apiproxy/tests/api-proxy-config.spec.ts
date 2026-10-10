@@ -377,7 +377,7 @@ describe('settings domain', () => {
     // The settings seam is general: any plugin may register a namespace for
     // its own configuration. The Web configuration plane remains opt-in, so a
     // future internal plugin cannot become remotely configurable just by
-    // registering; locale, permission, conversation, theme, and the product
+    // registering; locale, permission, conversation, skin, theme, and the product
     // onboarding namespace are intentionally admitted by this surface.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig)
@@ -395,6 +395,9 @@ describe('settings domain', () => {
     }))
     ctx.settings.register(settingsNamespace('ui-conversation'), z.object({
       busyEnter: z.union(['queue', 'steer']).default('queue'),
+    }))
+    ctx.settings.register(settingsNamespace('ui-skin'), z.object({
+      material: z.union(['off', 'frosted', 'liquid']).default('off'),
     }))
     ctx.settings.register(settingsNamespace('shell'), z.object({
       timeoutMs: z.number().default(120_000),
@@ -436,7 +439,7 @@ describe('settings domain', () => {
 
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.namespaces.map(view => view.ns)).toEqual([
-      'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation',
+      'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation', 'ui-skin',
       'shell', 'agent-loop', 'compaction', 'web-search-deepseek', 'web', 'web-search-exa',
       'web-search-perplexity', 'web-search-tavily', 'web-search-brave',
       'web-search-kagi', 'web-search-cloudflare', 'web-firecrawl',
@@ -461,6 +464,11 @@ describe('settings domain', () => {
       ops: [{ op: 'set', path: ['busyEnter'], value: 'steer' }],
     })))
     expect(conversation.value).toEqual({ busyEnter: 'steer' })
+    const skin = expectOk(await api.settings.mutate(request({
+      ns: 'ui-skin',
+      ops: [{ op: 'set', path: ['material'], value: 'frosted' }],
+    })))
+    expect(skin.value).toEqual({ material: 'frosted' })
     const bash = expectOk(await api.settings.mutate(request({
       ns: 'shell',
       ops: [{ op: 'set', path: ['timeoutMs'], value: 5_000 }],

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-“会话导入”设置分区与归档停靠栏：用户在这里把官方 DeepSeek Harness 的对话作为只读归档带进 Harniverse，并把其中一段在新会话里继续。它是仅浏览器的插件，基于 [`@deepseek-ai/dsh-host-official-session-import`](../../host/official-session-import/README.md) 的 `officialSessionImport` Remote（`ctx.remote.officialSessionImport`）与 [`@deepseek-ai/dsh-host-apiproxy`](../../host/apiproxy/README.md) 的 `session.continueArchive` RPC；node 一侧不注册任何 host 行为。
+“会话导入”设置分区与归档停靠栏：用户在这里把官方 DeepSeek Harness 的对话作为只读归档带进 Harniverse，并把其中一段在新会话里继续。它是仅浏览器的插件，基于 [`@deepseek-ai/dsh-host-official-session-import`](../../host/official-session-import/README.md) 的 `officialSessionImport` Remote（`ctx.remote.officialSessionImport`）与 [`@deepseek-ai/dsh-host-apiproxy`](../../host/apiproxy/README.md) 的 `session.continueArchive` RPC；node 一侧不注册任何 host 行为。该分区以分区 id `session-import` 把自己的导航图标（下载托盘）注册到带键的 `settings.nav.icon` slot。
 
 ## 组装
 

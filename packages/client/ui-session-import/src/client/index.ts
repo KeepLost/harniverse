@@ -2,9 +2,10 @@
  * Session-import plugin, browser half. Registers the "会话导入" settings
  * section — scan, select, and import the targeted machine's official
  * DeepSeek Harness sessions, or upload one log — over the typed
- * `officialSessionImport` Remote, and an archive dock in the conversation's
- * input dock that keeps an imported archive's composer inert and continues
- * the archive in a new session. Export discipline: packages/client/AGENTS.md.
+ * `officialSessionImport` Remote, its `settings.nav.icon` glyph, and an
+ * archive dock in the conversation's input dock that keeps an imported
+ * archive's composer inert and continues the archive in a new session.
+ * Export discipline: packages/client/AGENTS.md.
  */
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
@@ -12,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the ui-settings SlotMap merge (the settings.section list).
+// Type-only: pulls the ui-settings SlotMap merge (the settings.section list and the keyed settings.nav.icon).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input dock) and the ctx.conversation face.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -21,6 +22,7 @@ import {
   createArchiveDockController, createSessionImportController, type OfficialSessionImportRemote,
 } from './controller.ts'
 import { en, NS, zh, type SessionImportKey } from './locales.ts'
+import { SessionImportNavIcon } from './NavIcon.tsx'
 import { SessionImportSection } from './SessionImportSection.tsx'
 import { createArchiveDockStore, createSessionImportStore } from './stores.ts'
 
@@ -78,6 +80,10 @@ export function apply(ctx: ClientContext): void {
       },
     }, actions),
   }, SessionImportSection))
+  ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
+    name: 'settings.nav.icon',
+    key: 'session-import',
+  }, SessionImportNavIcon))
 
   // The composer cannot read this plugin (the dependency runs one way), so an
   // archive's block is pushed: each dock occurrence watches its session's

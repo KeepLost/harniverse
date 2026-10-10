@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The "会话导入" settings section and the archive dock: where a user brings official DeepSeek Harness conversations into Harniverse as read-only archives and continues one in a new session. It is a browser-only plugin over the `officialSessionImport` Remote of [`@deepseek-ai/dsh-host-official-session-import`](../../host/official-session-import/README.md) (`ctx.remote.officialSessionImport`) and the `session.continueArchive` RPC of [`@deepseek-ai/dsh-host-apiproxy`](../../host/apiproxy/README.md); the node half registers no host behavior.
+The "会话导入" settings section and the archive dock: where a user brings official DeepSeek Harness conversations into Harniverse as read-only archives and continues one in a new session. It is a browser-only plugin over the `officialSessionImport` Remote of [`@deepseek-ai/dsh-host-official-session-import`](../../host/official-session-import/README.md) (`ctx.remote.officialSessionImport`) and the `session.continueArchive` RPC of [`@deepseek-ai/dsh-host-apiproxy`](../../host/apiproxy/README.md); the node half registers no host behavior. The section registers its own nav glyph (the download tray) into the keyed `settings.nav.icon` slot under the section id `session-import`.
 
 ## Composition
 

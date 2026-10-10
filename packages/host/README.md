@@ -15,6 +15,7 @@ The host side of the dsh web GUI: the API gateway every client shape shares, and
 | [`directory-picker-auto/`](directory-picker-auto/README.md) | Host-adaptive picker composition | mounts a backend |
 | [`plugin-inventory/`](plugin-inventory/README.md) | Read-only projection of current plugin inventory and diagnostics | Remotes `pluginInventory/list`, `pluginInventory/diagnose` |
 | [`official-session-import/`](official-session-import/README.md) | Discovery and archival import of official DeepSeek Harness sessions on the serving machine | Remotes `officialSessionImport/scan`, `officialSessionImport/importSources`, `officialSessionImport/importUpload` |
+| [`skin-library/`](skin-library/README.md) | Skin catalog, imported packs, and wallpaper store for the browser, plus the pre-plugin skin bootstrap | Remotes `skinLibrary/list`, `skinLibrary/readWallpaper`, `skinLibrary/importPack`, `skinLibrary/removePack`, `skinLibrary/putWallpaper`, `skinLibrary/removeWallpaper` |
 
 `apiproxy` remains transport-independent; [`client/connection`](../client/connection/README.md) supplies the browser/HTTP carrier. Picker implementations replace one another behind the shared seam.
 

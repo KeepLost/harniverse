@@ -9,6 +9,7 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-models/client
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import { ModelPolicySection } from '../src/client/ModelPolicySection.tsx'
 import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
+import { ModelsNavIcon } from '../src/client/NavIcon.tsx'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -55,6 +56,7 @@ function declare(slots: SlotRegistry): () => void {
       name: 'root',
       children: {
         'settings.section': { kind: 'list', scope: 'root' },
+        'settings.nav.icon': { kind: 'keyed', scope: 'root' },
         'settings.onboarding': { kind: 'list', scope: 'root' },
       },
     } as never,
@@ -97,15 +99,20 @@ describe('ui-settings-models apply', () => {
       options: { id: 'welcome-notice', order: -100 },
     })
     expect(onboarding.some(entry => entry.options.id === 'deepseek-official')).toBe(false)
+    // Only the Models page owns a glyph; the policy page keeps the shell's gear.
+    expect(before.slots.entries('settings.nav.icon').map(e => [e.options.key, e.component]))
+      .toEqual([['models', ModelsNavIcon]])
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
     expect(after.slots.entries('settings.section')).toHaveLength(0)
     expect(after.slots.entries('settings.onboarding')).toHaveLength(0)
+    expect(after.slots.entries('settings.nav.icon')).toHaveLength(0)
     declare(after.slots)
     await Promise.resolve()
     expect(after.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
     expect(after.slots.entries('settings.onboarding')).toHaveLength(1)
+    expect(after.slots.entries('settings.nav.icon')).toHaveLength(1)
     // The self-inflicted ledger notifications hit the duplicate guard.
     expect(after.slots.entries('settings.section')).toHaveLength(2)
   })
@@ -154,10 +161,12 @@ describe('ui-settings-models apply', () => {
     redeclare()
     expect(b.slots.entries('settings.section')).toHaveLength(0)
     expect(b.slots.entries('settings.onboarding')).toHaveLength(0)
+    expect(b.slots.entries('settings.nav.icon')).toHaveLength(0)
     declare(b.slots)
     await Promise.resolve()
     expect(b.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
     expect(b.slots.entries('settings.onboarding')).toHaveLength(1)
+    expect(b.slots.entries('settings.nav.icon')).toHaveLength(1)
     // The locale path also recovers through the same ledger re-check.
     b.locale.setLocale('en')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
@@ -173,6 +182,7 @@ describe('ui-settings-models apply', () => {
     await fiber.dispose()
     expect(b.slots.entries('settings.section')).toHaveLength(0)
     expect(b.slots.entries('settings.onboarding')).toHaveLength(0)
+    expect(b.slots.entries('settings.nav.icon')).toHaveLength(0)
     // The (ns, locale) seats are free again — the dictionary disposers ran.
     expect(() => b.locale.register('settings.models', 'zh', {})).not.toThrow()
     expect(() => b.locale.register('settings.models', 'en', {})).not.toThrow()

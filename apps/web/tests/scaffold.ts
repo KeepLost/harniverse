@@ -397,6 +397,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // Official sessions share the sessions root by default; scan the temp one
     // so no scenario ever reads the user's real ~/.dsh/sessions.
     { id: 'official-session-import', config: { roots: [persistenceRoot] } },
+    // The skin library sits beside the isolated harness home, as the shipped
+    // `dshHomePath('skins')` does, never under the user's real ~/.dsh.
+    { id: 'skin-library', config: { dir: join(harnessHome, 'skins') } },
     // Content search is pinned to the shipped lazy-search mode so seeded-session
     // scenarios exercise the same default path without opening SQLite at boot.
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },

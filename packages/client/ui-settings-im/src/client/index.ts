@@ -14,10 +14,11 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the ui-settings SlotMap merge (the settings.section list).
+// Type-only: pulls the ui-settings SlotMap merge (the settings.section list and the keyed settings.nav.icon).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createImController, type ChatBotsRemote } from './controller.ts'
 import { ImSection } from './ImSection.tsx'
+import { ImNavIcon } from './NavIcon.tsx'
 import { en, NS, zh, type ImKey } from './locales.ts'
 import { createImStore } from './stores.ts'
 
@@ -76,4 +77,8 @@ export function apply(ctx: ClientContext): void {
       ...pickDirectory === undefined ? {} : { pickDirectory },
     }, actions),
   }, ImSection))
+  ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
+    name: 'settings.nav.icon',
+    key: 'im',
+  }, ImNavIcon))
 }

@@ -96,22 +96,56 @@ describe('ThemeRuntime', () => {
     expect(() => theme.register({ id: 'system', colorScheme: 'light', tokens: {} })).toThrow('preference')
   })
 
-  it('registered themes join the snapshot; disposing the active one resets to default', () => {
+  it('registered themes join the snapshot; disposing the active one keeps the preference and renders the system palette', () => {
     const { theme, events, host } = make()
     const dispose = theme.register({ id: 'sepia', colorScheme: 'light', tokens: { '--dsw-alias-bg-base': 'red' } })
     expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark', 'sepia'])
     theme.setTheme('sepia')
     expect(theme.getTheme().active.tokens['--dsw-alias-bg-base']).toBe('red')
     dispose()
-    expect(theme.getTheme().preference).toBe('system')
+    expect(theme.getTheme().preference).toBe('sepia')
+    expect(theme.getTheme().active.id).toBe('light')
     expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark'])
-    // Custom ids are in-process extension themes; only the built-in product
-    // preferences cross the Host settings schema.
+    // Unnamespaced ids are in-process extension themes; only ids matching the
+    // persistable grammar cross the Host settings schema.
     expect(host.set).not.toHaveBeenCalled()
     // register + set + dispose = three publishes; disposer is idempotent.
     expect(events.length).toBe(3)
     dispose()
     expect(events.length).toBe(3)
+    // The theme resumes when its owner registers it again.
+    theme.register({ id: 'sepia', colorScheme: 'light', tokens: { '--dsw-alias-bg-base': 'red' } })
+    expect(theme.getTheme().active.tokens['--dsw-alias-bg-base']).toBe('red')
+  })
+
+  it('marks the snapshot pending until the durable section loads and while the preferred theme is unregistered', () => {
+    const { theme, host } = make()
+    expect(theme.getTheme().pending).toBe(true)
+    host.publish({ status: 'ready', value: { preference: 'system', fontSize: 16 }, revision: 1, writable: true })
+    expect(theme.getTheme().pending).toBeUndefined()
+    host.publish({ value: { preference: 'skin:abyss', fontSize: 16 }, revision: 2 })
+    expect(theme.getTheme().pending).toBe(true)
+    expect(theme.getTheme().active.id).toBe('light')
+    const dispose = theme.register({ id: 'skin:abyss', colorScheme: 'dark', tokens: {} })
+    expect(theme.getTheme().pending).toBeUndefined()
+    dispose()
+    expect(theme.getTheme().pending).toBe(true)
+    theme.setTheme('dark')
+    expect(theme.getTheme().pending).toBeUndefined()
+  })
+
+  it('persists a namespaced theme id and resumes it after the theme re-registers', () => {
+    const { theme, host } = make()
+    const register = () => theme.register({ id: 'skin:abyss', colorScheme: 'dark', tokens: { '--dsw-accent': 'teal' } })
+    const dispose = register()
+    theme.setTheme('skin:abyss')
+    expect(host.set).toHaveBeenCalledWith('preference', 'skin:abyss')
+    expect(theme.getTheme().active.colorScheme).toBe('dark')
+    dispose()
+    expect(theme.getTheme().preference).toBe('skin:abyss')
+    expect(theme.getTheme().active.tokens).toEqual({})
+    register()
+    expect(theme.getTheme().active.id).toBe('skin:abyss')
   })
 
   it('disposing an inactive theme keeps the active preference', () => {
@@ -261,6 +295,22 @@ describe('ThemeRuntime', () => {
       media.flip()
       expect(events).toHaveLength(1)
       expect(theme.getTheme().active.id).toBe('light')
+    })
+
+    it('OS flips do not republish while a registered theme paints, and do while its theme is missing', () => {
+      const media = stubMedia(false)
+      const { theme, events } = make()
+      theme.register({ id: 'skin:abyss', colorScheme: 'dark', tokens: {} })
+      theme.setTheme('skin:abyss')
+      const published = events.length
+      media.flip()
+      expect(events).toHaveLength(published)
+      expect(theme.getTheme().active.id).toBe('skin:abyss')
+      const orphan = make()
+      orphan.host.publish({ status: 'ready', value: { preference: 'skin:gone', fontSize: 16 }, revision: 1, writable: true })
+      expect(orphan.theme.getTheme().active.id).toBe('dark')
+      media.flip()
+      expect(orphan.theme.getTheme().active.id).toBe('light')
     })
 
     it('context dispose releases the media listener', async () => {

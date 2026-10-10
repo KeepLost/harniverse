@@ -1,0 +1,69 @@
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* The swatch colour is user-facing data (the accent itself), handed in as a
+ * component-local custom property; everything else is a token. */
+.swatch {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  border: 2px solid var(--dsw-alias-border-l3);
+  border-radius: 50%;
+  background: var(--dsh-skin-swatch);
+  background-clip: content-box;
+  cursor: pointer;
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l4);
+  outline-offset: 2px;
+}
+
+.swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.selected {
+  border-color: var(--dsw-alias-label-primary);
+}
+
+.custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.picker {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.picker:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l4);
+  outline-offset: 2px;
+}
+
+.picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}

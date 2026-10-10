@@ -17,6 +17,7 @@ import type { MachineTarget, OfficialSessionScan } from '@deepseek-ai/dsh-api-re
 import { apply, inject } from '../src/client/index.ts'
 import type { ArchiveDockInjected } from '../src/client/controller.ts'
 import { en, zh } from '../src/client/locales.ts'
+import { SessionImportNavIcon } from '../src/client/NavIcon.tsx'
 
 usePinnedBrowserLanguages('zh')
 
@@ -75,10 +76,16 @@ describe('ui-session-import apply', () => {
     runtime.provide('locale', locale)
     runtime.slots.installLocale(locale)
     const plugin = await runtime.mount({ apply, inject })
-    await runtime.declare({ 'settings.section': { kind: 'list', scope: 'root' } })
+    await runtime.declare({
+      'settings.section': { kind: 'list', scope: 'root' },
+      'settings.nav.icon': { kind: 'keyed', scope: 'root' },
+    })
 
     const [entry] = runtime.slots.entries('settings.section')
     expect(entry?.options).toMatchObject({ id: 'session-import', order: 22 })
+    // The same id keys the section's nav glyph (the download tray, owned here).
+    expect(runtime.slots.entries('settings.nav.icon').map(e => [e.options.key, e.component]))
+      .toEqual([['session-import', SessionImportNavIcon]])
     const label = entry!.options.label as () => string
     expect(label()).toBe(zh.nav)
     await act(async () => { locale.setLocale('en') })
@@ -102,6 +109,7 @@ describe('ui-session-import apply', () => {
 
     await plugin.dispose()
     expect(runtime.slots.entries('settings.section')).toEqual([])
+    expect(runtime.slots.entries('settings.nav.icon')).toEqual([])
   })
 })
 
