@@ -109,6 +109,21 @@ dsh --profile demo
 
 `dsh plugin --profile demo remove dsh-hello-plugin` 会同时移除依赖和对应的层。
 
+## 导出插件
+
+安装有逆操作。`dsh plugin --profile demo export dsh-hello-plugin --out .` 用 `pnpm pack` 打包该依赖并打印 tarball 路径；另一台实例（离线、或访问不到你的检出目录）用普通的 `add` 即可安装：
+
+```sh
+dsh plugin --profile demo export dsh-hello-plugin --out .
+dsh: packed from the local source /path/to/hello-plugin
+./dsh-hello-plugin-0.1.0.tgz
+dsh plugin --profile other add ./dsh-hello-plugin-0.1.0.tgz
+```
+
+打包来源跟随依赖的 spec：`link:`/`file:` 依赖且目录仍然存在时打包该源码目录（其 `prepack` 在与 `add` 相同的信任级别下运行）；其余情况——registry、git、tarball 安装——打包安装副本，来源说明行会写明是哪种。Web 设置的插件列表卡片展开后的**导出插件**按钮提供同一操作，通过浏览器下载 tarball。
+
+`dsh plugin --profile demo export-manifest` 以 JSON 打印 profile 的重放清单——bundle 层加上全部依赖 spec——新机器可以用一组 `dsh plugin add <spec>` 重建该组合。
+
 ## 加载顺序
 
 生效配置在空根之上按以下顺序逐层组合：

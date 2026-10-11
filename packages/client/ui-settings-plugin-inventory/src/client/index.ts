@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { PluginInventorySettingsTab, type PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
+import { hostBase } from './host-base.ts'
 import { en, zh, type PluginInventoryLocaleKey } from './locales.ts'
 
 export type { PluginInventorySettingsTabInjected, PluginInventorySettingsTabProps } from './PluginInventorySettingsTab.tsx'
@@ -41,7 +42,20 @@ export function apply(ctx: ClientContext): void {
     }
     return result.value
   }
-  const injected = (): PluginInventorySettingsTabInjected => ({ list, diagnose })
+  const exportPlugin: PluginInventorySettingsTabInjected['exportPlugin'] = async (moduleName) => {
+    const url = new URL('/api/plugin.export', hostBase((globalThis as { location?: { origin?: string } }).location?.origin))
+    url.searchParams.set('package', moduleName)
+    const probe = await fetch(url, { method: 'HEAD' })
+    if (!probe.ok) {
+      const detail = await probe.text().catch(() => '')
+      throw new Error(`HTTP ${probe.status}${detail === '' ? '' : ` ${detail}`}`)
+    }
+    const anchor = document.createElement('a')
+    anchor.href = url.toString()
+    anchor.download = `${moduleName.replace(/[^A-Za-z0-9@._-]/g, '_')}.tgz`
+    anchor.click()
+  }
+  const injected = (): PluginInventorySettingsTabInjected => ({ list, diagnose, exportPlugin })
 
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
     name: 'settings.plugins.tab',

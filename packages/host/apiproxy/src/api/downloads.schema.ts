@@ -24,3 +24,15 @@ export const sessionLogQuerySchema = z
     sessionId: query.sessionId,
     ...(query.includeDescendants === 'true' ? { includeDescendants: true } : {}),
   })) satisfies z.ZodType<Parameters<DownloadsApi['sessionLog']>[0]>
+
+/**
+ * plugin.export query params → the pluginPackage request. The package name is
+ * one npm name: non-empty, no whitespace, no path separators, and bounded so
+ * a malformed value cannot smuggle a filesystem reference into the pack
+ * resolution.
+ */
+export const pluginExportQuerySchema = z
+  .object({
+    package: z.string().min(1).max(214).regex(/^(?:@[^/\\\s]+\/)?[^/\\\s]+$/, 'a package name'),
+  })
+  .transform(query => ({ packageName: query.package })) satisfies z.ZodType<Parameters<DownloadsApi['pluginPackage']>[0]>

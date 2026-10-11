@@ -14,7 +14,7 @@ import {
 import type { z } from 'zod'
 import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
 import type { WorkspaceFileWatchFrame } from '../api/index.ts'
-import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
+import { sessionLogQuerySchema, pluginExportQuerySchema } from '../api/downloads.schema.ts'
 import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, RpcError, RpcRequest, RpcResponse, ServerRequest, ServerResponse } from '../api/rpc.ts'
 import { CONNECTION_AUTHENTICATED_METHOD, RequestId, RpcId } from '../api/rpc.ts'
@@ -539,6 +539,16 @@ export function toFetchHandler(
           return new Response('missing or invalid sessionId query parameter', { status: 400 })
         }
         const response = await api.downloads.sessionLog(parsed.data, req.signal)
+        if (req.method === 'GET') return response
+        await response.body?.cancel()
+        return new Response(null, { status: response.status, headers: response.headers })
+      }
+      if (path === '/api/plugin.export' && (req.method === 'GET' || req.method === 'HEAD')) {
+        const parsed = pluginExportQuerySchema.safeParse(Object.fromEntries(url.searchParams))
+        if (!parsed.success) {
+          return new Response('missing or invalid package query parameter', { status: 400 })
+        }
+        const response = await api.downloads.pluginPackage(parsed.data, req.signal)
         if (req.method === 'GET') return response
         await response.body?.cancel()
         return new Response(null, { status: response.status, headers: response.headers })

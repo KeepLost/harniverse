@@ -109,6 +109,21 @@ dsh --profile demo
 
 `dsh plugin --profile demo remove dsh-hello-plugin` removes both the dependency and the layer.
 
+## Export a plugin
+
+Installation has an inverse. `dsh plugin --profile demo export dsh-hello-plugin --out .` packs that dependency with `pnpm pack` and prints the tarball path; another instance (offline or without network access to your checkout) installs it with the ordinary `add`:
+
+```sh
+dsh plugin --profile demo export dsh-hello-plugin --out .
+dsh: packed from the local source /path/to/hello-plugin
+./dsh-hello-plugin-0.1.0.tgz
+dsh plugin --profile other add ./dsh-hello-plugin-0.1.0.tgz
+```
+
+The pack source follows the dependency's spec: a `link:`/`file:` dependency whose directory still exists packs that live source (running its `prepack` under the same trust as `add`); everything else — registry, git, tarball installs — packs the installed copy, and the provenance line says which. Web Settings offers the same action as the **Export plugin** button on each expanded plugin-list card, downloading the tarball through the browser.
+
+`dsh plugin --profile demo export-manifest` prints the profile's replay manifest — the bundle layer plus every dependency spec — as JSON, so a fresh machine can re-create the composition with a sequence of `dsh plugin add <spec>` calls.
+
 ## The loading order
 
 The effective configuration composes over an empty root by applying, in order:

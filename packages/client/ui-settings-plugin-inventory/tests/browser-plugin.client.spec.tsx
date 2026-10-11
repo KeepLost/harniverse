@@ -98,4 +98,53 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     expect(() => b.locale.register(NS, 'zh', {})).not.toThrow()
     await b.ctx.fiber.dispose()
   })
+
+  it('hands plugin export to the browser download manager after a HEAD preflight', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const injected = (b.slots.entries('settings.plugins.tab')[0]!.inject as unknown as () => PluginInventorySettingsTabInjected)()
+
+    const heads: { url: string }[] = []
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      heads.push({ url: String(input) })
+      expect(init?.method).toBe('HEAD')
+      return new Response('', { status: String(input).includes('package=broken') ? 404 : 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const clicks: { href: string; download: string }[] = []
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push({ href: this.href, download: this.download })
+    })
+    try {
+      await injected.exportPlugin('@scope/dsh-plug')
+      const base = window.location.origin === 'null' ? 'http://dsh.internal' : window.location.origin
+      const href = `${base}/api/plugin.export?package=%40scope%2Fdsh-plug`
+      expect(heads).toEqual([{ url: href }])
+      expect(clicks).toEqual([{ href, download: '@scope_dsh-plug.tgz' }])
+
+      await expect(injected.exportPlugin('broken')).rejects.toThrow('HTTP 404')
+
+      fetchMock.mockImplementationOnce(async () => ({
+        ok: false, status: 500, text: async () => 'carrier detail',
+      }) as unknown as Response)
+      await expect(injected.exportPlugin('detailed')).rejects.toThrow('HTTP 500 carrier detail')
+
+      fetchMock.mockImplementationOnce(async () => ({
+        ok: false, status: 502, text: async () => { throw new Error('unreadable') },
+      }) as unknown as Response)
+      await expect(injected.exportPlugin('unreadable')).rejects.toThrow('HTTP 502')
+    } finally {
+      clickSpy.mockRestore()
+      vi.unstubAllGlobals()
+    }
+    await b.ctx.fiber.dispose()
+  })
+
+  it('falls back to the documented internal base for null and absent origins', async () => {
+    const { hostBase } = await import('../src/client/host-base.ts')
+    expect(hostBase('https://host.example')).toBe('https://host.example')
+    expect(hostBase('null')).toBe('http://dsh.internal')
+    expect(hostBase(undefined)).toBe('http://dsh.internal')
+  })
 })

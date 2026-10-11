@@ -138,6 +138,7 @@ describe('session export compression config', () => {
       streamQueueMaxFrames: 1024,
       fileWatchDebounceMs: 50,
       fileWatchMaxPerWorkspace: 64,
+      pluginExportMaxBytes: 134217728,
     })
     expect(ApiProxyService.Config({ sessionExportCompressionLevel: 0 }))
       .toEqual({
@@ -146,6 +147,7 @@ describe('session export compression config', () => {
         streamQueueMaxFrames: 1024,
         fileWatchDebounceMs: 50,
         fileWatchMaxPerWorkspace: 64,
+        pluginExportMaxBytes: 134217728,
       })
     expect(ApiProxyService.Config({ sessionExportCompressionLevel: 9 }))
       .toEqual({
@@ -154,6 +156,7 @@ describe('session export compression config', () => {
         streamQueueMaxFrames: 1024,
         fileWatchDebounceMs: 50,
         fileWatchMaxPerWorkspace: 64,
+        pluginExportMaxBytes: 134217728,
       })
     for (const value of [-1, 10, 1.5]) {
       expect(() => ApiProxyService.Config({ sessionExportCompressionLevel: value } as never)).toThrow()
@@ -170,6 +173,7 @@ describe('cold blank probe config', () => {
         streamQueueMaxFrames: 1024,
         fileWatchDebounceMs: 50,
         fileWatchMaxPerWorkspace: 64,
+        pluginExportMaxBytes: 134217728,
       })
     expect(ApiProxyService.Config({ coldBlankProbeMaxBytes: 2048 }))
       .toEqual({
@@ -178,6 +182,7 @@ describe('cold blank probe config', () => {
         streamQueueMaxFrames: 1024,
         fileWatchDebounceMs: 50,
         fileWatchMaxPerWorkspace: 64,
+        pluginExportMaxBytes: 134217728,
       })
     for (const value of [-1, 1.5]) {
       expect(() => ApiProxyService.Config({ coldBlankProbeMaxBytes: value })).toThrow()
@@ -193,6 +198,7 @@ describe('stream queue config', () => {
       streamQueueMaxFrames: 8,
       fileWatchDebounceMs: 50,
       fileWatchMaxPerWorkspace: 64,
+      pluginExportMaxBytes: 134217728,
     })
     for (const value of [0, -1, 1.5]) {
       expect(() => ApiProxyService.Config({ streamQueueMaxFrames: value })).toThrow()

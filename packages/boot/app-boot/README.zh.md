@@ -19,6 +19,7 @@
 | `mountRootInclude(ctx, absoluteConfigPath, patches?, bareModuleBaseUrl?)` | 注册静态导入的 `cordis:include` 与 `cordis:group` builtin，挂载 include，并保留用户 patch 层 HMR（热模块替换）使用的确切根配置项；可选模块基准会把裸包名锚定到已安装宿主，而相对名称仍以配置目录为基准 |
 | `watchUserPatches(ctx, options)` | 向 `hmrCoordination` 服务注册指名的 patch 文件；每次新增、变更或移除都会通过调用方的 `compose` 闭包（应用自有层围绕当前用户层）以事务方式重新组合完整 patch 列表，并返回异步 disposer |
 | `resolveProfileDir` / `initProfile` / `loadProfile` / `readProfileManifest` / `writeProfileManifest` / `resolveBundleDir` / `composeEntries` / `healProfilesModuleFallback` / `PROFILE_TEMPLATES` / `DEFAULT_PROFILE_BUNDLES` / `PROFILES_DIR` / `PROFILE_PATCH_FILENAME` | Profile 机制（见 [Profile](#profiles)） |
+| `classifyDependencySpec` / `resolvePluginExportSource` / `packPluginTarball` | 插件导出核心（见“插件导出”一节） |
 | `boot(binName, absoluteConfigPath, patches?, prepare?, bareModuleBaseUrl?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并以带标签的错误 reject；可选模块基准与 `mountRootInclude` 的解析语义相同 |
 | `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`）离线合成基础配置与带标签的覆盖层，使结果与 `boot()` 挂载的内容一致，再渲染为 YAML，并原样保留 `!!js` 表达式；每段来源于同一文件且由相同补丁层修改的连续行之前都有一条 `# ==` 注释，标明该文件和这些补丁层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取、解析或字段验证失败则抛出 |
 | `generateConfigSchema(profile, layers)` | 将已准备 profile 的有序 patch 层组合起来，把每个已声明插件的 `Config` 收集为一份 JSON Schema 2020-12 文档——全程不启动、不应用插件，也不对 `!!js` 求值（见[配置 schema 导出](#config-schema-export)） |
@@ -48,6 +49,10 @@ CLI 在准备阶段之前为独占组合获取 home 租约，并为每个组合�
 - **`cordis.patch.yml`**（home 级）与 **`profiles/<name>/cordis.patch.yml`**：用户 patch 层，应用在所有组合包层之后（先应用逐 profile 的文件，再应用 home 级文件，因此后者优先级更高）：按 id 定位的 patch 会替换对应条目的整个 `config`（未改字段也要重述），`insert` 会添加条目，`!!js` 表达式则在挂载时插值。如果 patch 指定的条目 id 不在组合后的树中，则输出一条 stderr 警告。空文件或仅含注释的文件会抛出异常（其解析结果为空，而不是列表）；如需禁用该层，请使用 `[]`。
 
 每次 profile 启动都由 `watchUserPatches` 持续应用 `cordis.patch.yml` 的变更（一次性 surface 经由有界关闭 dispose 监视器）。即使该文件或其直接父目录不存在，监视器仍会监视确切路径；它会串行处理突发变更，并按调用方的层次顺序重新组合用户 patch（组合包层在下、overlay 在上）。读取失败、解析失败或 Loader 候选被拒时，最后一个可用树会继续运行；HMR 服务记录错误后广播 `hmr/config-update-failed(filename, Error)`，并隔离观察方的失败。上下文 dispose 时会关闭 watcher，并等待进行中的刷新结束。
+
+## 插件导出
+
+作为 `dsh plugin add` 的逆操作，由 CLI 的 `export` 子命令与宿主的 `plugin.export` 下载面共享：`classifyDependencySpec` 把依赖 spec 分为文件系统类（`link:`/`file:`/裸路径）与远程类（registry、git、tarball）；`resolvePluginExportSource` 优先使用 spec 指向的仍然存在的本地源码目录——相对 profile 解析，`link:` 符号链接的 `node_modules` 条目与 `file:` 拷贝都先解析到 spec 路径——再回退到以 profile 清单为锚点的安装副本（绝不用安装锚点：被导出的按定义就是 profile 依赖）；`packPluginTarball` 以 `dsh plugin` 转发器的 Windows shell 姿态在打包目录中运行 `pnpm pack --pack-destination`，解析打印出的 tarball 路径，并以诊断尾部分别报告 pnpm 缺失（退出码 127）与打包失败。[插件导出决策](../../../.agents/notes/implemented/feature/2026-10-11-plugin-export.md)记录了来源与 surface 的选择。
 
 ## Config schema export
 

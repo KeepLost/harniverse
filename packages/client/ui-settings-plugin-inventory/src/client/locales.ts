@@ -30,6 +30,10 @@ export const zh = {
   diagnosticWarning: '警告',
   diagnosticError: '错误',
   fixHint: '处理建议',
+  exportButton: '导出插件',
+  exportBusy: '正在导出…',
+  exportDone: '已开始下载。',
+  exportFailed: '导出失败',
 } satisfies Record<string, string>
 
 /** Plugin inventory locale key union. */
@@ -65,4 +69,8 @@ export const en = {
   diagnosticWarning: 'Warning',
   diagnosticError: 'Error',
   fixHint: 'Suggested response',
+  exportButton: 'Export plugin',
+  exportBusy: 'Exporting…',
+  exportDone: 'Download started.',
+  exportFailed: 'Export failed',
 } satisfies Record<PluginInventoryLocaleKey, string>
