@@ -120,6 +120,7 @@ export interface PluginPackFail {
   readonly stderrTail: string
 }
 
+/** Result of one `pnpm pack` attempt: the tarball path, or the failure reason and pnpm diagnostics. */
 export type PluginPackResult = PluginPackOk | PluginPackFail
 
 const realSpawn: PluginPackSpawn = (command, args, options) => spawnSync(command, args, options)

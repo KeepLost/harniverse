@@ -39,7 +39,11 @@ export interface PluginExportRequestInput {
   readonly pack?: PluginPackSpawn
 }
 
-/** Derive the running profile directory from the Loader's config-tree anchor. */
+/**
+ * Derive the running profile directory from the Loader's config-tree anchor.
+ * @param baseUrl - the Loader `baseUrl` (a `file:` URL of the profile directory).
+ * @returns the profile directory path, or undefined when the anchor is unset or not a file URL.
+ */
 export function pluginExportProfileDir(baseUrl: string | undefined): string | undefined {
   if (baseUrl === undefined) return undefined
   try {
