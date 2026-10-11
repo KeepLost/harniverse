@@ -447,6 +447,12 @@
       "stability": "stable"
     },
     {
+      "method": "llm.modelProfiles",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
       "method": "llm.discoverModels",
       "requiredCapability": "harniverse.administer",
       "effect": "mutate",

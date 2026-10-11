@@ -14,6 +14,7 @@ import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { ProfileEditor } from './ProfileEditor.tsx'
 import { RouteEditor } from './RouteEditor.tsx'
+import { SectionError } from './SectionError.tsx'
 import { freshProfileId, freshRouteId, policyDocOf } from './policy-store.ts'
 import type {
   ModelPolicyState, ModelPolicyStore, PolicyDoc, PolicyProfileRow, PolicyRouteRow,
@@ -60,6 +61,28 @@ function copy(template: string, values: Record<string, string>): string {
  * @param target - the row being deleted.
  * @returns the document with the entry removed.
  */
+export /** Props of the module-private {@link RowIdentity}. */
+interface RowIdentityProps {
+  name: string
+  id: string
+  builtin: boolean
+  t: (key: keyof typeof en) => string
+  children?: ReactNode
+}
+
+/** The identity half of a policy row: display name, document id, and the
+ * badges the row carries (built-in, and whatever the caller appends). */
+function RowIdentity(props: RowIdentityProps): ReactNode {
+  return (
+    <span className={styles['rowIdentity']}>
+      <span className={styles['rowName']}>{props.name}</span>
+      <span className={styles['rowMeta']}>{props.id}</span>
+      {props.builtin ? <span className={styles['rowTag']}>{props.t('builtinTag')}</span> : null}
+      {props.children}
+    </span>
+  )
+}
+
 export function docWithout(doc: PolicyDoc, target: DeleteTarget): PolicyDoc {
   if (target.kind === 'route') {
     const { [target.row.id]: _removedRoute, ...routes } = doc.routes
@@ -106,13 +129,12 @@ function Loaded({ injected }: { injected: ModelPolicySectionInjected }): ReactNo
     /* v8 ignore next -- same defensive arm as the provider page */
     const errorText = state.error ?? ''
     return (
-      <div className={styles['section']}>
-        <h1 className={styles['title']}>{t('policyTitle')}</h1>
-        <p className={styles['error']}>{`${t('loadFailed')}: ${errorText}`}</p>
-        <button type="button" className={styles['secondaryButton']} onClick={() => { void controller.load() }}>
-          {t('retry')}
-        </button>
-      </div>
+      <SectionError
+        title={t('policyTitle')}
+        message={`${t('loadFailed')}: ${errorText}`}
+        retryLabel={t('retry')}
+        onRetry={() => { void controller.load() }}
+      />
     )
   }
   if (state.status === 'ready' && state.namespace === undefined) {
@@ -197,11 +219,7 @@ function Loaded({ injected }: { injected: ModelPolicySectionInjected }): ReactNo
         {state.routes.map(row => (
           <li key={row.id} className={styles['rowCard']}>
             <div className={styles['rowHead']}>
-              <span className={styles['rowIdentity']}>
-                <span className={styles['rowName']}>{row.name ?? row.id}</span>
-                <span className={styles['rowMeta']}>{row.id}</span>
-                {row.builtin ? <span className={styles['rowTag']}>{t('builtinTag')}</span> : null}
-              </span>
+              <RowIdentity name={row.name ?? row.id} id={row.id} builtin={row.builtin} t={t} />
               <span className={styles['rowActions']}>
                 <button type="button" className={styles['secondaryButton']} onClick={() => { setActionError(undefined); setEditing({ kind: 'route', id: row.id }) }}>
                   {t('edit')}
@@ -261,12 +279,9 @@ function Loaded({ injected }: { injected: ModelPolicySectionInjected }): ReactNo
         {state.profiles.map(row => (
           <li key={row.id} className={styles['rowCard']}>
             <div className={styles['rowHead']}>
-              <span className={styles['rowIdentity']}>
-                <span className={styles['rowName']}>{row.name ?? row.id}</span>
-                <span className={styles['rowMeta']}>{row.id}</span>
-                {row.builtin ? <span className={styles['rowTag']}>{t('builtinTag')}</span> : null}
+              <RowIdentity name={row.name ?? row.id} id={row.id} builtin={row.builtin} t={t}>
                 {state.defaultProfile === row.id ? <span className={styles['rowTag']}>{t('defaultTag')}</span> : null}
-              </span>
+              </RowIdentity>
               <span className={styles['rowActions']}>
                 <button type="button" className={styles['secondaryButton']} onClick={() => { setActionError(undefined); setEditing({ kind: 'profile', id: row.id }) }}>
                   {t('edit')}

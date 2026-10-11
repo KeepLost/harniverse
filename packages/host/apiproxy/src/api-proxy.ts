@@ -5410,10 +5410,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return ok(request, await buildModelCatalog(ctx))
       },
 
-      async modelProfiles(request) {
+      modelProfiles(request) {
         const policy = ctx.get('modelPolicy')
         if (policy === undefined) {
-          return ok(request, {
+          return Promise.resolve(ok(request, {
             defaultProfileId: UNRESTRICTED_MODEL_PROFILE_ID,
             profiles: [{
               id: UNRESTRICTED_MODEL_PROFILE_ID,
@@ -5421,12 +5421,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               description: 'All registered concrete models and routes are allowed.',
               unrestricted: true,
             }],
-          })
+          }))
         }
-        return ok(request, {
+        return Promise.resolve(ok(request, {
           defaultProfileId: policy.defaultProfileId(),
           profiles: policy.listProfiles().map(profile => ({ ...profile })),
-        })
+        }))
       },
 
       async discoverModels(request, signal) {

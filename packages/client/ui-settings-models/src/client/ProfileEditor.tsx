@@ -10,7 +10,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
-import { EditorFooter } from './EditorFooter.tsx'
+import { EntryNameField, PolicyEditorFooter } from './EditorCommon.tsx'
 import type {
   PolicyDocProfile, PolicyRouteRow, PolicySelection, PolicyTarget,
 } from './policy-store.ts'
@@ -140,17 +140,13 @@ export function ProfileEditor(props: ProfileEditorProps): ReactNode {
         <h3 className={styles['editorTitle']}>{props.profile === undefined ? t('addProfile') : t('edit')}</h3>
         <span className={styles['rowMeta']}>{props.id}</span>
       </div>
-      <div className={styles['field']}>
-        <label className={styles['fieldLabel']} htmlFor="policy-profile-name">{t('entryName')}</label>
-        <input
-          id="policy-profile-name"
-          className={styles['input']}
-          value={name}
-          placeholder={t('entryNamePlaceholder')}
-          disabled={props.readOnly || busy}
-          onChange={(event) => { setName(event.currentTarget.value) }}
-        />
-      </div>
+      <EntryNameField
+        id="policy-profile-name"
+        value={name}
+        onChange={setName}
+        t={t}
+        disabled={props.readOnly || busy}
+      />
       <div className={styles['field']}>
         <label className={styles['fieldLabel']} htmlFor="policy-profile-description">{t('entryDescription')}</label>
         <input
@@ -276,12 +272,10 @@ export function ProfileEditor(props: ProfileEditorProps): ReactNode {
         </select>
         {decodedTarget === undefined ? <p className={styles['error']}>{t('profileNeedsDefaultTarget')}</p> : null}
       </div>
-      <EditorFooter
+      <PolicyEditorFooter
         t={props.t}
         busy={busy}
         submitDisabled={!canCommit}
-        submitLabel="apply"
-        submitBusyLabel="applying"
         onCancel={() => { props.onClose(false) }}
         onSubmit={commit}
       />

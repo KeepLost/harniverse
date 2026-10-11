@@ -12,6 +12,7 @@ import type {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { staleLoadFailed, watchPrincipal } from './principal-watch.ts'
 import { getPath, hasPath, nodeAtPath, rehydrateSchema } from '@deepseek-ai/dsh-client-schema-form'
 
 /**
@@ -108,8 +109,6 @@ export class ModelsSettingsStore {
 
   /** Latest load wins; an older response never overwrites a newer one. */
   private generation = 0
-  private principalFence: number
-  private reloadAfterPrincipal = false
   private readonly stopDescribe: () => void
 
   /**
@@ -120,16 +119,10 @@ export class ModelsSettingsStore {
     private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>,
     private readonly describeFace: SettingsDescribeFace,
   ) {
-    this.principalFence = describeFace.writeFence()
-    this.stopDescribe = describeFace.subscribe(() => {
-      const next = describeFace.writeFence()
-      if (next === this.principalFence) return
-      this.principalFence = next
-      this.reloadAfterPrincipal ||= this.store.getSnapshot().status !== 'idle'
-      this.reset()
-      if (!this.reloadAfterPrincipal || !describeFace.isCurrent(next)) return
-      this.reloadAfterPrincipal = false
-      void this.load()
+    this.stopDescribe = watchPrincipal(describeFace, {
+      isLive: () => this.store.getSnapshot().status !== 'idle',
+      reset: () => { this.reset() },
+      reload: () => { void this.load() },
     })
   }
 
@@ -174,11 +167,7 @@ export class ModelsSettingsStore {
       writable = mirrored.view.writable
       views = [...mirrored.view.namespaces]
     } catch (error) {
-      if (generation !== this.generation || !this.describeFace.isCurrent(fence)) return
-      this.store.update((s) => {
-        s.status = 'error'
-        s.error = error instanceof Error ? error.message : String(error)
-      })
+      staleLoadFailed(generation === this.generation && this.describeFace.isCurrent(fence), this.store, error)
       return
     }
     const namespaces = new Map(views.map(view => [view.ns, view]))

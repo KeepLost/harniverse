@@ -21,6 +21,7 @@ import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, messageOf, protocolChoices, providerUsable } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import { SectionError } from './SectionError.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -274,12 +275,11 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
     /* v8 ignore next -- an error status always carries text; the fallback satisfies the nullable type */
     const errorText = state.error ?? ''
     return (
-      <div className={styles['section']}>
-        <p className={styles['error']}>{`${t('loadFailed')}: ${errorText}`}</p>
-        <button type="button" className={styles['secondaryButton']} onClick={() => { void controller.load() }}>
-          {t('retry')}
-        </button>
-      </div>
+      <SectionError
+        message={`${t('loadFailed')}: ${errorText}`}
+        retryLabel={t('retry')}
+        onRetry={() => { void controller.load() }}
+      />
     )
   }
 

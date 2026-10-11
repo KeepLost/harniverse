@@ -34,8 +34,6 @@ None, as the section renders a browser configuration UI; nothing here reaches a 
 
 None; this package neither assembles nor sends a provider request.
 
-The model-policy page edits the `model-policy` settings document with structured cards instead of raw JSON: fallback chains are ordered target rows picked from the live `llm.models` catalog (effort restriction optional per target, off-catalog entries keep a badge and stay editable), and profiles are per-model allowances with an optional effort restriction, allowed-chain checkboxes, one default target, and the deployment default profile select. One editor is open at a time; every save replaces the whole user document behind the revision it opened against, so concurrent edits surface as conflicts. A chain referenced by any profile refuses deletion, and base-layer (deployment-built-in) entries render locked because the settings merge can only add on top of them.
-
 ## Known Limitations and Deferred Work
 
 - **Editing a profile normalizes duplicate model allowances to one entry per model** — the wildcard entry (no effort) already admits every effort, so duplicates only ever narrow to one effort.

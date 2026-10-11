@@ -1090,6 +1090,10 @@ describe('config unary surface', () => {
         providers: record('llm.providers', r => ok(r, { providers: [providerRow] })),
         models: record('llm.models', r => ok(r, { groups: [group], failures: [] })),
         discoverModels: record('llm.discoverModels', r => ok(r, { models: [{ id: 'acme-large', contextWindow: 65536 }] })),
+        modelProfiles: record('llm.modelProfiles', r => ok(r, {
+          defaultProfileId: 'unrestricted',
+          profiles: [{ id: 'unrestricted', name: 'Unrestricted', unrestricted: true }],
+        })),
       },
     })
     const c = client(api)
@@ -1115,6 +1119,14 @@ describe('config unary surface', () => {
     expect(providers.result).toEqual({ ok: true, value: { providers: [providerRow] } })
     const models = await c.llm.models({})
     expect(models.result).toEqual({ ok: true, value: { groups: [group], failures: [] } })
+    const roster = await c.llm.modelProfiles({})
+    expect(roster.result).toEqual({
+      ok: true,
+      value: {
+        defaultProfileId: 'unrestricted',
+        profiles: [{ id: 'unrestricted', name: 'Unrestricted', unrestricted: true }],
+      },
+    })
     const discovered = await c.llm.discoverModels({
       settingsNs: 'llm-pi-ai',
       baseURL: 'https://gateway.acme.example/v1',
@@ -1126,7 +1138,7 @@ describe('config unary surface', () => {
     expect(seen.map(call => call.method)).toEqual([
       'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
-      'llm.providers', 'llm.models', 'llm.discoverModels',
+      'llm.providers', 'llm.models', 'llm.modelProfiles', 'llm.discoverModels',
     ])
     expect(seen[2]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
     expect(seen[4]?.payload)
@@ -1134,7 +1146,7 @@ describe('config unary surface', () => {
     expect(seen[6]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
     // The draft crosses whole, credential included: the host needs it for this
     // one interrogation and stores none of it.
-    expect(seen[10]?.payload).toEqual({
+    expect(seen[11]?.payload).toEqual({
       settingsNs: 'llm-pi-ai',
       baseURL: 'https://gateway.acme.example/v1',
       api: 'openai-completions',

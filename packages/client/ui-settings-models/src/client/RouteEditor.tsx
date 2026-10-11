@@ -9,7 +9,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import { IconChevronDownOutline14, IconChevronUpOutline14, IconPlusOutline16, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { EditorFooter } from './EditorFooter.tsx'
+import { EntryNameField, PolicyEditorFooter } from './EditorCommon.tsx'
 import type { PolicyDocRoute, PolicySelection } from './policy-store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -91,6 +91,7 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
       if (to < 0 || to >= current.length) return current
       const next = [...current]
       const [moved] = next.splice(index, 1)
+      /* v8 ignore next -- the boundary check above keeps the index in range */
       if (moved === undefined) return current
       next.splice(to, 0, moved)
       return next
@@ -128,17 +129,13 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
         <h3 className={styles['editorTitle']}>{props.route === undefined ? t('addRoute') : t('edit')}</h3>
         <span className={styles['rowMeta']}>{props.id}</span>
       </div>
-      <div className={styles['field']}>
-        <label className={styles['fieldLabel']} htmlFor="policy-route-name">{t('entryName')}</label>
-        <input
-          id="policy-route-name"
-          className={styles['input']}
-          value={name}
-          placeholder={t('entryNamePlaceholder')}
-          disabled={props.readOnly || busy}
-          onChange={(event) => { setName(event.currentTarget.value) }}
-        />
-      </div>
+      <EntryNameField
+        id="policy-route-name"
+        value={name}
+        onChange={setName}
+        t={t}
+        disabled={props.readOnly || busy}
+      />
       <div className={styles['field']}>
         <span className={styles['fieldLabel']}>{t('targetOrder')}</span>
         <ul className={styles['targetList']}>
@@ -244,15 +241,13 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
         </button>
         {targets.length === 0 ? <p className={styles['error']}>{t('routeNeedsTarget')}</p> : null}
       </div>
-      <EditorFooter
-        t={props.t}
-        busy={busy}
-        submitDisabled={!canCommit}
-        submitLabel="apply"
-        submitBusyLabel="applying"
-        onCancel={() => { props.onClose(false) }}
-        onSubmit={commit}
-      />
+      <PolicyEditorFooter {...{
+        t: props.t,
+        busy,
+        submitDisabled: !canCommit,
+        onCancel: () => { props.onClose(false) },
+        onSubmit: commit,
+      }} />
     </section>
   )
 }

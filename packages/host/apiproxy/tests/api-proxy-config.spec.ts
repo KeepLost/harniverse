@@ -236,7 +236,7 @@ function forwardedSettings(ns: string): HostFrame {
     type: 'host/remote-event',
     event: 'settings/document-updated',
     // The revision is the Host's own counter, so the matcher is the assertion.
-    args: [ns, expect.any(Number)],
+    args: [ns, expect.any(Number)], // oxlint-disable-line typescript/no-unsafe-assignment
   }
 }
 

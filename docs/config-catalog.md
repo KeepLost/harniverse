@@ -2108,7 +2108,7 @@ export type ModelTarget =
   }
 ```
 
-Source: [`packages/core/model-policy/src/index.ts:67`](../packages/core/model-policy/src/index.ts)
+Source: [`packages/core/model-policy/src/index.ts:64`](../packages/core/model-policy/src/index.ts)
 
 <a id="deepseek-aidsh-model-policy-fallback"></a>
 

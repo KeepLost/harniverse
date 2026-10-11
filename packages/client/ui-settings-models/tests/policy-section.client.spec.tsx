@@ -233,6 +233,24 @@ describe('ModelPolicySection', () => {
     controller.dispose()
   })
 
+  it('saves a chain that keeps its effort restriction', async () => {
+    const view = policyView({ defaultProfile: 'unrestricted', profiles: {}, routes: {} })
+    const replace = vi.fn((_call: ReplaceCall) => Promise.resolve(ok(view)))
+    const { controller } = mount(view, replace)
+    renderSection(controller)
+    fireEvent.click(await screen.findByRole('button', { name: en.addRoute }))
+    fireEvent.click(screen.getByRole<HTMLButtonElement>('button', { name: en.addTarget }))
+    fireEvent.change(screen.getByLabelText(en.targetEffort), { target: { value: 'high' } })
+    fireEvent.click(screen.getByRole<HTMLButtonElement>('button', { name: en.apply }))
+    await waitFor(() => {
+      const call = replace.mock.calls[0]![0]
+      expect(call.section.routes['route-1']!.targets).toEqual([
+        { provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' },
+      ])
+    })
+    controller.dispose()
+  })
+
   it('refuses to save a chain with no targets', async () => {
     const replace = vi.fn((_call: ReplaceCall) => Promise.resolve(ok(policyView({}))))
     const { controller } = mount(policyView({ defaultProfile: 'unrestricted', profiles: {}, routes: {} }), replace)
@@ -994,6 +1012,7 @@ describe('policy document helpers', () => {
   it('renders a non-Error catalog rejection as text', async () => {
     const describe = vi.fn(() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [policyView({})] })))
     // The transport must contain non-Error legacy rejections.
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     const models = vi.fn((): Promise<never> => Promise.reject('disconnected'))
     const controller = new PolicyStore({ llm: { models }, settings: { describe, replace: vi.fn() } } as never)
     await controller.load()

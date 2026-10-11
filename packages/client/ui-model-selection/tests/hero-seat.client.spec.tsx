@@ -349,10 +349,9 @@ describe('ModelProfileSeatController', () => {
 
   it('ignores a pick while an apply is in flight', async () => {
     let settle: (() => void) | undefined
-    const settleWith = (resolve: (value: never) => void): void => {
-      settle = () => resolve(ok({ profile: ROSTER.profiles[1]! }) as never)
-    }
-    const selectModelProfile = vi.fn(() => new Promise((resolve) => { settleWith(resolve as never) }))
+    const selectModelProfile = vi.fn(() => new Promise<never>((resolve) => {
+      settle = (): void => { resolve(ok({ profile: ROSTER.profiles[1]! }) as never) }
+    }))
     const { seat } = boot(face({ selectModelProfile }), () => ({ id: 's1' as never, blank: true }))
     await seat.load()
     seat.select('focused')

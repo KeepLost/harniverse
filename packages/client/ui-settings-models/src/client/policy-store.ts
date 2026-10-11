@@ -12,6 +12,7 @@ import type {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { staleLoadFailed, watchPrincipal } from './principal-watch.ts'
 
 /** The policy settings namespace this page owns. */
 export const MODEL_POLICY_NS = 'model-policy'
@@ -200,31 +201,12 @@ export class ModelPolicyStore {
 
   /** Latest load wins; an older response never overwrites a newer one. */
   private generation = 0
-  private principalFence: number
-  private reloadAfterPrincipal = false
   private readonly stopDescribe: () => void
 
   /**
    * @param api - the settings and model-catalog wire faces.
    * @param describeFace - shared authorized settings description.
    */
-  constructor(
-    private readonly api: Pick<IApiClient, 'settings' | 'llm'>,
-    private readonly describeFace: SettingsDescribeFace,
-  ) {
-    this.principalFence = describeFace.writeFence()
-    this.stopDescribe = describeFace.subscribe(() => {
-      const next = describeFace.writeFence()
-      if (next === this.principalFence) return
-      this.principalFence = next
-      this.reloadAfterPrincipal ||= this.store.getSnapshot().status !== 'idle'
-      this.reset()
-      if (!this.reloadAfterPrincipal || !describeFace.isCurrent(next)) return
-      this.reloadAfterPrincipal = false
-      void this.load()
-    })
-  }
-
   /** Release the shared mirror subscription owned by this page store. */
   dispose(): void {
     this.stopDescribe()
@@ -238,6 +220,17 @@ export class ModelPolicyStore {
       principalGeneration,
       status: 'idle', error: null, catalogError: null, writable: false, namespace: undefined,
       defaultProfile: 'unrestricted', routes: [], profiles: [], catalog: [],
+    })
+  }
+
+  constructor(
+    private readonly api: Pick<IApiClient, 'settings' | 'llm'>,
+    private readonly describeFace: SettingsDescribeFace,
+  ) {
+    this.stopDescribe = watchPrincipal(describeFace, {
+      isLive: () => this.store.getSnapshot().status !== 'idle',
+      reset: () => { this.reset() },
+      reload: () => { void this.load() },
     })
   }
 
@@ -269,11 +262,7 @@ export class ModelPolicyStore {
       namespace = mirrored.view.namespaces.find(view => view.ns === MODEL_POLICY_NS)
       writable = mirrored.view.writable
     } catch (error) {
-      if (generation !== this.generation || !this.describeFace.isCurrent(fence)) return
-      this.store.update((s) => {
-        s.status = 'error'
-        s.error = error instanceof Error ? error.message : String(error)
-      })
+      staleLoadFailed(generation === this.generation && this.describeFace.isCurrent(fence), this.store, error)
       return
     }
     if (generation !== this.generation || !this.describeFace.isCurrent(fence)) return
