@@ -2,7 +2,7 @@
 
 English | [中文](model-policy.zh.md)
 
-Model Policy is the session-scoped model authorization subsystem. [`dsh-model-policy`](../../packages/core/model-policy) owns the `model-profiles` and `model-routes` Settings sections, durable Session snapshots, and target authorization. [`dsh-model-policy-fallback`](../../packages/core/model-policy-fallback) consumes the policy and advances an ordered Route after same-model recovery delegates.
+Model Policy is the session-scoped model authorization subsystem. [`dsh-model-policy`](../../packages/core/model-policy) owns the `model-policy` Settings section (Profiles, Routes, and the default Profile id in one document, validated and saved atomically), durable Session snapshots, and target authorization. [`dsh-model-policy-fallback`](../../packages/core/model-policy-fallback) consumes the policy and advances an ordered Route after same-model recovery delegates.
 
 ## Model targets
 
@@ -22,7 +22,7 @@ An old Session without `model/profile` resolves as the built-in `unrestricted` P
 
 ## Authorization
 
-Every Host model-selection mutation checks the Session snapshot before committing `model/target`. Restricted Profiles allow their declared concrete models and all concrete attempts captured by their declared Routes. The `llm/stream` boundary also checks requests carrying a Session id, covering auxiliary compaction and title calls as well as the Agent loop.
+Every Host model-selection mutation checks the Session snapshot before committing `model/target`. Restricted Profiles allow their declared concrete models and all concrete attempts captured by their declared Routes; a model entry without a reasoning effort admits any effort of that model. The `llm/stream` boundary also checks requests carrying a Session id, covering auxiliary compaction and title calls as well as the Agent loop. `session.create` accepts a `modelProfile` id, and the session-less `llm.modelProfiles` RPC serves the roster (plus the default id) that new-session surfaces — the web hero chip — pick from, applying a choice live to the current blank session through `session.selectModelProfile`.
 
 ## Fallback
 
@@ -30,7 +30,7 @@ Every Host model-selection mutation checks the Session snapshot before committin
 
 ## Cordis API
 
-The generated [`Cordis API catalog`](../cordis-api/context.md) carries `ctx.modelPolicy` and its public methods. Settings writes remain under the existing `ctx.settings` service and the two namespaces documented in the package README.
+The generated [`Cordis API catalog`](../cordis-api/context.md) carries `ctx.modelPolicy` and its public methods. Settings writes remain under the existing `ctx.settings` service and the `model-policy` namespace documented in the package README.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -110,7 +110,9 @@ targetOf(session: Session): ModelTarget | undefined
 setTarget(session: Session, target: ModelTarget): void
 
 /**
- * Check target authorization against an immutable snapshot.
+ * Check target authorization against an immutable snapshot. A Profile model
+ * entry without a reasoning effort admits any effort of that model, matching
+ * how the catalog filter and concrete authorization read the same entry.
  * @param profile - durable Profile snapshot.
  * @param target - proposed concrete model or Route.
  * @returns whether the target is allowed.
@@ -150,19 +152,13 @@ targetsFor(session: Session, target: ModelTarget): readonly ModelSelection[]
 concreteTargetForSnapshot(snapshot: ModelProfileSnapshot, target: ModelTarget): ModelSelection | undefined
 
 /**
- * Save the complete Profile settings document.
+ * Save the complete Model Policy settings document.
  * @param next - replacement user settings.
  */
-async saveProfiles(next: ModelProfileSettings): Promise<void>
-
-/**
- * Save the complete Route settings document.
- * @param next - replacement user settings.
- */
-async saveRoutes(next: ModelRouteSettings): Promise<void>
+async savePolicy(next: ModelPolicySettings): Promise<void>
 ```
 
 Types: [Session](session.md)
 
-Source: [`packages/core/model-policy/src/index.ts:144`](../../packages/core/model-policy/src/index.ts)
+Source: [`packages/core/model-policy/src/index.ts:201`](../../packages/core/model-policy/src/index.ts)
 <!-- END GENERATED cordis-surface -->

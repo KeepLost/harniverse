@@ -99,9 +99,9 @@ describe('ui-settings-models apply', () => {
       options: { id: 'welcome-notice', order: -100 },
     })
     expect(onboarding.some(entry => entry.options.id === 'deepseek-official')).toBe(false)
-    // Only the Models page owns a glyph; the policy page keeps the shell's gear.
+    // Both model surfaces share the Models glyph, so the two pages read as one domain.
     expect(before.slots.entries('settings.nav.icon').map(e => [e.options.key, e.component]))
-      .toEqual([['models', ModelsNavIcon]])
+      .toEqual([['models', ModelsNavIcon], ['model-policy', ModelsNavIcon]])
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
@@ -112,7 +112,7 @@ describe('ui-settings-models apply', () => {
     await Promise.resolve()
     expect(after.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
     expect(after.slots.entries('settings.onboarding')).toHaveLength(1)
-    expect(after.slots.entries('settings.nav.icon')).toHaveLength(1)
+    expect(after.slots.entries('settings.nav.icon')).toHaveLength(2)
     // The self-inflicted ledger notifications hit the duplicate guard.
     expect(after.slots.entries('settings.section')).toHaveLength(2)
   })
@@ -137,9 +137,9 @@ describe('ui-settings-models apply', () => {
     const entry = b.slots.entries('settings.section')[1]!
     expect(entry.component).toBe(ModelPolicySection)
     expect(entry.options).toMatchObject({ id: 'model-policy', order: 11 })
-    expect(resolveSlotLabel(entry.options.label)).toBe('模型策略')
+    expect(resolveSlotLabel(entry.options.label)).toBe('模型方案')
     b.locale.setLocale('en')
-    expect(resolveSlotLabel(entry.options.label)).toBe('Model Policy')
+    expect(resolveSlotLabel(entry.options.label)).toBe('Model Profiles')
     b.locale.setLocale('zh')
   })
 
@@ -166,7 +166,7 @@ describe('ui-settings-models apply', () => {
     await Promise.resolve()
     expect(b.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
     expect(b.slots.entries('settings.onboarding')).toHaveLength(1)
-    expect(b.slots.entries('settings.nav.icon')).toHaveLength(1)
+    expect(b.slots.entries('settings.nav.icon')).toHaveLength(2)
     // The locale path also recovers through the same ledger re-check.
     b.locale.setLocale('en')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
@@ -213,6 +213,21 @@ describe('pushed invalidations', () => {
     b.ctx.remote.$dispatch('credentials/updated', ['OPENAI_API_KEY'])
     b.ctx.remote.$dispatch('llm/adapters-updated', [])
     b.ctx.emit('connection/reset')
+  })
+
+  it('routes pushed settings invalidation into the loaded policy page', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.section')[1]!
+    const injected = entry.inject as unknown as
+      () => import('../src/client/ModelPolicySection.tsx').ModelPolicySectionInjected
+    // The inject thunk answers the face the policy page renders from.
+    expect(injected().controller).toBeDefined()
+    injected().controller.store.update((state) => { state.status = 'ready' })
+    const load = vi.spyOn(injected().controller, 'load').mockResolvedValue()
+    b.ctx.remote.$dispatch('settings/document-updated', ['model-policy', 1])
+    expect(load).toHaveBeenCalledTimes(1)
   })
 
   it('routes pushed credential invalidation into the loaded models page', async () => {

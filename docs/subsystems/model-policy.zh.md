@@ -2,7 +2,7 @@
 
 [English](model-policy.md) | 中文
 
-模型策略是按 Session 管理的模型授权子系统。[`dsh-model-policy`](../../packages/core/model-policy) 负责 `model-profiles` 和 `model-routes` Settings section、durable Session snapshot 以及目标授权。[`dsh-model-policy-fallback`](../../packages/core/model-policy-fallback) 使用该策略，在同模型恢复委托后推进有序 Route。
+模型策略是按 Session 管理的模型授权子系统。[`dsh-model-policy`](../../packages/core/model-policy) 负责 `model-policy` Settings section（Profile、Route 与默认 Profile id 同处一份文档，校验与保存均为原子操作）、durable Session snapshot 以及目标授权。[`dsh-model-policy-fallback`](../../packages/core/model-policy-fallback) 使用该策略，在同模型恢复委托后推进有序 Route。
 
 ## 模型目标
 
@@ -22,7 +22,7 @@
 
 ## 授权
 
-Host 的每个模型选择 mutation 都会在提交 `model/target` 前检查 Session snapshot。受限 Profile 允许其声明的具体模型，以及其声明 Route 中保存的全部具体尝试。携带 Session id 的 `llm/stream` 边界也会检查请求，因此 compaction 和 title 等辅助调用与 Agent loop 一样受到约束。
+Host 的每个模型选择 mutation 都会在提交 `model/target` 前检查 Session snapshot。受限 Profile 允许其声明的具体模型，以及其声明 Route 中保存的全部具体尝试；未写推理强度的模型条目允许该模型的任意强度。携带 Session id 的 `llm/stream` 边界也会检查请求，因此 compaction 和 title 等辅助调用与 Agent loop 一样受到约束。`session.create` 接受 `modelProfile` id；无会话的 `llm.modelProfiles` RPC 提供名册（含默认 id）供新会话表面——web hero chip——选择，选择经 `session.selectModelProfile` 立即作用于当前空白会话。
 
 ## Fallback
 
@@ -30,7 +30,7 @@ Host 的每个模型选择 mutation 都会在提交 `model/target` 前检查 Ses
 
 ## Cordis API
 
-生成的 [`Cordis API catalog`](../cordis-api/context.md) 包含 `ctx.modelPolicy` 及其公开方法。Settings 写入仍由现有 `ctx.settings` service 负责，两个 namespace 的说明见 package README。
+生成的 [`Cordis API catalog`](../cordis-api/context.md) 包含 `ctx.modelPolicy` 及其公开方法。Settings 写入仍由现有 `ctx.settings` service 负责，`model-policy` namespace 的说明见 package README。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -110,7 +110,9 @@ targetOf(session: Session): ModelTarget | undefined
 setTarget(session: Session, target: ModelTarget): void
 
 /**
- * Check target authorization against an immutable snapshot.
+ * Check target authorization against an immutable snapshot. A Profile model
+ * entry without a reasoning effort admits any effort of that model, matching
+ * how the catalog filter and concrete authorization read the same entry.
  * @param profile - durable Profile snapshot.
  * @param target - proposed concrete model or Route.
  * @returns whether the target is allowed.
@@ -150,19 +152,13 @@ targetsFor(session: Session, target: ModelTarget): readonly ModelSelection[]
 concreteTargetForSnapshot(snapshot: ModelProfileSnapshot, target: ModelTarget): ModelSelection | undefined
 
 /**
- * Save the complete Profile settings document.
+ * Save the complete Model Policy settings document.
  * @param next - replacement user settings.
  */
-async saveProfiles(next: ModelProfileSettings): Promise<void>
-
-/**
- * Save the complete Route settings document.
- * @param next - replacement user settings.
- */
-async saveRoutes(next: ModelRouteSettings): Promise<void>
+async savePolicy(next: ModelPolicySettings): Promise<void>
 ```
 
 Types: [Session](session.md)
 
-Source: [`packages/core/model-policy/src/index.ts:144`](../../packages/core/model-policy/src/index.ts)
+Source: [`packages/core/model-policy/src/index.ts:201`](../../packages/core/model-policy/src/index.ts)
 <!-- END GENERATED cordis-surface -->

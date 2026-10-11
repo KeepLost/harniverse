@@ -47,14 +47,16 @@ export interface ModelProfile {
   readonly defaultTarget: ModelTarget
 }
 
-/** Settings section for independently editable Model Profiles. */
-export interface ModelProfileSettings {
+/**
+ * One Settings document owning Profiles, Routes, and the default Profile id,
+ * so every cross-reference between them validates and saves atomically.
+ */
+export interface ModelPolicySettings {
+  /** Profile id applied to newly created Sessions. */
   readonly defaultProfile: string
+  /** Independently editable Model Profiles. */
   readonly profiles: Readonly<Record<string, ModelProfile>>
-}
-
-/** Settings section for independently editable Model Routes. */
-export interface ModelRouteSettings {
+  /** Independently editable ordered Model Routes. */
   readonly routes: Readonly<Record<string, ModelRoute>>
 }
 

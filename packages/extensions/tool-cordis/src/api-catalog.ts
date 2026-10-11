@@ -1681,7 +1681,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'allowsTarget(profile: ModelProfileSnapshot, target: ModelTarget): boolean',
-        description: 'Check target authorization against an immutable snapshot.',
+        description: 'Check target authorization against an immutable snapshot. A Profile model entry without a reasoning effort admits any effort of that model, matching how the catalog filter and concrete authorization read the same entry.',
         parameters: [{ name: 'profile', description: 'durable Profile snapshot.' }, { name: 'target', description: 'proposed concrete model or Route.' }],
         returns: 'whether the target is allowed.',
       },
@@ -1710,13 +1710,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'its first concrete attempt, when configured.',
       },
       {
-        signature: 'async saveProfiles(next: ModelProfileSettings): Promise<void>',
-        description: 'Save the complete Profile settings document.',
-        parameters: [{ name: 'next', description: 'replacement user settings.' }],
-      },
-      {
-        signature: 'async saveRoutes(next: ModelRouteSettings): Promise<void>',
-        description: 'Save the complete Route settings document.',
+        signature: 'async savePolicy(next: ModelPolicySettings): Promise<void>',
+        description: 'Save the complete Model Policy settings document.',
         parameters: [{ name: 'next', description: 'replacement user settings.' }],
       },
     ],
@@ -5966,12 +5961,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
   },
   {
-    name: 'ModelProfile',
-    declaration: 'export interface ModelProfile {\n    readonly name?: string;\n    readonly description?: string;\n    readonly models: readonly ModelSelection[];\n    readonly routes: readonly string[];\n    readonly defaultTarget: ModelTarget;\n}',
+    name: 'ModelPolicySettings',
+    declaration: 'export interface ModelPolicySettings {\n    readonly defaultProfile: string;\n    readonly profiles: Readonly<Record<string, ModelProfile>>;\n    readonly routes: Readonly<Record<string, ModelRoute>>;\n}',
   },
   {
-    name: 'ModelProfileSettings',
-    declaration: 'export interface ModelProfileSettings {\n    readonly defaultProfile: string;\n    readonly profiles: Readonly<Record<string, ModelProfile>>;\n}',
+    name: 'ModelProfile',
+    declaration: 'export interface ModelProfile {\n    readonly name?: string;\n    readonly description?: string;\n    readonly models: readonly ModelSelection[];\n    readonly routes: readonly string[];\n    readonly defaultTarget: ModelTarget;\n}',
   },
   {
     name: 'ModelProfileSnapshot',
@@ -5980,10 +5975,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelRoute',
     declaration: 'export interface ModelRoute {\n    readonly name?: string;\n    readonly targets: readonly ModelSelection[];\n}',
-  },
-  {
-    name: 'ModelRouteSettings',
-    declaration: 'export interface ModelRouteSettings {\n    readonly routes: Readonly<Record<string, ModelRoute>>;\n}',
   },
   {
     name: 'ModelRouteSnapshot',

@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-按 Session 管理的 Model Profile 与有序 Model Route。Profile 负责授权具体 provider/model 以及命名 Route；Route 是具体 provider/model 的有序 fallback 链。
+按 Session 管理的 Model Profile 与有序回退 Route。Profile 负责授权具体 provider/model 以及命名 Route；Route 是具体 provider/model 的有序 fallback 链。
 
-服务注册独立的 `model-profiles` 和 `model-routes` Settings section。Session 把完整 Profile 快照写入 `model/profile`，后续设置修改不会悄悄扩大已有 Session 的权限。旧 Session 使用内置的 `unrestricted` Profile，允许当前注册的所有模型和 Route。
+服务注册单一的 `model-policy` Settings section，同时持有 Profile、Route 与默认 Profile id，它们之间的引用在保存时一并校验、一并落盘：Profile 不得引用不存在的 Route，默认目标必须落在自身允许范围内，默认 Profile 必须存在，身份字符串不得为空，保留 id `unrestricted` 不可重定义。Profile 的模型条目未写推理强度时允许该模型的任意强度，与过滤目录和具体授权读取同一条目的方式一致。Session 把完整 Profile 快照写入 `model/profile`，后续设置修改不会悄悄扩大已有 Session 的权限。旧 Session 使用内置的 `unrestricted` Profile，允许当前注册的所有模型和 Route。
 
 ## Model Experience
 
@@ -44,3 +44,4 @@ Existing Session history and its stable prompt prefix are not rewritten.
 
 - provider 可用性和 adapter 专属模型校验仍由 Host LLM consumer 负责。
 - 本服务负责持久化授权与 Route 解析；Agent loop 负责 retry 和分类后的跨模型 fallback 执行。
+- 无效的已存储文档会在启动时让 section 注册失败（设计上要求显式失败）；携带校验前旧文档的部署需要一次性修复。

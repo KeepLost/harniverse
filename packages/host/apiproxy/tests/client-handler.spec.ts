@@ -183,6 +183,7 @@ function scriptedApi(overrides: {
     llm: {
       providers: r => ok(r, { providers: [] }),
       models: r => ok(r, { groups: [], failures: [] }),
+      modelProfiles: r => ok(r, { defaultProfileId: 'unrestricted', profiles: [] }),
       discoverModels: err,
       ...overrides.llm,
     },

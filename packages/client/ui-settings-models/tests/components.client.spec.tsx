@@ -16,7 +16,6 @@ import { pathOps } from '../src/client/ProviderEditor.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
-import { ModelPolicySection } from '../src/client/ModelPolicySection.tsx'
 import { apiKeyFailure } from '../src/client/apiKey.ts'
 import { deriveKeyRef, ModelsSettingsStore as SharedModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
@@ -141,10 +140,8 @@ function wireNamespaces(): SettingsNamespaceView[] {
       revision: 0,
     },
     {
-      ns: 'model-profiles', schema: {}, value: {}, user: {}, applies: 'live', secrets: [], revision: 0,
-    },
-    {
-      ns: 'model-routes', schema: {}, value: {}, user: {}, applies: 'live', secrets: [], revision: 0,
+      ns: 'model-policy', schema: {}, value: { defaultProfile: 'unrestricted', profiles: {}, routes: {} },
+      user: {}, applies: 'live', secrets: [], revision: 0,
     },
   ]
 }
@@ -1636,160 +1633,6 @@ describe('ModelsSection', () => {
     })
   })
 })
-
-describe('ModelPolicySection', () => {
-  it('loads settings when opened directly', async () => {
-    const scripted = scriptedFace()
-    const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
-    render(<ModelPolicySection
-      controller={controller}
-      useSnapshot={bindSnapshotSelector(controller.store)}
-      api={scripted.face as never}
-      t={t}
-    />)
-
-    expect(await screen.findByText(en.profileDefinitions)).toBeTruthy()
-    expect(screen.getByRole('textbox', { name: en.profileDefinitions })).toBeTruthy()
-    expect(screen.getByRole('textbox', { name: en.routeDefinitions })).toBeTruthy()
-    expect(scripted.face.settings.describe).toHaveBeenCalledOnce()
-    controller.dispose()
-  })
-
-  function policyMount(describeImpl?: ReturnType<typeof vi.fn>) {
-    const scripted = scriptedFace()
-    if (describeImpl !== undefined) scripted.face.settings.describe.mockImplementation(describeImpl as never)
-    const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
-    return { scripted, controller }
-  }
-
-  function policyRender(scripted: ReturnType<typeof scriptedFace>, controller: InstanceType<typeof ModelsSettingsStore>) {
-    return render(<ModelPolicySection
-      controller={controller}
-      useSnapshot={bindSnapshotSelector(controller.store)}
-      api={scripted.face as never}
-      t={t}
-    />)
-  }
-
-  it('shows the stored user layer and saves an edited section', async () => {
-    const withUser = wireNamespaces().map(ns => ns.ns === 'model-profiles'
-      ? { ...ns, user: { profiles: { fast: { note: 'x' } } }, revision: 7 }
-      : ns)
-    const { scripted, controller } = policyMount(vi.fn(() => Promise.resolve(ok({
-      writable: true, hasDocument: false, namespaces: withUser,
-    }))))
-    await controller.load()
-    const saved = Promise.resolve(ok({ ...withUser[3], user: { profiles: { fast: { note: 'y' } } }, revision: 8 }))
-    scripted.replace.mockReturnValue(saved)
-    policyRender(scripted, controller)
-
-    const editor = screen.getByRole('textbox', { name: en.profileDefinitions }) as HTMLTextAreaElement
-    expect(editor.value).toContain('fast')
-    fireEvent.change(editor, { target: { value: '{"profiles":{"fast":{"note":"y"}}}' } })
-    fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-
-    await waitFor(() => { expect(scripted.replace).toHaveBeenCalledWith({
-      ns: 'model-profiles',
-      section: { profiles: { fast: { note: 'y' } } },
-      expectedRevision: 7,
-    }) })
-    expect(await screen.findByText(en.policySaved)).toBeTruthy()
-    const definitions = screen.getByRole('textbox', { name: en.profileDefinitions }) as HTMLInputElement
-    expect(definitions.value).toBe(JSON.stringify({ profiles: { fast: { note: 'y' } } }, null, 2))
-    controller.dispose()
-  })
-
-  it('refuses sections that do not parse into a JSON object', async () => {
-    const { scripted, controller } = policyMount()
-    policyRender(scripted, controller)
-    const editor = await screen.findByRole('textbox', { name: en.profileDefinitions })
-    scripted.replace.mockReturnValue(Promise.resolve(ok(wireNamespaces()[3])))
-
-    for (const draft of ['[1]', '"text"', 'null']) {
-      fireEvent.change(editor, { target: { value: draft } })
-      fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-      expect(await screen.findByText('The settings section must be a JSON object.')).toBeTruthy()
-      expect(scripted.replace).not.toHaveBeenCalled()
-    }
-
-    fireEvent.change(editor, { target: { value: '{bad' } })
-    fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-    expect(await screen.findByText("Expected property name or '}' in JSON at position 1 (line 1 column 2)")).toBeTruthy()
-
-    fireEvent.change(editor, { target: { value: '{}' } })
-    fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-    await waitFor(() => { expect(scripted.replace).toHaveBeenCalledOnce() })
-    controller.dispose()
-  })
-
-  it('reports a refused save and clears the notice on the next edit', async () => {
-    const { scripted, controller } = policyMount()
-    scripted.replace.mockReturnValue(Promise.resolve({
-      rpcId: 'test' as never,
-      result: { ok: false as const, error: { code: 'settings-conflict', message: 'stale revision', details: {} } },
-    }))
-    policyRender(scripted, controller)
-    const editor = await screen.findByRole('textbox', { name: en.profileDefinitions })
-
-    fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-
-    expect(await screen.findByText('stale revision')).toBeTruthy()
-    fireEvent.change(editor, { target: { value: '{"a":1}' } })
-    expect(screen.queryByText('stale revision')).toBeNull()
-    controller.dispose()
-  })
-
-  it('reports transport failures, including non-error rejections', async () => {
-    const { scripted, controller } = policyMount()
-    policyRender(scripted, controller)
-    await screen.findByRole('textbox', { name: en.profileDefinitions })
-
-    scripted.replace.mockReturnValue(Promise.reject(new Error('offline')))
-    fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-    expect(await screen.findByText('offline')).toBeTruthy()
-
-    // Promise consumers must contain unknown rejection values from a
-    // transport implementation, including non-Error legacy clients.
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
-    scripted.replace.mockReturnValue(Promise.reject('disconnected'))
-    fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-    expect(await screen.findByText('disconnected')).toBeTruthy()
-    expect(screen.getByRole('button', { name: en.saveProfiles })).toBeTruthy()
-    controller.dispose()
-  })
-
-  it('keeps saving inert while read-only', async () => {
-    const { scripted, controller } = policyMount(vi.fn(() => Promise.resolve(ok({
-      writable: false, hasDocument: false, namespaces: wireNamespaces(),
-    }))))
-    policyRender(scripted, controller)
-    const locked = (await screen.findByRole('button', { name: en.saveProfiles })) as HTMLButtonElement
-    expect(locked.disabled).toBe(true)
-    fireEvent.click(locked)
-    expect(scripted.replace).not.toHaveBeenCalled()
-    controller.dispose()
-  })
-
-  it('keeps saving inert while already applying and recovers after settlement', async () => {
-    const { scripted, controller } = policyMount()
-    const gate = Promise.withResolvers<ReturnType<typeof ok<SettingsNamespaceView>>>()
-    scripted.replace.mockReturnValue(gate.promise)
-    policyRender(scripted, controller)
-    const save = await screen.findByRole('button', { name: en.saveProfiles })
-
-    fireEvent.click(save)
-    expect(screen.getByRole('button', { name: en.applying })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: en.applying }))
-    expect(scripted.replace).toHaveBeenCalledOnce()
-
-    gate.resolve(ok(wireNamespaces()[3]!))
-    await waitFor(() => { expect(screen.getByRole('button', { name: en.saveProfiles })).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: en.saveProfiles }))
-    await waitFor(() => { expect(scripted.replace).toHaveBeenCalledTimes(2) })
-    controller.dispose()
-  })
-})
-
 describe('apiKeyFailure', () => {
   it('treats a blank field as no failure — it means keep the stored key', () => {
     expect(apiKeyFailure('')).toBeUndefined()

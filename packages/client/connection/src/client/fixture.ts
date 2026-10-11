@@ -3413,6 +3413,10 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         ],
       }),
       models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
+      modelProfiles: request => ok(request, {
+        defaultProfileId: 'unrestricted',
+        profiles: [{ id: 'unrestricted', name: 'Unrestricted', unrestricted: true }],
+      }),
       // The fixture endpoint is imaginary, so the interrogation answers the
       // catalog it already serves — enough for a surface to exercise adopting
       // candidates without a reachable provider.
@@ -3644,6 +3648,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'credentials.unset': return this.fixtureApi.credentials.unset(request)
       case 'llm.providers': return this.fixtureApi.llm.providers(request)
       case 'llm.models': return this.fixtureApi.llm.models(request)
+      case 'llm.modelProfiles': return this.fixtureApi.llm.modelProfiles(request)
       case 'llm.discoverModels': return this.fixtureApi.llm.discoverModels(request, signal)
     }
   }

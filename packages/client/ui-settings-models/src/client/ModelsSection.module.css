@@ -829,3 +829,85 @@ select.input {
   font-size: 12px;
   line-height: 18px;
 }
+
+/* ── Model Policy section ─────────────────────────────────────────────── */
+
+.groupTitle {
+  margin: 24px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowMeta {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.rowSummary {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.defaultRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+.defaultRow .fieldLabel {
+  margin: 0;
+}
+
+.targetList,
+.allowanceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.targetRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.allowanceList>li {
+  margin: 0;
+}
+
+.allowanceGroup {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.allowanceList ul {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.allowanceRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.allowanceRow label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}

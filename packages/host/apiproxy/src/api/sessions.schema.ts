@@ -116,6 +116,7 @@ export const sessionCreateRequestSchema = z.object({
 export const sessionCreateValueSchema = z.object({
   sessionId: sessionIdSchema,
   agentProfile: z.string().optional(),
+  modelProfile: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.create'>>>
 
 /** session.rename request payload (raw title; host-side normalization decides acceptance). */
@@ -291,23 +292,20 @@ export const sessionModelsRequestSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<RequestPayload<'session.models'>>>
 
+/** ModelProfileDescriptor of session.models and llm.modelProfiles. */
+export const modelProfileDescriptorSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  unrestricted: z.boolean(),
+  defaultTarget: modelTargetSchema.optional(),
+})
+
 /** session.models response value. */
 export const sessionModelsValueSchema = z.object({
   current: modelSelectionSchema,
-  profile: z.object({
-    id: z.string().min(1),
-    name: z.string().min(1),
-    description: z.string().optional(),
-    unrestricted: z.boolean(),
-    defaultTarget: modelTargetSchema.optional(),
-  }).optional(),
-  profiles: z.array(z.object({
-    id: z.string().min(1),
-    name: z.string().min(1),
-    description: z.string().optional(),
-    unrestricted: z.boolean(),
-    defaultTarget: modelTargetSchema.optional(),
-  })).optional(),
+  profile: modelProfileDescriptorSchema.optional(),
+  profiles: z.array(modelProfileDescriptorSchema).optional(),
   target: modelTargetSchema.optional(),
   routes: z.array(z.object({
     id: z.string().min(1),

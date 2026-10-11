@@ -20,11 +20,13 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { ModelsNavIcon } from './NavIcon.tsx'
 import { ModelsSection } from './ModelsSection.tsx'
 import { ModelPolicySection } from './ModelPolicySection.tsx'
+import type { ModelPolicySectionInjected } from './ModelPolicySection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { WelcomeNotice } from './WelcomeNotice.tsx'
 import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
 import { decodeWelcomeSection, WelcomeNoticeStore } from './welcome-store.ts'
 import { ModelsSettingsStore } from './store.ts'
+import { ModelPolicyStore } from './policy-store.ts'
 import { en, zh, type ModelsKey } from './locales.ts'
 import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
 
@@ -75,6 +77,14 @@ export function apply(ctx: ClientContext): void {
     acceptSettingsView: (view, fence, authentication) => describeFace.acceptView(view, fence, authentication as never),
     t,
   })
+  const policyController = new ModelPolicyStore(connection.api, describeFace)
+  const policySnapshot = bindSnapshotSelector(policyController.store)
+  const policyInjected = (): ModelPolicySectionInjected => ({
+    controller: policyController,
+    useSnapshot: policySnapshot,
+    t,
+  })
+
   const welcomeController = new WelcomeNoticeStore(ctx.settingsScope.bind({
     namespace: WELCOME_NOTICE_SETTINGS_NAMESPACE,
     decode: decodeWelcomeSection,
@@ -90,6 +100,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     const refreshModels = (): void => {
       if (controller.store.getSnapshot().status !== 'idle') void controller.load()
+      if (policyController.store.getSnapshot().status !== 'idle') void policyController.load()
     }
     let topologyRefreshScheduled = false
     const refreshTopology = (): void => {
@@ -111,6 +122,7 @@ export function apply(ctx: ClientContext): void {
     return () => {
       welcomeController.dispose()
       controller.dispose()
+      policyController.dispose()
       for (const dispose of disposers) dispose()
     }
   }, 'ui-settings-models: pushed invalidations')
@@ -122,7 +134,7 @@ export function apply(ctx: ClientContext): void {
     label: () => t('nav'),
     inject: injected,
   }, ModelsSection))
-  // The policy page (`model-policy`) registers no glyph and shows the shell's gear.
+  // The policy page reuses the Models glyph so the two model surfaces read as one domain.
   ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
     name: 'settings.nav.icon',
     key: 'models',
@@ -132,8 +144,12 @@ export function apply(ctx: ClientContext): void {
     id: 'model-policy',
     order: 11,
     label: () => t('policyNav'),
-    inject: injected,
+    inject: policyInjected,
   }, ModelPolicySection))
+  ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({
+    name: 'settings.nav.icon',
+    key: 'model-policy',
+  }, ModelsNavIcon))
   ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
     name: 'settings.onboarding',
     id: 'welcome-notice',

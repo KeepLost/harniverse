@@ -78,7 +78,9 @@ import {
 import {
   credentialsDescribeRequestSchema, credentialsSetRequestSchema, credentialsUnsetRequestSchema,
 } from '../api/credentials.schema.ts'
-import { llmDiscoverModelsRequestSchema, llmModelsRequestSchema, llmProvidersRequestSchema } from '../api/llm.schema.ts'
+import {
+  llmDiscoverModelsRequestSchema, llmModelProfilesRequestSchema, llmModelsRequestSchema, llmProvidersRequestSchema,
+} from '../api/llm.schema.ts'
 import {
   subagentHistoryRequestSchema,
   subagentInterruptRequestSchema,
@@ -204,6 +206,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'credentials.unset': { schema: credentialsUnsetRequestSchema, invoke: (api, r) => api.credentials.unset(r) },
   'llm.providers': { schema: llmProvidersRequestSchema, invoke: (api, r) => api.llm.providers(r) },
   'llm.models': { schema: llmModelsRequestSchema, invoke: (api, r) => api.llm.models(r) },
+  'llm.modelProfiles': { schema: llmModelProfilesRequestSchema, invoke: (api, r) => api.llm.modelProfiles(r) },
   'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
 }
 
@@ -259,7 +262,6 @@ function fullResponse(
  * Wire<> widening back to the exact payload (undefined-valued properties and
  * absent ones are indistinguishable after JSON transport).
  */
-// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- K keeps each route's schema and invoke types paired.
 async function handleUnary<K extends keyof RpcMethodMap>(
   api: ApiProxy,
   method: K,

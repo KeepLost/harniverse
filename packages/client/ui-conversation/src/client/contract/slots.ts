@@ -145,6 +145,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * the next one rather than applied to a current one.
      */
     'conversation.hero.agentPreset': { kind: 'single'; scope: 'root'; owner: HeroAgentPresetOwnerProps }
+    /**
+     * The model-profile chip beside the agent-preset chip: which Model
+     * Profile the next session runs under. Root scope for the roster, but
+     * unlike the preset the choice is live-switchable, so a pick on the
+     * current blank session applies immediately instead of minting a new one.
+     */
+    'conversation.hero.modelProfile': { kind: 'single'; scope: 'root'; owner: HeroModelProfileOwnerProps }
     // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
     // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
@@ -249,6 +256,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Owner share of the hero agent-preset chip: the shell supplies nothing. */
 export interface HeroAgentPresetOwnerProps {
   /** Marker field: the chip owns its own roster, staging, and menu state. */
+  children?: never
+}
+
+/** Owner share of the hero model-profile chip: the shell supplies nothing. */
+export interface HeroModelProfileOwnerProps {
+  /** Marker field: the chip owns its own roster, staging, and application. */
   children?: never
 }
 
@@ -618,6 +631,7 @@ export type ConversationSlotProps =
     | 'conversation.input.left' | 'conversation.input.right'
     | 'conversation.hero.workspace'
     | 'conversation.hero.agentPreset'
+    | 'conversation.hero.modelProfile'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>

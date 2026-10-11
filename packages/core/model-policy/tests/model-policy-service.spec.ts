@@ -4,12 +4,13 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import ModelPolicyService, {
-  MODEL_PROFILES_SETTINGS_NAMESPACE,
+  MODEL_POLICY_SETTINGS_NAMESPACE,
   UNRESTRICTED_MODEL_PROFILE_ID,
   ModelTargetNotAllowedError,
   effectiveModelProfile,
+  validateModelPolicySettings,
 } from '../src/index.ts'
-import type { Config, ModelProfile, ModelRoute } from '../src/index.ts'
+import type { Config, ModelPolicySettings, ModelProfile, ModelRoute } from '../src/index.ts'
 
 class MemorySettings extends SettingsProvider {
   doc: Record<string, unknown> = {}
@@ -42,15 +43,26 @@ const fallbackRoute: ModelRoute = {
   ],
 }
 
+const composition: Config = {
+  profiles: { focused: structuredClone(focusedProfile) },
+  routes: { fallback: structuredClone(fallbackRoute) },
+}
+
 async function boot(config?: Config): Promise<{ ctx: Context; policy: ModelPolicyService }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(MemorySettings)
-  await ctx.plugin(ModelPolicyService, config ?? {
+  await ctx.plugin(ModelPolicyService, config ?? composition)
+  return { ctx, policy: ctx.modelPolicy }
+}
+
+function policyDoc(overrides: Partial<ModelPolicySettings> = {}): ModelPolicySettings {
+  return {
+    defaultProfile: UNRESTRICTED_MODEL_PROFILE_ID,
     profiles: { focused: structuredClone(focusedProfile) },
     routes: { fallback: structuredClone(fallbackRoute) },
-  })
-  return { ctx, policy: ctx.modelPolicy }
+    ...overrides,
+  }
 }
 
 describe('ModelPolicyService surface', () => {
@@ -100,19 +112,14 @@ describe('ModelPolicyService surface', () => {
     await ctx.fiber.dispose()
   })
 
-  it('lists configured profiles with optional display fields and hides the built-in id', async () => {
+  it('lists configured profiles with optional display fields', async () => {
     const { ctx, policy } = await boot({
       profiles: {
         focused: structuredClone(focusedProfile),
         bare: {
-          models: [],
+          models: [{ provider: 'deepseek', model: 'chat' }],
           routes: [],
           description: 'Only named by id',
-          defaultTarget: { kind: 'model', selection: { provider: 'deepseek', model: 'chat' } },
-        },
-        unrestricted: {
-          models: [],
-          routes: [],
           defaultTarget: { kind: 'model', selection: { provider: 'deepseek', model: 'chat' } },
         },
       },
@@ -154,35 +161,18 @@ describe('ModelPolicyService surface', () => {
   })
 
   it('resolves the default profile from composition and live settings', async () => {
-    const { ctx, policy } = await boot({ defaultProfile: 'focused' })
+    const { ctx, policy } = await boot({ ...composition, defaultProfile: 'focused' })
     expect(policy.defaultProfileId()).toBe('focused')
-    await ctx.settings.replace(MODEL_PROFILES_SETTINGS_NAMESPACE, {
-      defaultProfile: '',
-      profiles: { focused: structuredClone(focusedProfile) },
-    })
+    await ctx.settings.replace(MODEL_POLICY_SETTINGS_NAMESPACE, policyDoc({ defaultProfile: UNRESTRICTED_MODEL_PROFILE_ID }))
     expect(policy.defaultProfileId()).toBe(UNRESTRICTED_MODEL_PROFILE_ID)
-    await ctx.settings.replace(MODEL_PROFILES_SETTINGS_NAMESPACE, {
-      defaultProfile: 'focused',
-      profiles: { focused: structuredClone(focusedProfile) },
-    })
+    await ctx.settings.replace(MODEL_POLICY_SETTINGS_NAMESPACE, policyDoc({ defaultProfile: 'focused' }))
     expect(policy.defaultProfileId()).toBe('focused')
     await ctx.fiber.dispose()
   })
 
-  it('rejects snapshots for unknown profiles and dangling route references', async () => {
-    const { ctx, policy } = await boot({
-      profiles: {
-        focused: structuredClone(focusedProfile),
-        broken: {
-          models: [],
-          routes: ['ghost'],
-          defaultTarget: { kind: 'route', route: 'ghost' },
-        },
-      },
-      routes: { fallback: structuredClone(fallbackRoute) },
-    })
+  it('rejects snapshots for unknown profile ids', async () => {
+    const { ctx, policy } = await boot()
     expect(() => policy.snapshotFor('ghost')).toThrow('unknown model profile "ghost"')
-    expect(() => policy.snapshotFor('broken')).toThrow('model profile "broken" references unknown route "ghost"')
     await ctx.fiber.dispose()
   })
 
@@ -257,6 +247,46 @@ describe('ModelPolicyService surface', () => {
     await ctx.fiber.dispose()
   })
 
+  it('admits any reasoning effort for a model entry declared without one', async () => {
+    const { ctx, policy } = await boot({
+      profiles: {
+        broad: {
+          name: 'Broad',
+          models: [{ provider: 'deepseek', model: 'reasoner' }],
+          routes: [],
+          defaultTarget: { kind: 'model', selection: { provider: 'deepseek', model: 'reasoner' } },
+        },
+        narrow: {
+          name: 'Narrow',
+          models: [{ provider: 'deepseek', model: 'reasoner', reasoningEffort: 'high' }],
+          routes: [],
+          defaultTarget: {
+            kind: 'model',
+            selection: { provider: 'deepseek', model: 'reasoner', reasoningEffort: 'high' },
+          },
+        },
+      },
+      routes: {},
+    })
+    const broad = policy.snapshotFor('broad')
+    // The composer fills a default effort before setTarget, so a wildcard
+    // entry must admit the filled selection exactly like the catalog filter.
+    expect(policy.allowsTarget(broad, {
+      kind: 'model',
+      selection: { provider: 'deepseek', model: 'reasoner', reasoningEffort: 'high' },
+    })).toBe(true)
+    expect(policy.allowsTarget(broad, {
+      kind: 'model',
+      selection: { provider: 'deepseek', model: 'reasoner' },
+    })).toBe(true)
+    const narrow = policy.snapshotFor('narrow')
+    expect(policy.allowsTarget(narrow, {
+      kind: 'model',
+      selection: { provider: 'deepseek', model: 'reasoner', reasoningEffort: 'low' },
+    })).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('resolves concrete targets from live and snapshotted routes', async () => {
     const { ctx, policy } = await boot()
     const restricted = ctx.sessions.create()
@@ -292,22 +322,105 @@ describe('ModelPolicyService surface', () => {
     await ctx.fiber.dispose()
   })
 
-  it('saves complete profile and route settings documents', async () => {
+  it('saves a complete policy document and rejects a dangling route reference', async () => {
     const { ctx, policy } = await boot()
-    await policy.saveProfiles({
+    await policy.savePolicy(policyDoc({
       defaultProfile: 'saved',
       profiles: {
+        focused: structuredClone(focusedProfile),
         saved: {
           models: [{ provider: 'deepseek', model: 'chat' }],
           routes: ['chain'],
           defaultTarget: { kind: 'route', route: 'chain' },
         },
       },
-    })
+      routes: {
+        fallback: structuredClone(fallbackRoute),
+        chain: { targets: [{ provider: 'deepseek', model: 'chat' }] },
+      },
+    }))
     expect(policy.defaultProfileId()).toBe('saved')
     expect(policy.listProfiles().map(profile => profile.id)).toEqual([UNRESTRICTED_MODEL_PROFILE_ID, 'focused', 'saved'])
-    await policy.saveRoutes({ routes: { chain: { targets: [{ provider: 'deepseek', model: 'chat' }] } } })
     expect(policy.listRoutes().map(route => route.id)).toEqual(['fallback', 'chain'])
+    await expect(policy.savePolicy(policyDoc({
+      profiles: {
+        focused: structuredClone(focusedProfile),
+        saved: {
+          models: [],
+          routes: ['chain'],
+          defaultTarget: { kind: 'route', route: 'chain' },
+        },
+      },
+    }))).rejects.toThrow('profile "saved" references unknown route "chain"')
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects invalid documents at save time with the violated invariant', async () => {
+    const { ctx, policy } = await boot()
+    const cases: readonly [Partial<ModelPolicySettings>, string][] = [
+      [{ profiles: { focused: { ...structuredClone(focusedProfile), name: '' } } },
+        'profile "focused" has an empty name'],
+      [{ routes: { empty: { targets: [] } } },
+        'route "empty" needs at least one target'],
+      [{ routes: { unnamed: { name: '', targets: [{ provider: 'deepseek', model: 'chat' }] } } },
+        'route "unnamed" has an empty name'],
+      [{ routes: { unmodeled: { targets: [{ provider: 'deepseek', model: '' }] } } },
+        'route "unmodeled" target 1 needs a model'],
+      [{ routes: { blank: { targets: [{ provider: '', model: 'chat' }] } } },
+        'route "blank" target 1 needs a provider'],
+      [{ profiles: { unrestricted: { models: [], routes: [], defaultTarget: { kind: 'route', route: 'fallback' } } } },
+        'profile id "unrestricted" is reserved for the built-in profile'],
+      [{ profiles: { dangling: { models: [], routes: ['ghost'], defaultTarget: { kind: 'route', route: 'ghost' } } } },
+        'profile "dangling" references unknown route "ghost"'],
+      [{ profiles: { unprovider: { models: [{ provider: '', model: 'chat' }], routes: [], defaultTarget: { kind: 'model', selection: { provider: '', model: 'chat' } } } } },
+        'profile "unprovider" model 1 needs a provider'],
+      [{ profiles: { unmodel: { models: [{ provider: 'deepseek', model: '' }], routes: [], defaultTarget: { kind: 'model', selection: { provider: 'deepseek', model: '' } } } } },
+        'profile "unmodel" model 1 needs a model'],
+      [{ profiles: { uneffort: { models: [{ provider: 'deepseek', model: 'chat', reasoningEffort: '' }], routes: [], defaultTarget: { kind: 'model', selection: { provider: 'deepseek', model: 'chat' } } } } },
+        'profile "uneffort" model 1 has an empty reasoning effort'],
+      [{ routes: { unfilled: { targets: [{ provider: 'deepseek', model: 'chat', reasoningEffort: '' }] } } },
+        'route "unfilled" target 1 has an empty reasoning effort'],
+      [{ profiles: { outside: { models: [], routes: [], defaultTarget: { kind: 'route', route: 'fallback' } } } },
+        'profile "outside" defaults to route "fallback" outside its allowed routes'],
+      [{ profiles: { away: { models: [], routes: [], defaultTarget: { kind: 'model', selection: { provider: 'deepseek', model: 'chat' } } } } },
+        'profile "away" defaults to model "deepseek/chat" outside its allowed models'],
+      [{ defaultProfile: 'ghost' }, 'default profile "ghost" is not configured'],
+    ]
+    for (const [override, message] of cases) {
+      await expect(policy.savePolicy(policyDoc(override)), message).rejects.toThrow(message)
+    }
+    // A reasoning-model default target with a different effort stays inside a
+    // wildcard allowance, so the effort difference alone must not reject.
+    await policy.savePolicy(policyDoc({
+      profiles: {
+        focused: {
+          name: 'Focused',
+          models: [{ provider: 'deepseek', model: 'reasoner' }],
+          routes: [],
+          defaultTarget: { kind: 'model', selection: { provider: 'deepseek', model: 'reasoner', reasoningEffort: 'high' } },
+        },
+      },
+    }))
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a miscomposed deployment entry at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(MemorySettings)
+    await expect(ctx.plugin(ModelPolicyService, {
+      profiles: {
+        broken: {
+          models: [],
+          routes: ['ghost'],
+          defaultTarget: { kind: 'route', route: 'ghost' },
+        },
+      },
+      routes: { fallback: structuredClone(fallbackRoute) },
+    })).rejects.toThrow('profile "broken" references unknown route "ghost"')
+    expect(() => {
+      validateModelPolicySettings(policyDoc({ defaultProfile: '' }))
+    }).toThrow('default profile "" is not configured')
     await ctx.fiber.dispose()
   })
 })

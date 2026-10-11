@@ -76,7 +76,9 @@ import {
 import {
   credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
 } from '../api/credentials.schema.ts'
-import { llmDiscoverModelsValueSchema, llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
+import {
+  llmDiscoverModelsValueSchema, llmModelProfilesValueSchema, llmModelsValueSchema, llmProvidersValueSchema,
+} from '../api/llm.schema.ts'
 import {
   subagentHistoryValueSchema,
   subagentInterruptValueSchema,
@@ -230,6 +232,7 @@ export interface IApiClient {
   llm: {
     providers(payload: RequestPayload<'llm.providers'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.providers'>>>
     models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
+    modelProfiles(payload: RequestPayload<'llm.modelProfiles'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.modelProfiles'>>>
     discoverModels(payload: RequestPayload<'llm.discoverModels'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.discoverModels'>>>
   }
   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
@@ -315,6 +318,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'credentials.unset': credentialsUnsetValueSchema,
   'llm.providers': llmProvidersValueSchema,
   'llm.models': llmModelsValueSchema,
+  'llm.modelProfiles': llmModelProfilesValueSchema,
   'llm.discoverModels': llmDiscoverModelsValueSchema,
 }
 
@@ -707,6 +711,7 @@ export abstract class AbstractApiClient implements IApiClient {
   readonly llm: IApiClient['llm'] = {
     providers: (payload, signal) => this.callUnary('llm.providers', payload, signal),
     models: (payload, signal) => this.callUnary('llm.models', payload, signal),
+    modelProfiles: (payload, signal) => this.callUnary('llm.modelProfiles', payload, signal),
     discoverModels: (payload, signal) => this.callUnary('llm.discoverModels', payload, signal),
   }
 

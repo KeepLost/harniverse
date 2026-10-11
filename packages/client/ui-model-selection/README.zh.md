@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型选择插件（浏览器侧）：**两个入口共用一份会话级目录**，由 `ModelDirectoryResolver`（`ctx.modelDirectories`）持有。对于普通会话，`/model` popupSelect 贡献项（经 `ctx.commandUi` 注册）与 composer 的具名 `conversation.input.model` slot 都通过同一个 `ModelDirectory` 实例，经 `session.models` 加载会话的建议目录，并经 `session.selectModel` 提交。紧凑型 composer 触发器会打开两级 Model/Effort 菜单：模型仍按提供方分组，所选具体模型则提供由其适配器持有的推理强度名称、说明和默认值。超过四个条目的目录在该菜单上增加搜索框：`rankByName`（[ui-primitives](../ui-primitives/README.md)）以不区分大小写的有序子序列匹配模型 id 与本地化 label（前缀命中优先），提供方分组保持为 sticky 标题、仅在空组时整体退出；目录缩减到阈值以下时查询随之清空，陈旧过滤不会清空小目录。`/model` 应用所选模型的默认推理强度，composer 随后可以选择任一已公布的推理强度——任一表面上的选择都是另一表面下一次显示的内容；目录加载及其重试仍由模型 seat 负责。
+模型选择插件（浏览器侧）：会话级选择入口**共用一份会话级目录**（由 `ModelDirectoryResolver`（`ctx.modelDirectories`）持有），另含新会话屏幕上的模型方案 chip（`conversation.hero.modelProfile`）。对于普通会话，`/model` popupSelect 贡献项（经 `ctx.commandUi` 注册）与 composer 的具名 `conversation.input.model` slot 都通过同一个 `ModelDirectory` 实例，经 `session.models` 加载会话的建议目录，并经 `session.selectModel` 提交。紧凑型 composer 触发器会打开两级 Model/Effort 菜单：模型仍按提供方分组，所选具体模型则提供由其适配器持有的推理强度名称、说明和默认值。超过四个条目的目录在该菜单上增加搜索框：`rankByName`（[ui-primitives](../ui-primitives/README.md)）以不区分大小写的有序子序列匹配模型 id 与本地化 label（前缀命中优先），提供方分组保持为 sticky 标题、仅在空组时整体退出；目录缩减到阈值以下时查询随之清空，陈旧过滤不会清空小目录。`/model` 应用所选模型的默认推理强度，composer 随后可以选择任一已公布的推理强度——任一表面上的选择都是另一表面下一次显示的内容；目录加载及其重试仍由模型 seat 负责。
 
 Host 报告的 `ModelSelection` 是唯一的选择事实，其中包含提供方、模型与推理（reasoning）强度；但只有当该提供方／模型对仍在已公布分组中时才会回显。目录行缺席时，可路由的选择保持不变，但触发器会提示 `Select model`；系统不会合成陈旧行，且在用户选择已公布的模型之前不会显示 Effort 行。目录加载与选择共享一个代次计数器，旧响应不会覆盖新结果；连接重置会丢弃所有常驻目录投影，并在显示前重新拉取 Host 恢复的选择。各提供方的元数据获取失败会内联列出，同时可用分组仍可选择；选择失败会保留先前的选择和目录。
 
@@ -22,8 +22,11 @@ Host 报告的 `ModelSelection` 是唯一的选择事实，其中包含提供方
 
 切换路由可能减少提供方侧后续请求的缓存复用，或使其失效；提示词前缀本身不受影响。
 
+新会话模型方案 chip 与 Agent 预设 chip 并列于 hero 屏幕，仅当 Host 提供内置 `unrestricted` 之外的方案时才渲染（唯一的选项不构成选择）。其名册来自无会话的 `llm.modelProfiles` RPC；与预设 chip 不同，选择会经 `session.selectModelProfile` 立即作用于当前空白会话——因为模型方案按会话可变——而当没有当前会话时，选择先暂存并启动携带该方案的独立会话，若该流程复用了以其他方案创建的空白会话则再作 reconcile。显示顺序为：暂存选择、当前会话自身方案、部署默认。
+
 ## 已知限制与暂缓事项
 
-- **无创建期或已寻址 subagent 选择**——全部入口都要求既有普通会话的 agent；没有可纳入会话创建的草稿阶段模型选择，subagent 继续执行也有意不公开独立的模型选择约定。
+- **无已寻址 subagent 选择**——目录入口都要求既有普通会话的 agent；subagent 继续执行有意不公开独立的模型选择约定。会话开始时的方案选择由 hero chip 承担。
+
 - **目录名仅供呈现**——选择与持久化使用提供方／模型／推理强度 id；目录查询或确切模型元数据查询失败的提供方以不可选失败行列出，重新加载前保持原样。
 - **不能任意输入推理强度**——composer 仅提供确切模型由适配器公布的推理强度；适配器没有推理元数据时不显示 Effort 行。

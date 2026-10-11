@@ -45,6 +45,7 @@
     "tests/plugin-config.e2e.ts",
     "tests/session-import.e2e.ts",
     "tests/skin.e2e.ts",
+    "tests/models-policy.e2e.ts",
     "tests/settings-chrome.e2e.ts",
     "tests/settings-im.e2e.ts",
     "tests/models-settings.e2e.ts",

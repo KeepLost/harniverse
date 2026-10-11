@@ -562,12 +562,19 @@ export class SessionManager {
    * @returns the create result.
    */
   async create(
-    opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentProfile?: string } = {},
+    opts: {
+      workspaceId?: WorkspaceId
+      cwd?: string
+      sessionId?: SessionId
+      agentProfile?: string
+      modelProfile?: string
+    } = {},
   ): Promise<RpcResult<{ sessionId: SessionId }>> {
     try {
       const shared = {
         ...opts.sessionId === undefined ? {} : { sessionId: opts.sessionId },
         ...opts.agentProfile === undefined ? {} : { agentProfile: opts.agentProfile },
+        ...opts.modelProfile === undefined ? {} : { modelProfile: opts.modelProfile },
       }
       const payload = opts.workspaceId !== undefined
         ? { workspaceId: opts.workspaceId, ...shared }

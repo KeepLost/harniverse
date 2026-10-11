@@ -236,7 +236,7 @@ function forwardedSettings(ns: string): HostFrame {
     type: 'host/remote-event',
     event: 'settings/document-updated',
     // The revision is the Host's own counter, so the matcher is the assertion.
-    args: [ns, expect.any(Number)], // oxlint-disable-line typescript/no-unsafe-assignment
+    args: [ns, expect.any(Number)],
   }
 }
 
@@ -314,7 +314,7 @@ describe('settings domain', () => {
     const api = createApiProxy(ctx, DEFAULTS)
 
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
-      .toEqual(expect.arrayContaining(['model-profiles', 'model-routes']))
+      .toEqual(expect.arrayContaining(['model-policy']))
   })
 
   it('opens the provider-resolved document without accepting a browser path', async () => {
