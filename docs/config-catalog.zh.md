@@ -2111,7 +2111,7 @@ export type ModelTarget =
   }
 ```
 
-来源：[`packages/core/model-policy/src/index.ts:67`](../packages/core/model-policy/src/index.ts)
+来源：[`packages/core/model-policy/src/index.ts:64`](../packages/core/model-policy/src/index.ts)
 
 <a id="deepseek-aidsh-model-policy-fallback"></a>
 

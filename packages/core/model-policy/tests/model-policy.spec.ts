@@ -4,7 +4,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import ModelPolicyService, {
-  MODEL_PROFILES_SETTINGS_NAMESPACE,
+  MODEL_POLICY_SETTINGS_NAMESPACE,
   UNRESTRICTED_MODEL_PROFILE_ID,
   effectiveModelProfile,
   effectiveModelTarget,
@@ -81,7 +81,7 @@ describe('ModelPolicyService', () => {
     const { ctx, policy } = await boot()
     const session = ctx.sessions.create()
     const original = policy.initialize(session, 'focused')
-    await ctx.settings.replace(MODEL_PROFILES_SETTINGS_NAMESPACE, {
+    await ctx.settings.replace(MODEL_POLICY_SETTINGS_NAMESPACE, {
       defaultProfile: 'focused',
       profiles: {
         focused: {
@@ -89,6 +89,14 @@ describe('ModelPolicyService', () => {
           models: [{ provider: 'other', model: 'new' }],
           routes: [],
           defaultTarget: { kind: 'model', selection: { provider: 'other', model: 'new' } },
+        },
+      },
+      routes: {
+        fallback: {
+          targets: [
+            { provider: 'deepseek', model: 'chat' },
+            { provider: 'backup', model: 'chat' },
+          ],
         },
       },
     })

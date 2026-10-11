@@ -7,7 +7,7 @@ import { z } from 'zod'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type { ConfigurableProviderView, DiscoveredModelView } from './llm.ts'
-import { modelCatalogFailureSchema, modelProviderGroupSchema } from './sessions.schema.ts'
+import { modelCatalogFailureSchema, modelProfileDescriptorSchema, modelProviderGroupSchema } from './sessions.schema.ts'
 
 /** ConfigurableProviderView row of llm.providers. */
 export const configurableProviderViewSchema = z.object({
@@ -35,6 +35,15 @@ export const llmModelsValueSchema = z.object({
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'llm.models'>>>
+
+/** llm.modelProfiles request payload. */
+export const llmModelProfilesRequestSchema = z.object({}) satisfies z.ZodType<Wire<RequestPayload<'llm.modelProfiles'>>>
+
+/** llm.modelProfiles response value. */
+export const llmModelProfilesValueSchema = z.object({
+  defaultProfileId: z.string().min(1),
+  profiles: z.array(modelProfileDescriptorSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'llm.modelProfiles'>>>
 
 /** DiscoveredModelView row of llm.discoverModels. */
 export const discoveredModelViewSchema = z.object({

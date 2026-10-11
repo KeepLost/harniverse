@@ -6,7 +6,7 @@ import { RemoteHostsError } from './validation.ts'
 import type { ActiveReverseMapping } from './types.ts'
 import z from '@deepseek-ai/schemastery'
 
-const NAMESPACES = ['llm-deepseek', 'llm-pi-ai', 'agent-default-model', 'model-profiles', 'model-routes', 'web',
+const NAMESPACES = ['llm-deepseek', 'llm-pi-ai', 'agent-default-model', 'model-policy', 'web',
   'web-search-deepseek', 'web-search-exa', 'web-search-perplexity', 'web-search-tavily', 'web-search-brave', 'web-search-kagi',
   'web-search-cloudflare', 'web-firecrawl'] as const
 interface SchemaNode { type?: string; meta?: { role?: string }; dict?: Record<string, SchemaNode>; inner?: SchemaNode; list?: SchemaNode[] }

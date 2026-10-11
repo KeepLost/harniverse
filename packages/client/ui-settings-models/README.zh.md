@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型设置与产品引导插件。同一个 client Cordis 插件会注册 Models 页面与版本化 Harniverse RC 内测声明；提供方凭据需要在 Models 页面中显式配置，首次使用时不会出现针对特定提供方的步骤。Models 平面把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret slot）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片，且不把路由存活状态呈现为提供方状态。Models 页面还持有自己的导航图标，以分区 id `models` 注册到带键的 `settings.nav.icon` slot；模型策略页不注册图标，显示外壳的设置齿轮。
+模型设置与产品引导插件。同一个 client Cordis 插件会注册 Models 页面与版本化 Harniverse RC 内测声明；提供方凭据需要在 Models 页面中显式配置，首次使用时不会出现针对特定提供方的步骤。Models 平面把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret slot）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片，且不把路由存活状态呈现为提供方状态。Models 页面还持有自己的导航图标，以分区 id `models` 注册到带键的 `settings.nav.icon` slot；模型策略页复用同一图标（以自己的分区 id 注册），两个模型表面因此呈现为同一领域。
 
 该汇聚及每项 mutation 都共享 Settings 镜像的认证 principal generation fence。连接载体会集中要求每个 unary 结算在返回前匹配其发起身份，因此 ProviderEditor 与模型发现不再执行可选的响应身份检查。principal 转换会同步清空行、namespace 视图与凭据徽标，generation fence 则阻止较旧的结算发布本地状态。载体还会为 mutation 与携带 secret 的模型发现发送 expected-principal 前置条件，使 Host 在路由分发或调用提供方网络之前拒绝已经变化的 principal。
 
@@ -36,6 +36,8 @@ pi-ai profile 的 `models` 列表就在卡片上编辑：一行一个模型，�
 
 ## 已知限制与暂缓事项
 
+- **编辑方案时会把同一模型的重复允许项归一为单条**——不带推理强度的通配条目本就允许全部强度，重复条目只会收窄到单一强度。
+- **首次保存会把基础层的策略条目物化到用户层**——设置合并中数组整体替换，对已解析文档的手工裁剪副本是唯一忠实的保存方式；携带基础层 Profile/Route 的部署会在首次编辑时看到它们被复制。
 - **卡片上可编辑的只有 API 密钥与精选折叠区字段**：手写编辑器用 schema 通用的字段覆盖面换来了设计稿上的布局（[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）。两个家族都公开 `baseURL` 与模型的 `id`/`name`/`contextWindow`/`maxTokens`；手工声明的 pi-ai 路由还公开 `displayName` 与 `api`。重试策略、超时、DeepSeek 模型说明及其他进阶字段仍留在 `settings.yaml` 中；编辑器未展示的现有模型字段会予以保留。不带这些约定字段的 profile schema 只渲染该提示，两套精选布局则以 `llm-deepseek`/`llm-pi-ai` 这两个 namespace 的名字为键。
 - **凭据清理范围刻意保持狭窄**：删除一行时，仅当其引用与页面派生的 `<ROUTE>_API_KEY` 目标完全一致，才会清除已配置且可写的凭据。自定义引用、环境凭据和无法识别的目标会保留，因为该行无法证明自己拥有它们。
 - **只有 pi-ai 路由可以手工声明**：自定义提供方卡片写入 `llm-pi-ai`——唯一一个其 profile 描述整个提供方的 namespace。`llm-deepseek` 路由是组合面的事实，不是本页能创建的东西。

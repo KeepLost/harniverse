@@ -165,14 +165,23 @@ it('synchronizes the real model-policy namespace through its owning schema', asy
   await ctx.plugin(ModelPolicy)
   await runtime.unlock(randomBytes(32).toString('base64url'))
   await runtime.syncSettings({
-    'model-routes': { routes: { local: { targets: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] } } },
+    'model-policy': { routes: { local: { targets: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] } } },
   })
-  expect(ctx.settings.get(settingsNamespace('model-routes'))).toEqual({
+  expect(ctx.settings.get(settingsNamespace('model-policy'))).toEqual({
+    defaultProfile: 'unrestricted',
+    profiles: {},
     routes: { local: { targets: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] } },
   })
-  await expect(runtime.syncSettings({ 'model-routes': { routes: { invalid: { targets: [{ model: 42 }] } } } })).rejects.toThrow()
-  await runtime.syncSettings({ 'model-routes': { routes: {} } })
-  expect(ctx.settings.get(settingsNamespace('model-routes'))).toEqual({ routes: {} })
+  await expect(runtime.syncSettings({ 'model-policy': { routes: { invalid: { targets: [{ model: 42 }] } } } })).rejects.toThrow()
+  await expect(runtime.syncSettings({
+    'model-policy': { profiles: { broken: { models: [], routes: ['ghost'], defaultTarget: { kind: 'route', route: 'ghost' } } } },
+  })).rejects.toThrow('references unknown route "ghost"')
+  await runtime.syncSettings({ 'model-policy': { routes: {} } })
+  expect(ctx.settings.get(settingsNamespace('model-policy'))).toEqual({
+    defaultProfile: 'unrestricted',
+    profiles: {},
+    routes: {},
+  })
 })
 
 it('signals an ownerless runtime once per starvation episode and re-arms on owner contact', async () => {

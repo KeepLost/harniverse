@@ -593,7 +593,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'model/fallback': ModelFallbackEvent
 ```
 
-来源：[`packages/core/model-policy/src/types.ts:116`](../packages/core/model-policy/src/types.ts)
+来源：[`packages/core/model-policy/src/types.ts:118`](../packages/core/model-policy/src/types.ts)
 
 <a id="modelprofile--log-only"></a>
 
@@ -604,7 +604,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'model/profile': ModelProfileSnapshot
 ```
 
-来源：[`packages/core/model-policy/src/types.ts:112`](../packages/core/model-policy/src/types.ts)
+来源：[`packages/core/model-policy/src/types.ts:114`](../packages/core/model-policy/src/types.ts)
 
 <a id="modeltarget--log-only"></a>
 
@@ -615,7 +615,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'model/target': ModelTarget
 ```
 
-来源：[`packages/core/model-policy/src/types.ts:114`](../packages/core/model-policy/src/types.ts)
+来源：[`packages/core/model-policy/src/types.ts:116`](../packages/core/model-policy/src/types.ts)
 
 ### `permission/*`
 

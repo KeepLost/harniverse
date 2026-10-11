@@ -12,7 +12,8 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import {
-  effectiveModelProfile, effectiveModelTarget, ModelTargetNotAllowedError, UNRESTRICTED_MODEL_PROFILE_ID,
+  effectiveModelProfile, effectiveModelTarget, ModelTargetNotAllowedError, MODEL_POLICY_SETTINGS_NAMESPACE,
+  UNRESTRICTED_MODEL_PROFILE_ID,
 } from '@deepseek-ai/dsh-model-policy'
 import type {
   ModelProfileDescriptor, ModelProfileSnapshot, ModelRouteDescriptor, ModelTarget,
@@ -427,7 +428,7 @@ function referencedImage(events: readonly SessionEvent[], attachmentId: string):
  * configuration boundary or the pickers silently fail to persist.
  */
 const PRODUCT_SETTINGS_NAMESPACES = new Set([
-  'ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE, 'model-profiles', 'model-routes',
+  'ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE, MODEL_POLICY_SETTINGS_NAMESPACE,
 ])
 
 /** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
@@ -5407,6 +5408,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async models(request) {
         return ok(request, await buildModelCatalog(ctx))
+      },
+
+      modelProfiles(request) {
+        const policy = ctx.get('modelPolicy')
+        if (policy === undefined) {
+          return Promise.resolve(ok(request, {
+            defaultProfileId: UNRESTRICTED_MODEL_PROFILE_ID,
+            profiles: [{
+              id: UNRESTRICTED_MODEL_PROFILE_ID,
+              name: 'Unrestricted',
+              description: 'All registered concrete models and routes are allowed.',
+              unrestricted: true,
+            }],
+          }))
+        }
+        return Promise.resolve(ok(request, {
+          defaultProfileId: policy.defaultProfileId(),
+          profiles: policy.listProfiles().map(profile => ({ ...profile })),
+        }))
       },
 
       async discoverModels(request, signal) {

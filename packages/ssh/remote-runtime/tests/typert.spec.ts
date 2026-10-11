@@ -34,7 +34,7 @@ it('generates executable strict Remote schemas for recursive JSON settings and s
     const methods = TYPERT_REMOTE.descriptors
     expect(methods.map(method => method.method).sort()).toEqual(['replaceCredentials', 'status', 'syncSettings', 'unlock'])
     const settings = methods.find(method => method.method === 'syncSettings')!.parameters[0]!.codec.schema
-    expect(settings.safeParse({ 'model-routes': { routes: { fast: { targets: [{ provider: 'deepseek', model: 'chat' }] } } } }).success).toBe(true)
+    expect(settings.safeParse({ 'model-policy': { routes: { fast: { targets: [{ provider: 'deepseek', model: 'chat' }] } } } }).success).toBe(true)
     expect(settings.safeParse({ unsupported: { fn: () => 1 } }).success).toBe(false)
     const credentials = methods.find(method => method.method === 'replaceCredentials')!.parameters[0]!.codec.schema
     expect(credentials.safeParse({ KEY: 'secret' }).success).toBe(true)

@@ -314,7 +314,7 @@ describe('settings domain', () => {
     const api = createApiProxy(ctx, DEFAULTS)
 
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
-      .toEqual(expect.arrayContaining(['model-profiles', 'model-routes']))
+      .toEqual(expect.arrayContaining(['model-policy']))
   })
 
   it('opens the provider-resolved document without accepting a browser path', async () => {

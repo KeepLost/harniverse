@@ -281,6 +281,10 @@ export function ModelSelect(
   }
 
   const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')
+  const routeTarget = state.target?.kind === 'route' ? state.target : undefined
+  const routeLabel = routeTarget === undefined
+    ? t('menu.model')
+    : (state.routes?.find(route => route.id === routeTarget.route)?.name ?? routeTarget.route)
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
   const triggerAria = currentChoice === undefined
     ? t('trigger.selectAria')
@@ -340,7 +344,7 @@ export function ModelSelect(
               {(state.routes?.length ?? 0) > 0 && (
                 <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('route') }}>
                   <span className={css.cellLabel}>{t('menu.route')}</span>
-                  <span className={css.cellValue}>{state.target?.kind === 'route' ? state.target.route : t('menu.model')}</span>
+                  <span className={css.cellValue}>{routeLabel}</span>
                   <IconChevronRightOutline14 className={css.cellChevron} />
                 </button>
               )}

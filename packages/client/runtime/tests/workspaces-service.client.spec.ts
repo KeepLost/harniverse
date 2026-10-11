@@ -315,6 +315,15 @@ describe('WorkspaceRuntime', () => {
       { workspaceId: 'alpha', agentProfile: 'minimal' },
       { workspaceId: 'beta' },
     ])
+    // A model profile rides the create arm; reuse ignores it because the
+    // caller reconciles a reused blank session live instead.
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-policy') }))
+    await expect(workspaces.connectWorkspace(wid('beta'), undefined, 'focused')).resolves.toBe('s-policy')
+    expect(api.callsOf('session.create')).toEqual([
+      { workspaceId: 'alpha', agentProfile: 'minimal' },
+      { workspaceId: 'beta' },
+      { workspaceId: 'beta', modelProfile: 'focused' },
+    ])
     // Same guarantee on the create arm (draft hand-off writes the machine pre-open).
     expect(sessions.binding(sid('s-fresh'))).toBeDefined()
 
@@ -325,6 +334,7 @@ describe('WorkspaceRuntime', () => {
     expect(api.callsOf('session.create')).toEqual([
       { workspaceId: 'alpha', agentProfile: 'minimal' },
       { workspaceId: 'beta' },
+      { workspaceId: 'beta', modelProfile: 'focused' },
       { workspaceId: 'gamma' },
     ])
 
@@ -497,6 +507,11 @@ describe('WorkspaceRuntime', () => {
     workspaces.startSession()
     await Promise.resolve()
     expect(connect).toHaveBeenLastCalledWith(wid('recent-home'))
+
+    // A model-profile-only start routes through the parameterized arm.
+    workspaces.startSession(undefined, undefined, 'focused')
+    await Promise.resolve()
+    expect(connect).toHaveBeenLastCalledWith(wid('recent-home'), undefined, 'focused')
 
     const emptyCtx = new Context()
     const emptyApi = new FakeApiClient()

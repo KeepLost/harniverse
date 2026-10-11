@@ -591,7 +591,7 @@ Source: [`packages/core/session/src/types.ts:352`](../packages/core/session/src/
 'model/fallback': ModelFallbackEvent
 ```
 
-Source: [`packages/core/model-policy/src/types.ts:116`](../packages/core/model-policy/src/types.ts)
+Source: [`packages/core/model-policy/src/types.ts:118`](../packages/core/model-policy/src/types.ts)
 
 <a id="modelprofile--log-only"></a>
 
@@ -602,7 +602,7 @@ Source: [`packages/core/model-policy/src/types.ts:116`](../packages/core/model-p
 'model/profile': ModelProfileSnapshot
 ```
 
-Source: [`packages/core/model-policy/src/types.ts:112`](../packages/core/model-policy/src/types.ts)
+Source: [`packages/core/model-policy/src/types.ts:114`](../packages/core/model-policy/src/types.ts)
 
 <a id="modeltarget--log-only"></a>
 
@@ -613,7 +613,7 @@ Source: [`packages/core/model-policy/src/types.ts:112`](../packages/core/model-p
 'model/target': ModelTarget
 ```
 
-Source: [`packages/core/model-policy/src/types.ts:114`](../packages/core/model-policy/src/types.ts)
+Source: [`packages/core/model-policy/src/types.ts:116`](../packages/core/model-policy/src/types.ts)
 
 ### `permission/*`
 

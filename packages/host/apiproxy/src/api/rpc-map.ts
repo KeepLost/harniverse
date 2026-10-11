@@ -104,6 +104,7 @@ export interface RpcMethodMap {
   'credentials.unset': CredentialsApi['unset']
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
+  'llm.modelProfiles': LlmApi['modelProfiles']
   'llm.discoverModels': LlmApi['discoverModels']
 }
 
@@ -183,6 +184,7 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'credentials.unset': 'harniverse.administer',
   'llm.providers': 'harniverse.observe',
   'llm.models': 'harniverse.observe',
+  'llm.modelProfiles': 'harniverse.observe',
   'llm.discoverModels': 'harniverse.administer',
 }
 
@@ -262,6 +264,7 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'credentials.unset': 'mutate',
   'llm.providers': 'read',
   'llm.models': 'read',
+  'llm.modelProfiles': 'read',
   'llm.discoverModels': 'mutate',
 }
 

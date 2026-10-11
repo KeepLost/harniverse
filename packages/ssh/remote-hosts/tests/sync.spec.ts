@@ -36,7 +36,7 @@ it('resolves only schema-declared credential refs inside configured model/search
   expect(resolved).toEqual(['MODEL_KEY'])
   expect(snapshot.credentials).toEqual({ MODEL_KEY: 'model-value' })
   expect(snapshot.settings['llm-pi-ai']).toEqual({ providers: { model: { keys: ['MODEL_KEY'], arbitrary: 'PRIVATE_KEY' } } })
-  expect(snapshot.settings['model-routes']).toBeUndefined()
+  expect(snapshot.settings['model-policy']).toBeUndefined()
   expect(snapshot.settings.unrelated).toBeUndefined()
 })
 

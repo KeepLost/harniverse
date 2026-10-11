@@ -16,6 +16,7 @@ import type {
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
+import ModelPolicyService from '@deepseek-ai/dsh-model-policy'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
@@ -127,6 +128,46 @@ function registerTextOnly(ctx: Context): void {
     }
   }('Text Only', []))
 }
+
+describe('Host model-profile roster', () => {
+  it('answers the built-in profile alone when no policy service is composed', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
+    const roster = expectValue(await api.llm.modelProfiles(request({})))
+    expect(roster).toEqual({
+      defaultProfileId: 'unrestricted',
+      profiles: [{
+        id: 'unrestricted',
+        name: 'Unrestricted',
+        description: 'All registered concrete models and routes are allowed.',
+        unrestricted: true,
+      }],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('serves the configured roster and the default profile id', async () => {
+    const { ctx } = await harness()
+    await ctx.plugin(ModelPolicyService, {
+      defaultProfile: 'focused',
+      profiles: {
+        focused: {
+          name: '专注',
+          models: [{ provider: 'deepseek-official', model: 'deepseek-chat' }],
+          routes: ['chain'],
+          defaultTarget: { kind: 'route', route: 'chain' },
+        },
+      },
+      routes: { chain: { targets: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] } },
+    })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
+    const roster = expectValue(await api.llm.modelProfiles(request({})))
+    expect(roster.defaultProfileId).toBe('focused')
+    expect(roster.profiles.map(profile => profile.id)).toEqual(['unrestricted', 'focused'])
+    expect(roster.profiles[1]).toMatchObject({ name: '专注', unrestricted: false })
+    await ctx.fiber.dispose()
+  })
+})
 
 describe('Web session model selection', () => {
   it('validates an ordered image batch before persisting any member', async () => {

@@ -1,0 +1,60 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "外观":
+      - img
+      - text: 外观
+    - button "模型":
+      - img
+      - text: 模型
+    - button "模型方案":
+      - img
+      - text: 模型方案
+    - button "插件":
+      - img
+      - text: 插件
+    - button "资源治理":
+      - img
+      - text: 资源治理
+    - button "Agent 预设":
+      - img
+      - text: Agent 预设
+    - button "IM 机器人":
+      - img
+      - text: IM 机器人
+    - button "会话导入":
+      - img
+      - text: 会话导入
+    - button "语音输入":
+      - img
+      - text: 语音输入
+  - button "打开配置文件"
+  - button "关闭":
+    - img
+    - text: 关闭
+  - heading "模型方案与备用链" [level=1]
+  - paragraph: 方案决定一个会话可使用的模型与备用链；备用链在同模型重试放弃后按顺序尝试后续模型。
+  - status: 已保存。
+  - heading "备用链" [level=2]
+  - list:
+    - listitem:
+      - text: 兜底链 route-1
+      - button "编辑"
+      - button "删除" [disabled]
+      - paragraph: deepseek-official/deepseek-v4-flash → deepseek-official/deepseek-v4-flash
+  - button "新建备用链"
+  - heading "模型方案" [level=2]
+  - text: 新会话默认方案
+  - combobox "新会话默认方案":
+    - option "不限制"
+    - option "专注" [selected]
+  - list:
+    - listitem:
+      - text: 专注 profile-1 默认
+      - button "编辑"
+      - button "删除"
+      - paragraph: 允许 1 个模型、1 条备用链。
+  - button "新建方案"

@@ -9,7 +9,7 @@
  */
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
-import type { ModelCatalogFailure, ModelProviderGroup } from './sessions.ts'
+import type { ModelCatalogFailure, ModelProfileDescriptor, ModelProviderGroup } from './sessions.ts'
 
 /** Wire view of one configurable provider. */
 export interface ConfigurableProviderView {
@@ -47,6 +47,16 @@ export interface LlmApi {
    * failures ride `failures` without failing the sound groups.
    */
   models(request: RpcRequest<{}>): Promise<RpcResponse<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }>>
+
+  /**
+   * Host-scoped Model Profile roster for surfaces that choose a Profile
+   * before or without a Session: the configured descriptors in settings
+   * order (the built-in `unrestricted` first) plus the id a new Session
+   * receives when no explicit choice arrives. Clients invalidate from the
+   * same forwarded `settings/document-updated` and `llm/adapters-updated`
+   * owner events as `llm.models`.
+   */
+  modelProfiles(request: RpcRequest<{}>): Promise<RpcResponse<{ defaultProfileId: string; profiles: ModelProfileDescriptor[] }>>
 
   /**
    * Interrogate a provider endpoint the configuration surface is still

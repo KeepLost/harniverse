@@ -1,0 +1,12 @@
+- button "打开工作台" [disabled]:
+  - img
+  - text: 选择工作区
+- button "选择工作区":
+  - img
+- button "标准模式":
+  - img
+  - text: 标准模式
+  - img
+- button "模型方案，当前 专注":
+  - text: 模型方案 专注
+  - img
