@@ -377,6 +377,22 @@
   line-height: 17px;
 }
 
+.exportRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.exportRow p {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
 .visuallyHidden {
   position: absolute;
   width: 1px;

@@ -79,6 +79,8 @@ import {
   type SessionLogExportReady,
   type SessionLogCompressionLevel,
 } from './session-export.ts'
+import { DEFAULT_PLUGIN_EXPORT_MAX_BYTES, pluginExportResponse } from './plugin-export.ts'
+import type { PluginPackSpawn } from '@deepseek-ai/dsh-app-boot'
 import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -989,6 +991,10 @@ export interface ApiProxyDefaults {
   openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
   /** Validated DEFLATE level for session-log ZIP entries; defaults to 6. */
   sessionExportCompressionLevel?: SessionLogCompressionLevel
+  /** Maximum served size of one plugin-export tarball; defaults to 128 MiB. */
+  pluginExportMaxBytes?: number
+  /** `pnpm pack` runner for plugin export; injectable for carrier tests. */
+  pluginExportPack?: PluginPackSpawn
   /** Maximum artifact size eligible for one cold blankness read. */
   coldBlankProbeMaxBytes?: number
   /** Maximum frames retained by one mux or host stream. */
@@ -1550,6 +1556,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const bootId = HostBootId(randomUUID())
   const sessionExportCompressionLevel = defaults.sessionExportCompressionLevel
     ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL
+  const pluginExportMaxBytes = defaults.pluginExportMaxBytes ?? DEFAULT_PLUGIN_EXPORT_MAX_BYTES
   const coldBlankProbeMaxBytes = defaults.coldBlankProbeMaxBytes
     ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES
   const streamQueueMaxFrames = defaults.streamQueueMaxFrames
@@ -5950,6 +5957,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               'content-disposition': `attachment; filename="${sessionLogZipFilename(request.sessionId)}"`,
             },
           },
+        )
+      },
+
+      async pluginPackage(request, signal) {
+        return pluginExportResponse(
+          {
+            baseUrl: ctx.baseUrl,
+            packageName: request.packageName,
+            maxBytes: pluginExportMaxBytes,
+            ...(defaults.pluginExportPack === undefined ? {} : { pack: defaults.pluginExportPack }),
+          },
+          signal,
         )
       },
     },

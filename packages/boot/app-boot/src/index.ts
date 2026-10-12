@@ -50,6 +50,18 @@ export {
   type ProfileLayer,
   type ProfileManifest,
 } from './profile.ts'
+export {
+  classifyDependencySpec,
+  packPluginTarball,
+  resolvePluginExportSource,
+  type DependencySpecClass,
+  type PluginExportProvenance,
+  type PluginExportSource,
+  type PluginPackFail,
+  type PluginPackOk,
+  type PluginPackResult,
+  type PluginPackSpawn,
+} from './plugin-export.ts'
 
 /**
  * Resolve the config to boot. Replay swaps a `cordis.yml` basename for

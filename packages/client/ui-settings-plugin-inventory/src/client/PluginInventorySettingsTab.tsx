@@ -18,10 +18,18 @@ export interface PluginInventorySettingsTabInjected {
   list: () => Promise<PluginInventorySnapshot>
   /** Run current read-only Host plugin diagnostics. */
   diagnose: () => Promise<PluginDiagnosticReport>
+  /** Hand one plugin's tarball to the browser download manager. */
+  exportPlugin: (moduleName: string) => Promise<void>
 }
 
 type PluginInventoryEntry = PluginInventorySnapshot['entries'][number]
 type PluginFiberPhase = PluginInventoryEntry['fiberPhase']
+
+/** One plugin's browser-download progress, published into its expanded row. */
+type PluginExportStatus =
+  | { readonly phase: 'busy' }
+  | { readonly phase: 'done' }
+  | { readonly phase: 'error'; readonly message: string }
 
 /** Full component props assembled by the Settings slot renderer. */
 export type PluginInventorySettingsTabProps =
@@ -76,13 +84,26 @@ function matches(entry: PluginInventoryEntry, normalizedQuery: string): boolean 
     .some(value => value.toLocaleLowerCase().includes(normalizedQuery))
 }
 
+/** Accessible text for one plugin's download progress. */
+function ExportStatusLine(
+  { status, t }: { status: PluginExportStatus | undefined; t: PluginInventorySettingsTabProps['t'] },
+): ReactNode {
+  if (status === undefined) return null
+  if (status.phase === 'busy') return <p role="status">{t('exportBusy')}</p>
+  if (status.phase === 'done') return <p role="status">{t('exportDone')}</p>
+  return <p role="alert">{t('exportFailed')}: {status.message}</p>
+}
+
 /** Render the read-only current Loader inventory. */
-export function PluginInventorySettingsTab({ list, diagnose, t }: PluginInventorySettingsTabProps): ReactNode {
+export function PluginInventorySettingsTab(
+  { list, diagnose, exportPlugin, t }: PluginInventorySettingsTabProps,
+): ReactNode {
   const catalogId = useId()
   const [request, setRequest] = useState(0)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<PluginInventoryEntry['entryId'] | null>(null)
   const [state, setState] = useState<ViewState>({ status: 'loading' })
+  const [exports, setExports] = useState<Record<string, PluginExportStatus | undefined>>({})
 
   useEffect(() => {
     let current = true
@@ -110,6 +131,20 @@ export function PluginInventorySettingsTab({ list, diagnose, t }: PluginInventor
   const retry = (): void => {
     setState({ status: 'loading' })
     setRequest(value => value + 1)
+  }
+
+  /** Start one plugin's browser download; concurrent gestures share its busy state. */
+  const onExport = (moduleName: string): void => {
+    /* v8 ignore next -- the busy arm guards the click-to-commit race the disabled attribute cannot close */
+    if (exports[moduleName]?.phase === 'busy') return
+    setExports(current => ({ ...current, [moduleName]: { phase: 'busy' } }))
+    void exportPlugin(moduleName).then(
+      () => { setExports(current => ({ ...current, [moduleName]: { phase: 'done' } })) },
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        setExports(current => ({ ...current, [moduleName]: { phase: 'error', message } }))
+      },
+    )
   }
 
   return (
@@ -238,6 +273,17 @@ export function PluginInventorySettingsTab({ list, diagnose, t }: PluginInventor
                             </div>
                           ) : null}
                         </dl>
+                        <div className={css.exportRow}>
+                          <button
+                            type="button"
+                            data-plugin-export={entry.moduleName}
+                            disabled={exports[entry.moduleName]?.phase === 'busy'}
+                            onClick={() => { onExport(entry.moduleName) }}
+                          >
+                            {t('exportButton')}
+                          </button>
+                          <ExportStatusLine status={exports[entry.moduleName]} t={t} />
+                        </div>
                       </div>
                     ) : null}
                   </li>

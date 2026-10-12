@@ -19,11 +19,13 @@ const CLEAN_REPORT = { observedAt: 1, checksRun: 3, findings: [] } as Report
 function props(
   list: PluginInventorySettingsTabInjected['list'],
   diagnose: PluginInventorySettingsTabInjected['diagnose'] = async () => CLEAN_REPORT,
+  exportPlugin: PluginInventorySettingsTabInjected['exportPlugin'] = async () => {},
 ): PluginInventorySettingsTabProps {
   return {
     t,
     list,
     diagnose,
+    exportPlugin,
   } as PluginInventorySettingsTabProps
 }
 
@@ -169,5 +171,43 @@ describe('PluginInventorySettingsTab', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(en.error)
     expect(screen.queryByText('private diagnostic detail')).toBeNull()
     diagnosticFailure.unmount()
+  })
+
+  it('exports from the expanded row and publishes download progress', async () => {
+    const exportPlugin = vi.fn<PluginInventorySettingsTabInjected['exportPlugin']>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('HTTP 404 plugin export: "x" is not a profile dependency'))
+      .mockRejectedValueOnce('bare rejection string')
+    render(<PluginInventorySettingsTab {...props(async () => SNAPSHOT, async () => CLEAN_REPORT, exportPlugin)} />)
+    const active = await screen.findByRole('button', { name: 'hmr, Mounted, Enabled' })
+    fireEvent.click(active)
+    const exportButton = screen.getByRole('button', { name: en.exportButton })
+    fireEvent.click(exportButton)
+    await waitFor(() => { expect(screen.getByText(en.exportDone)).toBeTruthy() })
+    expect(exportPlugin).toHaveBeenCalledExactlyOnceWith('@deepseek-ai/cordis-plugin-hmr')
+
+    fireEvent.click(exportButton)
+    await waitFor(() => { expect(screen.getByRole('alert')).toBeTruthy() })
+    expect(screen.getByRole('alert').textContent).toContain('not a profile dependency')
+
+    fireEvent.click(exportButton)
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('bare rejection string') })
+  })
+
+  it('ignores a concurrent export gesture for the same plugin', async () => {
+    const deferred = Promise.withResolvers<undefined>()
+    const exportPlugin = vi.fn<PluginInventorySettingsTabInjected['exportPlugin']>()
+      .mockReturnValueOnce(deferred.promise)
+    render(<PluginInventorySettingsTab {...props(async () => SNAPSHOT, async () => CLEAN_REPORT, exportPlugin)} />)
+    const active = await screen.findByRole('button', { name: 'hmr, Mounted, Enabled' })
+    fireEvent.click(active)
+    const exportButton = screen.getByRole('button', { name: en.exportButton }) as HTMLButtonElement
+    fireEvent.click(exportButton)
+    expect(exportButton.disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe(en.exportBusy)
+    fireEvent.click(exportButton)
+    expect(exportPlugin).toHaveBeenCalledOnce()
+    await act(async () => { deferred.resolve(undefined) })
+    expect(screen.getByRole('status').textContent).toBe(en.exportDone)
   })
 })

@@ -7,6 +7,7 @@ describe('legacy RPC capability map', () => {
     ['events.mux', 'harniverse.observe'],
     ['events.host', 'harniverse.observe'],
     ['session.export', 'harniverse.observe'],
+    ['plugin.export', 'harniverse.administer'],
     ['respond', 'harniverse.operate'],
   ])('resolves %s to %s', (endpoint, capability) => {
     expect(legacyRpcCapability(endpoint)).toBe(capability)

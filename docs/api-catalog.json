@@ -509,6 +509,12 @@
       "requiredCapability": "harniverse.observe"
     },
     {
+      "endpoint": "plugin.export",
+      "kind": "download",
+      "method": "GET",
+      "requiredCapability": "harniverse.administer"
+    },
+    {
       "endpoint": "respond",
       "kind": "client-response",
       "method": "POST",

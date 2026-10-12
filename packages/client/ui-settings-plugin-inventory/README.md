@@ -6,6 +6,8 @@ Read-only **Plugin list** tab for Web Settings. The browser plugin registers one
 
 The tab places a diagnostic summary before the searchable two-column inventory. It renders finding severity, stable code, message, optional path, and optional textual response hint; the tab has no repair, restart, or configuration action. Compact disclosure cards retain the short module title, effective-enablement tag, enabled-entry root-fiber status dot, Loader entry id, and Cordis phase. Loading, empty, no-match, and generic failure states stay local to the mounted component, and retry refreshes both snapshots without exposing transport or diagnostic exceptions. The registration uses `ctx.slots.inject()`, so it follows late tab declaration, redeclaration, locale changes, and teardown without importing the section owner.
 
+Each expanded card carries an **Export plugin** action. It HEAD-preflights `GET /api/plugin.export?package=<moduleName>` (the Host-side `pnpm pack` download owned by [`dsh-host-apiproxy`](../../host/apiproxy/README.md), requiring `harniverse.administer`) and hands the URL to the browser download manager; the row publishes busy/done/error progress per module name, and a failed preflight surfaces the HTTP status without host-side detail. Entries that are not profile dependencies (built-ins, in-box bundles) answer 404 and report export failure — inventory rows are Loader entries, not dependency manifest rows.
+
 ## Model Experience
 
 None, as this package only visualizes a Host-owned deployment snapshot in browser Settings and registers nothing model-facing.

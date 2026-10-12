@@ -39,8 +39,12 @@ const CARRIER_ENDPOINT_KINDS: Readonly<Record<string, Exclude<CarrierEndpointRow
   'events.browser': 'stream',
   'workspace.files.watch': 'stream',
   'session.export': 'download',
+  'plugin.export': 'download',
   'respond': 'client-response',
 }
+
+/** Carrier endpoints answered by GET downloads rather than POST streams. */
+const CARRIER_GET_ENDPOINTS: ReadonlySet<string> = new Set(['session.export', 'plugin.export'])
 
 /** Assemble the catalog from the compile-locked registries. */
 export function buildApiCatalog(): ApiCatalog {
@@ -58,7 +62,7 @@ export function buildApiCatalog(): ApiCatalog {
     carrier.push({
       endpoint,
       kind,
-      method: endpoint === 'session.export' ? 'GET' : 'POST',
+      method: CARRIER_GET_ENDPOINTS.has(endpoint) ? 'GET' : 'POST',
       requiredCapability: capability,
     })
   }

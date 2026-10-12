@@ -9,43 +9,31 @@
   ],
   "references": [
     {
-      "path": "../../auth/authentication"
-    },
-    {
-      "path": "../../goal/goal"
-    },
-    {
-      "path": "../../settings/settings"
-    },
-    {
-      "path": "../../credentials/credentials"
-    },
-    {
       "path": "../../../vendor/cordis"
-    },
-    {
-      "path": "../../fs/fs-codec"
     },
     {
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../api/remotes/tsconfig.host.json"
+      "path": "../../api/browser-controller"
     },
     {
-      "path": "../../api/browser-controller"
+      "path": "../../api/remotes/tsconfig.host.json"
     },
     {
       "path": "../../api/terminal-controller"
     },
     {
-      "path": "../../util/brand"
-    },
-    {
       "path": "../../attachment/attachment"
     },
     {
-      "path": "../../llm/llm"
+      "path": "../../auth/authentication"
+    },
+    {
+      "path": "../../boot/app-boot"
+    },
+    {
+      "path": "../../compaction/compaction"
     },
     {
       "path": "../../core/agent"
@@ -60,7 +48,25 @@
       "path": "../../core/model-policy-fallback"
     },
     {
-      "path": "../../preset/agent-presets"
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../extensions/cordis-host-runner"
+    },
+    {
+      "path": "../../fs/fs-codec"
+    },
+    {
+      "path": "../../goal/goal"
+    },
+    {
+      "path": "../../interaction/commands"
     },
     {
       "path": "../../interaction/permission-presets"
@@ -69,13 +75,31 @@
       "path": "../../interaction/supervision"
     },
     {
-      "path": "../../core/session"
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../interaction/user-questions"
+    },
+    {
+      "path": "../../jobs/jobs"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../preset/agent-presets"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../session-query/session-query"
     },
     {
       "path": "../../session/session-import"
-    },
-    {
-      "path": "../../core/tools"
     },
     {
       "path": "../../session/session-persistence"
@@ -87,52 +111,31 @@
       "path": "../../session/session-projection-cache"
     },
     {
-      "path": "../../session-query/session-query"
-    },
-    {
       "path": "../../session/session-title"
     },
     {
-      "path": "../../session-query/session-query"
-    },
-    {
-      "path": "../../subagent/subagent"
+      "path": "../../settings/settings"
     },
     {
       "path": "../../skill/skill"
     },
     {
-      "path": "../../jobs/jobs"
-    },
-    {
       "path": "../../speech/speech"
     },
     {
-      "path": "../../interaction/commands"
+      "path": "../../subagent/subagent"
     },
     {
-      "path": "../../compaction/compaction"
+      "path": "../../util/brand"
     },
     {
-      "path": "../../interaction/user-approval"
-    },
-    {
-      "path": "../../interaction/user-questions"
+      "path": "../../util/native-command"
     },
     {
       "path": "../../workspace/workspace"
     },
     {
       "path": "../directory-picker"
-    },
-    {
-      "path": "../../extensions/cordis-host-runner"
-    },
-    {
-      "path": "../../runtime-diagnostics/invariants"
-    },
-    {
-      "path": "../../util/native-command"
     }
   ]
 }

@@ -44,10 +44,11 @@ interface DumpConfigSchemaInvocation {
 }
 
 /** Manage a profile's plugins: forward `args` to pnpm inside the profile directory. */
+/** `export` and `export-manifest` are handled by `dsh` itself and never reach pnpm. */
 interface PluginInvocation {
   mode: 'plugin'
   profile: string
-  /** Raw pnpm arguments, verbatim. */
+  /** Raw pnpm arguments, verbatim; `export <name>` and `export-manifest` are intercepted subcommands. */
   args: string[]
 }
 
@@ -80,6 +81,7 @@ Examples:
                                                approve the first owner device
   dsh chat init                              register the chat bridge Grant and print an owner pairing code
   dsh plugin --profile tui add <package>     install a plugin into the tui profile
+  dsh plugin --profile tui export <package>  pack an installed plugin into a shareable tarball
 `
 
 /**
@@ -186,7 +188,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       resolved = resolveBoot(web, 'web', options, args)
     })
 
-  const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory')
+  const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory (export <package> and export-manifest pack and replay instead of forwarding)')
   plugin
     .requiredOption('--profile <name>', 'the profile whose plugins to manage (initialized on first use)')
     .allowUnknownOption()

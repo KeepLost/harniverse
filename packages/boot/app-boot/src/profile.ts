@@ -324,8 +324,13 @@ function normalizeShippedProfile(name: string, dir: string, manifest: ProfileMan
  * manifest. This is Node's own node_modules lookup order, so the result
  * matches what the Loader would import from the same anchor, and
  * `existsSync` follows the symlinks pnpm's isolated layout uses.
+ * Exported for the plugin-export source resolution, which anchors the same
+ * lookup at the profile manifest.
+ * @param anchor - a file path inside the anchoring package.
+ * @param packageName - the package whose directory to find.
+ * @returns the package's absolute directory, or undefined when absent.
  */
-function packageDirFromAnchor(anchor: string, packageName: string): string | undefined {
+export function packageDirFromAnchor(anchor: string, packageName: string): string | undefined {
   // resolve.paths returns null only for builtins, which no bundle name is.
   /* v8 ignore next */
   for (const searchPath of createRequire(anchor).resolve.paths(packageName) ?? []) {

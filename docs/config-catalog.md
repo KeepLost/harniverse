@@ -1286,6 +1286,12 @@ export interface Config {
    */
   sessionExportCompressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
   /**
+   * Maximum served size of one plugin-export tarball. A larger pack is
+   * deleted and refused before any byte is served.
+   * @default 134217728
+   */
+  pluginExportMaxBytes?: number
+  /**
    * Maximum physical size of a cold Session artifact eligible for blankness
    * verification. Zero disables probes.
    * @default 1024
@@ -1309,7 +1315,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:46`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:47`](../packages/host/apiproxy/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 

@@ -26,6 +26,7 @@ import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   type SessionLogCompressionLevel,
 } from './session-export.ts'
+import { DEFAULT_PLUGIN_EXPORT_MAX_BYTES } from './plugin-export.ts'
 
 export type * from './api/index.ts'
 export { RpcId } from './api/rpc.ts'
@@ -58,6 +59,12 @@ export interface Config {
    * @default 6
    */
   sessionExportCompressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+  /**
+   * Maximum served size of one plugin-export tarball. A larger pack is
+   * deleted and refused before any byte is served.
+   * @default 134217728
+   */
+  pluginExportMaxBytes?: number
   /**
    * Maximum physical size of a cold Session artifact eligible for blankness
    * verification. Zero disables probes.
@@ -96,6 +103,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     nativeOpen: z.boolean(),
     sessionExportCompressionLevel: z.number().step(1).min(0).max(9)
       .default(DEFAULT_SESSION_LOG_COMPRESSION_LEVEL) as z<SessionLogCompressionLevel>,
+    pluginExportMaxBytes: z.natural().min(1).default(DEFAULT_PLUGIN_EXPORT_MAX_BYTES),
     coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
     streamQueueMaxFrames: z.natural().min(1).default(DEFAULT_STREAM_QUEUE_MAX_FRAMES),
     fileWatchDebounceMs: z.natural().min(1).default(DEFAULT_FILE_WATCH_DEBOUNCE_MS),
@@ -132,6 +140,9 @@ export class ApiProxyService extends Service implements ApiProxy {
       ...(config.sessionExportCompressionLevel === undefined
         ? {}
         : { sessionExportCompressionLevel: config.sessionExportCompressionLevel }),
+      ...(config.pluginExportMaxBytes === undefined
+        ? {}
+        : { pluginExportMaxBytes: config.pluginExportMaxBytes }),
       ...(config.coldBlankProbeMaxBytes === undefined
         ? {}
         : { coldBlankProbeMaxBytes: config.coldBlankProbeMaxBytes }),
