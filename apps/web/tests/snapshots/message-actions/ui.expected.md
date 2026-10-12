@@ -15,6 +15,11 @@
 - button "Copy":
   - img
 - tooltip "Copy"
+- button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
+  - img
+  - img
+  - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
+- paragraph: I will read both files before answering.
 - button "Read a.txt":
   - img
   - img
@@ -25,11 +30,6 @@
   - img
   - text: Read
   - button "b.txt"
-- button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
-  - img
-  - img
-  - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
-- paragraph: I will read both files before answering.
 - button "Copy":
   - img
 - button "Good response":

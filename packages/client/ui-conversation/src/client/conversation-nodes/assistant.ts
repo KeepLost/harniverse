@@ -225,7 +225,13 @@ function projectAssistant(context: ConversationNodeContext<AssistantState>): Ass
   const status = settled?.interrupted === true
     ? 'interrupted'
     : settled === undefined ? 'running' : 'settled'
-  const anchorSeq = settled?.seq ?? state.firstVisibleSeq ?? context.matches[0]?.event.seq ?? 0
+  // The render anchor stays at the first visible streaming chunk after
+  // settlement: the sibling Tool Node anchors at its first named call delta,
+  // so re-anchoring to the settled message seq would sort the tool card above
+  // this bubble once the step settles. The settled seq only anchors steps
+  // without streaming evidence (trimmed replay windows), where no earlier
+  // sibling anchor exists to cross.
+  const anchorSeq = state.firstVisibleSeq ?? settled?.seq ?? context.matches[0]?.event.seq ?? 0
   const time = settled?.time ?? state.firstVisibleTime ?? context.matches[0]?.event.time ?? 0
   return {
     anchorSeq,

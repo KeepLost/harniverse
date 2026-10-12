@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-12-chat-assistant-anchor-stability.md
+2026-10-12-chat-assistant-anchor-stability.md: 68acd1c625c4e9697011b905ec2b8cbf0f037b11
+2026-10-12-chat-assistant-anchor-stability.zh.md: 9cbe1ff27220283614f126f63ae63d8449e1d48e
