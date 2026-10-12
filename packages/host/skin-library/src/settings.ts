@@ -39,6 +39,8 @@ export interface UiSkinSettings {
   composerOpacity: number
   /** Popover fill opacity. */
   popoverOpacity: number
+  /** Settings dialog and Modal fill opacity; 1 is fully opaque whatever alpha the skin bakes in. */
+  dialogOpacity: number
   /** Glass treatment. */
   material: SkinMaterial
 }
@@ -51,5 +53,6 @@ export const UiSkinSettingsSchema: z<UiSkinSettings> = z.object({
   panelOpacity: z.number().step(0.01).min(0.4).max(1).default(0.82),
   composerOpacity: z.number().step(0.01).min(0.4).max(1).default(0.9),
   popoverOpacity: z.number().step(0.01).min(0.6).max(1).default(0.96),
+  dialogOpacity: z.number().step(0.01).min(0.6).max(1).default(1),
   material: z.union([...SKIN_MATERIALS]).default('off'),
 })

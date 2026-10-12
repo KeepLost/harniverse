@@ -15,6 +15,7 @@
 - 使用 CSS Modules 和 `clsx`；不得添加组件库或 Tailwind。
 - 功能组件使用 `--dsw-alias-*` 语义 token。不得复制静态色板值或在其中写入颜色字面量。
 - 只消费真实存在的 token。当 `--dsw-alias-x` 未定义时，`var(--dsw-alias-x, #000)` 会把该字面量作为明暗两套配色下实际生效的值发布出去，主题所有方也就无从改动，因此 [`verify-client-css-tokens`](../scripts/verify-client-css-tokens.ts) 同样拒绝这种带兜底的写法。确实是新角色时，在其所属的主题样式表中定义 token。
+- 只引用样式表中已声明的类，且不使用 `composes`。`css.x` 指向未声明的类时取值为 `undefined`，元素不带任何样式；客户端插件打包器只保留每个类自身的名称，`composes` 所指的类会被丢弃，因此共享类应在 TSX 中用 `clsx` 一并应用。[`verify-client-css-classes`](../scripts/verify-client-css-classes.ts) 同时拒绝这两种写法，以及所有类都只有伪状态规则的原生元素。
 - 即使某个值是交给 JavaScript 而非层叠使用，组件也仍然在 CSS 中声明它：xterm.js 以选项形式接收配色与字符度量，因此终端 surface 声明 `--dsh-terminal-*` 局部属性，再由组件读回计算值。呈现约定保留在形态与配色都能触及的位置。
 - 功能组件 CSS 不得包含主题选择器。明暗主题覆盖属于主题所有方。
 - 字体大小必须与行高配对；已有角色匹配时使用主题排版变量。

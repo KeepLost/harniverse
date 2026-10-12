@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-12-ui-controls-and-surface-layering.md
+2026-10-12-ui-controls-and-surface-layering.md: 11ad1a6974e8935532a98e6464ad3f172c730c3e
+2026-10-12-ui-controls-and-surface-layering.zh.md: 4c1bdd0859c0912b043d6cbcc9841f21bd323718

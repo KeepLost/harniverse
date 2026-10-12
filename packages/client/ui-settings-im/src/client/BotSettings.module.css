@@ -77,7 +77,7 @@ legend.groupTitle {
 
 .chooserRow {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   flex-wrap: wrap;
   gap: 6px;
 }

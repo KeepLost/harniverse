@@ -169,6 +169,24 @@ describe('SessionImportSection', () => {
     expect(m.face.importFile).toHaveBeenCalledWith(file, { kind: 'source-cwd' }, 64 * 1024 * 1024)
   })
 
+  it('opens the file picker from the choose-file button, described by the upload hint', () => {
+    const open = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
+    mountSection()
+    const choose = screen.getByRole<HTMLButtonElement>('button', { name: zh['upload.choose'] })
+    expect(choose.getAttribute('aria-describedby')).toBe(screen.getByText(zh['upload.hint']).id)
+    fireEvent.click(choose)
+    expect(open).toHaveBeenCalledOnce()
+    expect((open.mock.contexts[0] as HTMLInputElement).type).toBe('file')
+  })
+
+  it('disables the choose-file button and the picker while an import runs', () => {
+    const m = mountSection()
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh['upload.choose'] }).disabled).toBe(false)
+    act(() => { m.instance.actions.importStarted() })
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh['upload.choose'] }).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLInputElement>(zh['upload.label']).disabled).toBe(true)
+  })
+
   it('shows each outcome and opens settled archives, closing settings on success', async () => {
     const m = mountSection({ scan: scanOf([]) })
     await waitFor(() => { expect(screen.getByText(zh.empty)).toBeTruthy() })

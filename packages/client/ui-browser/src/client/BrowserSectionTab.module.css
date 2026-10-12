@@ -27,3 +27,17 @@
   background: var(--dsw-alias-interactive-bg-active);
   font: var(--dsw-font-xs-strong-13);
 }
+
+/* Narrow workbench: the label drops to its glyph, like the shipped section
+   tabs. The query is anonymous because CSS Modules hash container names per
+   module, so the workbench's named container cannot be addressed from this
+   sheet; a section tab's nearest ancestor container is the workbench root. */
+@container (max-width: 380px) {
+  .tab > span {
+    display: none;
+  }
+
+  .tab {
+    padding: 0 8px;
+  }
+}

@@ -2,9 +2,11 @@
 
 English | [中文](README.zh.md)
 
-Pure React atoms (zero cordis): StateDot, DisclosureRow, ic_ds_* icons, the LinkIcon leading category glyph for clickable links, Button/Pill/Menu/Modal/Input, the Toast transient banner, the OnboardingSurface first-run takeover (body-portaled mask + opaque stage that holds `#root` inert for exactly its own lifetime), the markdown family (MessageText/MarkdownText/JsonBlock), the read-only JsonTree inspector, the `useAnchoredMaxHeight` hook that clamps a bottom-anchored overlay to the viewport space above its anchor (re-measured on resize, scroll, and a caller-supplied dependency), TerminalBlock, DiffBlock, ReadBlock, SearchBlock, and WebBlock, the MenuGroup sticky group heading with its `observeStickyMenuGroups` viewport observer, and the `rankByName` fuzzy menu ranker (case-insensitive ordered subsequence; prefix, alignment score, then source order).
+Pure React atoms (zero cordis): StateDot, DisclosureRow, ic_ds_* icons, the LinkIcon leading category glyph for clickable links, Button/Pill/Menu/Modal/Input/Select, the Toast transient banner, the OnboardingSurface first-run takeover (body-portaled mask + opaque stage that holds `#root` inert for exactly its own lifetime), the markdown family (MessageText/MarkdownText/JsonBlock), the read-only JsonTree inspector, the `useAnchoredMaxHeight` hook that clamps a bottom-anchored overlay to the viewport space above its anchor (re-measured on resize, scroll, and a caller-supplied dependency), TerminalBlock, DiffBlock, ReadBlock, SearchBlock, and WebBlock, the MenuGroup sticky group heading with its `observeStickyMenuGroups` viewport observer, and the `rankByName` fuzzy menu ranker (case-insensitive ordered subsequence; prefix, alignment score, then source order).
 
 `BrandWordmark` renders the plain `Harniverse` name as decorative text for consumers that need a textual label; it is not an icon or an exported official mark. The sidebar uses the repository-owned ICO brand asset instead.
+
+`Select` is the shared native `<select>` for forms: a 32px control with the `Input` border and radius, a drawn chevron, a hover border, an accent focus border, and the browser's own option list so keyboard and touch pickers keep working. It owns no width, so a consumer sizes it with a class on the same element. Feature packages use it (and `Button`/`Input`) rather than styling native form controls themselves; `pnpm run verify-client-css-classes` rejects `composes` and class names that no rule defines.
 
 ## Hover cards
 

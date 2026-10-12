@@ -13,3 +13,11 @@
   --ds-transition-duration-fast: 0.1s;
   --ds-transition-duration-slow: 0.3s;
 }
+
+/* Native checkboxes, radios, and range sliders paint with the theme accent
+ * (a skin or the accent override rebinds it) instead of the browser blue. The
+ * accent is declared on body, so the rule reads it there; the property
+ * inherits into every control. */
+body {
+  accent-color: var(--dsw-accent);
+}

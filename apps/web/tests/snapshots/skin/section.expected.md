@@ -109,6 +109,9 @@
     - text: 菜单不透明度
     - slider "菜单不透明度": "96"
     - status: 96%
+    - text: 设置与对话框不透明度
+    - slider "设置与对话框不透明度": "100"
+    - status: 100%
   - region "皮肤包":
     - heading "皮肤包" [level=3]
     - paragraph: 导入 harniverse.skin 格式的 .json 皮肤包，或把当前皮肤导出为模板。

@@ -93,8 +93,11 @@
   cursor: default;
 }
 
-.inputInvalid {
-  composes: input;
+/* Applied alongside `.input` (text) or the Select atom; it owns only the
+   border colour. The hover arm keeps the Select atom's hover border from
+   hiding it, and yields to the focus ring. */
+.inputInvalid,
+.inputInvalid:hover:not(:disabled):not(:focus-visible) {
   border-color: var(--dsw-alias-state-error-primary);
 }
 

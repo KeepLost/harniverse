@@ -279,3 +279,19 @@
   text-decoration: underline dotted var(--dsw-alias-link);
   text-underline-offset: 3px;
 }
+
+/* Visually hidden, still announced: the footnote section's label heading. The
+   second selector outranks `.markdown h2` so the heading's margin and font do
+   not reintroduce a visible gap. */
+.srOnly,
+.markdown .srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -23,7 +23,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DiscoveredModelView, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatCapacity, parseCapacity } from './DeepSeekModelsEditor.tsx'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import { ModelCapabilities } from './ModelCapabilities.tsx'
@@ -460,8 +460,8 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                   ? (
                     <label className={styles['modelField']}>
                       <span className={styles['modelFieldLabel']}>{t('modelApi')}</span>
-                      <select
-                        className={`${styles['input']} ${styles['selectInput']}`}
+                      <Select
+                        className={styles['selectField']}
                         value={textOf(model, 'api')}
                         aria-label={`${t('modelApi')} ${index + 1}`}
                         disabled={disabled}
@@ -471,7 +471,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                       >
                         <option value="">{t('modelApiInherit')}</option>
                         {props.protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-                      </select>
+                      </Select>
                     </label>
                   )
                   : null}

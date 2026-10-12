@@ -10,6 +10,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDraft } from './ModelListEditor.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -238,8 +239,8 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
             </div>
             <label className={styles['modelField']}>
               <span className={styles['modelFieldLabel']}>{t('modelDefaultEffort')}</span>
-              <select
-                className={`${styles['input']} ${styles['selectInput']}`}
+              <Select
+                className={styles['selectField']}
                 value={defaultEffort}
                 aria-label={t('modelDefaultEffort')}
                 disabled={disabled}
@@ -252,7 +253,7 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
                 {LEVELS.filter(level => level in efforts).map(level => (
                   <option key={level} value={level}>{level}</option>
                 ))}
-              </select>
+              </Select>
             </label>
           </div>
         )
@@ -261,8 +262,8 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
         ? (
           <label className={styles['modelField']}>
             <span className={styles['modelFieldLabel']}>{t('modelThinkingFormat')}</span>
-            <select
-              className={`${styles['input']} ${styles['selectInput']}`}
+            <Select
+              className={styles['selectField']}
               value={format}
               aria-label={t('modelThinkingFormat')}
               disabled={disabled}
@@ -276,7 +277,7 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
             >
               <option value="">{t('modelFormatAuto')}</option>
               {FORMATS.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-            </select>
+            </Select>
           </label>
         )
         : null}
@@ -298,8 +299,8 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
                       index === at ? { ...current, name: event.target.value } : current))
                   }}
                 />
-                <select
-                  className={`${styles['input']} ${styles['selectInput']}`}
+                <Select
+                  className={styles['selectField']}
                   value={row.kind}
                   aria-label={`${t('modelKwargKind')} ${String(at + 1)}`}
                   disabled={disabled}
@@ -315,7 +316,7 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
                           : t('modelKwargThinkingEffort')}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {row.kind === 'literal'
                   ? (
                     <input

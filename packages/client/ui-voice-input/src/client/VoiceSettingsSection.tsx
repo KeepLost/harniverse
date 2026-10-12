@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
+import { Button, Input, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import css from './VoiceSettingsSection.module.css'
@@ -98,7 +99,7 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
     <div className={css.section}>
       <p className={css.description}>{t('settings.description')}</p>
       <Row label={t('settings.recognizer')}>
-        <select
+        <Select
           className={css.control}
           value={section.recognizer ?? 'off'}
           disabled={disabled}
@@ -107,10 +108,10 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
           <option value="off">{t('settings.recognizer.off')}</option>
           <option value="sensevoice">{t('settings.recognizer.sensevoice')}</option>
           <option value="openai-compatible">{t('settings.recognizer.openai-compatible')}</option>
-        </select>
+        </Select>
       </Row>
       <Row label={t('settings.language')}>
-        <input
+        <Input
           className={css.control}
           value={section.language ?? ''}
           placeholder={t('settings.language.placeholder')}
@@ -119,7 +120,7 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
         />
       </Row>
       <Row label={t('settings.pushToTalkKey')}>
-        <input
+        <Input
           className={css.control}
           value={section.pushToTalkKey ?? ''}
           placeholder={t('settings.pushToTalkKey.placeholder')}
@@ -128,7 +129,7 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
         />
       </Row>
       <Row label={t('settings.modelVariant')}>
-        <select
+        <Select
           className={css.control}
           value={section.modelVariant ?? 'int8'}
           disabled={disabled}
@@ -136,10 +137,10 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
         >
           <option value="int8">{t('settings.modelVariant.int8')}</option>
           <option value="fp32">{t('settings.modelVariant.fp32')}</option>
-        </select>
+        </Select>
       </Row>
       <Row label={t('settings.apiKey')}>
-        <input
+        <Input
           className={css.control}
           type="password"
           value=""
@@ -149,9 +150,9 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
         />
       </Row>
       <div className={css.prepare}>
-        <button type="button" className={css.prepareButton} onClick={onPrepare} disabled={preparing || disabled}>
+        <Button size="sm" variant="outline" onClick={onPrepare} disabled={preparing || disabled}>
           {preparing ? t('settings.preparing') : t('settings.prepare')}
-        </button>
+        </Button>
         {prepareError !== null && <span className={css.prepareStatus} role="alert">{`${t('settings.prepare.failed')}${prepareError}`}</span>}
         {prepareError === null && preparing && <span className={css.prepareStatus} role="status">{t('settings.preparing')}</span>}
         {prepareError === null && !preparing && prepareStatus !== null && (

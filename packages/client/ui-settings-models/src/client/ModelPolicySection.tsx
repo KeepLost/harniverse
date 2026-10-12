@@ -10,7 +10,7 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { ProfileEditor } from './ProfileEditor.tsx'
 import { RouteEditor } from './RouteEditor.tsx'
@@ -264,16 +264,15 @@ function Loaded({ injected }: { injected: ModelPolicySectionInjected }): ReactNo
       <h2 className={styles['groupTitle']}>{t('profilesTitle')}</h2>
       <div className={styles['defaultRow']}>
         <label className={styles['fieldLabel']} htmlFor="policy-default-profile">{t('defaultProfileLabel')}</label>
-        <select
+        <Select
           id="policy-default-profile"
-          className={styles['selectInput']}
           value={state.defaultProfile}
           disabled={readOnly || defaultBusy || editing !== undefined}
           onChange={(event) => { changeDefault(event.currentTarget.value) }}
         >
           <option value="unrestricted">{t('unrestrictedOption')}</option>
           {state.profiles.map(row => <option key={row.id} value={row.id}>{row.name ?? row.id}</option>)}
-        </select>
+        </Select>
       </div>
       <ul className={styles['rows']}>
         {state.profiles.map(row => (

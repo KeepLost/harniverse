@@ -250,7 +250,6 @@ export function PendingSteeringBubble({ content, loadImage, onRecall, t }: {
         <MessageIconActions
           text={text}
           clock="start"
-          className={css.actions}
           t={t}
           extraActions={onRecall === undefined ? undefined : (
             <Tooltip label={t('message.recallSteering')} side="bottom" delayMs={500}>
@@ -287,7 +286,6 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           text={text}
           time={data.time}
           clock="start"
-          className={css.actions}
           t={t}
         />
       )}

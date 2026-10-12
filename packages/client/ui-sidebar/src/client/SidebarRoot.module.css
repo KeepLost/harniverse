@@ -177,7 +177,9 @@
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  background: var(--dsw-alias-button-elevated-fill);
+  /* No fill: the sidebar column owns the surface; the hairline carries the
+     shape and the hover fill is an alpha token. */
+  background: transparent;
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
   font-weight: 500;
@@ -187,7 +189,7 @@
 }
 
 .newSession:hover {
-  background: var(--dsw-alias-button-floating-hover);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .collapsed .newSession {

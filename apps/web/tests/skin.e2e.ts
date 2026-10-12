@@ -196,6 +196,23 @@ describe('web e2e: appearance section and custom skins', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
+  it('keeps Settings and dialogs fully opaque by default and lets the slider turn them translucent', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-skin-dialog-opacity'))
+    const dialog = await openAppearance()
+    const slider = dialog.getByLabel('设置与对话框不透明度')
+    // A wallpaper is active, so the dialog surface is bound; the default keeps it opaque.
+    expect(await slider.inputValue()).toBe('100')
+    await expect.poll(() => bodyToken('--dsw-surface-dialog'), { timeout: 10_000 }).toContain(' 100%, transparent)')
+    await slider.fill('70')
+    await expect.poll(() => bodyToken('--dsw-surface-dialog'), { timeout: 10_000 }).toContain(' 70%, transparent)')
+    await expect.poll(persistedSettings, { timeout: 10_000 }).toMatch(/dialogOpacity: 0\.7\b/u)
+    // The panel follows the dialog seam rather than the pane seam the other sliders drive.
+    expect(await bodyToken('--dsw-surface-pane')).not.toContain(' 70%, transparent)')
+    await slider.fill('100')
+    await expect.poll(() => bodyToken('--dsw-surface-dialog'), { timeout: 10_000 }).toContain(' 100%, transparent)')
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('imports a pack, selects it, rejects a broken one, and falls back when the active pack is removed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-skin-pack'))
     const dialog = await openAppearance()

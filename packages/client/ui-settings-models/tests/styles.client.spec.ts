@@ -28,6 +28,16 @@ function block(selector: string): string {
   return match[1] ?? ''
 }
 
+/** Every component source in the package, by file name. */
+function clientSources(): { name: string; text: string }[] {
+  return readdirSync(fileURLToPath(new URL('../src/client/', import.meta.url)))
+    .filter(name => name.endsWith('.tsx'))
+    .map(name => ({
+      name,
+      text: readFileSync(fileURLToPath(new URL(`../src/client/${name}`, import.meta.url)), 'utf8'),
+    }))
+}
+
 describe('ModelsSection theme styles', () => {
   it('names only theme variables the token sheet defines', () => {
     // A `--dsw-*` name the sheet never declares is not a near miss: it silently
@@ -61,27 +71,37 @@ describe('ModelsSection theme styles', () => {
     expect(block('.rowCard')).not.toMatch(/\bbackground\s*:/)
   })
 
-  it('gives every dropdown the shared chevron instead of the OS arrow', () => {
-    // `select.input` caps the control at 240px, and the OS arrow is painted
-    // flush inside that shrunk right edge — visibly tighter than every other
-    // control on the page. `.selectInput` is what removes it, reserves the
-    // right pad, and paints the shared chevron; a `<select>` that takes
-    // `.input` alone silently keeps the OS one.
-    const sources = readdirSync(fileURLToPath(new URL('../src/client/', import.meta.url)))
-      .filter(name => name.endsWith('.tsx'))
-      .map(name => ({
-        name,
-        text: readFileSync(fileURLToPath(new URL(`../src/client/${name}`, import.meta.url)), 'utf8'),
-      }))
-    const bare = sources.flatMap(({ name, text }) => text
-      .split('<select')
-      .slice(1)
-      // The element's own attributes end at the first `>`; a child `<option>`
-      // carries no className of its own and must not answer for the select.
-      .map(rest => rest.slice(0, rest.indexOf('>')))
-      .filter(attributes => !attributes.includes('selectInput'))
-      .map(() => name))
-    expect(bare).toEqual([])
+  it('draws every dropdown through the shared Select atom', () => {
+    // A raw `<select>` falls back to the OS box and arrow: the atom is what
+    // carries the control height, radius, border, chevron, and focus ring, and
+    // a hand-rolled one drifts from every other dropdown on the page.
+    const raw = clientSources()
+      .filter(({ text }) => /<select\b/.test(text))
+      .map(({ name }) => name)
+    expect(raw).toEqual([])
+  })
+
+  it('lays dropdowns out without a width of their own, so the row decides', () => {
+    // The atom owns no width. A field-column dropdown fills its column up to
+    // 240px; the provider/model/effort pickers of one target row share the line
+    // and shrink before they wrap.
+    expect(block('.selectField')).toMatch(/width: 100%;[\s\S]*max-width: 240px/)
+    expect(block('.targetSelect')).toMatch(/flex: 1 1 140px;[\s\S]*min-width: 0;[\s\S]*max-width: 240px/)
+  })
+
+  it('never leaves a modifier class without its base class', () => {
+    // `.iconButtonDanger` holds only a hover tint and `.credentialDot*` only a
+    // fill: used alone they paint nothing of the control's geometry.
+    const pairings: readonly (readonly [modifier: string, base: string])[] = [
+      ['iconButtonDanger', 'iconButton'],
+      ['credentialDotConfigured', 'credentialDot'],
+      ['credentialDotMissing', 'credentialDot'],
+    ]
+    const orphans = clientSources().flatMap(({ name, text }) => pairings.flatMap(([modifier, base]) =>
+      text.split('\n')
+        .filter(line => line.includes(`styles['${modifier}']`) && !line.includes(`styles['${base}']`))
+        .map(() => `${name}: ${modifier} without ${base}`)))
+    expect(orphans).toEqual([])
   })
 
   it('never falls back to a literal colour', () => {

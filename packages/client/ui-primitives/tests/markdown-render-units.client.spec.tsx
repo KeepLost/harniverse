@@ -197,6 +197,22 @@ describe('renderFootnoteSection edge shapes', () => {
     expect(container.querySelector('li')?.textContent).toBe('\nquiet \n')
   })
 
+  it('keeps the label heading in the document for screen readers under the markdown module class', () => {
+    const context = makeContext()
+    context.targets.footnotes.set('H', {
+      type: 'footnoteDefinition',
+      identifier: 'h',
+      children: [{ type: 'paragraph', children: [text('hidden label')] }],
+    })
+    context.footnoteOrder.push('H')
+    context.footnoteCounts.set('H', 1)
+    const { container } = render(<div>{renderFootnoteSection(context)}</div>)
+    const heading = container.querySelector('h2#footnote-label')
+    expect(heading?.textContent).toBe('Footnotes')
+    expect(heading?.classList.contains('sr-only')).toBe(false)
+    expect(heading?.className).toMatch(/srOnly/)
+  })
+
   it('appends back-references after a non-paragraph body', () => {
     const context = makeContext()
     context.targets.footnotes.set('N', {

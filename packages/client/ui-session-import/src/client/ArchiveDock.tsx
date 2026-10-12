@@ -4,7 +4,7 @@
  * session under a chosen agent preset. Renders nothing on any other session.
  */
 import { useEffect, useState } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the `sessionImport` projection-key merge this dock reads.
 import type {} from '@deepseek-ai/dsh-session-import/client'
@@ -47,8 +47,7 @@ export function ArchiveDock(props: ArchiveDockProps) {
       <div className={css.actions}>
         <label className={css.field}>
           <span className={css.label}>{t('archive.preset')}</span>
-          <select
-            className={css.select}
+          <Select
             value={preset}
             disabled={pending}
             onChange={(event) => { setPreset(event.currentTarget.value) }}
@@ -57,7 +56,7 @@ export function ArchiveDock(props: ArchiveDockProps) {
             {presets.options.map(option => (
               <option key={option.id} value={option.id}>{option.name ?? option.id}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <Button variant="primary" size="sm" disabled={pending} onClick={() => { void continueArchive(preset) }}>
           {pending ? t('archive.continuing') : t('archive.continue')}

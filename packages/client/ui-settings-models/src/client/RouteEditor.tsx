@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
-import { IconChevronDownOutline14, IconChevronUpOutline14, IconPlusOutline16, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, IconChevronUpOutline14, IconPlusOutline16, IconTrashOutline16, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import { EntryNameField, PolicyEditorFooter } from './EditorCommon.tsx'
 import type { PolicyDocRoute, PolicySelection } from './policy-store.ts'
 import type { en } from './locales.ts'
@@ -146,8 +146,8 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
             const available = models.some(model => model.id === target.model)
             return (
               <li key={index} className={styles['targetRow']}>
-                <select
-                  className={styles['selectInput']}
+                <Select
+                  className={styles['targetSelect']}
                   aria-label={t('targetProvider')}
                   value={target.provider}
                   disabled={props.readOnly || busy}
@@ -166,9 +166,9 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
                   {props.catalog.some(group => group.id === target.provider)
                     ? null
                     : <option value={target.provider}>{target.provider}</option>}
-                </select>
-                <select
-                  className={styles['selectInput']}
+                </Select>
+                <Select
+                  className={styles['targetSelect']}
                   aria-label={t('targetModel')}
                   value={target.model}
                   disabled={props.readOnly || busy}
@@ -180,11 +180,11 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
                   {available
                     ? null
                     : <option value={target.model}>{target.model}</option>}
-                </select>
+                </Select>
                 {offered
                   ? (
-                    <select
-                      className={styles['selectInput']}
+                    <Select
+                      className={styles['targetSelect']}
                       aria-label={t('targetEffort')}
                       value={target.reasoningEffort ?? ''}
                       disabled={props.readOnly || busy}
@@ -200,7 +200,7 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
                       && !efforts.some(effort => effort.id === target.reasoningEffort)
                         ? <option value={target.reasoningEffort}>{target.reasoningEffort}</option>
                         : null}
-                    </select>
+                    </Select>
                   )
                   : null}
                 {available ? null : <span className={styles['rowTag']}>{t('unavailableTag')}</span>}
@@ -224,7 +224,7 @@ export function RouteEditor(props: RouteEditorProps): ReactNode {
                 </button>
                 <button
                   type="button"
-                  className={styles['iconButtonDanger']}
+                  className={`${styles['iconButton']} ${styles['iconButtonDanger']}`}
                   aria-label={t('removeTarget')}
                   disabled={props.readOnly || busy}
                   onClick={() => { setTargets(current => current.filter((_, at) => at !== index)) }}

@@ -21,7 +21,7 @@ import type { OperationOutcome, PackOutcome, WallpaperOutcome } from './outcomes
 import { exportPack } from './pack.ts'
 import { normalizeSettings, type SkinSettings } from './settings.ts'
 import {
-  activeSkinOf, canWrite, INITIAL_VIEW, resolveBackdrop, type LibraryView, type SkinView,
+  activeSkinOf, canWrite, INITIAL_VIEW, isForcedOpaque, resolveBackdrop, type LibraryView, type SkinView,
 } from './view.ts'
 import { WallpaperUrlCache, type ObjectUrls } from './wallpapers.ts'
 import { SettingsWriter } from './writer.ts'
@@ -163,7 +163,9 @@ export class SkinController {
       backdrop,
     }
     if (!shallowEqual(previous, next)) this.view.set(next)
-    this.applyLayer(computeOverrides({ settings, backdropActive: backdrop.kind !== 'none' }))
+    this.applyLayer(computeOverrides({
+      settings, backdropActive: backdrop.kind !== 'none', forcedOpaque: isForcedOpaque(environment),
+    }))
   }
 
   /**

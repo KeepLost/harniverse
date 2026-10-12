@@ -107,6 +107,7 @@
 | `panelOpacity` | `number` | `0.82` | 0.4 到 1，步长 0.01；背景之上的面板与侧栏填充 |
 | `composerOpacity` | `number` | `0.9` | 0.4 到 1，步长 0.01 |
 | `popoverOpacity` | `number` | `0.96` | 0.6 到 1，步长 0.01 |
+| `dialogOpacity` | `number` | `1` | 0.6 到 1，步长 0.01；背景之上的设置面板与 `Modal` 对话框填充；1 表示完全不透明，与皮肤烘焙的透明度无关 |
 | `material` | `'off' \| 'frosted' \| 'liquid'` | `'off'` | 玻璃质感 |
 
 被选中的皮肤不存放在这里：`ui-theme.preference` 在 `light`、`dark` 与 `system` 之外还可保存 `skin:<id>`。组合了 web 服务器时，本包挂接 `webServer.tapIndex`。每次渲染索引响应时，它经设置服务读取 `ui-theme.preference`；若其指向内置皮肤或可解析的已导入皮肤包，就在最后一个 `</body>` 之前（HTML 没有该标签时追加在末尾）插入一段内联经典脚本，位置在主题插件自己的引导之后。脚本设置 `document.documentElement.style.colorScheme`，切换 `body[data-ds-dark-theme]`，并对每个令牌调用 `body.style.setProperty(name, value)`。输出只取决于该皮肤；令牌值在输出时按颜色语法重新校验，内嵌的 JSON 会转义 `<`、`>`、`&`、U+2028 与 U+2029。偏好不是皮肤，或皮肤已无法解析时，HTML 保持不变。引导阶段不应用其他任何内容（强调色覆盖、色彩晕染、壁纸、质感）；其余由客户端在其插件加载之后完成。

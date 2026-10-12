@@ -19,7 +19,7 @@ import { HASH_A, snapshot } from './fixtures.client.ts'
 usePinnedBrowserLanguages('zh')
 
 const SETTINGS: SkinSettings = {
-  accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, material: 'off',
+  accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off',
 }
 
 const created: string[] = []
@@ -191,7 +191,15 @@ describe('ui-skin apply', () => {
       reduced = true
       for (const listener of [...listeners.get('(prefers-reduced-transparency: reduce)') ?? []]) listener()
     })
-    expect(b.theme.getTheme().active.tokens['--dsw-surface-pane']).toBeUndefined()
+    const forced = b.theme.getTheme().active.tokens
+    expect(forced['--dsw-surface-pane']).toBe('var(--dsw-opaque-pane, var(--dsw-alias-bg-base))')
+    expect(forced['--dsw-surface-dialog']).toBe('var(--dsw-opaque-dialog, var(--dsw-alias-bg-layer-2))')
+    expect(forced['--dsw-surface-composer']).toBeUndefined()
+    act(() => {
+      reduced = false
+      for (const listener of [...listeners.get('(prefers-reduced-transparency: reduce)') ?? []]) listener()
+    })
+    expect(b.theme.getTheme().active.tokens['--dsw-surface-pane']).toContain('color-mix(')
     await b.plugin.dispose()
     expect(listeners.get('(prefers-reduced-transparency: reduce)')?.size).toBe(0)
     expect(listeners.get('(prefers-contrast: more)')?.size).toBe(0)

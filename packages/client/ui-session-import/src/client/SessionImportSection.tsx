@@ -5,8 +5,8 @@
  * latest batch's outcomes with a way into each imported archive. The section
  * rescans whenever the targeted machine changes.
  */
-import { useEffect, useId, useMemo } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useId, useMemo, useRef } from 'react'
+import { Button, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { OfficialImportResult, OfficialSessionCandidate } from '@deepseek-ai/dsh-api-remotes/client'
 import { DEFAULT_UPLOAD_LIMIT_BYTES, type SessionImportInjected } from './controller.ts'
@@ -60,6 +60,7 @@ export function SessionImportSection(props: SessionImportSectionProps) {
   const { t, useStore, actions, useWorkspaces, useMachine, scan, importSelected, importFile, openSession, close } = props
   const state = useStore(snapshot => snapshot)
   const uploadHint = useId()
+  const picker = useRef<HTMLInputElement>(null)
   const rowIds = useId()
   const workspaces = useWorkspaces(list => list.items)
   const machine = useMachine(target => target.kind === 'host' ? 'host' : `remote:${target.id}`)
@@ -139,7 +140,7 @@ export function SessionImportSection(props: SessionImportSectionProps) {
       <div className={css.actions}>
         <label className={css.field}>
           <span className={css.label}>{t('target.label')}</span>
-          <select
+          <Select
             className={css.select}
             value={targetValue(target)}
             onChange={(event) => { actions.setTarget(targetOf(event.currentTarget.value)) }}
@@ -148,7 +149,7 @@ export function SessionImportSection(props: SessionImportSectionProps) {
             {workspaces.map(workspace => (
               <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <Button
           variant="primary"
@@ -159,12 +160,14 @@ export function SessionImportSection(props: SessionImportSectionProps) {
         </Button>
       </div>
       <div className={css.field}>
-        <label className={css.field}>
-          <span className={css.label}>{t('upload.label')}</span>
+        <span className={css.label}>{t('upload.label')}</span>
+        <div className={css.toolbar}>
           <input
-            className={css.file}
+            ref={picker}
             type="file"
+            hidden
             accept=".jsonl,.zstd"
+            aria-label={t('upload.label')}
             aria-describedby={uploadHint}
             disabled={state.importing}
             onChange={(event) => {
@@ -173,7 +176,16 @@ export function SessionImportSection(props: SessionImportSectionProps) {
               if (file !== undefined) void importFile(file, target, limit)
             }}
           />
-        </label>
+          <Button
+            size="sm"
+            variant="outline"
+            aria-describedby={uploadHint}
+            disabled={state.importing}
+            onClick={() => { (picker.current as HTMLInputElement).click() }}
+          >
+            {t('upload.choose')}
+          </Button>
+        </div>
         <span id={uploadHint} className={css.meta}>{t('upload.hint')}</span>
       </div>
       {state.uploadError === null ? null : <p className={css.error} role="alert">{state.uploadError}</p>}

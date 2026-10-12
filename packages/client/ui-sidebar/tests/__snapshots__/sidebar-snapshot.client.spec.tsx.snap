@@ -14,11 +14,10 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
     >
       <button
         aria-label="Open sidebar"
-        class="iconButton toggle"
+        class="iconButton"
         type="button"
       >
         <svg
-          class="panelIcon"
           data-content="35f95b0c"
           fill="none"
           height="18"
@@ -115,11 +114,10 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
       />
       <button
         aria-label="Collapse sidebar"
-        class="iconButton toggle"
+        class="iconButton"
         type="button"
       >
         <svg
-          class="panelIcon"
           data-content="35f95b0c"
           fill="none"
           height="16"
@@ -217,11 +215,10 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
       />
       <button
         aria-label="收起侧边栏"
-        class="iconButton toggle"
+        class="iconButton"
         type="button"
       >
         <svg
-          class="panelIcon"
           data-content="35f95b0c"
           fill="none"
           height="16"

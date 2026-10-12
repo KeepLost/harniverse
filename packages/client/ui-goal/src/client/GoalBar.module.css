@@ -17,6 +17,7 @@
 }
 
 .bar {
+  position: relative; /* anchors the glass plate below */
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -28,7 +29,25 @@
   padding: 4px 5px 4px 12px;
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 12px;
-  background: var(--dsw-specific-tip);
+  /* A card of the composer stack, so it reads the composer surface: a skin
+     makes the stack and the input card translucent together. */
+  background: var(--dsw-surface-composer);
+  /* Stacking context for the glass plate below. */
+  isolation: isolate;
+}
+
+/* Composer glass (--dsw-material-composer-filter), on a plate behind the card
+   content: the filter on the card itself would make it the containing block of
+   its position:fixed descendants. With the default `none` filter the plate
+   paints nothing. */
+.bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-composer-filter);
 }
 
 .goalGlyph {
@@ -78,7 +97,7 @@
   padding: 0 8px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-base);
+  background: transparent;
   font-size: 13px;
   line-height: 20px;
   color: var(--dsw-alias-label-primary);

@@ -7,6 +7,7 @@
  * the governor Remote.
  */
 import { useEffect, useState } from 'react'
+import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { GovernorConfig } from '@deepseek-ai/dsh-governor/client'
 import type { SettingsScopeSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -172,7 +173,7 @@ export function GovernorSettingsSection(props: GovernorSettingsSectionProps) {
           </label>
           {mode === 'custom' ? (
             <span className={css.customRow}>
-              <input
+              <Input
                 id="governor-quota-gib"
                 className={css.number}
                 type="number"
@@ -191,9 +192,9 @@ export function GovernorSettingsSection(props: GovernorSettingsSectionProps) {
           ) : null}
         </div>
         {invalid ? <p className={css.error} role="alert">{t('settings.limit.invalid')}</p> : null}
-        <button type="button" className={css.apply} disabled={disabled} onClick={() => { void apply() }}>
+        <Button className={css.apply} size="sm" variant="primary" disabled={disabled} onClick={() => { void apply() }}>
           {t('settings.limit.apply')}
-        </button>
+        </Button>
       </fieldset>
       <p className={css.effective}>
         {runtimeState === 'ready' && runtime !== undefined

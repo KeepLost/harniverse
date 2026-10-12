@@ -501,8 +501,17 @@
   }
 }
 
-/* Stop-and-archive confirmation: the host-reported activity families and
-   their per-item identities, one nested list per family. */
+/* Stop-and-archive confirmation: the intro line and each family label. */
+.deleteConfirmText {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* The host-reported activity families and their per-item identities, one
+   nested list per family. */
 .archiveActivityList {
   margin: 0;
   padding: 0 0 0 4px;

@@ -10,14 +10,22 @@ describe('skin settings', () => {
     expect(normalizeSettings(undefined)).toEqual(DEFAULT_SETTINGS)
     expect(DEFAULT_SETTINGS).toEqual({
       accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9,
-      popoverOpacity: 0.96, material: 'off',
+      popoverOpacity: 0.96, dialogOpacity: 1, material: 'off',
     })
+  })
+
+  it('loads a stored section without dialogOpacity as fully opaque', () => {
+    const stored = {
+      accent: '#12ab9f', wallpaper: HASH, wallpaperBlur: 12, panelOpacity: 0.7, composerOpacity: 0.55,
+      popoverOpacity: 0.8, material: 'liquid',
+    }
+    expect(normalizeSettings(stored)).toEqual({ ...stored, dialogOpacity: 1 })
   })
 
   it('keeps every valid field verbatim', () => {
     const section = {
       accent: '#12ab9f', wallpaper: HASH, wallpaperBlur: 12, panelOpacity: 0.7, composerOpacity: 0.55,
-      popoverOpacity: 0.8, material: 'liquid',
+      popoverOpacity: 0.8, dialogOpacity: 0.7, material: 'liquid',
     }
     expect(normalizeSettings(section)).toEqual(section)
   })
@@ -25,18 +33,20 @@ describe('skin settings', () => {
   it('falls back per field instead of discarding the section', () => {
     expect(normalizeSettings({
       accent: 'red', wallpaper: 'nothex', wallpaperBlur: 'wide', panelOpacity: Number.NaN, composerOpacity: null,
-      popoverOpacity: Infinity, material: 'chrome',
+      popoverOpacity: Infinity, dialogOpacity: '0.7', material: 'chrome',
     })).toEqual(DEFAULT_SETTINGS)
     expect(normalizeSettings({ accent: '#ABCDEF', wallpaper: HASH.toUpperCase() }))
       .toMatchObject({ accent: '', wallpaper: '' })
   })
 
   it('clamps numbers into the Host ranges and rounds the blur to whole pixels', () => {
-    expect(normalizeSettings({ wallpaperBlur: 99, panelOpacity: 0.1, composerOpacity: 7, popoverOpacity: 0.2 }))
+    expect(normalizeSettings({ wallpaperBlur: 99, panelOpacity: 0.1, composerOpacity: 7, popoverOpacity: 0.2, dialogOpacity: 0.1 }))
       .toMatchObject({
         wallpaperBlur: RANGES.wallpaperBlur.max, panelOpacity: RANGES.panelOpacity.min,
         composerOpacity: RANGES.composerOpacity.max, popoverOpacity: RANGES.popoverOpacity.min,
+        dialogOpacity: RANGES.dialogOpacity.min,
       })
+    expect(normalizeSettings({ dialogOpacity: 3 }).dialogOpacity).toBe(RANGES.dialogOpacity.max)
     expect(normalizeSettings({ wallpaperBlur: -3 }).wallpaperBlur).toBe(0)
     expect(normalizeSettings({ wallpaperBlur: 7.6 }).wallpaperBlur).toBe(8)
   })

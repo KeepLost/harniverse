@@ -51,10 +51,6 @@
   flex: none;
 }
 
-.saveButton:disabled {
-  opacity: 0.5;
-}
-
 .error {
   padding: 6px 12px;
   font-size: 12px;

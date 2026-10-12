@@ -13,7 +13,7 @@ import css from './Input.module.css'
  */
 export const Input = forwardRef<HTMLInputElement, {
   icon?: ReactNode
-  className?: string
+  className?: string | undefined
 } & InputHTMLAttributes<HTMLInputElement>>(function Input({ icon, className, ...rest }, ref) {
   return (
     <span className={clsx(css.wrap, className)}>

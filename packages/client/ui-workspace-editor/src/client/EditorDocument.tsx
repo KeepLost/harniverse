@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { historyField } from '@codemirror/commands'
-import { DiffBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, DiffBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PreviewDocumentOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -232,8 +232,9 @@ export function WorkspaceEditorDocument(props: WorkspaceEditorDocumentProps): Re
             eol: entry.eol,
           })}
         </small>
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
           className={css.saveButton}
           aria-label={status === 'conflict'
             ? props.t('editor.conflictOverwrite')
@@ -249,7 +250,7 @@ export function WorkspaceEditorDocument(props: WorkspaceEditorDocumentProps): Re
           }}
         >
           {status === 'conflict' ? props.t('editor.conflictOverwrite') : props.t('editor.save')}
-        </button>
+        </Button>
       </div>
       {status === 'error' && entry.error !== undefined && (
         <div className={css.error} role="alert">{props.t('editor.error', { reason: entry.error })}</div>
@@ -259,12 +260,12 @@ export function WorkspaceEditorDocument(props: WorkspaceEditorDocumentProps): Re
           <strong>{props.t('editor.conflictTitle')}</strong>
           <span>{props.t('editor.conflictDescription')}</span>
           <div className={css.conflictActions}>
-            <button type="button" onClick={() => { setDiffOpen(open => !open) }}>
+            <Button variant="outline" size="sm" onClick={() => { setDiffOpen(open => !open) }}>
               {diffOpen ? props.t('editor.conflictHideDiff') : props.t('editor.conflictDiff')}
-            </button>
-            <button type="button" onClick={() => { void props.reload(props.workspaceId, props.path) }}>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { void props.reload(props.workspaceId, props.path) }}>
               {props.t('editor.conflictReload')}
-            </button>
+            </Button>
           </div>
           {diffOpen && (
             <div className={css.diff}>

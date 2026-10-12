@@ -24,6 +24,8 @@ body {
   --dsw-surface-composer: var(--dsw-specific-input-major);
   /* Menus, selectors, and other anchored popovers. */
   --dsw-surface-popover: var(--dsw-specific-menu);
+  /* The Settings dialog panel and every shared Modal dialog. */
+  --dsw-surface-dialog: var(--dsw-alias-bg-layer-2);
 
   /* Sidebar and details columns. */
   --dsw-material-panel-filter: none;
@@ -31,4 +33,30 @@ body {
   --dsw-material-composer-filter: none;
   /* Menus, selectors, and other anchored popovers. */
   --dsw-material-popover-filter: none;
+  /* The Settings dialog panel and every shared Modal dialog, painted on a
+     `::before` plate. */
+  --dsw-material-dialog-filter: none;
+}
+
+/* Opaque companions: the alias a surface replaces with its alpha forced to 1.
+ * A skin may bake alpha into these aliases (the dark built-in skins carry
+ * layer-2 at 0.85 and the sidebar fill at 0.92), so a surface that must read
+ * as opaque — a dialog at 100%, or any surface while the system forces opaque
+ * rendering — starts from the companion, not from the alias.
+ *
+ * Relative colour syntax is newer than the `color-mix()` the seams already
+ * rely on, and an engine that cannot parse it makes the whole `background`
+ * invalid at computed-value time: the surface paints nothing. The companions
+ * therefore exist only inside `@supports`, and every reader writes
+ * `var(--dsw-opaque-*, var(<alias>))`, so an engine without the syntax falls
+ * back to the alias itself. The composer has no companion: its aliases are a
+ * wash (white at 8%) over the pane, and dropping the alpha would paint a white
+ * card. */
+@supports (color: rgb(from red r g b / 1)) {
+  body {
+    --dsw-opaque-pane: rgb(from var(--dsw-alias-bg-base) r g b / 1);
+    --dsw-opaque-sidebar: rgb(from var(--dsw-specific-sidebar-fill) r g b / 1);
+    --dsw-opaque-popover: rgb(from var(--dsw-specific-menu) r g b / 1);
+    --dsw-opaque-dialog: rgb(from var(--dsw-alias-bg-layer-2) r g b / 1);
+  }
 }

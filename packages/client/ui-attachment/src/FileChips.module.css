@@ -128,7 +128,7 @@
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 8px;
   color: var(--dsw-alias-link);
-  background: var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .badgeName {

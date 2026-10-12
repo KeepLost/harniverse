@@ -14,13 +14,13 @@ Web UI 只有三种外观：浅色、深色与跟随系统。`ui-theme` 虽然�
 
 **偏好是开放的，调色板不是。** `ui-theme.preference` 接受 `light`、`dark`、`system`，或形如 `<namespace>:<name>` 的 id（皮肤是 `skin:<id>`）。持久化的 id 若其主题尚未注册，则渲染系统配色并保留该偏好，因此较晚加载的插件或被删除的皮肤包绝不会覆盖用户的选择。已注册主题被注销时，ThemeRuntime 不再重置偏好；偏好未解析期间，其快照携带 `pending`。
 
-**组件读取接缝，而非字面量。** `skin-seams.css` 新增 `--dsw-surface-pane|sidebar|composer|popover`（各自默认为其所替代的不透明别名）和 `--dsw-material-panel|composer|popover-filter`（默认 `none`）。侧栏、会话区、详情栏、输入框、工作台与菜单都消费这些接缝，因此默认渲染不变，皮肤改变某个表面也无需改组件。强调色族 `--dsw-accent`、`-hover`、`-soft` 位于读取它们的别名块旁，浅色与深色两段都有。侧栏列表现在用蒙版淡出行内容，而不是在其上铺一层底色，因为叠在半透明栏上的底色会使栏脚变暗。
+**组件读取接缝，而非字面量。** `skin-seams.css` 新增 `--dsw-surface-pane|sidebar|composer|popover|dialog`（各自默认为其所替代的不透明别名）和 `--dsw-material-panel|composer|popover|dialog-filter`（默认 `none`）。侧栏、会话区、详情栏、输入框、工作台、菜单、设置面板与共享的 `Modal` 对话框都消费这些接缝，因此默认渲染不变，皮肤改变某个表面也无需改组件。对话框滤镜画在 `::before` 衬板上，因为把滤镜放在设置面板或对话框本身会使其成为固定定位后代的包含块。样式表还在 `@supports (color: rgb(from red r g b / 1))` 之内声明 `--dsw-opaque-pane|sidebar|popover|dialog`，即把 alpha 强制为 1 的别名；对话框不透明度为 100% 以及强制不透明模式都以 `var(--dsw-opaque-*, var(<alias>))` 读取它们，因此皮肤在别名里烘焙的透明度不会限制不透明度，不支持相对颜色语法的引擎则回落到别名。强调色族 `--dsw-accent`、`-hover`、`-soft` 位于读取它们的别名块旁，浅色与深色两段都有。侧栏列表现在用蒙版淡出行内容，而不是在其上铺一层底色，因为叠在半透明栏上的底色会使栏脚变暗。
 
 **`dsh-host-skin-library` 持有目录与字节。** 它保存八个内置皮肤（dsh-dream-skin 的配色，重映射到 41 项 token 白名单，单个皮肤包至多声明 40 项）、以 `packs/<id>.json` 保存的导入皮肤包，以及位于 `dshHomePath('skins')` 下按内容寻址的 `wallpapers/<sha256>.<ext>`。皮肤包是原生 `harniverse.skin` v1 文档或 dream-skin 信封；校验严格且完整，每个颜色都要通过白名单语法，因此其值在 CSS 自定义属性与内联脚本中都是安全的。`skinLibrary` Remote 的 `list` 与 `readWallpaper` 受 `harniverse.observe` 保护，`importPack`、`removePack`、`putWallpaper` 与 `removeWallpaper` 受 `harniverse.administer` 保护。限额：皮肤包 256 KiB，壁纸为 8 MiB 以内的 PNG、JPEG 或 WebP，库内最多保留 24 张壁纸。该包还在 `</body>` 之前注入一段启动脚本，在客户端挂载前绘制已保存的皮肤。
 
 **启动交接没有闪烁。** `ui-theme` 现有的启动脚本紧跟 `<body>` 运行，把皮肤偏好解析为系统配色；随后库的脚本写入皮肤的 token，并把变量名列在 `body[data-ds-boot-tokens]`。快照为 `pending` 时，ui-layout 的呈现器保留这份绘制，之后把这些变量名纳入自己的收回集合并移除该属性，因此首次完整应用不会留下空档。
 
-**`dsh-client-ui-skin` 持有各设置行与背景。** 外观分区（`appearance`，order 5）归 `ui-theme` 所有，颜色模式行（order 10）与字号行（order 20）放在新的 `settings.appearance.item` 槽位。`ui-skin` 追加皮肤图库（30）、强调色（40）、壁纸（50）、材质与透明度（60）和皮肤包（70），并填充 ui-layout 新增的 `shell.backdrop` 槽位，绘制壁纸或皮肤自带的渐变。该条目仅在有背景可绘制时才注册，因为槽位一旦被占用，框架就会把背景包装层挂成其第一个子节点，而默认外观必须让框架的 DOM 保持原样。设置导航图标改为带键的 `settings.nav.icon` 槽位，由各分区的所有者自行提供。`ui-skin` 写入 `ui-skin` 设置 namespace，API 代理现已对外暴露它（`accent`、`wallpaper`、`wallpaperBlur`、`panelOpacity`、`composerOpacity`、`popoverOpacity`、`material`）。
+**`dsh-client-ui-skin` 持有各设置行与背景。** 外观分区（`appearance`，order 5）归 `ui-theme` 所有，颜色模式行（order 10）与字号行（order 20）放在新的 `settings.appearance.item` 槽位。`ui-skin` 追加皮肤图库（30）、强调色（40）、壁纸（50）、材质与透明度（60）和皮肤包（70），并填充 ui-layout 新增的 `shell.backdrop` 槽位，绘制壁纸或皮肤自带的渐变。该条目仅在有背景可绘制时才注册，因为槽位一旦被占用，框架就会把背景包装层挂成其第一个子节点，而默认外观必须让框架的 DOM 保持原样。设置导航图标改为带键的 `settings.nav.icon` 槽位，由各分区的所有者自行提供。`ui-skin` 写入 `ui-skin` 设置 namespace，API 代理现已对外暴露它（`accent`、`wallpaper`、`wallpaperBlur`、`panelOpacity`、`composerOpacity`、`popoverOpacity`、`dialogOpacity`、`material`）。
 
 ## 备选方案
 
@@ -36,7 +36,7 @@ Web UI 只有三种外观：浅色、深色与跟随系统。`ui-theme` 虽然�
 
 ## 影响
 
-用户打开“设置 → 外观”，选择皮肤、覆盖强调色、上传壁纸、开启磨砂或液态玻璃材质，并导入或导出皮肤包。选择在刷新与 Host 重启后依然保留，刷新时皮肤在客户端挂载前就已绘制。当操作系统要求减少透明效果或高对比度时，面板保持不透明，材质被停用。没有 administer 权限的调用方看到已保存状态和禁用的写入控件；偏好本身仍可在本次会话内切换。
+用户打开“设置 → 外观”，选择皮肤、覆盖强调色、上传壁纸、开启磨砂或液态玻璃材质，并导入或导出皮肤包。选择在刷新与 Host 重启后依然保留，刷新时皮肤在客户端挂载前就已绘制。设置面板与对话框默认完全不透明，用户可把对话框不透明度调低（60–100%，默认 100%）。当操作系统要求减少透明效果或高对比度时，窗格、侧栏、菜单与对话框表面读取各自的不透明伴随 token，材质被停用。没有 administer 权限的调用方看到已保存状态和禁用的写入控件；偏好本身仍可在本次会话内切换。
 
 模型看不到这些内容，任何提供方请求或缓存键都不变。
 

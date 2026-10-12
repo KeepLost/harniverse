@@ -31,7 +31,7 @@ describe('MaterialRow', () => {
     expect(screen.queryByRole('note')).toBeNull()
   })
 
-  it('shows the three opacities as whole percentages within their ranges', () => {
+  it('shows the four opacities as whole percentages within their ranges, the dialog fully opaque by default', () => {
     mount()
     expect(slider(zh['material.panel']).value).toBe('82')
     expect(slider(zh['material.panel']).min).toBe('40')
@@ -39,6 +39,11 @@ describe('MaterialRow', () => {
     expect(slider(zh['material.popover']).value).toBe('96')
     expect(slider(zh['material.popover']).min).toBe('60')
     expect(slider(zh['material.popover']).max).toBe('100')
+    expect(zh['material.dialog']).toBe('设置与对话框不透明度')
+    expect(slider(zh['material.dialog']).value).toBe('100')
+    expect(slider(zh['material.dialog']).min).toBe('60')
+    expect(slider(zh['material.dialog']).max).toBe('100')
+    expect(within(slider(zh['material.dialog']).closest('label')!).getByText('100%')).toBeTruthy()
     expect(within(slider(zh['material.panel']).closest('label')!).getByText('82%')).toBeTruthy()
   })
 
@@ -50,6 +55,13 @@ describe('MaterialRow', () => {
     expect(m.setSetting).toHaveBeenLastCalledWith('composerOpacity', 0.7)
     fireEvent.change(slider(zh['material.popover']), { target: { value: '99' } })
     expect(m.setSetting).toHaveBeenLastCalledWith('popoverOpacity', 0.99)
+    fireEvent.change(slider(zh['material.dialog']), { target: { value: '85' } })
+    expect(m.setSetting).toHaveBeenLastCalledWith('dialogOpacity', 0.85)
+  })
+
+  it('shows a saved dialog opacity', () => {
+    mount({ settings: { ...DEFAULT_SETTINGS, dialogOpacity: 0.72 } })
+    expect(slider(zh['material.dialog']).value).toBe('72')
   })
 
   it('explains that opacity needs a backdrop to show through', () => {
@@ -65,7 +77,9 @@ describe('MaterialRow', () => {
     const m = mount({ environment, backdrop: { kind: 'none' } })
     expect(screen.getByRole('note').textContent).toBe(zh['material.reduced'])
     expect(segments().every(segment => segment.disabled)).toBe(true)
-    for (const label of [zh['material.panel'], zh['material.composer'], zh['material.popover']]) expect(slider(label).disabled).toBe(true)
+    for (const label of [zh['material.panel'], zh['material.composer'], zh['material.popover'], zh['material.dialog']]) {
+      expect(slider(label).disabled).toBe(true)
+    }
     fireEvent.click(segments()[1]!)
     expect(m.setSetting).not.toHaveBeenCalled()
   })
@@ -80,6 +94,7 @@ describe('MaterialRow', () => {
     expect(slider(zh['material.panel']).value).toBe('50')
     expect(segments().every(segment => segment.disabled)).toBe(true)
     expect(slider(zh['material.panel']).disabled).toBe(true)
+    expect(slider(zh['material.dialog']).disabled).toBe(true)
     expect(m.setSetting).not.toHaveBeenCalled()
   })
 

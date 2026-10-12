@@ -1,4 +1,9 @@
+/* Read-only stand-in for the input card, seated where the composer sits: it
+   reads the composer surface and carries the composer glass on a plate behind
+   its content (the filter on the frame itself would make it the containing
+   block of its position:fixed descendants). */
 .frame {
+  position: relative; /* anchors the glass plate below */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -8,10 +13,22 @@
   padding: 10px 16px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 14px;
-  background: var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-surface-composer);
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
   line-height: 20px;
+  /* Stacking context for the glass plate below. */
+  isolation: isolate;
+}
+
+.frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-composer-filter);
 }
 
 .frame strong {

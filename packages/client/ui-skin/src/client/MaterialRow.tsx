@@ -1,9 +1,10 @@
 /**
- * Material row: a segmented control (off, frosted, liquid glass) and three
- * opacity sliders. The controls are disabled while the operating system asks
- * for reduced transparency or high contrast — surfaces then stay opaque and the
- * material is off whatever is chosen — and say why; without a backdrop they say
- * the choice has nothing to show through yet.
+ * Material row: a segmented control (off, frosted, liquid glass) and four
+ * opacity sliders (panel and sidebar, composer, menu, Settings and dialogs).
+ * The controls are disabled while the operating system asks for reduced
+ * transparency or high contrast — surfaces then stay opaque and the material is
+ * off whatever is chosen — and say why; without a backdrop they say the choice
+ * has nothing to show through yet.
  */
 import clsx from 'clsx'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -30,6 +31,7 @@ const SLIDERS = [
   { field: 'panelOpacity', labelKey: 'material.panel' },
   { field: 'composerOpacity', labelKey: 'material.composer' },
   { field: 'popoverOpacity', labelKey: 'material.popover' },
+  { field: 'dialogOpacity', labelKey: 'material.dialog' },
 ] as const satisfies ReadonlyArray<{ field: keyof SkinSettings; labelKey: string }>
 
 /**
