@@ -122,10 +122,12 @@ describe('web e2e: Markdown inline-code links', () => {
     await inlineCodeLink.focus()
     expect(await inlineCodeLink.evaluate(element => document.activeElement === element)).toBe(true)
 
-    // The shipped Web surface mounts the browser panel, so a plain click hands
-    // the destination to it instead of opening a tab: the page is then fetched
-    // by the host, not by this browser. The markup keeps `target="_blank"` so
-    // modified clicks and assistive technology still reach a real tab.
+    // The shipped Web surface mounts the browser panel, and the seeded link is
+    // host-local (the scaffold's own loopback origin), so a plain click hands
+    // the destination to the panel instead of opening a tab: the page is then
+    // fetched by the host, not by this browser. The markup keeps
+    // `target="_blank"` so modified clicks and assistive technology still
+    // reach a real tab.
     await inlineCodeLink.click()
     const panel = page.getByRole('region', { name: 'Browser', exact: true })
     await panel.waitFor({ timeout: 15_000 })
@@ -151,14 +153,15 @@ describe('web e2e: Markdown inline-code links', () => {
 
   it.skipIf(MODE === 'record')('opens the link in this browser once the reader moves it off the host', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-markdown-link-destination'))
-    // The host browser is the shipped destination, but a deployment whose host
-    // has no browser program leaves the panel unable to load anything. The
-    // reader's own browser is the escape, and it is a Settings choice.
+    // Automatic host-local routing is the shipped destination, but a
+    // deployment whose host has no browser program leaves the panel unable to
+    // load anything. The reader's own browser is the escape, and it is a
+    // Settings choice.
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
     await dialog.waitFor({ timeout: 10_000 })
     await dialog.getByText('Where links open', { exact: true }).waitFor({ timeout: 10_000 })
-    await dialog.getByRole('button', { name: /Host browser/ }).click()
+    await dialog.getByRole('button', { name: /Automatic/ }).click()
     // The selector's menu renders in a portal, outside the dialog element.
     await page.getByRole('menuitem', { name: 'Your browser' }).click()
     await expect.poll(() => dialog.getByRole('button', { name: /Your browser/ }).count(), { timeout: 10_000 }).toBe(1)
