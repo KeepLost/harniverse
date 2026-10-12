@@ -380,22 +380,25 @@ describe('conversation slot inject API', () => {
     await b.runtime.dispose()
   })
 
-  it('routes a prose link to the host browser panel when the shell composed one in', async () => {
+  it('routes a host-local prose link to the host browser panel and leaves the rest to the reader', async () => {
     const b = await bench()
     const { injected } = b.chatViewApi(ROOT)
     // No browser section registered: declining leaves the anchor's own
     // new-tab behavior, which opens the link on the reader's machine.
-    expect(injected.externalLinks.open('https://example.test/a')).toBe(false)
+    expect(injected.externalLinks.open('http://127.0.0.1:5173/a')).toBe(false)
     expect(b.layoutFake.openWorkbenchSection).not.toHaveBeenCalled()
-    // With the panel composed in, the page loads from the HOST instead.
+    // With the panel composed in, the host-local page loads from the HOST…
     const panel = await b.runtime.mount({
       inject: ['slots'],
       apply: (ctx: Context) => {
         ctx.slots.register({ name: 'workbench.section.panel', id: 'browser' }, () => null)
       },
     })
-    expect(injected.externalLinks.open('https://example.test/b')).toBe(true)
-    expect(b.layoutFake.openWorkbenchSection).toHaveBeenCalledExactlyOnceWith('browser', 'https://example.test/b')
+    expect(injected.externalLinks.open('http://127.0.0.1:5173/b')).toBe(true)
+    expect(b.layoutFake.openWorkbenchSection).toHaveBeenCalledExactlyOnceWith('browser', 'http://127.0.0.1:5173/b')
+    // …while a public destination still belongs to the reader's own browser.
+    expect(injected.externalLinks.open('https://example.test/b')).toBe(false)
+    expect(b.layoutFake.openWorkbenchSection).toHaveBeenCalledOnce()
     await panel.dispose()
     await b.runtime.dispose()
   })
@@ -415,8 +418,9 @@ describe('conversation slot inject API', () => {
     // The live value leads the durable write, so the very next click honours it.
     expect(row.hooks.linkDestination.getSnapshot()).toBe('device')
     expect(b.settings.set).toHaveBeenCalledExactlyOnceWith('linkDestination', 'device')
-    // A composed panel is no longer the answer: the anchor keeps the click.
-    expect(injected.externalLinks.open('https://example.test/c')).toBe(false)
+    // A composed panel is no longer the answer, even for a host-local link:
+    // the reader asked for their own browser, and the anchor keeps the click.
+    expect(injected.externalLinks.open('http://10.0.0.5:3000/c')).toBe(false)
     expect(b.layoutFake.openWorkbenchSection).not.toHaveBeenCalled()
     // Re-selecting the standing choice writes nothing.
     row.setLinkDestination('device')
@@ -437,7 +441,7 @@ describe('conversation slot inject API', () => {
     b.settings.publish({
       status: 'ready', value: { busyEnter: 'queue', linkDestination: 'device' }, revision: 1, writable: true,
     })
-    expect(injected.externalLinks.open('https://example.test/d')).toBe(false)
+    expect(injected.externalLinks.open('http://localhost:4000/d')).toBe(false)
     // Republishing the same section adopts nothing further and writes nothing.
     b.settings.publish({ value: { busyEnter: 'queue', linkDestination: 'device' }, revision: 2 })
     expect(b.linkRowApi().hooks.linkDestination.getSnapshot()).toBe('device')

@@ -35,6 +35,7 @@ import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { LinkDestinationRow } from './settings/LinkDestinationRow.tsx'
 import type { LinkDestinationRowInjected } from './settings/LinkDestinationRow.tsx'
+import { isHostLocalUrl } from './host-local-links.ts'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { splitFileHandleText } from './chat/file-badges.ts'
@@ -186,17 +187,19 @@ export function apply(ctx: Context): void {
   settingsScope.subscribe(adoptLinkDestination)
   adoptLinkDestination()
 
-  // Where a link in assistant prose opens. The host browser panel, when the
-  // shell composed one in and the reader has not asked for their own browser:
-  // the page then loads from the harness host's network position, which is what
-  // makes a link to a host-local dev server or an intranet address reachable at
-  // all. Declining hands the destination back to the anchor, whose ordinary
-  // new-tab behavior opens it on the reader's own machine — the only place it
-  // can open when the host has no browser program. One stable identity: a fresh
-  // object per render would discard the markdown render cache.
+  // Where a link in assistant prose opens. Under the default routing, only a
+  // host-local destination (loopback, intranet ranges, or the harness origin
+  // itself) goes to the host browser panel the shell may have composed in: the
+  // page then loads from the harness host's network position, which is what
+  // makes such a link reachable at all. Every other destination is declined
+  // back to the anchor, whose ordinary new-tab behavior opens it in the
+  // browser the reader is sitting in — as does everything when the reader
+  // chose 'device' or the host composed no browser. One stable identity: a
+  // fresh object per render would discard the markdown render cache.
   const externalLinks: MarkdownExternalLinks = {
     open: (url) => {
       if (linkDestination.getSnapshot() === 'device') return false
+      if (!isHostLocalUrl(url)) return false
       const section = slots.entries('workbench.section.panel').some(entry => entry.options.id === 'browser')
       if (!section) return false
       layout.openWorkbenchSection('browser', url)

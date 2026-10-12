@@ -34,3 +34,16 @@
 .sessionLogButton span {
   white-space: nowrap;
 }
+
+/* Phone form (frame data-viewport, ui-layout): the capsule yields its text and
+   shrinks to the bare 32×32 icon square — two 111px capsules would crowd the
+   title row down to crumbs. The aria-label keeps the button named. */
+:global([data-viewport='phone']) .sessionLogButton {
+  min-width: 32px;
+  padding: 6px 0;
+  border-radius: 16px;
+}
+
+:global([data-viewport='phone']) .sessionLogButton span {
+  display: none;
+}

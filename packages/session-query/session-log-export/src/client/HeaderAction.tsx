@@ -20,6 +20,8 @@ export function SessionLogDownloadHeaderAction(props: SessionLogDownloadDialogPr
         className={css.sessionLogButton}
         disabled={busy}
         aria-busy={busy}
+        aria-label={t('header.action')}
+        title={t('header.action')}
         onClick={() => { void request(sessionId) }}
       >
         <span>{t('header.action')}</span>

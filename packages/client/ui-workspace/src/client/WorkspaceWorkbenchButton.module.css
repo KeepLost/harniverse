@@ -29,3 +29,17 @@
 .workbenchButton > svg {
   flex: none;
 }
+
+/* Phone form (frame data-viewport, ui-layout): the capsule yields its text and
+   shrinks to the bare 32×32 icon square beside the Session-log capsule — the
+   pair must not crowd the phone title row. The aria-label keeps the button
+   named. */
+:global([data-viewport='phone']) .workbenchButton {
+  min-width: 32px;
+  padding: 6px 0;
+  border-radius: 16px;
+}
+
+:global([data-viewport='phone']) .workbenchButton > span {
+  display: none;
+}

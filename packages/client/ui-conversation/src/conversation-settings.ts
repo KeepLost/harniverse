@@ -24,14 +24,16 @@ export const LINK_DESTINATION_FIELD = 'linkDestination'
 export const LINK_DESTINATIONS = ['panel', 'device'] as const
 
 /**
- * Which machine opens a link in assistant prose. `'panel'` loads it in the
- * harness host's own browser, which is what reaches a host-local dev server or
- * an intranet address; `'device'` hands it to the browser the reader is sitting
- * in, which is the only option when the host has no browser at all.
+ * Which machine opens a link in assistant prose. `'panel'` routes by
+ * destination: host-local links (loopback, intranet ranges, or the harness
+ * origin itself) load in the harness host's own browser, which is what reaches
+ * a host-local dev server or an intranet address, while every other link goes
+ * to the browser the reader is sitting in; `'device'` sends everything to the
+ * reader's browser — the only option when the host has no browser at all.
  */
 export type LinkDestination = typeof LINK_DESTINATIONS[number]
 
-/** Default keeps the host's network position, the reason the panel exists. */
+/** Default keeps the host's network position for host-local destinations. */
 export const DEFAULT_LINK_DESTINATION: LinkDestination = 'panel'
 
 /** Durable conversation section shared by the Host schema and the browser scope. */
