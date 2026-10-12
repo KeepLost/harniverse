@@ -270,6 +270,86 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
+  it('keeps the Assistant bubble above its tool card across settlement, replay, and interruption', () => {
+    const reasoningAndCallMessage = (seq: number) => at(seq, 'assistant/message', {
+      turn: 1,
+      step: 1,
+      message: {
+        ...assistantMessage('assistant-tool', ''),
+        content: [
+          { type: 'reasoning', text: 'checking' },
+          { type: 'tool-call', id: 'call-1', name: 'read', arguments: '{}' },
+        ],
+      },
+    }, { surfaceOp: 'append' })
+
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'checking' },
+      }),
+      at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 1, id: 'call-1', name: 'read', argumentsDelta: '{}' },
+      }),
+    ])
+    const running = snapshot(value)
+    const runningOrder = running.order.map(key => running.nodes.get(key)?.kind)
+    expect(runningOrder.indexOf('assistant-step')).toBeLessThan(runningOrder.indexOf('tool-call'))
+    const runningAnchor = node(running, 'assistant-step')?.anchorSeq
+
+    value.append(reasoningAndCallMessage(5))
+    value.flush()
+    const settled = snapshot(value)
+    expect(settled.order.map(key => settled.nodes.get(key)?.kind).indexOf('assistant-step'))
+      .toBeLessThan(settled.order.map(key => settled.nodes.get(key)?.kind).indexOf('tool-call'))
+    expect(node(settled, 'assistant-step')?.anchorSeq).toBe(runningAnchor)
+
+    value.append(at(6, 'tool/call', { turn: 1, step: 1, callId: 'call-1', name: 'read', arguments: '{}' }))
+    value.append(at(7, 'tool/result', {
+      turn: 1, step: 1, message: toolResult('call-1', 'data'),
+    }, { surfaceOp: 'append' }))
+    value.flush()
+    const done = snapshot(value)
+    expect(done.order.map(key => done.nodes.get(key)?.kind).indexOf('assistant-step'))
+      .toBeLessThan(done.order.map(key => done.nodes.get(key)?.kind).indexOf('tool-call'))
+
+    const replayed = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'checking' },
+      }),
+      at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 1, id: 'call-1', name: 'read', argumentsDelta: '{}' },
+      }),
+      reasoningAndCallMessage(5),
+      at(6, 'tool/call', { turn: 1, step: 1, callId: 'call-1', name: 'read', arguments: '{}' }),
+      at(7, 'tool/result', {
+        turn: 1, step: 1, message: toolResult('call-1', 'data'),
+      }, { surfaceOp: 'append' }),
+    ], true)
+    const replayedOrder = snapshot(replayed).order.map(key => snapshot(replayed).nodes.get(key)?.kind)
+    expect(replayedOrder.indexOf('assistant-step')).toBeLessThan(replayedOrder.indexOf('tool-call'))
+
+    const interrupted = assembler([
+      at(11, 'turn/start', { turn: 2 }),
+      at(12, 'step/start', { turn: 2, step: 1 }),
+      at(13, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'slow tool' },
+      }),
+      at(14, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'tool-call-delta', index: 1, id: 'call-2', name: 'read', argumentsDelta: '{}' },
+      }),
+      at(15, 'tool/call', { turn: 2, step: 1, callId: 'call-2', name: 'read', arguments: '{}' }),
+      at(16, 'step/end', { turn: 2, step: 1 }),
+    ])
+    const interruptedSnapshot = snapshot(interrupted)
+    const interruptedOrder = interruptedSnapshot.order
+      .map(key => interruptedSnapshot.nodes.get(key)?.kind)
+    expect(interruptedOrder.indexOf('assistant-step')).toBeLessThan(interruptedOrder.indexOf('tool-call'))
+  })
+
   it('replays finalized Assistant history from the final body while retaining timing and usage', () => {
     const usage = { inputTokens: 20, outputTokens: 4 }
     const value = assembler([
