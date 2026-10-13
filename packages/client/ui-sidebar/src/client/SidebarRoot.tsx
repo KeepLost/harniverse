@@ -147,12 +147,12 @@ export function SidebarRoot({
         <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
-            className={clsx(css.iconButton, css.toggle)}
+            className={css.iconButton}
             aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
             onClick={() => { toggleSidebar() }}
           >
             {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
-            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
+            <IconPanelLeftOutline16 size={wide ? 16 : 18} />
           </button>
         </Tooltip>
         {!wide && renderSlot('sidebar.header.status', { wide })}

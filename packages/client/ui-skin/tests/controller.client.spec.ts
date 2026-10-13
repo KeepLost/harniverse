@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { accentHover } from '../src/client/color.ts'
+import type { SkinSettings } from '../src/client/settings.ts'
 import { WRITE_DELAY_MS } from '../src/client/writer.ts'
 import { fail, makeBench, ok, ready } from './controller-bench.client.ts'
 import { GRADIENT, HASH_A, skin, snapshot, wallpaper } from './fixtures.client.ts'
@@ -177,18 +178,30 @@ describe('SkinController override layer', () => {
     expect(b.theme.layer).toBeUndefined()
   })
 
-  it('drops translucency and glass the moment the system asks for reduced transparency or high contrast', async () => {
+  it('binds the surfaces to their opaque forms and drops glass the moment the system asks for reduced transparency or high contrast', async () => {
     const b = makeBench()
     await b.controller.start()
-    ready(b, { wallpaper: HASH_A, material: 'frosted' })
+    ready(b, { wallpaper: HASH_A, material: 'frosted', dialogOpacity: 0.7 })
     expect(b.theme.layer?.['--dsw-material-panel-filter']).toBeDefined()
-    b.environment.set({ reducedTransparency: true })
-    expect(b.controller.view.getSnapshot().environment.reducedTransparency).toBe(true)
-    expect(b.controller.view.getSnapshot().backdrop.kind).toBe('none')
-    expect(b.theme.layer).toBeUndefined()
-    b.environment.set({ reducedTransparency: false })
-    expect(b.theme.layer?.['--dsw-surface-pane']).toBeDefined()
-    b.environment.set({ highContrast: true })
+    expect(b.theme.layer?.['--dsw-material-dialog-filter']).toBeDefined()
+    expect(b.theme.layer?.['--dsw-surface-dialog']?.light).toContain('70%')
+    for (const environment of [{ reducedTransparency: true }, { highContrast: true }]) {
+      b.environment.set({ reducedTransparency: false, highContrast: false, ...environment })
+      expect(b.controller.view.getSnapshot().backdrop.kind).toBe('none')
+      expect(Object.keys(b.theme.layer ?? {}).sort()).toEqual([
+        '--dsw-surface-dialog', '--dsw-surface-pane', '--dsw-surface-popover', '--dsw-surface-sidebar',
+      ])
+      expect(b.theme.layer?.['--dsw-surface-dialog']?.dark).toBe('var(--dsw-opaque-dialog, var(--dsw-alias-bg-layer-2))')
+    }
+    b.environment.set({ reducedTransparency: false, highContrast: false })
+    expect(b.theme.layer?.['--dsw-surface-pane']?.light).toContain('color-mix(')
+    expect(b.theme.layer?.['--dsw-material-dialog-filter']).toBeDefined()
+  })
+
+  it('leaves the surfaces on their aliases when nothing paints behind and nothing is forced', async () => {
+    const b = makeBench()
+    await b.controller.start()
+    ready(b, { dialogOpacity: 0.7 })
     expect(b.theme.layer).toBeUndefined()
   })
 
@@ -215,11 +228,42 @@ describe('SkinController staged edits', () => {
       await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS)
       expect(b.scope.set).toHaveBeenCalledExactlyOnceWith('accent', '#abcdef')
       // Host acceptance replaces the overlay.
-      b.scope.publish({ value: { accent: '#abcdef', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, material: 'off' } })
+      b.scope.publish({ value: { accent: '#abcdef', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off' } })
       expect(b.controller.view.getSnapshot().settings.accent).toBe('#abcdef')
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('stages the dialog opacity, previews it over a backdrop, and writes it once the input rests', async () => {
+    vi.useFakeTimers()
+    try {
+      const b = makeBench({ list: ok(snapshot()) })
+      await b.controller.start()
+      ready(b, { wallpaper: HASH_A })
+      expect(b.controller.view.getSnapshot().settings.dialogOpacity).toBe(1)
+      b.controller.setSetting('dialogOpacity', 0.8)
+      expect(b.controller.view.getSnapshot().settings.dialogOpacity).toBe(0.8)
+      expect(b.theme.layer?.['--dsw-surface-dialog']?.light).toContain(' 80%, transparent)')
+      expect(b.scope.set).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS)
+      expect(b.scope.set).toHaveBeenCalledExactlyOnceWith('dialogOpacity', 0.8)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('loads a stored section that predates the dialog opacity as fully opaque', async () => {
+    const b = makeBench({ list: ok(snapshot()) })
+    await b.controller.start()
+    b.scope.publish({
+      status: 'ready',
+      writable: true,
+      // A document written before the dialog slider existed carries no such field.
+      value: { accent: '', wallpaper: HASH_A, wallpaperBlur: 0, panelOpacity: 0.7, composerOpacity: 0.9, popoverOpacity: 0.96, material: 'off' } as Omit<SkinSettings, 'dialogOpacity'> as SkinSettings,
+    })
+    expect(b.controller.view.getSnapshot().settings.dialogOpacity).toBe(1)
+    expect(b.theme.layer?.['--dsw-surface-dialog']?.light).toContain(' 100%, transparent)')
   })
 
   it('refuses edits while the scope cannot write', async () => {

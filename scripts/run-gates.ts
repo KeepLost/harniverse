@@ -297,6 +297,7 @@ function ciSharedStaticGates(): Gate[] {
     }),
     pnpmScript('issue-management', 'test:issue-management', { label: 'Pull request policy' }),
     pnpmScript('client-css-tokens', 'verify-client-css-tokens', { label: 'client CSS tokens' }),
+    pnpmScript('client-css-classes', 'verify-client-css-classes', { label: 'client CSS classes' }),
   ]
 }
 
@@ -662,6 +663,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
       label: 'optional dependency imports',
     }),
     pnpmScript('client-css-tokens', 'verify-client-css-tokens', { label: 'client CSS tokens' }),
+    pnpmScript('client-css-classes', 'verify-client-css-classes', { label: 'client CSS classes' }),
   ]
 }
 

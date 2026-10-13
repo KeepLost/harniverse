@@ -24,6 +24,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
@@ -245,15 +246,15 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       </div>
       <div className={styles['field']}>
         <span className={styles['fieldLabel']}>{t('customApi')}</span>
-        <select
-          className={`${styles['input']} ${styles['selectInput']}`}
+        <Select
+          className={styles['selectField']}
           value={protocol}
           aria-label={t('customApi')}
           disabled={profileDisabled}
           onChange={(event) => { setProtocol(event.target.value) }}
         >
           {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-        </select>
+        </Select>
       </div>
       <div className={styles['field']}>
         <span className={styles['fieldLabel']}>{t('keyInput')}</span>

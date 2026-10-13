@@ -7,7 +7,7 @@
 import { useId, useState } from 'react'
 import type { FormEvent } from 'react'
 import clsx from 'clsx'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatPlatformField, ChatPlatformView } from '@deepseek-ai/dsh-api-remotes/client'
 import { canConnect, errorText, type ImTranslate } from './format.ts'
 import type { ConnectForm } from './stores.ts'
@@ -54,7 +54,7 @@ function FieldInput({ field, value, disabled, autoFocus, onChange, t }: FieldInp
       {field.options === undefined
         ? (
           <div className={controls.inputRow}>
-            <input
+            <Input
               id={id}
               className={controls.input}
               type={field.secret && !shown ? 'password' : 'text'}
@@ -70,21 +70,22 @@ function FieldInput({ field, value, disabled, autoFocus, onChange, t }: FieldInp
             />
             {field.secret
               ? (
-                <button
-                  type="button"
-                  className={controls.textButton}
+                <Button
+                  className={controls.inlineAction}
+                  size="sm"
+                  variant="outline"
                   aria-pressed={shown}
                   aria-label={t(shown ? 'form.hideField' : 'form.showField', { field: field.label })}
                   onClick={() => { setShown(visible => !visible) }}
                 >
                   {t(shown ? 'form.hide' : 'form.show')}
-                </button>
+                </Button>
               )
               : null}
           </div>
         )
         : (
-          <select
+          <Select
             id={id}
             className={controls.select}
             value={value === '' ? field.options[0]?.value : value}
@@ -94,7 +95,7 @@ function FieldInput({ field, value, disabled, autoFocus, onChange, t }: FieldInp
             onChange={(event) => { onChange(event.target.value) }}
           >
             {field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+          </Select>
         )}
       {field.hint === undefined ? null : <p id={hintId} className={controls.hint}>{field.hint}</p>}
     </div>
@@ -137,7 +138,7 @@ export function AddBotForm({ platform, form, setValue, setAlias, onSubmit, onCan
         ))}
         <div className={controls.field}>
           <label className={controls.label} htmlFor={aliasId}>{t('form.alias')}</label>
-          <input
+          <Input
             id={aliasId}
             className={controls.input}
             value={form.alias}

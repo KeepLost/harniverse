@@ -91,7 +91,8 @@
 }
 
 /* Section tabs along the top edge: three peers (files, changes, search).
-   34px controls inside 4px padding over a 1px rule = a 43px band. */
+   34px controls inside 4px padding over a 1px rule = a 43px band. The band
+   paints no fill: the details column owns the surface. */
 .sectionTabs {
   display: flex;
   flex: none;
@@ -99,7 +100,6 @@
   gap: 4px;
   padding: 4px 8px 4px 12px;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
-  background: var(--dsw-alias-bg-layer-1);
 }
 
 .sectionTabList {
@@ -288,7 +288,7 @@
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   color: var(--dsw-alias-label-tertiary);
-  background: var(--dsw-specific-input-major);
+  background: transparent;
   transition: border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
 }
 
@@ -366,7 +366,7 @@
   border-radius: 8px;
   outline: 0;
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-specific-input-major);
+  background: transparent;
   font: var(--dsw-font-xxs-12);
   font-family: var(--ds-font-family-code);
 }
@@ -449,14 +449,18 @@
   white-space: nowrap;
 }
 
+/* Segmented control: a hairline track around transparent segments, the
+   selected one on an alpha fill. The fills are alpha tokens so the details
+   column's surface shows through and the selection stays visible in both
+   palettes (the layer aliases are opaque, and white in the light one). */
 .segmented {
   display: grid;
   flex: none;
   grid-template-columns: 1fr 1fr;
   margin: 6px 0 8px;
   padding: 2px;
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
 }
 
 .segmented button {
@@ -477,7 +481,7 @@
 
 .segmented button[data-active] {
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-button-elevated-fill);
+  background: var(--dsw-alias-interactive-bg-active);
   font: var(--dsw-font-xxs-strong-12);
 }
 

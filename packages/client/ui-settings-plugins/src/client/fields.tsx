@@ -6,6 +6,8 @@
  * card's save is the single point where a draft becomes a document mutation.
  */
 
+import clsx from 'clsx'
+import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './fields.module.css'
 
 /** What every field control needs regardless of its value type. */
@@ -71,7 +73,7 @@ export function ValueField(props: FieldProps & {
       </div>
       <input
         id={props.id}
-        className={props.invalid ? css.inputInvalid : css.input}
+        className={clsx(css.input, props.invalid && css.inputInvalid)}
         type="text"
         {...props.numeric === true ? { inputMode: 'numeric' as const } : {}}
         {...props.invalid ? { 'aria-invalid': true } : {}}
@@ -121,9 +123,9 @@ export function SelectField(props: FieldProps & { options: readonly SelectFieldO
           )
           : null}
       </div>
-      <select
+      <Select
         id={props.id}
-        className={props.invalid ? css.inputInvalid : css.input}
+        className={props.invalid ? css.inputInvalid : undefined}
         {...props.invalid ? { 'aria-invalid': true } : {}}
         value={props.text}
         disabled={props.disabled}
@@ -132,7 +134,7 @@ export function SelectField(props: FieldProps & { options: readonly SelectFieldO
         {props.options.map(option => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
-      </select>
+      </Select>
       <p className={props.invalid ? css.invalid : css.hint}>
         {props.invalid ? props.invalidLabel : props.hint}
       </p>

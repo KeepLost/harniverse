@@ -16,7 +16,7 @@
 
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CardShell } from './card-form.ts'
 import type { PluginsSettingsLocaleKey } from './locales.ts'
 import css from './PluginCard.module.css'
@@ -73,22 +73,22 @@ export function PluginCard(props: PluginCardProps) {
             {props.children}
             <div className={css.footer}>
               {state.failed ? <p className={css.failed} role="status">{props.t('saveFailed')}</p> : null}
-              <button
-                type="button"
-                className={css.discard}
+              <Button
+                size="sm"
+                variant="outline"
                 disabled={!state.dirty || state.saving}
                 onClick={props.onDiscard}
               >
                 {props.t('discard')}
-              </button>
-              <button
-                type="button"
-                className={css.save}
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
                 disabled={blocked}
                 onClick={props.onSave}
               >
                 {props.t(state.saving ? 'saving' : 'save')}
-              </button>
+              </Button>
             </div>
           </div>
         )

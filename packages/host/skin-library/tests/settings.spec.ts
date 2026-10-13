@@ -10,6 +10,7 @@ const DEFAULTS = {
   panelOpacity: 0.82,
   composerOpacity: 0.9,
   popoverOpacity: 0.96,
+  dialogOpacity: 1,
   material: 'off',
 }
 
@@ -44,7 +45,13 @@ describe('ui-skin settings', () => {
     for (const panelOpacity of [0.4, 0.41, 0.82, 1]) expect(accepts({ panelOpacity }), String(panelOpacity)).toBe(true)
     for (const composerOpacity of [0.4, 0.9, 1]) expect(accepts({ composerOpacity }), String(composerOpacity)).toBe(true)
     for (const popoverOpacity of [0.6, 0.96, 1]) expect(accepts({ popoverOpacity }), String(popoverOpacity)).toBe(true)
+    for (const dialogOpacity of [0.6, 0.85, 1]) expect(accepts({ dialogOpacity }), String(dialogOpacity)).toBe(true)
     for (const material of SKIN_MATERIALS) expect(accepts({ material }), material).toBe(true)
+  })
+
+  it('fills a stored section that predates dialogOpacity with fully opaque', () => {
+    const stored = { accent: '#112233', wallpaper: '', wallpaperBlur: 4, panelOpacity: 0.7, composerOpacity: 0.8, popoverOpacity: 0.9, material: 'frosted' }
+    expect(UiSkinSettingsSchema(stored as UiSkinSettings)).toEqual({ ...stored, dialogOpacity: 1 })
   })
 
   it('rejects values outside it', () => {
@@ -58,6 +65,7 @@ describe('ui-skin settings', () => {
     for (const panelOpacity of [0.39, 1.01, 0.825, '0.8']) expect(accepts({ panelOpacity }), String(panelOpacity)).toBe(false)
     for (const composerOpacity of [0.39, 1.01, 0.905]) expect(accepts({ composerOpacity }), String(composerOpacity)).toBe(false)
     for (const popoverOpacity of [0.5, 0.59, 1.01, 0.965]) expect(accepts({ popoverOpacity }), String(popoverOpacity)).toBe(false)
+    for (const dialogOpacity of [0.5, 0.59, 1.01, 0.855, '1']) expect(accepts({ dialogOpacity }), String(dialogOpacity)).toBe(false)
     for (const material of ['glass', 'Off', '', 1]) expect(accepts({ material }), String(material)).toBe(false)
   })
 })

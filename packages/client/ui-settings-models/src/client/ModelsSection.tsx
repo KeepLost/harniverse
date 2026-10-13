@@ -15,7 +15,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutline16, Modal, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, messageOf, protocolChoices, providerUsable } from './store.ts'
@@ -438,8 +438,8 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             <div className={styles['addCard']}>
               <div className={styles['field']}>
                 <span className={styles['fieldLabel']}>{t('provider')}</span>
-                <select
-                  className={`${styles['input']} ${styles['selectInput']}`}
+                <Select
+                  className={styles['selectField']}
                   value={addTarget.provider}
                   aria-label={t('provider')}
                   onChange={(event) => {
@@ -452,7 +452,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                   {addable.map(row => (
                     <option key={row.entry.provider} value={row.entry.provider}>{row.entry.displayName}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <ProviderEditor
                 key={addTarget.provider}

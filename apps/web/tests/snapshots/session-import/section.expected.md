@@ -49,5 +49,5 @@
       - option "原工作目录（自动创建工作区）" [selected]
     - button "导入所选（0）" [disabled]
     - text: 上传会话文件
-    - button "上传会话文件"
+    - button "选择文件"
     - text: 也可以直接上传官方的 session.vN.jsonl 或 session.vN.jsonl.zstd 文件。

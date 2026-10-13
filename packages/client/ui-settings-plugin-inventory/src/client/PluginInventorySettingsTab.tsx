@@ -5,6 +5,7 @@ import type {
   PluginInventorySnapshot,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import {
+  Button,
   IconChevronDownOutline14,
   IconSearchOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -153,7 +154,7 @@ export function PluginInventorySettingsTab(
       {state.status === 'error' ? (
         <div className={css.failure}>
           <p role="alert">{t('error')}</p>
-          <button type="button" onClick={retry}>{t('retry')}</button>
+          <Button size="sm" variant="outline" onClick={retry}>{t('retry')}</Button>
         </div>
       ) : null}
       {state.status === 'ready' ? (
@@ -274,14 +275,15 @@ export function PluginInventorySettingsTab(
                           ) : null}
                         </dl>
                         <div className={css.exportRow}>
-                          <button
-                            type="button"
+                          <Button
+                            size="sm"
+                            variant="outline"
                             data-plugin-export={entry.moduleName}
                             disabled={exports[entry.moduleName]?.phase === 'busy'}
                             onClick={() => { onExport(entry.moduleName) }}
                           >
                             {t('exportButton')}
-                          </button>
+                          </Button>
                           <ExportStatusLine status={exports[entry.moduleName]} t={t} />
                         </div>
                       </div>

@@ -143,28 +143,7 @@
 }
 
 .select {
-  box-sizing: border-box;
   min-width: 240px;
-  padding: 7px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-  cursor: pointer;
-}
-
-.select:focus-visible,
-.file:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
-}
-
-.file {
-  font-size: 12.5px;
-  color: var(--dsw-alias-label-secondary);
 }
 
 .results {

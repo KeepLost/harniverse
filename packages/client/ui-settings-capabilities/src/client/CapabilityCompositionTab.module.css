@@ -33,31 +33,6 @@
   font-size: 13px;
 }
 
-.failure button,
-.actions button,
-.plan > button,
-.members button,
-.configuration button {
-  min-height: 34px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  padding: 6px 12px;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.failure button:disabled,
-.actions button:disabled,
-.plan > button:disabled,
-.members button:disabled,
-.configuration button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .intro {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
@@ -92,30 +67,11 @@
   line-height: 16px;
 }
 
-.intro select,
-.filters input,
-.filters select {
+/* Geometry (h32, r8, border, focus ring) comes from the Input and Select atoms;
+   this class only sizes them to their container. */
+.control {
   box-sizing: border-box;
-  height: 36px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  padding: 0 10px;
-  outline: none;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 13px;
-}
-
-.intro select:focus-visible,
-.filters input:focus-visible,
-.filters select:focus-visible,
-.actions button:focus-visible,
-.plan > button:focus-visible,
-.failure button:focus-visible {
-  border-color: var(--dsw-alias-state-business-primary);
-  outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent);
-  outline-offset: 1px;
+  width: 100%;
 }
 
 .members,
@@ -178,8 +134,7 @@
   line-height: 15px;
 }
 
-.members button,
-.configuration button {
+.restore {
   grid-column: 1 / -1;
   justify-self: start;
 }
@@ -197,23 +152,24 @@
   font-weight: 600;
 }
 
-.configField input,
 .configField textarea {
   box-sizing: border-box;
   width: 100%;
+  min-height: 104px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 7px;
-  padding: 8px;
-  background: var(--dsw-alias-bg-layer-3);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
   font: inherit;
   font-weight: 400;
+  line-height: 18px;
+  resize: vertical;
 }
 
-.configField textarea {
-  min-height: 104px;
-  resize: vertical;
-  line-height: 18px;
+.configField textarea:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
 }
 
 .inlineError,
@@ -241,9 +197,7 @@
   gap: 10px;
 }
 
-.filters label,
-.filters input,
-.filters select {
+.filters label {
   width: 100%;
 }
 
@@ -413,12 +367,6 @@
   font-size: 12px;
 }
 
-.primary {
-  border-color: var(--dsw-alias-state-business-primary) !important;
-  background: var(--dsw-alias-state-business-primary) !important;
-  color: var(--dsw-alias-label-primary-foreground) !important;
-}
-
 .plan {
   display: flex;
   flex-direction: column;
@@ -468,7 +416,7 @@
   line-height: 18px;
 }
 
-.plan > button {
+.planApply {
   align-self: flex-end;
 }
 
@@ -525,7 +473,7 @@
   }
 
   .actions button,
-  .plan > button {
+  .planApply {
     width: 100%;
   }
 }

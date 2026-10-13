@@ -140,11 +140,12 @@ describe('skin-library real composition', () => {
     const settings = ctx.get('settings')!
     expect(settings.describe().map(entry => entry.ns)).toEqual(expect.arrayContaining(['ui-theme', 'ui-skin']))
     expect(settings.get(SKIN)).toEqual({
-      accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, material: 'off',
+      accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off',
     })
     await settings.update(SKIN, { accent: '#112233', wallpaperBlur: 12 })
     expect(settings.get(SKIN)).toMatchObject({ accent: '#112233', wallpaperBlur: 12 })
     await expect(settings.update(SKIN, { panelOpacity: 0.1 })).rejects.toThrow()
+    await expect(settings.update(SKIN, { dialogOpacity: 0.5 })).rejects.toThrow()
     await expect(settings.update(SKIN, { material: 'glass' })).rejects.toThrow()
   })
 

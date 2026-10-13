@@ -101,6 +101,16 @@ describe('gate graph validation', () => {
     },
   )
 
+  it.each(['ci-primary', 'ci-static', 'check-all'] as const)(
+    'keeps the client CSS class guard beside the token guard in %s',
+    (mode) => {
+      const ids = withPnpmEntrypoint(() => gatesForMode(mode).map(subject => subject.id))
+
+      expect(ids).toContain('client-css-tokens')
+      expect(ids).toContain('client-css-classes')
+    },
+  )
+
   it('runs the local complete test suite only after the build gate', () => {
     const gates = withPnpmEntrypoint(() => gatesForMode('check-all'))
     const test = gates.find(subject => subject.id === 'test')

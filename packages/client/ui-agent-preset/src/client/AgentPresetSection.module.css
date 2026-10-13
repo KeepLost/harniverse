@@ -277,25 +277,9 @@
   white-space: nowrap;
 }
 
-.secondaryButton {
-  border: none;
-  border-radius: 7px;
-  padding: 5px 8px;
-  background: none;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-
-.secondaryButton:hover:not(:disabled) {
-  background: var(--dsw-alias-bg-layer-1);
-}
-
-.secondaryButton:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* The retry action sits under the error text instead of stretching across the column. */
+.retry {
+  align-self: flex-start;
 }
 
 .field {
@@ -310,24 +294,10 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Geometry (h32, r8, border, focus ring, placeholder) comes from the Input atom. */
 .input {
   box-sizing: border-box;
-  padding: 9px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  font: inherit;
-  font-size: 13px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--dsw-alias-brand-primary);
-}
-
-.input::placeholder {
-  color: var(--dsw-alias-label-dimmed);
+  width: 100%;
 }
 
 .dialog {

@@ -141,5 +141,5 @@ export function ready(bench: Bench, value: Partial<SkinSettings> = {}, writable 
 }
 
 const DEFAULTS: SkinSettings = {
-  accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, material: 'off',
+  accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off',
 }

@@ -143,7 +143,9 @@ describe('PluginInventorySettingsTab', () => {
 
     expect((await screen.findByRole('alert')).textContent).toBe(en.error)
     expect(screen.queryByText('private transport detail')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: en.retry }))
+    const retry = screen.getByRole('button', { name: en.retry })
+    expect(retry.getAttribute('type')).toBe('button')
+    fireEvent.click(retry)
     await waitFor(() => { expect(list).toHaveBeenCalledTimes(2) })
     expect(await screen.findByText(en.empty)).toBeTruthy()
   })
@@ -182,6 +184,9 @@ describe('PluginInventorySettingsTab', () => {
     const active = await screen.findByRole('button', { name: 'hmr, Mounted, Enabled' })
     fireEvent.click(active)
     const exportButton = screen.getByRole('button', { name: en.exportButton })
+    // The control stays addressable per module and never submits a form.
+    expect(exportButton.getAttribute('data-plugin-export')).toBe('@deepseek-ai/cordis-plugin-hmr')
+    expect(exportButton.getAttribute('type')).toBe('button')
     fireEvent.click(exportButton)
     await waitFor(() => { expect(screen.getByText(en.exportDone)).toBeTruthy() })
     expect(exportPlugin).toHaveBeenCalledExactlyOnceWith('@deepseek-ai/cordis-plugin-hmr')

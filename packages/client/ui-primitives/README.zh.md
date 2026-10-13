@@ -2,9 +2,11 @@
 
 [English](README.md) | 中文
 
-纯 React 原子组件（零 cordis）：StateDot、DisclosureRow、ic_ds_* 图标、可点击链接前导的 LinkIcon 类别字形、Button/Pill/Menu/Modal/Input、Toast 短时横幅、OnboardingSurface 首次使用接管层（portal 到 body 的遮罩加不透明展示层，在且仅在自身生命周期内保持 `#root` 为 `inert`）、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` 钩子（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、DiffBlock、ReadBlock、SearchBlock，以及 WebBlock、带 `observeStickyMenuGroups` 视口观察器的 MenuGroup 粘性分组标题，以及 `rankByName` 模糊菜单排序器（大小写不敏感的有序子序列；前缀、对齐得分、再按来源顺序）。
+纯 React 原子组件（零 cordis）：StateDot、DisclosureRow、ic_ds_* 图标、可点击链接前导的 LinkIcon 类别字形、Button/Pill/Menu/Modal/Input/Select、Toast 短时横幅、OnboardingSurface 首次使用接管层（portal 到 body 的遮罩加不透明展示层，在且仅在自身生命周期内保持 `#root` 为 `inert`）、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` 钩子（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、DiffBlock、ReadBlock、SearchBlock，以及 WebBlock、带 `observeStickyMenuGroups` 视口观察器的 MenuGroup 粘性分组标题，以及 `rankByName` 模糊菜单排序器（大小写不敏感的有序子序列；前缀、对齐得分、再按来源顺序）。
 
 `BrandWordmark` 以文本渲染供消费者使用的装饰性 `Harniverse` 名称；它不是图标，也不是导出的官方标识。侧边栏使用仓库持有的 ICO 品牌资源。
+
+`Select` 是表单共用的原生 `<select>`：高度 32px，边框与圆角同 `Input`，带自绘下拉箭头、悬停边框和强调色聚焦边框，选项列表仍由浏览器提供，因此键盘与触屏选择器照常可用。它不自带宽度，调用方在同一元素上用类名设定。功能包应使用它（以及 `Button`/`Input`），而不是自己给原生表单控件写样式；`pnpm run verify-client-css-classes` 会拒绝 `composes` 和没有任何规则定义的类名。
 
 ## 悬浮卡片
 

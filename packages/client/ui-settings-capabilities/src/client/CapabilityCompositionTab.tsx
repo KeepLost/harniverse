@@ -1,6 +1,7 @@
 /** Agent Profile composition editor with server-side dependency planning. */
 
 import { useDeferredValue, useEffect, useState, type ReactNode } from 'react'
+import { Button, Input, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CapabilityCatalogEntry, CapabilityCompositionChange, CapabilityConfigValue, CapabilityTarget } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -155,7 +156,9 @@ function CapabilityRow({
                   <span><strong>{member.name}</strong><small>{member.description}</small></span>
                 </label>
               ))}
-              <button type="button" onClick={() => { setMembers(entry.id, 'inherit') }}>{t('restoreMembers')}</button>
+              <Button className={css.restore} size="sm" variant="outline" onClick={() => { setMembers(entry.id, 'inherit') }}>
+                {t('restoreMembers')}
+              </Button>
             </fieldset>
           </details>
         ) : null}
@@ -193,7 +196,8 @@ function CapabilityRow({
                         onChange={(event) => { setConfig(entry.id, { ...configOverrides, [field.id]: event.currentTarget.value }) }}
                       />
                     ) : (
-                      <input
+                      <Input
+                        className={css.control}
                         type={field.kind === 'number' ? 'number' : 'text'}
                         value={typeof value === 'string' || typeof value === 'number' ? value : ''}
                         onChange={(event) => {
@@ -206,7 +210,9 @@ function CapabilityRow({
                   </label>
                 )
               })}
-              <button type="button" onClick={() => { setConfig(entry.id, 'inherit') }}>{t('restoreConfiguration')}</button>
+              <Button className={css.restore} size="sm" variant="outline" onClick={() => { setConfig(entry.id, 'inherit') }}>
+                {t('restoreConfiguration')}
+              </Button>
             </fieldset>
           </details>
         )}
@@ -248,7 +254,7 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
     return (
       <div className={css.failure}>
         <p role="alert">{props.t('error')}</p>
-        <button type="button" onClick={() => { void props.load() }}>{props.t('retry')}</button>
+        <Button size="sm" variant="outline" onClick={() => { void props.load() }}>{props.t('retry')}</Button>
       </div>
     )
   }
@@ -268,7 +274,8 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
         <p>{props.t('intro')}</p>
         <label>
           <span>{props.t('target')}</span>
-          <select
+          <Select
+            className={css.control}
             value={targetValue(state.target)}
             disabled={busy}
             aria-label={props.t('target')}
@@ -278,7 +285,7 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
             {state.profiles.map(profile => (
               <option key={profile.id} value={`profile:${profile.id}`}>{profile.name}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <small>{props.t(state.target.kind === 'global-agent' ? 'globalHint' : 'profileHint')}</small>
       </div>
@@ -289,7 +296,8 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
       <div className={css.filters}>
         <label>
           <span className={css.visuallyHidden}>{props.t('search')}</span>
-          <input
+          <Input
+            className={css.control}
             type="search"
             value={query}
             placeholder={props.t('search')}
@@ -299,7 +307,8 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
         </label>
         <label>
           <span className={css.visuallyHidden}>{props.t('kind')}</span>
-          <select
+          <Select
+            className={css.control}
             value={kind}
             aria-label={props.t('kind')}
             onChange={(event) => { setKind(event.currentTarget.value as typeof kind) }}
@@ -308,7 +317,7 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
             {Object.entries(KIND_KEYS).map(([value, key]) => (
               <option key={value} value={value}>{props.t(key)}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <span className={css.count}>{entries.length} {props.t('count')}</span>
       </div>
@@ -338,10 +347,10 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
       {draftCount > 0 ? (
         <div className={css.actions}>
           <span><strong>{draftCount}</strong> {props.t('draftCount')}</span>
-          <button type="button" disabled={busy} onClick={props.discard}>{props.t('discard')}</button>
-          <button type="button" className={css.primary} disabled={busy} onClick={() => { void props.preview() }}>
+          <Button variant="outline" disabled={busy} onClick={props.discard}>{props.t('discard')}</Button>
+          <Button variant="primary" disabled={busy} onClick={() => { void props.preview() }}>
             {props.t(state.planning ? 'planning' : 'preview')}
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -364,14 +373,14 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
               ))}
             </ul>
           )}
-          <button
-            type="button"
-            className={css.primary}
+          <Button
+            className={css.planApply}
+            variant="primary"
             disabled={busy || plan.blockers.length > 0}
             onClick={() => { void props.apply() }}
           >
             {props.t(state.applying ? 'applying' : 'apply')}
-          </button>
+          </Button>
         </section>
       )}
     </div>

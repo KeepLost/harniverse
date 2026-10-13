@@ -1,9 +1,10 @@
-/* Todo strip in the composer context stack (Figma 1236:32276): tip surface,
-   status icons + secondary item labels. Its visible card aligns with the
-   GoalBar and the Queue panel inside their shared dock column: 12px radius,
-   36px collapsed row, 12px side padding, 14px tertiary leading glyph. */
+/* Todo strip in the composer context stack (Figma 1236:32276): composer
+   surface, status icons + secondary item labels. Its visible card aligns with
+   the GoalBar and the Queue panel inside their shared dock column: 12px
+   radius, 36px collapsed row, 12px side padding, 14px tertiary leading glyph. */
 
 .root {
+  position: relative; /* anchors the glass plate below */
   box-sizing: border-box;
   flex: none;
   overflow: hidden;
@@ -26,14 +27,32 @@
   );
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 12px;
-  background: var(--dsw-specific-tip);
-  /* Elevated surface: `--dsw-specific-tip` is the same dark rung as the menu
-     surface, and `.list` scrolls inside this card, so the thumb takes the l2
-     elevation tokens. Declared here because the elevation belongs to the
-     surface, and the custom properties inherit down to `.list` (see ui-theme
+  /* A card of the composer stack, so it reads the composer surface: a skin
+     makes the stack and the input card translucent together. */
+  background: var(--dsw-surface-composer);
+  /* Stacking context for the glass plate below. */
+  isolation: isolate;
+  /* Elevated surface: the composer surface sits on the menu's dark rung, and
+     `.list` scrolls inside this card, so the thumb takes the l2 elevation
+     tokens. Declared here because the elevation belongs to the surface, and
+     the custom properties inherit down to `.list` (see ui-theme
      styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* Composer glass (--dsw-material-composer-filter), on a plate behind the card
+   content: the filter on the card itself would make it the containing block of
+   its position:fixed descendants. With the default `none` filter the plate
+   paints nothing. */
+.root::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-composer-filter);
 }
 
 .body {

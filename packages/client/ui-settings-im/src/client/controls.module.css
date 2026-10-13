@@ -22,51 +22,28 @@
 
 .inputRow {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-.input,
-.select {
-  box-sizing: border-box;
-  min-width: 0;
-  padding: 7px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-}
-
+/* Geometry, focus ring, and the chevron come from the Input and Select atoms;
+   these classes only size them inside a field. */
 .input {
   flex: 1;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.input:has(input:disabled) {
+  opacity: 0.5;
 }
 
 .select {
   width: 100%;
-  cursor: pointer;
 }
 
-.input:focus-visible,
-.select:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
-}
-
-.input::placeholder {
-  color: var(--dsw-alias-label-dimmed);
-}
-
-.input:disabled,
-.select:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.mono {
+.mono input {
   font-family: var(--ds-font-family-code);
 }
 
@@ -85,35 +62,10 @@
   overflow-wrap: anywhere;
 }
 
-/* Small bordered text button used inside inputs rows and card rows. */
-.textButton {
-  appearance: none;
+/* Keeps a toggle beside an input from shrinking or wrapping its label. */
+.inlineAction {
   flex: none;
-  padding: 0 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 12.5px;
-  line-height: 20px;
-  cursor: pointer;
   white-space: nowrap;
-}
-
-.textButton:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}
-
-.textButton:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
-}
-
-.textButton:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* Visually-hidden text seat for live regions and extended accessible names. */

@@ -10,6 +10,7 @@
 /* Figma Input 973:36348 body over the 1019:36938 header: no banner strip —
    the card keeps zero padding and sections carry their own insets. */
 .card {
+  position: relative; /* anchors the glass plate below */
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -21,10 +22,14 @@
   padding: 0 0 10px;
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 20px;
-  background: var(--dsw-specific-input-major);
+  /* Seated where the input card sits, so it reads the composer surface: a skin
+     makes both translucent together. */
+  background: var(--dsw-surface-composer);
   box-shadow: var(--dsw-shadow-lv2);
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
+  /* Stacking context for the glass plate below. */
+  isolation: isolate;
   /* Elevated surface in dark, same as the menus: the body inside scrolls
      once the card hits the cap above, so the thumb takes the l2 pair. Declared
      on the card because the elevation belongs to the surface, and the custom
@@ -37,6 +42,21 @@
 .card,
 .card * {
   box-sizing: border-box;
+}
+
+/* Composer glass (--dsw-material-composer-filter). The filter rides this plate
+   rather than the card: on the card it would make the card the containing
+   block of its position:fixed descendants. The plate covers the padding box,
+   behind the card content and above the card's own fill and border; with the
+   default `none` filter it paints nothing. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-composer-filter);
 }
 
 /* Figma 1019:36938 header, user-tuned: heading block left, close right; the
@@ -189,7 +209,7 @@
      the first text line under the row's flex-start alignment. */
   margin-top: 2px;
   border-radius: 6px;
-  background: var(--dsw-alias-bg-overlay);
+  background: var(--dsw-alias-interactive-bg-active);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   font-weight: 500;
@@ -331,7 +351,7 @@
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
   outline: none;
-  background: var(--dsw-alias-bg-module-platform);
+  background: transparent;
   color: var(--dsw-alias-label-primary);
   caret-color: var(--dsw-alias-state-business-primary);
   font: inherit;

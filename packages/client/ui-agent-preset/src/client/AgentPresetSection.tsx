@@ -13,7 +13,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  Button, IconBrowseOutline16, IconCopyOutline16, IconFolderOpenOutline16, IconPlusOutline16, IconTrashOutline16, Modal, Tooltip,
+  Button, IconBrowseOutline16, IconCopyOutline16, IconFolderOpenOutline16, IconPlusOutline16, IconTrashOutline16, Input, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -111,7 +111,7 @@ function CopyDialog({ state, t, actions }: CopyDialogProps): ReactNode {
           <div className={css.dialogFields}>
             <label className={css.field}>
               <span className={css.fieldLabel}>{t('presetId')}</span>
-              <input
+              <Input
                 className={css.input}
                 value={draft.id}
                 autoFocus
@@ -122,7 +122,7 @@ function CopyDialog({ state, t, actions }: CopyDialogProps): ReactNode {
             </label>
             <label className={css.field}>
               <span className={css.fieldLabel}>{t('displayName')}</span>
-              <input
+              <Input
                 className={css.input}
                 value={draft.name}
                 spellCheck={false}
@@ -197,9 +197,9 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
     return (
       <div className={css.section}>
         <p className={css.error} role="alert">{`${t('error')} ${detail}`}</p>
-        <button type="button" className={css.secondaryButton} onClick={() => { void load() }}>
+        <Button className={css.retry} size="sm" variant="outline" onClick={() => { void load() }}>
           {t('retry')}
-        </button>
+        </Button>
       </div>
     )
   }

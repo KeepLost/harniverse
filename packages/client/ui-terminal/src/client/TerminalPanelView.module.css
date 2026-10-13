@@ -82,6 +82,11 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+/* Exited is settled and quiet: dimmer than the neutral base, no state hue. */
+.chip_exited {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .chip_failed {
   color: var(--dsw-alias-state-error-primary);
 }

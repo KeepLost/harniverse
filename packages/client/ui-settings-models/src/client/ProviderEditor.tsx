@@ -24,6 +24,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { CredentialView, IApiClient, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
+import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   deletePath, getPath, hasPath, nodeAtPath, rehydrateSchema, setPath, validateDraft,
 } from '@deepseek-ai/dsh-client-schema-form'
@@ -448,8 +449,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
               ? (
                 <div className={styles['field']}>
                   <span className={styles['fieldLabel']}>{t('customApi')}</span>
-                  <select
-                    className={`${styles['input']} ${styles['selectInput']}`}
+                  <Select
+                    className={styles['selectField']}
                     value={probeApi ?? ''}
                     aria-label={t('customApi')}
                     disabled={disabled}
@@ -464,7 +465,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                         identity. */}
                     <option value="">{ownsIdentity ? t('customApiUnset') : t('customApiInherit')}</option>
                     {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-                  </select>
+                  </Select>
                 </div>
               )
               : null}

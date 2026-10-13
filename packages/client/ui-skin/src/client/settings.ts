@@ -30,6 +30,8 @@ export interface SkinSettings {
   composerOpacity: number
   /** Menu and popover fill opacity while a backdrop shows (0..1). */
   popoverOpacity: number
+  /** Settings dialog and Modal fill opacity while a backdrop shows (0..1); 1 is opaque whatever alpha the skin bakes in. */
+  dialogOpacity: number
   /** Glass material over the backdrop. */
   material: SkinMaterial
 }
@@ -46,6 +48,7 @@ export const RANGES = {
   panelOpacity: { min: 0.4, max: 1 },
   composerOpacity: { min: 0.4, max: 1 },
   popoverOpacity: { min: 0.6, max: 1 },
+  dialogOpacity: { min: 0.6, max: 1 },
 } as const satisfies Record<string, NumericRange>
 
 /** Settings when the document carries no override. */
@@ -56,6 +59,7 @@ export const DEFAULT_SETTINGS: SkinSettings = Object.freeze({
   panelOpacity: 0.82,
   composerOpacity: 0.9,
   popoverOpacity: 0.96,
+  dialogOpacity: 1,
   material: 'off',
 })
 
@@ -102,6 +106,7 @@ export function normalizeSettings(raw: Partial<Record<keyof SkinSettings, unknow
     panelOpacity: clampField(source.panelOpacity, RANGES.panelOpacity, DEFAULT_SETTINGS.panelOpacity),
     composerOpacity: clampField(source.composerOpacity, RANGES.composerOpacity, DEFAULT_SETTINGS.composerOpacity),
     popoverOpacity: clampField(source.popoverOpacity, RANGES.popoverOpacity, DEFAULT_SETTINGS.popoverOpacity),
+    dialogOpacity: clampField(source.dialogOpacity, RANGES.dialogOpacity, DEFAULT_SETTINGS.dialogOpacity),
     material: MATERIALS.find(material => material === source.material) ?? DEFAULT_SETTINGS.material,
   }
 }

@@ -10,6 +10,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
+import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import { EntryNameField, PolicyEditorFooter } from './EditorCommon.tsx'
 import type {
   PolicyDocProfile, PolicyRouteRow, PolicySelection, PolicyTarget,
@@ -182,8 +183,7 @@ export function ProfileEditor(props: ProfileEditorProps): ReactNode {
                       {index === -1 || (efforts === undefined && entry?.reasoningEffort === undefined)
                         ? null
                         : (
-                          <select
-                            className={styles['selectInput']}
+                          <Select
                             aria-label={t('targetEffort')}
                             value={entry?.reasoningEffort ?? ''}
                             disabled={props.readOnly || busy}
@@ -199,7 +199,7 @@ export function ProfileEditor(props: ProfileEditorProps): ReactNode {
                             && !efforts.some(effort => effort.id === entry.reasoningEffort)
                               ? <option value={entry.reasoningEffort}>{entry.reasoningEffort}</option>
                               : null}
-                          </select>
+                          </Select>
                         )}
                     </li>
                   )
@@ -251,9 +251,8 @@ export function ProfileEditor(props: ProfileEditorProps): ReactNode {
       </div>
       <div className={styles['field']}>
         <label className={styles['fieldLabel']} htmlFor="policy-default-target">{t('defaultTargetLabel')}</label>
-        <select
+        <Select
           id="policy-default-target"
-          className={styles['selectInput']}
           value={target}
           disabled={props.readOnly || busy}
           onChange={(event) => { setTarget(event.currentTarget.value) }}
@@ -269,7 +268,7 @@ export function ProfileEditor(props: ProfileEditorProps): ReactNode {
               {props.routes.find(route => route.id === routeId)?.name ?? routeId}
             </option>
           ))}
-        </select>
+        </Select>
         {decodedTarget === undefined ? <p className={styles['error']}>{t('profileNeedsDefaultTarget')}</p> : null}
       </div>
       <PolicyEditorFooter

@@ -14,13 +14,18 @@
 }
 
 .card {
+  position: relative; /* anchors the glass plate below */
   overflow: hidden;
   width: 100%;
   max-width: var(--dsh-chat-content-width);
   border: 1px solid var(--dsw-alias-state-warn-secondary);
   border-radius: 20px;
-  background: var(--dsw-specific-input-major);
+  /* Seated where the input card sits, so it reads the composer surface: a skin
+     makes both translucent together. */
+  background: var(--dsw-surface-composer);
   box-shadow: var(--dsw-shadow-lv2);
+  /* Stacking context for the glass plate below. */
+  isolation: isolate;
   /* Elevated surface in dark, same as the menus: `.body` inside scrolls once
      the justification or command passes the cap, so the thumb takes the l2
      pair. Declared on the card because the elevation belongs to the surface,
@@ -28,6 +33,21 @@
      scrolls (see ui-theme styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* Composer glass (--dsw-material-composer-filter). The filter rides this plate
+   rather than the card: on the card it would make the card the containing
+   block of its position:fixed descendants. The plate covers the padding box,
+   behind the card content and above the card's own fill and border; with the
+   default `none` filter it paints nothing. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-composer-filter);
 }
 
 /* Tinted full-width header band. */

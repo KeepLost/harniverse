@@ -313,7 +313,11 @@
   font-size: 12px;
 }
 
-.drawerBody input,
+/* Text-like inputs only: a checkbox or radio keeps its native box, size, and
+   focus ring instead of inheriting the field padding, border, and fill. The
+   :where() wrapper keeps the selector at the specificity of a bare
+   `.drawerBody input`, so the sibling-rule overrides below still win. */
+.drawerBody input:where(:not([type='checkbox']):not([type='radio'])),
 .drawerBody select,
 .drawerBody textarea {
   min-width: 0;
@@ -326,7 +330,7 @@
   font-size: 13px;
 }
 
-.drawerBody input:focus-visible,
+.drawerBody input:where(:not([type='checkbox']):not([type='radio'])):focus-visible,
 .drawerBody select:focus-visible,
 .drawerBody textarea:focus-visible {
   border-color: var(--dsw-alias-brand-primary);

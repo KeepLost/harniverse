@@ -7,8 +7,14 @@
  * Contracts that keep the result well-formed:
  *  - a surface token is rebound to a `color-mix()` over the alias it replaces,
  *    never over itself (a self-reference is a cycle and resolves to nothing);
+ *  - the dialog surface is mixed over the opaque companion of its alias, so a
+ *    dialog opacity of 1 is opaque even when the skin bakes alpha into the
+ *    alias; every companion read falls back to the alias itself where the
+ *    engine lacks relative colour syntax (see ui-theme `skin-seams.css`);
  *  - without a backdrop nothing about surfaces or materials is overridden, so
- *    the product keeps its opaque panes;
+ *    the product keeps its default panes — except while the system forces
+ *    opaque rendering, when the pane, sidebar, popover, and dialog surfaces are
+ *    bound to the opaque companions of their aliases;
  *  - the accent family is overridden as a unit so hover and soft states never
  *    keep the previous accent's hue.
  * @module @deepseek-ai/dsh-client-ui-skin/overrides
@@ -32,7 +38,13 @@ export interface OverrideInput {
   settings: SkinSettings
   /** Whether a wallpaper or a skin gradient currently paints behind the frame and may show through. */
   backdropActive: boolean
+  /** Whether the system asks for reduced transparency or more contrast; it wins over `backdropActive`. */
+  forcedOpaque: boolean
 }
+
+/** Alias the dialog seam replaces, and the opaque companion ui-theme declares for it. */
+const DIALOG_ALIAS = '--dsw-alias-bg-layer-2'
+const OPAQUE_DIALOG = '--dsw-opaque-dialog'
 
 /** A value that is the same in both palette modes. */
 function both(value: string): ThemeTokenModes {
@@ -49,13 +61,28 @@ function translucent(alias: string, opacity: number): ThemeTokenModes {
   return both(`color-mix(in srgb, var(${alias}) ${percent(opacity)}, transparent)`)
 }
 
+/** `var()` read of an opaque companion, falling back to the alias where the companion is undeclared. */
+function opaqueRead(companion: string, alias: string): string {
+  return `var(${companion}, var(${alias}))`
+}
+
+/** A surface bound to the opaque companion of the alias it replaces. */
+function solid(companion: string, alias: string): ThemeTokenModes {
+  return both(opaqueRead(companion, alias))
+}
+
+/** The dialog surface at `opacity` over the opaque companion of its alias. */
+function dialogSurface(opacity: number): ThemeTokenModes {
+  return both(`color-mix(in srgb, ${opaqueRead(OPAQUE_DIALOG, DIALOG_ALIAS)} ${percent(opacity)}, transparent)`)
+}
+
 /**
  * Compute the override layer.
- * @param input - settings and whether a backdrop is active.
- * @returns token overrides; empty when there is nothing to override (no accent, no backdrop).
+ * @param input - settings, whether a backdrop is active, and whether the system forces opaque rendering.
+ * @returns token overrides; empty when there is nothing to override (no accent, no backdrop, no forced opacity).
  */
 export function computeOverrides(input: OverrideInput): ThemeTokenOverrides {
-  const { settings, backdropActive } = input
+  const { settings, backdropActive, forcedOpaque } = input
   const layer: ThemeTokenOverrides = {}
   if (isHexColor(settings.accent)) {
     layer['--dsw-accent'] = both(settings.accent)
@@ -66,16 +93,26 @@ export function computeOverrides(input: OverrideInput): ThemeTokenOverrides {
     layer['--dsw-accent-soft'] = both(accentSoft(settings.accent))
     layer['--dsw-accent-chip'] = both(accentChip(settings.accent))
   }
+  if (forcedOpaque) {
+    // The composer is left on its alias: it is a wash over the (now opaque) pane, and dropping its alpha would paint a white card.
+    layer['--dsw-surface-pane'] = solid('--dsw-opaque-pane', '--dsw-alias-bg-base')
+    layer['--dsw-surface-sidebar'] = solid('--dsw-opaque-sidebar', '--dsw-specific-sidebar-fill')
+    layer['--dsw-surface-popover'] = solid('--dsw-opaque-popover', '--dsw-specific-menu')
+    layer['--dsw-surface-dialog'] = solid(OPAQUE_DIALOG, DIALOG_ALIAS)
+    return layer
+  }
   if (!backdropActive) return layer
   layer['--dsw-surface-pane'] = translucent('--dsw-alias-bg-base', settings.panelOpacity)
   layer['--dsw-surface-sidebar'] = translucent('--dsw-specific-sidebar-fill', settings.panelOpacity)
   layer['--dsw-surface-composer'] = translucent('--dsw-specific-input-major', settings.composerOpacity)
   layer['--dsw-surface-popover'] = translucent('--dsw-specific-menu', settings.popoverOpacity)
+  layer['--dsw-surface-dialog'] = dialogSurface(settings.dialogOpacity)
   if (settings.material !== 'off') {
     const filter = both(MATERIAL_FILTERS[settings.material])
     layer['--dsw-material-panel-filter'] = filter
     layer['--dsw-material-composer-filter'] = filter
     layer['--dsw-material-popover-filter'] = filter
+    layer['--dsw-material-dialog-filter'] = filter
   }
   return layer
 }

@@ -27,16 +27,6 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-.failure button {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  padding: 4px 10px;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  cursor: pointer;
-}
-
 .catalog {
   display: flex;
   flex-direction: column;

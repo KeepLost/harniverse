@@ -73,17 +73,10 @@
 
 .number {
   box-sizing: border-box;
-  width: 96px;
-  padding: 4px 8px;
-  font-size: 13px;
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-hover);
-  border: 1px solid var(--dsw-alias-border-l3);
-  border-radius: 6px;
+  width: 112px;
 }
 
-.number:disabled,
-.apply:disabled {
+.number:has(input:disabled) {
   opacity: 0.5;
 }
 
@@ -95,18 +88,6 @@
 
 .apply {
   align-self: flex-start;
-  padding: 4px 14px;
-  font-size: 13px;
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-hover);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.apply:not(:disabled):hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  filter: brightness(1.1);
 }
 
 .effective {

@@ -4,6 +4,8 @@
  * override follows the host default, and every select offers that choice.
  */
 import { useId, useState } from 'react'
+import clsx from 'clsx'
+import { Button, Input, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatBotModelView, ChatBotView, ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImTranslate } from './format.ts'
 import type { ImState } from './stores.ts'
@@ -71,22 +73,22 @@ function WorkspaceRow({ bot, workspaces, busy, setWorkspace, pickWorkspace, t }:
       <span id={titleId} className={css.groupTitle}>{t('workspace.title')}</span>
       <div className={css.workspaceLine}>
         {current === undefined ? <span className={css.follow}>{t('workspace.follow')}</span> : <code className={css.path}>{current}</code>}
-        <button
-          type="button"
-          className={controls.textButton}
+        <Button
+          size="sm"
+          variant="outline"
           aria-expanded={open}
           disabled={busy}
           onClick={() => { setOpen(visible => !visible) }}
         >
           {t('workspace.choose')}
-        </button>
+        </Button>
       </div>
       {open
         ? (
           <div className={css.chooser}>
             <div className={controls.field}>
               <label className={controls.label} htmlFor={registeredId}>{t('workspace.registered')}</label>
-              <select
+              <Select
                 id={registeredId}
                 className={controls.select}
                 value={current ?? ''}
@@ -98,34 +100,34 @@ function WorkspaceRow({ bot, workspaces, busy, setWorkspace, pickWorkspace, t }:
                   <option key={workspace.path} value={workspace.path}>{`${workspace.title} — ${workspace.path}`}</option>
                 ))}
                 {listed ? null : <option value={current}>{current}</option>}
-              </select>
+              </Select>
             </div>
             <div className={controls.field}>
               <label className={controls.label} htmlFor={pathId}>{t('workspace.pathLabel')}</label>
               <div className={css.chooserRow}>
-                <input
+                <Input
                   id={pathId}
-                  className={`${controls.input} ${controls.mono}`}
+                  className={clsx(controls.input, controls.mono)}
                   value={draft}
                   placeholder={t('workspace.pathPlaceholder')}
                   disabled={busy}
                   spellCheck={false}
                   onChange={(event) => { setDraft(event.target.value) }}
                 />
-                <button
-                  type="button"
-                  className={controls.textButton}
+                <Button
+                  size="sm"
+                  variant="outline"
                   disabled={busy || draft.trim() === ''}
                   onClick={() => { setWorkspace(draft.trim()) }}
                 >
                   {t('workspace.apply')}
-                </button>
+                </Button>
                 {pickWorkspace === undefined
                   ? null
                   : (
-                    <button type="button" className={controls.textButton} disabled={busy} onClick={pickWorkspace}>
+                    <Button size="sm" variant="outline" disabled={busy} onClick={pickWorkspace}>
                       {t('workspace.browse')}
-                    </button>
+                    </Button>
                   )}
               </div>
             </div>
@@ -162,7 +164,7 @@ function ModelRows({ bot, models, busy, setModel, t }: Pick<BotSettingsProps, 'b
       <div className={css.row}>
         <label className={css.rowLabel} htmlFor={modelId}>{t('model.model')}</label>
         <div className={css.rowBody}>
-          <select
+          <Select
             id={modelId}
             className={controls.select}
             value={currentValue}
@@ -188,14 +190,14 @@ function ModelRows({ bot, models, busy, setModel, t }: Pick<BotSettingsProps, 'b
             {selection === undefined || known !== undefined
               ? null
               : <option value={currentValue}>{t('model.unlisted', { name: `${selection.provider} / ${selection.model}` })}</option>}
-          </select>
+          </Select>
           {models.status === 'error' ? <p className={controls.hint}>{t('model.catalogError')}</p> : null}
         </div>
       </div>
       <div className={css.row}>
         <label className={css.rowLabel} htmlFor={effortId}>{t('model.effort')}</label>
         <div className={css.rowBody}>
-          <select
+          <Select
             id={effortId}
             className={controls.select}
             value={effortValue}
@@ -211,7 +213,7 @@ function ModelRows({ bot, models, busy, setModel, t }: Pick<BotSettingsProps, 'b
             <option value="">{t('model.follow')}</option>
             {efforts.map(effort => <option key={effort.id} value={effort.id}>{effort.name}</option>)}
             {effortListed ? null : <option value={effortValue}>{effortValue}</option>}
-          </select>
+          </Select>
           {effortHint === null ? null : <p className={controls.hint}>{effortHint}</p>}
         </div>
       </div>
@@ -227,7 +229,7 @@ function PresetRow({ bot, presets, busy, setPreset, t }: Pick<BotSettingsProps, 
     <div className={css.row}>
       <label className={css.rowLabel} htmlFor={id}>{t('preset.title')}</label>
       <div className={css.rowBody}>
-        <select
+        <Select
           id={id}
           className={controls.select}
           value={current ?? ''}
@@ -239,7 +241,7 @@ function PresetRow({ bot, presets, busy, setPreset, t }: Pick<BotSettingsProps, 
           {current === undefined || presets.options.some(option => option.id === current)
             ? null
             : <option value={current}>{t('model.unlisted', { name: current })}</option>}
-        </select>
+        </Select>
         {presets.status === 'error' ? <p className={controls.hint}>{t('preset.catalogError')}</p> : null}
       </div>
     </div>

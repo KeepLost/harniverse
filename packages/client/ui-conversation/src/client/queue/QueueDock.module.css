@@ -31,9 +31,27 @@
   width: 100%;
   padding: 2px 0;
   border-radius: 12px 12px 0 0;
-  background: var(--dsw-specific-tip);
+  /* Attached to the input card, so it reads the composer surface: a skin makes
+     the two translucent together. */
+  background: var(--dsw-surface-composer);
+  /* Stacking context for the glass plate below. */
+  isolation: isolate;
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* Composer glass (--dsw-material-composer-filter), on a plate behind the panel
+   content: the filter on the panel itself would make it the containing block
+   of its position:fixed descendants. With the default `none` filter the plate
+   paints nothing. */
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: var(--dsw-material-composer-filter);
 }
 
 .panel::after {
@@ -148,7 +166,7 @@
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   outline: none;
-  background: var(--dsw-alias-bg-base);
+  background: transparent;
   color: var(--dsw-alias-label-primary);
   overflow-y: auto;
   resize: none;

@@ -11,7 +11,7 @@
       #text "2"
     #text "."
   <section class="footnotes" data-footnotes="true">
-    <h2 class="sr-only" id="footnote-label">
+    <h2 class="_srOnly_404681" id="footnote-label">
       #text "Footnotes"
     <ol>
       <li id="user-content-fn-a">

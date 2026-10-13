@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Button, ConnectionBanner, Input, Menu, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, ConnectionBanner, Input, Menu, Modal, Pill, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import { POINTER_GRACE_MS } from '../src/pointer-grace.ts'
 
 afterEach(cleanup)
@@ -56,6 +56,36 @@ describe('Input', () => {
     fireEvent.change(input, { target: { value: 'qq' } })
     expect(onChange).toHaveBeenCalled()
     expect(screen.getByTestId('ic')).toBeDefined()
+  })
+})
+
+describe('Select', () => {
+  it('forwards the native value, change, disabled and ref, and merges the consumer className', () => {
+    const onChange = vi.fn()
+    let node: HTMLSelectElement | null = null
+    render(
+      <Select
+        aria-label="effort"
+        className="x"
+        defaultValue="high"
+        ref={(el) => { node = el }}
+        onChange={(event) => { onChange(event.currentTarget.value) }}
+      >
+        <option value="low">low</option>
+        <option value="high">high</option>
+      </Select>,
+    )
+    const select = screen.getByRole('combobox', { name: 'effort' }) as HTMLSelectElement
+    expect(node).toBe(select)
+    expect(select.value).toBe('high')
+    expect(select.classList.contains('x')).toBe(true)
+    fireEvent.change(select, { target: { value: 'low' } })
+    expect(onChange).toHaveBeenCalledWith('low')
+  })
+
+  it('a disabled select cannot be changed by the user agent', () => {
+    render(<Select aria-label="locked" disabled><option>only</option></Select>)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'locked' }).disabled).toBe(true)
   })
 })
 

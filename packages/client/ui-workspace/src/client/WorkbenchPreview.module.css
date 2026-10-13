@@ -217,13 +217,15 @@
   white-space: nowrap;
 }
 
+/* Same segmented treatment as the workbench's: a hairline track around
+   transparent segments, the selected one on an alpha fill. */
 .modeToggle {
   display: inline-grid;
   flex: none;
   grid-auto-flow: column;
   padding: 2px;
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
 }
 
 .modeToggle button {
@@ -245,7 +247,7 @@
 
 .modeToggle button[data-active] {
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-button-elevated-fill);
+  background: var(--dsw-alias-interactive-bg-active);
   font: var(--dsw-font-xxs-strong-12);
 }
 
@@ -407,7 +409,9 @@
 
 .diffPreview span[data-kind='delete'] {
   color: var(--dsw-alias-state-error-primary);
-  background: var(--dsw-alias-state-error-secondary);
+  /* No error tertiary alias exists; a wash of the text color keeps the removed
+     line readable in both schemes, as the success tertiary does for additions. */
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
 }
 
 .diffPreview span[data-kind='range'] {
