@@ -137,8 +137,13 @@
   font: var(--dsw-font-xs-strong-13);
 }
 
-.sectionTabSpacer {
-  margin-left: auto;
+.filesToolbar {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
 }
 
 .navigator {

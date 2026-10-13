@@ -69,6 +69,24 @@ describe('createWorkspaceWorkbenchStore', () => {
     expect(store.getSnapshot().byWorkspace.a?.expandedCommits).toEqual({ h1: true })
   })
 
+  it('prunes cached commit files to the visible history on refresh', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    const keep = {
+      hash: 'h-keep', shortHash: 'hk', authorName: 'a', authorEmail: 'a@x', authoredAt: 't',
+      subject: 's', parents: [], refs: [],
+    }
+    actions.setCommitFiles('a', 'h-keep', { files: [], truncated: false, loading: false })
+    actions.setCommitFiles('a', 'h-load', { files: [], truncated: false, loading: true })
+    actions.setCommitFiles('a', 'h-gone', { files: [], truncated: false, loading: false })
+
+    actions.setGit('a', {
+      branch: null, upstream: null, ahead: null, behind: null,
+      entries: [], commits: [keep], truncated: false, loading: false,
+    })
+
+    expect(Object.keys(store.getSnapshot().byWorkspace.a?.commitFiles ?? {})).toEqual(['h-keep', 'h-load'])
+  })
+
   it('prunes expanded directories at and under a non-root interrupted directory', () => {
     const { store, actions } = createWorkspaceWorkbenchStore().create()
     actions.setDirectory('a', 'src', { entries: [], truncated: false, loading: true })

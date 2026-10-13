@@ -21,6 +21,7 @@
         - tab "Terminal":
           - img
           - text: Terminal
+    - tabpanel "Files":
       - button "New file":
         - img
       - button "New folder":
@@ -29,7 +30,6 @@
         - img
       - button "Collapse all folders":
         - img
-    - tabpanel "Files":
       - button ".git":
         - img
         - img

@@ -1157,34 +1157,6 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           ))}
           {props.renderSlot('workbench.section.tab', { current: section, select: props.select, request: props.request })}
         </div>
-        {hasWorkspace && section === 'files' && (
-          <>
-            <button
-              type="button"
-              className={clsx(css.iconButton, css.sectionTabSpacer)}
-              aria-label={props.t('workbench.newFile')}
-              onClick={() => { startCreate('file') }}
-            ><IconPlusOutline16 /></button>
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label={props.t('workbench.newFolder')}
-              onClick={() => { startCreate('directory') }}
-            ><IconProjectAddOutline16 /></button>
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label={props.t('workbench.refreshFiles')}
-              onClick={() => { loadDirectory('') }}
-            ><IconRefreshOutline16 /></button>
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label={props.t('workbench.collapseAll')}
-              onClick={() => { props.actions.collapseAllDirectories(workspaceId) }}
-            ><IconChevronUpOutline14 /></button>
-          </>
-        )}
       </nav>
       <section
         id="workspace-workbench-navigation"
@@ -1201,6 +1173,38 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               {account?.fileWatch === 'manual' && (
                 <div className={css.navStatus}>{props.t('workbench.watchManual')}</div>
               )}
+              {/*
+                Per-view actions live in the view's own header row, VS Code
+                style: the section tab strip stays a fixed-width tablist, so
+                contributed section tabs never slide under view actions on
+                phone widths.
+              */}
+              <div className={css.filesToolbar}>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.newFile')}
+                  onClick={() => { startCreate('file') }}
+                ><IconPlusOutline16 /></button>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.newFolder')}
+                  onClick={() => { startCreate('directory') }}
+                ><IconProjectAddOutline16 /></button>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.refreshFiles')}
+                  onClick={() => { loadDirectory('') }}
+                ><IconRefreshOutline16 /></button>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.collapseAll')}
+                  onClick={() => { props.actions.collapseAllDirectories(workspaceId) }}
+                ><IconChevronUpOutline14 /></button>
+              </div>
               <DirectoryChildren
                 path=""
                 depth={0}

@@ -265,6 +265,7 @@ function fullResponse(
  * Wire<> widening back to the exact payload (undefined-valued properties and
  * absent ones are indistinguishable after JSON transport).
  */
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- K keeps each route's schema and invoke types paired.
 async function handleUnary<K extends keyof RpcMethodMap>(
   api: ApiProxy,
   method: K,

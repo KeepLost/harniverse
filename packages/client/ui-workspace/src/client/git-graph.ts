@@ -113,7 +113,7 @@ export function layoutCommitGraph(commits: ReadonlyArray<{ hash: string; parents
     for (const parent of extraParents) {
       if (seen.has(parent)) continue
       seen.add(parent)
-      const existing = lanes.findIndex(lane => lane !== null && lane !== undefined && lane.target === parent)
+      const existing = lanes.findIndex(lane => lane !== null && lane.target === parent)
       if (existing !== -1) {
         const existingSlot = lanes[existing]
         /* v8 ignore next -- findIndex matched a live lane targeting the parent. */

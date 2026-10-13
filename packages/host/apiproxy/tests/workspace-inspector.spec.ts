@@ -793,6 +793,25 @@ describe('workspace git projection', () => {
     ])
   })
 
+  it('reports a vanished upstream marker without ahead or behind counts', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'tracked.txt'), 'first\n')
+    await git(root, 'add', '--', 'tracked.txt')
+    await git(root, 'commit', '-m', 'initial')
+    const { stdout: sha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    const { stdout: branchName } = await execFileAsync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    const branch = branchName.trim()
+    await git(root, 'update-ref', `refs/remotes/origin/${branch}`, sha.trim())
+    await git(root, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
+    await git(root, 'config', `branch.${branch}.remote`, 'origin')
+    await git(root, 'config', `branch.${branch}.merge`, `refs/heads/${branch}`)
+    await git(root, 'update-ref', '-d', `refs/remotes/origin/${branch}`)
+
+    await expect(workspaceGitStatus(root, new AbortController().signal)).resolves.toMatchObject({
+      upstream: `origin/${branch}`, ahead: 0, behind: 0,
+    })
+  })
+
   it('reads a staged diff separately from the working tree', async () => {
     const root = await repository()
     writeFileSync(join(root, 'tracked.txt'), 'first\n')
