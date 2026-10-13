@@ -692,6 +692,63 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     if (rootMissing) loadDirectory('')
   }, [loadDirectory, rootMissing])
 
+  // Open file tabs cache their read. These silent re-reads keep the preview
+  // in step with writes the workbench did not make itself (agent edits,
+  // outside processes): no loading flash, the rendered content swaps in only
+  // when the fresh read lands. Dirty documents keep their stale notice, an
+  // in-flight or failed read is left to its own flow, and immutable diff
+  // tabs are never re-read.
+  const rereadTab = useCallback((tab: WorkbenchTab) => {
+    /* v8 ignore next -- file tabs render only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    if (tab.loading || tab.error !== undefined) return
+    if (account?.documentDirty[tab.id] === true) return
+    if (tab.kind === 'image' || tab.kind === 'pdf') {
+      runRequest(
+        signal => props.readBinaryFile(workspace.workspaceId, tab.path, signal),
+        (value) => {
+          props.actions.updateTab(workspaceId, { ...tab, dataBase64: value.dataBase64, mediaType: value.mediaType, bytes: value.bytes })
+        },
+        (error) => { console.warn('silent re-read failed:', error) },
+        `tab:${tab.id}`,
+      )
+      return
+    }
+    // An explicitly chosen encoding survives the re-read; every other source
+    // re-resolves (sticky encodings live Host-side).
+    const encoding = tab.encodingSource === 'explicit' && tab.encoding !== undefined ? { encoding: tab.encoding } : undefined
+    runRequest(
+      signal => props.readFile(workspace.workspaceId, tab.path, encoding, signal),
+      (value) => {
+        props.actions.updateTab(workspaceId, {
+          ...tab,
+          content: value.content, bytes: value.bytes, truncated: value.truncated,
+          encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
+        })
+      },
+      (error) => { console.warn('silent re-read failed:', error) },
+      `tab:${tab.id}`,
+    )
+  }, [account?.documentDirty, props.actions, props.readBinaryFile, props.readFile, runRequest, workspace, workspaceId])
+  /**
+   * Re-read open file tabs, scoped to one directory's immediate children.
+   * @param directoryPath - Restrict to files directly inside this directory;
+   * `undefined` re-reads every open file tab.
+   */
+  const rereadOpenFileTabs = useCallback((directoryPath?: string) => {
+    const tabs = account?.tabs
+    /* v8 ignore next -- the account is ensured on mount before any re-read trigger; only a mid-teardown click reaches here. */
+    if (tabs === undefined) return
+    for (const tab of tabs) {
+      if (!tab.id.startsWith('file:')) continue
+      if (directoryPath !== undefined) {
+        const separator = tab.path.lastIndexOf('/')
+        if ((separator === -1 ? '' : tab.path.slice(0, separator)) !== directoryPath) continue
+      }
+      rereadTab(tab)
+    }
+  }, [account?.tabs, rereadTab])
+
   // Live file-tree refresh: one watch subscription per expanded directory,
   // change bursts coalesced into silent relists. The feed lives per Workspace
   // generation; expansion changes reconcile its subscriptions. A Workspace
@@ -702,6 +759,10 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   /* v8 ignore next -- unreachable placeholder: overwritten before first call. */
   const relistDirectory = useRef((_path: string) => {})
   relistDirectory.current = (path: string) => {
+    // The same change frame means open files directly in this directory may
+    // hold new bytes; re-read them even when the directory was collapsed and
+    // pruned, because their tabs outlive the listing.
+    rereadOpenFileTabs(path)
     /* v8 ignore next -- a change frame can land after the directory collapsed
        and was pruned from the account; the late relist target is gone. */
     if (account?.directories[path] !== undefined) loadDirectory(path, true)
@@ -749,6 +810,9 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     const existing = account?.tabs.find(tab => tab.id === id)
     if (existing !== undefined && existing.error === undefined) {
       props.actions.selectTab(workspaceId, id)
+      // Re-clicking an open file is the tree's re-open gesture: re-read so
+      // outside writes surface without leaving the tab.
+      rereadTab(existing)
       return
     }
     const descriptor = previewType(entry.path)
@@ -777,7 +841,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
         `tab:${id}`,
       )
     }
-  }, [account?.tabs, props.actions, props.readBinaryFile, props.readFile, runRequest, workspace, workspaceId])
+  }, [account?.tabs, props.actions, props.readBinaryFile, props.readFile, rereadTab, runRequest, workspace, workspaceId])
 
   // Inline creation flow: the input lands inside the target directory (VS
   // Code explorer semantics). Creates ride the workspaceFileWrite Remote
@@ -973,8 +1037,11 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     /* v8 ignore next -- revalidation runs only after an account with data resolves. */
     if (workspaceId === undefined || account === undefined) return
     for (const path of Object.keys(account.directories)) loadDirectory(path, true)
+    // Session activity (agent tool writes land here) also re-reads the open
+    // file tabs, not just the listings.
+    rereadOpenFileTabs()
     if (account.git !== null) loadGit(true)
-  }, [account, loadDirectory, loadGit, workspaceId])
+  }, [account, loadDirectory, loadGit, rereadOpenFileTabs, workspaceId])
   const revalidationReady = account !== undefined
     && (Object.keys(account.directories).length > 0 || account.git !== null)
   useEffect(() => {
@@ -1196,7 +1263,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
                   type="button"
                   className={css.iconButton}
                   aria-label={props.t('workbench.refreshFiles')}
-                  onClick={() => { loadDirectory('') }}
+                  onClick={() => { loadDirectory(''); rereadOpenFileTabs() }}
                 ><IconRefreshOutline16 /></button>
                 <button
                   type="button"

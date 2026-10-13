@@ -34,6 +34,12 @@ The workbench's Files tab could only look: there was no way to create a file or 
 
 **Load-more history, rename/delete in the tree, per-commit detail views beyond files.** Out of scope for this change.
 
+## Follow-up: stale preview re-reads
+
+Day-one feedback: after an agent edited a file, the workbench preview kept the bytes from the tab's first read — the tree refresh button only relisted directories, and even the session-activity revalidation refreshed listings and Git data but never the open tabs; only "reopen with encoding" re-read a file. The fix routes every such moment through one silent `rereadTab` (no loading flash; the rendered content swaps in only when the fresh read lands): session-activity revalidation, watch change frames for the tab's directory (immediate-children scope), the Files refresh button, and re-clicking the open file's tree row. An explicitly chosen encoding rides the re-read; dirty documents keep their saved-version notice; loading/failed tabs and immutable diff tabs are skipped; failures warn once and keep the rendered content. The overlay and drawer placements share the store account, so both surfaces move together.
+
+Verification added: component suites for each trigger (activity debounce, watch-frame directory scoping, refresh button, re-click, explicit encoding, dirty/loading/error skips, binary tabs, warn-and-keep on failure) at per-file 100% for `WorkspaceWorkbench.tsx`; the e2e gained the real-host external-write pass (write `tracked.ts` from the test process, re-click, assert the fresh bytes render).
+
 ## Consequences
 
 A user can create files and folders without leaving the tree (including nested paths), collapse the tree in one click, expand any recent commit to see exactly what it changed, open a read-only diff of one file in that commit, and read branch topology at a glance: lane lines, HEAD/local/remote/tag badges, and ahead/behind against the upstream. Branches outside the visible 50-commit window carry no badge (their commits are not listed); the ahead/behind header covers that case. Merge commits list their first-parent diff, not the combined diff. The model sees none of this: no provider request, prompt, or cache key changes.

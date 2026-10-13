@@ -27,6 +27,7 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let workspace: string
 
   beforeAll(async () => {
     const fixture = await readFile(FIXTURE, 'utf8')
@@ -37,7 +38,7 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
       paceMs: 5,
       extraOverlayPath: fileURLToPath(new URL('./workspace-workbench.overlay.yml', import.meta.url)),
     })
-    const workspace = join(scaffold.workspaceCwd, 'workspace')
+    workspace = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(workspace, { recursive: true })
     await mkdir(join(workspace, 'docs'), { recursive: true })
     await writeFile(join(workspace, 'README.md'), '# Workbench E2E\n\nAuthenticated preview.\n')
@@ -216,6 +217,21 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
       () => captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd),
       MODE,
     )
+
+    // An outside write to an open file surfaces in the preview: re-clicking
+    // the tree row re-reads the tab in place (watch frames or the re-open
+    // gesture both land the fresh bytes through the same silent re-read).
+    // Drawer mode swaps the tree out while the preview shows, so dismiss it
+    // first; the retained tab re-opens with fresh bytes on the next row click.
+    await workbench.getByRole('tab', { name: 'Files', exact: true }).click()
+    await navigation.getByRole('button', { name: /tracked\.ts$/ }).click()
+    drawerPreview = workbench.getByRole('region', { name: 'Workspace file preview' })
+    await drawerPreview.getByText('export const state = 3', { exact: false }).waitFor({ timeout: 10_000 })
+    await writeFile(join(workspace, 'tracked.ts'), 'export const state = 4\n')
+    await drawerPreview.getByRole('button', { name: 'Close file preview' }).click()
+    await navigation.getByRole('button', { name: /tracked\.ts$/ }).click()
+    drawerPreview = workbench.getByRole('region', { name: 'Workspace file preview' })
+    await drawerPreview.getByText('export const state = 4', { exact: false }).waitFor({ timeout: 10_000 })
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

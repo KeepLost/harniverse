@@ -929,8 +929,11 @@ describe('WorkspaceWorkbench', () => {
     expect(await screen.findByRole('heading', { name: 'Workbench title' })).toBeTruthy()
     expect(readFile).toHaveBeenCalledWith(wid('a'), 'README.md', undefined, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole('button', { name: /^MDREADME\.md$/ }))
-    expect(readFile.mock.calls.filter(call => call[1] === 'README.md')).toHaveLength(1)
+    // Re-clicking an open file silently re-reads it so outside writes surface.
+    await waitFor(() => { expect(readFile.mock.calls.filter(call => call[1] === 'README.md')).toHaveLength(2) })
+    // The tree refresh button re-reads every open file tab as well.
     fireEvent.click(screen.getByRole('button', { name: '刷新文件树' }))
+    await waitFor(() => { expect(readFile.mock.calls.filter(call => call[1] === 'README.md')).toHaveLength(3) })
 
     fireEvent.click(await screen.findByRole('button', { name: /src/ }))
     await waitFor(() => { expect(listFiles).toHaveBeenCalledWith(wid('a'), 'src', expect.any(AbortSignal)) })
@@ -976,6 +979,11 @@ describe('WorkspaceWorkbench', () => {
     expect(gitDiff.mock.calls.filter(call => call[2] === true)).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: '工作区' }))
     fireEvent.click(screen.getByRole('tab', { name: '文件' }))
+    // The tree refresh re-reads open file tabs but never the immutable diff
+    // tabs sharing the strip.
+    fireEvent.click(screen.getByRole('button', { name: '刷新文件树' }))
+    await waitFor(() => { expect(readFile.mock.calls.filter(call => call[1] === 'README.md')).toHaveLength(4) })
+    expect(gitDiff).toHaveBeenCalledTimes(2)
   })
 
   it('creates and revokes object URLs for bounded binary previews', async () => {
@@ -1637,6 +1645,144 @@ describe('workbench watch-driven file refresh', () => {
     const view = mountWorkbench({ listFiles })
     await advance(5_000)
     expect(listFiles).toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
+})
+
+describe('workbench open-tab staleness re-reads', () => {
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+  const file = (name: string): WorkspaceFileEntry => ({ name, path: name, kind: 'file' })
+  const read = (path: string, content: string) => ({
+    path, content, bytes: content.length, truncated: false,
+    encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const,
+  })
+
+  it('re-reads open file tabs when session activity revalidates the workspace', async () => {
+    const listFiles = vi.fn(async () => ({ path: '', entries: [file('notes.txt')], truncated: false }))
+    const readFile = vi.fn()
+      .mockResolvedValueOnce(read('notes.txt', 'old body'))
+      .mockResolvedValue(read('notes.txt', 'fresh body'))
+    const view = mountWorkbench({ listFiles, readFile })
+    fireEvent.click(await view.findByRole('button', { name: /notes\.txt/ }))
+    expect(await view.findByText('old body')).toBeTruthy()
+    await sleep(650)
+    expect(readFile).toHaveBeenCalledTimes(1)
+
+    view.bumpActivity('s-a', 100)
+    await waitFor(() => { expect(view.getByText('fresh body')).toBeTruthy() }, { timeout: 2_000 })
+    expect(readFile).toHaveBeenCalledTimes(2)
+    view.unmount()
+  }, 10_000)
+
+  it('re-reads only the watched directory clean tabs on change frames, even after collapse', async () => {
+    const src: WorkspaceFileEntry = { name: 'src', path: 'src', kind: 'directory' }
+    const nested: WorkspaceFileEntry = { name: 'b.md', path: 'src/b.md', kind: 'file' }
+    const listFiles = vi.fn(async (_workspaceId: WorkspaceId, path?: string) => ({
+      path: path ?? '',
+      entries: path === 'src' ? [nested] : [src, file('a.txt')],
+      truncated: false,
+    }))
+    const readFile = vi.fn(async (_workspaceId: WorkspaceId, path: string) => read(path, `body of ${path}`))
+    const channel = new WatchChannel()
+    const view = mountWorkbench({ listFiles, readFile }, { watchFiles: channel.watch })
+    await sleep(50)
+    fireEvent.click(view.getByRole('button', { name: 'TXTa.txt' }))
+    await waitFor(() => { expect(view.getByText('body of a.txt')).toBeTruthy() })
+    fireEvent.click(view.getByRole('button', { name: /src/ }))
+    fireEvent.click(await view.findByRole('button', { name: 'MDb.md' }))
+    await waitFor(() => { expect(view.getByText('body of src/b.md')).toBeTruthy() })
+    expect(readFile).toHaveBeenCalledTimes(2)
+    // A dirty document keeps its stale notice instead of being clobbered.
+    view.instance.actions.setDocumentDirty(wid('a'), 'file:a.txt', true)
+
+    // A change frame for src re-reads only src's own clean file tabs.
+    channel.emit({ kind: 'change', change: { absolutePath: '/projects/a/src/b.md', version: '2' } })
+    await sleep(450)
+    expect(readFile.mock.calls.filter(call => call[1] === 'a.txt')).toHaveLength(1)
+    expect(readFile.mock.calls.filter(call => call[1] === 'src/b.md')).toHaveLength(2)
+
+    // The dirty document keeps its stale notice: the tree refresh re-reads
+    // the clean tab but never clobbers unsaved edits.
+    view.instance.actions.setDocumentDirty(wid('a'), 'file:a.txt', true)
+    fireEvent.click(view.getByRole('button', { name: '刷新文件树' }))
+    await waitFor(() => { expect(readFile.mock.calls.filter(call => call[1] === 'src/b.md')).toHaveLength(3) })
+    expect(readFile.mock.calls.filter(call => call[1] === 'a.txt')).toHaveLength(1)
+    expect(readFile).toHaveBeenCalledTimes(4)
+    // Selecting a tab in the strip never re-reads it.
+    fireEvent.click(view.getByRole('tab', { name: 'a.txt' }))
+    expect(readFile).toHaveBeenCalledTimes(4)
+    view.unmount()
+  }, 10_000)
+
+  it('keeps an explicit encoding across silent re-reads and covers binary tabs on refresh', async () => {
+    const pixel: WorkspaceFileEntry = { name: 'pixel.png', path: 'pixel.png', kind: 'file' }
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [pixel, readme], truncated: false }))
+    const readFile = vi.fn(async () => ({
+      path: 'README.md', content: 'body', bytes: 4, truncated: false,
+      encoding: 'windows-1252', encodingSource: 'explicit' as const, bom: false, eol: 'LF' as const,
+    }))
+    const readBinaryFile = vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+      path, dataBase64: 'AAEC', mediaType: 'image/png', bytes: 3,
+    }))
+    const view = mountWorkbench({ listFiles, readFile, readBinaryFile })
+    fireEvent.click(await view.findByRole('button', { name: /README\.md$/ }))
+    await waitFor(() => { expect(readFile).toHaveBeenCalledTimes(1) })
+    fireEvent.click(view.getByRole('button', { name: /pixel\.png$/ }))
+    await waitFor(() => { expect(readBinaryFile).toHaveBeenCalledTimes(1) })
+
+    fireEvent.click(view.getByRole('button', { name: '刷新文件树' }))
+    await waitFor(() => { expect(readFile).toHaveBeenCalledTimes(2) })
+    await waitFor(() => { expect(readBinaryFile).toHaveBeenCalledTimes(2) })
+    // The operator's explicit encoding choice rides the re-read.
+    expect(readFile).toHaveBeenLastCalledWith(wid('a'), 'README.md', { encoding: 'windows-1252' }, expect.any(AbortSignal))
+    view.unmount()
+  })
+
+  it('skips re-reads for tabs still loading or failed and warns on re-read failures', async () => {
+    const slow: WorkspaceFileEntry = { name: 'slow.txt', path: 'slow.txt', kind: 'file' }
+    const broken: WorkspaceFileEntry = { name: 'broken.ts', path: 'broken.ts', kind: 'file' }
+    const pixel: WorkspaceFileEntry = { name: 'pixel.png', path: 'pixel.png', kind: 'file' }
+    const listFiles = vi.fn(async () => ({ path: '', entries: [slow, broken, pixel], truncated: false }))
+    let releaseSlow: ((value: ReturnType<typeof read>) => void) | undefined
+    const readFile = vi.fn((_workspaceId: WorkspaceId, path: string): Promise<ReturnType<typeof read>> => {
+      if (path === 'slow.txt') {
+        return new Promise<ReturnType<typeof read>>((resolve: (value: ReturnType<typeof read>) => void) => {
+          releaseSlow = (value: ReturnType<typeof read>) => { resolve(value) }
+        })
+      }
+      return Promise.reject(new Error('read failed'))
+    })
+    const readBinaryFile = vi.fn()
+      .mockResolvedValueOnce({ path: 'pixel.png', dataBase64: 'AAEC', mediaType: 'image/png', bytes: 3 })
+      .mockRejectedValue(new Error('binary gone'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const view = mountWorkbench({ listFiles, readFile, readBinaryFile })
+    fireEvent.click(await view.findByRole('button', { name: 'TXTslow.txt' }))
+    fireEvent.click(view.getByRole('button', { name: 'TSbroken.ts' }))
+    expect(await view.findByText('read failed')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: /pixel\.png$/ }))
+    expect(await view.findByRole('img', { name: 'pixel.png' })).toBeTruthy()
+    // slow.txt is still loading and broken.ts has failed: the tree refresh
+    // re-reads neither. The settled binary tab re-reads; its failure only
+    // warns and keeps the rendered bytes.
+    fireEvent.click(view.getByRole('button', { name: '刷新文件树' }))
+    await waitFor(() => { expect(warn).toHaveBeenCalledWith('silent re-read failed:', 'binary gone') })
+    expect(readFile.mock.calls.filter(call => call[1] === 'slow.txt')).toHaveLength(1)
+    expect(readFile.mock.calls.filter(call => call[1] === 'broken.ts')).toHaveLength(1)
+    expect(view.getByRole('img', { name: 'pixel.png' })).toBeTruthy()
+    releaseSlow?.(read('slow.txt', 'slow body'))
+
+    // A later refresh whose text re-read fails warns once and keeps the
+    // rendered content instead of flashing the tab empty.
+    readFile.mockImplementation(async (_workspaceId: WorkspaceId, path: string) => read(path, 'never seen'))
+    fireEvent.click(await view.findByRole('tab', { name: /^slow\.txt$/ }))
+    await waitFor(() => { expect(view.getByText('slow body')).toBeTruthy() })
+    readFile.mockRejectedValue(new Error('gone'))
+    fireEvent.click(view.getByRole('button', { name: '刷新文件树' }))
+    await waitFor(() => { expect(warn).toHaveBeenCalledWith('silent re-read failed:', 'gone') })
+    expect(view.getByText('slow body')).toBeTruthy()
+    warn.mockRestore()
     view.unmount()
   })
 })
