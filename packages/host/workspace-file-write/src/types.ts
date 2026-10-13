@@ -1,7 +1,8 @@
 /**
  * Public wire vocabulary of the workspace file-editing Remote: open results,
- * version probes, save requests/results, and the stable failure codes the
- * client discriminates on. Types only — no runtime code.
+ * version probes, save requests/results, exclusive-create acks, and the
+ * stable failure codes the client discriminates on. Types only — no runtime
+ * code.
  * @module @deepseek-ai/dsh-workspace-file-write/types
  */
 
@@ -13,6 +14,7 @@ export type WorkspaceFileWriteErrorCode =
   | 'not-regular'
   | 'symlink'
   | 'git-dir'
+  | 'exists'
   | 'too-large'
   | 'not-text'
   | 'mixed-eol'
@@ -78,4 +80,10 @@ export interface WorkspaceFileSaveRequest {
 export interface WorkspaceFileSaveResult {
   /** `FsVersion` the write produced; the editor's new baseline. */
   readonly version: string
+}
+
+/** Result of one exclusive create; the new entry is verified on disk before the ack. */
+export interface WorkspaceFileCreateResult {
+  /** Acknowledgment that a new entry now exists at the requested path. */
+  readonly created: true
 }

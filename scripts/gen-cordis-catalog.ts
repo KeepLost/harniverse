@@ -838,6 +838,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkspaceFileSaveRequest: 'version-checked save request is owned by packages/host/workspace-file-write/README.md',
   WorkspaceFileSaveResult: 'committed save result is owned by packages/host/workspace-file-write/README.md',
   WorkspaceFileStatResult: 'version probe result is owned by packages/host/workspace-file-write/README.md',
+  WorkspaceFileCreateResult: 'exclusive create result is owned by packages/host/workspace-file-write/README.md',
   AddChatBotInput: 'chat bot creation input is owned by packages/chat/chat-manager/README.md',
   UpdateChatBotInput: 'chat bot update input is owned by packages/chat/chat-manager/README.md',
   ChatBotIdInput: 'chat bot id input is owned by packages/chat/chat-manager/README.md',

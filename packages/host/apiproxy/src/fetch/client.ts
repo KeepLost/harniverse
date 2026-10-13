@@ -96,6 +96,7 @@ import {
   workspaceFilesWatchFrameSchema,
 } from '../api/workspace-files.schema.ts'
 import {
+  workspaceGitCommitDiffValueSchema, workspaceGitCommitFilesValueSchema,
   workspaceGitCommitsValueSchema, workspaceGitDiffValueSchema, workspaceGitStatusValueSchema,
 } from '../api/workspace-git.schema.ts'
 
@@ -191,6 +192,8 @@ export interface IApiClient {
     status(payload: RequestPayload<'workspace.git.status'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.status'>>>
     commits(payload: RequestPayload<'workspace.git.commits'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.commits'>>>
     diff(payload: RequestPayload<'workspace.git.diff'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.diff'>>>
+    commitFiles(payload: RequestPayload<'workspace.git.commitFiles'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.commitFiles'>>>
+    commitDiff(payload: RequestPayload<'workspace.git.commitDiff'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.commitDiff'>>>
   }
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
@@ -296,6 +299,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'workspace.git.status': workspaceGitStatusValueSchema,
   'workspace.git.commits': workspaceGitCommitsValueSchema,
   'workspace.git.diff': workspaceGitDiffValueSchema,
+  'workspace.git.commitFiles': workspaceGitCommitFilesValueSchema,
+  'workspace.git.commitDiff': workspaceGitCommitDiffValueSchema,
   'skill.list': skillListValueSchema,
   'agentPreset.list': agentPresetListValueSchema,
   'agentPreset.read': agentPresetReadValueSchema,
@@ -666,6 +671,8 @@ export abstract class AbstractApiClient implements IApiClient {
     status: (payload, signal) => this.callUnary('workspace.git.status', payload, signal),
     commits: (payload, signal) => this.callUnary('workspace.git.commits', payload, signal),
     diff: (payload, signal) => this.callUnary('workspace.git.diff', payload, signal),
+    commitFiles: (payload, signal) => this.callUnary('workspace.git.commitFiles', payload, signal),
+    commitDiff: (payload, signal) => this.callUnary('workspace.git.commitDiff', payload, signal),
   }
 
   readonly skills: IApiClient['skills'] = {

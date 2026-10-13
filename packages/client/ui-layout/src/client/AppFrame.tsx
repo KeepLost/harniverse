@@ -404,6 +404,10 @@ export function AppFrame({
     if (!sidebarDrawer) return
     const onDocumentKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      // The workbench tree's inline create input owns its own Escape; it
+      // stops the native propagation, so this capture layer only sees it
+      // when that input chose not to handle the key.
+      if (event.target instanceof Element && event.target.closest('[data-workbench-create]') !== null) return
       event.preventDefault()
       event.stopPropagation()
       actions.toggleSidebar()

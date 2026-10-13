@@ -143,9 +143,11 @@ function scriptedApi(overrides: {
       ...overrides.workspaceFiles,
     },
     workspaceGit: {
-      status: r => ok(r, { branch: 'main', entries: [], truncated: false }),
+      status: r => ok(r, { branch: 'main', upstream: null, ahead: null, behind: null, entries: [], truncated: false }),
       commits: r => ok(r, { commits: [], truncated: false }),
       diff: r => ok(r, { diff: '', truncated: false }),
+      commitFiles: r => ok(r, { files: [], truncated: false }),
+      commitDiff: r => ok(r, { diff: '', truncated: false }),
       ...overrides.workspaceGit,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
@@ -339,10 +341,13 @@ describe('unary round trip', () => {
       (await c.workspaceFiles.readBinary({ workspaceId, path: 'a.png' })).result,
     ]) expect(reasonOf(result)).toBe('workspace file inspection is unavailable')
 
+    const hash = 'a'.repeat(40)
     for (const result of [
       (await c.workspaceGit.status({ workspaceId })).result,
       (await c.workspaceGit.commits({ workspaceId })).result,
       (await c.workspaceGit.diff({ workspaceId, path: 'a.md' })).result,
+      (await c.workspaceGit.commitFiles({ workspaceId, hash })).result,
+      (await c.workspaceGit.commitDiff({ workspaceId, hash, path: 'a.md' })).result,
     ]) expect(reasonOf(result)).toBe('workspace Git inspection is unavailable')
 
     expect(reasonOf((await c.jobs.follow({ sessionId: sid('s1'), jobId: JobId('bash-1') })).result ?? { ok: true, value: 0 }))
@@ -688,12 +693,24 @@ describe('workspace domain round trip', () => {
     expect((await c.workspaceGit.status({ workspaceId: 'w1' as never })).result.ok).toBe(true)
     expect((await c.workspaceGit.commits({ workspaceId: 'w1' as never, limit: 10 })).result.ok).toBe(true)
     expect((await c.workspaceGit.diff({ workspaceId: 'w1' as never, staged: true })).result.ok).toBe(true)
+    expect((await c.workspaceGit.commitFiles({ workspaceId: 'w1' as never, hash: 'a'.repeat(40) })).result.ok).toBe(true)
+    expect((await c.workspaceGit.commitDiff({ workspaceId: 'w1' as never, hash: 'a'.repeat(40), path: 'a.md' })).result.ok).toBe(true)
   })
 
   it('rejects a pathless create payload at the handler schema', async () => {
     const response = await client(scriptedApi()).workspace.create({} as never)
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
+  })
+
+  it('rejects a malformed commit hash at the handler schema', async () => {
+    const c = client(scriptedApi())
+    const files = await c.workspaceGit.commitFiles({ workspaceId: 'w1' as never, hash: 'nope' })
+    expect(files.result.ok).toBe(false)
+    if (!files.result.ok) expect(files.result.error.code).toBe('bad-request')
+    const patch = await c.workspaceGit.commitDiff({ workspaceId: 'w1' as never, hash: 'nope', path: 'a.md' })
+    expect(patch.result.ok).toBe(false)
+    if (!patch.result.ok) expect(patch.result.error.code).toBe('bad-request')
   })
 
   it('rejects an oversized Workspace search glob list at the handler schema', async () => {

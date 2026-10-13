@@ -191,9 +191,38 @@ The workspace file-editing Remote. Methods are addressed by Workspace id (never 
  * @returns the version the write produced.
  */
 @Remote({ exportName: 'save', requiredCapability: 'harniverse.operate' }) async save( workspaceId: WorkspaceId, path: string, request: WorkspaceFileSaveRequest, signal: AbortSignal, ): Promise<WorkspaceFileSaveResult>
+
+/**
+ * Create one empty text file exclusively (`harniverse.operate`): absent
+ * intermediate directories are created one validated segment at a time, and
+ * the final entry publishes through `ctx.fs.writeText` under
+ * `createIfAbsent`, so the create inherits the local backend's per-target
+ * lock, private staging, atomic no-replace publication, and sandbox fence.
+ * An existing entry of any kind refuses with `exists`; nothing is truncated
+ * or overwritten, and the published file is re-verified through a no-follow
+ * descriptor before the ack.
+ * @param workspaceId - registered Workspace owning the path.
+ * @param path - workspace-relative file path.
+ * @param signal - request cancellation.
+ * @returns an ack that a new empty regular file exists at the path.
+ */
+@Remote({ exportName: 'createFile', requiredCapability: 'harniverse.operate' }) async createFile(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileCreateResult>
+
+/**
+ * Create one directory exclusively (`harniverse.operate`), with absent
+ * intermediate directories created one validated segment at a time. The
+ * semantics are strict, not mkdir -p idempotent: an existing entry of any
+ * kind at the final segment refuses with `exists`, and the created
+ * directory is re-verified before the ack.
+ * @param workspaceId - registered Workspace owning the path.
+ * @param path - workspace-relative directory path.
+ * @param signal - request cancellation.
+ * @returns an ack that a new directory exists at the path.
+ */
+@Remote({ exportName: 'createDirectory', requiredCapability: 'harniverse.operate' }) async createDirectory(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileCreateResult>
 ```
 
-Source: [`packages/host/workspace-file-write/src/index.ts:119`](../../packages/host/workspace-file-write/src/index.ts)
+Source: [`packages/host/workspace-file-write/src/index.ts:128`](../../packages/host/workspace-file-write/src/index.ts)
 
 <a id="ctxworkspaceregistry--workspaceregistry"></a>
 
@@ -404,5 +433,5 @@ One user file edit committed through the workbench editor. Emitted at the write'
 'workspace-file/saved'(event: WorkspaceFileSavedEvent): void
 ```
 
-Source: [`packages/host/workspace-file-write/src/index.ts:86`](../../packages/host/workspace-file-write/src/index.ts)
+Source: [`packages/host/workspace-file-write/src/index.ts:95`](../../packages/host/workspace-file-write/src/index.ts)
 <!-- END GENERATED cordis-surface -->

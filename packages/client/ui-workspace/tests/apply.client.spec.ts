@@ -40,13 +40,18 @@ async function bench() {
   const searchFiles = vi.fn(async () => ({ entries: [], truncated: false }))
   const readFile = vi.fn(async (_workspaceId: unknown, path: string, _opts?: unknown) => ({ path, content: '', bytes: 0, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }))
   const readBinaryFile = vi.fn(async (_workspaceId, path: string) => ({ path, dataBase64: '', mediaType: 'image/png', bytes: 0 }))
-  const gitStatus = vi.fn(async () => ({ branch: null, entries: [], truncated: false }))
+  const gitStatus = vi.fn(async () => ({ branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false }))
   const gitCommits = vi.fn(async () => ({ commits: [], truncated: false }))
   const gitDiff = vi.fn(async () => ({ diff: '', truncated: false }))
+  const gitCommitFiles = vi.fn(async () => ({ files: [], truncated: false }))
+  const gitCommitDiff = vi.fn(async () => ({ diff: '', truncated: false }))
+  const createFile = vi.fn(async () => ({ ok: true as const, value: { created: true as const } }))
+  const createDirectory = vi.fn(async () => ({ ok: true as const, value: { created: true as const } }))
   ctx.provide('workspaces', {
     create, startSession, rename, insertSessionBefore,
-    listFiles, searchFiles, readFile, readBinaryFile, gitStatus, gitCommits, gitDiff,
+    listFiles, searchFiles, readFile, readBinaryFile, gitStatus, gitCommits, gitDiff, gitCommitFiles, gitCommitDiff,
   } as never)
+  ctx.provide('remote.workspaceFileWrite', { open: vi.fn(), stat: vi.fn(), save: vi.fn(), createFile, createDirectory } as never)
   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
   ctx.provide('layout', { openWorkbench, closeWorkbench } as never)
   const targetListeners = new Set<() => void>()
@@ -60,6 +65,7 @@ async function bench() {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
     insertSessionBefore, open, clear, search, renameSession, binding, fork,
     openWorkbench, closeWorkbench, listFiles, searchFiles, readFile, readBinaryFile, gitStatus, gitCommits, gitDiff,
+    gitCommitFiles, gitCommitDiff, createFile, createDirectory,
     switchTarget() { target = { kind: 'remote', id: 'remote' }; for (const listener of targetListeners) listener() },
   }
 }
@@ -83,7 +89,7 @@ function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'layout', 'connection'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'layout', 'connection', 'remote.workspaceFileWrite'])
   })
 
   it('remounts machine surfaces and gives colliding workspace stores separate identities', async () => {
@@ -195,6 +201,10 @@ describe('ui-workspace apply', () => {
     await injected.gitStatus('ws' as never, signal)
     await injected.gitCommits('ws' as never, 10, signal)
     await injected.gitDiff('ws' as never, 'README.md', true, signal)
+    await injected.gitCommitFiles('ws' as never, 'aaaa', signal)
+    await injected.gitCommitDiff('ws' as never, 'aaaa', 'README.md', signal)
+    await injected.createFile('ws' as never, 'notes/todo.md', signal)
+    await injected.createDirectory('ws' as never, 'notes', signal)
     injected.openWorkbench()
     injected.closeWorkbench()
 
@@ -206,6 +216,10 @@ describe('ui-workspace apply', () => {
     expect(b.gitStatus).toHaveBeenCalledWith('ws', signal)
     expect(b.gitCommits).toHaveBeenCalledWith('ws', 10, signal)
     expect(b.gitDiff).toHaveBeenCalledWith('ws', 'README.md', true, signal)
+    expect(b.gitCommitFiles).toHaveBeenCalledWith('ws', 'aaaa', signal)
+    expect(b.gitCommitDiff).toHaveBeenCalledWith('ws', 'aaaa', 'README.md', signal)
+    expect(b.createFile).toHaveBeenCalledWith('ws', 'notes/todo.md', signal)
+    expect(b.createDirectory).toHaveBeenCalledWith('ws', 'notes', signal)
     expect(b.openWorkbench).toHaveBeenCalledOnce()
     expect(b.closeWorkbench).toHaveBeenCalledOnce()
   })

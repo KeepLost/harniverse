@@ -21,13 +21,26 @@
         - tab "Terminal":
           - img
           - text: Terminal
+    - tabpanel "Files":
+      - button "New file":
+        - img
+      - button "New folder":
+        - img
       - button "Refresh file tree":
         - img
-    - tabpanel "Files":
+      - button "Collapse all folders":
+        - img
       - button ".git":
         - img
         - img
         - text: .git
+      - button "docs":
+        - img
+        - img
+        - text: docs
+      - button "TS added.ts"
+      - button "Open “added.ts” in the default application":
+        - img
       - button "MD README.md"
       - button "Open “README.md” in the default application":
         - img

@@ -1,19 +1,23 @@
-import { useCallback, useDeferredValue, useEffect, useRef } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   IconBranchOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconCloseOutline16, IconFolderClose16, IconFolderOpen16,
-  IconRefreshOutline16, IconRightUpOutline16, IconSearchOutline16,
-  IconSettingsOutline16,
+  IconChevronUpOutline14, IconCloseOutline16, IconFolderClose16, IconFolderOpen16,
+  IconPlusOutline16, IconProjectAddOutline16, IconRefreshOutline16, IconRightUpOutline16,
+  IconSearchOutline16, IconSettingsOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { IWorkspaces, WorkspaceFileEntry } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  IWorkspaces, WorkspaceFileEntry, WorkspaceGitCommit, WorkspaceGitCommitFile, WorkspaceGitCommitRef,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { ChangeFeed, resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PreviewDocumentOwnerProps, WorkspacePreviewOverlayProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
 import type {
-  WorkbenchDirectory, WorkbenchGitArea, WorkbenchSearch, WorkbenchSection, WorkbenchTab,
+  WorkbenchCommitFiles, WorkbenchDirectory, WorkbenchGitArea, WorkbenchSearch, WorkbenchSection,
+  WorkbenchTab,
 } from './stores.ts'
 import { previewType } from './preview-kind.ts'
+import { layoutCommitGraph } from './git-graph.ts'
 import { WorkbenchPreview } from './WorkbenchPreview.tsx'
 import type { EditorSeat } from './WorkbenchPreview.tsx'
 import css from './WorkspaceWorkbench.module.css'
@@ -56,6 +60,71 @@ function extension(path: string): string {
   const name = basename(path)
   const index = name.lastIndexOf('.')
   return index === -1 ? '' : name.slice(index + 1).toLowerCase()
+}
+
+/** Directory-prefix of one tree path: `a/b/c.md` yields `a/b`, a root file yields `''`. */
+function parentDirectory(path: string): string {
+  const index = path.lastIndexOf('/')
+  return index === -1 ? '' : path.slice(0, index)
+}
+
+/** Inline tree-row input for exclusive file/folder creation, VS Code explorer style. */
+function TreeCreateInput(props: {
+  mode: 'file' | 'directory'
+  busy: boolean
+  error?: string
+  inset: number
+  t: WorkbenchTranslate
+  onSubmit: (name: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const cancelled = useRef(false)
+  useEffect(() => { inputRef.current?.focus() }, [])
+  const submit = (): void => {
+    if (props.busy) return
+    if (value.trim() === '') {
+      cancelled.current = true
+      props.onCancel()
+      return
+    }
+    props.onSubmit(value)
+  }
+  return (
+    <div className={css.treeCreate} style={{ paddingLeft: `${String(props.inset)}px` }}>
+      <input
+        ref={inputRef}
+        type="text"
+        className={css.treeCreateInput}
+        value={value}
+        placeholder={props.t(props.mode === 'file' ? 'workbench.createFileName' : 'workbench.createFolderName')}
+        aria-label={props.t(props.mode === 'file' ? 'workbench.createFileAria' : 'workbench.createFolderAria')}
+        disabled={props.busy}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(event) => { setValue(event.currentTarget.value) }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            submit()
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            // The inline input owns Escape while it exists: stopping the
+            // native propagation keeps the drawer/preview dismissal layers
+            // (document and window capture) from also reacting.
+            event.stopPropagation()
+            cancelled.current = true
+            props.onCancel()
+          }
+        }}
+        onBlur={() => { if (!cancelled.current) submit() }}
+        data-workbench-create
+      />
+      {props.busy && <span className={css.treeCreateStatus}>{props.t('workbench.createBusy')}</span>}
+      {props.error !== undefined && <div className={css.navError} role="alert">{props.error}</div>}
+    </div>
+  )
 }
 
 /** Split a comma-separated glob field without breaking brace alternatives or character classes. */
@@ -139,17 +208,38 @@ export function DirectoryChildren(props: {
   activePath: string | undefined
   /** Whether the connected Host can open paths with a native application. */
   canOpenPath: boolean
+  /** Pending inline creation inside this tree, when its directory is the target. */
+  createDraft?: { directoryPath: string; mode: 'file' | 'directory'; busy: boolean; error?: string }
   t: WorkbenchTranslate
   onToggle: (path: string) => void
   onOpen: (entry: WorkspaceFileEntry) => void
   /** Open one file with the Host's default application. */
   onOpenExternal: (entry: WorkspaceFileEntry) => void
+  onCreateSubmit: (name: string) => void
+  onCreateCancel: () => void
 }) {
   const directory = props.directories[props.path]
-  if (directory === undefined || directory.loading) return <div className={css.navStatus}>{props.t('workbench.directoryLoading')}</div>
-  if (directory.error !== undefined) return <div className={css.navError}>{directory.error}</div>
+  const draft = props.createDraft?.directoryPath === props.path ? props.createDraft : undefined
+  const draftInput = draft === undefined ? null : (
+    <TreeCreateInput
+      mode={draft.mode}
+      busy={draft.busy}
+      {...(draft.error === undefined ? {} : { error: draft.error })}
+      inset={8 + (props.depth + 1) * 22 - 14}
+      t={props.t}
+      onSubmit={props.onCreateSubmit}
+      onCancel={props.onCreateCancel}
+    />
+  )
+  if (directory === undefined || directory.loading) {
+    return <>{draftInput}<div className={css.navStatus}>{props.t('workbench.directoryLoading')}</div></>
+  }
+  if (directory.error !== undefined) {
+    return <>{draftInput}<div className={css.navError}>{directory.error}</div></>
+  }
   return (
     <>
+      {draftInput}
       {directory.entries.map((entry) => {
         // 22px per level, matching the sidebar tree (16px slot + 6px gap).
         const inset = { paddingLeft: `${String(8 + props.depth * 22)}px` }
@@ -290,12 +380,71 @@ export function SearchPanel(props: {
   )
 }
 
+/** Graph geometry constants shared by every commit row. */
+const GRAPH_LANE_WIDTH = 12
+const GRAPH_ROW_HEIGHT = 28
+const GRAPH_MID = GRAPH_ROW_HEIGHT / 2
+
+/** Static lane palette classes; indices come from {@link layoutCommitGraph}. */
+const GRAPH_LANE_CLASSES = [
+  'lane0', 'lane1', 'lane2', 'lane3', 'lane4', 'lane5', 'lane6',
+] as const
+
+/** Static ref-badge classes keyed by decoration kind. */
+const REF_CLASSES: Record<WorkspaceGitCommitRef['kind'], string | undefined> = {
+  head: 'refHead',
+  local: 'refLocal',
+  remote: 'refRemote',
+  tag: 'refTag',
+  other: 'refOther',
+}
+
+/** One commit row's graph gutter: connectors between adjacent lane layouts. */
+function CommitGraphGutter(props: { lane: number; color: number; edges: Array<{ from: number; to: number; half: 'upper' | 'lower' | 'through'; color: number }>; laneCount: number }) {
+  const width = Math.max(props.laneCount, 2) * GRAPH_LANE_WIDTH
+  const x = (lane: number): number => lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2
+  return (
+    <svg
+      className={css.commitGraph}
+      style={{ width: `${String(width)}px` }}
+      viewBox={`0 0 ${String(width)} ${String(GRAPH_ROW_HEIGHT)}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {props.edges.map((edge, index) => {
+        const from = x(edge.from)
+        const to = x(edge.to)
+        const straight = edge.from === edge.to
+        const d = edge.half === 'upper'
+          ? (straight ? `M${from} 0V${GRAPH_MID}` : `M${from} 0C${from} ${GRAPH_MID / 2} ${to} ${GRAPH_MID / 2} ${to} ${GRAPH_MID}`)
+          : edge.half === 'lower'
+            ? (straight ? `M${from} ${GRAPH_MID}V${GRAPH_ROW_HEIGHT}` : `M${from} ${GRAPH_MID}C${from} ${GRAPH_MID + GRAPH_MID / 2} ${to} ${GRAPH_MID + GRAPH_MID / 2} ${to} ${GRAPH_ROW_HEIGHT}`)
+            : (straight ? `M${from} 0V${GRAPH_ROW_HEIGHT}` : `M${from} 0C${from} ${GRAPH_MID} ${to} ${GRAPH_MID} ${to} ${GRAPH_ROW_HEIGHT}`)
+        return <path key={index} className={css[GRAPH_LANE_CLASSES[edge.color] as string]} d={d} vectorEffect="non-scaling-stroke" />
+      })}
+      <circle
+        className={css[GRAPH_LANE_CLASSES[props.color] as string]}
+        cx={x(props.lane)}
+        cy={GRAPH_MID}
+        r={3}
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
+}
+
 /** Package-internal Git navigation presentation, exported for direct component accounting. */
 export function ChangesPanel(props: {
   area: WorkbenchGitArea
   branch: string | null
+  upstream: string | null
+  ahead: number | null
+  behind: number | null
   statusEntries: Array<{ path: string; indexStatus: string; worktreeStatus: string; originalPath?: string }>
-  commits: Array<{ hash: string; shortHash: string; authoredAt: string; subject: string }>
+  commits: WorkspaceGitCommit[]
+  commitFiles: Record<string, WorkbenchCommitFiles>
+  expandedCommits: Record<string, boolean>
   loading: boolean
   truncated: boolean
   error?: string
@@ -304,14 +453,25 @@ export function ChangesPanel(props: {
   onRefresh: () => void
   onOpenDiff: (entry: { path: string; indexStatus: string; worktreeStatus: string }) => void
   onOpenFile: (entry: WorkspaceFileEntry) => void
+  onToggleCommit: (hash: string) => void
+  onOpenCommitDiff: (commit: WorkspaceGitCommit, file: WorkspaceGitCommitFile) => void
 }) {
   const changed = props.statusEntries.filter(entry => props.area === 'staged'
     ? entry.indexStatus !== ' ' && entry.indexStatus !== '?'
     : entry.worktreeStatus !== ' ')
+  const graph = useMemo(() => layoutCommitGraph(props.commits), [props.commits])
+  const ahead = props.ahead ?? 0
+  const behind = props.behind ?? 0
+  const diverged = props.upstream !== null && (ahead > 0 || behind > 0)
   return (
     <div className={css.changesPanel}>
       <div className={css.gitHeader}>
         <span>{props.branch === null ? props.t('workbench.gitChanges') : props.t('workbench.gitBranch', { name: props.branch })}</span>
+        {diverged && (
+          <span className={css.gitDiverged}>
+            {props.t('workbench.gitDiverged', { ahead: String(ahead), behind: String(behind) })}
+          </span>
+        )}
         <button type="button" className={css.iconButton} aria-label={props.t('workbench.gitRefresh')} onClick={props.onRefresh}><IconRefreshOutline16 /></button>
       </div>
       <div className={css.segmented}>
@@ -345,13 +505,72 @@ export function ChangesPanel(props: {
       {props.truncated && <div className={css.navStatus}>{props.t('workbench.gitTruncated')}</div>}
       <div className={css.historyHeading}>{props.t('workbench.gitHistory')}</div>
       <div className={css.commitList}>
-        {props.commits.map(commit => (
-          <div key={commit.hash} className={css.commitRow}>
-            <code>{commit.shortHash}</code>
-            <span>{commit.subject}</span>
-            <time dateTime={commit.authoredAt}>{commit.authoredAt.slice(0, 10)}</time>
-          </div>
-        ))}
+        {props.commits.map((commit, index) => {
+          const row = graph.rows[index]
+          const files = props.commitFiles[commit.hash]
+          const expanded = props.expandedCommits[commit.hash] === true
+          return (
+            <div key={commit.hash} className={css.commitEntry}>
+              <button
+                type="button"
+                className={css.commitRow}
+                aria-expanded={expanded}
+                aria-label={props.t('workbench.gitCommitExpand', { hash: commit.shortHash })}
+                onClick={() => { props.onToggleCommit(commit.hash) }}
+              >
+                {row !== undefined && (
+                  <CommitGraphGutter lane={row.lane} color={row.color} edges={row.edges} laneCount={graph.laneCount} />
+                )}
+                <span className={css.commitMain}>
+                  <span className={css.commitTitle}>
+                    <span className={css.commitSubject}>{commit.subject}</span>
+                    {commit.refs.map(ref => (
+                      <span
+                        key={`${ref.kind}:${ref.name}`}
+                        className={clsx(css.refBadge, css[REF_CLASSES[ref.kind] as string], ref.current ? css.refCurrent : undefined)}
+                        title={props.t(`workbench.ref${ref.kind.charAt(0).toUpperCase()}${ref.kind.slice(1)}` as never)}
+                      >{ref.kind === 'head' ? 'HEAD' : ref.name}</span>
+                    ))}
+                  </span>
+                  <span className={css.commitMeta}>
+                    <span>{commit.authorName}</span>
+                    <code>{commit.shortHash}</code>
+                    <time dateTime={commit.authoredAt}>{commit.authoredAt.slice(0, 10)}</time>
+                  </span>
+                </span>
+              </button>
+              {expanded && (
+                <div className={css.commitDetail}>
+                  <div className={css.commitDetailMeta}>
+                    <span>{commit.authorName} <span>{`<${commit.authorEmail}>`}</span></span>
+                    <code>{commit.hash}</code>
+                    <time dateTime={commit.authoredAt}>{commit.authoredAt}</time>
+                  </div>
+                  {(files === undefined || files.loading) && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesLoading')}</div>}
+                  {files?.error !== undefined && <div className={css.navError}>{files.error}</div>}
+                  {files !== undefined && files.error === undefined && !files.loading && files.files.length === 0
+                    && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesEmpty')}</div>}
+                  <div className={css.commitFileList}>
+                    {(files?.files ?? []).map(file => (
+                      <button
+                        type="button"
+                        key={`${file.status}:${file.path}`}
+                        className={css.commitFileRow}
+                        data-workbench-focus-path={file.path}
+                        onClick={() => { props.onOpenCommitDiff(commit, file) }}
+                      >
+                        <span className={css.changeStatus} data-status={file.status}>{file.status}</span>
+                        <span title={file.path}>{file.path}</span>
+                        {file.previousPath !== undefined && <span className={css.commitFileOld}>{file.previousPath}</span>}
+                      </button>
+                    ))}
+                  </div>
+                  {files?.truncated === true && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesTruncated')}</div>}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -431,6 +650,12 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const activeMode = activeTab === undefined ? undefined : account?.previewMode[activeTab.id]
   const runRequest = useRequestFence(workspaceId)
   const canOpenPath = props.useCanOpenPath(capable => capable)
+  // Inline tree creation state: target directory follows the last tree row
+  // the operator interacted with (an opened file's parent, an expanded
+  // directory), defaulting to the workspace root.
+  const [createDraft, setCreateDraft] = useState<{ mode: 'file' | 'directory'; directoryPath: string; busy: boolean; error?: string } | undefined>(undefined)
+  const lastDirectoryRef = useRef('')
+  useEffect(() => { setCreateDraft(undefined) }, [workspaceId])
   const openExternal = useCallback((relativePath: string) => {
     /* v8 ignore next -- file actions render only after a Workspace account resolves. */
     if (workspace === undefined) return
@@ -467,6 +692,63 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     if (rootMissing) loadDirectory('')
   }, [loadDirectory, rootMissing])
 
+  // Open file tabs cache their read. These silent re-reads keep the preview
+  // in step with writes the workbench did not make itself (agent edits,
+  // outside processes): no loading flash, the rendered content swaps in only
+  // when the fresh read lands. Dirty documents keep their stale notice, an
+  // in-flight or failed read is left to its own flow, and immutable diff
+  // tabs are never re-read.
+  const rereadTab = useCallback((tab: WorkbenchTab) => {
+    /* v8 ignore next -- file tabs render only after a Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    if (tab.loading || tab.error !== undefined) return
+    if (account?.documentDirty[tab.id] === true) return
+    if (tab.kind === 'image' || tab.kind === 'pdf') {
+      runRequest(
+        signal => props.readBinaryFile(workspace.workspaceId, tab.path, signal),
+        (value) => {
+          props.actions.updateTab(workspaceId, { ...tab, dataBase64: value.dataBase64, mediaType: value.mediaType, bytes: value.bytes })
+        },
+        (error) => { console.warn('silent re-read failed:', error) },
+        `tab:${tab.id}`,
+      )
+      return
+    }
+    // An explicitly chosen encoding survives the re-read; every other source
+    // re-resolves (sticky encodings live Host-side).
+    const encoding = tab.encodingSource === 'explicit' && tab.encoding !== undefined ? { encoding: tab.encoding } : undefined
+    runRequest(
+      signal => props.readFile(workspace.workspaceId, tab.path, encoding, signal),
+      (value) => {
+        props.actions.updateTab(workspaceId, {
+          ...tab,
+          content: value.content, bytes: value.bytes, truncated: value.truncated,
+          encoding: value.encoding, encodingSource: value.encodingSource, bom: value.bom, eol: value.eol,
+        })
+      },
+      (error) => { console.warn('silent re-read failed:', error) },
+      `tab:${tab.id}`,
+    )
+  }, [account?.documentDirty, props.actions, props.readBinaryFile, props.readFile, runRequest, workspace, workspaceId])
+  /**
+   * Re-read open file tabs, scoped to one directory's immediate children.
+   * @param directoryPath - Restrict to files directly inside this directory;
+   * `undefined` re-reads every open file tab.
+   */
+  const rereadOpenFileTabs = useCallback((directoryPath?: string) => {
+    const tabs = account?.tabs
+    /* v8 ignore next -- the account is ensured on mount before any re-read trigger; only a mid-teardown click reaches here. */
+    if (tabs === undefined) return
+    for (const tab of tabs) {
+      if (!tab.id.startsWith('file:')) continue
+      if (directoryPath !== undefined) {
+        const separator = tab.path.lastIndexOf('/')
+        if ((separator === -1 ? '' : tab.path.slice(0, separator)) !== directoryPath) continue
+      }
+      rereadTab(tab)
+    }
+  }, [account?.tabs, rereadTab])
+
   // Live file-tree refresh: one watch subscription per expanded directory,
   // change bursts coalesced into silent relists. The feed lives per Workspace
   // generation; expansion changes reconcile its subscriptions. A Workspace
@@ -477,6 +759,10 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   /* v8 ignore next -- unreachable placeholder: overwritten before first call. */
   const relistDirectory = useRef((_path: string) => {})
   relistDirectory.current = (path: string) => {
+    // The same change frame means open files directly in this directory may
+    // hold new bytes; re-read them even when the directory was collapsed and
+    // pruned, because their tabs outlive the listing.
+    rereadOpenFileTabs(path)
     /* v8 ignore next -- a change frame can land after the directory collapsed
        and was pruned from the account; the late relist target is gone. */
     if (account?.directories[path] !== undefined) loadDirectory(path, true)
@@ -524,6 +810,9 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     const existing = account?.tabs.find(tab => tab.id === id)
     if (existing !== undefined && existing.error === undefined) {
       props.actions.selectTab(workspaceId, id)
+      // Re-clicking an open file is the tree's re-open gesture: re-read so
+      // outside writes surface without leaving the tab.
+      rereadTab(existing)
       return
     }
     const descriptor = previewType(entry.path)
@@ -552,7 +841,54 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
         `tab:${id}`,
       )
     }
-  }, [account?.tabs, props.actions, props.readBinaryFile, props.readFile, runRequest, workspace, workspaceId])
+  }, [account?.tabs, props.actions, props.readBinaryFile, props.readFile, rereadTab, runRequest, workspace, workspaceId])
+
+  // Inline creation flow: the input lands inside the target directory (VS
+  // Code explorer semantics). Creates ride the workspaceFileWrite Remote
+  // directly — writes never pass the read request fence — and the tree
+  // reveals the created entry by expanding and relisting its directory chain.
+  const startCreate = useCallback((mode: 'file' | 'directory') => {
+    /* v8 ignore next -- creation renders only after a Workspace account resolves. */
+    if (workspaceId === undefined) return
+    const target = lastDirectoryRef.current
+    props.actions.setDirectoryExpanded(workspaceId, target, true)
+    // Silent relist: the input renders beside whatever the directory already
+    // shows, and the listing refreshes without a loading flash.
+    loadDirectory(target, true)
+    setCreateDraft({ mode, directoryPath: target, busy: false })
+  }, [loadDirectory, props.actions, workspaceId])
+  const submitCreate = useCallback((name: string) => {
+    /* v8 ignore next -- submission renders only with a pending draft. */
+    if (workspaceId === undefined || workspace === undefined || createDraft === undefined || createDraft.busy) return
+    const mode = createDraft.mode
+    const base = createDraft.directoryPath
+    const fullPath = base === '' ? name : `${base}/${name}`
+    setCreateDraft({ mode, directoryPath: base, busy: true })
+    // A late reply must not clobber a draft the operator started afterwards.
+    const stillCurrent = (draft: { mode: 'file' | 'directory'; directoryPath: string; busy: boolean; error?: string } | undefined): boolean =>
+      draft !== undefined && draft.mode === mode && draft.directoryPath === base && draft.busy
+    const invoke = mode === 'file' ? props.createFile : props.createDirectory
+    void invoke(workspace.workspaceId, fullPath).then((result) => {
+      if (!result.ok) {
+        setCreateDraft(draft => stillCurrent(draft)
+          ? { mode, directoryPath: base, busy: false, error: result.error.code === 'exists' ? props.t('workbench.createExists') : result.error.message }
+          : draft)
+        return
+      }
+      setCreateDraft(draft => stillCurrent(draft) ? undefined : draft)
+      const segments = fullPath.split('/')
+      const directoryCount = mode === 'file' ? segments.length - 1 : segments.length
+      let prefix = ''
+      for (let index = 0; index < directoryCount; index++) {
+        prefix = prefix === '' ? segments[index] as string : `${prefix}/${segments[index] as string}`
+        props.actions.setDirectoryExpanded(workspaceId, prefix, true)
+        loadDirectory(prefix, true)
+      }
+      loadDirectory(base, true)
+      if (mode === 'file') openFile({ name: basename(fullPath), path: fullPath, kind: 'file' })
+    })
+  }, [createDraft, loadDirectory, openFile, props.actions, props.createDirectory, props.createFile, props.t, workspace, workspaceId])
+  const cancelCreate = useCallback(() => { setCreateDraft(undefined) }, [])
 
   // "Reopen with encoding": re-reads one text tab with an explicit encoding
   // (or re-detects), keeping the tab identity so the surface does not move.
@@ -599,7 +935,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     if (workspaceId === undefined || workspace === undefined) return
     if (!silent) {
       props.actions.setGit(workspaceId, {
-        branch: null, entries: [], commits: [], loading: true, truncated: false,
+        branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [], loading: true, truncated: false,
       })
     }
     runRequest(
@@ -622,12 +958,54 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
       },
       (error) => {
         props.actions.setGit(workspaceId, {
-          branch: null, entries: [], commits: [], loading: false, truncated: false, error,
+          branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [], loading: false, truncated: false, error,
         })
       },
       'git',
     )
   }, [props.actions, props.gitCommits, props.gitStatus, runRequest, workspace, workspaceId])
+
+  // History commit expansion: first expansion loads the commit's changed-file
+  // list through the read fence; later toggles only flip the row.
+  const toggleCommit = useCallback((hash: string) => {
+    /* v8 ignore next -- history renders only after an initialized Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    const next = !(account?.expandedCommits[hash] === true)
+    props.actions.setCommitExpanded(workspaceId, hash, next)
+    if (!next || account?.commitFiles[hash] !== undefined) return
+    props.actions.setCommitFiles(workspaceId, hash, { files: [], truncated: false, loading: true })
+    runRequest(
+      signal => props.gitCommitFiles(workspace.workspaceId, hash, signal),
+      (value) => { props.actions.setCommitFiles(workspaceId, hash, { files: value.files, truncated: value.truncated, loading: false }) },
+      (error) => { props.actions.setCommitFiles(workspaceId, hash, { files: [], truncated: false, loading: false, error }) },
+      `commitFiles:${hash}`,
+    )
+  }, [account?.commitFiles, account?.expandedCommits, props.actions, props.gitCommitFiles, runRequest, workspace, workspaceId])
+
+  /** Read-only diff of one file inside one history commit. */
+  const openCommitDiff = useCallback((commit: WorkspaceGitCommit, file: WorkspaceGitCommitFile) => {
+    /* v8 ignore next -- file rows render only after an initialized Workspace account resolves. */
+    if (workspaceId === undefined || workspace === undefined) return
+    const id = `diff:commit:${commit.hash}:${file.path}`
+    const existing = account?.tabs.find(tab => tab.id === id)
+    if (existing !== undefined && existing.error === undefined) {
+      props.actions.selectTab(workspaceId, id)
+      return
+    }
+    const pending: WorkbenchTab = {
+      id,
+      path: file.path,
+      title: props.t('workbench.diffCommit', { name: basename(file.path), hash: commit.shortHash }),
+      kind: 'diff', language: 'diff', loading: true,
+    }
+    props.actions.openTab(workspaceId, pending)
+    runRequest(
+      signal => props.gitCommitDiff(workspace.workspaceId, commit.hash, file.path, signal),
+      (value) => { props.actions.updateTab(workspaceId, { ...pending, content: value.diff, truncated: value.truncated, loading: false }) },
+      (error) => { props.actions.updateTab(workspaceId, { ...pending, loading: false, error }) },
+      `tab:${id}`,
+    )
+  }, [account?.tabs, props.actions, props.gitCommitDiff, props.t, runRequest, workspace, workspaceId])
 
   const gitMissing = props.section === 'changes' && account !== undefined && account.git === null
   useEffect(() => {
@@ -659,8 +1037,11 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     /* v8 ignore next -- revalidation runs only after an account with data resolves. */
     if (workspaceId === undefined || account === undefined) return
     for (const path of Object.keys(account.directories)) loadDirectory(path, true)
+    // Session activity (agent tool writes land here) also re-reads the open
+    // file tabs, not just the listings.
+    rereadOpenFileTabs()
     if (account.git !== null) loadGit(true)
-  }, [account, loadDirectory, loadGit, workspaceId])
+  }, [account, loadDirectory, loadGit, rereadOpenFileTabs, workspaceId])
   const revalidationReady = account !== undefined
     && (Object.keys(account.directories).length > 0 || account.git !== null)
   useEffect(() => {
@@ -843,14 +1224,6 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           ))}
           {props.renderSlot('workbench.section.tab', { current: section, select: props.select, request: props.request })}
         </div>
-        {hasWorkspace && section === 'files' && (
-          <button
-            type="button"
-            className={clsx(css.iconButton, css.sectionTabSpacer)}
-            aria-label={props.t('workbench.refreshFiles')}
-            onClick={() => { loadDirectory('') }}
-          ><IconRefreshOutline16 /></button>
-        )}
       </nav>
       <section
         id="workspace-workbench-navigation"
@@ -867,6 +1240,38 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               {account?.fileWatch === 'manual' && (
                 <div className={css.navStatus}>{props.t('workbench.watchManual')}</div>
               )}
+              {/*
+                Per-view actions live in the view's own header row, VS Code
+                style: the section tab strip stays a fixed-width tablist, so
+                contributed section tabs never slide under view actions on
+                phone widths.
+              */}
+              <div className={css.filesToolbar}>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.newFile')}
+                  onClick={() => { startCreate('file') }}
+                ><IconPlusOutline16 /></button>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.newFolder')}
+                  onClick={() => { startCreate('directory') }}
+                ><IconProjectAddOutline16 /></button>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.refreshFiles')}
+                  onClick={() => { loadDirectory(''); rereadOpenFileTabs() }}
+                ><IconRefreshOutline16 /></button>
+                <button
+                  type="button"
+                  className={css.iconButton}
+                  aria-label={props.t('workbench.collapseAll')}
+                  onClick={() => { props.actions.collapseAllDirectories(workspaceId) }}
+                ><IconChevronUpOutline14 /></button>
+              </div>
               <DirectoryChildren
                 path=""
                 depth={0}
@@ -874,14 +1279,21 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
                 expanded={expanded}
                 activePath={activeTab?.kind === 'diff' ? undefined : activeTab?.path}
                 canOpenPath={canOpenPath}
+                {...(createDraft === undefined ? {} : { createDraft })}
                 t={props.t}
                 onToggle={(path) => {
                   const open = expanded[path] !== true
+                  lastDirectoryRef.current = path
                   props.actions.setDirectoryExpanded(workspaceId, path, open)
                   if (open && directories[path] === undefined) loadDirectory(path)
                 }}
-                onOpen={openFile}
+                onOpen={(entry) => {
+                  lastDirectoryRef.current = parentDirectory(entry.path)
+                  openFile(entry)
+                }}
                 onOpenExternal={(entry) => { openExternal(entry.path) }}
+                onCreateSubmit={submitCreate}
+                onCreateCancel={cancelCreate}
               />
             </>
           )}
@@ -902,8 +1314,13 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
             <ChangesPanel
               area={gitArea}
               branch={git?.branch ?? null}
+              upstream={git?.upstream ?? null}
+              ahead={git?.ahead ?? null}
+              behind={git?.behind ?? null}
               statusEntries={git?.entries ?? []}
               commits={git?.commits ?? []}
+              commitFiles={account?.commitFiles ?? {}}
+              expandedCommits={account?.expandedCommits ?? {}}
               loading={git?.loading ?? true}
               truncated={git?.truncated ?? false}
               {...(git?.error === undefined ? {} : { error: git.error })}
@@ -912,6 +1329,8 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               onRefresh={loadGit}
               onOpenDiff={openDiff}
               onOpenFile={openFile}
+              onToggleCommit={toggleCommit}
+              onOpenCommitDiff={openCommitDiff}
             />
           )}
           {props.renderSlot('workbench.section.panel', { current: section, select: props.select, request: props.request })}

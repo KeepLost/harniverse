@@ -14,7 +14,7 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  captureStableAria, compareOrRefreshGolden,
+  captureStableAria, compareGoldenWhenSettled,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
@@ -71,8 +71,14 @@ describe('web e2e: Model Policy page manages profiles and fallback chains', () =
     await dialog.getByText('还没有备用链。').waitFor({ timeout: 10_000 })
     await dialog.getByText('还没有方案。新会话将以「不限制」运行。').waitFor({ timeout: 10_000 })
     expect(await dialog.getByLabel('新会话默认方案').inputValue()).toBe('unrestricted')
-    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(EMPTY_EXPECTED, snapshot, MODE)
+    // The empty texts render from the default doc while the settings describe
+    // is still in flight, and that loading frame is read-only; poll against
+    // the golden so a slow describe cannot pin the mid-load state.
+    await compareGoldenWhenSettled(
+      EMPTY_EXPECTED,
+      () => captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd),
+      MODE,
+    )
   }, 60_000)
 
   it('builds a reordered fallback chain from the live catalog', async () => {
@@ -136,8 +142,11 @@ describe('web e2e: Model Policy page manages profiles and fallback chains', () =
     await dialog.getByText('默认', { exact: true }).waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('defaultProfile: profile-1')
-    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(CONFIGURED_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      CONFIGURED_EXPECTED,
+      () => captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd),
+      MODE,
+    )
     await page.getByRole('button', { name: '关闭', exact: true }).click()
     await expect.poll(async () => page.getByRole('dialog', { name: '设置' }).count(), { timeout: 10_000 }).toBe(0)
   }, 60_000)
@@ -150,8 +159,11 @@ describe('web e2e: Model Policy page manages profiles and fallback chains', () =
     // next session would receive.
     const chip = page.getByRole('button', { name: '模型方案，当前 专注' })
     await chip.waitFor({ timeout: 10_000 })
-    const snapshot = await captureStableAria(page, '[class*="heroWorkspaceRow"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(HERO_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      HERO_EXPECTED,
+      () => captureStableAria(page, '[class*="heroWorkspaceRow"]', scaffold.workspaceCwd),
+      MODE,
+    )
 
     await chip.click()
     const item = page.getByRole('menuitem', { name: '不限制', exact: true })

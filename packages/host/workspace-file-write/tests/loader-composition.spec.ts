@@ -1,8 +1,9 @@
 // Proves the editing Remote is real Loader composition, not unit wiring: a
 // cordis.yml booting the real storage/domain/workspace/agent stack plus
-// dsh-fs-local serves an editable open, a version-checked save through the
-// same per-target lock the Agent tools use, a durable byte-exact write-back,
-// and the non-waking Agent notice over the real agent inbox.
+// dsh-fs-local serves an editable open, an exclusive file/directory create,
+// a version-checked save through the same per-target lock the Agent tools
+// use, a durable byte-exact write-back, and the non-waking Agent notice over
+// the real agent inbox.
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -127,6 +128,16 @@ describe('workspace-file-write loader composition', () => {
     const opened = await ctx.workspaceFileWrite.open(workspace.id, 'notes.md', signal())
     expect(opened.content).toBe('# one\n\nfirst\n')
     expect(opened.eol).toBe('LF')
+
+    // Exclusive creation through the same composition: intermediates walk one
+    // validated segment at a time, and a second create at the same path refuses.
+    await expect(ctx.workspaceFileWrite.createDirectory(workspace.id, 'scratch/nested', signal()))
+      .resolves.toEqual({ created: true })
+    await expect(ctx.workspaceFileWrite.createFile(workspace.id, 'scratch/nested/empty.md', signal()))
+      .resolves.toEqual({ created: true })
+    expect(readFileSync(join(project, 'scratch/nested/empty.md'), 'utf8')).toBe('')
+    await expect(ctx.workspaceFileWrite.createFile(workspace.id, 'scratch/nested/empty.md', signal()))
+      .rejects.toMatchObject({ code: 'exists' })
 
     const saved = await ctx.workspaceFileWrite.save(workspace.id, 'notes.md', {
       content: '# one\n\nsecond\n', baseVersion: opened.version, saveId: 'loader-save-1',

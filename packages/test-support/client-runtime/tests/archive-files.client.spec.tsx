@@ -34,12 +34,19 @@ describe('TestWorkspaces file and git verbs', () => {
       path: 'p.png', dataBase64: '', mediaType: 'image/png', bytes: 0,
     })
     await expect(workspaces.gitStatus(wid('ws'), controller.signal)).resolves.toEqual({
-      branch: null, entries: [], truncated: false,
+      branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false,
     })
     await expect(workspaces.gitCommits(wid('ws'), 5, controller.signal)).resolves.toEqual({
       commits: [], truncated: false,
     })
     await expect(workspaces.gitDiff(wid('ws'), 'a.ts', true, controller.signal)).resolves.toEqual({
+      diff: '', truncated: false,
+    })
+    const commitHash = 'a'.repeat(40)
+    await expect(workspaces.gitCommitFiles(wid('ws'), commitHash, controller.signal)).resolves.toEqual({
+      files: [], truncated: false,
+    })
+    await expect(workspaces.gitCommitDiff(wid('ws'), commitHash, 'a.ts', controller.signal)).resolves.toEqual({
       diff: '', truncated: false,
     })
 
@@ -52,6 +59,8 @@ describe('TestWorkspaces file and git verbs', () => {
       { method: 'gitStatus', args: [wid('ws'), controller.signal] },
       { method: 'gitCommits', args: [wid('ws'), 5, controller.signal] },
       { method: 'gitDiff', args: [wid('ws'), 'a.ts', true, controller.signal] },
+      { method: 'gitCommitFiles', args: [wid('ws'), commitHash, controller.signal] },
+      { method: 'gitCommitDiff', args: [wid('ws'), commitHash, 'a.ts', controller.signal] },
     ])
   })
 
@@ -71,12 +80,21 @@ describe('TestWorkspaces file and git verbs', () => {
     workspaces.stub('readBinaryFile', (_workspaceId: unknown, path: unknown) => (
       Promise.resolve({ path: path as string, dataBase64: 'AA==', mediaType: 'image/png', bytes: 1 })
     ))
-    workspaces.stub('gitStatus', () => Promise.resolve({ branch: 'dev', entries: [], truncated: false }))
+    workspaces.stub('gitStatus', () => Promise.resolve({ branch: 'dev', upstream: 'origin/dev', ahead: 0, behind: 3, entries: [], truncated: false }))
     workspaces.stub('gitCommits', (_workspaceId: unknown, limit: unknown) => (
-      Promise.resolve({ commits: [{ hash: 'h', shortHash: 'h', authorName: 'a', authorEmail: 'e', authoredAt: 't', subject: 's' }], truncated: limit === 1 })
+      Promise.resolve({
+        commits: [{
+          hash: 'h', shortHash: 'h', authorName: 'a', authorEmail: 'e', authoredAt: 't', subject: 's',
+          parents: [], refs: [],
+        }], truncated: limit === 1,
+      })
     ))
     workspaces.stub('gitDiff', (_workspaceId: unknown, path: unknown, staged: unknown) => (
       Promise.resolve({ diff: `${String(path)}:${String(staged)}`, truncated: false })
+    ))
+    workspaces.stub('gitCommitFiles', () => Promise.resolve({ files: [{ path: 'a.ts', status: 'M' as const }], truncated: false }))
+    workspaces.stub('gitCommitDiff', (_workspaceId: unknown, _hash: unknown, path: unknown) => (
+      Promise.resolve({ diff: `commit:${String(path)}`, truncated: false })
     ))
 
     await expect(workspaces.listFiles(wid('ws'), 'src', controller.signal)).resolves.toEqual({
@@ -89,13 +107,25 @@ describe('TestWorkspaces file and git verbs', () => {
     await expect(workspaces.readBinaryFile(wid('ws'), 'p.png')).resolves.toEqual({
       path: 'p.png', dataBase64: 'AA==', mediaType: 'image/png', bytes: 1,
     })
-    await expect(workspaces.gitStatus(wid('ws'))).resolves.toEqual({ branch: 'dev', entries: [], truncated: false })
+    await expect(workspaces.gitStatus(wid('ws'))).resolves.toEqual({
+      branch: 'dev', upstream: 'origin/dev', ahead: 0, behind: 3, entries: [], truncated: false,
+    })
     await expect(workspaces.gitCommits(wid('ws'), 1)).resolves.toEqual({
-      commits: [{ hash: 'h', shortHash: 'h', authorName: 'a', authorEmail: 'e', authoredAt: 't', subject: 's' }], truncated: true,
+      commits: [{
+        hash: 'h', shortHash: 'h', authorName: 'a', authorEmail: 'e', authoredAt: 't', subject: 's',
+        parents: [], refs: [],
+      }], truncated: true,
     })
     await expect(workspaces.gitDiff(wid('ws'), 'a.ts', true)).resolves.toEqual({ diff: 'a.ts:true', truncated: false })
+    await expect(workspaces.gitCommitFiles(wid('ws'), 'h')).resolves.toEqual({
+      files: [{ path: 'a.ts', status: 'M' }], truncated: false,
+    })
+    await expect(workspaces.gitCommitDiff(wid('ws'), 'h', 'a.ts')).resolves.toEqual({
+      diff: 'commit:a.ts', truncated: false,
+    })
     expect(workspaces.calls.map(call => call.method)).toEqual([
-      'listFiles', 'readFile', 'searchFiles', 'readBinaryFile', 'gitStatus', 'gitCommits', 'gitDiff',
+      'listFiles', 'readFile', 'searchFiles', 'readBinaryFile',
+      'gitStatus', 'gitCommits', 'gitDiff', 'gitCommitFiles', 'gitCommitDiff',
     ])
   })
 

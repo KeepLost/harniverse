@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   DirectoryListing, IApiClient, RpcError, WorkspaceFileEntry, WorkspaceGitCommit,
-  WorkspaceGitStatusEntry,
+  WorkspaceGitCommitFile, WorkspaceGitStatusEntry,
   SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -389,6 +389,9 @@ export class WorkspaceRuntime implements IWorkspaces {
 
   async gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
     branch: string | null
+    upstream: string | null
+    ahead: number | null
+    behind: number | null
     entries: WorkspaceGitStatusEntry[]
     truncated: boolean
   }> {
@@ -412,6 +415,24 @@ export class WorkspaceRuntime implements IWorkspaces {
   }> {
     const response = await this.api.workspaceGit.diff({ workspaceId, staged, ...(path === undefined ? {} : { path }) }, signal)
     if (!response.result.ok) throw new Error(`workspace Git diff failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitCommitFiles(workspaceId: WorkspaceId, hash: string, signal?: AbortSignal): Promise<{
+    files: WorkspaceGitCommitFile[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.commitFiles({ workspaceId, hash }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git commit file listing failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitCommitDiff(workspaceId: WorkspaceId, hash: string, path: string, signal?: AbortSignal): Promise<{
+    diff: string
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.commitDiff({ workspaceId, hash, path }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git commit diff failed: ${response.result.error.message}`)
     return response.result.value
   }
 

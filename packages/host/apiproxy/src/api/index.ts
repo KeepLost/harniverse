@@ -76,7 +76,9 @@ export type { JobFollowView, JobView, JobsApi } from './jobs.ts'
 export type { SpeechApi, SpeechPrepareView } from './speech.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { WorkspaceFileChange, WorkspaceFileEntry, WorkspaceFilesApi, WorkspaceFileWatchFrame } from './workspace-files.ts'
-export type { WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitStatusEntry } from './workspace-git.ts'
+export type {
+  WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitCommitFile, WorkspaceGitCommitRef, WorkspaceGitStatusEntry,
+} from './workspace-git.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'
 export type {

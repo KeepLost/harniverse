@@ -97,6 +97,8 @@ const {
   listWorkspaceFiles,
   readWorkspaceBinary,
   readWorkspaceFile,
+  workspaceGitCommitDiff,
+  workspaceGitCommitFiles,
   workspaceGitCommits,
   workspaceGitStatus,
 } = await import('../src/workspace-inspector.ts')
@@ -132,6 +134,8 @@ interface GitStubOptions {
   probeLineEnding?: string | null
   status?: GitStubResponse
   log?: GitStubResponse
+  parents?: GitStubResponse
+  diffTree?: GitStubResponse
 }
 
 /**
@@ -149,6 +153,8 @@ function stubGit(options: GitStubOptions = {}): string {
     metadata: probe(join(root, '.git')),
     status: options.status ?? { stdout: '' },
     log: options.log ?? { stdout: '' },
+    parents: options.parents ?? { stdout: '' },
+    diffTree: options.diffTree ?? { stdout: '' },
   }
   const stub = join(root, 'git-stub.mjs')
   writeFileSync(stub, [
@@ -157,7 +163,8 @@ function stubGit(options: GitStubOptions = {}): string {
     'const args = process.argv.slice(2)',
     "const operation = args.includes('--show-toplevel') ? 'worktree'",
     "  : args.includes('--absolute-git-dir') ? 'metadata'",
-    "    : args.includes('status') ? 'status' : args.includes('log') ? 'log' : 'unknown'",
+    "    : args.includes('status') ? 'status' : args.includes('log') ? 'log'",
+    "      : args.includes('rev-list') ? 'parents' : args.includes('diff-tree') ? 'diffTree' : 'unknown'",
     "const response = responses[operation] ?? { stderr: 'unexpected Git operation', exitCode: 2 }",
     'if (response.wait) {',
     `  mark(${JSON.stringify(join(root, 'stub-ready'))}, 'ready')`,
@@ -409,6 +416,38 @@ describe('git output parsing boundaries', () => {
     // record must not become a commit.
     await expect(workspaceGitCommits(root, 5, new AbortController().signal))
       .resolves.toMatchObject({ commits: [{ hash: 'h1', subject: 'subject' }], truncated: false })
+  })
+
+  it('splits commit rename records with the original path first', async () => {
+    const hash = 'a'.repeat(40)
+    const root = stubGit({ parents: { stdout: `${hash} ${'b'.repeat(40)}\n` }, diffTree: { stdout: 'R100\0old.txt\0new.txt\0' } })
+    mkdirSync(join(root, '.git'))
+
+    await expect(workspaceGitCommitFiles(root, hash, new AbortController().signal)).resolves.toEqual({
+      files: [{ path: 'new.txt', previousPath: 'old.txt', status: 'R' }], truncated: false,
+    })
+  })
+
+  it('reads a commit patch against the first parent the stub reports', async () => {
+    const hash = 'a'.repeat(40)
+    const root = stubGit({
+      parents: { stdout: `${hash} ${'b'.repeat(40)}\n` },
+      diffTree: { stdout: '--- a/x.txt\n+++ b/x.txt\n' },
+    })
+    mkdirSync(join(root, '.git'))
+
+    await expect(workspaceGitCommitDiff(root, hash, 'x.txt', new AbortController().signal)).resolves.toEqual({
+      diff: '--- a/x.txt\n+++ b/x.txt\n', truncated: false,
+    })
+  })
+
+  it('reports an unknown commit hash through the Git failure mapping', async () => {
+    const hash = 'a'.repeat(40)
+    const root = stubGit({ parents: { stderr: 'fatal: bad object\n', exitCode: 128 } })
+    mkdirSync(join(root, '.git'))
+
+    await expect(workspaceGitCommitFiles(root, hash, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-git-failed', operation: 'commit parent lookup' })
   })
 
   /** Wait until the waiting stub operation has actually started, so an abort lands during Git. */

@@ -14,6 +14,8 @@ describe('buildWire', () => {
       open: vi.fn(async () => ({ ok: true as const, value: openValue })),
       stat: vi.fn(async () => ({ ok: true as const, value: { version: 'v1' } })),
       save: vi.fn(async () => ({ ok: true as const, value: { version: 'v2' } })),
+      createFile: vi.fn(),
+      createDirectory: vi.fn(),
     }
     const wire = buildWire(remote, undefined)
     const signal = new AbortController().signal
@@ -31,7 +33,7 @@ describe('buildWire', () => {
     const watch = vi.fn(async function* (): AsyncGenerator<{ kind: 'ready' }, void, void> {
       yield* frames
     })
-    const wire = buildWire({ open: vi.fn(), stat: vi.fn(), save: vi.fn() }, watch)
+    const wire = buildWire({ open: vi.fn(), stat: vi.fn(), save: vi.fn(), createFile: vi.fn(), createDirectory: vi.fn() }, watch)
     const signal = new AbortController().signal
     const seen: string[] = []
     for await (const frame of wire.watchFiles!('ws-1', 'a.ts', signal)) {

@@ -152,6 +152,8 @@ import {
   readWorkspaceFile,
   searchWorkspaceFiles,
   WorkspaceInspectorError,
+  workspaceGitCommitDiff,
+  workspaceGitCommitFiles,
   workspaceGitCommits,
   workspaceGitDiff,
   workspaceGitStatus,
@@ -4977,6 +4979,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return ok(request, await workspaceGitDiff(workspace.path, path, staged, signal))
         } catch (error: unknown) {
           return workspaceInspectionFailure(request, workspaceId, path ?? '.', error, signal)
+        }
+      },
+
+      async commitFiles(request, signal) {
+        const { workspaceId, hash } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await workspaceGitCommitFiles(workspace.path, hash, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, '.', error, signal)
+        }
+      },
+
+      async commitDiff(request, signal) {
+        const { workspaceId, hash, path } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await workspaceGitCommitDiff(workspace.path, hash, path, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, path, error, signal)
         }
       },
     },

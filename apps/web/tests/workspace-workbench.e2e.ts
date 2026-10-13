@@ -27,6 +27,7 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let workspace: string
 
   beforeAll(async () => {
     const fixture = await readFile(FIXTURE, 'utf8')
@@ -37,16 +38,32 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
       paceMs: 5,
       extraOverlayPath: fileURLToPath(new URL('./workspace-workbench.overlay.yml', import.meta.url)),
     })
-    const workspace = join(scaffold.workspaceCwd, 'workspace')
+    workspace = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(workspace, { recursive: true })
+    await mkdir(join(workspace, 'docs'), { recursive: true })
     await writeFile(join(workspace, 'README.md'), '# Workbench E2E\n\nAuthenticated preview.\n')
     await writeFile(join(workspace, 'tracked.ts'), 'export const state = 1\n')
+    await writeFile(join(workspace, 'docs/guide.md'), '# Guide\n\nNested entry.\n')
     await execFileAsync('git', ['init', '-b', 'main', workspace])
     await execFileAsync('git', ['-C', workspace, 'config', 'user.name', 'Workbench Test'])
     await execFileAsync('git', ['-C', workspace, 'config', 'user.email', 'workbench@example.invalid'])
-    await execFileAsync('git', ['-C', workspace, 'add', '--', 'README.md', 'tracked.ts'])
+    await execFileAsync('git', ['-C', workspace, 'add', '--', 'README.md', 'tracked.ts', 'docs/guide.md'])
     await execFileAsync('git', ['-C', workspace, 'commit', '-m', 'initial'])
+    // Decorations the history rows must show: a local branch, a tag, and a
+    // remote-tracking ref with upstream tracking (main runs one ahead).
+    const initial = (await execFileAsync('git', ['-C', workspace, 'rev-parse', 'HEAD'])).stdout.trim()
+    await execFileAsync('git', ['-C', workspace, 'branch', 'feature'])
+    await execFileAsync('git', ['-C', workspace, 'tag', 'v1.0.0'])
+    await execFileAsync('git', ['-C', workspace, 'config', 'remote.origin.url', 'https://example.invalid/ws.git'])
+    await execFileAsync('git', ['-C', workspace, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'])
+    await execFileAsync('git', ['-C', workspace, 'update-ref', 'refs/remotes/origin/main', initial])
+    await execFileAsync('git', ['-C', workspace, 'config', 'branch.main.remote', 'origin'])
+    await execFileAsync('git', ['-C', workspace, 'config', 'branch.main.merge', 'refs/heads/main'])
     await writeFile(join(workspace, 'tracked.ts'), 'export const state = 2\n')
+    await writeFile(join(workspace, 'added.ts'), 'export const added = true\n')
+    await execFileAsync('git', ['-C', workspace, 'add', '--', 'tracked.ts', 'added.ts'])
+    await execFileAsync('git', ['-C', workspace, 'commit', '-m', 'second'])
+    await writeFile(join(workspace, 'tracked.ts'), 'export const state = 3\n')
 
     browser = await chromium.launch()
     page = await newEnglishPage(browser, 900)
@@ -133,6 +150,19 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
     await workbench.waitFor({ timeout: 10_000 })
     expect(await page.getByRole('region', { name: 'Workspace file preview' }).count()).toBe(0)
 
+    // Nested directories expand on demand and the collapse-all action folds
+    // the whole tree back to the root.
+    await workbench.getByRole('tab', { name: 'Files', exact: true }).click()
+    await navigation.getByRole('button', { name: 'docs', exact: true }).click()
+    await navigation.getByRole('button', { name: /guide\.md$/ }).click()
+    preview = page.getByRole('region', { name: 'Workspace file preview' })
+    await preview.getByRole('heading', { name: 'Guide', exact: true }).waitFor({ timeout: 10_000 })
+    await preview.getByRole('button', { name: 'Close file preview' }).click()
+    await workbench.getByRole('button', { name: 'Collapse all folders' }).click()
+    await expect.poll(async () => (
+      await navigation.getByRole('button', { name: 'docs', exact: true }).getAttribute('aria-expanded')
+    ), { timeout: 10_000 }).toBe('false')
+
     await workbench.getByRole('tab', { name: 'Search', exact: true }).click()
     await navigation.getByRole('button', { name: 'Filter scope' }).click()
     await navigation.getByLabel('Files to include').fill('*.ts')
@@ -140,14 +170,31 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
     await navigation.getByRole('searchbox', { name: 'Search workspace files' }).fill('tracked')
     await navigation.getByRole('button', { name: /tracked\.ts/ }).click()
     preview = page.getByRole('region', { name: 'Workspace file preview' })
-    await preview.getByText('export const state = 2', { exact: false }).waitFor({ timeout: 10_000 })
+    await preview.getByText('export const state = 3', { exact: false }).waitFor({ timeout: 10_000 })
     await preview.getByRole('button', { name: 'Close file preview' }).click()
 
     await workbench.getByRole('tab', { name: 'Changes', exact: true }).click()
     await navigation.getByText('Branch main', { exact: true }).waitFor({ timeout: 10_000 })
+    await navigation.getByText('↑1 ↓0', { exact: true }).waitFor({ timeout: 10_000 })
     await navigation.getByRole('button', { name: /M.*tracked\.ts/ }).click()
     preview = page.getByRole('region', { name: 'Workspace file preview' })
     await preview.getByText('diff --git', { exact: false }).waitFor({ timeout: 10_000 })
+
+    // History: ref badges decorate the rows they point at, one commit expands
+    // to its changed files, and a file opens its read-only commit diff.
+    await navigation.getByText('HEAD', { exact: true }).waitFor({ timeout: 10_000 })
+    await navigation.getByText('main', { exact: true }).waitFor({ timeout: 10_000 })
+    await navigation.getByText('origin/main', { exact: true }).waitFor({ timeout: 10_000 })
+    await navigation.getByText('v1.0.0', { exact: true }).waitFor({ timeout: 10_000 })
+    await navigation.getByText('feature', { exact: true }).waitFor({ timeout: 10_000 })
+    const headCommit = navigation.getByRole('button', { name: /Expand commit .* details/ }).first()
+    await headCommit.click()
+    await navigation.getByRole('button', { name: /A.*added\.ts/ }).waitFor({ timeout: 10_000 })
+    await navigation.getByRole('button', { name: /A.*added\.ts/ }).click()
+    await preview.getByText('diff --git a/added.ts', { exact: false }).waitFor({ timeout: 10_000 })
+    // The commit-diff tab title carries the commit's short hash; close it so
+    // the goldens below stay byte-stable across fixture runs.
+    await preview.getByRole('button', { name: /Close added\.ts/ }).click()
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expect.poll(() => frame.getAttribute('data-right-drawer'), { timeout: 10_000 }).toBe('true')
@@ -170,6 +217,21 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
       () => captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd),
       MODE,
     )
+
+    // An outside write to an open file surfaces in the preview: re-clicking
+    // the tree row re-reads the tab in place (watch frames or the re-open
+    // gesture both land the fresh bytes through the same silent re-read).
+    // Drawer mode swaps the tree out while the preview shows, so dismiss it
+    // first; the retained tab re-opens with fresh bytes on the next row click.
+    await workbench.getByRole('tab', { name: 'Files', exact: true }).click()
+    await navigation.getByRole('button', { name: /tracked\.ts$/ }).click()
+    drawerPreview = workbench.getByRole('region', { name: 'Workspace file preview' })
+    await drawerPreview.getByText('export const state = 3', { exact: false }).waitFor({ timeout: 10_000 })
+    await writeFile(join(workspace, 'tracked.ts'), 'export const state = 4\n')
+    await drawerPreview.getByRole('button', { name: 'Close file preview' }).click()
+    await navigation.getByRole('button', { name: /tracked\.ts$/ }).click()
+    drawerPreview = workbench.getByRole('region', { name: 'Workspace file preview' })
+    await drawerPreview.getByText('export const state = 4', { exact: false }).waitFor({ timeout: 10_000 })
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

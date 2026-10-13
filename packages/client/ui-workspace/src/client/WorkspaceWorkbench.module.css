@@ -137,8 +137,13 @@
   font: var(--dsw-font-xs-strong-13);
 }
 
-.sectionTabSpacer {
-  margin-left: auto;
+.filesToolbar {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
 }
 
 .navigator {
@@ -530,31 +535,263 @@
   text-transform: uppercase;
 }
 
-.commitRow {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 2px 8px;
-  padding: 6px 8px;
-  color: var(--dsw-alias-label-secondary);
+.commitEntry {
+  display: flex;
+  flex-direction: column;
 }
 
-.commitRow code {
-  color: var(--dsw-alias-state-business-primary);
+.commitRow {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: stretch;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commitRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.commitGraph {
+  flex: none;
+  height: 100%;
+  min-height: 44px;
+}
+
+.lane0,
+.lane1,
+.lane2,
+.lane3,
+.lane4,
+.lane5,
+.lane6 {
+  fill: none;
+  stroke-width: 2px;
+}
+
+.lane0 {
+  stroke: var(--dsw-alias-brand-primary);
+}
+
+.lane1 {
+  stroke: var(--dsw-alias-state-error-primary);
+}
+
+.lane2 {
+  stroke: var(--dsw-alias-state-success-primary);
+}
+
+.lane3 {
+  stroke: var(--dsw-alias-state-warn-primary);
+}
+
+.lane4 {
+  stroke: var(--dsw-alias-state-business-primary);
+}
+
+.lane5 {
+  stroke: var(--dsw-alias-state-business-tertiary);
+}
+
+.lane6 {
+  stroke: var(--dsw-alias-link);
+}
+
+.commitRow circle {
+  fill: var(--dsw-alias-bg-layer-2);
+}
+
+.commitMain {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  padding: 2px 0;
+}
+
+.commitTitle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.commitSubject {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
   font: var(--dsw-font-xxs-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commitMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-dimmed);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.commitMeta code {
+  color: var(--dsw-alias-state-business-primary);
   font-family: var(--ds-font-family-code);
 }
 
-.commitRow span {
+.refBadge {
+  flex: none;
+  max-width: 96px;
+  overflow: hidden;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-11);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.refHead {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.refLocal {
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.refRemote {
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.refTag {
+  border-color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.refOther {
+  border-color: var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.refCurrent {
+  font: var(--dsw-font-xxxs-strong-11);
+}
+
+.gitDiverged {
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.commitDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 8px 6px 14px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--dsw-alias-border-l2);
+  border-radius: 0 8px 8px 0;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.commitDetailMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.commitDetailMeta code {
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-state-business-primary);
+  font-family: var(--ds-font-family-code);
+}
+
+.commitFileList {
+  display: flex;
+  flex-direction: column;
+}
+
+.commitFileRow {
+  display: grid;
+  height: 30px;
+  box-sizing: border-box;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commitFileRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.commitFileRow > span:nth-child(2) {
   overflow: hidden;
   font: var(--dsw-font-xxs-12);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.commitRow time {
-  grid-column: 2;
+.commitFileOld {
+  overflow: hidden;
   color: var(--dsw-alias-label-dimmed);
   font: var(--dsw-font-xxxs-11);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeCreate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 26px 2px 8px;
+}
+
+.treeCreateInput {
+  height: 26px;
+  flex: 1;
+  min-width: 60px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font: var(--dsw-font-xxs-12);
+}
+
+.treeCreateInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l4);
+  outline-offset: -1px;
+}
+
+.treeCreateStatus {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.treeCreate .navError {
+  flex-basis: 100%;
 }
 
 .emptyState {

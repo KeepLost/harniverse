@@ -102,6 +102,7 @@ import {
   workspaceFilesWatchRequestSchema,
 } from '../api/workspace-files.schema.ts'
 import {
+  workspaceGitCommitDiffRequestSchema, workspaceGitCommitFilesRequestSchema,
   workspaceGitCommitsRequestSchema, workspaceGitDiffRequestSchema, workspaceGitStatusRequestSchema,
 } from '../api/workspace-git.schema.ts'
 
@@ -184,6 +185,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'workspace.git.status': { schema: workspaceGitStatusRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.status(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
   'workspace.git.commits': { schema: workspaceGitCommitsRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.commits(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
   'workspace.git.diff': { schema: workspaceGitDiffRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.diff(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
+  'workspace.git.commitFiles': { schema: workspaceGitCommitFilesRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.commitFiles(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
+  'workspace.git.commitDiff': { schema: workspaceGitCommitDiffRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.commitDiff(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
   'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
   'agentPreset.list': { schema: agentPresetListRequestSchema, invoke: (api, r) => api.agentPresets.list(r) },
   'agentPreset.read': { schema: agentPresetReadRequestSchema, invoke: (api, r) => api.agentPresets.read(r) },

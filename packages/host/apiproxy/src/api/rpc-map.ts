@@ -82,6 +82,8 @@ export interface RpcMethodMap {
   'workspace.git.status': WorkspaceGitApi['status']
   'workspace.git.commits': WorkspaceGitApi['commits']
   'workspace.git.diff': WorkspaceGitApi['diff']
+  'workspace.git.commitFiles': WorkspaceGitApi['commitFiles']
+  'workspace.git.commitDiff': WorkspaceGitApi['commitDiff']
   'skill.list': SkillsApi['list']
   'agentPreset.list': AgentPresetsApi['list']
   'agentPreset.read': AgentPresetsApi['read']
@@ -162,6 +164,8 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'workspace.git.status': 'harniverse.observe',
   'workspace.git.commits': 'harniverse.observe',
   'workspace.git.diff': 'harniverse.observe',
+  'workspace.git.commitFiles': 'harniverse.observe',
+  'workspace.git.commitDiff': 'harniverse.observe',
   'skill.list': 'harniverse.observe',
   'agentPreset.list': 'harniverse.observe',
   'agentPreset.read': 'harniverse.administer',
@@ -242,6 +246,8 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'workspace.git.status': 'read',
   'workspace.git.commits': 'read',
   'workspace.git.diff': 'read',
+  'workspace.git.commitFiles': 'read',
+  'workspace.git.commitDiff': 'read',
   'skill.list': 'read',
   'agentPreset.list': 'read',
   'agentPreset.read': 'read',

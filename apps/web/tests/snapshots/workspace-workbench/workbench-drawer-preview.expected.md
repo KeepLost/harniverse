@@ -3,6 +3,9 @@
     - tab "README.md"
     - button "Close README.md":
       - img
+    - tab "guide.md"
+    - button "Close guide.md":
+      - img
     - tab "tracked.ts"
     - button "Close tracked.ts":
       - img
@@ -23,4 +26,4 @@
       - option "Windows-1252"
     - button "Close file preview":
       - img
-    - text: diff --git a/tracked.ts b/tracked.ts index 6ace33e..81a1053 100644 --- a/tracked.ts +++ b/tracked.ts @@ -1 +1 @@ -export const state = 1 +export const state = 2
+    - text: diff --git a/tracked.ts b/tracked.ts index 81a1053..e498ce2 100644 --- a/tracked.ts +++ b/tracked.ts @@ -1 +1 @@ -export const state = 2 +export const state = 3

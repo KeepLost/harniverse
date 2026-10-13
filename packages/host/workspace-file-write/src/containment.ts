@@ -5,12 +5,16 @@
  * be relative and stay inside it, no path segment may be `.git`, and the
  * resolved target must be a regular file whose canonical form equals its
  * lexical spelling (a symbolic link anywhere on the final spelling refuses).
+ * Exclusive creates walk the path one segment at a time under the same
+ * canonical-identity rule and re-verify the published entry before the ack.
  * The rules are deliberately not configurable.
  * @module @deepseek-ai/dsh-workspace-file-write/containment
  */
 
-import { realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { constants } from 'node:fs'
+import type { Stats } from 'node:fs'
+import { lstat, mkdir, open, realpath, stat } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { WorkspaceFileWriteErrorCode } from './types.ts'
 
@@ -141,5 +145,204 @@ export async function canonicalTargetTolerant(contained: ContainedPath): Promise
   } catch (error: unknown) {
     if (error instanceof RemoteError && error.code === 'not-found') return undefined
     throw error
+  }
+}
+
+/** Read flags that open an existing regular file without following a final symbolic link. */
+const READ_NOFOLLOW_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW
+
+/** One walked entry's message context: the workspace-relative request path. */
+type DisplayPath = string
+
+/** Render a refusal message suffix from an unknown failure. */
+function failureText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Probe one entry without following a final symbolic link; undefined when absent. */
+async function entryInfo(target: string, display: DisplayPath): Promise<Stats | undefined> {
+  try {
+    return await lstat(target)
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
+    throw pathError('io', `workspace entry ${JSON.stringify(display)} cannot be inspected: ${failureText(error)}`)
+  }
+}
+
+/** Refuse a walked segment that is a symbolic link or not a directory. */
+function requireDirectory(info: Stats, display: DisplayPath): void {
+  if (info.isSymbolicLink()) {
+    throw pathError('symlink', `workspace path ${JSON.stringify(display)} contains a symbolic link`)
+  }
+  if (!info.isDirectory()) {
+    throw pathError('path-invalid', `workspace path ${JSON.stringify(display)} descends through a non-directory entry`)
+  }
+}
+
+/** Require one just-inspected entry's canonical form to equal its lexical spelling. */
+async function requireCanonical(target: string, display: DisplayPath): Promise<void> {
+  let canonical: string
+  try {
+    canonical = await realpath(target)
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      throw pathError('changed', `workspace entry ${JSON.stringify(display)} changed while creating`)
+    }
+    throw pathError('io', `workspace entry ${JSON.stringify(display)} cannot be resolved: ${failureText(error)}`)
+  }
+  if (!sameFilesystemPath(canonical, target)) {
+    throw pathError('symlink', `workspace path ${JSON.stringify(display)} contains a symbolic link`)
+  }
+}
+
+/**
+ * Split one validated contained path into its walkable segments, refusing a
+ * path that names the Workspace root itself (a create needs a leaf).
+ * @param contained - the lexically validated target.
+ * @returns the normalized path's segments, outermost first.
+ */
+export function containedSegments(contained: ContainedPath): string[] {
+  const fromRoot = relative(contained.root, contained.target)
+  if (fromRoot === '') {
+    throw pathError('path-invalid', `workspace path ${JSON.stringify(contained.relative)} names the workspace root`)
+  }
+  return fromRoot.split(sep)
+}
+
+/**
+ * Ensure one intermediate directory exists with canonical identity: create it
+ * when absent, then require its resolved form to equal its lexical spelling
+ * (a swapped or pre-existing symbolic link refuses, before or after creation).
+ * @param parent - the verified canonical parent directory.
+ * @param segment - the single path segment to ensure below `parent`.
+ * @param display - the workspace-relative request path for refusal messages.
+ * @returns the verified lexical directory path, equal to `join(parent, segment)`.
+ */
+export async function ensureIntermediateDirectory(
+  parent: string,
+  segment: string,
+  display: DisplayPath,
+): Promise<string> {
+  const target = join(parent, segment)
+  const present = await entryInfo(target, display)
+  if (present === undefined) {
+    try {
+      await mkdir(target)
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw pathError('io', `workspace directory ${JSON.stringify(display)} cannot be created: ${failureText(error)}`)
+      }
+      const raced = await entryInfo(target, display)
+      if (raced === undefined) {
+        throw pathError('changed', `workspace entry ${JSON.stringify(display)} changed while creating`)
+      }
+      requireDirectory(raced, display)
+    }
+  } else {
+    requireDirectory(present, display)
+  }
+  await requireCanonical(target, display)
+  return target
+}
+
+/**
+ * Refuse a path whose final entry already exists, whatever its kind: an
+ * exclusive create never follows, truncates, or overwrites.
+ * @param target - the validated lexical final-entry path.
+ * @param display - the workspace-relative request path for refusal messages.
+ */
+export async function requireAbsentEntry(target: string, display: DisplayPath): Promise<void> {
+  const present = await entryInfo(target, display)
+  if (present !== undefined) {
+    throw pathError('exists', `workspace entry ${JSON.stringify(display)} already exists`)
+  }
+}
+
+/**
+ * Create the final directory exclusively (strict, not mkdir -p idempotent): a
+ * racing or pre-existing occupant refuses with `exists`.
+ * @param target - the validated lexical directory path.
+ * @param display - the workspace-relative request path for refusal messages.
+ */
+export async function createExclusiveDirectory(target: string, display: DisplayPath): Promise<void> {
+  try {
+    await mkdir(target)
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw pathError('exists', `workspace entry ${JSON.stringify(display)} already exists`)
+    }
+    throw pathError('io', `workspace directory ${JSON.stringify(display)} cannot be created: ${failureText(error)}`)
+  }
+}
+
+/** Map a no-follow descriptor open failure onto the typed refusal vocabulary. */
+function noFollowOpenRefusal(error: unknown, display: DisplayPath): RemoteError<WorkspaceFileWriteErrorCode> {
+  const code = (error as NodeJS.ErrnoException).code
+  if (code === 'ELOOP') {
+    return pathError('symlink', `workspace path ${JSON.stringify(display)} contains a symbolic link`)
+  }
+  if (code === 'ENOENT' || code === 'ENOTDIR') {
+    return pathError('changed', `workspace entry ${JSON.stringify(display)} changed while creating`)
+  }
+  return pathError('io', `workspace entry ${JSON.stringify(display)} cannot be opened: ${failureText(error)}`)
+}
+
+/* v8 ignore next 4 -- reached only when the close of a freshly read
+   read-only descriptor itself fails, a double fault with no observable
+   outcome to test: the verification verdict is already pinned above. */
+function swallowCloseFailure(): void {}
+
+/**
+ * Re-verify one just-created entry: a no-follow descriptor (`O_NOFOLLOW` for
+ * a file, a no-follow entry probe for a directory) of the required kind, the
+ * canonical spelling of the path, and the dev/ino identity cross-check
+ * against the followed canonical path.
+ * @param target - the validated lexical path of the created entry.
+ * @param display - the workspace-relative request path for refusal messages.
+ * @param kind - the entry kind the create produced.
+ */
+export async function verifyCreatedEntry(
+  target: string,
+  display: DisplayPath,
+  kind: 'file' | 'directory',
+): Promise<void> {
+  let info: Stats
+  if (kind === 'file') {
+    const handle = await open(target, READ_NOFOLLOW_FLAGS).catch((error: unknown) => {
+      throw noFollowOpenRefusal(error, display)
+    })
+    try {
+      info = await handle.stat()
+    } catch (error: unknown) {
+      throw pathError('io', `workspace entry ${JSON.stringify(display)} cannot be inspected: ${failureText(error)}`)
+    } finally {
+      // The verdict is pinned by the descriptor read above; a close failure
+      // on a fresh read-only descriptor adds no fact.
+      await handle.close().catch(swallowCloseFailure)
+    }
+  } else {
+    const probe = await entryInfo(target, display)
+    if (probe === undefined) {
+      throw pathError('changed', `workspace entry ${JSON.stringify(display)} changed while creating`)
+    }
+    if (probe.isSymbolicLink()) {
+      throw pathError('symlink', `workspace path ${JSON.stringify(display)} contains a symbolic link`)
+    }
+    info = probe
+  }
+  if (kind === 'file' ? !info.isFile() : !info.isDirectory()) {
+    throw pathError('changed', `workspace entry ${JSON.stringify(display)} changed while creating`)
+  }
+  await requireCanonical(target, display)
+  let current: Stats
+  try {
+    current = await stat(target)
+  } catch {
+    throw pathError('changed', `workspace entry ${JSON.stringify(display)} changed while creating`)
+  }
+  if (current.dev !== info.dev || current.ino !== info.ino) {
+    throw pathError('changed', `workspace entry ${JSON.stringify(display)} changed while creating`)
   }
 }

@@ -115,9 +115,11 @@ export class FakeApiClient implements IApiClient {
     },
   }
   readonly workspaceGit: IApiClient['workspaceGit'] = {
-    status: payload => this.record('workspace.git.status', payload, Promise.resolve(ok({ branch: null, entries: [], truncated: false }))),
+    status: payload => this.record('workspace.git.status', payload, Promise.resolve(ok({ branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false }))),
     commits: payload => this.record('workspace.git.commits', payload, Promise.resolve(ok({ commits: [], truncated: false }))),
     diff: payload => this.record('workspace.git.diff', payload, Promise.resolve(ok({ diff: '', truncated: false }))),
+    commitFiles: payload => this.record('workspace.git.commitFiles', payload, Promise.resolve(ok({ files: [], truncated: false }))),
+    commitDiff: payload => this.record('workspace.git.commitDiff', payload, Promise.resolve(ok({ diff: '', truncated: false }))),
   }
 
   onListDirectory: (payload: unknown) => Promise<RpcResponse<{

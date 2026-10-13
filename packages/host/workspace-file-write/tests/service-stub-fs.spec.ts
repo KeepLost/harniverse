@@ -2,7 +2,8 @@
  * Service arms over a scripted fs seam: the decision-less fallback, the
  * size-less stat fallback, the open retry loop (drift then convergence,
  * and drift to exhaustion), the not-regular refusals, the refusal
- * vocabulary mapping, and the saveId cache bound.
+ * vocabulary mapping, the saveId cache bound, and the exclusive-create
+ * refusal mapping.
  */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -245,6 +246,38 @@ describe('workspace-file-write CAS refusal mapping', () => {
     const { service, ws, signal } = await stubHarness(fs)
     fs.writeError = 'plain rejection'
     await expect(service.save(ws, 'a.txt', { content: 'x', baseVersion: 'v1', saveId: 's' }, signal()))
+      .rejects.toMatchObject({ code: 'io', message: /plain rejection/u })
+  })
+})
+
+describe('workspace-file-write create refusal mapping', () => {
+  it('maps the backend createIfAbsent collision guard to exists without writing content', async () => {
+    const fs = stubFs({})
+    const { service, ws, signal } = await stubHarness(fs, [])
+    fs.writeError = new FsError('cannot overwrite existing "new.txt" without reading it first', 'FS_NOT_OBSERVED')
+    await expect(service.createFile(ws, 'new.txt', signal())).rejects.toMatchObject({ code: 'exists' })
+  })
+
+  it('maps the backend non-regular-target refusal to exists', async () => {
+    const fs = stubFs({})
+    const { service, ws, signal } = await stubHarness(fs, [])
+    fs.writeError = new FsError('cannot write "new.txt": not a regular file', 'FS_NOT_REGULAR_FILE')
+    await expect(service.createFile(ws, 'new.txt', signal())).rejects.toMatchObject({ code: 'exists' })
+  })
+
+  it('maps a raw create write failure to io', async () => {
+    const fs = stubFs({})
+    const { service, ws, signal } = await stubHarness(fs, [])
+    fs.writeError = new Error('no space left on device')
+    await expect(service.createFile(ws, 'new.txt', signal()))
+      .rejects.toMatchObject({ code: 'io', message: /no space left/u })
+  })
+
+  it('maps a non-Error create rejection to io with its string form', async () => {
+    const fs = stubFs({})
+    const { service, ws, signal } = await stubHarness(fs, [])
+    fs.writeError = 'plain rejection'
+    await expect(service.createFile(ws, 'new.txt', signal()))
       .rejects.toMatchObject({ code: 'io', message: /plain rejection/u })
   })
 })

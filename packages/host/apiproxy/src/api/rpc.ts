@@ -176,6 +176,28 @@ export interface RpcErrorDetailsMap {
    * Chinese sentence free of secrets, so the Settings page shows or maps it.
    */
   'chat-bot-failed': { reason: string }
+  /**
+   * The workspaceFileWrite Remote's own closed codes (open, stat, save, and
+   * exclusive create), carried verbatim so the workbench and the editor
+   * discriminate them (a save conflict, an exclusive create collision)
+   * instead of showing a wire message. Details mirror the remote's failure
+   * vocabulary: the on-disk version for `stale-version`/`changed`, viable
+   * encoding names for `not-text`.
+   */
+  'workspace-unknown': {}
+  'path-invalid': {}
+  'not-found': {}
+  'not-regular': {}
+  'symlink': {}
+  'git-dir': {}
+  'exists': {}
+  'too-large': {}
+  'not-text': { candidates?: string[] }
+  'mixed-eol': {}
+  'unmappable': {}
+  'stale-version': { currentVersion?: string }
+  'changed': { currentVersion?: string }
+  'io': {}
   'internal': {}
   /** The same idempotency key was reused with a different operation payload. */
   'idempotency-key-reused': { key: string }
@@ -262,6 +284,20 @@ export const RPC_ERROR_CODES = [
   'browser-navigation-refused',
   'remote-host-failed',
   'chat-bot-failed',
+  'workspace-unknown',
+  'path-invalid',
+  'not-found',
+  'not-regular',
+  'symlink',
+  'git-dir',
+  'exists',
+  'too-large',
+  'not-text',
+  'mixed-eol',
+  'unmappable',
+  'stale-version',
+  'changed',
+  'io',
   'internal',
   'idempotency-key-reused',
   'operation-not-found',

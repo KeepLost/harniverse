@@ -47,6 +47,11 @@ import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
 import { subagentPromptRequestSchema } from '../src/api/subagents.schema.ts'
 import { apiDescribeValueSchema } from '../src/api/contract.schema.ts'
 import { operationGetValueSchema } from '../src/api/operations.schema.ts'
+import {
+  workspaceGitCommitDiffRequestSchema, workspaceGitCommitDiffValueSchema,
+  workspaceGitCommitFilesRequestSchema, workspaceGitCommitFilesValueSchema,
+  workspaceGitCommitsValueSchema, workspaceGitStatusValueSchema,
+} from '../src/api/workspace-git.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -719,5 +724,61 @@ describe('agent-preset schemas', () => {
       .toEqual({ opened: false, path: '/presets/mine' })
     // A closed reply must carry the path the surface shows instead.
     expect(() => agentPresetOpenDocumentValueSchema.parse({ opened: false })).toThrow()
+  })
+})
+
+describe('workspace git domain schemas', () => {
+  const commit = {
+    hash: 'a'.repeat(40), shortHash: 'a'.repeat(7),
+    authorName: 'n', authorEmail: 'e', authoredAt: 't', subject: 's',
+    parents: ['b'.repeat(40)], refs: [{ kind: 'local', name: 'dev', current: true }],
+  }
+
+  it('validates the status value with upstream tracking fields', () => {
+    expect(workspaceGitStatusValueSchema.parse({
+      branch: 'dev', upstream: 'origin/dev', ahead: 1, behind: 2, entries: [], truncated: false,
+    })).toMatchObject({ upstream: 'origin/dev', ahead: 1, behind: 2 })
+    expect(workspaceGitStatusValueSchema.parse({
+      branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false,
+    }).upstream).toBe(null)
+    expect(() => workspaceGitStatusValueSchema.parse({ branch: null, entries: [], truncated: false })).toThrow()
+  })
+
+  it('validates commit rows with parents and decorated refs', () => {
+    expect(workspaceGitCommitsValueSchema.parse({ commits: [commit], truncated: false }).commits[0]?.parents)
+      .toEqual([ 'b'.repeat(40) ])
+    expect(() => workspaceGitCommitsValueSchema.parse({
+      commits: [{ ...commit, refs: [{ kind: 'branch', name: 'dev', current: true }] }], truncated: false,
+    })).toThrow()
+    expect(() => workspaceGitCommitsValueSchema.parse({
+      commits: [{ ...commit, parents: ['not-hex'] }], truncated: false,
+    })).toThrow()
+  })
+
+  it('requires full lowercase hex commit hashes on both commit methods', () => {
+    expect(workspaceGitCommitFilesRequestSchema.parse({ workspaceId: 'w1', hash: 'a'.repeat(40) }).hash)
+      .toBe('a'.repeat(40))
+    expect(workspaceGitCommitDiffRequestSchema.parse({
+      workspaceId: 'w1', hash: 'a'.repeat(40), path: 'src/a.ts',
+    }).path).toBe('src/a.ts')
+    expect(() => workspaceGitCommitFilesRequestSchema.parse({ workspaceId: 'w1', hash: 'a'.repeat(39) })).toThrow()
+    expect(() => workspaceGitCommitFilesRequestSchema.parse({ workspaceId: 'w1', hash: 'A'.repeat(40) })).toThrow()
+    expect(() => workspaceGitCommitFilesRequestSchema.parse({ workspaceId: 'w1', hash: '--something' })).toThrow()
+    expect(() => workspaceGitCommitFilesRequestSchema.parse({ workspaceId: 'w1', hash: '' })).toThrow()
+    expect(() => workspaceGitCommitDiffRequestSchema.parse({ workspaceId: 'w1', hash: 'a'.repeat(40) })).toThrow()
+  })
+
+  it('validates the commit file listing and patch values', () => {
+    expect(workspaceGitCommitFilesValueSchema.parse({
+      files: [
+        { path: 'new.txt', previousPath: 'old.txt', status: 'R' },
+        { path: 'added.txt', status: 'A' },
+      ], truncated: true,
+    }).files[0]).toMatchObject({ previousPath: 'old.txt', status: 'R' })
+    expect(() => workspaceGitCommitFilesValueSchema.parse({
+      files: [{ path: 'x.txt', status: 'X' }], truncated: false,
+    })).toThrow()
+    expect(workspaceGitCommitDiffValueSchema.parse({ diff: '', truncated: false }).diff).toBe('')
+    expect(() => workspaceGitCommitDiffValueSchema.parse({ diff: '', truncated: 'no' })).toThrow()
   })
 })

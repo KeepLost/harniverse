@@ -9,6 +9,8 @@ describe('legacy RPC capability map', () => {
     ['session.export', 'harniverse.observe'],
     ['plugin.export', 'harniverse.administer'],
     ['respond', 'harniverse.operate'],
+    ['workspace.git.commitFiles', 'harniverse.observe'],
+    ['workspace.git.commitDiff', 'harniverse.observe'],
   ])('resolves %s to %s', (endpoint, capability) => {
     expect(legacyRpcCapability(endpoint)).toBe(capability)
   })
@@ -20,6 +22,8 @@ describe('legacy RPC capability map', () => {
   it.each([
     ['session.create', true],
     ['session.list', false],
+    ['workspace.git.commitFiles', false],
+    ['workspace.git.commitDiff', false],
   ] as const)('reports whether %s mutates state', (method, mutates) => {
     expect(isMutatingRpcMethod(method)).toBe(mutates)
   })

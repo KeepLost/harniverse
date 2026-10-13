@@ -11,12 +11,15 @@ import {
   WORKSPACE_DIRECTORY_ENTRY_LIMIT,
   WORKSPACE_FILE_SEARCH_RESULT_LIMIT,
   WORKSPACE_FILE_SEARCH_SCAN_LIMIT,
+  WORKSPACE_GIT_COMMIT_FILE_LIMIT,
   listWorkspaceFiles,
   openedPathInfo,
   readIntoBuffer,
   readWorkspaceBinary,
   readWorkspaceFile,
   searchWorkspaceFiles,
+  workspaceGitCommitDiff,
+  workspaceGitCommitFiles,
   workspaceGitCommits,
   workspaceGitDiff,
   workspaceGitStatus,
@@ -620,7 +623,44 @@ describe('workspace git projection', () => {
     await git(root, 'checkout', '--detach', stdout.trim())
 
     await expect(workspaceGitStatus(root, new AbortController().signal))
-      .resolves.toMatchObject({ branch: null })
+      .resolves.toMatchObject({ branch: null, upstream: null, ahead: null, behind: null })
+  })
+
+  it('reports the tracked upstream with ahead and behind counts', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'tracked.txt'), 'first\n')
+    await git(root, 'add', '--', 'tracked.txt')
+    await git(root, 'commit', '-m', 'initial')
+    const { stdout: second } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    const { stdout: branchName } = await execFileAsync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    const branch = branchName.trim()
+    const signal = new AbortController().signal
+
+    await expect(workspaceGitStatus(root, signal)).resolves.toMatchObject({
+      upstream: null, ahead: null, behind: null,
+    })
+
+    await git(root, 'update-ref', `refs/remotes/origin/${branch}`, second.trim())
+    await git(root, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
+    await git(root, 'config', `branch.${branch}.remote`, 'origin')
+    await git(root, 'config', `branch.${branch}.merge`, `refs/heads/${branch}`)
+    await expect(workspaceGitStatus(root, signal)).resolves.toMatchObject({
+      upstream: `origin/${branch}`, ahead: 0, behind: 0,
+    })
+
+    writeFileSync(join(root, 'tracked.txt'), 'second\n')
+    await git(root, 'add', '--', 'tracked.txt')
+    await git(root, 'commit', '-m', 'ahead')
+    const { stdout: third } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    await expect(workspaceGitStatus(root, signal)).resolves.toMatchObject({
+      upstream: `origin/${branch}`, ahead: 1, behind: 0,
+    })
+
+    await git(root, 'update-ref', `refs/remotes/origin/${branch}`, third.trim())
+    await git(root, 'reset', '--hard', second.trim())
+    await expect(workspaceGitStatus(root, signal)).resolves.toMatchObject({
+      upstream: `origin/${branch}`, ahead: 0, behind: 1,
+    })
   })
 
   it('carries the original path of a renamed entry', async () => {
@@ -667,6 +707,111 @@ describe('workspace git projection', () => {
     expect(all.commits[0]).toMatchObject({ subject: 'commit 3', authorEmail: 'inspector@example.invalid' })
   })
 
+  it('reports commit parents with root commits empty', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'base.txt'), 'base\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'root')
+    const { stdout: rootSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    writeFileSync(join(root, 'base.txt'), 'changed\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'second')
+    const { stdout: secondSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    await git(root, 'checkout', '-b', 'side', rootSha.trim())
+    writeFileSync(join(root, 'side.txt'), 'side\n')
+    await git(root, 'add', '--', 'side.txt')
+    await git(root, 'commit', '-m', 'side')
+    const { stdout: sideSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    await git(root, 'checkout', '-')
+    await git(root, 'merge', '--no-ff', '-m', 'merged', 'side')
+    const { stdout: mergeSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    const { commits } = await workspaceGitCommits(root, 50, new AbortController().signal)
+    const byHash = new Map(commits.map(commit => [commit.hash, commit]))
+    expect(byHash.get(rootSha.trim())?.parents).toEqual([])
+    expect(byHash.get(secondSha.trim())?.parents).toEqual([rootSha.trim()])
+    expect(byHash.get(mergeSha.trim())?.parents).toEqual([secondSha.trim(), sideSha.trim()])
+  })
+
+  it('orders parents after children for client-side lane layout', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'base.txt'), 'base\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'root')
+    await git(root, 'checkout', '-b', 'side')
+    writeFileSync(join(root, 'side.txt'), 'side\n')
+    await git(root, 'add', '--', 'side.txt')
+    await git(root, 'commit', '-m', 'side')
+    await git(root, 'checkout', '-')
+    writeFileSync(join(root, 'main.txt'), 'main\n')
+    await git(root, 'add', '--', 'main.txt')
+    await git(root, 'commit', '-m', 'mainline')
+    await git(root, 'merge', '--no-ff', '-m', 'merged', 'side')
+
+    const { commits } = await workspaceGitCommits(root, 50, new AbortController().signal)
+    const positions = new Map(commits.map((commit, index) => [commit.hash, index]))
+    for (const commit of commits) {
+      for (const parent of commit.parents) {
+        expect(positions.get(parent)).toBeGreaterThan(positions.get(commit.hash) as number)
+      }
+    }
+  })
+
+  it('decorates commits with current, local, remote, and tag refs', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'base.txt'), 'base\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'root')
+    const { stdout: rootSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    await git(root, 'branch', 'topic', rootSha.trim())
+    writeFileSync(join(root, 'base.txt'), 'changed\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'second')
+    const { stdout: secondSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    await git(root, 'tag', '-a', 'v1.0', '-m', 'release')
+    await git(root, 'update-ref', 'refs/remotes/origin/dev', secondSha.trim())
+    const { stdout: branchName } = await execFileAsync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    const branch = branchName.trim()
+
+    const { commits } = await workspaceGitCommits(root, 50, new AbortController().signal)
+    const byHash = new Map(commits.map(commit => [commit.hash, commit]))
+    expect(byHash.get(rootSha.trim())?.refs).toEqual([{ kind: 'local', name: 'topic', current: false }])
+    expect(byHash.get(secondSha.trim())?.refs).toEqual([
+      { kind: 'head', name: 'HEAD', current: true },
+      { kind: 'local', name: branch, current: true },
+      { kind: 'tag', name: 'v1.0', current: false },
+      { kind: 'remote', name: 'origin/dev', current: false },
+    ])
+
+    await git(root, 'checkout', '--detach', secondSha.trim())
+    const detached = await workspaceGitCommits(root, 50, new AbortController().signal)
+    expect(detached.commits.find(commit => commit.hash === secondSha.trim())?.refs).toEqual([
+      { kind: 'head', name: 'HEAD', current: true },
+      { kind: 'tag', name: 'v1.0', current: false },
+      { kind: 'remote', name: 'origin/dev', current: false },
+      { kind: 'local', name: branch, current: false },
+    ])
+  })
+
+  it('reports a vanished upstream marker without ahead or behind counts', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'tracked.txt'), 'first\n')
+    await git(root, 'add', '--', 'tracked.txt')
+    await git(root, 'commit', '-m', 'initial')
+    const { stdout: sha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    const { stdout: branchName } = await execFileAsync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    const branch = branchName.trim()
+    await git(root, 'update-ref', `refs/remotes/origin/${branch}`, sha.trim())
+    await git(root, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
+    await git(root, 'config', `branch.${branch}.remote`, 'origin')
+    await git(root, 'config', `branch.${branch}.merge`, `refs/heads/${branch}`)
+    await git(root, 'update-ref', '-d', `refs/remotes/origin/${branch}`)
+
+    await expect(workspaceGitStatus(root, new AbortController().signal)).resolves.toMatchObject({
+      upstream: `origin/${branch}`, ahead: 0, behind: 0,
+    })
+  })
+
   it('reads a staged diff separately from the working tree', async () => {
     const root = await repository()
     writeFileSync(join(root, 'tracked.txt'), 'first\n')
@@ -695,6 +840,154 @@ describe('workspace git projection', () => {
   ])('reports a directory outside any repository through %s', async (_label, read) => {
     await expect(read(tempWorkspace(), new AbortController().signal))
       .rejects.toMatchObject({ code: 'workspace-git-not-repository' })
+  })
+
+  it('lists a root commit as additions and later commits against their first parent', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'base.txt'), 'base\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'root')
+    const { stdout: rootSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    writeFileSync(join(root, 'base.txt'), 'changed\n')
+    writeFileSync(join(root, 'added.txt'), 'added\n')
+    await git(root, 'add', '--', 'base.txt', 'added.txt')
+    await git(root, 'commit', '-m', 'second')
+    const { stdout: secondSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    const signal = new AbortController().signal
+    await expect(workspaceGitCommitFiles(root, rootSha.trim(), signal)).resolves.toEqual({
+      files: [{ path: 'base.txt', status: 'A' }], truncated: false,
+    })
+    await expect(workspaceGitCommitFiles(root, secondSha.trim(), signal)).resolves.toEqual({
+      files: [
+        { path: 'added.txt', status: 'A' },
+        { path: 'base.txt', status: 'M' },
+      ], truncated: false,
+    })
+  })
+
+  it('diffs a merge commit against its first parent only', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'base.txt'), 'base\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'root')
+    await git(root, 'checkout', '-b', 'side')
+    writeFileSync(join(root, 'base.txt'), 'side change\n')
+    writeFileSync(join(root, 'side.txt'), 'side\n')
+    await git(root, 'add', '--', 'base.txt', 'side.txt')
+    await git(root, 'commit', '-m', 'side')
+    await git(root, 'checkout', '-')
+    writeFileSync(join(root, 'main.txt'), 'main\n')
+    await git(root, 'add', '--', 'main.txt')
+    await git(root, 'commit', '-m', 'mainline')
+    await git(root, 'merge', '--no-ff', '-m', 'merged', 'side')
+    const { stdout: mergeSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    const files = await workspaceGitCommitFiles(root, mergeSha.trim(), new AbortController().signal)
+    expect(files.files).toEqual([
+      { path: 'base.txt', status: 'M' },
+      { path: 'side.txt', status: 'A' },
+    ])
+    expect(files.truncated).toBe(false)
+  })
+
+  it('carries the previous path of a rename', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'before.txt'), 'contents\n')
+    await git(root, 'add', '--', 'before.txt')
+    await git(root, 'commit', '-m', 'initial')
+    await git(root, 'mv', 'before.txt', 'after.txt')
+    await git(root, 'commit', '-m', 'rename')
+    const { stdout: sha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    await expect(workspaceGitCommitFiles(root, sha.trim(), new AbortController().signal)).resolves.toEqual({
+      files: [{ path: 'after.txt', previousPath: 'before.txt', status: 'R' }], truncated: false,
+    })
+  })
+
+  it('bounds a commit larger than the file limit', async () => {
+    const root = await repository()
+    for (let index = 0; index < WORKSPACE_GIT_COMMIT_FILE_LIMIT + 1; index += 1) {
+      writeFileSync(join(root, `f${String(index).padStart(3, '0')}.txt`), 'x')
+    }
+    await git(root, 'add', '--', '.')
+    await git(root, 'commit', '-m', 'bulk')
+    const { stdout: sha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    const files = await workspaceGitCommitFiles(root, sha.trim(), new AbortController().signal)
+    expect(files.files).toHaveLength(WORKSPACE_GIT_COMMIT_FILE_LIMIT)
+    expect(files.truncated).toBe(true)
+  })
+
+  it('reads one commit patch for one path and an empty patch for untouched paths', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'tracked.txt'), 'first\n')
+    await git(root, 'add', '--', 'tracked.txt')
+    await git(root, 'commit', '-m', 'initial')
+    const { stdout: rootSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+    writeFileSync(join(root, 'tracked.txt'), 'second\n')
+    await git(root, 'add', '--', 'tracked.txt')
+    await git(root, 'commit', '-m', 'second')
+    const { stdout: secondSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    const signal = new AbortController().signal
+    const rootPatch = await workspaceGitCommitDiff(root, rootSha.trim(), 'tracked.txt', signal)
+    expect(rootPatch.diff).toContain('--- /dev/null')
+    expect(rootPatch.diff).toContain('+++ b/tracked.txt')
+    expect(rootPatch.diff).toContain('+first')
+    expect(rootPatch.truncated).toBe(false)
+    const patch = await workspaceGitCommitDiff(root, secondSha.trim(), 'tracked.txt', signal)
+    expect(patch.diff).toContain('--- a/tracked.txt')
+    expect(patch.diff).toContain('+++ b/tracked.txt')
+    expect(patch.diff).toContain('-first')
+    expect(patch.diff).toContain('+second')
+    await expect(workspaceGitCommitDiff(root, secondSha.trim(), 'untouched.txt', signal))
+      .resolves.toEqual({ diff: '', truncated: false })
+  })
+
+  it('treats a commit diff filename as a literal pathspec', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'a[b]'), 'first\n')
+    await git(root, 'add', '--', 'a[b]')
+    await git(root, 'commit', '-m', 'initial')
+    writeFileSync(join(root, 'a[b]'), 'changed\n')
+    await git(root, 'add', '--', 'a[b]')
+    await git(root, 'commit', '-m', 'second')
+    const { stdout: sha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    const patch = await workspaceGitCommitDiff(root, sha.trim(), 'a[b]', new AbortController().signal)
+    expect(patch.diff).toContain('a[b]')
+    expect(patch.diff).not.toContain('axxb')
+  })
+
+  it('refuses a commit diff path that escapes the workspace', async () => {
+    const root = await repository()
+    writeFileSync(join(root, 'tracked.txt'), 'first\n')
+    await git(root, 'add', '--', 'tracked.txt')
+    await git(root, 'commit', '-m', 'initial')
+    const { stdout: sha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+
+    await expect(workspaceGitCommitDiff(root, sha.trim(), '../outside.txt', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-path-invalid' })
+  })
+
+  it.each([
+    ['39 characters', 'a'.repeat(39)],
+    ['uppercase hex', 'A'.repeat(40)],
+    ['an option-like string', '--something'],
+    ['empty', ''],
+  ])('refuses a commit hash of %s before spawning Git', async (_label, hash) => {
+    await expect(workspaceGitCommitFiles(tempWorkspace(), hash, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-git-failed', operation: 'commit hash validation' })
+    await expect(workspaceGitCommitDiff(tempWorkspace(), hash, 'a.txt', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-git-failed', operation: 'commit hash validation' })
+  })
+
+  it('reports a well-formed but unknown commit hash as a Git failure', async () => {
+    const root = await repository()
+
+    await expect(workspaceGitCommitFiles(root, '0'.repeat(40), new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-git-failed' })
   })
 })
 

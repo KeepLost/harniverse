@@ -314,6 +314,18 @@
       "stability": "stable"
     },
     {
+      "method": "workspace.git.commitFiles",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.git.commitDiff",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
       "method": "skill.list",
       "requiredCapability": "harniverse.observe",
       "effect": "read",
@@ -585,6 +597,20 @@
     "browser-navigation-refused",
     "remote-host-failed",
     "chat-bot-failed",
+    "workspace-unknown",
+    "path-invalid",
+    "not-found",
+    "not-regular",
+    "symlink",
+    "git-dir",
+    "exists",
+    "too-large",
+    "not-text",
+    "mixed-eol",
+    "unmappable",
+    "stale-version",
+    "changed",
+    "io",
     "internal",
     "idempotency-key-reused",
     "operation-not-found",

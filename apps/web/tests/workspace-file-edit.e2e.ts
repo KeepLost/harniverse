@@ -114,3 +114,41 @@ it('previews by default, edits through the Edit mode, saves through the workspac
   expect(await page.locator('[data-workspace-editor]').count()).toBe(0)
   expect(await preview.getByText('Preview shows the saved version').count()).toBe(0)
 }, 120_000)
+
+it('creates files and folders inline from the tree through the workspace-file-write Remote', async () => {
+  const workbench = page.getByRole('complementary', { name: 'Workspace workbench' })
+  const navigation = workbench.getByRole('tabpanel')
+  const preview = page.getByRole('region', { name: 'Workspace file preview' })
+  await preview.getByRole('button', { name: 'Close file preview' }).click()
+
+  await workbench.getByRole('tab', { name: 'Files', exact: true }).click()
+  await workbench.getByRole('button', { name: 'New file' }).click()
+  const fileInput = navigation.getByRole('textbox', { name: 'New file name' })
+  await fileInput.fill('docs/created.md')
+  await fileInput.press('Enter')
+  // The created file opens as a tab and the tree reveals it under its new
+  // intermediate directory.
+  await preview.waitFor({ timeout: 15_000 })
+  await preview.getByRole('tab', { name: 'created.md' }).waitFor({ timeout: 15_000 })
+  await navigation.getByRole('button', { name: /created\.md$/ }).waitFor({ timeout: 15_000 })
+
+  await workbench.getByRole('button', { name: 'New folder' }).click()
+  const folderInput = navigation.getByRole('textbox', { name: 'New folder name' })
+  await folderInput.fill('assets')
+  await folderInput.press('Enter')
+  await navigation.getByRole('button', { name: 'assets', exact: true }).waitFor({ timeout: 15_000 })
+
+  // Disk truth: the file is empty, the directory exists.
+  expect(await readFile(join(workspaceDir, 'docs/created.md'), 'utf8')).toBe('')
+  const { stat } = await import('node:fs/promises')
+  expect((await stat(join(workspaceDir, 'assets'))).isDirectory()).toBe(true)
+
+  // An existing name refuses inline with the localized message; Escape leaves.
+  await workbench.getByRole('button', { name: 'New folder' }).click()
+  const failing = navigation.getByRole('textbox', { name: 'New folder name' })
+  await failing.fill('assets')
+  await failing.press('Enter')
+  await navigation.getByText('An entry with this name already exists', { exact: true }).waitFor({ timeout: 15_000 })
+  await failing.press('Escape')
+  await expect.poll(() => navigation.getByRole('textbox', { name: 'New folder name' }).count(), { timeout: 10_000 }).toBe(0)
+}, 120_000)

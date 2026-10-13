@@ -3106,6 +3106,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (missing !== undefined) return missing
         return ok(request, {
           branch: 'fixture/main',
+          upstream: 'origin/fixture/main',
+          ahead: 1,
+          behind: 0,
           entries: [
             { path: 'src/index.ts', indexStatus: ' ', worktreeStatus: 'M' },
             { path: 'notes.txt', indexStatus: '?', worktreeStatus: '?' },
@@ -3121,6 +3124,11 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             hash: '0123456789abcdef0123456789abcdef01234567', shortHash: '0123456',
             authorName: 'Fixture Author', authorEmail: 'fixture@example.invalid',
             authoredAt: '2026-01-01T00:00:00.000Z', subject: 'Seed fixture workspace',
+            parents: [],
+            refs: [
+              { kind: 'head', name: 'HEAD', current: true },
+              { kind: 'local', name: 'fixture/main', current: true },
+            ],
           }],
           truncated: false,
         })
@@ -3130,6 +3138,24 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (missing !== undefined) return missing
         return ok(request, {
           diff: `diff --git a/${request.payload.path ?? 'src/index.ts'} b/${request.payload.path ?? 'src/index.ts'}\n-old fixture\n+new fixture\n`,
+          truncated: false,
+        })
+      },
+      commitFiles: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          files: request.payload.hash === '0123456789abcdef0123456789abcdef01234567'
+            ? [{ path: 'src/index.ts', status: 'A' as const }, { path: 'README.md', status: 'A' as const }]
+            : [],
+          truncated: false,
+        })
+      },
+      commitDiff: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          diff: `diff --git a/${request.payload.path} b/${request.payload.path}\n-old fixture\n+new fixture\n`,
           truncated: false,
         })
       },
@@ -3627,6 +3653,10 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.git.commits': return this.fixtureApi.workspaceGit?.commits(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } })
       case 'workspace.git.diff': return this.fixtureApi.workspaceGit?.diff(request, signal)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } })
+      case 'workspace.git.commitFiles': return this.fixtureApi.workspaceGit?.commitFiles(request, signal)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } })
+      case 'workspace.git.commitDiff': return this.fixtureApi.workspaceGit?.commitDiff(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } })
       case 'skill.list': return this.fixtureApi.skills.list(request)
       case 'agentPreset.list': return this.fixtureApi.agentPresets.list(request)

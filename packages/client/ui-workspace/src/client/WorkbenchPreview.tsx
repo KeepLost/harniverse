@@ -471,8 +471,9 @@ export function WorkbenchPreview(props: {
       // The preview-document occupant owns Escape while focus is inside it
       // (its search panel, multi-cursor dismissal, its own close request);
       // the event reaches the occupant's keymap only when this capture
-      // listener lets it pass.
-      if (event.target instanceof Element && event.target.closest('[data-workspace-editor]') !== null) return
+      // listener lets it pass. The workbench tree's inline create input has
+      // the same ownership while it exists.
+      if (event.target instanceof Element && event.target.closest('[data-workspace-editor], [data-workbench-create]') !== null) return
       event.preventDefault()
       // The preview is nested inside the shell drawer on narrow screens. Stop
       // its document listener from also closing the whole workbench.
