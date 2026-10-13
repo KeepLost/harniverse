@@ -6,7 +6,9 @@
  * share from the return type.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspaceFileEntry, WorkspaceGitCommit, WorkspaceGitStatusEntry } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  WorkspaceFileEntry, WorkspaceGitCommit, WorkspaceGitCommitFile, WorkspaceGitStatusEntry,
+} from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Browser-local order account for the hierarchy-free flat Session list. */
 export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
@@ -153,10 +155,24 @@ export interface WorkbenchSearch {
 /** Current read-only Git status and recent history. */
 export interface WorkbenchGit {
   branch: string | null
+  /** Upstream short name the branch tracks, when it tracks one. */
+  upstream: string | null
+  /** Commits the local branch is ahead of its upstream by; null without an upstream. */
+  ahead: number | null
+  /** Commits the local branch is behind its upstream by; null without an upstream. */
+  behind: number | null
   entries: WorkspaceGitStatusEntry[]
   commits: WorkspaceGitCommit[]
   loading: boolean
   truncated: boolean
+  error?: string
+}
+
+/** One commit's lazily loaded changed-file list. */
+export interface WorkbenchCommitFiles {
+  files: WorkspaceGitCommitFile[]
+  truncated: boolean
+  loading: boolean
   error?: string
 }
 
@@ -182,6 +198,10 @@ export interface WorkspaceWorkbenchAccount {
   search: WorkbenchSearch
   gitArea: WorkbenchGitArea
   git: WorkbenchGit | null
+  /** Changed-file lists for expanded history commits, keyed by commit hash. */
+  commitFiles: Record<string, WorkbenchCommitFiles>
+  /** Which history commits stand expanded, keyed by commit hash. */
+  expandedCommits: Record<string, boolean>
   /**
    * File-tree refresh mode: `'auto'` while watch frames drive relists;
    * `'manual'` after the change feed exhausted its stream retries — the
@@ -206,6 +226,8 @@ type WorkspaceWorkbenchActions = {
   retainWorkspaces: (draft: WorkspaceWorkbenchState, workspaceIds: readonly string[]) => void
   setDirectory: (draft: WorkspaceWorkbenchState, workspaceId: string, path: string, value: WorkbenchDirectory) => void
   setDirectoryExpanded: (draft: WorkspaceWorkbenchState, workspaceId: string, path: string, expanded: boolean) => void
+  /** Collapse every directory, leaving only the workspace root expanded. */
+  collapseAllDirectories: (draft: WorkspaceWorkbenchState, workspaceId: string) => void
   openTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tab: WorkbenchTab) => void
   updateTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tab: WorkbenchTab) => void
   selectTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string) => void
@@ -216,6 +238,8 @@ type WorkspaceWorkbenchActions = {
   setDocumentDirty: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string, dirty: boolean) => void
   setGitArea: (draft: WorkspaceWorkbenchState, workspaceId: string, area: WorkbenchGitArea) => void
   setGit: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchGit) => void
+  setCommitFiles: (draft: WorkspaceWorkbenchState, workspaceId: string, hash: string, value: WorkbenchCommitFiles) => void
+  setCommitExpanded: (draft: WorkspaceWorkbenchState, workspaceId: string, hash: string, expanded: boolean) => void
   setFileWatch: (draft: WorkspaceWorkbenchState, workspaceId: string, mode: 'auto' | 'manual') => void
   setSyncedActivity: (draft: WorkspaceWorkbenchState, workspaceId: string, value: number) => void
 }
@@ -232,6 +256,8 @@ function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
     search: emptyWorkbenchSearch(),
     gitArea: 'worktree',
     git: null,
+    commitFiles: {},
+    expandedCommits: {},
     fileWatch: 'auto',
     syncedActivity: null,
   }
@@ -289,6 +315,9 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
         }
         if (account.search.loading) account.search = { ...account.search, entries: [], truncated: false, loading: false }
         if (account.git?.loading === true) account.git = null
+        account.commitFiles = Object.fromEntries(
+          Object.entries(account.commitFiles).filter(([, files]) => !files.loading),
+        )
       },
       retainWorkspaces: (d, workspaceIds) => {
         const retained = new Set(workspaceIds)
@@ -298,6 +327,9 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
       setDirectory: (d, workspaceId, path, value) => { workbenchAccount(d, workspaceId).directories[path] = value },
       setDirectoryExpanded: (d, workspaceId, path, expanded) => {
         workbenchAccount(d, workspaceId).expandedDirectories[path] = expanded
+      },
+      collapseAllDirectories: (d, workspaceId) => {
+        workbenchAccount(d, workspaceId).expandedDirectories = { '': true }
       },
       openTab: (d, workspaceId, tab) => {
         const account = workbenchAccount(d, workspaceId)
@@ -341,7 +373,19 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
         else if (tabId in account.documentDirty) account.documentDirty = omitKey(account.documentDirty, tabId)
       },
       setGitArea: (d, workspaceId, area) => { workbenchAccount(d, workspaceId).gitArea = area },
-      setGit: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).git = value },
+      setGit: (d, workspaceId, value) => {
+        const account = workbenchAccount(d, workspaceId)
+        account.git = value
+        const visible = new Set(value.commits.map(commit => commit.hash))
+        account.commitFiles = Object.fromEntries(
+          Object.entries(account.commitFiles).filter(([hash, files]) => visible.has(hash) || files.loading),
+        )
+      },
+      setCommitFiles: (d, workspaceId, hash, value) => { workbenchAccount(d, workspaceId).commitFiles[hash] = value },
+      setCommitExpanded: (d, workspaceId, hash, expanded) => {
+        const account = workbenchAccount(d, workspaceId)
+        account.expandedCommits[hash] = expanded
+      },
       setFileWatch: (d, workspaceId, mode) => { workbenchAccount(d, workspaceId).fileWatch = mode },
       setSyncedActivity: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).syncedActivity = value },
     },

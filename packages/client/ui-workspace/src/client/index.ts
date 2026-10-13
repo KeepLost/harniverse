@@ -46,9 +46,12 @@ const NS = 'workspace'
  * to this one is NOT constrained: dsh.client.inject edges are informational
  * (loading/prefetch metadata, never apply sequencing) and neither owner
  * provides a waitable service. apply therefore depends on each slot
- * declaration through `slots.inject()` instead of assuming order.
+ * declaration through `slots.inject()` instead of assuming order. The typed
+ * workspaceFileWrite Remote namespace is mounted by the client api-remotes
+ * assembly in every web composition; the create verbs ride it under
+ * `harniverse.operate`.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'layout', 'connection']
+export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'layout', 'connection', 'remote.workspaceFileWrite']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -75,6 +78,9 @@ export function apply(ctx: ClientContext): void {
 function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Generator<() => void, void, void> {
   const target = connection.target.getSnapshot()
   const machineKey = target.kind === 'host' ? 'host' : `remote:${target.id}`
+  // Mounted once by the api-remotes assembly; the workbench create verbs ride
+  // it under `harniverse.operate`.
+  const fileWriteRemote = ctx.get('remote.workspaceFileWrite') as ClientContext['remote']['workspaceFileWrite']
   const current = (): void => {
     if (connection.target.getSnapshot() !== target) throw new Error('workspace view belongs to a retired machine')
   }
@@ -210,6 +216,10 @@ function* machineSurfaces(ctx: ClientContext, connection: ConnectionHandle): Gen
     gitStatus: (workspaceId, signal) => { current(); return ctx.workspaces.gitStatus(workspaceId, signal) },
     gitCommits: (workspaceId, limit, signal) => { current(); return ctx.workspaces.gitCommits(workspaceId, limit, signal) },
     gitDiff: (workspaceId, path, staged, signal) => { current(); return ctx.workspaces.gitDiff(workspaceId, path, staged, signal) },
+    gitCommitFiles: (workspaceId, hash, signal) => { current(); return ctx.workspaces.gitCommitFiles(workspaceId, hash, signal) },
+    gitCommitDiff: (workspaceId, hash, path, signal) => { current(); return ctx.workspaces.gitCommitDiff(workspaceId, hash, path, signal) },
+    createFile: (workspaceId, path, signal) => { current(); return fileWriteRemote.createFile(workspaceId, path, signal) },
+    createDirectory: (workspaceId, path, signal) => { current(); return fileWriteRemote.createDirectory(workspaceId, path, signal) },
     openPath,
     ...(watchFiles === undefined ? {} : { watchFiles }),
     hooks: { canOpenPath: canOpenPathSource, previewDocumentOccupied: drawerDocumentSource },

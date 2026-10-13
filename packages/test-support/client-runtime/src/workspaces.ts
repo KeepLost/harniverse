@@ -2,7 +2,7 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   DirectoryListing, IWorkspaces, SessionId, SnapshotStore, WorkspaceFileEntry, WorkspaceGitCommit,
-  WorkspaceGitStatusEntry, WorkspaceId, WorkspaceListState, WorkspaceSearchFilters, WorkspaceView,
+  WorkspaceGitCommitFile, WorkspaceGitStatusEntry, WorkspaceId, WorkspaceListState, WorkspaceSearchFilters, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { workspaceListState } from './fixtures.ts'
 import type { Stabilizer } from './fixtures.ts'
@@ -175,6 +175,9 @@ export class TestWorkspaces implements IWorkspaces {
 
   async gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
     branch: string | null
+    upstream: string | null
+    ahead: number | null
+    behind: number | null
     entries: WorkspaceGitStatusEntry[]
     truncated: boolean
   }> {
@@ -182,10 +185,13 @@ export class TestWorkspaces implements IWorkspaces {
     const stub = this.stubs.get('gitStatus')
     if (stub !== undefined) return await stub(workspaceId, signal) as {
       branch: string | null
+      upstream: string | null
+      ahead: number | null
+      behind: number | null
       entries: WorkspaceGitStatusEntry[]
       truncated: boolean
     }
-    return { branch: null, entries: [], truncated: false }
+    return { branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false }
   }
 
   async gitCommits(workspaceId: WorkspaceId, limit?: number, signal?: AbortSignal): Promise<{
@@ -208,6 +214,32 @@ export class TestWorkspaces implements IWorkspaces {
     this.calls.push({ method: 'gitDiff', args: [workspaceId, path, staged, signal] })
     const stub = this.stubs.get('gitDiff')
     if (stub !== undefined) return await stub(workspaceId, path, staged, signal) as {
+      diff: string
+      truncated: boolean
+    }
+    return { diff: '', truncated: false }
+  }
+
+  async gitCommitFiles(workspaceId: WorkspaceId, hash: string, signal?: AbortSignal): Promise<{
+    files: WorkspaceGitCommitFile[]
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'gitCommitFiles', args: [workspaceId, hash, signal] })
+    const stub = this.stubs.get('gitCommitFiles')
+    if (stub !== undefined) return await stub(workspaceId, hash, signal) as {
+      files: WorkspaceGitCommitFile[]
+      truncated: boolean
+    }
+    return { files: [], truncated: false }
+  }
+
+  async gitCommitDiff(workspaceId: WorkspaceId, hash: string, path: string, signal?: AbortSignal): Promise<{
+    diff: string
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'gitCommitDiff', args: [workspaceId, hash, path, signal] })
+    const stub = this.stubs.get('gitCommitDiff')
+    if (stub !== undefined) return await stub(workspaceId, hash, path, signal) as {
       diff: string
       truncated: boolean
     }

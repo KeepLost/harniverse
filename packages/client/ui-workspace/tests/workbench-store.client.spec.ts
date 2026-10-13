@@ -11,7 +11,7 @@ describe('createWorkspaceWorkbenchStore', () => {
       query: 'a', include: '*.ts', exclude: 'dist/', filtersOpen: true,
       entries: [], truncated: false, loading: false,
     })
-    actions.setGit('a', { branch: 'main', entries: [], commits: [], truncated: false, loading: false })
+    actions.setGit('a', { branch: 'main', upstream: null, ahead: null, behind: null, entries: [], commits: [], truncated: false, loading: false })
     actions.ensureWorkspace('a')
     actions.ensureWorkspace('b')
 
@@ -54,7 +54,9 @@ describe('createWorkspaceWorkbenchStore', () => {
       query: 'x', include: '*.py', exclude: '', filtersOpen: true,
       entries: [], truncated: false, loading: true,
     })
-    actions.setGit('a', { branch: null, entries: [], commits: [], truncated: false, loading: true })
+    actions.setGit('a', { branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [], truncated: false, loading: true })
+    actions.setCommitFiles('a', 'h1', { files: [], truncated: false, loading: true })
+    actions.setCommitExpanded('a', 'h1', true)
 
     actions.ensureWorkspace('a')
 
@@ -62,7 +64,9 @@ describe('createWorkspaceWorkbenchStore', () => {
       directories: {}, tabs: [], activeTabId: null,
       expandedDirectories: {}, previewOpen: false,
       search: { query: 'x', include: '*.py', filtersOpen: true, loading: false }, git: null,
+      commitFiles: {},
     })
+    expect(store.getSnapshot().byWorkspace.a?.expandedCommits).toEqual({ h1: true })
   })
 
   it('prunes expanded directories at and under a non-root interrupted directory', () => {

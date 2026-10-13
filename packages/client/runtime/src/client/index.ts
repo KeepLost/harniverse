@@ -72,7 +72,8 @@ export type { WorkspaceListPhase } from './contract/workspaces.ts'
 export type { WorkspaceListState } from './contract/workspaces.ts'
 export type {
   DirectoryEntry, DirectoryListing, WorkspaceId, WorkspaceView,
-  WorkspaceFileEntry, WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitStatusEntry,
+  WorkspaceFileEntry, WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitCommitFile, WorkspaceGitCommitRef,
+  WorkspaceGitStatusEntry,
 } from '@deepseek-ai/dsh-client-connection/client'
 export type { RpcError, RpcResult } from '@deepseek-ai/dsh-client-connection/client'
 // The snapshot store engine lives in the store package; runtime re-exports it and web-react only binds it to React.

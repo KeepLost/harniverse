@@ -8,7 +8,7 @@
  */
 import type {
   DirectoryListing, RpcError, SessionId, WorkspaceFileEntry, WorkspaceGitCommit,
-  WorkspaceGitStatusEntry, WorkspaceId, WorkspaceView,
+  WorkspaceGitCommitFile, WorkspaceGitStatusEntry, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 
@@ -128,6 +128,9 @@ export interface IWorkspaces {
   /** Read the current read-only Git status for a Workspace. */
   gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
     branch: string | null
+    upstream: string | null
+    ahead: number | null
+    behind: number | null
     entries: WorkspaceGitStatusEntry[]
     truncated: boolean
   }>
@@ -138,6 +141,16 @@ export interface IWorkspaces {
   }>
   /** Read the current working-tree or staged diff for a Workspace path. */
   gitDiff(workspaceId: WorkspaceId, path?: string, staged?: boolean, signal?: AbortSignal): Promise<{
+    diff: string
+    truncated: boolean
+  }>
+  /** Read one commit's changed paths against its first parent. */
+  gitCommitFiles(workspaceId: WorkspaceId, hash: string, signal?: AbortSignal): Promise<{
+    files: WorkspaceGitCommitFile[]
+    truncated: boolean
+  }>
+  /** Read one commit's unified patch for a single Workspace-relative path. */
+  gitCommitDiff(workspaceId: WorkspaceId, hash: string, path: string, signal?: AbortSignal): Promise<{
     diff: string
     truncated: boolean
   }>

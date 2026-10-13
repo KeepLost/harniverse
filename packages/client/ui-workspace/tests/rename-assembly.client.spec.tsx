@@ -39,6 +39,9 @@ async function createRuntime(): Promise<SlotTestRuntime> {
     toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
     openWorkbench: vi.fn(), closeWorkbench: vi.fn(),
   })
+  runtime.provide('remote.workspaceFileWrite', {
+    open: vi.fn(), stat: vi.fn(), save: vi.fn(), createFile: vi.fn(), createDirectory: vi.fn(),
+  })
   runtime.slots.installLocale(locale)
   return runtime
 }

@@ -29,7 +29,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {
-  ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+  ClientContext, ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { IWorkspaces, WorkspaceFileWatch } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore, createWorkspaceWorkbenchStore } from '../stores.ts'
@@ -252,7 +252,7 @@ export type WorkspacePickerProps =
   & DirectoryPickingHooks
   & PropsLocale<'workspace'>
 
-/** Read-only Workspace workbench callbacks supplied by the apply world. */
+/** Workspace workbench callbacks supplied by the apply world: reads and exclusive creates. */
 export type WorkspaceWorkbenchInjected = {
   /** Open the workbench without starting an inspection request. */
   openWorkbench: () => void
@@ -265,6 +265,17 @@ export type WorkspaceWorkbenchInjected = {
   gitStatus: IWorkspaces['gitStatus']
   gitCommits: IWorkspaces['gitCommits']
   gitDiff: IWorkspaces['gitDiff']
+  gitCommitFiles: IWorkspaces['gitCommitFiles']
+  gitCommitDiff: IWorkspaces['gitCommitDiff']
+  /**
+   * Create one empty workspace file exclusively through the
+   * workspace-file-write Remote (`harniverse.operate`); intermediate
+   * directories are created one validated segment at a time and an existing
+   * entry refuses with the `exists` failure code.
+   */
+  createFile: ClientContext['remote']['workspaceFileWrite']['createFile']
+  /** Create one workspace directory exclusively; same semantics as {@link createFile}. */
+  createDirectory: ClientContext['remote']['workspaceFileWrite']['createDirectory']
   /**
    * Open a Host-resolved path with the operating system's default
    * application; `resolveWorkspacePath` turns a Workspace-relative tree path

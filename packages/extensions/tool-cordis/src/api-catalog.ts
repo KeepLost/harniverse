@@ -3662,6 +3662,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'workspaceId', description: 'registered Workspace owning the file.' }, { name: 'path', description: 'workspace-relative file path.' }, { name: 'request', description: 'LF content, the base version, and the idempotency id.' }, { name: 'signal', description: 'request cancellation; a committed write survives it.' }],
         returns: 'the version the write produced.',
       },
+      {
+        signature: '@Remote({ exportName: \'createFile\', requiredCapability: \'harniverse.operate\' }) async createFile(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileCreateResult>',
+        description: 'Create one empty text file exclusively (`harniverse.operate`): absent intermediate directories are created one validated segment at a time, and the final entry publishes through `ctx.fs.writeText` under `createIfAbsent`, so the create inherits the local backend\'s per-target lock, private staging, atomic no-replace publication, and sandbox fence. An existing entry of any kind refuses with `exists`; nothing is truncated or overwritten, and the published file is re-verified through a no-follow descriptor before the ack.',
+        parameters: [{ name: 'workspaceId', description: 'registered Workspace owning the path.' }, { name: 'path', description: 'workspace-relative file path.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'an ack that a new empty regular file exists at the path.',
+      },
+      {
+        signature: '@Remote({ exportName: \'createDirectory\', requiredCapability: \'harniverse.operate\' }) async createDirectory(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileCreateResult>',
+        description: 'Create one directory exclusively (`harniverse.operate`), with absent intermediate directories created one validated segment at a time. The semantics are strict, not mkdir -p idempotent: an existing entry of any kind at the final segment refuses with `exists`, and the created directory is re-verified before the ack.',
+        parameters: [{ name: 'workspaceId', description: 'registered Workspace owning the path.' }, { name: 'path', description: 'workspace-relative directory path.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'an ack that a new directory exists at the path.',
+      },
     ],
   },
   {
@@ -7737,6 +7749,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
   },
   {
+    name: 'WorkspaceFileCreateResult',
+    declaration: 'export interface WorkspaceFileCreateResult {\n    readonly created: true;\n}',
+  },
+  {
     name: 'WorkspaceFileEncodingSource',
     declaration: 'export type WorkspaceFileEncodingSource = \'explicit\' | \'sticky\' | \'bom\' | \'utf8\' | \'host\' | \'locale\' | \'fallback\';',
   },
@@ -7766,7 +7782,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkspaceGitApi',
-    declaration: 'export interface WorkspaceGitApi {\n    status(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        branch: string | null;\n        entries: WorkspaceGitStatusEntry[];\n        truncated: boolean;\n    }>>;\n    commits(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        limit?: number;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        commits: WorkspaceGitCommit[];\n        truncated: boolean;\n    }>>;\n    diff(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n        staged?: boolean;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        diff: string;\n        truncated: boolean;\n    }>>;\n}',
+    declaration: 'export interface WorkspaceGitApi {\n    status(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        branch: string | null;\n        upstream: string | null;\n        ahead: number | null;\n        behind: number | null;\n        entries: WorkspaceGitStatusEntry[];\n        truncated: boolean;\n    }>>;\n    commits(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        limit?: number;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        commits: WorkspaceGitCommit[];\n        truncated: boolean;\n    }>>;\n    diff(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n        staged?: boolean;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        diff: string;\n        truncated: boolean;\n    }>>;\n    commitFiles(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        hash: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        files: WorkspaceGitCommitFile[];\n        truncated: boolean;\n    }>>;\n    commitDiff(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        hash: string;\n        path: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        diff: string;\n        truncated: boolean;\n    }>>;\n}',
   },
   {
     name: 'WorldDescription',

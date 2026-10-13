@@ -1,0 +1,45 @@
+# Agent Note: Workbench tree creation and commit-graph history
+
+Status: implemented
+
+English | [中文](2026-10-13-workbench-tree-create-and-git-history.zh.md)
+
+## Problem
+
+The workbench's Files tab could only look: there was no way to create a file or a folder, and no way to collapse an expanded tree back to the root. The Changes tab listed recent commits as inert text — no ref decorations, no ahead/behind against the upstream, no way to see what a commit changed, and no read-only diff of one file inside one commit. Underneath, the workspace-file-write Remote could only overwrite an existing file, and the `workspace.git.*` ApiProxy domain returned neither parent hashes nor ref decorations, so a client-side graph had nothing to draw from.
+
+## Decision
+
+**Creation stays behind the write Remote; the read APIs stay read-only.** `dsh-host-workspace-file-write` gains `createFile` and `createDirectory` (`harniverse.operate`): an empty file publishes through the backend's `createIfAbsent` staging primitive, directories create one validated segment at a time, every intermediate is canonically re-verified (realpath equals lexical, no symlink, no `.git` segment), the final entry must be absent (`exists`), and a no-follow descriptor re-verifies the published entry before the ack. Strict, not `mkdir -p`: an existing directory of the same name refuses. `apiproxy`'s `workspace.files.*` and `workspace.git.*` stay observe-only.
+
+**The workbench takes the Remote through its inject declaration.** `dsh-client-ui-workspace` declares `remote.workspaceFileWrite` (mounted by the client api-remotes assembly in every web composition) and exposes `createFile`/`createDirectory` on its inject face beside the read callbacks. The Files toolbar gains New file, New folder, Refresh, and Collapse all. The inline input lands inside the target directory — the last interacted directory (an expanded folder, or an opened file's parent), defaulting to the root — and accepts `a/b/c.md` paths whose intermediate directories the reveal chain then expands and relists; a created file opens in the preview. Enter submits, Escape cancels, blur commits, and an `exists` refusal keeps the input open with the localized message while other failure codes surface the wire message.
+
+**The input owns Escape while it exists.** The preview's window-capture listener and the frame's drawer layers (which dismiss their surfaces on Escape) now pass through targets inside `[data-workbench-create]`, and the input stops native propagation, so cancelling a name entry never also closes the preview or a drawer. This mirrors the existing `[data-workspace-editor]` ownership.
+
+**The Host returns what a graph needs; the client draws it.** `workspace.git.commits` gains `parents` (`%P`) and `refs` parsed from `--decorate=full` (HEAD, local, remote, tag, other; `current` marks the checked-out branch) and switches to `--topo-order` so a parent always follows its child in the window. `workspace.git.status` gains `upstream`, `ahead`, and `behind` (the porcelain header already carried them; they were discarded). Two new observe-only methods join the domain: `commitFiles {hash}` (`diff-tree --name-status -M`, first-parent comparison for merges, `--root` for root commits, 500-file cap, rename scores recorded as `previousPath`) and `commitDiff {hash, path}` (the same comparison shape with `-p`, `--no-ext-diff --no-textconv`, `--literal-pathspecs`). Both validate the hash as a full 40-char hex literal before any spawn; the client can never name a ref.
+
+**Lane layout is a pure function; geometry is data.** `git-graph.ts` assigns each visible commit a lane (first parent continues the node's lane, an extra parent opens a fresh lane spliced in beside the node and shifts pass-throughs, converging lanes collapse at their merge point, vacated slots are reused), and emits per-row connector geometry (`upper`, `lower`, `through`; straight or cubic) plus a palette index stable per hash. `ChangesPanel` renders each row's gutter as a stretched inline SVG colored from seven alias tokens, so a lane keeps its colour across reloads and a skin can retune the palette. Rows are expandable buttons; the detail shows author, full hash, timestamp, and the changed-file list; a file opens a `diff:commit:<hash>:<path>` tab whose title carries the short hash. The header reports `↑n ↓m` while a tracked branch diverges.
+
+**The wire can now carry the Remote's own failure codes.** The shared `/api` envelope validates every error result against `apiproxy`'s canonical `RPC_ERROR_CODES` union, and the workspace-file-write vocabulary (`exists`, `stale-version`, `changed`, `not-text`, `mixed-eol`, `unmappable`, `too-large`, `not-found`, `not-regular`, `symlink`, `git-dir`, `path-invalid`, `workspace-unknown`, `io`) had never been registered — every domain failure of that Remote (including a save conflict, pre-existing) was rewritten client-side into `client api: … failed: [zod issues]`. The codes and their details shapes are now registered in `rpc.ts`, `RPC_ERROR_CODES`, and `rpc.schema.ts`, which restores the editor's conflict discrimination besides making `exists` actionable.
+
+## Alternatives considered
+
+**A `workbench.files.actions` slot filled by the editor plugin.** Rejected: it would move the tree's entry-point UX into the editor package and leave compositions without the editor unable to create, while the Remote itself is mounted unconditionally by the api-remotes assembly. The inject declaration keeps the capability with the tree that owns the interaction.
+
+**Server-side graph rendering (precomputed lanes on the Host).** Rejected: lane layout is pure presentation over data the Host already returns (`parents`, topo order), and pushing it server-side would add a wire contract for every renderer tweak.
+
+**`git log --graph` text or a canvas.** Rejected: text cannot colour lanes per skin token, and canvas cannot stretch with row height or reuse the token palette; the data-driven SVG keeps geometry testable as a pure function.
+
+**A second Typert Remote package for git history.** Rejected: git inspection already lives in `workspace-inspector.ts` behind one hardened `runGit` (scrubbed env, 10 s deadline, output caps, `/dev/fd` root on Linux); splitting read-only git across two seams would duplicate that discipline.
+
+**Load-more history, rename/delete in the tree, per-commit detail views beyond files.** Out of scope for this change.
+
+## Consequences
+
+A user can create files and folders without leaving the tree (including nested paths), collapse the tree in one click, expand any recent commit to see exactly what it changed, open a read-only diff of one file in that commit, and read branch topology at a glance: lane lines, HEAD/local/remote/tag badges, and ahead/behind against the upstream. Branches outside the visible 50-commit window carry no badge (their commits are not listed); the ahead/behind header covers that case. Merge commits list their first-parent diff, not the combined diff. The model sees none of this: no provider request, prompt, or cache key changes.
+
+Known limits. Creation needs `harniverse.operate`; a caller without it sees the buttons but the refusal surfaces the wire message. A commit whose files exceed the 500-file cap truncates with a notice. The graph renders linear-topology lanes only — it does not draw columns for commits outside the returned window.
+
+Verification: the host packages at scoped 100% line and branch coverage (file-write create/containment/faults suites; apiproxy inspector, faults, schemas, rpc-map, client-handler, and a real-repo ApiProxy pass, including upstream/ahead-behind, parents/refs, merge/root/rename listings, commit diffs, and hash rejection before spawn); the client suites (apply face and remount, workbench store, workbench presentation including the lane algorithm as a pure-function spec, create-flow integration with late replies and retargeting, commit expansion, commit-diff tabs and failures, graph geometry renders, the create input's key and blur ownership, and the AppFrame/preview Escape pass-through) at per-file 100% for the touched files; the full GUI unit lane (488 files, 7057 tests); `verify-client-css-tokens`/`-classes`, oxlint over the changed files, duplication (125 clones), knip, and the documentation gates. Hermetic web e2e through the real composition: the workbench suite pins the toolbar, collapse-all, badges (HEAD, main, origin/main, v1.0.0, feature), the `↑1 ↓0` header, commit expansion, and a commit diff (goldens refreshed; the hash-bearing tab is closed before capture so the goldens stay byte-stable), and the file-edit suite creates `docs/created.md` and `assets` inline, asserts the disk truth, and pins the localized `exists` refusal and Escape dismissal. Not verified: Windows hosts for the create containment paths (CI owns the platform matrix), assistive-technology behaviour of the SVG gutter, and commits whose subjects wrap to multiple rows.
+
+PR: #TBD (merge)

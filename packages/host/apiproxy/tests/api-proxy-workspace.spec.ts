@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
@@ -18,6 +20,8 @@ import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
+
+const execFileAsync = promisify(execFile)
 
 let nextRpc = 1
 
@@ -415,6 +419,55 @@ describe('workspace file inspection', () => {
       new AbortController().signal,
     )
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
+  })
+
+  it('serves commit file listings and patches with structured hash failures', async () => {
+    const { api, root } = await harness()
+    const project = stageDir(root, 'git-inspected')
+    await execFileAsync('git', ['init', project])
+    await execFileAsync('git', ['-C', project, 'config', 'user.name', 'ApiProxy Test'])
+    await execFileAsync('git', ['-C', project, 'config', 'user.email', 'apiproxy@example.invalid'])
+    writeFileSync(join(project, 'tracked.txt'), 'first\n')
+    await execFileAsync('git', ['-C', project, 'add', '--', 'tracked.txt'])
+    await execFileAsync('git', ['-C', project, 'commit', '-m', 'initial'])
+    const { stdout: hash } = await execFileAsync('git', ['-C', project, 'rev-parse', 'HEAD'])
+    writeFileSync(join(project, 'tracked.txt'), 'second\n')
+    await execFileAsync('git', ['-C', project, 'add', '--', 'tracked.txt'])
+    await execFileAsync('git', ['-C', project, 'commit', '-m', 'second'])
+    const { stdout: secondHash } = await execFileAsync('git', ['-C', project, 'rev-parse', 'HEAD'])
+    const workspace = expectOk(await api.workspace.create(request({ path: project }))).workspace
+
+    const signal = new AbortController().signal
+    if (api.workspaceGit === undefined) throw new Error('workspace Git surface is unavailable')
+    expect(expectOk(await api.workspaceGit.commitFiles(
+      request({ workspaceId: workspace.workspaceId, hash: hash.trim() }),
+      signal,
+    ))).toMatchObject({ files: [{ path: 'tracked.txt', status: 'A' }] })
+    const patch = expectOk(await api.workspaceGit.commitDiff(
+      request({ workspaceId: workspace.workspaceId, hash: secondHash.trim(), path: 'tracked.txt' }),
+      signal,
+    ))
+    expect(patch.diff).toContain('+second')
+    expect(patch.diff).toContain('+++ b/tracked.txt')
+
+    const malformed = await api.workspaceGit.commitFiles(
+      request({ workspaceId: workspace.workspaceId, hash: 'not-a-hash' }),
+      signal,
+    )
+    expect(malformed.result).toMatchObject({
+      ok: false,
+      error: { code: 'workspace-git-failed', details: { workspaceId: workspace.workspaceId, operation: 'commit hash validation' } },
+    })
+    const unknown = await api.workspaceGit.commitDiff(
+      request({ workspaceId: workspace.workspaceId, hash: '0'.repeat(40), path: 'tracked.txt' }),
+      signal,
+    )
+    expect(unknown.result).toMatchObject({ ok: false, error: { code: 'workspace-git-failed' } })
+    const missingWorkspace = await api.workspaceGit.commitFiles(
+      request({ workspaceId: 'missing' as WorkspaceId, hash: hash.trim() }),
+      signal,
+    )
+    expect(missingWorkspace.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
   })
 })
 

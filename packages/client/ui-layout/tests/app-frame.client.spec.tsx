@@ -685,6 +685,19 @@ describe('AppFrame — phone form factor', () => {
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
   })
 
+  it('leaves the drawer open when the workbench create input owns Escape', () => {
+    frameWidth = 390
+    const { frame, instance, getByTestId } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
+    const createInput = getByTestId('sidebar-content')
+    createInput.setAttribute('data-workbench-create', 'true')
+
+    act(() => { fireEvent.keyDown(createInput, { key: 'Escape' }) })
+
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
+  })
+
   it('opening a center view exits the phone sidebar drawer', () => {
     frameWidth = 390
     const { frame, instance, getByTestId } = mountFrame()

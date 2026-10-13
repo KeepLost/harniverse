@@ -518,9 +518,13 @@ function workbenchStubs() {
     searchFiles: () => Promise.resolve({ entries: [], truncated: false }),
     readFile: () => Promise.resolve({ path: '', content: '', bytes: 0, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }),
     readBinaryFile: () => Promise.resolve({ path: '', dataBase64: '', mediaType: 'image/png', bytes: 0 }),
-    gitStatus: () => Promise.resolve({ branch: null, entries: [], truncated: false }),
+    gitStatus: () => Promise.resolve({ branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false }),
     gitCommits: () => Promise.resolve({ commits: [], truncated: false }),
     gitDiff: () => Promise.resolve({ diff: '', truncated: false }),
+    gitCommitFiles: () => Promise.resolve({ files: [], truncated: false }),
+    gitCommitDiff: () => Promise.resolve({ diff: '', truncated: false }),
+    createFile: () => Promise.resolve({ ok: true as const, value: { created: true as const } }),
+    createDirectory: () => Promise.resolve({ ok: true as const, value: { created: true as const } }),
     openPath: () => Promise.resolve(),
   }
 }

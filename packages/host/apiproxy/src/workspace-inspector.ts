@@ -23,6 +23,8 @@ export const WORKSPACE_DIFF_BYTE_LIMIT = 1024 * 1024
 export const WORKSPACE_GIT_STATUS_LIMIT = 2_000
 /** Maximum commits returned by one Git history read. */
 export const WORKSPACE_GIT_COMMIT_LIMIT = 100
+/** Maximum changed paths returned by one Git commit inspection. */
+export const WORKSPACE_GIT_COMMIT_FILE_LIMIT = 500
 
 type WorkspaceInspectorErrorCode =
   | 'workspace-path-invalid'
@@ -80,6 +82,13 @@ export interface WorkspaceGitStatusEntry {
   originalPath?: string
 }
 
+/** One decorated ref pointing at a commit, as `--decorate=full` reports it. */
+export interface WorkspaceGitCommitRef {
+  kind: 'head' | 'local' | 'remote' | 'tag' | 'other'
+  name: string
+  current: boolean
+}
+
 /** One bounded Git history row. */
 export interface WorkspaceGitCommit {
   hash: string
@@ -88,6 +97,15 @@ export interface WorkspaceGitCommit {
   authorEmail: string
   authoredAt: string
   subject: string
+  parents: string[]
+  refs: WorkspaceGitCommitRef[]
+}
+
+/** One changed path of a commit's first-parent diff. */
+export interface WorkspaceGitCommitFile {
+  path: string
+  previousPath?: string
+  status: 'A' | 'C' | 'D' | 'M' | 'R' | 'T'
 }
 
 const PREVIEW_MEDIA_TYPES: Readonly<Record<string, string>> = {
@@ -676,12 +694,20 @@ function gitPath(root: string, path: string | undefined): string[] {
  * Read porcelain status with untracked files expanded instead of directory-collapsed.
  * @param root - registered canonical Workspace root.
  * @param signal - caller cancellation signal.
- * @returns branch, bounded status entries, and truncation state.
+ * @returns branch, its optional upstream with ahead/behind counts, bounded status
+ *   entries, and truncation state.
  */
 export async function workspaceGitStatus(
   root: string,
   signal: AbortSignal,
-): Promise<{ branch: string | null; entries: WorkspaceGitStatusEntry[]; truncated: boolean }> {
+): Promise<{
+  branch: string | null
+  upstream: string | null
+  ahead: number | null
+  behind: number | null
+  entries: WorkspaceGitStatusEntry[]
+  truncated: boolean
+}> {
   await assertGitRepository(root, signal)
   const result = await runGit(root, [
     'status', '--porcelain=v1', '--branch', '-z', '--untracked-files=all', '--ignored=no', '--', '.',
@@ -696,6 +722,26 @@ export async function workspaceGitStatus(
     : branchText === 'HEAD (no branch)' || branchText === ''
       ? null
       : branchText.split('...')[0] as string
+  let upstream: string | null = null
+  let ahead: number | null = null
+  let behind: number | null = null
+  const separator = branchText.indexOf('...')
+  if (separator !== -1) {
+    const section = branchText.slice(separator + 3)
+    const bracket = / \[[^\]]*\]$/.exec(section)
+    const upstreamName = bracket === null ? section : section.slice(0, bracket.index)
+    if (upstreamName !== '') {
+      upstream = upstreamName
+      ahead = 0
+      behind = 0
+      if (bracket !== null) {
+        for (const marker of bracket[0].slice(2, -1).split(', ')) {
+          if (marker.startsWith('ahead ')) ahead = Number(marker.slice('ahead '.length))
+          else if (marker.startsWith('behind ')) behind = Number(marker.slice('behind '.length))
+        }
+      }
+    }
+  }
   const entries: WorkspaceGitStatusEntry[] = []
   for (let index = 0; index < records.length && entries.length < WORKSPACE_GIT_STATUS_LIMIT; index++) {
     const record = records[index]
@@ -712,9 +758,46 @@ export async function workspaceGitStatus(
   const nonEmptyRecords = records.filter(record => record !== '').length
   return {
     branch,
+    upstream,
+    ahead,
+    behind,
     entries,
     truncated: result.overflow || nonEmptyRecords > entries.length + entries.filter(entry => entry.originalPath !== undefined).length,
   }
+}
+
+function parseGitDecoration(value: string): WorkspaceGitCommitRef[] {
+  if (value === '') return []
+  const refs: WorkspaceGitCommitRef[] = []
+  for (const token of value.split(', ')) {
+    if (token === 'HEAD') {
+      refs.push({ kind: 'head', name: 'HEAD', current: true })
+      continue
+    }
+    const arrow = token.indexOf(' -> ')
+    if (arrow !== -1) {
+      refs.push({ kind: 'head', name: 'HEAD', current: true })
+      refs.push(...decoratedRef(token.slice(arrow + 4), true))
+      continue
+    }
+    if (token.startsWith('tag: ')) {
+      const ref = token.slice('tag: '.length)
+      refs.push({ kind: 'tag', name: ref.startsWith('refs/tags/') ? ref.slice('refs/tags/'.length) : stripRefPrefix(ref), current: false })
+      continue
+    }
+    refs.push(...decoratedRef(token, false))
+  }
+  return refs
+}
+
+function decoratedRef(ref: string, current: boolean): WorkspaceGitCommitRef[] {
+  if (ref.startsWith('refs/heads/')) return [{ kind: 'local', name: ref.slice('refs/heads/'.length), current }]
+  if (ref.startsWith('refs/remotes/')) return [{ kind: 'remote', name: ref.slice('refs/remotes/'.length), current }]
+  return [{ kind: 'other', name: stripRefPrefix(ref), current: false }]
+}
+
+function stripRefPrefix(ref: string): string {
+  return ref.startsWith('refs/') ? ref.slice('refs/'.length) : ref
 }
 
 /**
@@ -732,18 +815,85 @@ export async function workspaceGitCommits(
   await assertGitRepository(root, signal)
   const boundedLimit = Math.min(limit, WORKSPACE_GIT_COMMIT_LIMIT)
   const result = await runGit(root, [
-    'log', '-z', `--max-count=${String(boundedLimit + 1)}`,
-    '--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s', '--relative', '--', '.',
+    'log', '-z', `--max-count=${String(boundedLimit + 1)}`, '--topo-order', '--decorate=full',
+    '--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D', '--relative', '--', '.',
   ], signal, 'commit history')
   const fields = result.stdout.split('\0')
   const commits: WorkspaceGitCommit[] = []
-  for (let index = 0; index + 5 < fields.length; index += 6) {
-    const commitFields = fields.slice(index, index + 6) as [string, string, string, string, string, string]
-    const [hash, shortHash, authorName, authorEmail, authoredAt, subject] = commitFields
+  for (let index = 0; index + 7 < fields.length; index += 8) {
+    const commitFields = fields.slice(index, index + 8) as [string, string, string, string, string, string, string, string]
+    const [hash, shortHash, authorName, authorEmail, authoredAt, subject, parentsText, decoration] = commitFields
     if (hash === '') break
-    commits.push({ hash, shortHash, authorName, authorEmail, authoredAt, subject })
+    commits.push({
+      hash,
+      shortHash,
+      authorName,
+      authorEmail,
+      authoredAt,
+      subject,
+      parents: parentsText === '' ? [] : parentsText.split(' '),
+      refs: parseGitDecoration(decoration),
+    })
   }
   return { commits: commits.slice(0, boundedLimit), truncated: result.overflow || commits.length > boundedLimit }
+}
+
+const GIT_COMMIT_HASH = /^[0-9a-f]{40}$/u
+
+function gitCommitHash(hash: string): string {
+  if (!GIT_COMMIT_HASH.test(hash)) {
+    throw new WorkspaceInspectorError(
+      'workspace-git-failed',
+      'Git commit hash must be a full 40-character lowercase hex SHA',
+      undefined,
+      'commit hash validation',
+    )
+  }
+  return hash
+}
+
+async function gitCommitParents(root: string, hash: string, signal: AbortSignal): Promise<string[]> {
+  const result = await runGit(root, ['rev-list', '--parents', '-n1', hash], signal, 'commit parent lookup')
+  const fields = result.stdout.trim().split(' ')
+  return fields.slice(1)
+}
+
+/**
+ * Read one commit's changed paths against its first parent (or the empty tree
+ * for a root commit), with rename and copy detection.
+ * @param root - registered canonical Workspace root.
+ * @param hash - full 40-character hex SHA of the commit.
+ * @param signal - caller cancellation signal.
+ * @returns bounded changed paths and truncation state.
+ */
+export async function workspaceGitCommitFiles(
+  root: string,
+  hash: string,
+  signal: AbortSignal,
+): Promise<{ files: WorkspaceGitCommitFile[]; truncated: boolean }> {
+  gitCommitHash(hash)
+  await assertGitRepository(root, signal)
+  const parents = await gitCommitParents(root, hash, signal)
+  const result = await runGit(root, parents.length === 0
+    ? ['diff-tree', '-r', '-z', '--root', '--no-commit-id', '--name-status', '-M', hash]
+    : ['diff-tree', '-r', '-z', '--no-commit-id', '--name-status', '-M', parents[0] as string, hash], signal, 'commit file listing')
+  const records = result.stdout.split('\0')
+  const files: WorkspaceGitCommitFile[] = []
+  let truncated = false
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index]
+    if (record === undefined || record === '') continue
+    if (files.length >= WORKSPACE_GIT_COMMIT_FILE_LIMIT) {
+      truncated = true
+      break
+    }
+    const status = record.replace(/[0-9]+$/u, '') as WorkspaceGitCommitFile['status']
+    const paired = status === 'R' || status === 'C'
+    const previousPath = paired ? records[++index] : undefined
+    const path = records[++index] ?? ''
+    files.push({ path, status, ...(previousPath === undefined ? {} : { previousPath }) })
+  }
+  return { files, truncated: truncated || result.overflow }
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {
@@ -770,6 +920,34 @@ export async function workspaceGitDiff(
   const result = await runGit(root, [
     '--literal-pathspecs', 'diff', '--no-ext-diff', '--no-textconv', '--relative', ...(staged ? ['--cached'] : []), '--', ...gitPath(root, path),
   ], signal, 'diff')
+  const truncated = result.overflow || Buffer.byteLength(result.stdout) > WORKSPACE_DIFF_BYTE_LIMIT
+  return { diff: truncateUtf8(result.stdout, WORKSPACE_DIFF_BYTE_LIMIT), truncated }
+}
+
+/**
+ * Read one commit's unified patch for a single Workspace-relative path,
+ * differring against the first parent (or the empty tree for a root commit).
+ * A path the commit did not touch answers with an empty diff rather than an error.
+ * @param root - registered canonical Workspace root.
+ * @param hash - full 40-character hex SHA of the commit.
+ * @param path - Workspace-relative path restriction.
+ * @param signal - caller cancellation signal.
+ * @returns unified diff text and truncation state.
+ */
+export async function workspaceGitCommitDiff(
+  root: string,
+  hash: string,
+  path: string,
+  signal: AbortSignal,
+): Promise<{ diff: string; truncated: boolean }> {
+  gitCommitHash(hash)
+  await assertGitRepository(root, signal)
+  relativePath(root, path)
+  const parents = await gitCommitParents(root, hash, signal)
+  const target = parents.length === 0 ? ['--root', hash] : [parents[0] as string, hash]
+  const result = await runGit(root, [
+    '--literal-pathspecs', 'diff-tree', '-r', '-p', '--no-commit-id', '--no-ext-diff', '--no-textconv', '-M', ...target, '--', path,
+  ], signal, 'commit diff')
   const truncated = result.overflow || Buffer.byteLength(result.stdout) > WORKSPACE_DIFF_BYTE_LIMIT
   return { diff: truncateUtf8(result.stdout, WORKSPACE_DIFF_BYTE_LIMIT), truncated }
 }

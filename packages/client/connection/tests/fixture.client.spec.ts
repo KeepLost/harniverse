@@ -626,13 +626,43 @@ describe('createFixtureApi', () => {
     const status = await api.workspaceGit.status(req({ workspaceId }), new AbortController().signal)
     if (!status.result.ok) throw new Error('fixture Git status failed')
     expect(status.result.value.branch).toBe('fixture/main')
+    expect(status.result.value.upstream).toBe('origin/fixture/main')
+    expect(status.result.value.ahead).toBe(1)
+    expect(status.result.value.behind).toBe(0)
     expect(status.result.value.entries.some(entry => entry.path === 'src/index.ts')).toBe(true)
     await expect(api.workspaceGit.commits(req({ workspaceId }), new AbortController().signal)).resolves.toMatchObject({
-      result: { ok: true, value: { commits: [{ subject: 'Seed fixture workspace' }] } },
+      result: {
+        ok: true,
+        value: {
+          commits: [{
+            subject: 'Seed fixture workspace',
+            parents: [],
+            refs: [
+              { kind: 'head', name: 'HEAD', current: true },
+              { kind: 'local', name: 'fixture/main', current: true },
+            ],
+          }],
+        },
+      },
     })
     const diff = await api.workspaceGit.diff(req({ workspaceId, path: 'src/index.ts', staged: false }), new AbortController().signal)
     if (!diff.result.ok) throw new Error('fixture Git diff failed')
     expect(diff.result.value.diff).toContain('diff --git a/src/index.ts')
+    await expect(api.workspaceGit.commitFiles(
+      req({ workspaceId, hash: '0123456789abcdef0123456789abcdef01234567' }),
+      new AbortController().signal,
+    )).resolves.toMatchObject({
+      result: {
+        ok: true,
+        value: { files: [{ path: 'src/index.ts', status: 'A' }, { path: 'README.md', status: 'A' }], truncated: false },
+      },
+    })
+    const patch = await api.workspaceGit.commitDiff(
+      req({ workspaceId, hash: '0123456789abcdef0123456789abcdef01234567', path: 'src/index.ts' }),
+      new AbortController().signal,
+    )
+    if (!patch.result.ok) throw new Error('fixture Git commit diff failed')
+    expect(patch.result.value.diff).toContain('diff --git a/src/index.ts')
 
     const aborted = new AbortController()
     aborted.abort()

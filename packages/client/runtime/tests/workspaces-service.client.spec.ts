@@ -215,6 +215,43 @@ describe('WorkspaceRuntime', () => {
     await expect(workspaces.readBinaryFile(wid('alpha'), 'pixel.png')).rejects.toThrow('preview unavailable')
   })
 
+  it('routes commit graph reads through the API client with the new wire fields', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    const hash = 'a'.repeat(40)
+
+    await expect(workspaces.gitStatus(wid('alpha'))).resolves.toEqual({
+      branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false,
+    })
+    await expect(workspaces.gitCommits(wid('alpha'))).resolves.toEqual({ commits: [], truncated: false })
+    await expect(workspaces.gitCommitFiles(wid('alpha'), hash)).resolves.toEqual({ files: [], truncated: false })
+    await expect(workspaces.gitCommitDiff(wid('alpha'), hash, 'src/a.ts')).resolves.toEqual({ diff: '', truncated: false })
+    expect(api.callsOf('workspace.git.status')).toEqual([{ workspaceId: wid('alpha') }])
+    expect(api.callsOf('workspace.git.commitFiles')).toEqual([{ workspaceId: wid('alpha'), hash }])
+    expect(api.callsOf('workspace.git.commitDiff')).toEqual([{ workspaceId: wid('alpha'), hash, path: 'src/a.ts' }])
+
+    api.workspaceGit.status = () => Promise.resolve(ok({
+      branch: 'dev', upstream: 'origin/dev', ahead: 2, behind: 0, entries: [], truncated: false,
+    }))
+    api.workspaceGit.commits = () => Promise.resolve(ok({
+      commits: [{
+        hash, shortHash: 'aaaaaaa', authorName: 'n', authorEmail: 'e', authoredAt: 't', subject: 's',
+        parents: [], refs: [{ kind: 'head', name: 'HEAD', current: true }],
+      }], truncated: false,
+    }))
+    await expect(workspaces.gitStatus(wid('alpha'))).resolves.toMatchObject({ upstream: 'origin/dev', ahead: 2, behind: 0 })
+    await expect(workspaces.gitCommits(wid('alpha'))).resolves.toMatchObject({
+      commits: [{ parents: [], refs: [{ kind: 'head', name: 'HEAD', current: true }] }],
+    })
+
+    api.workspaceGit.commitFiles = () => Promise.resolve(err({ code: 'internal', message: 'listing unavailable', details: {} }))
+    api.workspaceGit.commitDiff = () => Promise.resolve(err({ code: 'internal', message: 'patch unavailable', details: {} }))
+    await expect(workspaces.gitCommitFiles(wid('alpha'), hash)).rejects.toThrow('listing unavailable')
+    await expect(workspaces.gitCommitDiff(wid('alpha'), hash, 'src/a.ts')).rejects.toThrow('patch unavailable')
+  })
+
   it('settles startup core when both baselines confirm there is no session to open', async () => {
     const ctx = new Context()
     const settled = vi.fn()

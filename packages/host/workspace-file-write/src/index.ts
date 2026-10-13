@@ -7,7 +7,12 @@
  * version CAS, so the write inherits the local backend's per-target lock,
  * private staging, atomic publication, and mode/DACL preservation, and the
  * write-back reproduces the file's original encoding and byte order mark
- * through the backend's sticky decode decision. User saves bypass Agent
+ * through the backend's sticky decode decision. `createFile` and
+ * `createDirectory` extend the same surface with exclusive creation: absent
+ * intermediate directories are created and canonically verified one segment
+ * at a time, the final entry refuses any existing occupant (`exists`), and
+ * the published entry is re-verified through a no-follow descriptor before
+ * the ack. User saves bypass Agent
  * sandbox presets and approvals by design (the answering principal already
  * holds `harniverse.operate`); the hard path rules in `containment.ts` are
  * the boundary. Saves record no Agent observation, so an Agent's next
@@ -18,6 +23,7 @@
  */
 
 import { realpathSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
@@ -30,15 +36,18 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 // itself comes from the type-only subpath the Remote boundary requires).
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
-import { canonicalTarget, canonicalTargetTolerant, containedRoot } from './containment.ts'
+import { canonicalTarget, canonicalTargetTolerant, containedRoot, containedSegments } from './containment.ts'
+import {
+  createExclusiveDirectory, ensureIntermediateDirectory, requireAbsentEntry, verifyCreatedEntry,
+} from './containment.ts'
 import type {
-  WorkspaceFileOpenResult, WorkspaceFileSaveRequest, WorkspaceFileSaveResult, WorkspaceFileStatResult,
-  WorkspaceFileWriteErrorCode,
+  WorkspaceFileCreateResult, WorkspaceFileOpenResult, WorkspaceFileSaveRequest, WorkspaceFileSaveResult,
+  WorkspaceFileStatResult, WorkspaceFileWriteErrorCode,
 } from './types.ts'
 
 export type {
-  WorkspaceFileEncodingSource, WorkspaceFileOpenResult, WorkspaceFileSaveRequest, WorkspaceFileSaveResult,
-  WorkspaceFileStatResult, WorkspaceFileWriteErrorCode, WorkspaceFileWriteFailure,
+  WorkspaceFileCreateResult, WorkspaceFileEncodingSource, WorkspaceFileOpenResult, WorkspaceFileSaveRequest,
+  WorkspaceFileSaveResult, WorkspaceFileStatResult, WorkspaceFileWriteErrorCode, WorkspaceFileWriteFailure,
 } from './types.ts'
 
 /** Plugin identity stamped on injected notices. */
@@ -314,6 +323,109 @@ export class WorkspaceFileWriteService extends TypertRemoteService {
     } catch (error: unknown) {
       throw await this.writeRefusal(error, path, target, signal)
     }
+  }
+
+  /**
+   * Create one empty text file exclusively (`harniverse.operate`): absent
+   * intermediate directories are created one validated segment at a time, and
+   * the final entry publishes through `ctx.fs.writeText` under
+   * `createIfAbsent`, so the create inherits the local backend's per-target
+   * lock, private staging, atomic no-replace publication, and sandbox fence.
+   * An existing entry of any kind refuses with `exists`; nothing is truncated
+   * or overwritten, and the published file is re-verified through a no-follow
+   * descriptor before the ack.
+   * @param workspaceId - registered Workspace owning the path.
+   * @param path - workspace-relative file path.
+   * @param signal - request cancellation.
+   * @returns an ack that a new empty regular file exists at the path.
+   */
+  @Remote({ exportName: 'createFile', requiredCapability: 'harniverse.operate' })
+  async createFile(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileCreateResult> {
+    const { finalTarget, policy, display } = await this.resolveCreateTarget(workspaceId, path, signal)
+    const target = await this.ctx.fs.resolve(finalTarget)
+    try {
+      await this.ctx.fs.writeText(target, '', { kind: 'createIfAbsent' }, signal, policy)
+    } catch (error: unknown) {
+      throw this.createRefusal(error, path)
+    }
+    await verifyCreatedEntry(this.ctx.fs.processPath(target), display, 'file')
+    return { created: true }
+  }
+
+  /**
+   * Create one directory exclusively (`harniverse.operate`), with absent
+   * intermediate directories created one validated segment at a time. The
+   * semantics are strict, not mkdir -p idempotent: an existing entry of any
+   * kind at the final segment refuses with `exists`, and the created
+   * directory is re-verified before the ack.
+   * @param workspaceId - registered Workspace owning the path.
+   * @param path - workspace-relative directory path.
+   * @param signal - request cancellation.
+   * @returns an ack that a new directory exists at the path.
+   */
+  @Remote({ exportName: 'createDirectory', requiredCapability: 'harniverse.operate' })
+  async createDirectory(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileCreateResult> {
+    const { finalTarget, display } = await this.resolveCreateTarget(workspaceId, path, signal)
+    await createExclusiveDirectory(finalTarget, display)
+    await verifyCreatedEntry(finalTarget, display, 'directory')
+    return { created: true }
+  }
+
+  /**
+   * Resolve a Workspace id and request path to an exclusive-create site: the
+   * registry's canonical root, the lexical path rules, a one-segment-at-a-time
+   * walk that creates and canonically verifies every absent intermediate
+   * directory, and the `workspace-write` policy rooted at the canonical
+   * workspace directory. The final entry must be absent.
+   */
+  private async resolveCreateTarget(
+    workspaceId: WorkspaceId,
+    path: string,
+    signal: AbortSignal,
+  ): Promise<{ finalTarget: string; policy: SandboxExecutionPolicy; display: string }> {
+    const workspace = this.ctx.workspaceRegistry.get(workspaceId)
+    if (workspace === undefined) {
+      throw new RemoteError<WorkspaceFileWriteErrorCode>('workspace-unknown', `unknown workspace ${JSON.stringify(String(workspaceId))}`, {})
+    }
+    const contained = await containedRoot(workspace.path, path)
+    const segments = containedSegments(contained)
+    signal.throwIfAborted()
+    let parent = contained.root
+    for (const segment of segments.slice(0, -1)) {
+      parent = await ensureIntermediateDirectory(parent, segment, contained.relative)
+      signal.throwIfAborted()
+    }
+    const leaf = segments.at(-1)
+    /* v8 ignore next 2 -- containedSegments refuses root-naming paths, so the
+       segment list always carries a leaf; the guard only satisfies narrowing. */
+    if (leaf === undefined) {
+      throw new RemoteError<WorkspaceFileWriteErrorCode>('path-invalid', `workspace path ${JSON.stringify(path)} names the workspace root`, {})
+    }
+    const finalTarget = join(parent, leaf)
+    await requireAbsentEntry(finalTarget, contained.relative)
+    return {
+      finalTarget,
+      policy: { mode: 'workspace-write', workspaceRoot: contained.root },
+      display: contained.relative,
+    }
+  }
+
+  /** Map an exclusive-create write failure onto the typed refusal vocabulary. */
+  private createRefusal(error: unknown, path: string): RemoteError<WorkspaceFileWriteErrorCode> {
+    if (error instanceof FsError && (error.code === 'FS_NOT_OBSERVED' || error.code === 'FS_NOT_REGULAR_FILE')) {
+      return new RemoteError<WorkspaceFileWriteErrorCode>(
+        'exists',
+        `workspace file ${JSON.stringify(path)} already exists`,
+        {},
+        { cause: error },
+      )
+    }
+    return new RemoteError<WorkspaceFileWriteErrorCode>(
+      'io',
+      `workspace file ${JSON.stringify(path)} cannot be created: ${error instanceof Error ? error.message : String(error)}`,
+      {},
+      { cause: error },
+    )
   }
 
   /**

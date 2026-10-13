@@ -17,7 +17,7 @@ import { parseCsvPreview, previewType } from '../src/client/preview-kind.ts'
 import { WorkspaceWorkbenchButton } from '../src/client/WorkspaceWorkbenchButton.tsx'
 import type { WorkspaceWorkbenchProps } from '../src/client/contract/slots.ts'
 import { zh } from '../src/client/locales.ts'
-import { createWorkspaceWorkbenchStore } from '../src/client/stores.ts'
+import { createWorkspaceWorkbenchStore, type WorkbenchCommitFiles } from '../src/client/stores.ts'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -103,7 +103,9 @@ function workspace(id: string, sessionId: string): WorkspaceView {
 
 type Services = Pick<WorkspaceWorkbenchProps,
   | 'listFiles' | 'searchFiles' | 'readFile' | 'readBinaryFile'
-  | 'gitStatus' | 'gitCommits' | 'gitDiff' | 'openWorkbench' | 'closeWorkbench' | 'openPath'>
+  | 'gitStatus' | 'gitCommits' | 'gitDiff' | 'gitCommitFiles' | 'gitCommitDiff'
+  | 'createFile' | 'createDirectory'
+  | 'openWorkbench' | 'closeWorkbench' | 'openPath'>
 
 function mountWorkbench(
   overrides: Partial<Services> = {},
@@ -147,9 +149,13 @@ function mountWorkbench(
     ) => ({ entries: [], truncated: false })),
     readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _opts?: { encoding?: string }, _signal?: AbortSignal) => ({ path, content: '', bytes: 0, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const })),
     readBinaryFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _signal?: AbortSignal) => ({ path, dataBase64: '', mediaType: 'image/png', bytes: 0 })),
-    gitStatus: vi.fn(async (_workspaceId: WorkspaceId, _signal?: AbortSignal) => ({ branch: null, entries: [], truncated: false })),
+    gitStatus: vi.fn(async () => ({ branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false })),
     gitCommits: vi.fn(async (_workspaceId: WorkspaceId, _limit?: number, _signal?: AbortSignal) => ({ commits: [], truncated: false })),
     gitDiff: vi.fn(async (_workspaceId: WorkspaceId, _path?: string, _staged?: boolean, _signal?: AbortSignal) => ({ diff: '', truncated: false })),
+    gitCommitFiles: vi.fn(async () => ({ files: [], truncated: false })),
+    gitCommitDiff: vi.fn(async () => ({ diff: '', truncated: false })),
+    createFile: vi.fn(async () => ({ ok: true as const, value: { created: true as const } })),
+    createDirectory: vi.fn(async () => ({ ok: true as const, value: { created: true as const } })),
     openWorkbench: vi.fn(),
     closeWorkbench: vi.fn(),
     openPath: vi.fn(async (_path: string) => {}),
@@ -244,8 +250,34 @@ describe('workbench presentation units', () => {
     const onOpenExternal = vi.fn()
     const base = {
       path: '', depth: 0, activePath: 'NOTICE', t, onToggle, onOpen, onOpenExternal,
+      onCreateSubmit: vi.fn(), onCreateCancel: vi.fn(),
       expanded: { src: true }, canOpenPath: false,
     }
+    const listing = { '': { entries: [], truncated: false, loading: false } }
+    const createDraft = { directoryPath: '', mode: 'file' as const, busy: false }
+    const draftView = render(<DirectoryChildren {...base} directories={listing} createDraft={createDraft} />)
+    const draftInput = draftView.getByRole('textbox', { name: '新文件名' })
+    fireEvent.change(draftInput, { target: { value: 'notes.md' } })
+    // React delegates blur through a bubbling focusout; a plain blur never
+    // reaches the root listener.
+    fireEvent(draftInput, new FocusEvent('focusout', { bubbles: true }))
+    expect(base.onCreateSubmit).toHaveBeenCalledWith('notes.md')
+    fireEvent.change(draftInput, { target: { value: ' ' } })
+    fireEvent.keyDown(draftInput, { key: 'Enter' })
+    expect(base.onCreateCancel).toHaveBeenCalledOnce()
+    draftView.rerender(<DirectoryChildren {...base} directories={listing} createDraft={{ ...createDraft, busy: true }} />)
+    fireEvent.change(draftInput, { target: { value: 'x.md' } })
+    fireEvent.keyDown(draftInput, { key: 'Enter' })
+    expect(base.onCreateSubmit).toHaveBeenCalledOnce()
+    draftView.rerender(<DirectoryChildren {...base} directories={listing} createDraft={createDraft} />)
+    fireEvent.keyDown(draftInput, { key: 'a' })
+    expect(base.onCreateCancel).toHaveBeenCalledOnce()
+    fireEvent.keyDown(draftInput, { key: 'Escape' })
+    expect(base.onCreateCancel).toHaveBeenCalledTimes(2)
+    // A blur after the cancel does not submit: the input already stood down.
+    fireEvent(draftInput, new FocusEvent('focusout', { bubbles: true }))
+    expect(base.onCreateSubmit).toHaveBeenCalledOnce()
+    draftView.unmount()
     const view = render(<DirectoryChildren {...base} directories={{ '': { entries: [], truncated: false, loading: true } }} />)
     expect(view.getByText('正在读取目录…')).toBeTruthy()
     view.rerender(<DirectoryChildren {...base} directories={{ '': { entries: [], truncated: false, loading: false, error: 'directory failed' } }} />)
@@ -321,7 +353,11 @@ describe('workbench presentation units', () => {
     const onRefresh = vi.fn()
     const onOpenDiff = vi.fn()
     const onOpenFile = vi.fn()
-    const common = { commits: [], loading: false, truncated: false, t, onArea, onRefresh, onOpenDiff, onOpenFile }
+    const common = {
+      commits: [], commitFiles: {}, expandedCommits: {}, loading: false, truncated: false, t, onArea, onRefresh,
+      onOpenDiff, onOpenFile, onToggleCommit: vi.fn(), onOpenCommitDiff: vi.fn(),
+      upstream: null, ahead: null, behind: null,
+    }
     const modified = { path: 'tracked.ts', indexStatus: 'M', worktreeStatus: 'M' }
     const untracked = { path: 'new.ts', indexStatus: '?', worktreeStatus: '?' }
     const view = render(<ChangesPanel {...common} area="worktree" branch={null} statusEntries={[modified, untracked]} />)
@@ -338,12 +374,116 @@ describe('workbench presentation units', () => {
     expect(onOpenDiff).toHaveBeenCalledWith(modified)
     expect(onOpenFile).toHaveBeenCalledWith({ name: 'new.ts', path: 'new.ts', kind: 'file' })
 
-    view.rerender(<ChangesPanel {...common} area="staged" branch="dev" statusEntries={[modified]} error="git failed" truncated />)
+    view.rerender(<ChangesPanel {...common} area="staged" branch="dev" statusEntries={[modified]} error="git failed" truncated upstream="origin/dev" ahead={2} behind={1} />)
     expect(view.getByText('分支 dev')).toBeTruthy()
+    expect(view.getByText('↑2 ↓1')).toBeTruthy()
     expect(view.getByText('git failed')).toBeTruthy()
     expect(view.getByText('Git 结果已达到显示上限')).toBeTruthy()
     view.rerender(<ChangesPanel {...common} area="worktree" branch={null} statusEntries={[]} />)
     expect(view.getByText('没有变更')).toBeTruthy()
+    // Behind-only divergence still reports, and an in-sync upstream stays silent.
+    view.rerender(<ChangesPanel {...common} area="worktree" branch="dev" statusEntries={[]} upstream="origin/dev" ahead={0} behind={3} />)
+    expect(view.getByText('↑0 ↓3')).toBeTruthy()
+    view.rerender(<ChangesPanel {...common} area="worktree" branch="dev" statusEntries={[]} upstream="origin/dev" ahead={0} behind={0} />)
+    expect(view.queryByText(/↑/)).toBeNull()
+  })
+
+  it('renders every graph connector geometry across a branching history', () => {
+    const H = (letter: string): string => letter.repeat(40)
+    const chain = (name: string, parents: string[]) => ({
+      hash: H(name), shortHash: name.repeat(7), authorName: 'A', authorEmail: 'a@example.invalid',
+      authoredAt: '2026-10-12T08:00:00.000Z', subject: name, parents: parents.map(H), refs: [],
+    })
+    // Covers straight and curved upper, lower, and through connectors: a
+    // first-parent line, a merge that splices a lane between flowing lanes,
+    // and a fork that converges again.
+    const commits = [
+      chain('a', ['m', 'd']),
+      chain('c', ['e']),
+      chain('m', ['b', 'f']),
+      chain('b', ['g']),
+      chain('f', ['g']),
+      chain('g', []),
+    ]
+    const view = render(
+      <ChangesPanel
+        area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
+        commits={commits} commitFiles={{}} expandedCommits={{}} loading={false} truncated={false} t={t}
+        onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
+        onToggleCommit={vi.fn()} onOpenCommitDiff={vi.fn()}
+      />,
+    )
+    expect(view.container.querySelectorAll('svg path').length).toBeGreaterThan(0)
+    for (const name of ['a', 'c', 'm', 'b', 'f', 'g']) expect(view.getByText(name, { exact: true })).toBeTruthy()
+  })
+
+  it('expands history commits, lists their changed files, and opens read-only commit diffs', () => {
+    const onToggleCommit = vi.fn()
+    const onOpenCommitDiff = vi.fn()
+    const commit = {
+      hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortHash: 'aaaaaaa', authorName: 'Ada',
+      authorEmail: 'ada@example.invalid', authoredAt: '2026-10-12T08:00:00.000Z', subject: 'Add feature',
+      parents: ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'],
+      refs: [
+        { kind: 'head' as const, name: 'HEAD', current: true },
+        { kind: 'local' as const, name: 'dev', current: true },
+        { kind: 'remote' as const, name: 'origin/dev', current: false },
+        { kind: 'tag' as const, name: 'v1.0', current: false },
+      ],
+    }
+    const view = render(
+      <ChangesPanel
+        area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
+        commits={[commit]} commitFiles={{}} expandedCommits={{}} loading={false} truncated={false} t={t}
+        onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
+        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff}
+      />,
+    )
+    const row = view.getByRole('button', { name: /aaaaaaa/ })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.getByText('Add feature')).toBeTruthy()
+    expect(view.getByText('HEAD')).toBeTruthy()
+    expect(view.getByText('dev')).toBeTruthy()
+    expect(view.getByText('origin/dev')).toBeTruthy()
+    expect(view.getByText('v1.0')).toBeTruthy()
+    fireEvent.click(row)
+    expect(onToggleCommit).toHaveBeenCalledWith(commit.hash)
+
+    const renamed = { path: 'renamed.ts', previousPath: 'old.ts', status: 'R' as const }
+    view.rerender(
+      <ChangesPanel
+        area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
+        commits={[commit]}
+        commitFiles={{ [commit.hash]: { files: [renamed, { path: 'added.ts', status: 'A' as const }], truncated: true, loading: false } }}
+        expandedCommits={{ [commit.hash]: true }} loading={false} truncated={false} t={t}
+        onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
+        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff}
+      />,
+    )
+    expect(view.getByText('<ada@example.invalid>')).toBeTruthy()
+    expect(view.getByText(commit.hash)).toBeTruthy()
+    expect(view.getByText('old.ts')).toBeTruthy()
+    expect(view.getByText('变更文件已达到显示上限')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: /renamed\.ts/ }))
+    expect(onOpenCommitDiff).toHaveBeenCalledWith(commit, renamed)
+
+    // Loading, failed, and empty file listings each render their own state.
+    const expanded = (files: Record<string, WorkbenchCommitFiles>) => (
+      <ChangesPanel
+        area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
+        commits={[commit]} commitFiles={files} expandedCommits={{ [commit.hash]: true }} loading={false}
+        truncated={false} t={t} onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
+        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff}
+      />
+    )
+    view.rerender(expanded({}))
+    expect(view.getByText('正在读取提交变更…')).toBeTruthy()
+    view.rerender(expanded({ [commit.hash]: { files: [], truncated: false, loading: true } }))
+    expect(view.getByText('正在读取提交变更…')).toBeTruthy()
+    view.rerender(expanded({ [commit.hash]: { files: [], truncated: false, loading: false, error: 'listing failed' } }))
+    expect(view.getByText('listing failed')).toBeTruthy()
+    view.rerender(expanded({ [commit.hash]: { files: [], truncated: false, loading: false } }))
+    expect(view.getByText('该提交没有变更文件')).toBeTruthy()
   })
 
   it('renders bounded CSV and TSV tables and all unified-diff line roles', () => {
@@ -760,6 +900,9 @@ describe('WorkspaceWorkbench', () => {
     }))
     const gitStatus = vi.fn(async () => ({
       branch: 'dev',
+      upstream: 'origin/dev',
+      ahead: 1,
+      behind: 0,
       entries: [
         { path: 'src/main.ts', indexStatus: 'M', worktreeStatus: 'M' },
         { path: 'new.ts', indexStatus: '?', worktreeStatus: '?' },
@@ -767,7 +910,10 @@ describe('WorkspaceWorkbench', () => {
       truncated: true,
     }))
     const gitCommits = vi.fn(async () => ({
-      commits: [{ hash: 'abcdef', shortHash: 'abcdef', authorName: 'A', authorEmail: 'a@example.invalid', authoredAt: '2026-08-28T00:00:00Z', subject: 'initial' }],
+      commits: [{
+        hash: 'abcdef', shortHash: 'abcdef', authorName: 'A', authorEmail: 'a@example.invalid',
+        authoredAt: '2026-08-28T00:00:00Z', subject: 'initial', parents: [], refs: [],
+      }],
       truncated: false,
     }))
     const gitDiff = vi.fn(async (
@@ -973,6 +1119,200 @@ describe('WorkspaceWorkbench', () => {
     })
     await act(async () => { await Promise.resolve() })
     expect(view.queryByRole('button', { name: /^TXTstale\.txt$/ })).toBeNull()
+  })
+
+  it('creates files and folders inline in the targeted directory and surfaces exists failures', async () => {
+    const created: string[] = []
+    const listFiles = vi.fn(async (_workspaceId: WorkspaceId, path?: string) => ({
+      path: path ?? '',
+      entries: path === 'docs'
+        ? [{ name: 'guide.md', path: 'docs/guide.md', kind: 'file' as const }]
+        : path === 'notes'
+          ? [{ name: 'todo.md', path: 'notes/todo.md', kind: 'file' as const }]
+          : [
+            { name: 'docs', path: 'docs', kind: 'directory' as const },
+            { name: 'notes', path: 'notes', kind: 'directory' as const },
+            { name: 'README.md', path: 'README.md', kind: 'file' as const },
+          ],
+      truncated: false,
+    }))
+    const createFile = vi.fn(async (_workspaceId: WorkspaceId, path: string) => {
+      created.push(path)
+      return path === 'README.md'
+        ? { ok: false as const, error: { code: 'exists' as const, message: 'entry exists', details: {} } }
+        : { ok: true as const, value: { created: true as const } }
+    })
+    const createDirectory = vi.fn(async () => ({ ok: true as const, value: { created: true as const } }))
+    const view = mountWorkbench({ listFiles, createFile, createDirectory })
+    expect(await view.findByRole('button', { name: /^MDREADME\.md$/ })).toBeTruthy()
+
+    fireEvent.click(view.getByRole('button', { name: '新建文件' }))
+    const input = view.getByRole('textbox', { name: '新文件名' })
+    fireEvent.change(input, { target: { value: 'notes/todo.md' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => { expect(createFile).toHaveBeenCalledWith(wid('a'), 'notes/todo.md') })
+    await waitFor(() => { expect(listFiles).toHaveBeenCalledWith(wid('a'), 'notes', expect.anything()) })
+    expect(view.instance.getSnapshot().byWorkspace.a?.expandedDirectories.notes).toBe(true)
+    expect(view.instance.getSnapshot().byWorkspace.a?.tabs.some(tab => tab.id === 'file:notes/todo.md')).toBe(true)
+
+    fireEvent.click(view.getByRole('button', { name: '新建文件' }))
+    const failing = view.getByRole('textbox', { name: '新文件名' })
+    fireEvent.change(failing, { target: { value: 'README.md' } })
+    fireEvent.keyDown(failing, { key: 'Enter' })
+    expect(await view.findByText('同名文件或文件夹已存在')).toBeTruthy()
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Escape' })
+    expect(view.queryByRole('textbox', { name: '新文件名' })).toBeNull()
+
+    fireEvent.click(view.getByRole('button', { name: /^docs/ }))
+    fireEvent.click(view.getByRole('button', { name: '新建文件夹' }))
+    fireEvent.change(view.getByRole('textbox', { name: '新文件夹名' }), { target: { value: 'sub' } })
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件夹名' }), { key: 'Enter' })
+    await waitFor(() => { expect(createDirectory).toHaveBeenCalledWith(wid('a'), 'docs/sub') })
+    // Opening a nested file retargets creation at its parent directory.
+    fireEvent.click(view.getByRole('button', { name: /^MDtodo\.md$/ }))
+    fireEvent.click(view.getByRole('button', { name: '新建文件' }))
+    fireEvent.change(view.getByRole('textbox', { name: '新文件名' }), { target: { value: 'deep.md' } })
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Enter' })
+    await waitFor(() => { expect(createFile).toHaveBeenCalledWith(wid('a'), 'notes/deep.md') })
+    expect(created).toEqual(['notes/todo.md', 'README.md', 'notes/deep.md'])
+  })
+
+  it('ignores late create replies after the draft stood down and maps non-exists codes', async () => {
+    const listFiles = vi.fn(async (_workspaceId: WorkspaceId, _path?: string) => ({
+      path: _path ?? '',
+      entries: [{ name: 'README.md', path: 'README.md', kind: 'file' as const }],
+      truncated: false,
+    }))
+    type CreateOutcome =
+      | { ok: true; value: { created: true } }
+      | { ok: false; error: { code: string; message: string; details: object } }
+    const resolvers: Array<(value: CreateOutcome) => void> = []
+    const createFile = vi.fn(async (_workspaceId: WorkspaceId, _path: string) => {
+      return await new Promise<CreateOutcome>((resolve) => {
+        resolvers.push(resolve)
+      })
+    })
+    const view = mountWorkbench({ listFiles, createFile })
+    expect(await view.findByRole('button', { name: /^MDREADME\.md$/ })).toBeTruthy()
+
+    // A cancelled draft ignores the late success: the input stays gone.
+    fireEvent.click(view.getByRole('button', { name: '新建文件' }))
+    fireEvent.change(view.getByRole('textbox', { name: '新文件名' }), { target: { value: 'a.md' } })
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Enter' })
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Escape' })
+    await act(async () => { (resolvers[0] as (value: CreateOutcome) => void)({ ok: true, value: { created: true } }) })
+    expect(view.queryByRole('textbox', { name: '新文件名' })).toBeNull()
+
+    // A non-exists failure code surfaces the wire message.
+    fireEvent.click(view.getByRole('button', { name: '新建文件' }))
+    fireEvent.change(view.getByRole('textbox', { name: '新文件名' }), { target: { value: 'b.md' } })
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Enter' })
+    await act(async () => {
+      ;(resolvers[1] as (value: CreateOutcome) => void)({ ok: false, error: { code: 'io', message: 'disk failed', details: {} } })
+    })
+    expect(view.getByText('disk failed')).toBeTruthy()
+
+    // A late exists failure after standing down leaves the draft closed.
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Escape' })
+    fireEvent.click(view.getByRole('button', { name: '新建文件' }))
+    fireEvent.change(view.getByRole('textbox', { name: '新文件名' }), { target: { value: 'c.md' } })
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Enter' })
+    fireEvent.keyDown(view.getByRole('textbox', { name: '新文件名' }), { key: 'Escape' })
+    await act(async () => {
+      ;(resolvers[2] as (value: CreateOutcome) => void)({ ok: false, error: { code: 'exists', message: 'entry exists', details: {} } })
+    })
+    expect(view.queryByText('同名文件或文件夹已存在')).toBeNull()
+    expect(view.queryByRole('textbox', { name: '新文件名' })).toBeNull()
+  })
+
+  it('collapses every expanded directory back to the root', async () => {
+    const listFiles = vi.fn(async (_workspaceId: WorkspaceId, path?: string) => ({
+      path: path ?? '',
+      entries: path === 'docs'
+        ? [{ name: 'nested', path: 'docs/nested', kind: 'directory' as const }]
+        : [{ name: 'docs', path: 'docs', kind: 'directory' as const }],
+      truncated: false,
+    }))
+    const view = mountWorkbench({ listFiles })
+    fireEvent.click(await view.findByRole('button', { name: /^docs/ }))
+    await view.findByRole('button', { name: /^nested/ })
+    expect(view.getByRole('button', { name: /^docs/ }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(view.getByRole('button', { name: '折叠全部文件夹' }))
+    expect(view.getByRole('button', { name: /^docs/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByRole('button', { name: /^nested/ })).toBeNull()
+    expect(view.instance.getSnapshot().byWorkspace.a?.expandedDirectories).toEqual({ '': true })
+  })
+
+  it('expands a history commit through the workbench and opens its file diff read-only', async () => {
+    const commit = {
+      hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortHash: 'aaaaaaa', authorName: 'Ada',
+      authorEmail: 'ada@example.invalid', authoredAt: '2026-10-12T08:00:00.000Z', subject: 'Add feature',
+      parents: [], refs: [{ kind: 'local' as const, name: 'dev', current: true }],
+    }
+    const gitStatus = vi.fn(async () => ({ branch: 'dev', upstream: null, ahead: null, behind: null, entries: [], truncated: false }))
+    const gitCommits = vi.fn(async () => ({ commits: [commit], truncated: false }))
+    const gitCommitFiles = vi.fn(async () => ({ files: [{ path: 'main.ts', status: 'M' as const }], truncated: false }))
+    const gitCommitDiff = vi.fn(async () => ({ diff: '@@ -1 +1 @@\n-old\n+new\n', truncated: false }))
+    const view = mountWorkbench({ gitStatus, gitCommits, gitCommitFiles, gitCommitDiff })
+    fireEvent.click(view.getByRole('tab', { name: '变更' }))
+    const row = await view.findByRole('button', { name: /aaaaaaa/ })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(row)
+    await waitFor(() => { expect(gitCommitFiles).toHaveBeenCalledWith(wid('a'), commit.hash, expect.anything()) })
+    fireEvent.click(await view.findByRole('button', { name: /main\.ts/ }))
+    await waitFor(() => { expect(gitCommitDiff).toHaveBeenCalledWith(wid('a'), commit.hash, 'main.ts', expect.anything()) })
+    const diffTab = view.instance.getSnapshot().byWorkspace.a?.tabs.find(tab => tab.id === `diff:commit:${commit.hash}:main.ts`)
+    expect(diffTab).toMatchObject({ kind: 'diff', loading: false, content: '@@ -1 +1 @@\n-old\n+new\n' })
+    expect(diffTab?.title).toBe('main.ts · aaaaaaa')
+    // Second file click selects the settled tab instead of refetching.
+    fireEvent.click(view.getByRole('button', { name: 'Mmain.ts' }))
+    await waitFor(() => { expect(view.instance.getSnapshot().byWorkspace.a?.activeTabId).toBe(`diff:commit:${commit.hash}:main.ts`) })
+    expect(gitCommitDiff).toHaveBeenCalledOnce()
+    // Collapse and re-expand: the loaded file list is reused, not refetched.
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    await waitFor(() => { expect(view.getByRole('button', { name: 'Mmain.ts' })).toBeTruthy() })
+    expect(gitCommitFiles).toHaveBeenCalledOnce()
+  })
+
+  it('surfaces a failed commit diff on its read-only tab', async () => {
+    const commit = {
+      hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortHash: 'aaaaaaa', authorName: 'Ada',
+      authorEmail: 'ada@example.invalid', authoredAt: '2026-10-12T08:00:00.000Z', subject: 'Add feature',
+      parents: [], refs: [],
+    }
+    const gitStatus = vi.fn(async () => ({ branch: 'dev', upstream: null, ahead: null, behind: null, entries: [], truncated: false }))
+    const gitCommits = vi.fn(async () => ({ commits: [commit], truncated: false }))
+    const gitCommitFiles = vi.fn(async () => ({ files: [{ path: 'main.ts', status: 'M' as const }], truncated: false }))
+    const gitCommitDiff = vi.fn(async () => { throw new Error('diff unavailable') })
+    const view = mountWorkbench({ gitStatus, gitCommits, gitCommitFiles, gitCommitDiff })
+    fireEvent.click(view.getByRole('tab', { name: '变更' }))
+    fireEvent.click(await view.findByRole('button', { name: /aaaaaaa/ }))
+    fireEvent.click(await view.findByRole('button', { name: /main\.ts/ }))
+    const tab = await waitFor(() => {
+      const found = view.instance.getSnapshot().byWorkspace.a?.tabs.find(t => t.id === `diff:commit:${commit.hash}:main.ts`)
+      if (found === undefined || found.loading) throw new Error('pending')
+      return found
+    })
+    expect(tab.error).toBe('diff unavailable')
+  })
+
+  it('surfaces a failed changed-file listing inside the commit row', async () => {
+    const commit = {
+      hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortHash: 'aaaaaaa', authorName: 'Ada',
+      authorEmail: 'ada@example.invalid', authoredAt: '2026-10-12T08:00:00.000Z', subject: 'Add feature',
+      parents: [], refs: [],
+    }
+    const gitStatus = vi.fn(async () => ({ branch: 'dev', upstream: null, ahead: null, behind: null, entries: [], truncated: false }))
+    const gitCommits = vi.fn(async () => ({ commits: [commit], truncated: false }))
+    const gitCommitFiles = vi.fn(async () => { throw new Error('listing unavailable') })
+    const view = mountWorkbench({ gitStatus, gitCommits, gitCommitFiles })
+    fireEvent.click(view.getByRole('tab', { name: '变更' }))
+    fireEvent.click(await view.findByRole('button', { name: /aaaaaaa/ }))
+    expect(await view.findByText('listing unavailable')).toBeTruthy()
+    expect(view.queryByRole('button', { name: /main\.ts/ })).toBeNull()
   })
 
   it('ignores the filter toggle while a filter is pinned and keeps the fields open', () => {
