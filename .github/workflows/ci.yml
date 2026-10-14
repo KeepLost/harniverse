@@ -503,9 +503,12 @@ jobs:
       # ("Worker exited unexpectedly") on PRs whose content was fine. The
       # Linux coverage job already runs with gate concurrency 2; give this
       # lane the same budget and split the coverage worker budget so the
-      # instrumented lane never claims the whole box.
+      # instrumented lane never claims the whole box. The heap headroom
+      # mirrors the macOS lane: the coverage forks and the compiler share
+      # this box, and allocator pressure is what kills the workers.
       DSH_GATE_CONCURRENCY: '2'
       DSH_COVERAGE_MAX_WORKERS: '3'
+      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v7
         with:
