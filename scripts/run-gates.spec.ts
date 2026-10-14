@@ -3,6 +3,7 @@ import {
   defaultConcurrency,
   formatGateResultReason,
   gatesForMode,
+  isVitestTeardownRace,
   runGate,
   runGates,
   type Gate,
@@ -163,6 +164,58 @@ describe('gate graph validation', () => {
     expect(execute).toHaveBeenCalledOnce()
     expect(execute).toHaveBeenCalledWith(root)
     expect(results[0]).toMatchObject({ gate: dependent, status: 'skipped', error: 'dependency failed or skipped: root' })
+  })
+
+  it('retries once when the classified failure signature matches', async () => {
+    const teardownRace = resultFor(gate('subject'), 'failed')
+    teardownRace.output = [
+      { stream: 'stderr', text: 'Test Files  1309 passed | 5 skipped (1315)\n' },
+      { stream: 'stderr', text: 'Error: [vitest-pool]: Worker forks emitted error.\nCaused by: Error: Worker exited unexpectedly\n' },
+    ]
+    const subject = gate('subject', { retryOn: isVitestTeardownRace })
+    let attempt = 0
+    const execute = vi.fn(async (item: Gate) => {
+      attempt += 1
+      return attempt === 1 ? teardownRace : resultFor(item)
+    })
+
+    const results = await runGates([subject], 1, execute)
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(results[0]).toMatchObject({ gate: subject, status: 'passed' })
+  })
+
+  it('does not retry a teardown race after the retry budget is spent', async () => {
+    const teardownRace = resultFor(gate('subject'), 'failed')
+    teardownRace.output = [
+      { stream: 'stderr', text: 'Test Files  1309 passed | 5 skipped (1315)\n' },
+      { stream: 'stderr', text: 'Worker exited unexpectedly\n' },
+    ]
+    const subject = gate('subject', { retryOn: isVitestTeardownRace })
+    const execute = vi.fn(async (item: Gate) => resultFor(item, 'failed'))
+
+    const results = await runGates([subject], 1, async (item) => {
+      await execute(item)
+      return { ...teardownRace, gate: item }
+    })
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(results[0]).toMatchObject({ gate: subject, status: 'failed' })
+  })
+
+  it('does not retry a coverage failure that reports failed tests', async () => {
+    const realFailure = resultFor(gate('subject'), 'failed')
+    realFailure.output = [
+      { stream: 'stderr', text: 'Test Files  1 failed | 1308 passed (1315)\n' },
+      { stream: 'stderr', text: 'Worker exited unexpectedly\n' },
+    ]
+    const subject = gate('subject', { retryOn: isVitestTeardownRace })
+    const execute = vi.fn(async (item: Gate) => ({ ...realFailure, gate: item }))
+
+    const results = await runGates([subject], 1, execute)
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(results[0]).toMatchObject({ gate: subject, status: 'failed' })
   })
 })
 
