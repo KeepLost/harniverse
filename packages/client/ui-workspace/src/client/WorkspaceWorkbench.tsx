@@ -20,6 +20,7 @@ import { previewType } from './preview-kind.ts'
 import {
   GRAPH_SWIMLANE_HEIGHT, commitGraphPlaceholderShapes, commitGraphRowShapes, layoutCommitGraph,
 } from './git-graph.ts'
+import type { CommitGraphRow } from './git-graph.ts'
 import { WorkbenchPreview } from './WorkbenchPreview.tsx'
 import type { EditorSeat } from './WorkbenchPreview.tsx'
 import css from './WorkspaceWorkbench.module.css'
@@ -535,7 +536,7 @@ export function ChangesPanel(props: {
       <div className={css.historyHeading}>{props.t('workbench.gitHistory')}</div>
       <div className={css.commitList}>
         {props.commits.map((commit, index) => {
-          const row = graph[index]
+          const row = graph[index] as CommitGraphRow
           const files = props.commitFiles[commit.hash]
           const expanded = props.expandedCommits[commit.hash] === true
           return (
@@ -545,11 +546,11 @@ export function ChangesPanel(props: {
                 className={css.commitRow}
                 aria-expanded={expanded}
                 aria-label={props.t('workbench.gitCommitExpand', { hash: commit.shortHash })}
-                data-head={row?.head || undefined}
+                data-head={row.head || undefined}
                 title={`${commit.subject} — ${commit.authorName} ${commit.shortHash} ${commit.authoredAt.slice(0, 10)}`}
                 onClick={() => { props.onToggleCommit(commit.hash) }}
               >
-                {row !== undefined && <CommitGraphGutter shapes={commitGraphRowShapes(row)} />}
+                <CommitGraphGutter shapes={commitGraphRowShapes(row)} />
                 <span className={css.commitMain}>
                   <span className={css.commitSubject}>{commit.subject}</span>
                   <span className={css.commitAuthor}>{commit.authorName}</span>
@@ -562,7 +563,7 @@ export function ChangesPanel(props: {
                   ))}
                 </span>
               </button>
-              {expanded && row !== undefined && (
+              {expanded && (
                 <div className={css.commitDetail}>
                   <CommitGraphContinuation shapes={commitGraphPlaceholderShapes(row)} />
                   <div className={css.commitDetailBody}>
