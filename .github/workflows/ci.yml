@@ -124,6 +124,15 @@ jobs:
       - name: Provision pinned Electron build binary
         run: node apps/desktop/scripts/packaging-ci.ts --provision-electron --provision-browser
 
+      # Real-time Defender scanning of the just-signed unpacked build during
+      # the smoke's first launch can stall the fresh binary well past any step
+      # deadline (observed as silent clean-install smoke timeouts on this lane
+      # alone); exclude the output tree before the qualification launches.
+      - name: Exclude the desktop build tree from Defender real-time scans
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-MpPreference -ExclusionPath "${{ runner.temp }}/harniverse-desktop"
+
       # Windows uses the native pwsh default; the Node driver owns portable argv.
       - name: Package native installer and verify final offline desktop
         run: node apps/desktop/scripts/packaging-ci.ts --output-dir "${{ runner.temp }}/harniverse-desktop" --pnpm-dir "${{ runner.temp }}/setup-pnpm" --arch ${{ matrix.arch }}
@@ -494,9 +503,13 @@ jobs:
       # ("Worker exited unexpectedly") on PRs whose content was fine. The
       # Linux coverage job already runs with gate concurrency 2; give this
       # lane the same budget and split the coverage worker budget so the
-      # instrumented lane never claims the whole box.
+      # instrumented lane never claims the whole box. The heap headroom
+      # mirrors the macOS lane. Residual teardown races — a fork exiting
+      # after its tasks with zero failed tests — are retried once by the
+      # gate runner itself (isVitestTeardownRace in scripts/run-gates.ts).
       DSH_GATE_CONCURRENCY: '2'
       DSH_COVERAGE_MAX_WORKERS: '3'
+      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v7
         with:

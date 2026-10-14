@@ -474,8 +474,13 @@ describe('dsh-agent-spine-demo bundle', () => {
       ctx.on('tools/post-execute', async (exec, _result, next) => {
         const decision = await next()
         if (exec.callId === 'write-skill') {
+          // A complete snapshot, not just a list hit: discovery may still be
+          // settling, and the pre-step catalog publish defers incomplete
+          // observations to the next request boundary by contract.
           await vi.waitFor(async () => {
-            expect((await ctx.skills.list({ cwd: root })).map(skill => skill.name)).toContain('hot-skill')
+            const snapshot = await ctx.skills.snapshot({ cwd: root })
+            expect(snapshot.complete).toBe(true)
+            expect(snapshot.skills.map(skill => skill.name)).toContain('hot-skill')
           }, { timeout: 5_000 })
         }
         return decision

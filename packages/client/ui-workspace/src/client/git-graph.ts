@@ -1,155 +1,278 @@
 /**
- * Commit-graph lane layout for the Changes section: assigns every visible
- * commit a lane, derives the connector geometry between adjacent rows, and
- * keeps one palette index per lane so a branch keeps its color while it stays
- * visible. Pure data over the topo-ordered commit list the Host returns; the
- * component renders the geometry, never recomputes it.
+ * Commit-graph swimlane model and row geometry for the Changes section,
+ * ported from VS Code's source-control history graph
+ * (src/vs/workbench/contrib/scm/browser/history/scmHistory.ts of
+ * https://github.com/microsoft/vscode, MIT license,
+ * Copyright (c) Microsoft Corporation; see THIRD_PARTY_NOTICES.md).
+ *
+ * The model layer walks the topo-ordered commit window and assigns each row
+ * input/output swimlanes; the shape layer turns one row into pure SVG
+ * path/circle descriptions that the component maps onto the DOM. Rows are
+ * fixed 22px swimlanes with exact-pixel geometry, so segments from
+ * consecutive rows join into one continuous drawing.
  */
 
-/** Connector geometry of one commit row, in lane-index units. */
-export interface CommitGraphEdge {
-  /** Lane the connector starts from: the previous row's layout for `upper` and `through`, the node lane for `lower`. */
-  from: number
-  /** Lane the connector ends in: this row's node lane for `upper`, the next row's layout for `lower` and `through`. */
-  to: number
-  /** Which vertical span the connector covers: into the node, out of the node, or the full row alongside it. */
-  half: 'upper' | 'lower' | 'through'
-  /** Palette index coloring the connector. */
+/** Palette size: indices 0-4 rotate across unlabeled lanes, 5-6 pin refs. */
+export const COMMIT_GRAPH_PALETTE = 7
+/** Palette index for the current-ref (HEAD) label color. */
+export const COMMIT_GRAPH_REF_COLOR = 5
+/** Palette index for the remote-ref (upstream) label color. */
+export const COMMIT_GRAPH_REF_REMOTE_COLOR = 6
+
+/** Count of rotating lane colors, occupying palette indices 0..4. */
+const ROTATING_COLORS = 5
+
+/** Horizontal distance between neighboring swimlane centers, in px. */
+export const GRAPH_SWIMLANE_WIDTH = 11
+/** Fixed row height: two half-swimlanes, in px. */
+export const GRAPH_SWIMLANE_HEIGHT = 22
+/** Curve radius of lane-shift S-curves, in px. */
+const GRAPH_CURVE_RADIUS = 5
+/** Base node circle radius, in px. */
+const GRAPH_CIRCLE_RADIUS = 4
+/** Node halo ring stroke width, in px. */
+const GRAPH_CIRCLE_STROKE_WIDTH = 2
+
+/** One occupied swimlane: the commit hash it flows toward, plus its color. */
+export interface CommitGraphLane {
+  target: string
   color: number
 }
 
-/** One commit's node position plus the connectors around it. */
+/** One commit's swimlane view model, VS Code's ISCMHistoryItemViewModel. */
 export interface CommitGraphRow {
   hash: string
-  /** Lane of the commit's node circle. */
-  lane: number
-  /** Palette index for the node circle. */
-  color: number
-  edges: CommitGraphEdge[]
+  /** Full parent hashes, first parent first; empty for a root commit. */
+  parents: string[]
+  /** True when this commit carries the HEAD decoration. */
+  head: boolean
+  /** Lanes entering this row, cloned from the previous row's outputs. */
+  inputSwimlanes: CommitGraphLane[]
+  /** Lanes leaving this row toward their targets. */
+  outputSwimlanes: CommitGraphLane[]
 }
 
-/** Complete layout over the visible commit window. */
-export interface CommitGraphLayout {
-  rows: CommitGraphRow[]
-  /** Widest lane count the window reaches; rows share this width. */
-  laneCount: number
-}
-
-/** Lane palette size; colors are assigned per lane from the target hash. */
-export const COMMIT_GRAPH_PALETTE = 7
-
-/** One occupied lane: the commit it still waits for, plus its stable color. */
-interface LaneSlot {
-  target: string | null
-  color: number
-}
-
-/** Palette index for one hash: stable across windows and reloads. */
-function laneColor(hash: string): number {
-  let sum = 0
-  for (let index = Math.max(0, hash.length - 4); index < hash.length; index++) sum += hash.charCodeAt(index)
-  return sum % COMMIT_GRAPH_PALETTE
+/** Minimal commit shape the layout consumes; refs pin label colors. */
+export interface CommitGraphCommit {
+  hash: string
+  parents: string[]
+  refs?: ReadonlyArray<{ kind: string; current: boolean }> | undefined
 }
 
 /**
- * Lay out the visible commit window.
- * @param commits - topo-ordered commits (newest first) with their parent hashes.
- * @returns one row per commit plus the shared lane width.
+ * Label color of one commit: its first current (HEAD-checked-out) ref pins
+ * the ref color, otherwise its first remote ref pins the remote-ref color,
+ * otherwise the commit is unlabeled and lanes rotate colors.
+ * @param commit - commit whose refs decide the label color.
+ * @returns palette index, or undefined when unlabeled.
  */
-export function layoutCommitGraph(commits: ReadonlyArray<{ hash: string; parents: string[] }>): CommitGraphLayout {
-  const lanes: Array<LaneSlot | null> = []
-  const rows: CommitGraphRow[] = []
-  let laneCount = 0
-  for (const commit of commits) {
-    // Lanes waiting for this commit converge on its node.
-    const occupied: number[] = []
-    for (let index = 0; index < lanes.length; index++) {
-      const lane = lanes[index]
-      if (lane !== null && lane !== undefined && lane.target === commit.hash) occupied.push(index)
-    }
-    let nodeLane: number
-    let nodeColor: number
-    const nodeSlot = occupied.length > 0 ? lanes[occupied[0] as number] : undefined
-    if (nodeSlot !== undefined && nodeSlot !== null) {
-      nodeLane = occupied[0] as number
-      nodeColor = nodeSlot.color
-    } else {
-      nodeLane = lanes.indexOf(null)
-      if (nodeLane === -1) {
-        nodeLane = lanes.length
-        lanes.push(null)
-      }
-      nodeColor = laneColor(commit.hash)
-    }
-    const edges: CommitGraphEdge[] = []
-    // index of each pre-row lane after this row's mutations; converging lanes
-    // leave the layout and map to the node.
-    const mapping: number[] = lanes.map((_lane, index) => index)
-    const seen = new Set<string>([commit.hash])
-    for (const index of occupied.slice(1)) {
-      const slot = lanes[index]
-      /* v8 ignore next -- occupied indices name live lanes; nothing nulled them since the scan. */
-      if (slot === undefined || slot === null) continue
-      lanes[index] = null
-      mapping[index] = -1
-      edges.push({ from: index, to: nodeLane, half: 'upper', color: slot.color })
-    }
-    if (occupied.length > 0 && rows.length > 0) {
-      edges.push({ from: nodeLane, to: nodeLane, half: 'upper', color: nodeColor })
-    }
-    // The first parent continues the node's own lane.
-    const [firstParent, ...extraParents] = commit.parents
-    if (firstParent !== undefined) {
-      seen.add(firstParent)
-      lanes[nodeLane] = { target: firstParent, color: nodeColor }
-      edges.push({ from: nodeLane, to: nodeLane, half: 'lower', color: nodeColor })
-    } else {
-      lanes[nodeLane] = null
-      mapping[nodeLane] = -1
-    }
-    // Each additional parent either joins an existing lane or opens a fresh
-    // one beside the node, shifting later lanes one slot to the right.
-    let inserts = 0
-    for (const parent of extraParents) {
-      if (seen.has(parent)) continue
-      seen.add(parent)
-      const existing = lanes.findIndex(lane => lane !== null && lane.target === parent)
-      if (existing !== -1) {
-        const existingSlot = lanes[existing]
-        /* v8 ignore next -- findIndex matched a live lane targeting the parent. */
-        if (existingSlot === undefined || existingSlot === null) continue
-        edges.push({ from: nodeLane, to: existing, half: 'lower', color: existingSlot.color })
-        continue
-      }
-      const insertAt = nodeLane + 1 + inserts
-      inserts++
-      const color = laneColor(parent)
-      lanes.splice(insertAt, 0, { target: parent, color })
-      for (let index = 0; index < mapping.length; index++) {
-        const mapped = mapping[index]
-        if (mapped !== undefined && mapped >= insertAt) mapping[index] = mapped + 1
-      }
-      mapping.push(-1)
-      edges.push({ from: nodeLane, to: insertAt, half: 'lower', color })
-    }
-    // Pass-through lanes: every pre-row lane that neither converged nor is the
-    // node keeps flowing, possibly shifted by an insertion.
-    if (rows.length > 0) {
-      for (let index = 0; index < mapping.length; index++) {
-        const mapped = mapping[index]
-        if (mapped === undefined || mapped === -1) continue
-        const lane = lanes[mapped]
-        // A vacated slot from an earlier row keeps its identity mapping; it
-        // flows nowhere and must not draw a pass-through.
-        if (lane === undefined || lane === null) continue
-        const wasNode = index === nodeLane || occupied.includes(index)
-        if (wasNode) continue
-        edges.push({ from: index, to: mapped, half: 'through', color: lane.color })
-      }
-    }
-    while (lanes.at(-1) === null) lanes.pop()
-    laneCount = Math.max(laneCount, lanes.length)
-    rows.push({ hash: commit.hash, lane: nodeLane, color: nodeColor, edges })
+function labelColor(commit: CommitGraphCommit): number | undefined {
+  for (const ref of commit.refs ?? []) {
+    if (ref.current) return COMMIT_GRAPH_REF_COLOR
+    if (ref.kind === 'remote') return COMMIT_GRAPH_REF_REMOTE_COLOR
   }
-  return { rows, laneCount: Math.max(laneCount, 1) }
+  return undefined
+}
+
+/**
+ * Build the swimlane view model over the visible commit window, newest first.
+ * @param commits - topo-ordered commits with their parents and decorations.
+ * @returns one row per commit; row N's inputs are row N-1's outputs.
+ */
+export function layoutCommitGraph(commits: ReadonlyArray<CommitGraphCommit>): CommitGraphRow[] {
+  let colorIndex = -1
+  const byHash = new Map(commits.map(commit => [commit.hash, commit]))
+  const rows: CommitGraphRow[] = []
+  for (const commit of commits) {
+    const label = labelColor(commit)
+    const input = rows.at(-1)?.outputSwimlanes.map(lane => ({ ...lane })) ?? []
+    const output: CommitGraphLane[] = []
+    let firstParentAdded = false
+    const [firstParent] = commit.parents
+    if (firstParent !== undefined) {
+      for (const lane of input) {
+        if (lane.target === commit.hash) {
+          if (!firstParentAdded) {
+            output.push({ target: firstParent, color: label ?? lane.color })
+            firstParentAdded = true
+          }
+          continue
+        }
+        output.push({ ...lane })
+      }
+    } else {
+      // Root commit: its own lane(s) end here while pass-through lanes keep
+      // flowing. VS Code drops them all (its loop only runs with parents);
+      // keeping the others is a deliberate divergence so sibling branches
+      // never vanish mid-window.
+      for (const lane of input) {
+        if (lane.target === commit.hash) continue
+        output.push({ ...lane })
+      }
+    }
+    for (let index = firstParentAdded ? 1 : 0; index < commit.parents.length; index++) {
+      const parent = commit.parents[index] as string
+      let color: number | undefined
+      if (index === 0) color = label
+      else {
+        const parentCommit = byHash.get(parent)
+        color = parentCommit === undefined ? undefined : labelColor(parentCommit)
+      }
+      if (color === undefined) {
+        colorIndex = (colorIndex + 1) % ROTATING_COLORS
+        color = colorIndex
+      }
+      output.push({ target: parent, color })
+    }
+    rows.push({
+      hash: commit.hash,
+      parents: commit.parents,
+      head: commit.refs?.some(ref => ref.kind === 'head') === true,
+      inputSwimlanes: input,
+      outputSwimlanes: output,
+    })
+  }
+  return rows
+}
+
+/** One drawn SVG path segment of a row's graph. */
+export interface CommitGraphPath {
+  d: string
+  color: number
+  strokeWidth: number
+}
+
+/** One drawn SVG circle: the node and its decoration rings. */
+export interface CommitGraphCircle {
+  cx: number
+  cy: number
+  r: number
+  strokeWidth: number
+  color: number
+  /** `color` fills with the lane color; `background` punches a hole. */
+  fill: 'color' | 'background'
+}
+
+/** Pure geometry of one commit row's graph cell. */
+export interface CommitGraphRowShapes {
+  paths: CommitGraphPath[]
+  circles: CommitGraphCircle[]
+  width: number
+  height: number
+}
+
+/** Lane-center x coordinate of one lane index. */
+function laneX(index: number): number {
+  return GRAPH_SWIMLANE_WIDTH * (index + 1)
+}
+
+/**
+ * Turn one row's swimlane model into SVG geometry, VS Code's
+ * renderSCMHistoryItemGraph as a pure function.
+ * @param row - the row to draw.
+ * @returns paths and circles plus the cell's pixel size.
+ */
+export function commitGraphRowShapes(row: CommitGraphRow): CommitGraphRowShapes {
+  const input = row.inputSwimlanes
+  const output = row.outputSwimlanes
+  const inputIndex = input.findIndex(lane => lane.target === row.hash)
+  const nodeIndex = inputIndex !== -1 ? inputIndex : input.length
+  const nodeColor = nodeIndex < output.length ? (output[nodeIndex] as CommitGraphLane).color
+    : nodeIndex < input.length ? (input[nodeIndex] as CommitGraphLane).color : COMMIT_GRAPH_REF_COLOR
+
+  const paths: CommitGraphPath[] = []
+  const line = (d: string, color: number, strokeWidth = 1): void => {
+    paths.push({ d, color, strokeWidth })
+  }
+
+  let outputIndex = 0
+  for (let index = 0; index < input.length; index++) {
+    const lane = input[index] as CommitGraphLane
+    const color = lane.color
+    if (lane.target === row.hash) {
+      if (index !== nodeIndex) {
+        // Duplicate lane converging onto the node: quarter arc, then across.
+        line(`M ${laneX(index)} 0 A ${GRAPH_SWIMLANE_WIDTH} ${GRAPH_SWIMLANE_WIDTH} 0 0 1 ${laneX(index) - GRAPH_SWIMLANE_WIDTH} ${GRAPH_SWIMLANE_WIDTH} H ${laneX(nodeIndex)}`, color)
+      } else if (row.parents.length > 0) {
+        // The node's lane is replaced in place by its first parent; a root
+        // commit's lane instead dies, compacting later lanes one slot left.
+        outputIndex++
+      }
+    } else if (outputIndex < output.length && lane.target === output[outputIndex]?.target) {
+      if (index === outputIndex) {
+        line(`M ${laneX(index)} 0 V ${GRAPH_SWIMLANE_HEIGHT}`, color)
+      } else {
+        // Pass-through lane compacting left: vertical, S-curve, vertical.
+        line(`M ${laneX(index)} 0 V ${GRAPH_SWIMLANE_HEIGHT / 2 - GRAPH_CURVE_RADIUS} A ${GRAPH_CURVE_RADIUS} ${GRAPH_CURVE_RADIUS} 0 0 1 ${laneX(index) - GRAPH_CURVE_RADIUS} ${GRAPH_SWIMLANE_HEIGHT / 2} H ${laneX(outputIndex) + GRAPH_CURVE_RADIUS} A ${GRAPH_CURVE_RADIUS} ${GRAPH_CURVE_RADIUS} 0 0 0 ${laneX(outputIndex)} ${GRAPH_SWIMLANE_HEIGHT / 2 + GRAPH_CURVE_RADIUS} V ${GRAPH_SWIMLANE_HEIGHT}`, color)
+      }
+      outputIndex++
+    }
+  }
+
+  // Merge parents beyond the first connect their lanes into the node.
+  for (let index = 1; index < row.parents.length; index++) {
+    const parent = row.parents[index] as string
+    let parentOutputIndex = -1
+    for (let scan = output.length - 1; scan >= 0; scan--) {
+      if (output[scan]?.target === parent) {
+        parentOutputIndex = scan
+        break
+      }
+    }
+    if (parentOutputIndex === -1) continue
+    const color = (output[parentOutputIndex] as CommitGraphLane).color
+    line(`M ${GRAPH_SWIMLANE_WIDTH * parentOutputIndex} ${GRAPH_SWIMLANE_HEIGHT / 2} A ${GRAPH_SWIMLANE_WIDTH} ${GRAPH_SWIMLANE_WIDTH} 0 0 1 ${laneX(parentOutputIndex)} ${GRAPH_SWIMLANE_HEIGHT} M ${GRAPH_SWIMLANE_WIDTH * parentOutputIndex} ${GRAPH_SWIMLANE_HEIGHT / 2} H ${laneX(nodeIndex)}`, color)
+  }
+
+  if (inputIndex !== -1) line(`M ${laneX(nodeIndex)} 0 V ${GRAPH_SWIMLANE_HEIGHT / 2}`, (input[inputIndex] as CommitGraphLane).color)
+  if (row.parents.length > 0) {
+    line(`M ${laneX(nodeIndex)} ${GRAPH_SWIMLANE_HEIGHT / 2} V ${GRAPH_SWIMLANE_HEIGHT}`, nodeColor)
+  }
+
+  const circles: CommitGraphCircle[] = []
+  const circle = (r: number, strokeWidth: number, fill: 'color' | 'background'): void => {
+    circles.push({ cx: laneX(nodeIndex), cy: GRAPH_SWIMLANE_WIDTH, r, strokeWidth, color: nodeColor, fill })
+  }
+  if (row.head) {
+    circle(GRAPH_CIRCLE_RADIUS + 3, GRAPH_CIRCLE_STROKE_WIDTH, 'color')
+    circle(GRAPH_CIRCLE_STROKE_WIDTH, GRAPH_CIRCLE_RADIUS, 'background')
+  } else if (row.parents.length > 1) {
+    circle(GRAPH_CIRCLE_RADIUS + 2, GRAPH_CIRCLE_STROKE_WIDTH, 'color')
+    circle(GRAPH_CIRCLE_RADIUS - 1, GRAPH_CIRCLE_STROKE_WIDTH, 'color')
+  } else {
+    circle(GRAPH_CIRCLE_RADIUS + 1, GRAPH_CIRCLE_STROKE_WIDTH, 'color')
+  }
+
+  return {
+    paths,
+    circles,
+    width: GRAPH_SWIMLANE_WIDTH * (Math.max(input.length, output.length, 1) + 1),
+    height: GRAPH_SWIMLANE_HEIGHT,
+  }
+}
+
+/** Pure geometry of the lane gutter filling an expanded commit's detail. */
+export interface CommitGraphPlaceholderShapes {
+  /** Vertical lines: lane-center x, color, and whether emphasized. */
+  lines: Array<{ x: number; color: number; emphasized: boolean }>
+  width: number
+}
+
+/**
+ * Geometry of the lane lines flowing through an expanded commit's detail
+ * block, VS Code's renderSCMHistoryGraphPlaceholder as a pure function.
+ * @param row - the expanded row; its output lanes flow through the gutter.
+ * @returns one vertical line per lane plus the gutter's pixel width.
+ */
+export function commitGraphPlaceholderShapes(row: CommitGraphRow): CommitGraphPlaceholderShapes {
+  const [firstParent] = row.parents
+  const emphasized = firstParent === undefined ? -1 : row.outputSwimlanes.findIndex(lane => lane.target === firstParent)
+  return {
+    lines: row.outputSwimlanes.map((lane, index) => ({
+      x: laneX(index),
+      color: lane.color,
+      emphasized: index === emphasized,
+    })),
+    width: GRAPH_SWIMLANE_WIDTH * (row.outputSwimlanes.length + 1),
+  }
 }

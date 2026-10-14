@@ -806,7 +806,9 @@ function stripRefPrefix(ref: string): string {
 }
 
 /**
- * Read a bounded Workspace-path commit history.
+ * Read a bounded, unsimplified commit history of the Workspace repository:
+ * merges are listed, so a listed commit's parent is either listed or lies
+ * beyond the window.
  * @param root - registered canonical Workspace root.
  * @param limit - requested maximum commit count.
  * @param signal - caller cancellation signal.
@@ -821,7 +823,7 @@ export async function workspaceGitCommits(
   const boundedLimit = Math.min(limit, WORKSPACE_GIT_COMMIT_LIMIT)
   const result = await runGit(root, [
     'log', '-z', `--max-count=${String(boundedLimit + 1)}`, '--topo-order', '--decorate=full',
-    '--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D', '--relative', '--', '.',
+    '--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D',
   ], signal, 'commit history')
   const fields = result.stdout.split('\0')
   const commits: WorkspaceGitCommit[] = []

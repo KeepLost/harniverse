@@ -43,6 +43,8 @@ export interface Gate {
   needs?: string[]
   env?: Record<string, string | undefined>
   allowFailure?: boolean
+  /** Classify one failed execution as retryable; matched gates rerun exactly once. */
+  retryOn?: (result: GateResult) => boolean
 }
 
 /** The observed outcome of one gate process. */
@@ -584,6 +586,22 @@ function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
   }
 }
 
+/**
+ * Classify a failed coverage gate as the Vitest fork-teardown race: the pool
+ * reports "Worker exited unexpectedly" while every test-file summary shows a
+ * run with no failed tests. Real test failures never match.
+ * @param result - the failed gate outcome to classify.
+ * @returns whether the failure is the teardown race and not a test failure.
+ */
+export function isVitestTeardownRace(result: GateResult): boolean {
+  if (result.status !== 'failed') return false
+  const text = result.output.map(chunk => chunk.text).join('')
+  const fileSummaries = text.match(/Test Files[^\n\r]*/gu) ?? []
+  if (fileSummaries.length === 0) return false
+  if (fileSummaries.some(summary => summary.includes(' failed'))) return false
+  return text.includes('Worker exited unexpectedly')
+}
+
 function coverageGates(): Gate[] {
   const workers = coverageWorkerArgs()
   return [
@@ -599,6 +617,13 @@ function coverageGates(): Gate[] {
       // mix incompatible branch maps before Istanbul merges their counters.
       needs: ['coverage-exempt-heavy'],
       env: { [COVERAGE_EXEMPT_ENV]: '1' },
+      // Tinypool cannot distinguish a fork that exited after finishing every
+      // task from one that crashed, so a teardown race surfaces as
+      // "Worker exited unexpectedly" with zero failed tests and fails the
+      // whole gate (seen on the loaded Windows and macOS native lanes). Retry
+      // that exact signature once; drop the retry when the pool exit-code
+      // reporting lands in a future Vitest release.
+      retryOn: isVitestTeardownRace,
     }),
     pnpmExec('coverage-exempt-heavy', [
       'vitest',
@@ -819,6 +844,7 @@ export async function runGates(
   }
   const states = new Map<string, GateState>(gates.map(gate => [gate.id, 'pending']))
   const results = new Map<string, GateResult>()
+  const retriedGates = new Set<string>()
   const running: RunningGate[] = []
 
   for (;;) {
@@ -864,6 +890,12 @@ export async function runGates(
     if (!madeProgress) {
       const settled = await Promise.race(running.map(async item => ({ item, result: await item.promise })))
       running.splice(running.indexOf(settled.item), 1)
+      if (settled.result.status === 'failed' && settled.item.gate.retryOn?.(settled.result) === true && !retriedGates.has(settled.item.gate.id)) {
+        retriedGates.add(settled.item.gate.id)
+        console.error(`run-gates: RETRY ${settled.item.gate.label} (matched a classified retryable signature; rerunning once)`)
+        states.set(settled.item.gate.id, 'pending')
+        continue
+      }
       states.set(settled.item.gate.id, settled.result.status)
       results.set(settled.item.gate.id, settled.result)
       observe(settled.result)

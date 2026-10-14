@@ -286,7 +286,8 @@ export class DesktopShell {
         : `persist:harniverse-external-${createHash('sha256').update(connection.origin).digest('hex')}`
       this.ensureWindow(partition)
       this.authority = { kind: 'web', origin: connection.origin }
-      await this.window?.loadURL(webUrl)
+      const window = this.window
+      if (window !== undefined) await this.loadWindow(window, webUrl)
       if (this.connectionFailed(connection)) throw new Error(this.copy.errorStartupStopped)
       this.state = { ...this.state, phase: 'ready' }
       this.backendReady = true
@@ -416,7 +417,7 @@ export class DesktopShell {
           const window = this.window
           if (!this.connectionUsable(connection) || connection.webUrl === undefined || origin === undefined || window === undefined) return
           this.authority = { kind: 'web', origin }
-          await window.loadURL(connection.webUrl)
+          await this.loadWindow(window, connection.webUrl)
         })
         return { kind: 'ordinary' }
       }
@@ -460,11 +461,52 @@ export class DesktopShell {
     })
   }
 
+  /**
+   * Load a URL without trusting loadURL's promise alone: Electron ties that
+   * promise to the first navigation's did-finish-load, and a navigation
+   * replaced mid-load (the warm-session authentication redirect a reconnect
+   * performs) never settles it — observed as a fully-booted yet inert shell
+   * until the outer smoke kill. The main frame reaching the target origin
+   * settles success; a main-frame load failure or the deadline rejects so the
+   * failure and retry paths stay reachable.
+   * @param window - the sole shell window whose main frame navigates.
+   * @param url - absolute URL to load.
+   * @param deadlineMs - load budget; the launcher and loopback Host are local.
+   */
+  private loadWindow(window: BrowserWindow, url: string, deadlineMs = 60_000): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+      const done = (error: Error | undefined): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        window.webContents.removeListener('did-navigate', navigated)
+        window.webContents.removeListener('did-fail-load', failed)
+        if (error === undefined) resolve()
+        else reject(error)
+      }
+      const navigated = (_event: Electron.Event, location: string): void => {
+        try {
+          if (new URL(location).origin === new URL(url).origin) done(undefined)
+        } catch { /* An unparseable location cannot prove arrival. */ }
+      }
+      const failed = (_event: Electron.Event, code: number, description: string, target: string, isMainFrame: boolean): void => {
+        if (isMainFrame) done(new Error(`Window failed to load ${target} (${String(code)}: ${description}).`))
+      }
+      const timer = setTimeout(() => { done(new Error(`Window did not load ${url} within ${String(deadlineMs)}ms.`)) }, deadlineMs)
+      window.webContents.on('did-navigate', navigated)
+      window.webContents.on('did-fail-load', failed)
+      void window.loadURL(url).then(() => { done(undefined) }, (error: unknown) => {
+        done(error instanceof Error ? error : new Error(`Window navigation to ${url} failed.`))
+      })
+    })
+  }
+
   private async showLauncher(): Promise<void> {
     const window = this.ensureWindow()
     const url = pathToFileURL(this.options.rendererPath).href
     this.authority = { kind: 'shell', url }
-    await window.loadURL(url)
+    await this.loadWindow(window, url)
     this.refreshMenu()
     this.show()
   }
@@ -584,7 +626,8 @@ export class DesktopShell {
           const connection = this.connection
           if (connection?.webUrl === undefined || connection.origin === undefined || connection.failed) return
           this.authority = { kind: 'web', origin: connection.origin }
-          await this.window?.loadURL(connection.webUrl)
+          const window = this.window
+          if (window !== undefined) await this.loadWindow(window, connection.webUrl)
           this.state = { ...this.state, phase: 'ready' }
           this.show()
         })),

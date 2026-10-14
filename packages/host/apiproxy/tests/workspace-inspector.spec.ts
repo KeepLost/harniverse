@@ -757,6 +757,37 @@ describe('workspace git projection', () => {
     }
   })
 
+  it('lists tree-identical merges so every parent of a listed commit is itself listed', async () => {
+    // A pull-request train: each --no-ff merge has the same tree as its side
+    // parent, which path-limited history simplification would drop while the
+    // surviving commits still name the dropped merges as parents.
+    const root = await repository()
+    writeFileSync(join(root, 'base.txt'), 'base\n')
+    await git(root, 'add', '--', 'base.txt')
+    await git(root, 'commit', '-m', 'root')
+    const { stdout: branchName } = await execFileAsync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    const mainline = branchName.trim()
+    await git(root, 'branch', 'dev')
+    const merges: string[] = []
+    for (let index = 0; index < 2; index += 1) {
+      await git(root, 'checkout', 'dev')
+      await git(root, 'merge', '--ff-only', mainline)
+      writeFileSync(join(root, 'base.txt'), `change ${String(index)}\n`)
+      await git(root, 'add', '--', 'base.txt')
+      await git(root, 'commit', '-m', `change ${String(index)}`)
+      await git(root, 'checkout', mainline)
+      await git(root, 'merge', '--no-ff', '-m', `merge ${String(index)}`, 'dev')
+      const { stdout: mergeSha } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'])
+      merges.push(mergeSha.trim())
+    }
+
+    const { commits, truncated } = await workspaceGitCommits(root, 50, new AbortController().signal)
+    expect(truncated).toBe(false)
+    const listed = new Set(commits.map(commit => commit.hash))
+    expect(merges.filter(merge => !listed.has(merge))).toEqual([])
+    expect(commits.flatMap(commit => commit.parents).filter(parent => !listed.has(parent))).toEqual([])
+  })
+
   it('decorates commits with current, local, remote, and tag refs', async () => {
     const root = await repository()
     writeFileSync(join(root, 'base.txt'), 'base\n')

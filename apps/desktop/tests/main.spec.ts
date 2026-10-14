@@ -11,6 +11,10 @@ const electron = vi.hoisted(() => {
       this.listeners.set(name, [...(this.listeners.get(name) ?? []), callback])
       return this
     }
+    removeListener(name: string, callback: (...args: unknown[]) => void) {
+      this.listeners.set(name, (this.listeners.get(name) ?? []).filter(listener => listener !== callback))
+      return this
+    }
     emit(name: string, ...args: unknown[]) { for (const callback of this.listeners.get(name) ?? []) callback(...args) }
   }
   const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
@@ -160,6 +164,33 @@ describe('desktop window and connection lifecycle', () => {
     electron.app.emit('second-instance')
     expect(window.visible).toBe(true)
     expect(electron.windows).toHaveLength(1)
+  })
+
+  it('settles a connection whose first navigation is replaced before did-finish-load', async () => {
+    const { shell, window } = await fixture()
+    // A reconnect with a warm session redirects mid-load: loadURL's own
+    // promise never settles, but the main frame lands on the Host origin.
+    // connect must still complete instead of freezing the serialized chain.
+    const loading = vi.spyOn(window, 'loadURL').mockImplementation(() => new Promise(() => {}))
+    const connected = shell.connect({ kind: 'local' })
+    await vi.waitFor(() => { expect(loading).toHaveBeenCalledOnce() })
+    // Neither an unparseable location nor a subframe failure proves arrival.
+    window.webContents.emit('did-navigate', undefined, 'not a url')
+    window.webContents.emit('did-fail-load', undefined, -3, 'aborted', 'http://127.0.0.1:9090/frame', false)
+    window.webContents.emit('did-navigate', undefined, 'http://127.0.0.1:9090/auth/exchange')
+    await connected
+  })
+
+  it('rejects a connection whose main frame fails to load and reaches the recovery dialog', async () => {
+    const { shell, window } = await fixture()
+    const loading = vi.spyOn(window, 'loadURL').mockImplementation(() => new Promise(() => {}))
+    const connected = shell.connect({ kind: 'local' })
+    await vi.waitFor(() => { expect(loading).toHaveBeenCalledOnce() })
+    window.webContents.emit('did-fail-load', undefined, -106, 'connection refused', 'http://127.0.0.1:9090/', true)
+    await expect(connected).rejects.toThrow('retry')
+    // Drain the un-awaited fatal recovery so no later test inherits its quit.
+    await vi.waitFor(() => { expect(electron.dialog.showMessageBox).toHaveBeenCalled() }, { timeout: 5000 })
+    await vi.waitFor(() => { expect(electron.app.quit).toHaveBeenCalledOnce() }, { timeout: 5000 })
   })
 
   it('loads the shared Host URL and requires disconnect before changing connections', async () => {

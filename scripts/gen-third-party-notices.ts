@@ -181,6 +181,17 @@ const PORTED_SOURCE: readonly PortedOrigin[] = [
       'packages/host/skin-library/src/palette.ts',
     ],
   },
+  {
+    name: 'vscode',
+    license: 'MIT',
+    copyright: 'Copyright (c) Microsoft Corporation',
+    repo: 'https://github.com/microsoft/vscode',
+    role: 'the source-control history graph swimlane model and row geometry (src/vs/workbench/contrib/scm/browser/history/scmHistory.ts), re-expressed as pure data plus its ported test cases',
+    files: [
+      'packages/client/ui-workspace/src/client/git-graph.ts',
+      'packages/client/ui-workspace/tests/git-graph.client.spec.ts',
+    ],
+  },
 ]
 
 /** The `package.json` fields this generator reads. */

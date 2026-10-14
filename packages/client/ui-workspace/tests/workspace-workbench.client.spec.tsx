@@ -394,9 +394,9 @@ describe('workbench presentation units', () => {
       hash: H(name), shortHash: name.repeat(7), authorName: 'A', authorEmail: 'a@example.invalid',
       authoredAt: '2026-10-12T08:00:00.000Z', subject: name, parents: parents.map(H), refs: [],
     })
-    // Covers straight and curved upper, lower, and through connectors: a
-    // first-parent line, a merge that splices a lane between flowing lanes,
-    // and a fork that converges again.
+    // Covers straight pass-throughs, S-curve lane compaction, convergence
+    // arcs, and merge-parent connectors: a first-parent line, a merge that
+    // opens lanes between flowing lanes, and a fork that converges again.
     const commits = [
       chain('a', ['m', 'd']),
       chain('c', ['e']),
@@ -408,13 +408,18 @@ describe('workbench presentation units', () => {
     const view = render(
       <ChangesPanel
         area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
-        commits={commits} commitFiles={{}} expandedCommits={{}} loading={false} truncated={false} t={t}
+        commits={commits} commitFiles={{}} expandedCommits={{ [H('m')]: true }} loading={false} truncated={false} t={t}
         onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
         onToggleCommit={vi.fn()} onOpenCommitDiff={vi.fn()}
       />,
     )
     expect(view.container.querySelectorAll('svg path').length).toBeGreaterThan(0)
     for (const name of ['a', 'c', 'm', 'b', 'f', 'g']) expect(view.getByText(name, { exact: true })).toBeTruthy()
+    // The expanded merge's lane gutter keeps every lane flowing with exactly
+    // the first-parent lane emphasized.
+    const gutterPaths = view.container.querySelectorAll('svg[preserveAspectRatio="none"] path')
+    expect(gutterPaths).toHaveLength(4)
+    expect(gutterPaths.length - view.container.querySelectorAll('svg[preserveAspectRatio="none"] path[data-emphasized]').length).toBe(3)
   })
 
   it('expands history commits, lists their changed files, and opens read-only commit diffs', () => {
