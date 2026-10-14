@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-13-workbench-tree-create-and-git-history.md
-2026-10-13-workbench-tree-create-and-git-history.md: 9a0c97d1b1bd44622546928034c80da71fbd71c9
-2026-10-13-workbench-tree-create-and-git-history.zh.md: 0261cb746bd095e9213935d07c94a59051b07d10
+2026-10-13-workbench-tree-create-and-git-history.md: 22fcaad8b315a5eb53fc4343ffc1df1fe1106ef1
+2026-10-13-workbench-tree-create-and-git-history.zh.md: 137d661daf1968dc7a7fcf352ef34f23a10e5af7
