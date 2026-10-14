@@ -6,6 +6,35 @@ import { delimiter, dirname, isAbsolute, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { DesktopShell, OwnedDesktopHost } from './main.ts'
 
+/** One smoke lifecycle step's total budget; the outer driver kill stays the last resort. */
+const STEP_BUDGET_MS = 100_000
+
+/**
+ * Settle one named lifecycle step within its budget. An unattended clean
+ * install must never park forever on a modal dialog or a frozen await: the
+ * Windows CI captures showed a fully-booted, then silent application until
+ * the outer 300-second kill, with every deadline-bounded helper ruled out —
+ * the step budget names the parked call and fails the qualification loudly.
+ * @param step - human-readable step name for the failure message.
+ * @param budgetMs - settle budget for the whole step.
+ * @param action - the step's promise.
+ * @returns the step's value once it settles in time.
+ */
+export async function boundedSmokeStep<T>(step: string, budgetMs: number, action: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      action(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Clean-install smoke step '${step}' did not settle within ${String(budgetMs)}ms; the shell is parked on it.`))
+        }, budgetMs)
+      }),
+    ])
+  }
+  finally { clearTimeout(timer) }
+}
+
 /** Return the explicit receipt destination only when both smoke opt-ins are present. */
 export function smokeReportPath(argv: readonly string[], env: NodeJS.ProcessEnv): string | undefined {
   const report = env.HARNIVERSE_DESKTOP_SMOKE_REPORT
@@ -46,6 +75,9 @@ export class DesktopCleanInstallSmoke {
   private externalRequests = new Set<string>()
   private observedSession: Electron.Session | undefined
   private inventorySha256: string
+  /** Current lifecycle step, named by the heartbeat while the run is parked. */
+  private step = 'boot'
+  private heartbeat: ReturnType<typeof setInterval> | undefined
 
   constructor(private readonly report: string, runtimeRoot: string) {
     assertEmptyCommandPath(process.env.PATH)
@@ -170,14 +202,15 @@ export class DesktopCleanInstallSmoke {
   /** Exercise clean startup, persisted device reuse, close/hide, reopen, and ordinary idle Quit. */
   async run(shell: DesktopShell): Promise<void> {
     const holdQuit = (event: Electron.Event): void => { event.preventDefault() }
+    this.startHeartbeat()
     try {
-      await shell.connect({ kind: 'local' })
+      await this.within('connect (first start)', () => shell.connect({ kind: 'local' }))
       await this.waitForRenderer()
       await this.authenticatedApi()
       await this.requireIdle()
-      await shell.disconnect()
+      await this.within('disconnect', () => shell.disconnect())
       if (this.stopped !== 1) throw new Error('Disconnect did not acknowledge owned Host close.')
-      await shell.connect({ kind: 'local' })
+      await this.within('connect (restart)', () => shell.connect({ kind: 'local' }))
       await this.waitForRenderer()
       await this.authenticatedApi()
       const [first, second] = this.enrollments
@@ -196,12 +229,14 @@ export class DesktopCleanInstallSmoke {
       await this.requireIdle()
       if (this.externalRequests.size !== 0) throw new Error(`Smoke attempted external requests: ${[...this.externalRequests].join(', ')}`)
       app.on('will-quit', holdQuit)
-      await shell.requestQuit()
+      await this.within('quit', () => shell.requestQuit())
       this.writeReceipt()
       app.removeListener('will-quit', holdQuit)
+      this.stopHeartbeat()
       app.quit()
     } catch (error) {
       console.error('Clean-install smoke failed:', error)
+      this.stopHeartbeat()
       try { await this.host?.stop() }
       catch (failure) { console.error('Clean-install smoke teardown failed:', failure) }
       app.removeListener('will-quit', holdQuit)
@@ -210,6 +245,34 @@ export class DesktopCleanInstallSmoke {
       this.observedSession?.webRequest.onBeforeRequest(null)
       this.observedSession?.webRequest.onCompleted(null)
     }
+  }
+
+  /** Mark and bound one lifecycle step: the heartbeat names it while parked. */
+  private async within<T>(step: string, action: () => Promise<T>): Promise<T> {
+    this.step = step
+    return await boundedSmokeStep(step, STEP_BUDGET_MS, action)
+  }
+
+  /**
+   * Log liveness every 10 seconds while the qualification runs. Continuing
+   * heartbeats beside a stuck step prove the main loop is alive and parked on
+   * an await; stopped heartbeats prove the loop itself is frozen — the two
+   * failure classes the Windows captures could not be told apart by.
+   */
+  private startHeartbeat(): void {
+    const started = Date.now()
+    const timer = setInterval(() => {
+      console.log(`clean-install smoke heartbeat: T+${String(Math.round((Date.now() - started) / 1000))}s step=${this.step}`)
+    }, 10_000)
+    // The heartbeat must never hold the event loop; Electron main timers unref.
+    timer.unref()
+    this.heartbeat = timer
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat === undefined) return
+    clearInterval(this.heartbeat)
+    this.heartbeat = undefined
   }
 
   private async requireIdle(): Promise<void> {

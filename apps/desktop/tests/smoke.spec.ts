@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: {}, BrowserWindow: {} }))
-import { smokeReportPath, assertEmptyCommandPath, rendererReady } from '../src/smoke.ts'
+import { smokeReportPath, assertEmptyCommandPath, rendererReady, boundedSmokeStep } from '../src/smoke.ts'
 
 const temporary: string[] = []
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }) })
@@ -33,4 +33,26 @@ it('waits for the authenticated plugin app to render after the normal reload', (
   for (const key of Object.keys(ready)) expect(rendererReady({ ...ready, [key]: false })).toBe(false)
   expect(rendererReady({})).toBe(false)
   expect(rendererReady(null)).toBe(false)
+})
+
+it('fails a lifecycle step that parks past its budget instead of waiting forever', async () => {
+  vi.useFakeTimers()
+  try {
+    const promise = boundedSmokeStep('disconnect', 1000, () => new Promise<never>(() => {}))
+    const assertion = expect(promise).rejects.toThrow("step 'disconnect' did not settle within 1000ms")
+    await vi.advanceTimersByTimeAsync(1000)
+    await assertion
+  }
+  finally { vi.useRealTimers() }
+})
+
+it('keeps a step that settles inside its budget and its own rejection intact', async () => {
+  vi.useFakeTimers()
+  try {
+    const value = await boundedSmokeStep('connect', 1000, async () => 'ready')
+    expect(value).toBe('ready')
+    await expect(boundedSmokeStep('connect', 1000, () => Promise.reject(new Error('shell refused')))).rejects.toThrow('shell refused')
+    expect(vi.getTimerCount()).toBe(0)
+  }
+  finally { vi.useRealTimers() }
 })

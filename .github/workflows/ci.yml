@@ -124,6 +124,15 @@ jobs:
       - name: Provision pinned Electron build binary
         run: node apps/desktop/scripts/packaging-ci.ts --provision-electron --provision-browser
 
+      # Real-time Defender scanning of the just-signed unpacked build during
+      # the smoke's first launch can stall the fresh binary well past any step
+      # deadline (observed as silent clean-install smoke timeouts on this lane
+      # alone); exclude the output tree before the qualification launches.
+      - name: Exclude the desktop build tree from Defender real-time scans
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-MpPreference -ExclusionPath "${{ runner.temp }}/harniverse-desktop"
+
       # Windows uses the native pwsh default; the Node driver owns portable argv.
       - name: Package native installer and verify final offline desktop
         run: node apps/desktop/scripts/packaging-ci.ts --output-dir "${{ runner.temp }}/harniverse-desktop" --pnpm-dir "${{ runner.temp }}/setup-pnpm" --arch ${{ matrix.arch }}
