@@ -504,10 +504,12 @@ jobs:
       # Linux coverage job already runs with gate concurrency 2; give this
       # lane the same budget and split the coverage worker budget so the
       # instrumented lane never claims the whole box. The heap headroom
-      # mirrors the macOS lane: the coverage forks and the compiler share
-      # this box, and allocator pressure is what kills the workers.
+      # mirrors the macOS lane, and the worker budget keeps the worst-case
+      # coverage footprint (one vitest main plus one fork, each capped at
+      # 6 GiB) inside the 16 GiB runner when both heaps spike during the
+      # end-of-run coverage merge, which is where the survivors died.
       DSH_GATE_CONCURRENCY: '2'
-      DSH_COVERAGE_MAX_WORKERS: '3'
+      DSH_COVERAGE_MAX_WORKERS: '2'
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v7
