@@ -3,7 +3,7 @@
  * ported from VS Code's source-control history graph
  * (src/vs/workbench/contrib/scm/browser/history/scmHistory.ts of
  * https://github.com/microsoft/vscode, MIT license,
- * Copyright (c) Microsoft Corporation).
+ * Copyright (c) Microsoft Corporation; see THIRD_PARTY_NOTICES.md).
  *
  * The model layer walks the topo-ordered commit window and assigns each row
  * input/output swimlanes; the shape layer turns one row into pure SVG

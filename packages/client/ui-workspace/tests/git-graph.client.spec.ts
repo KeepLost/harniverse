@@ -1,3 +1,11 @@
+/**
+ * Commit-graph swimlane layout and geometry specs, porting the VS Code
+ * source-control history-graph test cases
+ * (src/vs/workbench/contrib/scm/browser/history/scmHistory.test.ts of
+ * https://github.com/microsoft/vscode, MIT license,
+ * Copyright (c) Microsoft Corporation; see THIRD_PARTY_NOTICES.md) onto the
+ * pure-function API, plus shape and placeholder coverage of our own.
+ */
 import { describe, expect, it } from 'vitest'
 import {
   COMMIT_GRAPH_REF_COLOR, COMMIT_GRAPH_REF_REMOTE_COLOR, GRAPH_SWIMLANE_HEIGHT, GRAPH_SWIMLANE_WIDTH,
