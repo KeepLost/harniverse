@@ -190,6 +190,38 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
     const headCommit = navigation.getByRole('button', { name: /Expand commit .* details/ }).first()
     await headCommit.click()
     await navigation.getByRole('button', { name: /A.*added\.ts/ }).waitFor({ timeout: 10_000 })
+    // The graph reads as one continuous drawing: each commit entry's graph
+    // segments (its row, plus the expanded detail's lane gutter) tile the entry
+    // top to bottom, entries abut, and node circles render round.
+    const graph = await navigation.evaluate(root => [...root.querySelectorAll('button[aria-label^="Expand commit"]')].map((row) => {
+      const entry = row.parentElement
+      if (entry === null) throw new Error('commit row has no entry')
+      const box = entry.getBoundingClientRect()
+      return {
+        top: box.top,
+        bottom: box.bottom,
+        segments: [...entry.querySelectorAll('svg')].map((svg) => {
+          const rect = svg.getBoundingClientRect()
+          return { top: rect.top, bottom: rect.bottom }
+        }),
+        circles: [...row.querySelectorAll('circle')].map((circle) => {
+          const rect = circle.getBoundingClientRect()
+          return { width: rect.width, height: rect.height }
+        }),
+      }
+    }))
+    expect(graph).toHaveLength(2)
+    for (const [index, entry] of graph.entries()) {
+      let cursor = entry.top
+      for (const segment of entry.segments) {
+        expect(Math.abs(segment.top - cursor)).toBeLessThanOrEqual(0.5)
+        cursor = segment.bottom
+      }
+      expect(Math.abs(cursor - entry.bottom)).toBeLessThanOrEqual(0.5)
+      if (index > 0) expect(Math.abs(entry.top - graph[index - 1]!.bottom)).toBeLessThanOrEqual(0.5)
+      expect(entry.circles.length).toBeGreaterThan(0)
+      for (const circle of entry.circles) expect(Math.abs(circle.width - circle.height)).toBeLessThanOrEqual(0.5)
+    }
     await navigation.getByRole('button', { name: /A.*added\.ts/ }).click()
     await preview.getByText('diff --git a/added.ts', { exact: false }).waitFor({ timeout: 10_000 })
     // The commit-diff tab title carries the commit's short hash; close it so

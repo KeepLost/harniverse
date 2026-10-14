@@ -17,7 +17,9 @@ import type {
   WorkbenchTab,
 } from './stores.ts'
 import { previewType } from './preview-kind.ts'
-import { layoutCommitGraph } from './git-graph.ts'
+import {
+  GRAPH_SWIMLANE_HEIGHT, commitGraphPlaceholderShapes, commitGraphRowShapes, layoutCommitGraph,
+} from './git-graph.ts'
 import { WorkbenchPreview } from './WorkbenchPreview.tsx'
 import type { EditorSeat } from './WorkbenchPreview.tsx'
 import css from './WorkspaceWorkbench.module.css'
@@ -380,15 +382,13 @@ export function SearchPanel(props: {
   )
 }
 
-/** Graph geometry constants shared by every commit row. */
-const GRAPH_LANE_WIDTH = 12
-const GRAPH_ROW_HEIGHT = 28
-const GRAPH_MID = GRAPH_ROW_HEIGHT / 2
-
 /** Static lane palette classes; indices come from {@link layoutCommitGraph}. */
 const GRAPH_LANE_CLASSES = [
   'lane0', 'lane1', 'lane2', 'lane3', 'lane4', 'lane5', 'lane6',
 ] as const
+
+/** Horizontal padding aligning the graph's lane x across rows and details. */
+const GRAPH_GUTTER_PADDING = 8
 
 /** Static ref-badge classes keyed by decoration kind. */
 const REF_CLASSES: Record<WorkspaceGitCommitRef['kind'], string | undefined> = {
@@ -399,38 +399,67 @@ const REF_CLASSES: Record<WorkspaceGitCommitRef['kind'], string | undefined> = {
   other: 'refOther',
 }
 
-/** One commit row's graph gutter: connectors between adjacent lane layouts. */
-function CommitGraphGutter(props: { lane: number; color: number; edges: Array<{ from: number; to: number; half: 'upper' | 'lower' | 'through'; color: number }>; laneCount: number }) {
-  const width = Math.max(props.laneCount, 2) * GRAPH_LANE_WIDTH
-  const x = (lane: number): number => lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2
+/** One commit row's graph cell, drawn from the row's pure geometry. */
+function CommitGraphGutter(props: { shapes: ReturnType<typeof commitGraphRowShapes> }) {
   return (
     <svg
       className={css.commitGraph}
-      style={{ width: `${String(width)}px` }}
-      viewBox={`0 0 ${String(width)} ${String(GRAPH_ROW_HEIGHT)}`}
-      preserveAspectRatio="none"
+      width={props.shapes.width}
+      height={props.shapes.height}
+      viewBox={`0 0 ${String(props.shapes.width)} ${String(props.shapes.height)}`}
       aria-hidden="true"
       focusable="false"
     >
-      {props.edges.map((edge, index) => {
-        const from = x(edge.from)
-        const to = x(edge.to)
-        const straight = edge.from === edge.to
-        const d = edge.half === 'upper'
-          ? (straight ? `M${from} 0V${GRAPH_MID}` : `M${from} 0C${from} ${GRAPH_MID / 2} ${to} ${GRAPH_MID / 2} ${to} ${GRAPH_MID}`)
-          : edge.half === 'lower'
-            ? (straight ? `M${from} ${GRAPH_MID}V${GRAPH_ROW_HEIGHT}` : `M${from} ${GRAPH_MID}C${from} ${GRAPH_MID + GRAPH_MID / 2} ${to} ${GRAPH_MID + GRAPH_MID / 2} ${to} ${GRAPH_ROW_HEIGHT}`)
-            : (straight ? `M${from} 0V${GRAPH_ROW_HEIGHT}` : `M${from} 0C${from} ${GRAPH_MID} ${to} ${GRAPH_MID} ${to} ${GRAPH_ROW_HEIGHT}`)
-        return <path key={index} className={css[GRAPH_LANE_CLASSES[edge.color] as string]} d={d} vectorEffect="non-scaling-stroke" />
-      })}
-      <circle
-        className={css[GRAPH_LANE_CLASSES[props.color] as string]}
-        cx={x(props.lane)}
-        cy={GRAPH_MID}
-        r={3}
-        vectorEffect="non-scaling-stroke"
-      />
+      {props.shapes.paths.map((path, index) => (
+        <path
+          key={index}
+          className={css[GRAPH_LANE_CLASSES[path.color] as string]}
+          d={path.d}
+          strokeWidth={path.strokeWidth}
+        />
+      ))}
+      {props.shapes.circles.map((circle, index) => (
+        <circle
+          key={index}
+          className={css[GRAPH_LANE_CLASSES[circle.color] as string]}
+          data-fill={circle.fill}
+          cx={circle.cx}
+          cy={circle.cy}
+          r={circle.r}
+          strokeWidth={circle.strokeWidth}
+        />
+      ))}
     </svg>
+  )
+}
+
+/** Lane gutter filling an expanded commit's detail: the lanes keep flowing. */
+function CommitGraphContinuation(props: { shapes: ReturnType<typeof commitGraphPlaceholderShapes> }) {
+  return (
+    <div
+      className={css.commitGraphGap}
+      style={{ width: `${String(props.shapes.width + GRAPH_GUTTER_PADDING)}px` }}
+    >
+      <svg
+        className={css.commitGraphGapSvg}
+        width={props.shapes.width}
+        height={GRAPH_SWIMLANE_HEIGHT}
+        viewBox={`0 0 ${String(props.shapes.width)} ${String(GRAPH_SWIMLANE_HEIGHT)}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        focusable="false"
+      >
+        {props.shapes.lines.map((line, index) => (
+          <path
+            key={index}
+            className={css[GRAPH_LANE_CLASSES[line.color] as string]}
+            data-emphasized={line.emphasized || undefined}
+            d={`M ${String(line.x)} 0 V ${String(GRAPH_SWIMLANE_HEIGHT)}`}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
+    </div>
   )
 }
 
@@ -506,7 +535,7 @@ export function ChangesPanel(props: {
       <div className={css.historyHeading}>{props.t('workbench.gitHistory')}</div>
       <div className={css.commitList}>
         {props.commits.map((commit, index) => {
-          const row = graph.rows[index]
+          const row = graph[index]
           const files = props.commitFiles[commit.hash]
           const expanded = props.expandedCommits[commit.hash] === true
           return (
@@ -516,56 +545,53 @@ export function ChangesPanel(props: {
                 className={css.commitRow}
                 aria-expanded={expanded}
                 aria-label={props.t('workbench.gitCommitExpand', { hash: commit.shortHash })}
+                data-head={row?.head || undefined}
+                title={`${commit.subject} — ${commit.authorName} ${commit.shortHash} ${commit.authoredAt.slice(0, 10)}`}
                 onClick={() => { props.onToggleCommit(commit.hash) }}
               >
-                {row !== undefined && (
-                  <CommitGraphGutter lane={row.lane} color={row.color} edges={row.edges} laneCount={graph.laneCount} />
-                )}
+                {row !== undefined && <CommitGraphGutter shapes={commitGraphRowShapes(row)} />}
                 <span className={css.commitMain}>
-                  <span className={css.commitTitle}>
-                    <span className={css.commitSubject}>{commit.subject}</span>
-                    {commit.refs.map(ref => (
-                      <span
-                        key={`${ref.kind}:${ref.name}`}
-                        className={clsx(css.refBadge, css[REF_CLASSES[ref.kind] as string], ref.current ? css.refCurrent : undefined)}
-                        title={props.t(`workbench.ref${ref.kind.charAt(0).toUpperCase()}${ref.kind.slice(1)}` as never)}
-                      >{ref.kind === 'head' ? 'HEAD' : ref.name}</span>
-                    ))}
-                  </span>
-                  <span className={css.commitMeta}>
-                    <span>{commit.authorName}</span>
-                    <code>{commit.shortHash}</code>
-                    <time dateTime={commit.authoredAt}>{commit.authoredAt.slice(0, 10)}</time>
-                  </span>
+                  <span className={css.commitSubject}>{commit.subject}</span>
+                  <span className={css.commitAuthor}>{commit.authorName}</span>
+                  {commit.refs.map(ref => (
+                    <span
+                      key={`${ref.kind}:${ref.name}`}
+                      className={clsx(css.refBadge, css[REF_CLASSES[ref.kind] as string], ref.current ? css.refCurrent : undefined)}
+                      title={props.t(`workbench.ref${ref.kind.charAt(0).toUpperCase()}${ref.kind.slice(1)}` as never)}
+                    >{ref.kind === 'head' ? 'HEAD' : ref.name}</span>
+                  ))}
                 </span>
               </button>
-              {expanded && (
+              {expanded && row !== undefined && (
                 <div className={css.commitDetail}>
-                  <div className={css.commitDetailMeta}>
-                    <span>{commit.authorName} <span>{`<${commit.authorEmail}>`}</span></span>
-                    <code>{commit.hash}</code>
-                    <time dateTime={commit.authoredAt}>{commit.authoredAt}</time>
+                  <CommitGraphContinuation shapes={commitGraphPlaceholderShapes(row)} />
+                  <div className={css.commitDetailBody}>
+                    <div className={css.commitDetailMeta}>
+                      <span>{commit.authorName} <span>{`<${commit.authorEmail}>`}</span></span>
+                      <code>{commit.hash}</code>
+                      <time dateTime={commit.authoredAt}>{commit.authoredAt}</time>
+                    </div>
+                    {(files === undefined || files.loading) && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesLoading')}</div>}
+                    {files?.error !== undefined && <div className={css.navError}>{files.error}</div>}
+                    {files !== undefined && files.error === undefined && !files.loading && files.files.length === 0
+                      && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesEmpty')}</div>}
+                    <div className={css.commitFileList}>
+                      {(files?.files ?? []).map(file => (
+                        <button
+                          type="button"
+                          key={`${file.status}:${file.path}`}
+                          className={css.commitFileRow}
+                          data-workbench-focus-path={file.path}
+                          onClick={() => { props.onOpenCommitDiff(commit, file) }}
+                        >
+                          <span className={css.changeStatus} data-status={file.status}>{file.status}</span>
+                          <span title={file.path}>{file.path}</span>
+                          {file.previousPath !== undefined && <span className={css.commitFileOld}>{file.previousPath}</span>}
+                        </button>
+                      ))}
+                    </div>
+                    {files?.truncated === true && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesTruncated')}</div>}
                   </div>
-                  {(files === undefined || files.loading) && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesLoading')}</div>}
-                  {files?.error !== undefined && <div className={css.navError}>{files.error}</div>}
-                  {files !== undefined && files.error === undefined && !files.loading && files.files.length === 0
-                    && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesEmpty')}</div>}
-                  <div className={css.commitFileList}>
-                    {(files?.files ?? []).map(file => (
-                      <button
-                        type="button"
-                        key={`${file.status}:${file.path}`}
-                        className={css.commitFileRow}
-                        data-workbench-focus-path={file.path}
-                        onClick={() => { props.onOpenCommitDiff(commit, file) }}
-                      >
-                        <span className={css.changeStatus} data-status={file.status}>{file.status}</span>
-                        <span title={file.path}>{file.path}</span>
-                        {file.previousPath !== undefined && <span className={css.commitFileOld}>{file.previousPath}</span>}
-                      </button>
-                    ))}
-                  </div>
-                  {files?.truncated === true && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesTruncated')}</div>}
                 </div>
               )}
             </div>

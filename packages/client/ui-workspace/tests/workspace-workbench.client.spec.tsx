@@ -394,9 +394,9 @@ describe('workbench presentation units', () => {
       hash: H(name), shortHash: name.repeat(7), authorName: 'A', authorEmail: 'a@example.invalid',
       authoredAt: '2026-10-12T08:00:00.000Z', subject: name, parents: parents.map(H), refs: [],
     })
-    // Covers straight and curved upper, lower, and through connectors: a
-    // first-parent line, a merge that splices a lane between flowing lanes,
-    // and a fork that converges again.
+    // Covers straight pass-throughs, S-curve lane compaction, convergence
+    // arcs, and merge-parent connectors: a first-parent line, a merge that
+    // opens lanes between flowing lanes, and a fork that converges again.
     const commits = [
       chain('a', ['m', 'd']),
       chain('c', ['e']),
