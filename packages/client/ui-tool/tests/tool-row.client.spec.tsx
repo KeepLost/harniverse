@@ -6,7 +6,8 @@ import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-ru
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
-import { classifyTool, resultText, toolRowModel } from '../src/client/tool/models/tool-call-model.ts'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { classifyTool, resultImages, resultText, toolRowModel } from '../src/client/tool/models/tool-call-model.ts'
 import { ToolRow } from '../src/client/tool/components/ToolRow.tsx'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
@@ -151,10 +152,16 @@ describe('tool-call-model', () => {
       .toBe('{\n  "code": ""\n}')
   })
 
-  it('resultText flattens text blocks verbatim, other shapes as JSON, empty error content to name: code', () => {
+  it('resultText flattens text blocks verbatim, skips images (rendered as the model view), empty error content to name: code', () => {
+    const image = {
+      type: 'image' as const, attachment: {
+        attachmentId: AttachmentId('a'), mediaType: 'image/png' as const, bytes: 4, width: 1, height: 1,
+      },
+    }
     expect(resultText(result({ content: [{ type: 'text', text: 'a\nb' }] }))).toBe('a\nb')
-    expect(resultText(result({ content: [{ type: 'text', text: 'a' }, { type: 'image', data: 'x' } as never] })))
-      .toBe(`a\n${JSON.stringify({ type: 'image', data: 'x' }, null, 2)}`)
+    expect(resultText(result({ content: [{ type: 'text', text: 'a' }, image] }))).toBe('a')
+    expect(resultImages(result({ content: [{ type: 'text', text: 'a' }, image] }))).toEqual([image.attachment])
+    expect(resultImages(result({ content: [{ type: 'text', text: 'a' }] }))).toEqual([])
     expect(resultText(result({ content: [], isError: true, error: { name: 'ToolError', code: 'denied' } })))
       .toBe('ToolError: denied')
     expect(resultText(result({ content: [] }))).toBe('')
@@ -245,6 +252,23 @@ describe('ToolRow', () => {
     expect(view.queryByRole('button')).toBeNull()
     expect(view.container.querySelector('[aria-expanded]')).toBeNull()
     expect(view.queryByTestId('tool-icon')).not.toBeNull()
+  })
+
+  it('renders result images below the row without expanding, loaded as the model view', async () => {
+    const ref = { attachmentId: AttachmentId('att-shot'), mediaType: 'image/png' as const, bytes: 4, width: 2, height: 2 }
+    const loadModelImage = vi.fn(() => Promise.resolve('data:image/png;base64,AA=='))
+    const view = render(<ToolRow {...rowProps} images={[ref]} loadModelImage={loadModelImage} />)
+    const image = await view.findByRole('img')
+    expect(loadModelImage).toHaveBeenCalledWith(ref)
+    expect(image.getAttribute('alt')).toBe(t('image.label'))
+    // The image is the call's own answer: it shows on the collapsed row and
+    // never counts toward expandability.
+    expect(view.container.querySelector('[aria-expanded]')?.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('skips the result-image gallery for a text-only result', () => {
+    const view = render(<ToolRow {...rowProps} images={[]} loadModelImage={async () => 'data:image/png;base64,AA=='} />)
+    expect(view.container.querySelector('img')).toBeNull()
   })
 
   it('the row toggles from Enter and Space, ignoring other keys', () => {
@@ -378,7 +402,7 @@ describe('ToolRow', () => {
 
 describe('GenericToolCard', () => {
   const props = (toolName: string, block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
-    callId: 'c1', toolName, block, openFile: vi.fn(), t, tTool,
+    callId: 'c1', toolName, block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', t, tTool,
   })
 
   it('renders the classified variant row from the frozen slice', () => {

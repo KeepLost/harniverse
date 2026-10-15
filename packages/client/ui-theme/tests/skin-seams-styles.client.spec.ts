@@ -46,7 +46,9 @@ describe('skin-seams.css', () => {
       '--dsw-surface-pane': 'var(--dsw-alias-bg-base)',
       '--dsw-surface-sidebar': 'var(--dsw-specific-sidebar-fill)',
       '--dsw-surface-composer': 'var(--dsw-specific-input-major)',
+      '--dsw-surface-bubble': 'var(--dsw-specific-bubble)',
       '--dsw-surface-popover': 'var(--dsw-specific-menu)',
+      '--dsw-surface-composer-seat': 'var(--dsw-surface-pane)',
       '--dsw-surface-dialog': 'var(--dsw-alias-bg-layer-2)',
     })
   })
@@ -59,23 +61,32 @@ describe('skin-seams.css', () => {
     for (const [, value] of materials) expect(value).toBe('none')
   })
 
-  it('declares the opaque companions of the pane, sidebar, popover, and dialog behind a relative-colour guard', () => {
+  it('declares the opaque companions of the pane, sidebar, popover, dialog, and composer behind a relative-colour guard', () => {
     expect(companions.supports).toBe('(color: rgb(from red r g b / 1))')
     expect(Object.fromEntries(companions.declarations)).toEqual({
       '--dsw-opaque-pane': 'rgb(from var(--dsw-alias-bg-base) r g b / 1)',
       '--dsw-opaque-sidebar': 'rgb(from var(--dsw-specific-sidebar-fill) r g b / 1)',
       '--dsw-opaque-popover': 'rgb(from var(--dsw-specific-menu) r g b / 1)',
       '--dsw-opaque-dialog': 'rgb(from var(--dsw-alias-bg-layer-2) r g b / 1)',
+      // The composer deliberately de-aliases the raised layer, not its own wash alias.
+      '--dsw-opaque-composer': 'rgb(from var(--dsw-alias-bg-layer-2) r g b / 1)',
     })
   })
 
   it('strips each companion from the alias its surface defaults to, with an explicit alpha of 1', () => {
     // Alpha omitted would keep the alias's own alpha (Chromium computes 0.85 for a 0.85 alias), so `/ 1` is the contract.
-    for (const [name, value] of companions.declarations) {
-      const surface = seams.get(name.replace('--dsw-opaque-', '--dsw-surface-'))
-      expect(value, name).toBe(`rgb(from ${surface} r g b / 1)`)
+    // The composer is the documented exception: its own alias is a wash, so its opaque base is the raised layer.
+    const companionAliases: Record<string, string> = {
+      '--dsw-opaque-pane': 'var(--dsw-alias-bg-base)',
+      '--dsw-opaque-sidebar': 'var(--dsw-specific-sidebar-fill)',
+      '--dsw-opaque-popover': 'var(--dsw-specific-menu)',
+      '--dsw-opaque-dialog': 'var(--dsw-alias-bg-layer-2)',
+      '--dsw-opaque-composer': 'var(--dsw-alias-bg-layer-2)',
     }
-    expect(companions.declarations.has('--dsw-opaque-composer')).toBe(false)
+    expect(new Set(companions.declarations.keys())).toEqual(new Set(Object.keys(companionAliases)))
+    for (const [name, value] of companions.declarations) {
+      expect(value, name).toBe(`rgb(from ${companionAliases[name]} r g b / 1)`)
+    }
   })
 
   it('keeps relative colour syntax and the companions out of the unguarded rule', () => {

@@ -104,8 +104,11 @@
     - slider "面板与侧栏不透明度": "82"
     - status: 82%
     - text: 输入框不透明度
-    - slider "输入框不透明度": "90"
-    - status: 90%
+    - slider "输入框不透明度": "85"
+    - status: 85%
+    - text: 消息气泡不透明度
+    - slider "消息气泡不透明度": "85"
+    - status: 85%
     - text: 菜单不透明度
     - slider "菜单不透明度": "96"
     - status: 96%

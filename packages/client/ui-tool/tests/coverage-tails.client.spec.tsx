@@ -39,7 +39,7 @@ function listStore() {
 
 function bashProps(block: RunningToolCall | ToolResultNode): BashRowProps {
   return {
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), tTool,
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', tTool,
     sessionId: SID, useSessions: bindSnapshotSelector(listStore()),
     t,
   } as unknown as BashRowProps
@@ -62,7 +62,7 @@ describe('Tool presentation tails', () => {
       content: [], isError: false, callView: null, resultView: null, subCalls: [],
     }
     const props: GenericToolCardProps = {
-      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(), t, tTool,
+      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', t, tTool,
     }
     const view = render(<GenericToolCard {...props} />)
     expect(view.container.querySelector('[data-variant="others"] svg')).not.toBeNull()

@@ -481,6 +481,8 @@ interface LlmResolvedModelInfo extends LlmModelInfo {
   maxOutputTokens?: number
   /** Adapter-configured per-request output cap materialized when callers omit one. */
   defaultMaxTokens?: number
+  /** Bounded model-request image projection the route prepares, when the model takes images. */
+  imageRequestPolicy?: ImageRequestPolicy
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
 }

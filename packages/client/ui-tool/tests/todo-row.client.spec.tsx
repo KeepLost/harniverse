@@ -67,7 +67,7 @@ const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResult
 function rowProps(block: unknown): TodoRowProps {
   return {
     callId: 'c1', toolName: 'todo_write', block,
-    openFile: vi.fn(),
+    openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==',
     sessionId: 's1',
     useSessions: () => undefined,
     t,

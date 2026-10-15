@@ -19,7 +19,7 @@ import { HASH_A, snapshot } from './fixtures.client.ts'
 usePinnedBrowserLanguages('zh')
 
 const SETTINGS: SkinSettings = {
-  accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off',
+  accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, bubbleOpacity: 0.85, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off',
 }
 
 const created: string[] = []

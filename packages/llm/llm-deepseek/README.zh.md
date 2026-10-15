@@ -141,6 +141,6 @@ Messages：
 - **未映射 `tool_choice`** —— 不属于核心词汇表（MVP 裁剪，与 pi-ai 孪生一致）。
 - **请求使用原始 `fetch` 而非 `@cordisjs/plugin-http`** —— 没有共享的代理/拦截配置；要等第二个适配器需要它时再引入（`TODO(http)`）。
 - **chat-completions 序列化把用户与工具结果内容拍平为文本块** —— 插件新增的块类型被跳过，空工具输出以字面量 `(no output)` 过线。
-- **DeepSeek 图片输入按模型选择加入** —— 纯文本目录条目不服务图片，替代附件提供方必须实现 `readImageRequest`，图片路由才能服务图片。
+- **DeepSeek 图片输入按模型选择加入** —— 纯文本目录条目不服务图片，替代附件提供方必须实现 `readImageRequest`，图片路由才能服务图片。具备图片能力的条目还会通过 `resolveModelInfo` 发布其 `imageRequestPolicy`，消费方据此投影出该路由自身准备的确切请求字节。
 - **Files 映射是缓存而非持久模型状态** —— 删除本地索引或丢失远端文件会导致重新上传或内联回退；无需 Session 迁移。
 - **不支持 Messages API 扩展** —— 官方 Messages 表面的提供方扩展字段与接受回调不在本适配器范围内。

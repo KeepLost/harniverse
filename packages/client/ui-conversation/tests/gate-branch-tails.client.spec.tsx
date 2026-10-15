@@ -138,6 +138,7 @@ describe('render branch tails', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        loadModelImage={() => Promise.reject(new Error('unused'))}
         t={t}
       />,
     )
@@ -197,6 +198,7 @@ describe('render branch tails', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        loadModelImage={() => Promise.reject(new Error('unused'))}
         t={t}
       />,
     )

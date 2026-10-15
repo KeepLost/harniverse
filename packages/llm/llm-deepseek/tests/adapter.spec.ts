@@ -821,7 +821,12 @@ describe('plugin registration and config', () => {
           ],
           defaultEffort: ReasoningEffortId('high'),
         },
+        imageRequestPolicy: { maxPixels: 2_048 * 2_048, maxBytes: 1_048_576 },
       })
+    // The text-only sibling stays projection-free: request images are a
+    // per-model fact, not a provider-wide one.
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-pro'))
+      .resolves.not.toHaveProperty('imageRequestPolicy')
   })
 
   it.each(['off', 'max'] as const)('uses the configured %s reasoning default', async (effort) => {

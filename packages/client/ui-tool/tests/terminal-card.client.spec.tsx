@@ -244,7 +244,7 @@ describe('terminalCardModel', () => {
 
 describe('chat row terminal body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), t, tTool,
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', t, tTool,
   })
 
   /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
@@ -355,7 +355,7 @@ describe('BashRow terminal card', () => {
   })
 
   const rowProps = (block: RunningToolCall | ToolResultNode): BashRowProps => ({
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), tTool,
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', tTool,
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
     t,
   } as unknown as BashRowProps)
@@ -478,6 +478,7 @@ describe('DetailsPanel Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        loadModelImage={async () => 'data:image/png;base64,AA=='}
         t={t}
       />,
     )
@@ -672,6 +673,7 @@ describe('DetailsPanel Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={closeDetails}
+        loadModelImage={async () => 'data:image/png;base64,AA=='}
         t={t}
       />,
     )

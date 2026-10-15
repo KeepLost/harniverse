@@ -262,7 +262,7 @@ describe('SkinController staged edits', () => {
       await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS)
       expect(b.scope.set).toHaveBeenCalledExactlyOnceWith('accent', '#abcdef')
       // Host acceptance replaces the overlay.
-      b.scope.publish({ value: { accent: '#abcdef', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off' } })
+      b.scope.publish({ value: { accent: '#abcdef', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9, bubbleOpacity: 0.85, popoverOpacity: 0.96, dialogOpacity: 1, material: 'off' } })
       expect(b.controller.view.getSnapshot().settings.accent).toBe('#abcdef')
     } finally {
       vi.useRealTimers()

@@ -9,7 +9,7 @@ describe('skin settings', () => {
   it('answers the Host defaults when the section is absent', () => {
     expect(normalizeSettings(undefined)).toEqual(DEFAULT_SETTINGS)
     expect(DEFAULT_SETTINGS).toEqual({
-      accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.9,
+      accent: '', wallpaper: '', wallpaperBlur: 0, panelOpacity: 0.82, composerOpacity: 0.85, bubbleOpacity: 0.85,
       popoverOpacity: 0.96, dialogOpacity: 1, material: 'off',
     })
   })
@@ -17,7 +17,7 @@ describe('skin settings', () => {
   it('loads a stored section without dialogOpacity as fully opaque', () => {
     const stored = {
       accent: '#12ab9f', wallpaper: HASH, wallpaperBlur: 12, panelOpacity: 0.7, composerOpacity: 0.55,
-      popoverOpacity: 0.8, material: 'liquid',
+      bubbleOpacity: 0.6, popoverOpacity: 0.8, material: 'liquid',
     }
     expect(normalizeSettings(stored)).toEqual({ ...stored, dialogOpacity: 1 })
   })
@@ -25,7 +25,7 @@ describe('skin settings', () => {
   it('keeps every valid field verbatim', () => {
     const section = {
       accent: '#12ab9f', wallpaper: HASH, wallpaperBlur: 12, panelOpacity: 0.7, composerOpacity: 0.55,
-      popoverOpacity: 0.8, dialogOpacity: 0.7, material: 'liquid',
+      bubbleOpacity: 0.6, popoverOpacity: 0.8, dialogOpacity: 0.7, material: 'liquid',
     }
     expect(normalizeSettings(section)).toEqual(section)
   })

@@ -29,6 +29,7 @@ import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-att
 import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, LlmCallConfig, MessageSource } from '@deepseek-ai/dsh-llm'
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import { isJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { paginateSessionHistory, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -414,13 +415,31 @@ function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => b
   }
 }
 
-/** Resolve the first reference matching one opaque id. */
-function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
+/** Resolve the first reference matching one opaque id, with the seq of the event that carries it. */
+function referencedImage(events: readonly SessionEvent[], attachmentId: string): { ref: ImageAttachmentRef; seq: number } | undefined {
   for (const event of events) {
     const found = imageInEvent(event, ref => String(ref.attachmentId) === attachmentId)
-    if (found !== undefined) return found
+    if (found !== undefined) return { ref: found, seq: event.seq }
   }
   return undefined
+}
+
+/**
+ * The call config of the request that next carried an image: the header in
+ * effect at the first step or turn boundary after the carrying event. When the
+ * log ends without such a boundary (an interrupted turn), the header current at
+ * the end stands in — the route the next request would use.
+ */
+function carryingCallConfig(events: readonly SessionEvent[], carrierSeq: number): LlmCallConfig | undefined {
+  let header: LlmCallConfig | undefined
+  for (const event of events) {
+    if (event.type === 'request/header') {
+      header = (event.data as { header: { config: LlmCallConfig } }).header.config
+      continue
+    }
+    if (event.seq > carrierSeq && (event.type === 'step/start' || event.type === 'turn/start')) return header
+  }
+  return header
 }
 
 /**
@@ -3917,6 +3936,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async attachment(request) {
         const { sessionId, attachmentId } = request.payload
+        const variant = request.payload.variant ?? 'original'
         let state: SessionReadState
         try {
           state = await readSessionState(sessionId)
@@ -3934,20 +3954,50 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        const ref = referencedImage(state.events, String(attachmentId))
-        if (ref === undefined) {
+        const found = referencedImage(state.events, String(attachmentId))
+        if (found === undefined) {
           return err(request, {
             code: 'attachment-error',
             message: 'Image is not referenced by this session.',
             details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
           })
         }
+        const { ref, seq } = found
         try {
           const stored = await ctx.attachments.readImage(ref)
-          return ok(request, {
+          const original = (): { attachment: ImageAttachmentRef; data: string; projected?: boolean } => ({
             attachment: stored.ref,
             data: Buffer.from(stored.data).toString('base64'),
           })
+          if (variant !== 'model') return ok(request, original())
+          // Model view: project the image the way the route that next carried
+          // it receives it. An unresolvable route or policy — and a provider
+          // that cannot project — serves the stored original, marked as such.
+          try {
+            const config = carryingCallConfig(state.events, seq)
+            const info = config === undefined
+              ? undefined
+              : await ctx.llm.resolveModelInfo(config.provider, config.model)
+            if (info?.imageRequestPolicy === undefined) return ok(request, { ...original(), projected: false })
+            const version = await ctx.attachments.readImageRequest(ref, info.imageRequestPolicy)
+            return ok(request, {
+              attachment: {
+                ...ref,
+                mediaType: version.mediaType,
+                bytes: version.bytes,
+                width: version.width,
+                height: version.height,
+              },
+              data: Buffer.from(version.data).toString('base64'),
+              projected: true,
+            })
+          } catch (error: unknown) {
+            if (error instanceof AttachmentError && error.code === 'ATTACHMENT_PROJECTION_UNSUPPORTED') {
+              return ok(request, { ...original(), projected: false })
+            }
+            if (error instanceof LlmError) return ok(request, { ...original(), projected: false })
+            throw error
+          }
         } catch (error: unknown) {
           if (error instanceof AttachmentError) {
             return err(request, {

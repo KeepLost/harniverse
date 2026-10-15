@@ -24,11 +24,13 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WebBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { CHAT_DIFF_MAX_LINES, type DiffCardModel } from '../models/diff-card-model.ts'
 import { CHAT_READ_MAX_LINES, type ReadCardModel } from '../models/read-card-model.ts'
 import { CHAT_SEARCH_MAX_LINES, type SearchCardModel } from '../models/search-card-model.ts'
 import { terminalBlockLabels, type TerminalCardModel } from '../models/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../models/tool-call-model.ts'
+import { ToolResultImages } from './ToolResultImages.tsx'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
@@ -53,6 +55,10 @@ export interface ToolRowProps {
   body: string | null
   /** Flattened result text for the expanded Output section; null/absent = no output section. */
   output?: string | null | undefined
+  /** Result images rendered inline as the model-side view; empty/absent = none. */
+  images?: readonly ImageAttachmentRef[] | undefined
+  /** The model-side image loader the inline results render through. */
+  loadModelImage?: ((attachment: ImageAttachmentRef) => Promise<string>) | undefined
   /** Error first line shown as the collapsed summary on an error row; null/absent = keep `summary`. */
   errorSummary?: string | null | undefined
   /**
@@ -143,6 +149,8 @@ export function ToolRow({
   summarySuffix,
   body,
   output,
+  images,
+  loadModelImage,
   errorSummary,
   terminal,
   diff,
@@ -312,6 +320,11 @@ export function ToolRow({
           )}
         </div>
       </DisclosureRow>
+      {/* Result images stay outside the disclosure: an image is the call's own
+          answer, visible without expanding (the lightbox opens from it). */}
+      {images !== undefined && loadModelImage !== undefined && (
+        <ToolResultImages images={images} loadModelImage={loadModelImage} t={t} />
+      )}
     </div>
   )
 }

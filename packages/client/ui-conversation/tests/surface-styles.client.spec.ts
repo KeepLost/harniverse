@@ -40,11 +40,20 @@ describe('ConversationRoot.module.css pane surface', () => {
     expect(declarations(ROOT, '.root').get('background')).toBe('var(--dsw-surface-pane)')
   })
 
-  it('fades the composer seat through the pane surface, not the opaque alias', () => {
+  it('fades the composer seat through the seat surface, not the opaque alias', () => {
     const seat = declarations(ROOT, ".root[data-phase='active'] .composerSeat").get('background')
-    expect(seat).toContain('var(--dsw-surface-pane) 36px')
-    expect(seat).toContain('color-mix(in srgb, var(--dsw-surface-pane) 0%, transparent) 0px')
+    expect(seat).toContain('var(--dsw-surface-composer-seat) 36px')
+    expect(seat).toContain('color-mix(in srgb, var(--dsw-surface-composer-seat) 0%, transparent) 0px')
     expect(seat).not.toContain('--dsw-alias-bg-base')
+  })
+
+  it('puts the glass seat on a fading plate behind the seat, not on the seat itself', () => {
+    const seat = declarations(ROOT, ".root[data-phase='active'] .composerSeat")
+    expect(seat.has('backdrop-filter')).toBe(false)
+    const plate = declarations(ROOT, ".root[data-phase='active'] .composerSeat::before")
+    expect(plate.get('backdrop-filter')).toBe('var(--dsw-material-composer-filter)')
+    expect(plate.get('mask-image')).toBe('linear-gradient(180deg, transparent 0px, #000 36px)')
+    expect(plate.get('z-index')).toBe('-1')
   })
 })
 
@@ -78,6 +87,12 @@ describe('ContextMeter.module.css popover surface', () => {
     const panel = declarations(METER, '.panel')
     expect(panel.get('background')).toBe('var(--dsw-surface-popover)')
     expect(panel.get('backdrop-filter')).toBe('var(--dsw-material-popover-filter)')
+  })
+})
+
+describe('MessageItem.module.css bubble surface', () => {
+  it('fills the user bubble with the bubble surface token, not the opaque alias', () => {
+    expect(declarations(MESSAGE, '.bubble').get('background')).toBe('var(--dsw-surface-bubble)')
   })
 })
 

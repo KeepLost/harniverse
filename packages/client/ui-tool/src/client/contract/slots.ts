@@ -1,6 +1,7 @@
 /** Tool UI slot declarations and their composed component props. */
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -41,6 +42,12 @@ export interface ToolCallOwnerProps {
   openFile: (path: string) => void
   /** Inspect this call in the trajectory view when available. */
   inspect?: (() => void) | undefined
+  /**
+   * Resolve a result image the way the model route received it (projected
+   * request-image bytes; the stored original when unresolvable) for inline
+   * display.
+   */
+  loadModelImage: (attachment: ImageAttachmentRef) => Promise<string>
   /**
    * Tool-namespace translate for preparation copy (`row.preparing`,
    * `tool.preparing.content`); the conversation locale seat cannot carry the

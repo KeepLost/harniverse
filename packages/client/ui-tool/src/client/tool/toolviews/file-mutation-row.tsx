@@ -46,7 +46,7 @@ function PreparingFileMutationRow({ toolName, callId, block, useSession, tTool, 
  */
 export function FileMutationRow(props: FileMutationRowProps) {
   if (isPreparingCall(props.block)) return <PreparingFileMutationRow {...props} />
-  const { toolName, block, cwd, openFile, inspect, t } = props
+  const { toolName, block, cwd, openFile, inspect, loadModelImage, t } = props
   const model = toolRowModel(toolName, block, cwd)
   const diff = diffCardModel(block)
   return (
@@ -59,6 +59,8 @@ export function FileMutationRow(props: FileMutationRowProps) {
       summary={model.summary}
       body={null}
       output={model.output}
+      images={model.images}
+      loadModelImage={loadModelImage}
       errorSummary={model.errorSummary}
       diff={diff}
       state={model.state}

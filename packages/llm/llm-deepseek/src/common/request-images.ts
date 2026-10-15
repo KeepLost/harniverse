@@ -9,11 +9,24 @@ import type {
   ImageRequestPolicy,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import type { DeepSeekConnectionOptions as Connection } from './types.ts'
+import type { DeepSeekCatalogModel, DeepSeekConnectionOptions as Connection } from './types.ts'
 import { DeepSeekFileStore } from './file-store.ts'
 import type { DeepSeekFilePolicy } from './file-store.ts'
 import type { DeepSeekProtocol } from './types.ts'
 import { DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET, DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './defaults.ts'
+
+/**
+ * The projection policy one catalog entry projects on this route. Shared with
+ * `modelInfo`, so a consumer showing "what the model sees" resolves the exact
+ * bytes the request path itself would prepare.
+ * @param model - the catalog entry for the requested model, if any.
+ * @returns the request-image policy for the route.
+ */
+export function requestImagePolicyOf(model: DeepSeekCatalogModel | undefined): ImageRequestPolicy {
+  const budget = model?.imagePixelBudget === 'low' ? DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET
+    : model?.imagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET
+  return { maxPixels: budget, maxBytes: model?.imageMaxBytes ?? DEFAULT_REQUEST_IMAGE_MAX_BYTES }
+}
 
 /** One request-image version with the exact remote id a model request used. */
 export interface UsedFileGeneration {
@@ -114,12 +127,7 @@ export async function collectRequestImages(
   if (attachments === undefined) {
     throw new LlmError('DeepSeek image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
   }
-  const budget = model.imagePixelBudget === 'low' ? DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET
-    : model.imagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET
-  const policy: ImageRequestPolicy = {
-    maxPixels: budget,
-    maxBytes: model.imageMaxBytes ?? DEFAULT_REQUEST_IMAGE_MAX_BYTES,
-  }
+  const policy = requestImagePolicyOf(model)
   const versions: RequestImageAttachment[] = []
   for (const ref of refs) versions.push(await attachments.readImageRequest(ref, policy, signal))
   return { refs, versions }

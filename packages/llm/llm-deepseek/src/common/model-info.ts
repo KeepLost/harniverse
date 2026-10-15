@@ -3,6 +3,7 @@
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './types.ts'
+import { requestImagePolicyOf } from './request-images.ts'
 
 const OFF_REASONING_EFFORT = ReasoningEffortId('off')
 const LOW_REASONING_EFFORT = ReasoningEffortId('low')
@@ -56,6 +57,11 @@ export function modelInfo(
       : catalogModelInfo(provider, configured),
     context: { contextWindow },
     defaultMaxTokens: configured?.maxTokens ?? connection.maxTokens,
+    // The projection policy rides only with an advertised image capability:
+    // without one there is no "what the model sees" to resolve.
+    ...(configured?.inputModalities?.includes('image') ?? false
+      ? { imageRequestPolicy: requestImagePolicyOf(configured) }
+      : {}),
     ...connection.defaults.thinking === 'disabled'
       ? {
         reasoning: {

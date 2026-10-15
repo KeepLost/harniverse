@@ -35,19 +35,29 @@ describe('override layer', () => {
     expect(layer).toEqual({})
   })
 
-  it('rebinds each surface over the alias it replaces at its own opacity', () => {
+  it('rebinds each surface at its own opacity: aliases over transparent, composer over the raised layer', () => {
     const layer = computeOverrides({
-      settings: settings({ panelOpacity: 0.82, composerOpacity: 0.9, popoverOpacity: 0.96, dialogOpacity: 0.75 }),
+      settings: settings({ panelOpacity: 0.82, composerOpacity: 0.9, bubbleOpacity: 0.85, popoverOpacity: 0.96, dialogOpacity: 0.75 }),
       backdropActive: true,
       forcedOpaque: false,
     })
     expect(layer).toEqual({
       '--dsw-surface-pane': both('color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent)'),
       '--dsw-surface-sidebar': both('color-mix(in srgb, var(--dsw-specific-sidebar-fill) 82%, transparent)'),
-      '--dsw-surface-composer': both('color-mix(in srgb, var(--dsw-specific-input-major) 90%, transparent)'),
+      '--dsw-surface-composer': both('color-mix(in srgb, var(--dsw-opaque-composer, var(--dsw-alias-bg-layer-2)) 90%, transparent)'),
+      '--dsw-surface-bubble': both('color-mix(in srgb, var(--dsw-specific-bubble) 85%, transparent)'),
       '--dsw-surface-popover': both('color-mix(in srgb, var(--dsw-specific-menu) 96%, transparent)'),
       '--dsw-surface-dialog': both(DIALOG_AT_75),
     })
+  })
+
+  it('clears the composer seat to glass only when a material is on, so the conversation paints a blurred plate', () => {
+    const off = computeOverrides({ settings: settings({ material: 'off' }), backdropActive: true, forcedOpaque: false })
+    expect(off['--dsw-surface-composer-seat']).toBeUndefined()
+    const frosted = computeOverrides({ settings: settings({ material: 'frosted' }), backdropActive: true, forcedOpaque: false })
+    expect(frosted['--dsw-surface-composer-seat']).toEqual(both('transparent'))
+    const noBackdrop = computeOverrides({ settings: settings({ material: 'frosted' }), backdropActive: false, forcedOpaque: false })
+    expect(noBackdrop['--dsw-surface-composer-seat']).toBeUndefined()
   })
 
   it('mixes the dialog over the opaque companion of its alias, so 100% is opaque under any skin alpha', () => {
@@ -72,6 +82,8 @@ describe('override layer', () => {
       '--dsw-surface-dialog': both('var(--dsw-opaque-dialog, var(--dsw-alias-bg-layer-2))'),
     })
     expect(forced['--dsw-surface-composer']).toBeUndefined()
+    expect(forced['--dsw-surface-bubble']).toBeUndefined()
+    expect(forced['--dsw-surface-composer-seat']).toBeUndefined()
   })
 
   it('lets a forced-opaque request win over an active backdrop and still carries the accent', () => {
@@ -142,7 +154,7 @@ describe('override layer', () => {
     const forced = computeOverrides({ settings: settings(), backdropActive: false, forcedOpaque: true })
     const referenced = [layer, forced].flatMap(l => Object.values(l))
       .flatMap(modes => [...modes.light.matchAll(/var\((--[a-z0-9-]+)[,)]/g)].map(m => m[1]!))
-    expect(Object.keys(layer).length).toBe(13)
+    expect(Object.keys(layer).length).toBe(15)
     expect(referenced).toContain('--dsw-opaque-dialog')
     for (const name of [...Object.keys(layer), ...Object.keys(forced), ...referenced]) expect(declared.has(name), name).toBe(true)
   })

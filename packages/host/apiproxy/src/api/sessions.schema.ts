@@ -456,12 +456,14 @@ export const imageAttachmentRefSchema = z.object({
 export const sessionAttachmentRequestSchema = z.object({
   sessionId: sessionIdSchema,
   attachmentId: attachmentIdSchema,
+  variant: z.union([z.literal('original'), z.literal('model')]).optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.attachment'>>>
 
 /** session.attachment response value. */
 export const sessionAttachmentValueSchema = z.object({
   attachment: imageAttachmentRefSchema,
   data: z.string(),
+  projected: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.attachment'>>>
 
 /** session.updateQueue request payload. */

@@ -24,6 +24,12 @@ body {
   --dsw-surface-composer: var(--dsw-specific-input-major);
   /* Menus, selectors, and other anchored popovers. */
   --dsw-surface-popover: var(--dsw-specific-menu);
+  /* The user message bubble. */
+  --dsw-surface-bubble: var(--dsw-specific-bubble);
+  /* The composer's docking seat: the strip the input card floats in. It
+     defaults to the pane itself, so the seat and the column stay one surface;
+     the conversation paints its fade as a gradient over this token. */
+  --dsw-surface-composer-seat: var(--dsw-surface-pane);
   /* The Settings dialog panel and every shared Modal dialog. */
   --dsw-surface-dialog: var(--dsw-alias-bg-layer-2);
 
@@ -49,14 +55,21 @@ body {
  * invalid at computed-value time: the surface paints nothing. The companions
  * therefore exist only inside `@supports`, and every reader writes
  * `var(--dsw-opaque-*, var(<alias>))`, so an engine without the syntax falls
- * back to the alias itself. The composer has no companion: its aliases are a
- * wash (white at 8%) over the pane, and dropping the alpha would paint a white
- * card. */
+ * back to the alias itself. The composer's companion is deliberately not its
+ * own alias: that alias is a wash (white at 8%) over the pane, and dropping
+ * its alpha would paint a white card, so the composer mixes over the raised
+ * layer instead. */
 @supports (color: rgb(from red r g b / 1)) {
   body {
     --dsw-opaque-pane: rgb(from var(--dsw-alias-bg-base) r g b / 1);
     --dsw-opaque-sidebar: rgb(from var(--dsw-specific-sidebar-fill) r g b / 1);
     --dsw-opaque-popover: rgb(from var(--dsw-specific-menu) r g b / 1);
     --dsw-opaque-dialog: rgb(from var(--dsw-alias-bg-layer-2) r g b / 1);
+    /* The composer's opaque base is the raised layer, not its own wash alias:
+       de-alphaing a white 8% wash would paint a white card. Mixing over the
+       raised layer gives the composer slider a real range in every skin, and
+       in the light skins — where the wash is already opaque white — the two
+       bases coincide. */
+    --dsw-opaque-composer: rgb(from var(--dsw-alias-bg-layer-2) r g b / 1);
   }
 }

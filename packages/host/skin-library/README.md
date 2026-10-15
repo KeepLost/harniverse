@@ -105,7 +105,8 @@ The package registers the `ui-skin` namespace when a settings service is compose
 | `wallpaper` | `string` | `''` | empty or 64 lowercase hex digits (SHA-256) |
 | `wallpaperBlur` | `number` | `0` | 0 to 40, step 1 (px) |
 | `panelOpacity` | `number` | `0.82` | 0.4 to 1, step 0.01; pane and sidebar fill over a backdrop |
-| `composerOpacity` | `number` | `0.9` | 0.4 to 1, step 0.01 |
+| `composerOpacity` | `number` | `0.85` | 0 to 1, step 0.01 |
+| `bubbleOpacity` | `number` | `0.85` | 0.2 to 1, step 0.01; chat message bubble fill over a backdrop |
 | `popoverOpacity` | `number` | `0.96` | 0.6 to 1, step 0.01 |
 | `dialogOpacity` | `number` | `1` | 0.6 to 1, step 0.01; Settings panel and `Modal` dialog fill over a backdrop; 1 is opaque whatever alpha the skin bakes in |
 | `material` | `'off' \| 'frosted' \| 'liquid'` | `'off'` | glass treatment |

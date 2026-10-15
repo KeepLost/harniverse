@@ -794,6 +794,30 @@ describe('prompt and cancel errors', () => {
       sessionId: SID, attachmentId: 'attachment-1',
     }])
   })
+
+  it('asks the model-side view by variant and keeps the projected flag', async () => {
+    const { api, session } = makeSession()
+    api.onAttachment = () => Promise.resolve(ok({
+      attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 2, width: 1, height: 1 },
+      data: 'AAE=',
+      projected: true,
+    }))
+    const result = await session.readAttachment('attachment-1' as never, { variant: 'model' })
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        attachment: { attachmentId: 'a', mediaType: 'image/png', bytes: 2, width: 1, height: 1 },
+        data: Uint8Array.of(0, 1),
+        projected: true,
+      },
+    })
+    expect(api.callsOf('session.attachment')).toEqual([{
+      sessionId: SID, attachmentId: 'attachment-1', variant: 'model',
+    }])
+    // The default stays the stored original: no variant on the wire.
+    await session.readAttachment('attachment-1' as never)
+    expect(api.callsOf('session.attachment')[1]).toEqual({ sessionId: SID, attachmentId: 'attachment-1' })
+  })
 })
 
 describe('rename', () => {

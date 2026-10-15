@@ -509,9 +509,21 @@ export interface SessionsApi {
   }>):
   Promise<RpcResponse<PromptReceipt>>
 
-  /** Reads one durable image after proving that this session's log references its id. */
-  attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
-  Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string }>>
+  /**
+   * Reads one durable image after proving that this session's log references its id.
+   * `variant: 'model'` returns the image projected the way the model route that
+   * next carried it receives it (that route's request-image policy, resolved
+   * from the log's call config): `projected` is true with the projected
+   * metadata in `attachment`, and false — with the stored original — when the
+   * route or its policy cannot be resolved or the provider cannot project. The
+   * default variant is the stored original and omits `projected`.
+   */
+  attachment(request: RpcRequest<{
+    sessionId: SessionId
+    attachmentId: AttachmentIdType
+    variant?: 'original' | 'model'
+  }>):
+  Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string; projected?: boolean }>>
 
   /**
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.

@@ -602,6 +602,48 @@ describe('LlmRuntime', () => {
     })
   })
 
+  it('preserves a valid image request policy and rejects a malformed one', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({
+          provider: 'route', id: 'model', name: 'Model',
+          imageRequestPolicy: { maxPixels: 2_048 * 2_048, maxBytes: 1_048_576 },
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    // On-demand projection of tool-result images (attachment readImageRequest)
+    // acts on this exact field; a rebuild that drops it silently serves
+    // originals only.
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toEqual({
+      provider: 'route', id: 'model', name: 'Model',
+      imageRequestPolicy: { maxPixels: 2_048 * 2_048, maxBytes: 1_048_576 },
+    })
+
+    for (const policy of [
+      { maxPixels: 0, maxBytes: 16 },
+      { maxPixels: 64, maxBytes: Number.NaN },
+      { maxPixels: 1.5, maxBytes: 16 },
+    ]) {
+      const brokenCtx = new Context()
+      await brokenCtx.plugin(LlmRuntime)
+      const broken = new class extends ScriptedAdapter {
+        override resolveModel(): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({
+            provider: 'route', id: 'model', name: 'Model',
+            imageRequestPolicy: policy,
+          })
+        }
+      }(SCRIPT)
+      brokenCtx.llm.registerAdapter(['route'], broken)
+      await expect(brokenCtx.llm.resolveModelInfo('route', 'model'))
+        .rejects.toMatchObject({ code: 'INVALID_MODEL_IMAGE_POLICY' })
+    }
+  })
+
   it('resolves detached model context independently of advisory catalog membership', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)

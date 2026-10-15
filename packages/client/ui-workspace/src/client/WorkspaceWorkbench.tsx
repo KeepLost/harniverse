@@ -313,6 +313,8 @@ export function SearchPanel(props: {
   loading: boolean
   truncated: boolean
   error?: string
+  /** Slot contribution rendered at the result list's end, inside its scroll. */
+  panel?: ReactNode
   t: WorkbenchTranslate
   onQuery: (query: string) => void
   onInclude: (patterns: string) => void
@@ -389,6 +391,7 @@ export function SearchPanel(props: {
             <span>{entry.path}</span>
           </button>
         ))}
+        {props.panel}
       </div>
       {props.truncated && <div className={css.navStatus}>{props.t('workbench.fileSearchTruncated')}</div>}
     </div>
@@ -492,6 +495,8 @@ export function ChangesPanel(props: {
   /** Whether the history window ends before the branch root. */
   historyTruncated: boolean
   error?: string
+  /** Slot contribution rendered at the history's end, inside its scroll. */
+  panel?: ReactNode
   t: WorkbenchTranslate
   onArea: (area: WorkbenchGitArea) => void
   onRefresh: () => void
@@ -529,106 +534,109 @@ export function ChangesPanel(props: {
       {props.loading && <div className={css.navStatus}>{props.t('workbench.gitLoading')}</div>}
       {props.error !== undefined && <div className={css.navError}>{props.error}</div>}
       {!props.loading && props.error === undefined && changed.length === 0 && <div className={css.navStatus}>{props.t('workbench.gitEmpty')}</div>}
-      <div className={css.changeList}>
-        {changed.map((entry) => {
-          const status = props.area === 'staged' ? entry.indexStatus : entry.worktreeStatus
-          const untracked = props.area === 'worktree' && status === '?'
-          return (
-            <button
-              type="button"
-              key={`${props.area}:${entry.path}`}
-              className={css.changeRow}
-              data-workbench-focus-path={entry.path}
-              onClick={() => {
-                if (untracked) props.onOpenFile({ name: basename(entry.path), path: entry.path, kind: 'file' })
-                else props.onOpenDiff(entry)
-              }}
-            >
-              <span className={css.changeStatus} data-status={status}>{status}</span>
-              <span title={entry.path}>{entry.path}</span>
-            </button>
-          )
-        })}
-      </div>
-      {props.truncated && <div className={css.navStatus}>{props.t('workbench.gitTruncated')}</div>}
-      <div className={css.historyHeading}>{props.t('workbench.gitHistory')}</div>
-      <div className={css.commitList}>
-        {props.commits.map((commit, index) => {
-          const row = graph[index] as CommitGraphRow
-          const files = props.commitFiles[commit.hash]
-          const expanded = props.expandedCommits[commit.hash] === true
-          return (
-            <div key={commit.hash} className={css.commitEntry}>
+      <div className={css.changesScroll}>
+        <div className={css.changeList}>
+          {changed.map((entry) => {
+            const status = props.area === 'staged' ? entry.indexStatus : entry.worktreeStatus
+            const untracked = props.area === 'worktree' && status === '?'
+            return (
               <button
                 type="button"
-                className={css.commitRow}
-                aria-expanded={expanded}
-                aria-label={props.t('workbench.gitCommitExpand', { hash: commit.shortHash })}
-                data-head={row.head || undefined}
-                title={`${commit.subject} — ${commit.authorName} ${commit.shortHash} ${commit.authoredAt.slice(0, 10)}`}
-                onClick={() => { props.onToggleCommit(commit.hash) }}
+                key={`${props.area}:${entry.path}`}
+                className={css.changeRow}
+                data-workbench-focus-path={entry.path}
+                onClick={() => {
+                  if (untracked) props.onOpenFile({ name: basename(entry.path), path: entry.path, kind: 'file' })
+                  else props.onOpenDiff(entry)
+                }}
               >
-                <CommitGraphGutter shapes={commitGraphRowShapes(row)} />
-                <span className={css.commitMain}>
-                  <span className={css.commitSubject}>{commit.subject}</span>
-                  <span className={css.commitAuthor}>{commit.authorName}</span>
-                  {commit.refs.map(ref => (
-                    <span
-                      key={`${ref.kind}:${ref.name}`}
-                      className={clsx(css.refBadge, css[REF_CLASSES[ref.kind] as string], ref.current ? css.refCurrent : undefined)}
-                      title={props.t(`workbench.ref${ref.kind.charAt(0).toUpperCase()}${ref.kind.slice(1)}` as never)}
-                    >{ref.kind === 'head' ? 'HEAD' : ref.name}</span>
-                  ))}
-                </span>
+                <span className={css.changeStatus} data-status={status}>{status}</span>
+                <span title={entry.path}>{entry.path}</span>
               </button>
-              {expanded && (
-                <div className={css.commitDetail}>
-                  <CommitGraphContinuation shapes={commitGraphPlaceholderShapes(row)} />
-                  <div className={css.commitDetailBody}>
-                    <div className={css.commitDetailMeta}>
-                      <span>{commit.authorName} <span>{`<${commit.authorEmail}>`}</span></span>
-                      <code>{commit.hash}</code>
-                      <time dateTime={commit.authoredAt}>{commit.authoredAt}</time>
+            )
+          })}
+        </div>
+        {props.truncated && <div className={css.navStatus}>{props.t('workbench.gitTruncated')}</div>}
+        <div className={css.historyHeading}>{props.t('workbench.gitHistory')}</div>
+        <div className={css.commitList}>
+          {props.commits.map((commit, index) => {
+            const row = graph[index] as CommitGraphRow
+            const files = props.commitFiles[commit.hash]
+            const expanded = props.expandedCommits[commit.hash] === true
+            return (
+              <div key={commit.hash} className={css.commitEntry}>
+                <button
+                  type="button"
+                  className={css.commitRow}
+                  aria-expanded={expanded}
+                  aria-label={props.t('workbench.gitCommitExpand', { hash: commit.shortHash })}
+                  data-head={row.head || undefined}
+                  title={`${commit.subject} — ${commit.authorName} ${commit.shortHash} ${commit.authoredAt.slice(0, 10)}`}
+                  onClick={() => { props.onToggleCommit(commit.hash) }}
+                >
+                  <CommitGraphGutter shapes={commitGraphRowShapes(row)} />
+                  <span className={css.commitMain}>
+                    <span className={css.commitSubject}>{commit.subject}</span>
+                    <span className={css.commitAuthor}>{commit.authorName}</span>
+                    {commit.refs.map(ref => (
+                      <span
+                        key={`${ref.kind}:${ref.name}`}
+                        className={clsx(css.refBadge, css[REF_CLASSES[ref.kind] as string], ref.current ? css.refCurrent : undefined)}
+                        title={props.t(`workbench.ref${ref.kind.charAt(0).toUpperCase()}${ref.kind.slice(1)}` as never)}
+                      >{ref.kind === 'head' ? 'HEAD' : ref.name}</span>
+                    ))}
+                  </span>
+                </button>
+                {expanded && (
+                  <div className={css.commitDetail}>
+                    <CommitGraphContinuation shapes={commitGraphPlaceholderShapes(row)} />
+                    <div className={css.commitDetailBody}>
+                      <div className={css.commitDetailMeta}>
+                        <span>{commit.authorName} <span>{`<${commit.authorEmail}>`}</span></span>
+                        <code>{commit.hash}</code>
+                        <time dateTime={commit.authoredAt}>{commit.authoredAt}</time>
+                      </div>
+                      {(files === undefined || files.loading) && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesLoading')}</div>}
+                      {files?.error !== undefined && <div className={css.navError}>{files.error}</div>}
+                      {files !== undefined && files.error === undefined && !files.loading && files.files.length === 0
+                        && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesEmpty')}</div>}
+                      <div className={css.commitFileList}>
+                        {(files?.files ?? []).map(file => (
+                          <button
+                            type="button"
+                            key={`${file.status}:${file.path}`}
+                            className={css.commitFileRow}
+                            data-workbench-focus-path={file.path}
+                            onClick={() => { props.onOpenCommitDiff(commit, file) }}
+                          >
+                            <span className={css.changeStatus} data-status={file.status}>{file.status}</span>
+                            <span title={file.path}>{file.path}</span>
+                            {file.previousPath !== undefined && <span className={css.commitFileOld}>{file.previousPath}</span>}
+                          </button>
+                        ))}
+                      </div>
+                      {files?.truncated === true && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesTruncated')}</div>}
                     </div>
-                    {(files === undefined || files.loading) && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesLoading')}</div>}
-                    {files?.error !== undefined && <div className={css.navError}>{files.error}</div>}
-                    {files !== undefined && files.error === undefined && !files.loading && files.files.length === 0
-                      && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesEmpty')}</div>}
-                    <div className={css.commitFileList}>
-                      {(files?.files ?? []).map(file => (
-                        <button
-                          type="button"
-                          key={`${file.status}:${file.path}`}
-                          className={css.commitFileRow}
-                          data-workbench-focus-path={file.path}
-                          onClick={() => { props.onOpenCommitDiff(commit, file) }}
-                        >
-                          <span className={css.changeStatus} data-status={file.status}>{file.status}</span>
-                          <span title={file.path}>{file.path}</span>
-                          {file.previousPath !== undefined && <span className={css.commitFileOld}>{file.previousPath}</span>}
-                        </button>
-                      ))}
-                    </div>
-                    {files?.truncated === true && <div className={css.navStatus}>{props.t('workbench.gitCommitFilesTruncated')}</div>}
                   </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {props.historyTruncated && (props.commits.length >= GIT_HISTORY_MAX
+          ? <div className={css.navStatus}>{props.t('workbench.gitTruncated')}</div>
+          : (
+            <button
+              type="button"
+              className={css.loadMore}
+              disabled={props.loading}
+              onClick={() => { props.onLoadMore(Math.min(props.commits.length + GIT_HISTORY_PAGE, GIT_HISTORY_MAX)) }}
+            >
+              {props.t('workbench.gitLoadMore')}
+            </button>
+          ))}
+        {props.panel}
       </div>
-      {props.historyTruncated && (props.commits.length >= GIT_HISTORY_MAX
-        ? <div className={css.navStatus}>{props.t('workbench.gitTruncated')}</div>
-        : (
-          <button
-            type="button"
-            className={css.loadMore}
-            disabled={props.loading}
-            onClick={() => { props.onLoadMore(Math.min(props.commits.length + GIT_HISTORY_PAGE, GIT_HISTORY_MAX)) }}
-          >
-            {props.t('workbench.gitLoadMore')}
-          </button>
-        ))}
     </div>
   )
 }
@@ -1343,34 +1351,38 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
                   onClick={() => { props.actions.collapseAllDirectories(workspaceId) }}
                 ><IconChevronUpOutline14 /></button>
               </div>
-              <DirectoryChildren
-                path=""
-                depth={0}
-                directories={directories}
-                expanded={expanded}
-                activePath={activeTab?.kind === 'diff' ? undefined : activeTab?.path}
-                canOpenPath={canOpenPath}
-                {...(createDraft === undefined ? {} : { createDraft })}
-                t={props.t}
-                onToggle={(path) => {
-                  const open = expanded[path] !== true
-                  lastDirectoryRef.current = path
-                  props.actions.setDirectoryExpanded(workspaceId, path, open)
-                  if (open && directories[path] === undefined) loadDirectory(path)
-                }}
-                onOpen={(entry) => {
-                  lastDirectoryRef.current = parentDirectory(entry.path)
-                  openFile(entry)
-                }}
-                onOpenExternal={(entry) => { openExternal(entry.path) }}
-                onCreateSubmit={submitCreate}
-                onCreateCancel={cancelCreate}
-              />
+              <div className={css.navigatorScroll}>
+                <DirectoryChildren
+                  path=""
+                  depth={0}
+                  directories={directories}
+                  expanded={expanded}
+                  activePath={activeTab?.kind === 'diff' ? undefined : activeTab?.path}
+                  canOpenPath={canOpenPath}
+                  {...(createDraft === undefined ? {} : { createDraft })}
+                  t={props.t}
+                  onToggle={(path) => {
+                    const open = expanded[path] !== true
+                    lastDirectoryRef.current = path
+                    props.actions.setDirectoryExpanded(workspaceId, path, open)
+                    if (open && directories[path] === undefined) loadDirectory(path)
+                  }}
+                  onOpen={(entry) => {
+                    lastDirectoryRef.current = parentDirectory(entry.path)
+                    openFile(entry)
+                  }}
+                  onOpenExternal={(entry) => { openExternal(entry.path) }}
+                  onCreateSubmit={submitCreate}
+                  onCreateCancel={cancelCreate}
+                />
+                {props.renderSlot('workbench.section.panel', { current: section, select: props.select, request: props.request })}
+              </div>
             </>
           )}
           {hasWorkspace && section === 'search' && (
             <SearchPanel
               {...searchAccount}
+              panel={props.renderSlot('workbench.section.panel', { current: section, select: props.select, request: props.request })}
               t={props.t}
               onQuery={(next) => { setSearchField({ query: next }) }}
               onInclude={(next) => { setSearchField({ include: next }) }}
@@ -1396,6 +1408,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               truncated={git?.truncated ?? false}
               historyTruncated={git?.historyTruncated ?? false}
               {...(git?.error === undefined ? {} : { error: git.error })}
+              panel={props.renderSlot('workbench.section.panel', { current: section, select: props.select, request: props.request })}
               t={props.t}
               onArea={(area) => { props.actions.setGitArea(workspaceId, area) }}
               onRefresh={() => { loadGit() }}
@@ -1406,7 +1419,11 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               onOpenCommitDiff={openCommitDiff}
             />
           )}
-          {props.renderSlot('workbench.section.panel', { current: section, select: props.select, request: props.request })}
+          {(!builtinSection || !hasWorkspace) && (
+            <div className={css.navigatorPanel}>
+              {props.renderSlot('workbench.section.panel', { current: section, select: props.select, request: props.request })}
+            </div>
+          )}
         </div>
       </section>
       {/* Drawer mode: the region already covers the frame and the shell's

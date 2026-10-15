@@ -188,7 +188,7 @@ describe('searchCardModel', () => {
 
 describe('chat row search body (GenericToolCard fallback)', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode, toolName: string): GenericToolCardProps => ({
-    callId: 'c1', toolName, block, openFile: vi.fn(), t, tTool,
+    callId: 'c1', toolName, block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', t, tTool,
   })
   /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
   const toggleRow = (view: { container: HTMLElement }) => {
@@ -238,7 +238,7 @@ describe('chat row search body (GenericToolCard fallback)', () => {
 
 describe('SearchRow keyed card', () => {
   const rowProps = (block: RunningToolCall | ToolResultNode, toolName: string): SearchRowProps => ({
-    callId: 'c1', toolName, block, openFile: vi.fn(), sessionId: SID, t,
+    callId: 'c1', toolName, block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', sessionId: SID, t,
   } as unknown as SearchRowProps)
 
   /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
@@ -413,6 +413,7 @@ describe('DetailsPanel Output section (search)', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        loadModelImage={async () => 'data:image/png;base64,AA=='}
         t={t}
       />,
     )

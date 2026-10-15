@@ -64,7 +64,7 @@ function rawResultText(block: ToolCallBlock): string {
 }
 
 export function DetailsPanel({
-  useSession, useSessions, sessionId, useStore, renderSlot, closeDetails,
+  useSession, useSessions, sessionId, useStore, renderSlot, closeDetails, loadModelImage,
   t,
 }: DetailsPanelProps) {
   const selection = useStore(s => s.selection)
@@ -113,7 +113,11 @@ export function DetailsPanel({
                       would otherwise carry into the next selection because the
                       panel does not unmount between calls. */}
                   <Fragment key={callId}>
-                    {renderSlot('conversation.details.tool', { block: material.block, cwd: sessionCwd }, {
+                    {renderSlot('conversation.details.tool', {
+                      block: material.block,
+                      cwd: sessionCwd,
+                      loadModelImage: attachment => loadModelImage(sessionId, attachment),
+                    }, {
                       fallback: 'kind' in material.block
                         ? (
                           <pre className={css.code} data-error={material.block.isError || undefined}>

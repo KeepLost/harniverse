@@ -141,6 +141,6 @@ Loop-retained response blocks append to the next request and preserve its earlie
 - **`tool_choice` is not mapped** — not part of the core vocabulary (MVP cut, shared with the pi-ai twin).
 - **Requests use raw `fetch`, not `@cordisjs/plugin-http`** — no shared proxy/interception configuration; adoption is deferred until a second adapter wants it (`TODO(http)`).
 - **Chat-completions serialization flattens user and tool-result content to text blocks** — plugin-added block types are skipped, and empty tool output crosses the wire as the literal `(no output)`.
-- **DeepSeek image input is opt-in per model** — a text-only catalog entry serves no images, and an alternate attachment provider must implement `readImageRequest` before an image-capable route can serve images.
+- **DeepSeek image input is opt-in per model** — a text-only catalog entry serves no images, and an alternate attachment provider must implement `readImageRequest` before an image-capable route can serve images. An image-capable entry also publishes its `imageRequestPolicy` through `resolveModelInfo`, so consumers project the exact request bytes the route itself prepares.
 - **Files mappings are a cache, not durable model state** — deleting the local index or losing remote files causes a new upload or an inline fallback; no Session migration is required.
 - **Messages API extensions are not supported** — provider extension fields and acceptance callbacks from the official Messages surface are out of scope for this adapter.
