@@ -164,7 +164,10 @@ export interface WorkbenchGit {
   entries: WorkspaceGitStatusEntry[]
   commits: WorkspaceGitCommit[]
   loading: boolean
+  /** Whether the status entry list hit its display bound. */
   truncated: boolean
+  /** Whether the loaded commit history window ends before the branch root. */
+  historyTruncated: boolean
   error?: string
 }
 

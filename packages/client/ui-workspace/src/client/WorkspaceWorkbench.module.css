@@ -137,13 +137,35 @@
   font: var(--dsw-font-xs-strong-13);
 }
 
+/* Pinned per-view action rows: the navigator body is the scroll container, so
+   each section's header sticks to its top edge (offset by the body's 6px/8px
+   padding, which the negative margins reclaim) and rows scroll under the
+   opaque layer-2 surface — the same pinning the preview's CSV table header
+   uses on this column. */
 .filesToolbar {
+  position: sticky;
+  top: -6px;
+  z-index: 1;
   display: flex;
   flex: none;
   justify-content: flex-end;
   gap: 4px;
+  margin: -6px -8px 0;
   padding: 4px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.searchHeader,
+.changesHeader {
+  position: sticky;
+  top: -6px;
+  z-index: 1;
+  flex: none;
+  margin: -6px -8px 0;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .navigator {
@@ -267,6 +289,35 @@
   padding: 10px 8px;
   color: var(--dsw-alias-label-tertiary);
   font: var(--dsw-font-xxs-12);
+}
+
+/* History paging control at the graph's bottom edge: the filter-toggle pill
+   rhythm, stretched across the column. */
+.loadMore {
+  display: flex;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 8px 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.loadMore:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.loadMore:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .navError {

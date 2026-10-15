@@ -101,6 +101,15 @@ function workspace(id: string, sessionId: string): WorkspaceView {
   }
 }
 
+/** A rootless linear-history commit whose hash encodes its index. */
+function historyCommit(index: number) {
+  return {
+    hash: String(index).padStart(40, '0'), shortHash: String(index).padStart(7, '0'),
+    authorName: 'A', authorEmail: 'a@example.invalid', authoredAt: '2026-10-14T08:00:00.000Z',
+    subject: `c${String(index)}`, parents: [], refs: [],
+  }
+}
+
 type Services = Pick<WorkspaceWorkbenchProps,
   | 'listFiles' | 'searchFiles' | 'readFile' | 'readBinaryFile'
   | 'gitStatus' | 'gitCommits' | 'gitDiff' | 'gitCommitFiles' | 'gitCommitDiff'
@@ -354,8 +363,8 @@ describe('workbench presentation units', () => {
     const onOpenDiff = vi.fn()
     const onOpenFile = vi.fn()
     const common = {
-      commits: [], commitFiles: {}, expandedCommits: {}, loading: false, truncated: false, t, onArea, onRefresh,
-      onOpenDiff, onOpenFile, onToggleCommit: vi.fn(), onOpenCommitDiff: vi.fn(),
+      commits: [], commitFiles: {}, expandedCommits: {}, loading: false, truncated: false, historyTruncated: false, t, onArea, onRefresh,
+      onOpenDiff, onOpenFile, onToggleCommit: vi.fn(), onOpenCommitDiff: vi.fn(), onLoadMore: vi.fn(),
       upstream: null, ahead: null, behind: null,
     }
     const modified = { path: 'tracked.ts', indexStatus: 'M', worktreeStatus: 'M' }
@@ -388,6 +397,31 @@ describe('workbench presentation units', () => {
     expect(view.queryByText(/↑/)).toBeNull()
   })
 
+  it('offers history paging until the hard cap and keeps completed history quiet', () => {
+    const onLoadMore = vi.fn()
+    const common = {
+      area: 'worktree' as const, branch: 'dev', upstream: null, ahead: null, behind: null,
+      statusEntries: [], commits: Array.from({ length: 50 }, (_, index) => historyCommit(index)),
+      commitFiles: {}, expandedCommits: {}, loading: false, truncated: false, historyTruncated: true,
+      t, onArea: vi.fn(), onRefresh: vi.fn(), onOpenDiff: vi.fn(), onOpenFile: vi.fn(),
+      onToggleCommit: vi.fn(), onOpenCommitDiff: vi.fn(), onLoadMore,
+    }
+    const view = render(<ChangesPanel {...common} />)
+    fireEvent.click(view.getByRole('button', { name: '加载更多历史' }))
+    // One page beyond the 50 loaded commits.
+    expect(onLoadMore).toHaveBeenCalledWith(100)
+    view.rerender(<ChangesPanel {...common} loading />)
+    expect(view.getByRole('button', { name: '加载更多历史' }).hasAttribute('disabled')).toBe(true)
+    // At the window cap the control yields to the plain cap note.
+    view.rerender(<ChangesPanel {...common} commits={Array.from({ length: 500 }, (_, index) => historyCommit(index))} />)
+    expect(view.queryByRole('button', { name: '加载更多历史' })).toBeNull()
+    expect(view.getByText('Git 结果已达到显示上限')).toBeTruthy()
+    // A complete history renders neither the control nor the note.
+    view.rerender(<ChangesPanel {...common} historyTruncated={false} />)
+    expect(view.queryByRole('button', { name: '加载更多历史' })).toBeNull()
+    expect(view.queryByText('Git 结果已达到显示上限')).toBeNull()
+  })
+
   it('renders every graph connector geometry across a branching history', () => {
     const H = (letter: string): string => letter.repeat(40)
     const chain = (name: string, parents: string[]) => ({
@@ -410,7 +444,7 @@ describe('workbench presentation units', () => {
         area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
         commits={commits} commitFiles={{}} expandedCommits={{ [H('m')]: true }} loading={false} truncated={false} t={t}
         onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
-        onToggleCommit={vi.fn()} onOpenCommitDiff={vi.fn()}
+        onToggleCommit={vi.fn()} onOpenCommitDiff={vi.fn()} historyTruncated={false} onLoadMore={vi.fn()}
       />,
     )
     expect(view.container.querySelectorAll('svg path').length).toBeGreaterThan(0)
@@ -441,7 +475,7 @@ describe('workbench presentation units', () => {
         area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
         commits={[commit]} commitFiles={{}} expandedCommits={{}} loading={false} truncated={false} t={t}
         onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
-        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff}
+        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff} historyTruncated={false} onLoadMore={vi.fn()}
       />,
     )
     const row = view.getByRole('button', { name: /aaaaaaa/ })
@@ -462,7 +496,7 @@ describe('workbench presentation units', () => {
         commitFiles={{ [commit.hash]: { files: [renamed, { path: 'added.ts', status: 'A' as const }], truncated: true, loading: false } }}
         expandedCommits={{ [commit.hash]: true }} loading={false} truncated={false} t={t}
         onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
-        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff}
+        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff} historyTruncated={false} onLoadMore={vi.fn()}
       />,
     )
     expect(view.getByText('<ada@example.invalid>')).toBeTruthy()
@@ -478,7 +512,7 @@ describe('workbench presentation units', () => {
         area="worktree" branch="dev" upstream={null} ahead={null} behind={null} statusEntries={[]}
         commits={[commit]} commitFiles={files} expandedCommits={{ [commit.hash]: true }} loading={false}
         truncated={false} t={t} onArea={vi.fn()} onRefresh={vi.fn()} onOpenDiff={vi.fn()} onOpenFile={vi.fn()}
-        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff}
+        onToggleCommit={onToggleCommit} onOpenCommitDiff={onOpenCommitDiff} historyTruncated={false} onLoadMore={vi.fn()}
       />
     )
     view.rerender(expanded({}))
@@ -880,6 +914,26 @@ describe('WorkspaceWorkbench', () => {
     fireEvent.click(view.getByRole('button', { name: '刷新 Git 变更' }))
     fireEvent.click(await view.findByRole('button', { name: /M.*bad\.txt/ }))
     expect(await view.findByText('diff failed')).toBeTruthy()
+  })
+
+  it('grows the history window by one page per load-more request', async () => {
+    const gitStatus = vi.fn(async () => ({
+      branch: 'dev', upstream: null, ahead: null, behind: null, entries: [], truncated: false,
+    }))
+    const gitCommits = vi.fn(async (_workspaceId: WorkspaceId, limit?: number) => ({
+      commits: Array.from({ length: limit ?? 50 }, (_, index) => historyCommit(index)),
+      truncated: true,
+    }))
+    const view = mountWorkbench({ gitStatus, gitCommits })
+    fireEvent.click(view.getByRole('tab', { name: '变更' }))
+    expect(await view.findByText('c49')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: '加载更多历史' }))
+    await waitFor(() => { expect(gitCommits).toHaveBeenLastCalledWith(expect.anything(), 100, expect.anything()) })
+    expect(await view.findByText('c99')).toBeTruthy()
+    // A refresh re-requests the loaded depth instead of shrinking to page one.
+    fireEvent.click(view.getByRole('button', { name: '刷新 Git 变更' }))
+    await waitFor(() => { expect(gitCommits).toHaveBeenLastCalledWith(expect.anything(), 100, expect.anything()) })
+    expect(gitCommits).toHaveBeenCalledTimes(3)
   })
 
   it('loads the root automatically and drives files, search, and Git diff previews', async () => {

@@ -22,7 +22,7 @@ export const WORKSPACE_DIFF_BYTE_LIMIT = 1024 * 1024
 /** Maximum changed paths returned by one Git status read. */
 export const WORKSPACE_GIT_STATUS_LIMIT = 2_000
 /** Maximum commits returned by one Git history read. */
-export const WORKSPACE_GIT_COMMIT_LIMIT = 100
+export const WORKSPACE_GIT_COMMIT_LIMIT = 500
 /** Maximum changed paths returned by one Git commit inspection. */
 export const WORKSPACE_GIT_COMMIT_FILE_LIMIT = 500
 

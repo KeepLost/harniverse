@@ -38,6 +38,16 @@ const SECTIONS: ReadonlyArray<{ section: WorkbenchSection; labelKey: 'workbench.
 /** Debounce for session-activity revalidation: one pass per event burst. */
 const WORKBENCH_REVALIDATE_DEBOUNCE_MS = 500
 
+/** History page size: how many commits one load-more request extends the window by. */
+const GIT_HISTORY_PAGE = 50
+
+/**
+ * History window ceiling, mirroring the host-side request bound
+ * (WORKSPACE_GIT_COMMIT_LIMIT in packages/host/apiproxy) so the load-more
+ * control can stop offering pages the server would clip anyway.
+ */
+const GIT_HISTORY_MAX = 500
+
 function basename(path: string): string {
   /* v8 ignore next -- split always returns at least one element, including for an empty string. */
   return path.split('/').pop() ?? path
@@ -313,53 +323,55 @@ export function SearchPanel(props: {
   const filtered = props.include.trim() !== '' || props.exclude.trim() !== ''
   return (
     <div className={css.searchPanel}>
-      <label className={css.searchBox}>
-        <IconSearchOutline16 />
-        <input
-          type="search"
-          value={props.query}
-          placeholder={props.t('workbench.fileSearchPlaceholder')}
-          aria-label={props.t('workbench.fileSearchAria')}
-          onChange={(event) => { props.onQuery(event.currentTarget.value) }}
-        />
-      </label>
-      <button
-        type="button"
-        className={css.filterToggle}
-        data-active={filtered || undefined}
-        aria-expanded={props.filtersOpen || filtered}
-        onClick={() => { if (!filtered) props.onToggleFilters() }}
-      >
-        <IconSettingsOutline16 size={12} />
-        <span>{props.t(filtered ? 'workbench.filtersActive' : 'workbench.filters')}</span>
-      </button>
-      {(props.filtersOpen || filtered) && (
-        <div className={css.filterFields}>
-          <label className={css.filterField}>
-            <span>{props.t('workbench.filterInclude')}</span>
-            <input
-              type="text"
-              value={props.include}
-              placeholder="*.py, src/**"
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(event) => { props.onInclude(event.currentTarget.value) }}
-            />
-          </label>
-          <label className={css.filterField}>
-            <span>{props.t('workbench.filterExclude')}</span>
-            <input
-              type="text"
-              value={props.exclude}
-              placeholder="dist/, *.min.js"
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(event) => { props.onExclude(event.currentTarget.value) }}
-            />
-          </label>
-          <span className={css.filterHint}>{props.t('workbench.filterHint')}</span>
-        </div>
-      )}
+      <div className={css.searchHeader}>
+        <label className={css.searchBox}>
+          <IconSearchOutline16 />
+          <input
+            type="search"
+            value={props.query}
+            placeholder={props.t('workbench.fileSearchPlaceholder')}
+            aria-label={props.t('workbench.fileSearchAria')}
+            onChange={(event) => { props.onQuery(event.currentTarget.value) }}
+          />
+        </label>
+        <button
+          type="button"
+          className={css.filterToggle}
+          data-active={filtered || undefined}
+          aria-expanded={props.filtersOpen || filtered}
+          onClick={() => { if (!filtered) props.onToggleFilters() }}
+        >
+          <IconSettingsOutline16 size={12} />
+          <span>{props.t(filtered ? 'workbench.filtersActive' : 'workbench.filters')}</span>
+        </button>
+        {(props.filtersOpen || filtered) && (
+          <div className={css.filterFields}>
+            <label className={css.filterField}>
+              <span>{props.t('workbench.filterInclude')}</span>
+              <input
+                type="text"
+                value={props.include}
+                placeholder="*.py, src/**"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(event) => { props.onInclude(event.currentTarget.value) }}
+              />
+            </label>
+            <label className={css.filterField}>
+              <span>{props.t('workbench.filterExclude')}</span>
+              <input
+                type="text"
+                value={props.exclude}
+                placeholder="dist/, *.min.js"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(event) => { props.onExclude(event.currentTarget.value) }}
+              />
+            </label>
+            <span className={css.filterHint}>{props.t('workbench.filterHint')}</span>
+          </div>
+        )}
+      </div>
       {props.loading && <div className={css.navStatus}>{props.t('workbench.fileSearchLoading')}</div>}
       {props.error !== undefined && <div className={css.navError}>{props.error}</div>}
       {!props.loading && props.query.trim() !== '' && props.entries.length === 0 && props.error === undefined
@@ -477,10 +489,14 @@ export function ChangesPanel(props: {
   expandedCommits: Record<string, boolean>
   loading: boolean
   truncated: boolean
+  /** Whether the history window ends before the branch root. */
+  historyTruncated: boolean
   error?: string
   t: WorkbenchTranslate
   onArea: (area: WorkbenchGitArea) => void
   onRefresh: () => void
+  /** Refetch history at the requested window depth, as computed by the panel. */
+  onLoadMore: (depth: number) => void
   onOpenDiff: (entry: { path: string; indexStatus: string; worktreeStatus: string }) => void
   onOpenFile: (entry: WorkspaceFileEntry) => void
   onToggleCommit: (hash: string) => void
@@ -495,18 +511,20 @@ export function ChangesPanel(props: {
   const diverged = props.upstream !== null && (ahead > 0 || behind > 0)
   return (
     <div className={css.changesPanel}>
-      <div className={css.gitHeader}>
-        <span>{props.branch === null ? props.t('workbench.gitChanges') : props.t('workbench.gitBranch', { name: props.branch })}</span>
-        {diverged && (
-          <span className={css.gitDiverged}>
-            {props.t('workbench.gitDiverged', { ahead: String(ahead), behind: String(behind) })}
-          </span>
-        )}
-        <button type="button" className={css.iconButton} aria-label={props.t('workbench.gitRefresh')} onClick={props.onRefresh}><IconRefreshOutline16 /></button>
-      </div>
-      <div className={css.segmented}>
-        <button type="button" data-active={props.area === 'worktree' || undefined} aria-pressed={props.area === 'worktree'} onClick={() => { props.onArea('worktree') }}>{props.t('workbench.gitWorktree')}</button>
-        <button type="button" data-active={props.area === 'staged' || undefined} aria-pressed={props.area === 'staged'} onClick={() => { props.onArea('staged') }}>{props.t('workbench.gitStaged')}</button>
+      <div className={css.changesHeader}>
+        <div className={css.gitHeader}>
+          <span>{props.branch === null ? props.t('workbench.gitChanges') : props.t('workbench.gitBranch', { name: props.branch })}</span>
+          {diverged && (
+            <span className={css.gitDiverged}>
+              {props.t('workbench.gitDiverged', { ahead: String(ahead), behind: String(behind) })}
+            </span>
+          )}
+          <button type="button" className={css.iconButton} aria-label={props.t('workbench.gitRefresh')} title={props.t('workbench.gitRefresh')} onClick={props.onRefresh}><IconRefreshOutline16 /></button>
+        </div>
+        <div className={css.segmented}>
+          <button type="button" data-active={props.area === 'worktree' || undefined} aria-pressed={props.area === 'worktree'} onClick={() => { props.onArea('worktree') }}>{props.t('workbench.gitWorktree')}</button>
+          <button type="button" data-active={props.area === 'staged' || undefined} aria-pressed={props.area === 'staged'} onClick={() => { props.onArea('staged') }}>{props.t('workbench.gitStaged')}</button>
+        </div>
       </div>
       {props.loading && <div className={css.navStatus}>{props.t('workbench.gitLoading')}</div>}
       {props.error !== undefined && <div className={css.navError}>{props.error}</div>}
@@ -599,6 +617,18 @@ export function ChangesPanel(props: {
           )
         })}
       </div>
+      {props.historyTruncated && (props.commits.length >= GIT_HISTORY_MAX
+        ? <div className={css.navStatus}>{props.t('workbench.gitTruncated')}</div>
+        : (
+          <button
+            type="button"
+            className={css.loadMore}
+            disabled={props.loading}
+            onClick={() => { props.onLoadMore(Math.min(props.commits.length + GIT_HISTORY_PAGE, GIT_HISTORY_MAX)) }}
+          >
+            {props.t('workbench.gitLoadMore')}
+          </button>
+        ))}
     </div>
   )
 }
@@ -957,19 +987,27 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     )
   }, [props.actions, props.readFile, runRequest, workspace, workspaceId])
 
-  const loadGit = useCallback((silent = false) => {
+  // The history window re-fetches whole from HEAD at the requested depth:
+  // topo-ordered lanes make an append cursor reorder-prone, while a replaced
+  // wider window keeps the graph a pure function of the visible commits.
+  const loadGit = useCallback((silent = false, depth?: number) => {
     /* v8 ignore next -- Git actions render only after an initialized Workspace account resolves. */
     if (workspaceId === undefined || workspace === undefined) return
+    const loaded = account?.git?.commits.length ?? 0
+    const limit = Math.min(depth ?? Math.max(loaded, GIT_HISTORY_PAGE), GIT_HISTORY_MAX)
     if (!silent) {
+      // Keep the loaded rows visible under the loading state; a depth growth
+      // or refresh replaces them only when the fresh window arrives.
       props.actions.setGit(workspaceId, {
-        branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [], loading: true, truncated: false,
+        branch: null, upstream: null, ahead: null, behind: null, entries: [],
+        commits: account?.git?.commits ?? [], loading: true, truncated: false, historyTruncated: false,
       })
     }
     runRequest(
       async (signal) => {
         const [status, history] = await Promise.allSettled([
           props.gitStatus(workspace.workspaceId, signal),
-          props.gitCommits(workspace.workspaceId, undefined, signal),
+          props.gitCommits(workspace.workspaceId, limit, signal),
         ])
         if (status.status === 'rejected') throw status.reason
         if (history.status === 'rejected') throw history.reason
@@ -980,17 +1018,19 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           ...status,
           commits: history.commits,
           loading: false,
-          truncated: status.truncated || history.truncated,
+          truncated: status.truncated,
+          historyTruncated: history.truncated,
         })
       },
       (error) => {
         props.actions.setGit(workspaceId, {
-          branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [], loading: false, truncated: false, error,
+          branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [],
+          loading: false, truncated: false, historyTruncated: false, error,
         })
       },
       'git',
     )
-  }, [props.actions, props.gitCommits, props.gitStatus, runRequest, workspace, workspaceId])
+  }, [account?.git?.commits, props.actions, props.gitCommits, props.gitStatus, runRequest, workspace, workspaceId])
 
   // History commit expansion: first expansion loads the commit's changed-file
   // list through the read fence; later toggles only flip the row.
@@ -1278,24 +1318,28 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
                   type="button"
                   className={css.iconButton}
                   aria-label={props.t('workbench.newFile')}
+                  title={props.t('workbench.newFile')}
                   onClick={() => { startCreate('file') }}
                 ><IconPlusOutline16 /></button>
                 <button
                   type="button"
                   className={css.iconButton}
                   aria-label={props.t('workbench.newFolder')}
+                  title={props.t('workbench.newFolder')}
                   onClick={() => { startCreate('directory') }}
                 ><IconProjectAddOutline16 /></button>
                 <button
                   type="button"
                   className={css.iconButton}
                   aria-label={props.t('workbench.refreshFiles')}
+                  title={props.t('workbench.refreshFiles')}
                   onClick={() => { loadDirectory(''); rereadOpenFileTabs() }}
                 ><IconRefreshOutline16 /></button>
                 <button
                   type="button"
                   className={css.iconButton}
                   aria-label={props.t('workbench.collapseAll')}
+                  title={props.t('workbench.collapseAll')}
                   onClick={() => { props.actions.collapseAllDirectories(workspaceId) }}
                 ><IconChevronUpOutline14 /></button>
               </div>
@@ -1350,10 +1394,12 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               expandedCommits={account?.expandedCommits ?? {}}
               loading={git?.loading ?? true}
               truncated={git?.truncated ?? false}
+              historyTruncated={git?.historyTruncated ?? false}
               {...(git?.error === undefined ? {} : { error: git.error })}
               t={props.t}
               onArea={(area) => { props.actions.setGitArea(workspaceId, area) }}
-              onRefresh={loadGit}
+              onRefresh={() => { loadGit() }}
+              onLoadMore={(depth) => { loadGit(false, depth) }}
               onOpenDiff={openDiff}
               onOpenFile={openFile}
               onToggleCommit={toggleCommit}
