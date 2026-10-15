@@ -495,8 +495,8 @@ export function ChangesPanel(props: {
   t: WorkbenchTranslate
   onArea: (area: WorkbenchGitArea) => void
   onRefresh: () => void
-  /** Extend the history window by one page and re-render the graph. */
-  onLoadMore: () => void
+  /** Refetch history at the requested window depth, as computed by the panel. */
+  onLoadMore: (depth: number) => void
   onOpenDiff: (entry: { path: string; indexStatus: string; worktreeStatus: string }) => void
   onOpenFile: (entry: WorkspaceFileEntry) => void
   onToggleCommit: (hash: string) => void
@@ -620,7 +620,12 @@ export function ChangesPanel(props: {
       {props.historyTruncated && (props.commits.length >= GIT_HISTORY_MAX
         ? <div className={css.navStatus}>{props.t('workbench.gitTruncated')}</div>
         : (
-          <button type="button" className={css.loadMore} disabled={props.loading} onClick={props.onLoadMore}>
+          <button
+            type="button"
+            className={css.loadMore}
+            disabled={props.loading}
+            onClick={() => { props.onLoadMore(Math.min(props.commits.length + GIT_HISTORY_PAGE, GIT_HISTORY_MAX)) }}
+          >
             {props.t('workbench.gitLoadMore')}
           </button>
         ))}
@@ -1394,7 +1399,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               t={props.t}
               onArea={(area) => { props.actions.setGitArea(workspaceId, area) }}
               onRefresh={() => { loadGit() }}
-              onLoadMore={() => { loadGit(false, Math.min((git?.commits.length ?? 0) + GIT_HISTORY_PAGE, GIT_HISTORY_MAX)) }}
+              onLoadMore={(depth) => { loadGit(false, depth) }}
               onOpenDiff={openDiff}
               onOpenFile={openFile}
               onToggleCommit={toggleCommit}

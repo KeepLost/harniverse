@@ -408,7 +408,8 @@ describe('workbench presentation units', () => {
     }
     const view = render(<ChangesPanel {...common} />)
     fireEvent.click(view.getByRole('button', { name: '加载更多历史' }))
-    expect(onLoadMore).toHaveBeenCalledOnce()
+    // One page beyond the 50 loaded commits.
+    expect(onLoadMore).toHaveBeenCalledWith(100)
     view.rerender(<ChangesPanel {...common} loading />)
     expect(view.getByRole('button', { name: '加载更多历史' }).hasAttribute('disabled')).toBe(true)
     // At the window cap the control yields to the plain cap note.
