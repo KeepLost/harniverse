@@ -23,3 +23,5 @@ Exchanging keys or re-authenticating blanked the shell's wallpaper. An authentic
 A key exchange or re-authentication no longer blanks the backdrop; the wallpaper keeps painting until the fresh authoritative section lands, then follows it exactly (including a server-side clear). On a re-authentication that lands on a different host, the stale wallpaper may show until that host's settings and catalog answer — the same window any mirrored UI is stale for. After a page reload while disconnected there is still no wallpaper (no bytes are persisted); that remains deferred work with the byte-cache alternative above.
 
 Verification: `controller.client.spec.ts` drives the scope through ready → gap → ready (retention holds through the gap, an authoritative clear wins, a later gap retains nothing) and drops retention when the catalog loses the hash mid-gap; `view.client.spec.ts` covers the `resolveBackdrop` retention arms including the forced-opaque override.
+
+PR: #191 (merge)

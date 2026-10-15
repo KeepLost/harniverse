@@ -23,3 +23,5 @@ Status: implemented
 工作区浏览器开箱即可导航 `10.x`/`172.16.x`/`192.168.x`、`.local` 与回环主机；公网导航不变；部署方仍可通过常规配置分层设置 `allowedHosts` 或覆盖回 `allowPrivateAddresses: false`。桌面打包 fixture 采用了出货的 config 形状，使资格快照的补丁对真实组合保持幂等。
 
 验证：`packages/bundle/web-app` 套件（四个受影响包共 30 文件、423 用例）在新组合下全绿；桌面 `packaging-browser` node:test 套件（12 用例）覆盖重写后的补丁步骤，包括封存源保持出货 config 不变。
+
+PR: #191 (merge)

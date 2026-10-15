@@ -25,3 +25,5 @@ Status: implemented
 在设置 `HTTP_PROXY` 且 `no_proxy=10.0.0.0/8,.corp.internal` 时，`web_fetch` 现在通过钉死直连路径抓取 `http://10.1.2.3/…`，并把 `wiki.corp.internal` 解析到真实的私有地址；公网目的地照常走隧道，未点名的私有目的地照常以 `WEB_BLOCKED_URL` 失效关闭。`bypassesProxy` 的每个消费者（全局 dispatcher 路由、WebSocket 升级、web-fetch）现在与 curl 风格的 CIDR 名单一致。`validateFetchUrl` 不再拒绝私有字面量——依赖该行为的调用方必须调用 `assertLiteralScope`（provider 正是这么做的）。
 
 验证：`policy.spec.ts` 覆盖 CIDR 匹配（范围边界、任意端口、名字/IPv6 不匹配、畸形条目）与 `explicitlyBypasses`（基底与 `*` 排除、端口匹配）；`install.spec.ts` 覆盖已安装策略下的 `operatorBypassed`；`fetch-http.spec.ts` 覆盖纯形状的 `validateFetchUrl` 与 `assertLiteralScope` 两臂；`proxy.spec.ts` 端到端驱动 provider（点名的私有字面量直连抓取、未点名字面量被拒、点名主机解析出私有地址被放行）。
+
+PR: #191 (merge)

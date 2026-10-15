@@ -23,3 +23,5 @@ The workspace browser panel refused intranet navigation with `the operator has n
 The workspace browser navigates `10.x`/`172.16.x`/`192.168.x`, `.local`, and loopback hosts out of the box; public navigation is unchanged; a deployment can still set `allowedHosts` or override `allowPrivateAddresses: false` through ordinary config layering. The desktop packaging fixture gained the shipped config shape, keeping the qualification snapshot's patch idempotent against the real bundle.
 
 Verification: `packages/bundle/web-app` suite (30 files, 423 tests across the four touched packages) stays green over the new composition; the desktop `packaging-browser` node:test suite (12 tests) covers the rewritten patch step, including that the sealed source keeps its shipped config.
+
+PR: #191 (merge)
