@@ -24,4 +24,4 @@ All dimmed-tier text (search placeholders, filter hints, stat lines, the commit 
 
 Verification: `verify-client-css-tokens` passes (the alias still resolves in both theme sheets); the full client suite (`pnpm run test:gui`) stays green.
 
-PR: #192 (merge)
+PR: #190 (merge)

@@ -28,4 +28,4 @@ Status: implemented
 
 验证：`workspace-workbench.client.spec.tsx` 覆盖控件契约（每次点击翻一页、加载中禁用、500 触顶让位上限提示、完整时不渲染）与工作台流程（初始 50、加载更多到 100、刷新保持深度 100）；客户端全套与宿主 inspector 套件保持绿色；`verify-client-css-tokens` 解析全部新引用。
 
-PR: #192 (merge)
+PR: #190 (merge)

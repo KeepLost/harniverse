@@ -28,4 +28,4 @@ Scrolling any of the three panels keeps its actions reachable; every icon button
 
 Verification: `workspace-workbench.client.spec.tsx` covers the control contract (pages per click, disabled while loading, yields to the cap note at 500, silent when complete) and the workbench flow (initial 50, load-more to 100, refresh keeps depth 100); the full client suite and host inspector suite stay green; `verify-client-css-tokens` resolves every new reference.
 
-PR: #192 (merge)
+PR: #190 (merge)

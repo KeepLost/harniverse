@@ -24,4 +24,4 @@ Status: implemented
 
 验证：`verify-client-css-tokens` 通过（别名在两套主题表中仍可解析）；客户端全套（`pnpm run test:gui`）保持绿色。
 
-PR: #192 (merge)
+PR: #190 (merge)
