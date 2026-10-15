@@ -53,11 +53,11 @@ const NON_PUBLIC_IPV6_RANGES: readonly (readonly [bigint, number])[] = [
 export type FetchableKind = 'html' | 'text'
 
 /**
- * Validate a request URL against the basic transport hygiene the provider
- * enforces before any network access: http(s) only, no embedded credentials,
- * bounded length, and literal IP address scope. Returns the parsed `URL`. Throws
- * {@link WebError} otherwise. Hostname DNS answers are resolved and checked by
- * the provider immediately before its pinned transport request.
+ * Validate a request URL against the basic transport hygiene the provider enforces before any
+ * network access: http(s) only, no embedded credentials, and bounded length. Returns the parsed
+ * `URL`. Throws {@link WebError} otherwise. The literal-IP scope is policy-dependent, so it is
+ * checked separately by {@link assertLiteralScope}; hostname DNS answers are resolved and checked
+ * by the provider immediately before its pinned transport request.
  *
  * @param input - the raw URL string from the fetch request.
  * @param maxUrlLength - inclusive upper bound on `input`'s length.
@@ -79,11 +79,24 @@ export function validateFetchUrl(input: string, maxUrlLength: number): URL {
   if (url.username.length > 0 || url.password.length > 0) {
     throw new WebError('credentials in URLs are not allowed', 'WEB_BLOCKED_URL')
   }
+  return url
+}
+
+/**
+ * Enforce the literal-IP scope on one validated URL before any network access: non-public address
+ * literals are refused unless the operator's outbound proxy bypass list explicitly names the
+ * destination (`no_proxy`), which is the operator's opt-in for reaching it directly.
+ *
+ * @param url - the URL {@link validateFetchUrl} accepted.
+ * @param allowPrivate - whether the operator's bypass list explicitly named this destination.
+ * @throws {@link WebError} `WEB_BLOCKED_URL` for a non-public literal outside an operator bypass.
+ */
+export function assertLiteralScope(url: URL, allowPrivate: boolean): void {
+  if (allowPrivate) return
   const hostname = stripIpv6Brackets(url.hostname)
   if (isIP(hostname) !== 0 && !isPublicIp(hostname)) {
     throw new WebError(`non-public IP address "${hostname}" is not allowed`, 'WEB_BLOCKED_URL')
   }
-  return url
 }
 
 /**

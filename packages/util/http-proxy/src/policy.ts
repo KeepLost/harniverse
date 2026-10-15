@@ -232,6 +232,65 @@ function splitHostPort(entry: string): { host: string; port?: string } {
   return { host: entry }
 }
 
+/**
+ * Fold a dotted-quad IPv4 literal into its 32-bit value.
+ *
+ * @param host - a candidate host, bracketed or not.
+ * @returns the address as one unsigned 32-bit integer, or undefined for any non-literal.
+ */
+function ipv4Value(host: string): number | undefined {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u.exec(host)
+  if (match === null) return undefined
+  let value = 0
+  for (const octet of match.slice(1)) {
+    const part = Number(octet)
+    if (part > 255) return undefined
+    value = value * 256 + part
+  }
+  return value
+}
+
+/**
+ * Parse one IPv4 CIDR bypass entry.
+ *
+ * @param entry - one already-trimmed bypass entry.
+ * @returns the network and prefix length, or undefined when the entry is not an IPv4 CIDR.
+ */
+function parseCidr(entry: string): { network: number; prefix: number } | undefined {
+  const match = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/u.exec(entry)
+  if (match === null) return undefined
+  const network = ipv4Value(match[1] ?? '')
+  const prefix = Number(match[2])
+  if (network === undefined || prefix > 32) return undefined
+  return { network, prefix }
+}
+
+/**
+ * Whether one bypass entry covers a host and port: a host entry matches the host exactly or as a
+ * subdomain and its port when the entry carries one; an IPv4 CIDR entry matches any port of an
+ * IPv4 literal inside the range. An entry that is neither (an invalid CIDR, an empty host) covers
+ * nothing.
+ *
+ * @param entry - one already-trimmed, lower-cased bypass entry (not `*`).
+ * @param host - the URL's unbracketed, lower-cased hostname.
+ * @param port - the URL's effective port.
+ * @returns true when the entry covers this destination.
+ */
+function entryCovers(entry: string, host: string, port: string): boolean {
+  const cidr = parseCidr(entry)
+  if (cidr !== undefined) {
+    const value = ipv4Value(host)
+    if (value === undefined) return false
+    const mask = (0xffffffff << (32 - cidr.prefix)) >>> 0
+    return (value & mask) === (cidr.network & mask)
+  }
+  const split = splitHostPort(entry)
+  if (split.port !== undefined && split.port !== port) return false
+  const candidate = split.host.replace(/^\*?\./u, '').replace(/\.$/u, '')
+  if (candidate === '') return false
+  return host === candidate || host.endsWith(`.${candidate}`)
+}
+
 /** One IPv4 octet, so a loopback match cannot accept `127.999.1.1`. */
 const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)'
 
@@ -264,9 +323,8 @@ export function isLoopbackHost(hostname: string): boolean {
 /**
  * Decide whether a bypass list exempts one URL. An entry names a host and matches it together with
  * every subdomain under it — `example.com` also bypasses `api.example.com` — and a leading `.` or
- * `*.` is accepted as the same thing; an entry may carry a `:port`, and `*` bypasses everything.
- * CIDR notation is not matched —
- * an operating system's bypass list often carries `10.0.0.0/8`, which must be rewritten as suffixes.
+ * `*.` is accepted as the same thing; an entry may carry a `:port`, an IPv4 CIDR entry
+ * (`10.0.0.0/8`) covers every IPv4 literal in its range on every port, and `*` bypasses everything.
  *
  * @param noProxy - the effective bypass list.
  * @param url - the request URL.
@@ -275,17 +333,35 @@ export function isLoopbackHost(hostname: string): boolean {
 export function bypassesProxy(noProxy: string, url: URL): boolean {
   // `URL.hostname` keeps the brackets around an IPv6 literal, while a bypass entry may be written
   // either way, so both sides are unbracketed before they are compared.
-  const host = url.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()
+  const host = url.hostname.replace(/^\[|\]$/gu, '').replace(/\.$/u, '').toLowerCase()
   const port = url.port !== '' ? url.port : url.protocol === 'https:' ? '443' : '80'
-  for (const raw of noProxy.split(/[,\s]+/)) {
+  for (const raw of noProxy.split(/[,\s]+/u)) {
     const entry = raw.trim().toLowerCase()
     if (entry === '') continue
     if (entry === '*') return true
-    const split = splitHostPort(entry)
-    if (split.port !== undefined && split.port !== port) continue
-    const candidate = split.host.replace(/^\*?\./, '').replace(/\.$/, '')
-    if (candidate === '') continue
-    if (host === candidate || host.endsWith(`.${candidate}`)) return true
+    if (entryCovers(entry, host, port)) return true
+  }
+  return false
+}
+
+/**
+ * Decide whether the bypass list *explicitly names* one destination — the operator's own entry, not
+ * the loopback floor this package merges in, and not `*` (which routes everything direct without
+ * naming any destination). Consumers whose direct path is otherwise public-only
+ * (`dsh-web-fetch-http`) treat a matching entry as the operator's opt-in for that destination.
+ *
+ * @param noProxy - the effective bypass list.
+ * @param url - the request URL.
+ * @returns true only when an operator-written entry covers this destination.
+ */
+export function explicitlyBypasses(noProxy: string, url: URL): boolean {
+  const host = url.hostname.replace(/^\[|\]$/gu, '').replace(/\.$/u, '').toLowerCase()
+  const port = url.port !== '' ? url.port : url.protocol === 'https:' ? '443' : '80'
+  for (const raw of noProxy.split(/[,\s]+/u)) {
+    const entry = raw.trim().toLowerCase()
+    if (entry === '' || entry === '*') continue
+    if (LOOPBACK_NO_PROXY.includes(entry)) continue
+    if (entryCovers(entry, host, port)) return true
   }
   return false
 }

@@ -17,7 +17,7 @@ A shipping web-tool deployment sets the provider backstop above the tool budget,
 ## Transport hygiene
 
 - Accepts only `http:` and `https:` URLs; rejects credentials in URLs (`WEB_BLOCKED_URL`) and over-long/malformed URLs (`WEB_INVALID_URL`).
-- Rejects literal or DNS-resolved non-public IPv4/IPv6 addresses, including loopback, private, link-local, reserved, multicast, metadata, and IPv4-mapped IPv6 addresses. DNS errors, empty answers, invalid answers, and mixed public/non-public answer sets fail closed.
+- Rejects literal or DNS-resolved non-public IPv4/IPv6 addresses, including loopback, private, link-local, reserved, multicast, metadata, and IPv4-mapped IPv6 addresses, unless the operator's `no_proxy` bypass list explicitly names the destination (a host, an IP, or an IPv4 CIDR range) — the operator's opt-in, which keeps the pinned direct path while admitting the named private scope. DNS errors, empty answers, invalid answers, and mixed public/non-public answer sets still fail closed.
 - Resolves hostnames before each request and connects directly to the validated address while preserving the URL hostname for the HTTP `Host` header and HTTPS TLS server name. When the process-wide outbound proxy policy routes the URL through a proxy, the hop instead takes that policy's shared tunnel with no local address resolution — the proxy resolves the origin — while loopback and bypassed URLs stay on the pinned direct path.
 - Enforces a max URL length, response byte cap (`WEB_FETCH_TOO_LARGE`), decoded body character cap, timeout (`WEB_FETCH_TIMEOUT`), and fixed redirect denial.
 - Propagates the caller's abort signal (`WEB_ABORTED`) into the network request and the streaming read.
@@ -48,6 +48,6 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **Public-address policy is intentionally strict** — a hostname is usable only when every DNS answer is a valid public address, and a direct request pins the socket to one validated answer. Redirects are not followed; callers must issue a separate fetch after independently passing URL and DNS policy.
+- **Public-address policy is intentionally strict** — a hostname is usable only when every DNS answer is a valid public address, and a direct request pins the socket to one validated answer. The one opt-in is operator-owned: a destination the active `no_proxy` list explicitly names (host, IP, or IPv4 CIDR entry) keeps the pinned direct path with its private scope admitted. Redirects are not followed; callers must issue a separate fetch after independently passing URL and DNS policy.
 - **Only textual content decodes** — html/xhtml and `text/*`-plus-JSON/XML families; a missing `Content-Type` or any binary type throws `WEB_UNSUPPORTED_CONTENT_TYPE`, and text-extractable PDF decoding is named deferred work.
 - **Charset comes only from the `Content-Type` header** (UTF-8 default) — an HTML `<meta charset>` declaration is ignored, and a declared-but-unrecognized charset label throws rather than falling back.

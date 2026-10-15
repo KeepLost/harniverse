@@ -17,7 +17,7 @@
 ## 传输卫生
 
 - 只接受 `http:` 和 `https:` URL；拒绝 URL 中的凭据（`WEB_BLOCKED_URL`）以及过长／格式错误的 URL（`WEB_INVALID_URL`）。
-- 拒绝字面量或 DNS 解析得到的非公共 IPv4／IPv6 地址，包括 loopback、私有、link-local、保留、multicast、metadata 和 IPv4-mapped IPv6 地址。DNS 错误、空答案、无效答案以及公共／非公共混合答案都会 fail closed。
+- 拒绝字面量或 DNS 解析得到的非公共 IPv4／IPv6 地址，包括 loopback、私有、link-local、保留、multicast、metadata 和 IPv4-mapped IPv6 地址；除非运营者的 `no_proxy` 旁路名单显式点名了该目的地（主机、IP 或 IPv4 CIDR 网段）——这是运营者的豁免，直连钉死路径保持不变、仅放行被点名的私有范围。DNS 错误、空答案、无效答案以及公共／非公共混合答案依旧 fail closed。
 - 在每次请求前解析主机名，并把 socket 直接连接到已验证的地址，同时保留 URL 主机名作为 HTTP `Host` 标头和 HTTPS TLS server name。当进程级出站代理策略让该 URL 走代理时，该跳改走策略的共享隧道且不做本地地址解析——由代理解析源站——回环与旁路名单中的 URL 仍走固定的直连路径。
 - 强制执行 URL 最大长度、响应字节上限（`WEB_FETCH_TOO_LARGE`）、解码主体字符上限、超时（`WEB_FETCH_TIMEOUT`）以及固定的重定向拒绝策略。
 - 把调用方的中止信号（`WEB_ABORTED`）传播到网络请求与流式读取。
@@ -48,6 +48,6 @@
 
 ## 已知限制与暂缓事项
 
-- **公共地址策略有意保持严格**：主机名只有在每个 DNS 答案都是有效公共地址时才可用，直接请求会把 socket 固定到其中一个已验证答案。不会跟随重定向；调用方必须在目标 URL 独立通过 URL 与 DNS 策略后重新抓取。
+- **公共地址策略有意保持严格**：主机名只有在每个 DNS 答案都是有效公共地址时才可用，直接请求会把 socket 固定到其中一个已验证答案。唯一的豁免属于运营者：被当前 `no_proxy` 名单显式点名（主机、IP 或 IPv4 CIDR 条目）的目的地保持钉死直连路径，同时放行其私有范围。不会跟随重定向；调用方必须在目标 URL 独立通过 URL 与 DNS 策略后重新抓取。
 - **只解码文本内容**：包括 html/xhtml 与 `text/*` 加 JSON/XML 家族；缺少 `Content-Type` 或任何二进制类型都会抛出 `WEB_UNSUPPORTED_CONTENT_TYPE`，可提取文本的 PDF 解码属于明确的暂缓工作。
 - **charset 只来自 `Content-Type` 标头**（默认为 UTF-8）：HTML `<meta charset>` 声明会被忽略；声明但无法识别的 charset 标签会抛出异常，而非回退。

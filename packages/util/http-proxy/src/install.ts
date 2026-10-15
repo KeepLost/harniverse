@@ -13,6 +13,7 @@ import {
   type Dispatcher,
 } from './dispatcher.ts'
 import {
+  explicitlyBypasses,
   proxyForUrl,
   resolveProxyPolicy,
   PROXY_ENV_NAMES,
@@ -52,6 +53,21 @@ export function proxyRouteFor(url: URL): ProxyRoute {
   if (policy === undefined) return DIRECT_ROUTE
   const proxy = proxyForUrl(policy, url)
   return proxy === undefined ? DIRECT_ROUTE : { proxied: true, proxy }
+}
+
+/**
+ * Whether the active policy's bypass list explicitly names one destination — the operator's entry,
+ * not this package's loopback floor and not `*`. A consumer whose direct path is otherwise
+ * public-only (`dsh-web-fetch-http`) reads this as the operator's opt-in for that destination,
+ * so naming `10.0.0.0/8` or `.corp.internal` under `no_proxy` also permits fetching there while
+ * everything un-named keeps its default scope.
+ *
+ * @param url - the request URL.
+ * @returns true when an operator-written bypass entry covers the URL; false when nothing is installed.
+ */
+export function operatorBypassed(url: URL): boolean {
+  const policy = active
+  return policy === undefined ? false : explicitlyBypasses(policy.noProxy, url)
 }
 
 /** The dispatcher global `fetch` is using now; `undefined` is Node's own internal default. */

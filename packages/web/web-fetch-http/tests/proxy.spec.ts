@@ -118,6 +118,40 @@ describe('fetching through a proxy', () => {
     },
   )
 
+  it('fetches a private literal the operator\'s bypass list names, over the pinned direct path', async () => {
+    const request = vi.fn(async () => new Response('intranet', { headers: { 'content-type': 'text/plain' } }))
+    const env = { get: (name: string) => (name === 'HTTP_PROXY' || name === 'HTTPS_PROXY' ? { value: proxyUrl } : name === 'NO_PROXY' || name === 'no_proxy' ? { value: '10.0.0.0/8' } : undefined) }
+    disposeProxy = await installProxyFromEnvironment(env, () => undefined)
+
+    const result = await new HttpFetchProvider(limits, { request }).fetch({ url: 'http://10.0.0.5:8080/' })
+
+    expect(result.body.content).toBe('intranet')
+    expect(proxied).toEqual([])
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it('keeps refusing a private literal the operator\'s bypass list does not name', async () => {
+    const env = { get: (name: string) => (name === 'HTTP_PROXY' || name === 'HTTPS_PROXY' ? { value: proxyUrl } : name === 'NO_PROXY' || name === 'no_proxy' ? { value: '10.10.0.0/16' } : undefined) }
+    disposeProxy = await installProxyFromEnvironment(env, () => undefined)
+
+    await expect(new HttpFetchProvider(limits).fetch({ url: 'http://10.0.0.5:8080/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
+    expect(proxied).toEqual([])
+  })
+
+  it('admits a named host whose resolution lands in a private range', async () => {
+    const resolve = vi.fn((_hostname: string, _signal: AbortSignal) => Promise.resolve([{ address: '10.20.30.40', family: 4 as const }]))
+    const request = vi.fn(async () => new Response('internal-wiki', { headers: { 'content-type': 'text/plain' } }))
+    const env = { get: (name: string) => (name === 'HTTP_PROXY' || name === 'HTTPS_PROXY' ? { value: proxyUrl } : name === 'NO_PROXY' || name === 'no_proxy' ? { value: '.corp.internal' } : undefined) }
+    disposeProxy = await installProxyFromEnvironment(env, () => undefined)
+
+    const result = await new HttpFetchProvider(limits, { resolveHostname: resolve, request }).fetch({ url: 'http://wiki.corp.internal/page' })
+
+    expect(result.body.content).toBe('internal-wiki')
+    expect(proxied).toEqual([])
+    expect(request).toHaveBeenCalledOnce()
+  })
+
   it('still refuses a cross-origin redirect on the proxied path', async () => {
     proxy.removeAllListeners('request')
     proxy.on('request', (request, response) => {

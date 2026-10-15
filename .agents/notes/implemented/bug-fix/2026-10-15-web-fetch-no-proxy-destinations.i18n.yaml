@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-15-web-fetch-no-proxy-destinations.md
+2026-10-15-web-fetch-no-proxy-destinations.md: 6440d7e8256959fddaaa10b80ddc7ae12fc7f741
+2026-10-15-web-fetch-no-proxy-destinations.zh.md: 36df836b32e80dcf151dd43f08f379da615220e6

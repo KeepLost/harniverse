@@ -100,11 +100,12 @@ export async function prepareBrowserSnapshot(
     signal.throwIfAborted()
     const patch = join(runtime, policy)
     const source = await readFile(patch, 'utf8')
-    const row = "      name: '@deepseek-ai/dsh-api-browser-controller'"
-    assert.equal(source.split(row).length, 2, 'one shipped browser-controller row is required')
+    const configured = "      name: '@deepseek-ai/dsh-api-browser-controller'\n      config:\n        allowPrivateAddresses: true"
+    assert.equal(source.split("      name: '@deepseek-ai/dsh-api-browser-controller'").length, 2, 'one shipped browser-controller row is required')
+    assert(source.includes(configured), 'the shipped browser-controller row must already enable private destinations')
     const observer = join(runtime, 'browser-observer.mjs')
     await writeFile(observer, BROWSER_OBSERVER_PLUGIN, { flag: 'wx', mode: 0o600 })
-    await writeFile(patch, source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`
+    await writeFile(patch, source.replace(configured, `${configured}\n        allowedHosts: ['127.0.0.1']`
       + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(pathToFileURL(observer).href)}`))
     signal.throwIfAborted()
     return evidence

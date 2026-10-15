@@ -11,7 +11,7 @@ void test('browser snapshot shares immutable payloads but patches a private poli
   const app = join(root, 'sealed')
   const snapshot = join(root, 'snapshot')
   const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
-  const original = "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n"
+  const original = "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n      config:\n        allowPrivateAddresses: true\n"
   try {
     mkdirSync(join(app, 'node_modules/@deepseek-ai/dsh-web-app'), { recursive: true })
     mkdirSync(join(app, 'browser'))
