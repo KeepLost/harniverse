@@ -10,7 +10,7 @@ The workspace browser panel refused intranet navigation with `the operator has n
 
 ## Decision
 
-**The Harniverse composition opts in; the upstream package default stands.** `packages/bundle/web-app/cordis.patch.yml` sets `allowPrivateAddresses: true` on the shipped `browser-controller` row, with `allowedHosts` left empty (every host) so a deployment can still confine navigation per site. The config seam stays the operator's: the schema default, the `reviewNavigation` policy, and the per-deployment override path are untouched, preserving the plugin-native architecture — a Harniverse product decision expressed as composition config, not a fork of the package. The desktop qualification snapshot (`apps/desktop/scripts/packaging-browser.ts`) previously *inserted* a full config block after the row's `name:` line; it now builds on the row the bundle actually ships (asserting the shipped row already enables private destinations) and only adds its `allowedHosts: ['127.0.0.1']` confinement plus the observer plugin, so the patched runtime no longer carries two `config:` blocks under one row.
+**The Harniverse composition opts in; the upstream package default stands.** `packages/bundle/web-app/cordis.patch.yml` sets `allowPrivateAddresses: true` on the shipped `browser-controller` row, with `allowedHosts` left empty (every host) so a deployment can still confine navigation per site. The config seam stays the operator's: the schema default, the `reviewNavigation` policy, and the per-deployment override path are untouched, preserving the plugin-native architecture — a Harniverse product decision expressed as composition config, not a fork of the package. The desktop qualification snapshot (`apps/desktop/scripts/packaging-browser.ts`) previously *inserted* a full config block after the row's `name:` line; it now patches idempotently across both shapes it can meet — the current bundle's row (which already carries `allowPrivateAddresses: true`, so only the `allowedHosts: ['127.0.0.1']` confinement and the observer are added) and the already-published tarball's bare row (config inserted as before) — so a packaged runtime never ends up with two `config:` blocks under one row.
 
 ## Alternatives considered
 
@@ -22,6 +22,6 @@ The workspace browser panel refused intranet navigation with `the operator has n
 
 The workspace browser navigates `10.x`/`172.16.x`/`192.168.x`, `.local`, and loopback hosts out of the box; public navigation is unchanged; a deployment can still set `allowedHosts` or override `allowPrivateAddresses: false` through ordinary config layering. The desktop packaging fixture gained the shipped config shape, keeping the qualification snapshot's patch idempotent against the real bundle.
 
-Verification: `packages/bundle/web-app` suite (30 files, 423 tests across the four touched packages) stays green over the new composition; the desktop `packaging-browser` node:test suite (12 tests) covers the rewritten patch step, including that the sealed source keeps its shipped config.
+Verification: `packages/bundle/web-app` suite (30 files, 423 tests across the four touched packages) stays green over the new composition; the desktop `packaging-browser` node:test suite (12 tests) drives both shipped shapes through the patch step, asserting exactly one `config:` block and that the sealed source keeps its bytes.
 
 PR: #191 (merge)

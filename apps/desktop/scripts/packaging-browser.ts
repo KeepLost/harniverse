@@ -100,13 +100,18 @@ export async function prepareBrowserSnapshot(
     signal.throwIfAborted()
     const patch = join(runtime, policy)
     const source = await readFile(patch, 'utf8')
-    const configured = "      name: '@deepseek-ai/dsh-api-browser-controller'\n      config:\n        allowPrivateAddresses: true"
-    assert.equal(source.split("      name: '@deepseek-ai/dsh-api-browser-controller'").length, 2, 'one shipped browser-controller row is required')
-    assert(source.includes(configured), 'the shipped browser-controller row must already enable private destinations')
+    const row = "      name: '@deepseek-ai/dsh-api-browser-controller'"
+    assert.equal(source.split(row).length, 2, 'one shipped browser-controller row is required')
+    // The installed bundle ships the row with (current) or without (already-published tarballs) its
+    // config block; the snapshot adds the qualification settings without writing a second key.
+    const configured = `${row}\n      config:\n        allowPrivateAddresses: true`
+    const patched = source.includes(configured)
+      ? source.replace(configured, `${configured}\n        allowedHosts: ['127.0.0.1']`)
+      : source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`)
     const observer = join(runtime, 'browser-observer.mjs')
     await writeFile(observer, BROWSER_OBSERVER_PLUGIN, { flag: 'wx', mode: 0o600 })
-    await writeFile(patch, source.replace(configured, `${configured}\n        allowedHosts: ['127.0.0.1']`
-      + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(pathToFileURL(observer).href)}`))
+    await writeFile(patch, patched
+      + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(pathToFileURL(observer).href)}`)
     signal.throwIfAborted()
     return evidence
   } catch (error) { await rm(runtime, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); throw error }

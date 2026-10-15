@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-**Harniverse 组合层放行；上游包默认值不动。** `packages/bundle/web-app/cordis.patch.yml` 在出货的 `browser-controller` 行上设置 `allowPrivateAddresses: true`，`allowedHosts` 保持为空（全部主机），部署方仍可按站点收窄导航面。配置接缝仍归运营者：schema 默认值、`reviewNavigation` 策略、按部署覆盖的路径全部未动，保持插件原生架构——Harniverse 的产品决策以组合配置表达，而不是分叉包。桌面端资格快照（`apps/desktop/scripts/packaging-browser.ts`）此前会在行的 `name:` 之后**插入**完整 config 块；现在它建立在组合实际出货的行之上（断言出货行已启用私有地址），只追加以 `allowedHosts: ['127.0.0.1']` 收窄和观察者插件，打补丁后的运行时不再出现同一行下的两个 `config:` 块。
+**Harniverse 组合层放行；上游包默认值不动。** `packages/bundle/web-app/cordis.patch.yml` 在出货的 `browser-controller` 行上设置 `allowPrivateAddresses: true`，`allowedHosts` 保持为空（全部主机），部署方仍可按站点收窄导航面。配置接缝仍归运营者：schema 默认值、`reviewNavigation` 策略、按部署覆盖的路径全部未动，保持插件原生架构——Harniverse 的产品决策以组合配置表达，而不是分叉包。桌面端资格快照（`apps/desktop/scripts/packaging-browser.ts`）此前会在行的 `name:` 之后**插入**完整 config 块；现在它对可能遇到的两种形状幂等打补丁——当前组合的行（已带 `allowPrivateAddresses: true`，只追加以 `allowedHosts: ['127.0.0.1']` 收窄和观察者插件）与已发布 tarball 的裸行（照旧插入 config）——打包运行时不会再出现同一行下的两个 `config:` 块。
 
 ## Alternatives considered
 
@@ -22,6 +22,6 @@ Status: implemented
 
 工作区浏览器开箱即可导航 `10.x`/`172.16.x`/`192.168.x`、`.local` 与回环主机；公网导航不变；部署方仍可通过常规配置分层设置 `allowedHosts` 或覆盖回 `allowPrivateAddresses: false`。桌面打包 fixture 采用了出货的 config 形状，使资格快照的补丁对真实组合保持幂等。
 
-验证：`packages/bundle/web-app` 套件（四个受影响包共 30 文件、423 用例）在新组合下全绿；桌面 `packaging-browser` node:test 套件（12 用例）覆盖重写后的补丁步骤，包括封存源保持出货 config 不变。
+验证：`packages/bundle/web-app` 套件（四个受影响包共 30 文件、423 用例）在新组合下全绿；桌面 `packaging-browser` node:test 套件（12 用例）驱动两种出货形状走补丁步骤，断言恰好一个 `config:` 块、封存源字节不变。
 
 PR: #191 (merge)
