@@ -11,7 +11,7 @@ describe('createWorkspaceWorkbenchStore', () => {
       query: 'a', include: '*.ts', exclude: 'dist/', filtersOpen: true,
       entries: [], truncated: false, loading: false,
     })
-    actions.setGit('a', { branch: 'main', upstream: null, ahead: null, behind: null, entries: [], commits: [], truncated: false, loading: false })
+    actions.setGit('a', { branch: 'main', upstream: null, ahead: null, behind: null, entries: [], commits: [], truncated: false, historyTruncated: false, loading: false })
     actions.ensureWorkspace('a')
     actions.ensureWorkspace('b')
 
@@ -54,7 +54,7 @@ describe('createWorkspaceWorkbenchStore', () => {
       query: 'x', include: '*.py', exclude: '', filtersOpen: true,
       entries: [], truncated: false, loading: true,
     })
-    actions.setGit('a', { branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [], truncated: false, loading: true })
+    actions.setGit('a', { branch: null, upstream: null, ahead: null, behind: null, entries: [], commits: [], truncated: false, historyTruncated: false, loading: true })
     actions.setCommitFiles('a', 'h1', { files: [], truncated: false, loading: true })
     actions.setCommitExpanded('a', 'h1', true)
 
@@ -81,7 +81,7 @@ describe('createWorkspaceWorkbenchStore', () => {
 
     actions.setGit('a', {
       branch: null, upstream: null, ahead: null, behind: null,
-      entries: [], commits: [keep], truncated: false, loading: false,
+      entries: [], commits: [keep], truncated: false, historyTruncated: false, loading: false,
     })
 
     expect(Object.keys(store.getSnapshot().byWorkspace.a?.commitFiles ?? {})).toEqual(['h-keep', 'h-load'])

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-15-light-theme-dimmed-label-calibration.md
+2026-10-15-light-theme-dimmed-label-calibration.md: be9cfb9267afe8976b285d06ec13711eb39c5710
+2026-10-15-light-theme-dimmed-label-calibration.zh.md: ae001f3d6288396945d40b59178112433a0c2486

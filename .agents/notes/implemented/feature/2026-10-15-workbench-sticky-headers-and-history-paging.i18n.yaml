@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-15-workbench-sticky-headers-and-history-paging.md
+2026-10-15-workbench-sticky-headers-and-history-paging.md: 229b9335ac24593a5b7c1c893c75053f8a83d84d
+2026-10-15-workbench-sticky-headers-and-history-paging.zh.md: 1cfd99b8bc60a856cf79df251dc7afac716f0b9f
