@@ -4,20 +4,22 @@
  * presentation to `@deepseek-ai/dsh-tool-web`. Requests carry no browser cookies or ambient
  * credentials and use direct Node transports; when the process-wide outbound proxy policy
  * routes the URL through a proxy, the hop takes that policy's shared tunnel instead of local
- * address resolution — the proxy resolves the origin.
+ * address resolution — the proxy resolves the origin. A destination the operator's `no_proxy`
+ * names explicitly keeps the pinned direct path and its private address scope is the operator's
+ * opt-in rather than this provider's default-deny.
  * @module @deepseek-ai/dsh-web-fetch-http/provider
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type { WebFetchBody, WebFetchProvider, WebFetchRequest, WebFetchResult } from '@deepseek-ai/dsh-web'
-import { proxyRouteFor, requestViaProxy } from '@deepseek-ai/dsh-http-proxy'
+import { operatorBypassed, proxyRouteFor, requestViaProxy } from '@deepseek-ai/dsh-http-proxy'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { request as httpRequest, type ClientRequest, type IncomingMessage, type RequestOptions as HttpRequestOptions } from 'node:http'
 import { request as httpsRequest, type RequestOptions as HttpsRequestOptions } from 'node:https'
 import { Readable } from 'node:stream'
-import { classifyContentType, decoderForCharset, isPublicIp, parseCharset, validateFetchUrl } from './policy.ts'
+import { assertLiteralScope, classifyContentType, decoderForCharset, isPublicIp, parseCharset, validateFetchUrl } from './policy.ts'
 
 /** Resolved provider limits (the plugin's schemastery Config supplies defaults). */
 export interface HttpFetchLimits {
@@ -98,6 +100,10 @@ export class HttpFetchProvider implements WebFetchProvider {
   }
 
   private async requestOnce(url: URL, signal: AbortSignal): Promise<Response> {
+    // The operator's bypass list may explicitly name this destination; a named private target keeps
+    // the pinned direct path instead of the public-only scope, and everything un-named keeps it.
+    const allowPrivate = operatorBypassed(url)
+    assertLiteralScope(url, allowPrivate)
     const route = proxyRouteFor(url)
     if (route.proxied) {
       try {
@@ -107,7 +113,7 @@ export class HttpFetchProvider implements WebFetchProvider {
         throw translateAbortOrNetwork(error, signal)
       }
     }
-    const address = await this.resolvePublicAddress(url, signal)
+    const address = await this.resolvePublicAddress(url, signal, allowPrivate)
     try {
       return await this.requestTransport(url, address, { signal, userAgent: this.limits.userAgent })
     } catch (error: unknown) {
@@ -115,12 +121,12 @@ export class HttpFetchProvider implements WebFetchProvider {
     }
   }
 
-  private async resolvePublicAddress(url: URL, signal: AbortSignal): Promise<ResolvedAddress> {
+  private async resolvePublicAddress(url: URL, signal: AbortSignal, allowPrivate: boolean): Promise<ResolvedAddress> {
     const hostname = stripIpv6Brackets(url.hostname)
     const family = isIP(hostname)
     if (family !== 0) {
       const address = { address: hostname, family: family as 4 | 6 }
-      assertPublicAddress(hostname, address)
+      assertPublicAddress(hostname, address, allowPrivate)
       return address
     }
 
@@ -133,7 +139,7 @@ export class HttpFetchProvider implements WebFetchProvider {
     if (addresses.length === 0) {
       throw new WebError(`DNS lookup for "${hostname}" returned no addresses`, 'WEB_PROVIDER_ERROR')
     }
-    for (const address of addresses) assertPublicAddress(hostname, address)
+    for (const address of addresses) assertPublicAddress(hostname, address, allowPrivate)
     const [address] = addresses
     /* v8 ignore next -- the length check above makes this unreachable; retained for strict narrowing. */
     if (address === undefined) throw new WebError(`DNS lookup for "${hostname}" returned no addresses`, 'WEB_PROVIDER_ERROR')
@@ -243,8 +249,8 @@ function stripIpv6Brackets(hostname: string): string {
   return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
 }
 
-function assertPublicAddress(hostname: string, address: ResolvedAddress): void {
-  if (isIP(address.address) !== address.family || !isPublicIp(address.address)) {
+function assertPublicAddress(hostname: string, address: ResolvedAddress, allowPrivate: boolean): void {
+  if (isIP(address.address) !== address.family || (!allowPrivate && !isPublicIp(address.address))) {
     throw new WebError(`URL hostname "${hostname}" resolves to a non-public address`, 'WEB_BLOCKED_URL')
   }
 }

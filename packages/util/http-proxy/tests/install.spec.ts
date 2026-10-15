@@ -11,6 +11,7 @@ import { afterEach, beforeAll, afterAll, describe, expect, it, vi } from 'vitest
 import {
   clearedProxyEnv,
   installProxyFromEnvironment,
+  operatorBypassed,
   proxyRouteFor,
 } from '../src/index.ts'
 import { PROXY_ENV_NAMES, resolveProxyPolicy } from '../src/policy.ts'
@@ -262,6 +263,25 @@ async function install(
   const dispose = await installProxyFromEnvironment(lookup, (message) => { reported.push(message) })
   return { dispose, reported }
 }
+
+describe('operatorBypassed', () => {
+  it('reports the destinations the operator named once a policy is installed', async () => {
+    const { dispose } = await install(proxyAll('10.0.0.0/8,.corp.internal'))
+    try {
+      expect(operatorBypassed(new URL('http://10.1.2.3/a'))).toBe(true)
+      expect(operatorBypassed(new URL('https://wiki.corp.internal/a'))).toBe(true)
+      expect(operatorBypassed(new URL('http://example.com/a'))).toBe(false)
+      // The loopback floor merges into the same list but names no operator opt-in.
+      expect(operatorBypassed(new URL('http://127.0.0.1/a'))).toBe(false)
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('reports false while no policy is installed', () => {
+    expect(operatorBypassed(new URL('http://10.1.2.3/a'))).toBe(false)
+  })
+})
 
 /** Run one case from a known-empty proxy environment, then restore what the machine had. */
 async function withCleanProxyEnv(run: () => Promise<void>): Promise<void> {

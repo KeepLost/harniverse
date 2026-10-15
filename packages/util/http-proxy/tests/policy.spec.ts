@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { EnvLookup } from '../src/policy.ts'
 import {
   bypassesProxy,
+  explicitlyBypasses,
   isLoopbackHost,
   proxyForUrl,
   resolveProxyPolicy,
@@ -204,12 +205,45 @@ describe('bypassesProxy', () => {
     expect(bypassesProxy('[::1]:3000', new URL('http://[::1]:4000/a'))).toBe(false)
   })
 
-  it('does not match CIDR notation, so an OS bypass list must be rewritten as suffixes', () => {
-    expect(bypassesProxy('10.0.0.0/8', new URL('http://10.1.2.3/a'))).toBe(false)
+  it('bypasses an IPv4 literal covered by an IPv4 CIDR entry, on any port', () => {
+    expect(bypassesProxy('10.0.0.0/8', new URL('http://10.1.2.3/a'))).toBe(true)
+    expect(bypassesProxy('10.0.0.0/8', new URL('http://10.255.0.1:8080/a'))).toBe(true)
+    expect(bypassesProxy('10.0.0.0/8', new URL('http://11.1.2.3/a'))).toBe(false)
+    expect(bypassesProxy('172.16.0.0/12', new URL('http://172.31.255.254/a'))).toBe(true)
+    expect(bypassesProxy('172.16.0.0/12', new URL('http://172.32.0.1/a'))).toBe(false)
+    expect(bypassesProxy('192.168.1.0/24', new URL('http://192.168.1.50/a'))).toBe(true)
+    expect(bypassesProxy('192.168.1.0/24', new URL('http://192.168.2.50/a'))).toBe(false)
+    expect(bypassesProxy('10.1.2.3/32', new URL('http://10.1.2.3/a'))).toBe(true)
+  })
+
+  it('never matches a CIDR entry against a name or an IPv6 literal, and skips malformed CIDR entries', () => {
+    expect(bypassesProxy('10.0.0.0/8', new URL('http://wiki.corp.internal/a'))).toBe(false)
+    expect(bypassesProxy('10.0.0.0/8', new URL('http://[fe80::1]/a'))).toBe(false)
+    expect(bypassesProxy('10.0.0.999/8', new URL('http://10.1.2.3/a'))).toBe(false)
+    expect(bypassesProxy('10.0.0.0/33', new URL('http://10.1.2.3/a'))).toBe(false)
+    expect(bypassesProxy('10.0.0.0/8:8080', new URL('http://10.1.2.3:8080/a'))).toBe(false)
   })
 
   it('skips blank and bracket-only entries', () => {
     expect(bypassesProxy(' , , [ , .', new URL('http://example.com/a'))).toBe(false)
+  })
+})
+
+describe('explicitlyBypasses', () => {
+  it('counts the operator\'s own entries, including CIDR ranges and ports', () => {
+    expect(explicitlyBypasses('10.0.0.0/8', new URL('http://10.1.2.3/a'))).toBe(true)
+    expect(explicitlyBypasses('.corp.internal', new URL('http://wiki.corp.internal/a'))).toBe(true)
+    expect(explicitlyBypasses('internal:8080', new URL('http://internal:8080/a'))).toBe(true)
+    expect(explicitlyBypasses('internal:8080', new URL('http://internal:9090/a'))).toBe(false)
+    expect(explicitlyBypasses('10.0.0.0/8', new URL('http://example.com/a'))).toBe(false)
+    expect(explicitlyBypasses('', new URL('http://example.com/a'))).toBe(false)
+  })
+
+  it('does not count the merged loopback floor or a bypass-everything star, which name no destination', () => {
+    expect(explicitlyBypasses('localhost,127.0.0.1,::1,[::1]', new URL('http://127.0.0.1/a'))).toBe(false)
+    expect(explicitlyBypasses('*', new URL('http://10.1.2.3/a'))).toBe(false)
+    // A non-floor spelling of the operator\'s own still counts.
+    expect(explicitlyBypasses('127.0.0.2', new URL('http://127.0.0.2/a'))).toBe(true)
   })
 })
 

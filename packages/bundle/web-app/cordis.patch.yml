@@ -222,6 +222,11 @@
     # row's config, not a client decision.
     - id: browser-controller
       name: '@deepseek-ai/dsh-api-browser-controller'
+      config:
+        # Harniverse serves private networks: the workspace browser exists to reach
+        # them, so loopback and private ranges stay navigable here. `allowedHosts`
+        # stays empty (every host); operators can still confine it per deployment.
+        allowPrivateAddresses: true
 
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.

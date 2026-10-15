@@ -3,7 +3,7 @@ import { accentHover } from '../src/client/color.ts'
 import type { SkinSettings } from '../src/client/settings.ts'
 import { WRITE_DELAY_MS } from '../src/client/writer.ts'
 import { fail, makeBench, ok, ready } from './controller-bench.client.ts'
-import { GRADIENT, HASH_A, skin, snapshot, wallpaper } from './fixtures.client.ts'
+import { GRADIENT, HASH_A, HASH_B, skin, snapshot, wallpaper } from './fixtures.client.ts'
 
 describe('SkinController mirroring', () => {
   it('publishes the first view, reads the catalog, and registers each skin as a theme', async () => {
@@ -93,6 +93,40 @@ describe('SkinController mirroring', () => {
     b.scope.publish({ status: 'unavailable', value: undefined, writable: false })
     expect(b.controller.view.getSnapshot().settings.accent).toBe('')
     expect(b.controller.view.getSnapshot().access).toEqual({ status: 'unavailable', writable: false, denied: false })
+  })
+
+  it('keeps the last shown wallpaper through the settings gap an authentication reset opens', async () => {
+    const b = makeBench()
+    await b.controller.start()
+    ready(b, { wallpaper: HASH_A, wallpaperBlur: 7 })
+    expect(b.controller.view.getSnapshot().backdrop).toEqual({ kind: 'wallpaper', hash: HASH_A, blur: 7 })
+    // The scope re-derives with no section yet — exactly the shape a key exchange or re-authentication
+    // leaves behind while `settings.describe` is fenced and rerun.
+    b.scope.publish({ status: 'loading', value: undefined, writable: false })
+    expect(b.controller.view.getSnapshot().backdrop).toEqual({ kind: 'wallpaper', hash: HASH_A, blur: 7 })
+    expect(b.controller.view.getSnapshot().settings.wallpaper).toBe('')
+  })
+
+  it('returns to the authoritative section once the scope re-reads it', async () => {
+    const b = makeBench()
+    await b.controller.start()
+    ready(b, { wallpaper: HASH_A, wallpaperBlur: 7 })
+    b.scope.publish({ status: 'loading', value: undefined, writable: false })
+    ready(b, { wallpaper: '' })
+    expect(b.controller.view.getSnapshot().backdrop.kind).not.toBe('wallpaper')
+    // A later gap retains nothing, because the standing section chose no wallpaper.
+    b.scope.publish({ status: 'loading', value: undefined, writable: false })
+    expect(b.controller.view.getSnapshot().backdrop.kind).not.toBe('wallpaper')
+  })
+
+  it('drops the retained wallpaper when the catalog loses it during the gap', async () => {
+    const b = makeBench()
+    await b.controller.start()
+    ready(b, { wallpaper: HASH_A })
+    b.scope.publish({ status: 'loading', value: undefined, writable: false })
+    b.remote.list.mockResolvedValueOnce(ok(snapshot({ wallpapers: [wallpaper(HASH_B)] })))
+    await b.controller.refresh()
+    expect(b.controller.view.getSnapshot().backdrop.kind).not.toBe('wallpaper')
   })
 
   it('follows the theme selection and the product language', async () => {

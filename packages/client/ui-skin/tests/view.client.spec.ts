@@ -4,7 +4,7 @@ import {
   activeSkinOf, canWrite, DEFAULT_LIMITS, INITIAL_VIEW, isForcedOpaque, NO_BACKDROP, resolveBackdrop,
   type BackdropInput,
 } from '../src/client/view.ts'
-import { GRADIENT, HASH_A, libraryView, skin, wallpaper } from './fixtures.client.ts'
+import { GRADIENT, HASH_A, HASH_B, libraryView, skin, wallpaper } from './fixtures.client.ts'
 
 const open = { reducedTransparency: false, highContrast: false }
 
@@ -69,5 +69,20 @@ describe('view helpers', () => {
     const library = libraryView({ wallpapers: [wallpaper(HASH_A)] })
     expect(resolveBackdrop(input({ settings, library, activeId: 'skin:abyss', environment: { ...open, reducedTransparency: true } }))).toBe(NO_BACKDROP)
     expect(resolveBackdrop(input({ settings, library, activeId: 'skin:abyss', environment: { ...open, highContrast: true } }))).toBe(NO_BACKDROP)
+  })
+
+  it('keeps a retained wallpaper painting while no authoritative section stands', () => {
+    expect(resolveBackdrop(input({ retained: { hash: HASH_A, blur: 5 }, activeId: 'skin:abyss' })))
+      .toEqual({ kind: 'wallpaper', hash: HASH_A, blur: 5 })
+  })
+
+  it('ignores a retained wallpaper the catalog no longer holds', () => {
+    const library = libraryView({ wallpapers: [wallpaper(HASH_B)] })
+    expect(resolveBackdrop(input({ library, retained: { hash: HASH_A, blur: 5 }, activeId: 'skin:abyss' })))
+      .toMatchObject({ kind: 'gradient' })
+  })
+
+  it('lets the environment force opaque surfaces over a retained wallpaper too', () => {
+    expect(resolveBackdrop(input({ retained: { hash: HASH_A, blur: 5 }, environment: { ...open, highContrast: true } }))).toBe(NO_BACKDROP)
   })
 })

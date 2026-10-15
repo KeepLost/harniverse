@@ -94,6 +94,12 @@ export class SkinController {
   private generation = 0
   private appliedLayer = '{}'
   private disposeLayer: (() => void) | undefined
+  /**
+   * The last wallpaper shown under an authoritative settings section. An authentication reset
+   * clears the settings scope's value before its re-read lands, so without this hold the
+   * backdrop would drop to the gradient for the whole re-authentication gap.
+   */
+  private retained: { hash: string; blur: number } | undefined
   private readonly stops: Array<() => void> = []
   private readonly registry: SkinThemeRegistry
   private readonly writer: SettingsWriter
@@ -150,9 +156,14 @@ export class SkinController {
     const access = keep(previous.access, { status: scope.status, writable: scope.writable, denied: this.denied })
     const themeView = keep(previous.theme, { preference: theme.preference, activeId: theme.active.id })
     const environment = keep(previous.environment, this.deps.environment.snapshot())
+    // A standing section is authoritative; while the scope re-derives after an authentication
+    // reset (no section yet), the last shown wallpaper keeps the backdrop through the gap.
+    const held = scope.value !== undefined
     const backdrop = keep(previous.backdrop, resolveBackdrop({
       settings, library: this.library, activeId: themeView.activeId, environment,
+      ...(held ? {} : this.retained === undefined ? {} : { retained: this.retained }),
     }))
+    if (held) this.retained = backdrop.kind === 'wallpaper' ? { hash: backdrop.hash, blur: backdrop.blur } : undefined
     const next: SkinView = {
       locale: this.deps.locale.getLocale().active,
       library: this.library,

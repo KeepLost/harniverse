@@ -11,30 +11,41 @@ void test('browser snapshot shares immutable payloads but patches a private poli
   const app = join(root, 'sealed')
   const snapshot = join(root, 'snapshot')
   const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
-  const original = "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n"
+  const originals = [
+    // The already-published tarball's row carries no config; the current bundle ships it, with
+    // its explanatory comments between the key lines.
+    "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n",
+    "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n      config:\n        allowPrivateAddresses: true\n",
+    "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n      config:\n        # Harniverse serves private networks: the workspace browser exists to reach\n        # them; operators can still confine it per deployment.\n        allowPrivateAddresses: true\n",
+  ]
   try {
     mkdirSync(join(app, 'node_modules/@deepseek-ai/dsh-web-app'), { recursive: true })
     mkdirSync(join(app, 'browser'))
-    writeFileSync(join(app, policy), original)
     writeFileSync(join(app, 'browser/chrome'), 'immutable browser payload')
     chmodSync(join(app, 'browser/chrome'), 0o755)
-    const evidence = await prepareBrowserSnapshot(app, snapshot, new AbortController().signal)
-    assert.equal(evidence.linkedFiles, 1)
-    assert.equal(evidence.copiedFiles, 1)
-    assert.equal(statSync(join(app, 'browser/chrome')).ino, statSync(join(snapshot, 'browser/chrome')).ino)
-    assert.notEqual(statSync(join(app, policy)).ino, statSync(join(snapshot, policy)).ino)
-    assert.equal(statSync(join(snapshot, 'browser/chrome')).mode, statSync(join(app, 'browser/chrome')).mode)
-    assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowPrivateAddresses: true/)
-    assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowedHosts: \['127.0.0.1'\]/)
-    const observerRow = readFileSync(join(snapshot, policy), 'utf8').match(/id: browser-qualification-observer\s+name: (.+)/)?.[1]
-    assert(observerRow, 'snapshot must register the observer plugin')
-    const observerSpecifier = JSON.parse(observerRow) as string
-    const observer = await import(observerSpecifier) as { name: string }
-    assert.equal(observer.name, 'desktop-browser-qualification-observer')
-    assert.equal(new URL(observerSpecifier).protocol, 'file:')
-    writeFileSync(join(snapshot, policy), 'fixture-only replacement')
-    rmSync(snapshot, { recursive: true })
-    assert.equal(readFileSync(join(app, policy), 'utf8'), original)
+    for (const original of originals) {
+      writeFileSync(join(app, policy), original)
+      const evidence = await prepareBrowserSnapshot(app, snapshot, new AbortController().signal)
+      assert.equal(evidence.linkedFiles, 1)
+      assert.equal(evidence.copiedFiles, 1)
+      assert.equal(statSync(join(app, 'browser/chrome')).ino, statSync(join(snapshot, 'browser/chrome')).ino)
+      assert.notEqual(statSync(join(app, policy)).ino, statSync(join(snapshot, policy)).ino)
+      assert.equal(statSync(join(snapshot, 'browser/chrome')).mode, statSync(join(app, 'browser/chrome')).mode)
+      const patchedPolicy = readFileSync(join(snapshot, policy), 'utf8')
+      assert.match(patchedPolicy, /allowPrivateAddresses: true/)
+      assert.match(patchedPolicy, /allowedHosts: \['127.0.0.1'\]/)
+      // Exactly one config block under the patched row, whichever shape it shipped in.
+      assert.equal(patchedPolicy.split('      config:').length - 1, 1)
+      const observerRow = patchedPolicy.match(/id: browser-qualification-observer\s+name: (.+)/)?.[1]
+      assert(observerRow, 'snapshot must register the observer plugin')
+      const observerSpecifier = JSON.parse(observerRow) as string
+      const observer = await import(observerSpecifier) as { name: string }
+      assert.equal(observer.name, 'desktop-browser-qualification-observer')
+      assert.equal(new URL(observerSpecifier).protocol, 'file:')
+      writeFileSync(join(snapshot, policy), 'fixture-only replacement')
+      rmSync(snapshot, { recursive: true })
+      assert.equal(readFileSync(join(app, policy), 'utf8'), original)
+    }
     assert.equal(readFileSync(join(app, 'browser/chrome'), 'utf8'), 'immutable browser payload')
     const cancelled = AbortSignal.abort(new Error('preparation cancelled'))
     await assert.rejects(prepareBrowserSnapshot(app, snapshot, cancelled), /preparation cancelled/)

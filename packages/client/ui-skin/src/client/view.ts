@@ -134,21 +134,33 @@ export interface BackdropInput {
   library: LibraryView
   activeId: string
   environment: EnvironmentView
+  /**
+   * The last wallpaper the view showed while an authoritative settings section
+   * stood; the controller passes it while the scope re-derives after an
+   * authentication reset, so the backdrop survives the re-authentication gap
+   * instead of collapsing to the gradient.
+   */
+  retained?: { readonly hash: string; readonly blur: number }
 }
 
 /**
  * Decide what paints behind the frame: the chosen wallpaper if the catalog
  * still holds it, otherwise the active skin's own gradient, otherwise nothing.
- * The operating system's reduced-transparency and high-contrast preferences
- * switch it off entirely, because the surfaces above would be opaque anyway.
- * @param input - settings, library, active theme, and environment.
+ * While no authoritative section stands, a retained wallpaper that is still
+ * catalogued keeps painting. The operating system's reduced-transparency and
+ * high-contrast preferences switch it off entirely, because the surfaces above
+ * would be opaque anyway.
+ * @param input - settings, library, active theme, environment, and the retained wallpaper.
  * @returns the effective backdrop.
  */
 export function resolveBackdrop(input: BackdropInput): BackdropView {
-  const { settings, library, environment } = input
+  const { settings, library, environment, retained } = input
   if (isForcedOpaque(environment)) return NO_BACKDROP
   if (settings.wallpaper !== '' && library.wallpapers.some(entry => entry.hash === settings.wallpaper)) {
     return { kind: 'wallpaper', hash: settings.wallpaper, blur: settings.wallpaperBlur }
+  }
+  if (retained !== undefined && library.wallpapers.some(entry => entry.hash === retained.hash)) {
+    return { kind: 'wallpaper', hash: retained.hash, blur: retained.blur }
   }
   const background = activeSkinOf(library, input.activeId)?.background
   if (background !== undefined && gradientCss(background) !== undefined) return { kind: 'gradient', background }

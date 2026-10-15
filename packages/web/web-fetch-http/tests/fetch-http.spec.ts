@@ -7,7 +7,7 @@ import WebRuntime from '@deepseek-ai/dsh-web'
 import { HttpFetchProvider, LOCAL_FETCH_PROVIDER_ID } from '@deepseek-ai/dsh-web-fetch-http'
 import type { HttpFetchLimits } from '@deepseek-ai/dsh-web-fetch-http'
 import * as fetchPlugin from '@deepseek-ai/dsh-web-fetch-http'
-import { classifyContentType, decoderForCharset, isPublicIp, isSameOrigin, parseCharset, validateFetchUrl } from '../src/policy.ts'
+import { assertLiteralScope, classifyContentType, decoderForCharset, isPublicIp, isSameOrigin, parseCharset, validateFetchUrl } from '../src/policy.ts'
 
 const limits: HttpFetchLimits = {
   maxUrlLength: 2048,
@@ -102,8 +102,15 @@ describe('policy helpers', () => {
     'http://[fe80::1]/',
     'http://[ff02::1]/',
     'http://[::ffff:127.0.0.1]/',
-  ])('rejects a non-public literal before network access: %s', (url) => {
-    expect(() => validateFetchUrl(url, 2048)).toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
+  ])('parses a non-public literal, which the scope check then refuses outside an operator bypass: %s', (url) => {
+    // Parsing alone is shape-only now; the URL normalizer may rewrite the literal's spelling.
+    expect(validateFetchUrl(url, 2048).hostname.length).toBeGreaterThan(0)
+    expect(() => { assertLiteralScope(validateFetchUrl(url, 2048), false) }).toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
+  })
+
+  it('lets the operator bypass admit a private literal the scope check would refuse', () => {
+    const url = validateFetchUrl('http://10.0.0.1/', 2048)
+    expect(() => { assertLiteralScope(url, true) }).not.toThrow()
   })
 
   it('classifies public and non-public IP addresses', () => {
