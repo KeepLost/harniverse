@@ -259,6 +259,7 @@ function ipv4Value(host: string): number | undefined {
 function parseCidr(entry: string): { network: number; prefix: number } | undefined {
   const match = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/u.exec(entry)
   if (match === null) return undefined
+  /* v8 ignore next -- a match always carries the capture groups; the default only satisfies the index-access type */
   const network = ipv4Value(match[1] ?? '')
   const prefix = Number(match[2])
   if (network === undefined || prefix > 32) return undefined
