@@ -102,12 +102,14 @@ export async function prepareBrowserSnapshot(
     const source = await readFile(patch, 'utf8')
     const row = "      name: '@deepseek-ai/dsh-api-browser-controller'"
     assert.equal(source.split(row).length, 2, 'one shipped browser-controller row is required')
-    // The installed bundle ships the row with (current) or without (already-published tarballs) its
-    // config block; the snapshot adds the qualification settings without writing a second key.
-    const configured = `${row}\n      config:\n        allowPrivateAddresses: true`
-    const patched = source.includes(configured)
-      ? source.replace(configured, `${configured}\n        allowedHosts: ['127.0.0.1']`)
+    // The installed bundle ships the row with (current, possibly comment-bearing) or without
+    // (already-published tarballs) a config block; the snapshot adds the qualification settings
+    // into the existing block when one stands and never writes a second config key.
+    const patched = source.includes(`${row}\n      config:`)
+      ? source.replace(`${row}\n      config:`, `${row}\n      config:\n        allowedHosts: ['127.0.0.1']`)
       : source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`)
+    assert.match(patched, /allowPrivateAddresses: true/u, 'the qualification policy must enable private addresses')
+    assert.match(patched, /allowedHosts: \['127\.0\.0\.1'\]/u, 'the qualification policy must confine hosts')
     const observer = join(runtime, 'browser-observer.mjs')
     await writeFile(observer, BROWSER_OBSERVER_PLUGIN, { flag: 'wx', mode: 0o600 })
     await writeFile(patch, patched

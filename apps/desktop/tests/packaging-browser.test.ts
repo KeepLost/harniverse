@@ -12,9 +12,11 @@ void test('browser snapshot shares immutable payloads but patches a private poli
   const snapshot = join(root, 'snapshot')
   const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
   const originals = [
-    // The already-published tarball's row carries no config; the current bundle ships it.
+    // The already-published tarball's row carries no config; the current bundle ships it, with
+    // its explanatory comments between the key lines.
     "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n",
     "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n      config:\n        allowPrivateAddresses: true\n",
+    "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n      config:\n        # Harniverse serves private networks: the workspace browser exists to reach\n        # them; operators can still confine it per deployment.\n        allowPrivateAddresses: true\n",
   ]
   try {
     mkdirSync(join(app, 'node_modules/@deepseek-ai/dsh-web-app'), { recursive: true })
