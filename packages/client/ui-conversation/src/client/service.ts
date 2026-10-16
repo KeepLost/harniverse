@@ -282,6 +282,7 @@ export class ConversationController extends Service implements IConversation {
    * Resolve and cache one session-authorized historical image URL.
    * @param sessionId - owning session authorization scope.
    * @param attachment - durable image reference.
+   * @param variant - which rendition to resolve; defaults to the original.
    * @returns browser URL valid until its rendered session is released.
    */
   resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef, variant: 'original' | 'model' = 'original'): Promise<string> {

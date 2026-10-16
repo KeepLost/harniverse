@@ -5786,7 +5786,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    maxOutputTokens?: number;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    maxOutputTokens?: number;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n    imageRequestPolicy?: ImageRequestPolicy;\n}',
   },
   {
     name: 'LlmRuntime',
