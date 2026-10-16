@@ -682,6 +682,15 @@ export class LlmRuntime extends Service {
         'INVALID_MODEL_MAX_TOKENS',
       )
     }
+    const imageRequestPolicy = resolved.imageRequestPolicy
+    if (imageRequestPolicy !== undefined
+      && (!Number.isSafeInteger(imageRequestPolicy.maxPixels) || imageRequestPolicy.maxPixels <= 0
+        || !Number.isSafeInteger(imageRequestPolicy.maxBytes) || imageRequestPolicy.maxBytes <= 0)) {
+      throw new LlmError(
+        `adapter returned invalid request-image policy for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_IMAGE_POLICY',
+      )
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
@@ -691,6 +700,7 @@ export class LlmRuntime extends Service {
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
       ...maxOutputTokens === undefined ? {} : { maxOutputTokens },
       ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
+      ...imageRequestPolicy === undefined ? {} : { imageRequestPolicy },
     }
     const reasoning = resolved.reasoning
     if (reasoning === undefined) return info

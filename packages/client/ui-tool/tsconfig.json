@@ -12,6 +12,9 @@
       "path": "../../api/remotes/tsconfig.client.json"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -25,6 +28,9 @@
     },
     {
       "path": "../ui-primitives"
+    },
+    {
+      "path": "../ui-attachment"
     },
     {
       "path": "../ui-slots"

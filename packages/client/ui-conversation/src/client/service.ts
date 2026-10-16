@@ -282,11 +282,12 @@ export class ConversationController extends Service implements IConversation {
    * Resolve and cache one session-authorized historical image URL.
    * @param sessionId - owning session authorization scope.
    * @param attachment - durable image reference.
+   * @param variant - which rendition to resolve; defaults to the original.
    * @returns browser URL valid until its rendered session is released.
    */
-  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
+  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef, variant: 'original' | 'model' = 'original'): Promise<string> {
     if (this.disposed) return Promise.reject(new Error('conversation.resolveImage: service is disposed'))
-    const key = `${sessionId}:${attachment.attachmentId}`
+    const key = `${sessionId}:${variant}:${attachment.attachmentId}`
     const cached = this.imageUrls.get(key)
     if (cached !== undefined) return cached.pending
     const generation = this.imageGenerations.get(sessionId) ?? 0
@@ -294,7 +295,7 @@ export class ConversationController extends Service implements IConversation {
     if (session === undefined) {
       return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`))
     }
-    const pending = session.readAttachment(attachment.attachmentId)
+    const pending = session.readAttachment(attachment.attachmentId, variant === 'original' ? {} : { variant })
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
         if (this.disposed) throw new Error('conversation.resolveImage: service was disposed before loading completed')

@@ -22,7 +22,9 @@
   position: sticky;
   top: 0;
   z-index: 6;
-  background-color: var(--dsw-alias-bg-base);
+  /* The sticky wrapper shows wherever the block's rounded top clips while
+   * scrolling: it must read as the surface the block sits on, not the page. */
+  background-color: var(--dsw-surface-pane);
   border-top-left-radius: var(--dsl-code-block-border-radius);
   border-top-right-radius: var(--dsl-code-block-border-radius);
 }

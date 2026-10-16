@@ -47,11 +47,14 @@ export interface ISession {
   /**
    * Resolve one durable image referenced by this session.
    * @param attachmentId - opaque id found in the folded session log.
+   * @param options - `variant: 'model'` asks for the bytes as the model route
+   *   that carried the image received them; the default is the stored original.
    * @returns the authenticated reference and decoded bytes.
    */
   readAttachment(
     attachmentId: AttachmentIdType,
-  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
+    options?: { variant?: 'original' | 'model' },
+  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array; projected?: boolean }>>
   /**
    * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.

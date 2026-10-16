@@ -483,6 +483,12 @@ interface LlmResolvedModelInfo extends LlmModelInfo {
   defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
+  /**
+   * The projection request images are prepared under on this route, when the
+   * model accepts image input: the bytes a consumer shows as "what the model
+   * sees" must be the product of this policy, not of the stored originals.
+   */
+  imageRequestPolicy?: ImageRequestPolicy
 }
 ```
 

@@ -1,0 +1,4 @@
+/* Result images sit under the row header, inside the call row's left padding. */
+.root {
+  padding: 4px 0 2px;
+}

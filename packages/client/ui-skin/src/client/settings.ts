@@ -28,6 +28,8 @@ export interface SkinSettings {
   panelOpacity: number
   /** Composer card fill opacity while a backdrop shows (0..1). */
   composerOpacity: number
+  /** User message bubble fill opacity while a backdrop shows (0..1). */
+  bubbleOpacity: number
   /** Menu and popover fill opacity while a backdrop shows (0..1). */
   popoverOpacity: number
   /** Settings dialog and Modal fill opacity while a backdrop shows (0..1); 1 is opaque whatever alpha the skin bakes in. */
@@ -46,7 +48,8 @@ export interface NumericRange {
 export const RANGES = {
   wallpaperBlur: { min: 0, max: 40 },
   panelOpacity: { min: 0.4, max: 1 },
-  composerOpacity: { min: 0.4, max: 1 },
+  composerOpacity: { min: 0, max: 1 },
+  bubbleOpacity: { min: 0.2, max: 1 },
   popoverOpacity: { min: 0.6, max: 1 },
   dialogOpacity: { min: 0.6, max: 1 },
 } as const satisfies Record<string, NumericRange>
@@ -57,7 +60,8 @@ export const DEFAULT_SETTINGS: SkinSettings = Object.freeze({
   wallpaper: '',
   wallpaperBlur: 0,
   panelOpacity: 0.82,
-  composerOpacity: 0.9,
+  composerOpacity: 0.85,
+  bubbleOpacity: 0.85,
   popoverOpacity: 0.96,
   dialogOpacity: 1,
   material: 'off',
@@ -105,6 +109,7 @@ export function normalizeSettings(raw: Partial<Record<keyof SkinSettings, unknow
     wallpaperBlur: Math.round(clampField(source.wallpaperBlur, RANGES.wallpaperBlur, DEFAULT_SETTINGS.wallpaperBlur)),
     panelOpacity: clampField(source.panelOpacity, RANGES.panelOpacity, DEFAULT_SETTINGS.panelOpacity),
     composerOpacity: clampField(source.composerOpacity, RANGES.composerOpacity, DEFAULT_SETTINGS.composerOpacity),
+    bubbleOpacity: clampField(source.bubbleOpacity, RANGES.bubbleOpacity, DEFAULT_SETTINGS.bubbleOpacity),
     popoverOpacity: clampField(source.popoverOpacity, RANGES.popoverOpacity, DEFAULT_SETTINGS.popoverOpacity),
     dialogOpacity: clampField(source.dialogOpacity, RANGES.dialogOpacity, DEFAULT_SETTINGS.dialogOpacity),
     material: MATERIALS.find(material => material === source.material) ?? DEFAULT_SETTINGS.material,

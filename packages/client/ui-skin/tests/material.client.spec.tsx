@@ -31,11 +31,17 @@ describe('MaterialRow', () => {
     expect(screen.queryByRole('note')).toBeNull()
   })
 
-  it('shows the four opacities as whole percentages within their ranges, the dialog fully opaque by default', () => {
+  it('shows the five opacities as whole percentages within their ranges, the dialog fully opaque by default', () => {
     mount()
     expect(slider(zh['material.panel']).value).toBe('82')
     expect(slider(zh['material.panel']).min).toBe('40')
-    expect(slider(zh['material.composer']).value).toBe('90')
+    expect(slider(zh['material.composer']).value).toBe('85')
+    expect(slider(zh['material.composer']).min).toBe('0')
+    expect(slider(zh['material.composer']).max).toBe('100')
+    expect(slider(zh['material.bubble']).value).toBe('85')
+    expect(slider(zh['material.bubble']).min).toBe('20')
+    expect(slider(zh['material.bubble']).max).toBe('100')
+    expect(zh['material.bubble']).toBe('消息气泡不透明度')
     expect(slider(zh['material.popover']).value).toBe('96')
     expect(slider(zh['material.popover']).min).toBe('60')
     expect(slider(zh['material.popover']).max).toBe('100')
@@ -53,6 +59,8 @@ describe('MaterialRow', () => {
     expect(m.setSetting).toHaveBeenLastCalledWith('panelOpacity', 0.55)
     fireEvent.change(slider(zh['material.composer']), { target: { value: '70' } })
     expect(m.setSetting).toHaveBeenLastCalledWith('composerOpacity', 0.7)
+    fireEvent.change(slider(zh['material.bubble']), { target: { value: '64' } })
+    expect(m.setSetting).toHaveBeenLastCalledWith('bubbleOpacity', 0.64)
     fireEvent.change(slider(zh['material.popover']), { target: { value: '99' } })
     expect(m.setSetting).toHaveBeenLastCalledWith('popoverOpacity', 0.99)
     fireEvent.change(slider(zh['material.dialog']), { target: { value: '85' } })

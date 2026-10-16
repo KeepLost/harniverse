@@ -7,10 +7,12 @@
  * Contracts that keep the result well-formed:
  *  - a surface token is rebound to a `color-mix()` over the alias it replaces,
  *    never over itself (a self-reference is a cycle and resolves to nothing);
- *  - the dialog surface is mixed over the opaque companion of its alias, so a
- *    dialog opacity of 1 is opaque even when the skin bakes alpha into the
- *    alias; every companion read falls back to the alias itself where the
- *    engine lacks relative colour syntax (see ui-theme `skin-seams.css`);
+ *  - the dialog and composer surfaces are mixed over an opaque companion, so
+ *    an opacity of 1 is a solid surface even when the skin bakes alpha into an
+ *    alias (the composer over the raised layer, whose wash alias could not
+ *    carry a visible range); every companion read falls back to the alias
+ *    itself where the engine lacks relative colour syntax (see ui-theme
+ *    `skin-seams.css`);
  *  - without a backdrop nothing about surfaces or materials is overridden, so
  *    the product keeps its default panes — except while the system forces
  *    opaque rendering, when the pane, sidebar, popover, and dialog surfaces are
@@ -46,6 +48,14 @@ export interface OverrideInput {
 const DIALOG_ALIAS = '--dsw-alias-bg-layer-2'
 const OPAQUE_DIALOG = '--dsw-opaque-dialog'
 
+/**
+ * The composer mixes over the opaque raised layer, not over its wash alias: a
+ * white 8% wash mixed over transparent only ever moves between 3% and 8% of
+ * paint, so its slider could change nothing on the dark skins. Over the raised
+ * layer, 100% is a solid card in every skin and the low end stays a wash.
+ */
+const OPAQUE_COMPOSER = '--dsw-opaque-composer'
+
 /** A value that is the same in both palette modes. */
 function both(value: string): ThemeTokenModes {
   return { light: value, dark: value }
@@ -76,6 +86,11 @@ function dialogSurface(opacity: number): ThemeTokenModes {
   return both(`color-mix(in srgb, ${opaqueRead(OPAQUE_DIALOG, DIALOG_ALIAS)} ${percent(opacity)}, transparent)`)
 }
 
+/** The composer card at `opacity` over the opaque raised layer. */
+function composerSurface(opacity: number): ThemeTokenModes {
+  return both(`color-mix(in srgb, ${opaqueRead(OPAQUE_COMPOSER, DIALOG_ALIAS)} ${percent(opacity)}, transparent)`)
+}
+
 /**
  * Compute the override layer.
  * @param input - settings, whether a backdrop is active, and whether the system forces opaque rendering.
@@ -104,7 +119,8 @@ export function computeOverrides(input: OverrideInput): ThemeTokenOverrides {
   if (!backdropActive) return layer
   layer['--dsw-surface-pane'] = translucent('--dsw-alias-bg-base', settings.panelOpacity)
   layer['--dsw-surface-sidebar'] = translucent('--dsw-specific-sidebar-fill', settings.panelOpacity)
-  layer['--dsw-surface-composer'] = translucent('--dsw-specific-input-major', settings.composerOpacity)
+  layer['--dsw-surface-composer'] = composerSurface(settings.composerOpacity)
+  layer['--dsw-surface-bubble'] = translucent('--dsw-specific-bubble', settings.bubbleOpacity)
   layer['--dsw-surface-popover'] = translucent('--dsw-specific-menu', settings.popoverOpacity)
   layer['--dsw-surface-dialog'] = dialogSurface(settings.dialogOpacity)
   if (settings.material !== 'off') {
@@ -113,6 +129,10 @@ export function computeOverrides(input: OverrideInput): ThemeTokenOverrides {
     layer['--dsw-material-composer-filter'] = filter
     layer['--dsw-material-popover-filter'] = filter
     layer['--dsw-material-dialog-filter'] = filter
+    // With glass behind the composer, its docking seat clears the way: the
+    // conversation paints a blurred plate over the seat instead of the pane
+    // fill, so the wallpaper shows through and the card is the only layer.
+    layer['--dsw-surface-composer-seat'] = both('transparent')
   }
   return layer
 }

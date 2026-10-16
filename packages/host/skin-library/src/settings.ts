@@ -35,8 +35,10 @@ export interface UiSkinSettings {
   wallpaperBlur: number
   /** Pane and sidebar fill opacity while a backdrop paints behind the frame. */
   panelOpacity: number
-  /** Composer fill opacity. */
+  /** Composer card fill opacity. */
   composerOpacity: number
+  /** User message bubble fill opacity. */
+  bubbleOpacity: number
   /** Popover fill opacity. */
   popoverOpacity: number
   /** Settings dialog and Modal fill opacity; 1 is fully opaque whatever alpha the skin bakes in. */
@@ -51,7 +53,8 @@ export const UiSkinSettingsSchema: z<UiSkinSettings> = z.object({
   wallpaper: z.string().pattern(/^(?:[0-9a-f]{64})?$/).default(''),
   wallpaperBlur: z.number().step(1).min(0).max(40).default(0),
   panelOpacity: z.number().step(0.01).min(0.4).max(1).default(0.82),
-  composerOpacity: z.number().step(0.01).min(0.4).max(1).default(0.9),
+  composerOpacity: z.number().step(0.01).min(0).max(1).default(0.85),
+  bubbleOpacity: z.number().step(0.01).min(0.2).max(1).default(0.85),
   popoverOpacity: z.number().step(0.01).min(0.6).max(1).default(0.96),
   dialogOpacity: z.number().step(0.01).min(0.6).max(1).default(1),
   material: z.union([...SKIN_MATERIALS]).default('off'),

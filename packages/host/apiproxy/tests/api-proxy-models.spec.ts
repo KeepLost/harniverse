@@ -7,9 +7,11 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { CallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
   LlmResolvedModelInfo, StreamChunk,
@@ -335,6 +337,149 @@ describe('Web session model selection', () => {
     expect(readImage).not.toHaveBeenCalled()
     await ctx.fiber.dispose()
   })
+
+  it('serves the model-side view when the carrying route declares an image policy', async () => {
+    const { ctx, sessionId } = await harness()
+    const ref = {
+      attachmentId: 'att-vision', mediaType: 'image/png' as const, bytes: 2, width: 1, height: 1,
+    }
+    const readImage = vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1, 2) }))
+    const policy = { maxPixels: 64, maxBytes: 16 }
+    const readImageRequest = vi.fn(() => Promise.resolve({
+      mediaType: 'image/jpeg' as const, bytes: 3, width: 8, height: 8, data: Uint8Array.of(7, 8, 9),
+    }))
+    ctx.provide('attachments', { readImage, readImageRequest } as never)
+    ctx.llm.registerAdapter(['vision-router'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, imageRequestPolicy: policy })
+      }
+    }('Vision Router', []))
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    // A tool result carries the image; the header appended after it is the
+    // route that next carried it (the log ends without a step boundary, so
+    // the current header stands in).
+    const session = ctx.sessions.get(sessionId)
+    if (session === undefined) throw new Error('harness session missing')
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('c-vision'),
+        content: [{ type: 'image', attachment: ref }] as never,
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('request/header', {
+      header: { config: { provider: 'vision-router', model: 'seer' } },
+      reason: 'initial',
+    })
+
+    const projected = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-vision' as never, variant: 'model',
+    }))
+    expect(projected.result).toMatchObject({
+      ok: true,
+      value: {
+        attachment: { ...ref, mediaType: 'image/jpeg', bytes: 3, width: 8, height: 8 },
+        data: 'BwgJ',
+        projected: true,
+      },
+    })
+    expect(readImageRequest.mock.calls[0]?.slice(0, 2)).toEqual([ref, policy])
+    await ctx.fiber.dispose()
+  })
+
+  it('serves the stored original, marked unprojected, when the route declares no image policy', async () => {
+    const { ctx, sessionId } = await harness()
+    const ref = {
+      attachmentId: 'att-plain', mediaType: 'image/png' as const, bytes: 2, width: 1, height: 1,
+    }
+    const readImage = vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1, 2) }))
+    const readImageRequest = vi.fn()
+    ctx.provide('attachments', { readImage, readImageRequest } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    const session = ctx.sessions.get(sessionId)
+    if (session === undefined) throw new Error('harness session missing')
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('c-plain'),
+        content: [{ type: 'image', attachment: ref }] as never,
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('request/header', {
+      header: { config: { provider: 'deepseek-official', model: 'deepseek-chat' } },
+      reason: 'initial',
+    })
+
+    const original = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-plain' as never, variant: 'model',
+    }))
+    expect(original.result).toMatchObject({
+      ok: true,
+      value: { attachment: ref, data: 'AQI=', projected: false },
+    })
+    expect(readImageRequest).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
+  it('falls back to the original when projection itself is unsupported or the route fails', async () => {
+    const { ctx, sessionId } = await harness()
+    const ref = {
+      attachmentId: 'att-fallback', mediaType: 'image/png' as const, bytes: 2, width: 1, height: 1,
+    }
+    const readImage = vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1, 2) }))
+    const readImageRequest = vi.fn()
+      .mockRejectedValueOnce(new AttachmentError('no projection here', 'ATTACHMENT_PROJECTION_UNSUPPORTED'))
+      .mockRejectedValueOnce(new LlmError('route offline', 'MODEL_UNAVAILABLE'))
+    ctx.provide('attachments', { readImage, readImageRequest } as never)
+    ctx.llm.registerAdapter(['vision-router'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({
+          provider, id: model, name: model, imageRequestPolicy: { maxPixels: 64, maxBytes: 16 },
+        })
+      }
+    }('Vision Router', []))
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    const session = ctx.sessions.get(sessionId)
+    if (session === undefined) throw new Error('harness session missing')
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('c-fallback'),
+        content: [{ type: 'image', attachment: ref }] as never,
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('request/header', {
+      header: { config: { provider: 'vision-router', model: 'seer' } },
+      reason: 'initial',
+    })
+
+    const unsupported = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-fallback' as never, variant: 'model',
+    }))
+    expect(unsupported.result).toMatchObject({
+      ok: true, value: { attachment: ref, data: 'AQI=', projected: false },
+    })
+    const routeDown = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-fallback' as never, variant: 'model',
+    }))
+    expect(routeDown.result).toMatchObject({
+      ok: true, value: { attachment: ref, data: 'AQI=', projected: false },
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',

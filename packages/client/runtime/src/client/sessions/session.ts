@@ -295,20 +295,28 @@ export class Session implements SessionFace {
   /**
    * Resolve one image referenced by this session into browser-consumable bytes.
    * @param attachmentId - opaque id found in the folded session log.
+   * @param options - `variant: 'model'` asks for the bytes as the model route
+   *   that carried the image received them; the default is the stored original.
    * @returns the authenticated reference and decoded bytes.
    */
   async readAttachment(
     attachmentId: AttachmentIdType,
-  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>> {
+    options: { variant?: 'original' | 'model' } = {},
+  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array; projected?: boolean }>> {
     try {
       const result = (await this.api.sessions.attachment({
         sessionId: this.sessionId,
         attachmentId,
+        ...(options.variant === undefined ? {} : { variant: options.variant }),
       })).result
       if (!result.ok) return result
       const binary = atob(result.value.data)
       const data = Uint8Array.from(binary, char => char.charCodeAt(0))
-      return { ok: true, value: { attachment: result.value.attachment, data } }
+      const { attachment, projected } = result.value
+      return {
+        ok: true,
+        value: { attachment, data, ...(projected === undefined ? {} : { projected }) },
+      }
     } catch (error) {
       return transportError(error)
     }

@@ -293,6 +293,22 @@ function reasoningInfo(
 }
 
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
+/**
+ * The projection request images are prepared under on this route. Shared with
+ * `resolveModel`, so a consumer showing "what the model sees" resolves the
+ * exact bytes the request path itself would prepare.
+ * @param profile - the resolved provider profile holding the configured budgets.
+ * @param model - exact model id.
+ * @returns the route's request-image policy.
+ */
+function requestImagePolicy(profile: ResolvedPiAiProviderProfile, model: string): ImageRequestPolicy {
+  const budget = profile.configuredImageBudgets.get(model)
+  return {
+    maxPixels: budget?.pixelBudget === 'low' ? 512 * 512 : budget?.pixelBudget ?? 2_048 * 2_048,
+    maxBytes: budget?.maxBytes ?? 1024 * 1024,
+  }
+}
+
 function requestHeaders(
   headers: Readonly<Record<string, string>> | undefined,
   credential: ResolvedPiAiCredential | undefined,
@@ -406,6 +422,10 @@ export class PiAiAdapter extends LlmAdapter {
         context: { contextWindow: resolvedModel.contextWindow },
         maxOutputTokens: resolvedModel.maxTokens,
         ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
+        // The projection policy rides only with an advertised image
+        // capability: without one there is no "what the model sees" to
+        // resolve.
+        ...resolvedModel.input.includes('image') ? { imageRequestPolicy: requestImagePolicy(profile, model) } : {},
         ...reasoningInfo(resolvedModel, defaultLevel),
       }
     })
@@ -512,13 +532,7 @@ export class PiAiAdapter extends LlmAdapter {
       if (containsImage && attachments === undefined) {
         throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
       }
-      // Request images project under this model's configured budgets, falling
-      // back to the shared defaults (2048² pixels, 1 MiB; 512² low detail).
-      const budget = profile.configuredImageBudgets.get(options.model)
-      const imagePolicy: ImageRequestPolicy = {
-        maxPixels: budget?.pixelBudget === 'low' ? 512 * 512 : budget?.pixelBudget ?? 2_048 * 2_048,
-        maxBytes: budget?.maxBytes ?? 1024 * 1024,
-      }
+      const imagePolicy = requestImagePolicy(profile, options.model)
       const context = attachments === undefined
         ? toPiContext(options, this.config.onReplayDegrade === undefined ? undefined : (reason) => {
           this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })

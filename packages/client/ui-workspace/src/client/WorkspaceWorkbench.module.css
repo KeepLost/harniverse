@@ -137,35 +137,26 @@
   font: var(--dsw-font-xs-strong-13);
 }
 
-/* Pinned per-view action rows: the navigator body is the scroll container, so
-   each section's header sticks to its top edge (offset by the body's 6px/8px
-   padding, which the negative margins reclaim) and rows scroll under the
-   opaque layer-2 surface — the same pinning the preview's CSV table header
-   uses on this column. */
+/* Per-view action rows pin by structure, not by paint: each section renders
+   its controls in a static header row and scrolls its content in a sibling
+   region (`.navigatorScroll`), so rows are clipped — and fade out under the
+   mask — at the scrollport edge instead of sliding under an opaque band. A
+   translucent column keeps one unbroken surface, and no fill has to chase the
+   wallpaper, the material, or a skin's own translucency. */
 .filesToolbar {
-  position: sticky;
-  top: -6px;
-  z-index: 1;
   display: flex;
   flex: none;
   justify-content: flex-end;
   gap: 4px;
-  margin: -6px -8px 0;
   padding: 4px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
-  background: var(--dsw-alias-bg-layer-2);
 }
 
 .searchHeader,
 .changesHeader {
-  position: sticky;
-  top: -6px;
-  z-index: 1;
   flex: none;
-  margin: -6px -8px 0;
   padding: 6px 8px 0;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
-  background: var(--dsw-alias-bg-layer-2);
 }
 
 .navigator {
@@ -177,10 +168,35 @@
 }
 
 .navigatorBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* A section's scrolling region: the header above stays put, so rows are cut
+   at this edge. The 8px top fade dissolves them into the column just before
+   the clip — a mask instead of a fill, so a translucent column never gains a
+   band (the sidebar's session list fades the same way). */
+.navigatorScroll,
+.changesScroll {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 6px 8px 12px;
+  padding: 8px 8px 12px;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 8px);
+}
+
+.navigatorScroll {
+  padding-top: 6px;
+}
+
+.navigatorPanel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 
 /* Tree rows mirror the sidebar cell: 34px, radius 8, 22px indent step. */
@@ -328,7 +344,8 @@
 .searchPanel,
 .changesPanel {
   display: flex;
-  min-height: 100%;
+  flex: 1;
+  min-height: 0;
   flex-direction: column;
 }
 
@@ -441,7 +458,16 @@
   font: var(--dsw-font-xxxs-11);
 }
 
-.searchResults,
+.searchResults {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: auto;
+  padding: 4px 0 12px;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 8px);
+}
+
 .changeList,
 .commitList {
   display: flex;
@@ -865,7 +891,7 @@
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-base);
+  background: transparent;
   font: var(--dsw-font-xxs-12);
 }
 
@@ -886,7 +912,7 @@
 
 .emptyState {
   display: flex;
-  height: 100%;
+  flex: 1;
   min-height: 180px;
   flex-direction: column;
   align-items: center;

@@ -105,7 +105,8 @@
 | `wallpaper` | `string` | `''` | 空或 64 位小写十六进制（SHA-256） |
 | `wallpaperBlur` | `number` | `0` | 0 到 40，步长 1（px） |
 | `panelOpacity` | `number` | `0.82` | 0.4 到 1，步长 0.01；背景之上的面板与侧栏填充 |
-| `composerOpacity` | `number` | `0.9` | 0.4 到 1，步长 0.01 |
+| `composerOpacity` | `number` | `0.85` | 0 到 1，步长 0.01 |
+| `bubbleOpacity` | `number` | `0.85` | 0.2 到 1，步长 0.01；聊天消息气泡在背景之上的填充 |
 | `popoverOpacity` | `number` | `0.96` | 0.6 到 1，步长 0.01 |
 | `dialogOpacity` | `number` | `1` | 0.6 到 1，步长 0.01；背景之上的设置面板与 `Modal` 对话框填充；1 表示完全不透明，与皮肤烘焙的透明度无关 |
 | `material` | `'off' \| 'frosted' \| 'liquid'` | `'off'` | 玻璃质感 |

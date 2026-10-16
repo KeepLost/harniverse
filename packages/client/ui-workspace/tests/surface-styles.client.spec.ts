@@ -55,6 +55,19 @@ describe('WorkspaceWorkbench.module.css surface', () => {
     expect(band.get('border-bottom')).toBe('1px solid var(--dsw-alias-border-l1)')
   })
 
+  it('pins the section headers by structure, not by an opaque band', () => {
+    for (const selector of ['.filesToolbar', '.searchHeader', '.changesHeader']) {
+      const header = declarations(WORKBENCH, selector)
+      expect(header.has('background'), selector).toBe(false)
+      expect(header.has('position'), selector).toBe(false)
+      // Each header feeds a sibling scroll region that fades its rows instead of painting under them.
+      expect(declarations(WORKBENCH, '.navigatorScroll').get('mask-image'))
+        .toBe('linear-gradient(to bottom, transparent 0, #000 8px)')
+    }
+    expect(declarations(WORKBENCH, '.searchResults').get('mask-image'))
+      .toBe('linear-gradient(to bottom, transparent 0, #000 8px)')
+  })
+
   it('draws the segmented control as a hairline track with the selection on an alpha fill', () => {
     const track = declarations(WORKBENCH, '.segmented')
     expect(track.has('background')).toBe(false)
@@ -74,7 +87,7 @@ describe('WorkspaceWorkbench.module.css surface', () => {
   })
 
   it('declares no opaque alias fill on any control it seats on the translucent column', () => {
-    for (const selector of ['.sectionTabs', '.sectionTab', '.segmented', '.segmented button', '.segmented button[data-active]', '.searchBox', '.filterField input']) {
+    for (const selector of ['.sectionTabs', '.sectionTab', '.segmented', '.segmented button', '.segmented button[data-active]', '.searchBox', '.filterField input', '.treeCreateInput']) {
       expect(isTranslucentFill(declarations(WORKBENCH, selector).get('background')), selector).toBe(true)
     }
   })

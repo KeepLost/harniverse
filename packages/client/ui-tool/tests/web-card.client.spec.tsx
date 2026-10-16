@@ -9,6 +9,7 @@
 // collapsed by default and appears only once the whole row is expanded.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import {
   createSnapshotStore, EMPTY_CONVERSATION_VIEWS,
@@ -39,6 +40,9 @@ const SID = 's1' as SessionId
 /** Locale seat for the card render sites (GenericToolCard, DetailsPanel), as the sibling suites build it. */
 const t = makeTranslate(zh, commonZh)
 const tTool = makeTranslate(zhTool)
+
+/** The model-side loader the details panel hands each result image. */
+const loadModelImage = vi.fn(() => Promise.resolve('data:image/jpeg;base64,AA=='))
 
 const SEARCH_ARGS = '{"queries":["deepseek harness"]}'
 const FETCH_ARGS = '{"url":"https://example.com/page"}'
@@ -129,7 +133,7 @@ describe('webCardModel', () => {
 
 describe('chat row web body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode, toolName: string): ToolCallOwnerProps => ({
-    callId: block.callId, toolName, block, openFile: vi.fn(), tTool,
+    callId: block.callId, toolName, block, openFile: vi.fn(), loadModelImage, tTool,
   })
   // WebRow reads only toolName/block off the full runtime share plus the locale
   // seat; the standard kit is unused, so the cast supplies the owner slice and
@@ -206,6 +210,15 @@ describe('chat row web body', () => {
     }), 'echo')} t={t} />)
     expect(view.container.querySelector('[data-web]')).toBeNull()
   })
+
+  it('a result image renders under the collapsed WebRow through the model-side loader', async () => {
+    const ref = { attachmentId: AttachmentId('att-shot'), mediaType: 'image/png' as const, bytes: 4, width: 2, height: 2 }
+    const block = settledFetch({ content: [{ type: 'text', text: 'fetched' }, { type: 'image', attachment: ref }] })
+    const view = render(<WebRow {...rowProps(block, 'web_fetch')} />)
+    // Inline without expanding: the image is the call's own answer.
+    const image = await view.findByRole('img')
+    expect(image.getAttribute('alt')).toBe(t('image.label'))
+  })
 })
 
 describe('DetailsPanel web Output section', () => {
@@ -226,6 +239,7 @@ describe('DetailsPanel web Output section', () => {
         SessionProvider={SessionProviderStub}
         renderSlot={renderToolDetails(t)}
         sessionId={SID}
+        loadModelImage={loadModelImage}
         useSession={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(sessions)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
@@ -287,6 +301,21 @@ describe('DetailsPanel web Output section', () => {
     expect(view.container.querySelector('[data-web]')).toBeNull()
     const output = view.getByText('输出').closest('section')
     expect(output?.querySelector('pre')?.textContent).toContain('search text')
+  })
+
+  it('renders a result image in the details panel through the model-side loader', async () => {
+    const ref = { attachmentId: AttachmentId('att-shot'), mediaType: 'image/png' as const, bytes: 4, width: 2, height: 2 }
+    const view = mount(snapshot({
+      nodes: [settledSearch({
+        callView: null, resultView: null,
+        content: [{ type: 'text', text: 'shot' }, { type: 'image', attachment: ref }],
+      })],
+    }), { turnSeq: 10, callId: 'c1', toolName: 'web_search' })
+    const image = await view.findByRole('img')
+    // The panel bridges the session id; the loader itself resolves the
+    // model-side bytes for the referenced image.
+    expect(loadModelImage).toHaveBeenCalledWith(SID, ref)
+    expect(image.getAttribute('alt')).toBe(t('image.label'))
   })
 })
 

@@ -121,7 +121,7 @@ profile 的 `models` 列表是*替换*该路由已安装 catalog，而不是扩�
 
 注册的分节还为一个仅限 Host 的快照定义了 `materialize` 钩子（`ctx.settings.materialize('llm-pi-ai')`，由 remote-host 协调器的同步消费）。对未点名 `apiKeyEnv` 的 profile，该钩子询问提供方自己的 api-key resolver：凭据服务或启动环境能应答它的哪个环境名（按同一优先级），并把胜出的名字连同其形态固定进快照——提供方解析出的 auth 携带 `authorization` 标头时为 `bearer`，否则为 `api-key`。跨入快照的只有引用名，绝不是值。什么都解析不出的路由——包括因缺少相邻账户值而被 resolver 拒绝单一密钥的提供方——固定为 `authMode: 'none'`，它会禁用被同步远端的环境再发现，使远端无法用自己环境中某个无关密钥完成认证。显式的 `apiKeyEnv` 绝不会被这次探测二次猜测。
 
-适配器通过 `ctx.llm.listModels(provider)` 公开每条已配置路由的模型。这是从请求路径所用的同一个 pi-ai `Models` 集合读取的提供方无关 selector 元数据，因此发现不会创建第二个模型注册表。`ctx.llm.resolveModelInfo(provider, model)` 会执行一次精确 descriptor 查找，并返回其身份、上下文窗口、已配置输出上限和可选思考级别，让权威元数据保留在拥有路由的适配器上，而非消费方。模型**已配置**的 `maxTokens` 会成为 seam 的 `defaultMaxTokens`，因此未点名输出上限的请求会携带部署选定的那一个；而从已安装 catalog 继承来的值是模型的输出**能力**，绝不会自行变成请求默认值。
+适配器通过 `ctx.llm.listModels(provider)` 公开每条已配置路由的模型。这是从请求路径所用的同一个 pi-ai `Models` 集合读取的提供方无关 selector 元数据，因此发现不会创建第二个模型注册表。`ctx.llm.resolveModelInfo(provider, model)` 会执行一次精确 descriptor 查找，并返回其身份、上下文窗口、已配置输出上限和可选思考级别，让权威元数据保留在拥有路由的适配器上，而非消费方。模型**已配置**的 `maxTokens` 会成为 seam 的 `defaultMaxTokens`，因此未点名输出上限的请求会携带部署选定的那一个；而从已安装 catalog 继承来的值是模型的输出**能力**，绝不会自行变成请求默认值。具备图片能力的模型（pi-ai `input` 包含 `image`）还会发布该路由的 `imageRequestPolicy`，消费方据此投影出该路由自身准备的确切请求字节。
 
 携带推理元数据的模型——来自已安装 catalog，或来自其条目的 `reasoningEfforts`——会公开 pi-ai 有序的 `getSupportedThinkingLevels(model)` 结果，不经筛选或规范化，其中包括 `off`，以及模型对 `xhigh` 或 `max` 的特定支持。Harness 将每个规范 pi-ai 级别公开为不透明 ID；提供方／模型在协议格式中的表示仍保留在 pi-ai 的 `thinkingLevelMap` 中。
 

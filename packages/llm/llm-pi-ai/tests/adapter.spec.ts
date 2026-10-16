@@ -662,6 +662,9 @@ describe('provider profile lifecycle', () => {
     expect(models.every(model => model.provider === 'openai')).toBe(true)
     const info = await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')
     expect(typeof info.context?.contextWindow).toBe('number')
+    // Image-capable models expose the projection policy the request path
+    // itself uses, so a consumer can resolve "what the model sees".
+    expect(info.imageRequestPolicy).toEqual({ maxPixels: 2_048 * 2_048, maxBytes: 1_048_576 })
   })
 
   it('exposes pi-ai model thinking levels verbatim without inventing a provider default', async () => {

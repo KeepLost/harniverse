@@ -35,7 +35,7 @@ function preparation(name: string): PreparationProps {
       argsRaw: '', callView: null, subCalls: [],
     } satisfies RunningToolCall,
     useSession,
-    t, tTool, openFile: vi.fn(),
+    t, tTool, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==',
   } as unknown as PreparationProps
 }
 

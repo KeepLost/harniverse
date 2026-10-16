@@ -9,6 +9,7 @@
 // The block union's defining home is runtime (fold-product types); this
 // contract only forwards it (type-definition authority stays with the layer
 // that produces the values).
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 
 export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -102,6 +103,8 @@ export interface ToolRowModel {
   body: string | null
   /** Flattened result text ({@link resultText}); null while running or when the result carries no text. */
   output: string | null
+  /** Result images to render inline (the model-side view); empty while running. */
+  images: readonly ImageAttachmentRef[]
   /** First line of the result text on an error row; null for every other state. */
   errorSummary: string | null
   state: ToolRowState
@@ -109,8 +112,9 @@ export interface ToolRowModel {
 
 /**
  * Flatten a settled result's content blocks to display text: text blocks
- * verbatim, other block shapes as pretty JSON. Empty content on a failed call
- * falls back to the structured error's `name: code` line.
+ * verbatim, other non-image block shapes as pretty JSON (an image block is
+ * shown by {@link resultImages}, never as JSON). Empty content on a failed
+ * call falls back to the structured error's `name: code` line.
  * @param node - the settled result node.
  * @returns the flattened result text (may be empty).
  */
@@ -118,12 +122,21 @@ export function resultText(node: ToolResultNode): string {
   const parts: string[] = []
   for (const block of node.content) {
     if (block.type === 'text') parts.push(block.text)
-    else parts.push(JSON.stringify(block, null, 2))
+    else if (block.type !== 'image') parts.push(JSON.stringify(block, null, 2))
   }
   if (parts.length === 0 && node.error !== undefined) {
     parts.push(`${node.error.name}: ${node.error.code}`)
   }
   return parts.join('\n')
+}
+
+/**
+ * Collect the settled result's image references in content order.
+ * @param node - the settled result node.
+ * @returns the image blocks' attachments; empty when the result carries none.
+ */
+export function resultImages(node: ToolResultNode): readonly ImageAttachmentRef[] {
+  return node.content.flatMap(block => block.type === 'image' ? [block.attachment] : [])
 }
 
 function parseArgs(argsRaw: string): unknown {
@@ -249,6 +262,7 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
     body: argsRaw === null ? null : deriveBody(variant, argsRaw),
     output,
     errorSummary,
+    images: done ? resultImages(block) : [],
     state,
   }
 }

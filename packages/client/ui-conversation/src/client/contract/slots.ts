@@ -382,6 +382,12 @@ export interface ChatNodeOwnerProps {
   forkAt: (seq: number) => void
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
+  /**
+   * Resolve the same image the way the model route received it (the projected
+   * request-image bytes; the stored original when the route cannot be
+   * resolved) for tool-result display.
+   */
+  loadModelImage: (attachment: ImageAttachmentRef) => Promise<string>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
   /** Where a link in assistant prose opens. */
   externalLinks: MarkdownExternalLinks
@@ -397,6 +403,8 @@ export interface DetailsToolOwnerProps {
   block: ToolCallBlock
   /** Session workspace root for card cwd and relative-path display. */
   cwd?: string | undefined
+  /** Resolve the image the model route received, for result-image display. */
+  loadModelImage: (attachment: ImageAttachmentRef) => Promise<string>
 }
 
 /**
@@ -740,6 +748,12 @@ export interface ChatViewInjected {
   loadOlder: () => void
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
+  /**
+   * Resolve the same image the way the model route received it (the projected
+   * request-image bytes; the stored original when the route cannot be
+   * resolved) for tool-result display.
+   */
+  loadModelImage: (attachment: ImageAttachmentRef) => Promise<string>
   /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
   inspectCall: (callId: CallId) => void
   /**
@@ -790,6 +804,8 @@ export type ChatViewSlotProps =
 export interface DetailsInjected {
   /** Close the details panel (layout geometry stays with ctx.layout). */
   closeDetails: () => void
+  /** Resolve the image the model route received, for result-image display. */
+  loadModelImage: (sessionId: SessionId, attachment: ImageAttachmentRef) => Promise<string>
 }
 
 /** Full details-slot props: selection store, Tool output seat, injected close callback, and locale. */
