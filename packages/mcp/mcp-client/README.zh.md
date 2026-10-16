@@ -35,6 +35,15 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 模型会看到 `mcp__github__create_issue`、`mcp__web__search` 等工具，这与 Claude Code 和 Codex 使用的服务器限定形状相同。HMR（热模块替换）支持热替换：编辑配置项会触发断开 + 重新连接，无需重启进程；`serverName` 不变时会生成完全相同的工具名称。
 
+## 共享连接
+
+上面的直接 `cordis.yml` 配置行是独立模式：一个插件实例拥有自己的传输层，并在自己的 `ctx.tools` 上注册工具。本包还导出由 `dsh-mcp-user-config` 组合的宿主共享连接核心：
+
+- `McpConnectionsRegistry`（服务名 `mcpConnections`，合并为 `ctx.mcpConnections`）为整个宿主上的每个已配置服务器维护一个监督器，以设置 id 为键。监督器只负责传输：连接、重连与工具清单同步；它从不自行注册工具。
+- `McpOwnerPlugin` 将一个共享监督器作为子 fiber 挂载（配置 = 一条服务器行及其设置 `serverId`）。启动失败由所属机群遏制，与 `failOnStartupError` 无关——该开关只作用于独立模式的激活；该行的状态仍通过注册表暴露。
+- `McpRegistrarPlugin` 按 `serverId` 附接到一条已在运行的共享连接上，并把工具清单投影到注册器自己的作用域 `ctx.tools` 层，公共命名、暴露与能力规则与独立模式完全一致。多个注册器——每个预设生成一个——可以共乘同一条连接；它们的成员选择彼此独立，而传输与发现只付出一次代价。
+- `exposeScopedServer` 是两种模式共享的唯一暴露路径：服务器提示上下文、能力适配器与资源发布都派生自相同的描述符，因此注册器的模型可见表面与同一服务器的独立实例逐字节一致。
+
 ## 配置
 
 | 字段 | 传输 | 必填 | 描述 |

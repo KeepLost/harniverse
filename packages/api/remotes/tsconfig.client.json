@@ -75,6 +75,9 @@
       "path": "../../chat/chat-manager"
     },
     {
+      "path": "../../mcp/mcp-user-config"
+    },
+    {
       "path": "../../typert/protocol"
     }
   ]

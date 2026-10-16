@@ -24,8 +24,8 @@ import type { JsonValue } from '@deepseek-ai/dsh-tools'
 import { boundedResourceResult, MAX_RESOURCE_RESULT_BYTES } from '@deepseek-ai/dsh-mcp-resources'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
-import { cursorGuard, syncTools } from './tools.ts'
-import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
+import { cursorGuard, listToolDescriptors, publicToolName, RawCallToolResultSchema, syncTools } from './tools.ts'
+import type { McpToolDescriptor, ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import type { ServerContext } from './server-context.ts'
 import type { Config } from './index.ts'
 
@@ -130,6 +130,72 @@ export interface ConnectionHandle extends ServerContext {
   dispose(): Promise<void>
 }
 
+/** Connection lifecycle state reported by a shared connection. */
+export type McpConnectionState =
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'exhausted'
+  | 'stopped'
+  | 'disposed'
+
+/** Observable status snapshot of one shared connection. */
+export interface McpConnectionStatus {
+  /** Derived lifecycle state of the supervised connection. */
+  state: McpConnectionState
+  /** Epoch ms of the current generation's initial sync; absent while down. */
+  connectedAtMs?: number
+  /** Consecutive failed attempts within the current outage. */
+  failedAttempts: number
+  /** The outage budget this supervisor allows. */
+  maxAttempts: number
+  /** Error name of the most recent failed attempt; absent while none occurred. */
+  lastErrorKind?: string
+}
+
+/**
+ * Connection-only handle: the transport, reconnect supervisor, and tool
+ * inventory of one MCP server WITHOUT any tool registration. A host-scope
+ * owner publishes this; scoped registrars project the inventory into their
+ * own tool registries, so one live connection serves every composition.
+ */
+export interface SharedConnection extends ServerContext {
+  /** Public server namespace this connection serves. */
+  readonly serverName: string
+  /**
+   * Settles when the first connection attempt completes (success or failure).
+   * A shared owner never treats a failed startup as fatal; status carries it.
+   */
+  ready: Promise<ConnectionOutcome>
+  /** Whether a live MCP generation completed its initial synchronization. */
+  connected(): boolean
+  /** Derived lifecycle status for management surfaces. */
+  status(): McpConnectionStatus
+  /** Full tool advertisements of the current last-good generation. */
+  toolDescriptors(): readonly McpToolDescriptor[]
+  /** Public tool names in the current last-good generation. */
+  toolNames(): string[]
+  /** Sorted resource URIs from the last successful inventory. */
+  resourceUris(): string[]
+  /** Sorted URI templates from the same last successful inventory. */
+  resourceTemplates(): string[]
+  /** One raw `tools/call` routed through the current generation. */
+  callTool(rawName: string, args: Record<string, unknown>, exec: { signal?: AbortSignal }): Promise<unknown>
+  /** Observe inventory/connection changes; the disposer removes the listener. */
+  subscribe(listener: () => void): () => void
+  /**
+   * Stop reconnection, close the live client, and quiesce; the inventory
+   * empties and every subscriber hears the final change.
+   */
+  dispose(): Promise<void>
+}
+
+/** Which side of the shared-connection split a supervisor serves. */
+type SuperviseMode = 'register' | 'shared'
+
+/** Shared no-op change observer used as the wrappers' default. */
+const NOOP_NOTIFY: () => void = () => {}
+
 /**
  * Start the supervised connection for one MCP server and keep it alive per
  * the reconnect policy.
@@ -138,14 +204,18 @@ export interface ConnectionHandle extends ServerContext {
  * @param config - Resolved plugin config selecting the transport and server identity.
  * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
  * @param onToolsChanged - observer notified when connection or tool topology changes.
+ * @param mode - `register` syncs tools onto this context's registry (the
+ * standalone plugin); `shared` only publishes the descriptor inventory (a
+ * host-scope owner; scoped registrars project it).
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
-export function startConnection(
+function supervise(
   ctx: Context,
   config: Config,
   policy: ResolvedReconnectPolicy,
-  onToolsChanged: () => void = () => {},
-): ConnectionHandle {
+  onToolsChanged: () => void,
+  mode: SuperviseMode,
+): ConnectionHandle & SharedConnection {
   const label = `mcp-client(${config.serverName})`
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
@@ -154,8 +224,9 @@ export function startConnection(
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs
-  // and reconnect syncs always contain conflicts.
-  const startupOpts: ToolBridgeOptions = config.failOnStartupError
+  // and reconnect syncs always contain conflicts. Shared mode never
+  // registers, so no startup path can throw there.
+  const startupOpts: ToolBridgeOptions = config.failOnStartupError && mode === 'register'
     ? { ...opts, registrationFailure: 'throw' }
     : opts
 
@@ -166,6 +237,10 @@ export function startConnection(
   /** Sorted resource URIs discovered by the last successful sync; never undefined. */
   let discoveredResourceUris: string[] = []
   let discoveredResourceTemplates: string[] = []
+  /** Shared mode's published inventory; register mode leaves this empty. */
+  let toolInventory: McpToolDescriptor[] = []
+  /** Subscribers to inventory/connection changes in shared mode. */
+  const subscribers = new Set<() => void>()
   /** Current generation: the connecting or connected client; undefined during backoff waits and after final failure. */
   let client: Client | undefined
   /** Close signal paired with {@link client}; captured by dispose before current ownership is cleared. */
@@ -179,6 +254,34 @@ export function startConnection(
   let connectedAt: number | undefined
   /** The real error from the first connection attempt, for startup-await diagnostics. */
   let firstAttemptError: unknown
+  /** The error of the most recent failed attempt, for status surfaces. */
+  let lastError: unknown
+
+  const notify = (): void => {
+    onToolsChanged()
+    for (const subscriber of subscribers) {
+      try {
+        subscriber()
+      } catch (error) {
+        ctx.logger.error(`${label}: inventory subscriber failed: ${String(error)}`)
+      }
+    }
+  }
+
+  /** Derived lifecycle state for {@link SharedConnection.status}. */
+  const state = (): McpConnectionState => {
+    if (disposed) return 'disposed'
+    if (connectedAt !== undefined) return 'connected'
+    // The first attempt (before any failure) is connecting whatever the
+    // reconnect policy says; only later downtime distinguishes stopped/exhausted.
+    if (client !== undefined && failedAttempts === 0) return 'connecting'
+    if (reconnectTimer !== undefined) return 'reconnecting'
+    if (!policy.enabled) return 'stopped'
+    /* v8 ignore next -- defensive tail: with the policy enabled, every failure
+       arms the reconnect timer or exhausts the budget synchronously, so
+       downtime past the guards above has already returned. */
+    return failedAttempts > policy.maxAttempts ? 'exhausted' : 'connecting'
+  }
 
   /** A generation may act only while it is the current one on a live plugin. */
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
@@ -193,23 +296,30 @@ export function startConnection(
   function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
     const run = syncChain.then(async () => {
       if (!isCurrent(generation)) return
-      const previousNames = [...disposers.keys()]
+      const previousNames = mode === 'shared' ? toolInventory.map(descriptor => publicToolName(config.serverName, descriptor.rawName)) : [...disposers.keys()]
       const previousResources = [...discoveredResourceUris]
       const previousTemplates = [...discoveredResourceTemplates]
       if (generation.getServerCapabilities()?.tools === undefined) {
-        for (const dispose of disposers.values()) dispose()
-        disposers = new Map()
-        if (previousNames.length > 0) onToolsChanged()
+        if (mode === 'shared') {
+          toolInventory = []
+        } else {
+          for (const dispose of disposers.values()) dispose()
+          disposers = new Map()
+        }
+        if (previousNames.length > 0) notify()
+      } else if (mode === 'shared') {
+        toolInventory = await listToolDescriptors(generation, config.serverName, () => isCurrent(generation))
       } else {
         disposers = await syncTools(generation, ctx, syncOpts, disposers, () => isCurrent(generation), (next) => {
           disposers = next
-          if (JSON.stringify(previousNames) !== JSON.stringify([...next.keys()])) onToolsChanged()
+          if (JSON.stringify(previousNames) !== JSON.stringify([...next.keys()])) notify()
         })
       }
       await discoverResources(generation)
       if (!isCurrent(generation)) return
+      if (mode === 'shared' && JSON.stringify(previousNames) !== JSON.stringify(toolInventory.map(descriptor => publicToolName(config.serverName, descriptor.rawName)))) notify()
       if (JSON.stringify(previousResources) !== JSON.stringify(discoveredResourceUris)
-        || JSON.stringify(previousTemplates) !== JSON.stringify(discoveredResourceTemplates)) onToolsChanged()
+        || JSON.stringify(previousTemplates) !== JSON.stringify(discoveredResourceTemplates)) notify()
     })
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})
@@ -277,7 +387,7 @@ export function startConnection(
     client = undefined
     clientClosed = undefined
     scheduleReconnect()
-    onToolsChanged()
+    notify()
   }
 
   /** Wait for the transport-owned close signal without letting a broken transport wedge teardown forever. */
@@ -311,12 +421,16 @@ export function startConnection(
       // Enqueue the give-up disposal so it cannot race an in-flight sync's
       // phase-2 swap (which checks isCurrent inside the queue).
       syncChain = syncChain.then(() => {
-        for (const dispose of disposers.values()) dispose()
-        disposers = new Map()
+        if (mode === 'shared') {
+          toolInventory = []
+        } else {
+          for (const dispose of disposers.values()) dispose()
+          disposers = new Map()
+        }
         serverInstructions = ''
         discoveredResourceUris = []
         discoveredResourceTemplates = []
-        onToolsChanged()
+        notify()
       })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
       return
@@ -404,6 +518,7 @@ export function startConnection(
       await enqueueSync(generation, startup ? startupOpts : opts)
     } catch (error) {
       if (firstAttemptError === undefined) firstAttemptError = error
+      lastError = error
       // Disposal clears current ownership before it closes the generation, so
       // only a live supervisor reports an attempt failure.
       if (isCurrent(generation)) ctx.logger.warn(`${label}: connection attempt failed: ${String(error)}`)
@@ -428,7 +543,7 @@ export function startConnection(
     if (!isCurrent(generation)) return
     serverInstructions = instructions
     connectedAt = Date.now()
-    onToolsChanged()
+    notify()
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
   }
 
@@ -450,13 +565,43 @@ export function startConnection(
     return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
   })
 
+  const inventoryNames = (): string[] =>
+    mode === 'shared'
+      ? toolInventory.map(descriptor => publicToolName(config.serverName, descriptor.rawName))
+      : [...disposers.keys()]
+
   return {
+    serverName: config.serverName,
     ready,
-    toolNames: () => [...disposers.keys()],
+    toolNames: inventoryNames,
     connected: () => !disposed && connectedAt !== undefined,
+    status: () => {
+      const view: McpConnectionStatus = {
+        state: state(),
+        failedAttempts,
+        maxAttempts: policy.maxAttempts,
+        ...connectedAt === undefined ? {} : { connectedAtMs: connectedAt },
+        ...lastError === undefined ? {} : { lastErrorKind: errorKindOf(lastError) },
+      }
+      return view
+    },
+    toolDescriptors: () => [...toolInventory],
     instructions: () => serverInstructions,
     resourceUris: () => [...discoveredResourceUris],
     resourceTemplates: () => [...discoveredResourceTemplates],
+    subscribe(listener: () => void): () => void {
+      subscribers.add(listener)
+      return () => { subscribers.delete(listener) }
+    },
+    callTool(rawName: string, args: Record<string, unknown>, exec: { signal?: AbortSignal }): Promise<unknown> {
+      const generation = client
+      if (!generation || connectedAt === undefined) return Promise.reject(new Error(`${label}: server is disconnected`))
+      return generation.request(
+        { method: 'tools/call', params: { name: rawName, arguments: args } },
+        RawCallToolResultSchema,
+        { timeout: config.toolCallTimeoutMs, ...exec.signal !== undefined ? { signal: exec.signal } : {} },
+      )
+    },
     resources: {
       async request(request, exec): Promise<JsonValue> {
         const generation = client
@@ -502,9 +647,57 @@ export function startConnection(
       // sync before settling, so awaiting both leaves `disposers` final.
       await settling
       await syncChain
-      for (const dispose of disposers.values()) dispose()
-      disposers = new Map()
-      onToolsChanged()
+      if (mode === 'shared') {
+        toolInventory = []
+      } else {
+        for (const dispose of disposers.values()) dispose()
+        disposers = new Map()
+      }
+      notify()
     },
   }
+}
+
+/** Name the error kind without leaking message text into status surfaces. */
+function errorKindOf(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error
+}
+
+/**
+ * Start the supervised connection for one standalone plugin instance,
+ * registering its tools on this context's registry.
+ *
+ * @param ctx - Cordis context providing the `tools` registry and logger.
+ * @param config - Resolved plugin config selecting the transport and server identity.
+ * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
+ * @param onToolsChanged - observer notified when connection or tool topology changes.
+ * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
+ */
+export function startConnection(
+  ctx: Context,
+  config: Config,
+  policy: ResolvedReconnectPolicy,
+  onToolsChanged: () => void = NOOP_NOTIFY,
+): ConnectionHandle {
+  return supervise(ctx, config, policy, onToolsChanged, 'register')
+}
+
+/**
+ * Start the connection-only supervisor for one shared server. Nothing is
+ * registered here; the returned handle publishes its inventory for scoped
+ * registrars and routes raw tool calls through the live generation.
+ *
+ * @param ctx - Cordis context providing the logger.
+ * @param config - Resolved plugin config selecting the transport and server identity.
+ * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
+ * @param onChanged - observer notified when connection or inventory changes.
+ * @returns The shared-connection handle for an owner to publish.
+ */
+export function startSharedConnection(
+  ctx: Context,
+  config: Config,
+  policy: ResolvedReconnectPolicy,
+  onChanged: () => void = NOOP_NOTIFY,
+): SharedConnection {
+  return supervise(ctx, config, policy, onChanged, 'shared')
 }

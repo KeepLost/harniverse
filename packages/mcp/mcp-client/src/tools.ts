@@ -51,7 +51,7 @@ const INVALID_NAME_CHARS = /[^A-Za-z0-9_-]/g
 const HASH_LENGTH = 12
 
 /** Raw result record: the bridge owns JSON-value validation after transport. */
-const RawCallToolResultSchema = z.record(z.string(), z.unknown())
+export const RawCallToolResultSchema = z.record(z.string(), z.unknown())
 
 /**
  * Guard one paginated drain against a server that repeats a continuation
@@ -70,6 +70,103 @@ export function cursorGuard(serverName: string): (cursor: string | undefined) =>
       throw new Error(`mcp-client(${serverName}): server repeated continuation cursor "${cursor}" — invalid pagination`)
     }
     seen.add(cursor)
+  }
+}
+
+/** One MCP tool's advertisement exactly as a live generation listed it. */
+export interface McpToolDescriptor {
+  /** The server's own wire name; only ever sent back on `tools/call`. */
+  readonly rawName: string
+  /** Server-provided description; empty when the server omits one. */
+  readonly description: string
+  /** Server-provided input schema (a JSON Schema object), passed through verbatim. */
+  readonly inputSchema: Record<string, unknown>
+  /** Server-advertised output schema, already filtered to supported vocabulary. */
+  readonly outputSchema?: JsonSchemaNode
+  /** Whether the server demands task-based execution this bridge rejects. */
+  readonly taskRequired: boolean
+}
+
+/**
+ * Drain `tools/list` pagination into the complete descriptor list.
+ *
+ * The fetch half of every tool sync: no registry contact, so a failure leaves
+ * the previous generation untouched regardless of the caller.
+ *
+ * @param client - connected MCP client generation to list from.
+ * @param serverName - server namespace for diagnostics.
+ * @param isCurrent - ownership guard checked before every page.
+ * @returns every advertised tool in server order.
+ */
+export async function listToolDescriptors(
+  client: Client,
+  serverName: string,
+  isCurrent: () => boolean,
+): Promise<McpToolDescriptor[]> {
+  const descriptors: McpToolDescriptor[] = []
+  const guard = cursorGuard(serverName)
+  let cursor: string | undefined
+  do {
+    if (!isCurrent()) return descriptors
+    guard(cursor)
+    const response = await listToolsUncached(client, cursor)
+    if (!isCurrent()) return descriptors
+    for (const tool of response.tools) {
+      if (descriptors.some(descriptor => descriptor.rawName === tool.name)) {
+        throw new Error(
+          `mcp-client(${serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
+        )
+      }
+      const outputSchema = supportedOutputSchema(tool.outputSchema)
+      descriptors.push({
+        rawName: tool.name,
+        description: tool.description ?? '',
+        inputSchema: tool.inputSchema,
+        ...outputSchema === undefined ? {} : { outputSchema },
+        taskRequired: tool.execution?.taskSupport === 'required',
+      })
+    }
+    cursor = response.nextCursor
+  } while (cursor !== undefined)
+  return descriptors
+}
+
+/** Executor-facing raw call: one server tool by wire name with timeout/signal. */
+export type McpToolCall = (
+  rawName: string,
+  args: Record<string, unknown>,
+  exec: ToolExecution,
+) => Promise<unknown>
+
+/**
+ * Build the registry-facing definition for one descriptor, routing execution
+ * through the supplied call. The shared-connection registrar and the
+ * standalone bridge produce identical definitions this way.
+ *
+ * @param serverName - server namespace used in the public tool name.
+ * @param descriptor - the advertised tool to project.
+ * @param call - raw `tools/call` route owned by the live connection.
+ * @returns the complete tool definition with normalized MCP result mapping.
+ */
+export function descriptorToDefinition(
+  serverName: string,
+  descriptor: McpToolDescriptor,
+  call: McpToolCall,
+): ToolDefinition {
+  return {
+    name: publicToolName(serverName, descriptor.rawName),
+    description: descriptor.description,
+    parameters: descriptor.inputSchema,
+    output: createOutput(descriptor.rawName, descriptor.outputSchema),
+    execute: async (args, exec) => {
+      if (descriptor.taskRequired) {
+        throw new Error(`Tool "${descriptor.rawName}" requires task-based execution, which this bridge does not support`)
+      }
+      return normalizeCallResult(
+        await call(descriptor.rawName, (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>, exec),
+        descriptor.rawName,
+      )
+    },
   }
 }
 
@@ -156,31 +253,16 @@ export async function syncTools(
   published: (next: ToolDisposers) => void = () => {},
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
+  // Descriptor raw-name uniqueness (and therefore public-name uniqueness — the
+  // identity hash never collapses two raw names) is already enforced by the drain.
+  const descriptors = await listToolDescriptors(client, opts.serverName, isCurrent)
+  if (!isCurrent()) return previous
   const definitions = new Map<string, ToolDefinition>()
-  const guard = cursorGuard(opts.serverName)
-  let cursor: string | undefined
-  do {
-    if (!isCurrent()) return previous
-    guard(cursor)
-    const response = await listToolsUncached(client, cursor)
-    if (!isCurrent()) return previous
-    for (const tool of response.tools) {
-      const publicName = publicToolName(opts.serverName, tool.name)
-      if (definitions.has(publicName)) {
-        throw new Error(
-          `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
-        )
-      }
-      definitions.set(publicName, {
-        name: publicName,
-        description: tool.description ?? '',
-        parameters: tool.inputSchema,
-        output: createOutput(tool.name, supportedOutputSchema(tool.outputSchema)),
-        execute: createExecutor(client, tool.name, tool.execution?.taskSupport === 'required', opts),
-      })
-    }
-    cursor = response.nextCursor
-  } while (cursor !== undefined)
+  for (const descriptor of descriptors) {
+    const definition = descriptorToDefinition(opts.serverName, descriptor, (rawName, args, exec) =>
+      callToolUncached(client, rawName, args, exec, opts))
+    definitions.set(definition.name, definition)
+  }
 
   // Phase 2: swap generations.
   for (const dispose of previous.values()) dispose()
@@ -246,65 +328,56 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
   }
 }
 
+/** Loose reading shape of one raw `tools/call` result at the trust boundary. */
+interface RawCallToolResult {
+  content?: unknown
+  toolResult?: unknown
+  isError?: unknown
+  structuredContent?: unknown
+}
+
 /**
- * Create an execute function for one MCP tool. The executor closes over the
- * raw MCP tool name and sends an uncached `tools/call` request with it (never
- * the public name), with abort signal and timeout, then maps the result to
- * harness ContentBlocks. Owning the raw request prevents the SDK's internal
- * per-page schema cache from pre-validating a different contract.
+ * Map one raw `tools/call` result to the canonical harness result. The SDK may
+ * return a legacy `toolResult` shape; a non-array `content` normalizes to a
+ * text block, and MCP `isError: true` throws so the ToolRuntime catch path
+ * produces an `isError` result for the model.
  *
- * When the MCP server returns `isError: true`, the executor throws so that
- * the ToolRuntime's catch path produces an `isError` result for the model.
+ * @param result - raw call result exactly as the transport returned it.
+ * @param rawName - the server's own tool name, for diagnostics.
+ * @returns the canonical `McpResult` content/structuredContent pair.
  */
-function createExecutor(
-  client: Client,
-  rawName: string,
-  taskRequired: boolean,
-  opts: ToolBridgeOptions,
-): ToolDefinition['execute'] {
-  return async (args: unknown, exec: ToolExecution) => {
-    if (taskRequired) {
-      throw new Error(`Tool "${rawName}" requires task-based execution, which this bridge does not support`)
-    }
-    // The agent loop passes `JSON.parse(model_arguments)` which is usually an
-    // object, but can be any JSON value if the model misbehaves (outputs a bare
-    // string/number/null). Fallback to {} lets the MCP server produce a
-    // specific "missing required param" error the model can learn from.
-    const argsObj = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>
-    const result = await callToolUncached(client, rawName, argsObj, exec, opts)
-
-    // The SDK may return a legacy `toolResult` shape; normalize to content array.
-    if (!Array.isArray(result.content)) {
-      const rendered: unknown = 'toolResult' in result
-        ? JSON.stringify(result.toolResult)
-        : '(no output)'
-      const text = typeof rendered === 'string' ? rendered : '(no output)'
-      if (result.isError === true) throw new Error(text)
-      return {
-        content: [{ type: 'text', text }],
-        ...result.structuredContent !== undefined
-          ? { structuredContent: result.structuredContent as JsonValue }
-          : {},
-      }
-    }
-
-    // Trust boundary: the SDK's return type erases to `any[]` due to the
-    // union of CallToolResult | CompatibilityCallToolResult; extractText
-    // validates each element.
-    const content = result.content as unknown as JsonValue[]
-    const text = extractText(content, rawName)
-
-    // MCP isError → throw so ToolRuntime produces an isError result for the model.
-    if (result.isError === true) {
-      throw new Error(text)
-    }
-
+function normalizeCallResult(result: unknown, rawName: string): McpResult {
+  const raw = (typeof result === 'object' && result !== null ? result : {}) as RawCallToolResult
+  if (!Array.isArray(raw.content)) {
+    const rendered: unknown = 'toolResult' in raw
+      ? JSON.stringify(raw.toolResult)
+      : '(no output)'
+    const text = typeof rendered === 'string' ? rendered : '(no output)'
+    if (raw.isError === true) throw new Error(text)
     return {
-      content,
-      ...result.structuredContent !== undefined
-        ? { structuredContent: result.structuredContent as JsonValue }
+      content: [{ type: 'text', text }],
+      ...raw.structuredContent !== undefined
+        ? { structuredContent: raw.structuredContent as JsonValue }
         : {},
     }
+  }
+
+  // Trust boundary: the transport's return type erases to `any[]` due to the
+  // union of CallToolResult | CompatibilityCallToolResult; extractText
+  // validates each element.
+  const content = raw.content as unknown as JsonValue[]
+  const text = extractText(content, rawName)
+
+  // MCP isError → throw so ToolRuntime produces an isError result for the model.
+  if (raw.isError === true) {
+    throw new Error(text)
+  }
+
+  return {
+    content,
+    ...raw.structuredContent !== undefined
+      ? { structuredContent: raw.structuredContent as JsonValue }
+      : {},
   }
 }
 

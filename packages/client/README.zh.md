@@ -42,6 +42,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-settings-general/`](ui-settings-general/README.md) | 提供常规设置分区。 |
 | [`ui-settings-models/`](ui-settings-models/README.md) | 提供模型提供方配置与 DeepSeek 配置引导。 |
 | [`ui-settings-plugin-inventory/`](ui-settings-plugin-inventory/README.md) | 向“插件”设置贡献只读的 Host 插件清单和诊断。 |
+| [`ui-settings-mcp/`](ui-settings-mcp/README.md) | 提供 MCP 管理设置分区：经 `mcp` scope 管理服务器名册，经 `mcpManagement` Remote 读取实时状态并重启，支持 OpenCode 格式粘贴导入。 |
 | [`ui-settings-im/`](ui-settings-im/README.md) | 提供“IM 机器人”设置分区：通过 `chatBots` Remote 管理平台渠道、机器人卡片和 owner 配对。 |
 | [`ui-session-import/`](ui-session-import/README.md) | 提供基于 `officialSessionImport` Remote 的“会话导入”设置分区，以及把导入会话继续为新会话的归档停靠栏。 |
 | [`ui-skin/`](ui-skin/README.md) | 基于 `skinLibrary` Remote，提供外观分区中的皮肤图库、强调色、壁纸、材质与导入皮肤包各行，以及壁纸背景。 |
