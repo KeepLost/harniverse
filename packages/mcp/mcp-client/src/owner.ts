@@ -67,5 +67,6 @@ export const McpOwnerPlugin: Plugin<McpOwnerConfig> = {
   name: ownerName,
   inject: ownerInject,
   Config: McpOwnerConfigSchema as unknown as NonNullable<Plugin<McpOwnerConfig>['Config']>,
+  // oxlint-disable-next-line typescript/no-misused-promises -- Cordis awaits async plugin apply callbacks.
   apply: ownerApply,
 }

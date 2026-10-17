@@ -33,3 +33,15 @@ Permission isolation is unchanged: a preset still decides exposure through capab
 - `packages/mcp/mcp-client/tests/shared-connection.spec.ts` covers the registry, owner/registrar lifecycle, and scoped registration under connection churn (178 tests package-wide, 100 % per-file coverage).
 - `packages/mcp/mcp-user-config/tests/` covers the fleet (remount discipline, generation capture, one-owner-per-server) and the Remote's projection and validation (40 tests).
 - `packages/client/ui-settings-mcp/tests/` covers registration/HMR disposal, the joined store, the parser, and every component branch (89 tests, per-file 100 % coverage).
+
+## Alternatives considered
+
+**One registrar per server with reference counting.** The registry could have exposed raw connections and let each preset registrar hold its own transport client, closing when the last reference left. That keeps `mcp-client` standalone-shaped, but a reconnect would have to be replayed per registrar, discovery results can drift between profiles on the same server, and the settings page still has no single owner to ask for status. It lost to the owner/registr split, which pays one supervisor per server and makes status a registry read.
+
+**Keep per-profile connections, add only the management surface.** The original pain — three processes for one configured server — would have remained; management would report three rows for one settings entry and `restart` would need a fan-out with partial-failure semantics. Rejected as a patch around the actual defect.
+
+**Centralize registration in the owner.** Letting the owner expose tools directly would make exposure host-global and break the permission model: member selection is a per-preset decision owned by capability composition. The registrar child keeps that boundary at the cost of one fiber per (preset, server) pair.
+
+## Consequences
+
+The host runs at most one connection per settings id regardless of how many profiles select it — fewer server processes, one discovery pass, one reconnect machine — but shared ownership makes the failure semantics coarser: a server that fails to start reports through the fleet step instead of failing the mounting profile, and `failOnStartupError` no longer applies outside standalone mode. The split adds a second plugin pair in `dsh-mcp-client` (owner, registrar) plus a registry service, and the fleet signature remount means a settings edit restarts the affected connection rather than patching it live. What it bought: the settings page finally sees and can repair every connection, presets keep isolated member selection over one shared transport, and the exposure contract (`exposeScopedServer`) stays single-sourced between standalone and shared modes.

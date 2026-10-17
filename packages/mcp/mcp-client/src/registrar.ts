@@ -44,6 +44,7 @@ export interface McpRegistrarConfig {
   reservationKey?: string
 }
 
+/** Config for one preset-scoped registrar child exposing a shared server's tools. */
 export const McpRegistrarConfigSchema = z.object({
   serverId: z.string().required().pattern(SERVER_ID_PATTERN),
   serverName: z.string().required().pattern(SERVER_NAME_PATTERN),

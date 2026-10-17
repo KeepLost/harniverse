@@ -22,19 +22,11 @@ Browser settings section (`mcp`, ordered after Governor and before Agent Presets
 
 ## Model Experience
 
-### Settings-page only
-
-#### What the model sees
-
-Nothing. This package is presentation over settings and diagnostics; it emits no session events and contributes no prompt or tool content.
-
-#### Token effect
-
-None. Editing servers changes future profile compositions through the owning packages; this page never enters a model request.
+None, as this page never enters a model request; the `mcp-user-config` settings namespace and the shared connections it shapes own every model-facing effect.
 
 #### KV Cache effect
 
-None.
+No direct invalidation. Editing servers changes future profile compositions through the owning packages; a session created afterwards establishes its own prefix from its own composition.
 
 ## Known Limitations and Deferred Work
 

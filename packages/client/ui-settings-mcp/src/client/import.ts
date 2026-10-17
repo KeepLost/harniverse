@@ -46,7 +46,12 @@ function nameOf(raw: string, kind: 'id' | 'serverName'): string {
   return cleaned
 }
 
-/** Parse one KEY=VALUE per line into a record; blank lines and comments skip. */
+/**
+ * Parse one KEY=VALUE per line into a record; blank lines and comments skip.
+ *
+ * @param lines - Raw newline-separated KEY=VALUE text.
+ * @returns Parsed key/value record with trimmed keys and values.
+ */
 function parseKeyValueLines(lines: string): Record<string, string> {
   const record: Record<string, string> = {}
   for (const line of lines.split('\n')) {

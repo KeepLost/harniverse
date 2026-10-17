@@ -90,6 +90,7 @@ export interface PresetExposureFace {
  * Controller owning the section's joined state.
  */
 export class McpSectionController {
+  /** Snapshot store publishing the joined section state. */
   readonly store: SnapshotStore<McpSectionState> = createSnapshotStore(INITIAL)
   private pollTimer: ReturnType<typeof setInterval> | undefined
   private unsubscribeScope: (() => void) | undefined
@@ -161,13 +162,22 @@ export class McpSectionController {
     this.publish({ status: 'ready', rows, writable: snapshot.writable })
   }
 
-  /** Write the complete server array through the settings scope. */
+  /**
+   * Write the complete server array through the settings scope.
+   *
+   * @param servers - Full replacement server list.
+   */
   async writeServers(servers: ReadonlyArray<NonNullable<McpSettingsServers['servers']>[number]>): Promise<void> {
     await this.scope.set('servers', servers.map(server => ({ ...server })))
     await this.refresh()
   }
 
-  /** Restart one enabled server's shared connection. */
+  /**
+   * Restart one enabled server's shared connection.
+   *
+   * @param serverId - Hex server id whose shared connection restarts.
+   * @returns Failure message, or undefined on success.
+   */
   async restart(serverId: string): Promise<string | undefined> {
     const result = await this.statusFace.restart(serverId)
     await this.refresh()

@@ -33,3 +33,15 @@ Status: implemented
 - `packages/mcp/mcp-client/tests/shared-connection.spec.ts` 覆盖注册表、owner/registrar 生命周期与连接抖动下的作用域注册（包内 178 测试，每文件 100 % 覆盖率）。
 - `packages/mcp/mcp-user-config/tests/` 覆盖机群（重挂载纪律、世代捕获、每服务器一 owner）与 Remote 的投影及校验（40 测试）。
 - `packages/client/ui-settings-mcp/tests/` 覆盖注册/HMR 处置、合并店铺、解析器与每个组件分支（89 测试，每文件 100 % 覆盖率）。
+
+## 备选方案
+
+**每服务器一个 registrar 加引用计数。** 注册表本可以只暴露裸连接，让每个 preset 的 registrar 持有自己的传输客户端，最后一个引用离开时关闭。这能让 `mcp-client` 保持 standalone 形态，但一次重连要在每个 registrar 上重放，发现结果可能在同一服务器的不同 Profile 间漂移，而且设置页仍然没有单一的所有者可查询状态。它输给了 owner/registrar 拆分——每服务器付一个 supervisor，状态读取变成注册表的一次读。
+
+**保留每 Profile 连接，只补管理面。** 最初的痛点——一个已配置服务器跑三个进程——将原样保留；管理面要为一条设置项报告三行，`restart` 需要带部分失败语义的扇出。作为绕着真正缺陷打的补丁被否决。
+
+**把注册集中到 owner。** 让 owner 直接暴露工具会使暴露变成 host 全局，破坏权限模型：成员选择是 capability 组合拥有的、按 preset 的决定。registrar 子件保住了这条边界，代价是每个（preset, 服务器）对一个 fiber。
+
+## 后果
+
+无论多少 Profile 选中同一条设置项，host 对每个设置 id 至多跑一条连接——更少的服务器进程、一次发现遍历、一台重连机——但共享所有权使失败语义更粗：启动失败的服务器通过 fleet 步骤上报而不是让挂载它的 Profile 失败，`failOnStartupError` 在 standalone 模式之外不再适用。拆分在 `dsh-mcp-client` 里增加了第二对插件（owner、registrar）和一个注册表服务，fleet 签名重挂载意味着设置编辑会重启受影响的连接而不是就地修补。换来的东西：设置页终于能看到并修复每一条连接，preset 在一条共享传输上保持隔离的成员选择，而暴露契约（`exposeScopedServer`）在 standalone 与共享两种模式间保持单一来源。

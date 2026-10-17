@@ -11,7 +11,65 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
 import { MCP_SERVER_NAME_PATTERN } from './resource-contract.ts'
-import type { Config as McpClientConfig } from './index.ts'
+
+/** Config for connecting to an MCP server via a spawned child process over stdio. */
+export interface StdioConfig {
+  /** Selects child-process stdio transport. */
+  transport: 'stdio'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
+  /** Executable used to start the server. */
+  command: string
+  /** Arguments passed directly, without shell interpolation. */
+  args: string[]
+  /** Extra env vars merged on top of scrubbed ambient env. */
+  env: Record<string, string>
+  /** Working directory for the child process. */
+  cwd: string
+  /** Per-tool-call timeout in milliseconds. */
+  toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
+  /** UTF-8 byte ceiling for the attributed server instructions (default 32768). */
+  maxInstructionBytes?: number
+  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
+  reconnect?: ReconnectConfig
+}
+
+/** Configuration for one stdio or Streamable HTTP MCP server. */
+export type Config = StdioConfig | StreamableHttpConfig
+
+/** Config for connecting to an MCP server over Streamable HTTP (SSE). */
+export interface StreamableHttpConfig {
+  /** Selects Streamable HTTP transport. */
+  transport: 'streamable-http'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
+  /** MCP endpoint URL. */
+  url: string
+  /** Additional headers attached to MCP requests. */
+  headers: Record<string, string>
+  /** Per-tool-call timeout in milliseconds. */
+  toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
+  /** UTF-8 byte ceiling for the attributed server instructions (default 32768). */
+  maxInstructionBytes?: number
+  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
+  reconnect?: ReconnectConfig
+}
 
 /** Default timeout for individual MCP tool calls (ms). */
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
@@ -48,4 +106,4 @@ export const Config = z.union([
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
   }),
-]) as unknown as z<McpClientConfig>
+]) as unknown as z<Config>

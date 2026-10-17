@@ -293,6 +293,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list.',
   },
   {
+    key: 'mcpConnections',
+    pkg: 'mcp-client',
+    title: 'Host-shared MCP connection seam',
+    mode: 'seam',
+    implementations: ['mcp-client'],
+    consumers: ['mcp-client', 'mcp-user-config'],
+    note: 'One host-global owner plugin per configured server holds the live connection and reconnect policy; preset consumers mount registrar children that expose scoped tools while the registry tracks generations so no consumer ever sees a half-applied fleet.',
+  },
+  {
     key: 'mcpUserConfigSettings',
     pkg: 'mcp-user-config',
     title: 'User MCP configuration seam',

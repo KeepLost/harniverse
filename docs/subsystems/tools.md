@@ -486,6 +486,38 @@ The full presentation field docs live in [`packages/core/tools/src/presentation.
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxmcpconnections--mcpconnectionsservice"></a>
+
+### `ctx.mcpConnections` — `McpConnectionsService`
+
+Read/subscribe face over the live shared connections of this app.
+
+```ts cordis-catalog
+/**
+ * Install or replace one server's connection (owner side).
+ * @param serverId - stable settings identity of the server.
+ * @param connection - the live handle an owner published.
+ * @returns the disposer removing the registration.
+ */
+register(serverId: string, connection: SharedConnection): () => void
+
+/**
+ * Resolve one server's live connection.
+ * @param serverId - stable settings identity of the server.
+ * @returns the live handle, or undefined while no owner serves it.
+ */
+get(serverId: string): SharedConnection | undefined
+
+/**
+ * Observe registry membership and handle replacement.
+ * @param listener - invoked with the changed server id after every swap.
+ * @returns the disposer removing the listener.
+ */
+subscribe(listener: (serverId: string) => void): () => void
+```
+
+Source: [`packages/mcp/mcp-client/src/shared-service.ts:18`](../../packages/mcp/mcp-client/src/shared-service.ts)
+
 <a id="ctxmcpresources--mcpresourceruntime"></a>
 
 ### `ctx.mcpResources` — `McpResourceRuntime`

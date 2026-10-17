@@ -399,9 +399,11 @@ describe('shared connection registrar', () => {
     expect(bare.tools.get('mcp__srv__add')).toBeUndefined()
     await pending.dispose()
     // The defensive arm guards a programmatic apply that bypassed inject.
+    const programmatic = McpRegistrarPlugin as unknown as {
+      apply: (ctx: Context, config: { serverId: string; serverName: string }) => void
+    }
     expect(() => {
-      void (McpRegistrarPlugin as { apply: (ctx: Context, config: { serverId: string; serverName: string }) => void })
-        .apply(bare, { serverId: 'github', serverName: 'srv' })
+      programmatic.apply(bare, { serverId: 'github', serverName: 'srv' })
     }).toThrow('no shared-connection registry')
   })
 

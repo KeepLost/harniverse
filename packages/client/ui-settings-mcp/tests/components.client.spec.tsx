@@ -108,7 +108,7 @@ describe('McpSection page', () => {
     const fields = first(screen.getAllByLabelText(en['editor.command']))
     await act(async () => { fireEvent.change(fields, { target: { value: 'docs-mcp' } }) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalled())
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalled() })
     expect(actions.writeServers.mock.calls[0]![0][0]).toMatchObject({ id: 'server-1', serverName: 'server-1', transport: 'stdio', command: 'docs-mcp' })
   })
 
@@ -126,7 +126,7 @@ describe('McpSection page', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['add'] })) })
     await act(async () => { fireEvent.change(screen.getByLabelText(en['editor.command']), { target: { value: 'docs-mcp' } }) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
-    await waitFor(() => expect(screen.getByText(t('writeFailed', { message: 'scope sealed' }))).toBeDefined())
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'scope sealed' }))).toBeDefined() })
   })
 
   it('deletes a row through the confirmation modal', async () => {
@@ -135,7 +135,7 @@ describe('McpSection page', () => {
     expect(screen.getByText(t('row.confirmDelete', { name: 'docs' }))).toBeDefined()
     const dialog = screen.getByRole('dialog')
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: en['row.delete'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalledWith([]))
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalledWith([]) })
   })
 })
 
@@ -188,7 +188,7 @@ describe('ServerRow card', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: t('row.tools', { count: '1' }) })) })
     expect(screen.getByText('search')).toBeDefined()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['row.restart'] })) })
-    await waitFor(() => expect(actions.restart).toHaveBeenCalledWith('docs'))
+    await waitFor(() => { expect(actions.restart).toHaveBeenCalledWith('docs') })
     fireEvent.click(screen.getByRole('button', { name: en['row.edit'] }))
     expect(actions.edit).toHaveBeenCalledWith('docs')
     fireEvent.click(screen.getByRole('button', { name: en['row.delete'] }))
@@ -263,7 +263,7 @@ describe('ServerEditor modal', () => {
     const http = { ...draft, transport: 'streamable-http' as const, url: 'https://mcp.example' }
     rerender(<ServerEditor open creating draft={http} setDraft={setDraft} others={[]} t={t} save={save} cancel={() => {}} />)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
-    await waitFor(() => expect(save).toHaveBeenCalled())
+    await waitFor(() => { expect(save).toHaveBeenCalled() })
     expect(screen.queryByText(en['editor.commandRequired'])).toBeNull()
   })
 })
@@ -283,7 +283,7 @@ describe('ImportDialog modal', () => {
     const button = screen.getByRole('button', { name: en['import.import'] }) as HTMLButtonElement
     expect(button.disabled).toBe(false)
     await act(async () => { fireEvent.click(button) })
-    await waitFor(() => expect(importFn).toHaveBeenCalledWith([expect.objectContaining({ id: 'web', url: 'https://web' })]))
+    await waitFor(() => { expect(importFn).toHaveBeenCalledWith([expect.objectContaining({ id: 'web', url: 'https://web' })]) })
   })
 
   it('surfaces a parse failure and keeps import disabled until a parse succeeds', async () => {
@@ -305,14 +305,14 @@ describe('McpSection page flows', () => {
     expect(screen.getByText(en['editor.editTitle'])).toBeDefined()
     await act(async () => { fireEvent.change(screen.getByLabelText(en['editor.serverName']), { target: { value: 'docs2' } }) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalled())
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalled() })
     expect(actions.writeServers.mock.calls[0]![0][0]).toMatchObject({ id: 'docs', serverName: 'docs2', command: 'docs-mcp' })
   })
 
   it('toggles a row enabled through the checkbox', async () => {
     const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
     await act(async () => { fireEvent.click(screen.getByRole('checkbox')) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalledWith([expect.objectContaining({ id: 'docs', enabled: false })]))
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalledWith([expect.objectContaining({ id: 'docs', enabled: false })]) })
   })
 
   it('cancels a delete without writing', async () => {
@@ -330,7 +330,7 @@ describe('McpSection page flows', () => {
     })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['import.parse'] })) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['import.import'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalledWith([expect.objectContaining({ id: 'web', enabled: true })]))
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalledWith([expect.objectContaining({ id: 'web', enabled: true })]) })
   })
 
   it('surfaces rejected toggles, deletes, and imports as the page failure notice', async () => {
@@ -346,11 +346,11 @@ describe('McpSection page flows', () => {
     } as unknown as McpSectionProps
     render(<McpSection {...props} />)
     await act(async () => { fireEvent.click(screen.getByRole('checkbox')) })
-    await waitFor(() => expect(screen.getByText(t('writeFailed', { message: 'toggle failed' }))).toBeDefined())
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'toggle failed' }))).toBeDefined() })
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
     const dialog = screen.getByRole('dialog')
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: en['row.delete'] })) })
-    await waitFor(() => expect(screen.getByText(t('writeFailed', { message: 'delete failed' }))).toBeDefined())
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'delete failed' }))).toBeDefined() })
   })
 })
 
@@ -379,7 +379,7 @@ describe('McpSection remaining arms', () => {
     ])
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.edit'] }))) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalled())
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalled() })
     expect(actions.writeServers.mock.calls[0]![0]).toHaveLength(2)
     expect(actions.writeServers.mock.calls[0]![0][1]).toMatchObject({ id: 'web', url: 'https://web' })
   })
@@ -396,7 +396,7 @@ describe('McpSection remaining arms', () => {
     expect(screen.getByText(t('row.confirmDelete', { name: 'docs' }))).toBeDefined()
     const dialog = screen.getByRole('dialog')
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: en['row.delete'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalledWith([]))
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalledWith([]) })
   })
 
   it('re-renders after the refresh action', async () => {
@@ -409,21 +409,23 @@ describe('McpSection remaining arms', () => {
     const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
     const props = {
       refresh: () => Promise.resolve(),
-      writeServers: (_servers: readonly unknown[]) => Promise.reject('plain refusal'),
+      writeServers: (_servers: readonly unknown[]) => Promise.reject(new Error('plain refusal')),
       restart: () => Promise.resolve(undefined),
       scope: { getSnapshot: () => ({ status: 'ready' as const, value: { servers: [SETTINGS_ROW] }, writable: true }) },
       useMcpSection: bindSnapshotSelector(store),
       t,
     } as unknown as McpSectionProps
     render(<McpSection {...props} />)
-    const notice = async () => await waitFor(() => expect(screen.getByText(t('writeFailed', { message: 'plain refusal' }))).toBeDefined())
+    const notice = async () => {
+      await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'plain refusal' }))).toBeDefined() })
+    }
     await act(async () => { fireEvent.click(screen.getByRole('checkbox')) })
     await notice()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['row.edit'] })) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
     await notice()
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
-    const deleteDialog = screen.getAllByRole('dialog').find(dialog => (dialog.getAttribute('aria-label') ?? '').startsWith(`${en['row.confirmDelete'].split('"')[0]}${'"'}`))
+    const deleteDialog = screen.getAllByRole('dialog').find(dialog => (dialog.getAttribute('aria-label') ?? '').startsWith(`${en['row.confirmDelete'].split('"')[0]}"`))
     expect(deleteDialog).toBeDefined()
     await act(async () => { fireEvent.click(within(deleteDialog as HTMLElement).getByRole('button', { name: en['row.delete'] })) })
     await notice()
@@ -454,7 +456,7 @@ describe('McpSection final arms', () => {
       { id: 'web', serverName: 'web', enabled: true, transport: 'streamable-http', url: 'https://web' },
     ])
     await act(async () => { fireEvent.click(screen.getAllByRole('checkbox')[1] as HTMLInputElement) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalled())
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalled() })
     expect(actions.writeServers.mock.calls[0]![0][0]).toMatchObject({ id: 'docs', enabled: true })
     expect(actions.writeServers.mock.calls[0]![0][1]).toMatchObject({ id: 'web', enabled: false })
   })
@@ -464,7 +466,7 @@ describe('McpSection final arms', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['add'] })) })
     await act(async () => { fireEvent.change(screen.getByLabelText(en['editor.command']), { target: { value: 'x' } }) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalled())
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalled() })
     expect(actions.writeServers.mock.calls[0]![0]).toHaveLength(2)
   })
 
@@ -485,7 +487,7 @@ describe('McpSection final arms', () => {
     })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['import.parse'] })) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['import.import'] })) })
-    await waitFor(() => expect(screen.getByText(t('writeFailed', { message: 'import refused' }))).toBeDefined())
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'import refused' }))).toBeDefined() })
   })
 
   it('closes a delete confirmation through the footer cancel control', async () => {
@@ -513,7 +515,7 @@ describe('McpSection final arms', () => {
     expect(screen.getByText(t('row.confirmDelete', { name: 'ghost' }))).toBeDefined()
     const dialog = screen.getByRole('dialog')
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: en['row.delete'] })) })
-    await waitFor(() => expect(actions.writeServers).toHaveBeenCalledWith([]))
+    await waitFor(() => { expect(actions.writeServers).toHaveBeenCalledWith([]) })
   })
 })
 
@@ -572,7 +574,7 @@ describe('ServerEditor full form', () => {
     await change(() => screen.getByLabelText(en['editor.url']), 'https://mcp2')
     await change(() => screen.getByLabelText(label => label.startsWith(en['editor.headers'])), 'X-Token=abc')
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
-    await waitFor(() => expect(save).toHaveBeenCalled())
+    await waitFor(() => { expect(save).toHaveBeenCalled() })
   })
 
   it('carries configured numeric optionals from an edited row into the draft', () => {

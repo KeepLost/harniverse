@@ -66,7 +66,7 @@ async function bench(options: { roster?: 'ok' | 'fail' | 'absent'; catalog?: 'ok
     set: vi.fn(() => Promise.resolve()),
   }
   ctx.provide('settingsScope', { bind: () => scope })
-  return { ctx, slots: ctx.slots as SlotRegistry, scope }
+  return { ctx, slots: ctx.slots, scope }
 }
 
 function declareRoot(slots: SlotRegistry): () => void {

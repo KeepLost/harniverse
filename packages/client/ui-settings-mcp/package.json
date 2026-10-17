@@ -46,9 +46,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
-    "react": "^18.2.0"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",

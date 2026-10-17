@@ -4,6 +4,9 @@
  * disposal.
  */
 
+/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-call,
+   typescript/no-unsafe-member-access -- ctx.get on untyped test contexts and
+   Vitest asymmetric matchers are typed as any. */
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import Capabilities from '@deepseek-ai/dsh-capabilities'
 import { createScope } from '@deepseek-ai/dsh-scope'

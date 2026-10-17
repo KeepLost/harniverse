@@ -1565,6 +1565,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'mcpConnections',
+    summary: 'Read/subscribe face over the live shared connections of this app.',
+    description: 'Read/subscribe face over the live shared connections of this app.',
+    methods: [
+      {
+        signature: 'register(serverId: string, connection: SharedConnection): () => void',
+        description: 'Install or replace one server\'s connection (owner side).',
+        parameters: [{ name: 'serverId', description: 'stable settings identity of the server.' }, { name: 'connection', description: 'the live handle an owner published.' }],
+        returns: 'the disposer removing the registration.',
+      },
+      {
+        signature: 'get(serverId: string): SharedConnection | undefined',
+        description: 'Resolve one server\'s live connection.',
+        parameters: [{ name: 'serverId', description: 'stable settings identity of the server.' }],
+        returns: 'the live handle, or undefined while no owner serves it.',
+      },
+      {
+        signature: 'subscribe(listener: (serverId: string) => void): () => void',
+        description: 'Observe registry membership and handle replacement.',
+        parameters: [{ name: 'listener', description: 'invoked with the changed server id after every swap.' }],
+        returns: 'the disposer removing the listener.',
+      },
+    ],
+  },
+  {
     key: 'mcpResources',
     summary: 'Scoped resource access plus three tools shared by configured MCP servers.',
     description: 'Scoped resource access plus three tools shared by configured MCP servers.',
@@ -5133,6 +5158,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ConnectHostInput {\n    id: RemoteHostId;\n    secrets?: AuthSecrets;\n    storeCredentials?: boolean;\n}',
   },
   {
+    name: 'ConnectionOutcome',
+    declaration: 'export interface ConnectionOutcome {\n    error?: unknown;\n}',
+  },
+  {
     name: 'ConnectivityResult',
     declaration: 'export interface ConnectivityResult {\n    fingerprint: string;\n    platform: RemotePlatform;\n    architecture: RemoteArchitecture;\n}',
   },
@@ -5853,6 +5882,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'McpConnectionState',
+    declaration: 'export type McpConnectionState = \'connecting\' | \'connected\' | \'reconnecting\' | \'exhausted\' | \'stopped\' | \'disposed\';',
+  },
+  {
+    name: 'McpConnectionStatus',
+    declaration: 'export interface McpConnectionStatus {\n    state: McpConnectionState;\n    connectedAtMs?: number;\n    failedAttempts: number;\n    maxAttempts: number;\n    lastErrorKind?: string;\n}',
+  },
+  {
     name: 'McpResourceProvider',
     declaration: 'export interface McpResourceProvider {\n    request(request: McpResourceRequest, exec: ToolExecution): Promise<JsonValue>;\n}',
   },
@@ -5863,6 +5900,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpResourceRequest',
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
+  },
+  {
+    name: 'McpToolDescriptor',
+    declaration: 'export interface McpToolDescriptor {\n    readonly rawName: string;\n    readonly description: string;\n    readonly inputSchema: Record<string, unknown>;\n    readonly outputSchema?: JsonSchemaNode;\n    readonly taskRequired: boolean;\n}',
   },
   {
     name: 'McpUserConfigSettingsConfig',
@@ -6529,6 +6570,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SentRef {\n    messageId: string;\n    route: ChatRoute;\n}',
   },
   {
+    name: 'ServerContext',
+    declaration: 'export interface ServerContext {\n    resources: McpResourceProvider;\n    instructions(): string;\n}',
+  },
+  {
     name: 'ServerResponse',
     declaration: 'export interface ServerResponse {\n    type: \'server-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n    authentication?: AuthenticationPrincipalIdentity;\n    requestId?: RequestId;\n}',
   },
@@ -6903,6 +6948,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SettingsUpdateSource',
     declaration: 'export type SettingsUpdateSource = \'update\' | \'provider\';',
+  },
+  {
+    name: 'SharedConnection',
+    declaration: 'export interface SharedConnection extends ServerContext {\n    readonly serverName: string;\n    ready: Promise<ConnectionOutcome>;\n    connected(): boolean;\n    status(): McpConnectionStatus;\n    toolDescriptors(): readonly McpToolDescriptor[];\n    toolNames(): string[];\n    resourceUris(): string[];\n    resourceTemplates(): string[];\n    callTool(rawName: string, args: Record<string, unknown>, exec: {\n        signal?: AbortSignal;\n    }): Promise<unknown>;\n    subscribe(listener: () => void): () => void;\n    dispose(): Promise<void>;\n}',
   },
   {
     name: 'ShellExecRequest',

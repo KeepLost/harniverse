@@ -47,7 +47,7 @@ function fakeHandle(overrides: Partial<Pick<SharedConnection, 'status' | 'toolDe
     resourceTemplates: () => [],
     instructions: () => '',
     callTool: () => Promise.resolve({}),
-    resources: { request: () => Promise.resolve({}) } as SharedConnection['resources'],
+    resources: { request: () => Promise.resolve({}) },
     subscribe: () => () => {},
     dispose: () => Promise.resolve(),
   }
@@ -68,7 +68,7 @@ describe('mcp management service', () => {
       entries: () => [
         entry(),
         entry({ id: 'away', serverName: 'away', enabled: false }),
-        entry({ id: 'broken', serverName: 'broken', reconnect: {} as UserMcpServerConfig['reconnect'] }),
+        entry({ id: 'broken', serverName: 'broken', reconnect: {} }),
       ],
       restartOwner: async () => { throw new Error('unreachable') },
     })
