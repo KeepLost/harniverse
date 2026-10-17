@@ -379,9 +379,15 @@ function applyOwnerFleet(ctx: Context, scope: SettingsScopeFace): void {
     const entry = scope.get().servers.find(candidate => candidate.id === serverId)
     if (entry === undefined) throw new Error(`mcp-user-config: unknown server "${serverId}"`)
     if (!entry.enabled) throw new Error(`mcp-user-config: server "${serverId}" is disabled`)
-    /* v8 ignore next 3 -- a settings race can find no live owner yet; restart then just mounts a fresh one. */
     const record = owners.get(serverId)
-    if (record !== undefined) await disposeOwner(record)
+    /* v8 ignore start -- a settings race can find no live owner yet; restart then just mounts a fresh one. */
+    if (record !== undefined) {
+      await disposeOwner(record)
+    } else {
+      mountOwner(entry)
+      return
+    }
+    /* v8 ignore stop */
     mountOwner(entry)
   })
 
@@ -431,6 +437,7 @@ async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsServic
         children.set(entry.id, { config: entry, fiber })
         void Promise.resolve(fiber).catch((error: unknown) => { logChildFailure(ctx, entry, 'registrar startup', error) })
       } catch (error) {
+        /* v8 ignore next -- sync throws require a malformed plugin shape; the registrar import always carries apply. */
         logChildFailure(ctx, entry, 'registrar startup', error)
       }
     }

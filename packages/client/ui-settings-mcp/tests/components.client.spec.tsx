@@ -352,6 +352,45 @@ describe('McpSection page flows', () => {
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: en['row.delete'] })) })
     await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'delete failed' }))).toBeDefined() })
   })
+
+  it('renders write rejections that are not Error instances verbatim', async () => {
+    const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    // Non-Error rejections lose instanceof across the IPC boundary, exercising the String() arm.
+    class PlainRefusal {
+      message: string
+      constructor(message: string) { this.message = message }
+      toString(): string { return this.message }
+    }
+    const refusals = ['save refused', 'toggle refused', 'delete refused', 'import refused'].map(message => new PlainRefusal(message) as unknown as Error)
+    let calls = 0
+    const props = {
+      refresh: () => Promise.resolve(),
+      writeServers: (_servers: readonly unknown[]) => Promise.reject(refusals[calls++]!),
+      restart: () => Promise.resolve(undefined),
+      scope: { getSnapshot: () => ({ status: 'ready' as const, value: { servers: [SETTINGS_ROW] }, writable: true }) },
+      useMcpSection: bindSnapshotSelector(store),
+      t,
+    } as unknown as McpSectionProps
+    render(<McpSection {...props} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['add'] })) })
+    await act(async () => { fireEvent.change(first(screen.getAllByLabelText(en['editor.command'])), { target: { value: 'docs-mcp' } }) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'save refused' }))).toBeDefined() })
+    await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['editor.cancel'] }))) })
+    await act(async () => { fireEvent.click(screen.getByRole('checkbox')) })
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'toggle refused' }))).toBeDefined() })
+    await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
+    const dialog = screen.getByRole('dialog')
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: en['row.delete'] })) })
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'delete refused' }))).toBeDefined() })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['import'] })) })
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(en['import.paste']), { target: { value: JSON.stringify({ mcp: { web: { type: 'remote', url: 'https://web' } } }) } })
+    })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['import.parse'] })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['import.import'] })) })
+    await waitFor(() => { expect(screen.getByText(t('writeFailed', { message: 'import refused' }))).toBeDefined() })
+  })
 })
 
 describe('McpSection remaining arms', () => {

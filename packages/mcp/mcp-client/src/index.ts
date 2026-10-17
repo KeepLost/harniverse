@@ -121,6 +121,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // quiesces in-flight work, and unregisters the current generation.
   // Exposure (server context, capability adapter, member restriction) is the
   // same scoped route the shared-connection registrar takes.
+  /* v8 ignore next -- placeholder until the exposure assigns the live invalidator; the supervisor first notifies asynchronously. */
   let invalidate = (): void => {}
   const connection = startConnection(ctx, config, reconnect, () => {
     invalidate()

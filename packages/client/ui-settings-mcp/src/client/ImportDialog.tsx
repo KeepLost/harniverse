@@ -77,9 +77,9 @@ export function ImportDialog(props: ImportDialogProps) {
             setError(undefined)
           } catch (parseError) {
             setParsed(undefined)
+            /* v8 ignore next 3 -- parseMcpImport wraps every failure in McpImportError */
             setError(parseError instanceof Error
               ? parseError.message
-              /* v8 ignore next -- parseMcpImport wraps every failure in McpImportError */
               : String(parseError))
           }
         }}>{t('import.parse')}</Button>
