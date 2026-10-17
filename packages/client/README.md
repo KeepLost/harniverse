@@ -42,6 +42,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-settings-general/`](ui-settings-general/README.md) | Provides the general settings section. |
 | [`ui-settings-models/`](ui-settings-models/README.md) | Provides model-provider configuration and DeepSeek onboarding. |
 | [`ui-settings-plugin-inventory/`](ui-settings-plugin-inventory/README.md) | Contributes read-only Host plugin inventory and diagnostics to Plugins settings. |
+| [`ui-settings-mcp/`](ui-settings-mcp/README.md) | Provides the MCP management settings section: server roster over the `mcp` scope, live state and restart over the `mcpManagement` Remote, OpenCode-format paste import. |
 | [`ui-settings-im/`](ui-settings-im/README.md) | Provides the IM bots settings section: platform channels, bot cards, and owner pairing over the `chatBots` Remote. |
 | [`ui-session-import/`](ui-session-import/README.md) | Provides the session-import settings section over the `officialSessionImport` Remote and the archive dock that continues an imported session. |
 | [`ui-skin/`](ui-skin/README.md) | Provides the skin gallery, accent, wallpaper, material, and imported-pack rows of the Appearance section over the `skinLibrary` Remote, and the wallpaper backdrop. |

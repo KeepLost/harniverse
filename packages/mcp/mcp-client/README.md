@@ -35,6 +35,15 @@ One plugin instance per MCP server in `cordis.yml`:
 
 The model sees `mcp__github__create_issue`, `mcp__web__search`, … — the same server-qualified shape Claude Code and Codex use. HMR hot-swaps: editing the entry triggers disconnect + reconnect without process restart; an unchanged `serverName` reproduces identical tool names.
 
+## Shared connections
+
+The direct `cordis.yml` rows above are the standalone mode: one plugin instance owns its transport and registers tools on its own `ctx.tools`. The package additionally exports the host-shared connection core that `dsh-mcp-user-config` composes:
+
+- `McpConnectionsRegistry` (service name `mcpConnections`, merged as `ctx.mcpConnections`) owns one supervisor per configured server for the whole Host, keyed by settings id. The supervisor is transport-only: it connects, reconnects, and synchronizes the tool inventory; it never registers tools itself.
+- `McpOwnerPlugin` mounts one shared supervisor as a child fiber (config = a server row plus its settings `serverId`). Startup failures are contained by the owning fleet regardless of `failOnStartupError`, which applies only to standalone activation; the row still surfaces its state through the registry.
+- `McpRegistrarPlugin` attaches to one already-running shared connection by `serverId` and projects its tool inventory into the registrar's own scoped `ctx.tools` layer under the same public naming, exposure, and capability rules as standalone mode. Several registrars — one per profile generation — can ride the same connection; their member selections stay independent while the transport and discovery are paid once.
+- `exposeScopedServer` is the single exposure path both modes share: server prompt context, capability adapter, and resource publishing are derived from the same descriptors, so a registrar's model-facing surface is byte-identical to a standalone instance of the same server.
+
 ## Config
 
 | Field | Transport | Required | Description |

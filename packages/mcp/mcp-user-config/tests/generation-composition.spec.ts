@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dump, load } from 'js-yaml'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader, { type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
@@ -19,6 +19,7 @@ import { mcpResourceTemplateMemberId, mcpServerCapabilityId } from '@deepseek-ai
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as Bridge from '../src/index.ts'
+import type { McpManagementService } from '../src/management.ts'
 
 class MemorySettings extends SettingsProvider {
   override readonly writable = true
@@ -90,6 +91,14 @@ function caller(parent: object): Agent {
   return agent
 }
 
+/** Await one server's shared connection settling (owner fleet is async). */
+async function waitForServer(ctx: Context, id: string): Promise<void> {
+  await vi.waitFor(() => {
+    const handle = ctx.get('mcpConnections')?.get(id)
+    if (handle === undefined || !handle.connected()) throw new Error(`server "${id}" not connected yet`)
+  }, { timeout: 10_000 })
+}
+
 function call(ctx: Context, agent: Agent, serverName: string, uri: string) {
   return ctx.tools.execute({ agent, name: 'read_mcp_resource', arguments: { server: serverName, uri },
     callId: CallId('profile-read'), signal: new AbortController().signal })
@@ -100,6 +109,7 @@ describe('shipped MCP Profile composition', () => {
     const ctx = await boot()
     const settings = ctx.get('settings') as MemorySettings
     await settings.replace(Bridge.MCP_SETTINGS_NAMESPACE, { servers: [server('docs')] })
+    await waitForServer(ctx, 'docs')
     const original = await ctx.agentPresets.standingKeyFor('standard')
     const oldAgent = caller(original)
     const oldChild = caller(oldAgent)
@@ -135,14 +145,21 @@ describe('shipped MCP Profile composition', () => {
     expect(await ctx.agentPresets.standingKeyFor('standard')).toBe(narrowed)
 
     await settings.replace(Bridge.MCP_SETTINGS_NAMESPACE, { servers: [server('replacement')] })
+    await waitForServer(ctx, 'docs')
     const next = await ctx.agentPresets.standingKeyFor('standard')
     expect(next).not.toBe(narrowed)
     const nextAgent = caller(next)
     expect((await call(ctx, nextAgent, 'replacement', 'docs://guide')).isError).toBe(false)
     expect((await call(ctx, nextAgent, 'docs', 'docs://guide')).isError).toBe(true)
+    // The connection fleet is global: the settings row kept its stable id and
+    // swapped the public serverName, so the pinned narrow generation keeps its
+    // captured member selection (template-only) while its calls now ride the
+    // replacement transport under the captured "docs" name.
     expect((await call(ctx, narrowAgent, 'docs', 'docs://search/testing')).isError).toBe(false)
     expect((await call(ctx, narrowAgent, 'docs', 'docs://guide')).isError).toBe(true)
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: narrowAgent }))).not.toContain('replacement')
+    // Attributed instructions ride the live connection: the pinned generation
+    // shows the replacement server's own instructions under its section.
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: narrowAgent }))).toContain('### MCP server: replacement')
     expect((await call(ctx, oldChild, 'docs', 'docs://guide')).isError).toBe(false)
 
     const nextView = { scope: next }
@@ -159,7 +176,37 @@ describe('shipped MCP Profile composition', () => {
     await settings.replace(Bridge.MCP_SETTINGS_NAMESPACE, { servers: [] })
     const empty = caller(await ctx.agentPresets.standingKeyFor('standard'))
     expect(ctx.tools.schemas(empty).map(tool => tool.name)).not.toContain('read_mcp_resource')
-    expect((await call(ctx, nextAgent, 'replacement', 'docs://guide')).isError).toBe(false)
+    expect((await call(ctx, nextAgent, 'replacement', 'docs://guide')).isError).toBe(true)
+  }, 30_000)
+
+  it('serves every Standard-family generation from one shared owner per server', async () => {
+    const ctx = await boot()
+    const settings = ctx.get('settings') as MemorySettings
+    await settings.replace(Bridge.MCP_SETTINGS_NAMESPACE, { servers: [server('docs')] })
+    await waitForServer(ctx, 'docs')
+    const standard = caller(await ctx.agentPresets.standingKeyFor('standard'))
+    const code = caller(await ctx.agentPresets.standingKeyFor('code'))
+    expect((await call(ctx, standard, 'docs', 'docs://guide')).isError).toBe(false)
+    expect((await call(ctx, code, 'docs', 'docs://guide')).isError).toBe(false)
+    // One process-global handle serves both compositions, and the host root
+    // registry stays clean: exposure is per composition, connection is not.
+    const registry = ctx.get('mcpConnections')
+    expect(registry?.get('docs')).toBeDefined()
+    expect(registry?.get('docs')).toBe(registry?.get('docs'))
+    expect(ctx.tools.get('mcp__docs__add')).toBeUndefined()
+
+    // The management Remote reads the live fleet and restarts it in place.
+    const management = ctx.get('mcpManagement') as McpManagementService
+    const row = management.status().find(candidate => candidate.id === 'docs')
+    expect(row).toMatchObject({ id: 'docs', serverName: 'docs', state: 'connected' })
+    expect(row?.tools.map(tool => tool.name)).toContain('ping')
+    expect(row!.connectedAtMs).toBeDefined()
+    await management.restart('docs')
+    await vi.waitFor(() => {
+      const restarted = management.status().find(next => next.id === 'docs')
+      if (restarted?.state !== 'connected') throw new Error('restart not connected yet')
+    }, { timeout: 10_000 })
+    expect((await call(ctx, standard, 'docs', 'docs://guide')).isError).toBe(false)
   }, 30_000)
 
   it('rejects continuously changing settings and recovers once discovery stabilizes', async () => {
@@ -202,6 +249,7 @@ describe('shipped MCP Profile composition', () => {
     }))
     const key = await ctx.agentPresets.standingKeyFor('standard')
     const agent = caller(key)
+    await waitForServer(ctx, 'docs')
     expect((await call(ctx, agent, 'after', 'docs://guide')).isError).toBe(false)
     expect((await call(ctx, agent, 'before', 'docs://guide')).isError).toBe(true)
     expect(await ctx.agentPresets.standingKeyFor('standard')).toBe(key)

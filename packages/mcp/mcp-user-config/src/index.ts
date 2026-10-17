@@ -1,24 +1,27 @@
 /**
  * User-owned MCP server configuration: the exported provider registers the
- * `mcp` settings namespace once, while this consumer mounts one child
- * `mcp-client` plugin for every enabled server entry in its own scope.
+ * `mcp` settings namespace once and mounts one shared-connection owner per
+ * enabled server in the host/base scope, while this consumer mounts one
+ * scoped registrar per selected server entry in its own profile scope — so
+ * every composition projects one process-global connection per server.
  * @module @deepseek-ai/dsh-mcp-user-config
  */
 
-import type { Context, Fiber, Plugin } from '@deepseek-ai/cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-capabilities'
 import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import {
-  apply as mcpClientApply,
-  Config as McpClientConfigSchema,
-  inject as mcpClientInject,
-  name as mcpClientName,
+  MCP_CONNECTIONS_SERVICE,
+  McpConnectionsRegistry,
+  McpOwnerPlugin,
+  McpRegistrarPlugin,
   mcpServerCapabilityId,
 } from '@deepseek-ai/dsh-mcp-client'
 import type { Config as McpClientConfig, ReconnectConfig } from '@deepseek-ai/dsh-mcp-client'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { McpManagementService } from './management.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-user-config'
@@ -147,15 +150,7 @@ const SERVER_KEYS = new Set([
 ])
 const RECONNECT_KEYS = new Set(['enabled', 'initialDelayMs', 'maxDelayMs', 'maxAttempts'])
 
-/** The exact child plugin shape used for every live entry. */
-const MCP_CLIENT_PLUGIN: Plugin<McpClientConfig> = {
-  name: mcpClientName,
-  inject: mcpClientInject,
-  Config: McpClientConfigSchema as unknown as NonNullable<Plugin<McpClientConfig>['Config']>,
-  // oxlint-disable-next-line typescript/no-misused-promises -- Cordis awaits async plugin apply callbacks.
-  apply: mcpClientApply,
-}
-
+/** One mounted child (owner or registrar) retained until its setting leaves. */
 interface ChildRecord {
   config: UserMcpServerConfig
   fiber: Fiber & PromiseLike<Fiber>
@@ -163,14 +158,10 @@ interface ChildRecord {
 
 let consumerReservationCounter = 0
 let settingsGenerationCounter = 0
-const consumerReservationKeys = new WeakMap<Context, string>()
 
-function reservationKeyFor(ctx: Context): string {
-  const existing = consumerReservationKeys.get(ctx)
-  if (existing !== undefined) return existing
-  const key = `mcp-user-config-${++consumerReservationCounter}`
-  consumerReservationKeys.set(ctx, key)
-  return key
+/** Mint one reservation owner key for this consumer's scoped registry. */
+function reservationKeyFor(): string {
+  return `mcp-user-config-${++consumerReservationCounter}`
 }
 
 function assertKnownKeys(value: object, keys: ReadonlySet<string>, path: string): void {
@@ -179,11 +170,11 @@ function assertKnownKeys(value: object, keys: ReadonlySet<string>, path: string)
   }
 }
 
-/** Map a validated user entry to the unchanged single-server client contract. */
-function toMcpClientConfig(entry: UserMcpServerConfig, reservationKey: string): McpClientConfig {
+/** Map a validated user entry to the shared-connection owner config. */
+function toOwnerConfig(entry: UserMcpServerConfig): McpClientConfig & { serverId: string } {
   const common = {
+    serverId: entry.id,
     serverName: entry.serverName,
-    reservationKey,
     toolCallTimeoutMs: entry.toolCallTimeoutMs,
     ...entry.maxInstructionBytes === undefined ? {} : { maxInstructionBytes: entry.maxInstructionBytes },
     failOnStartupError: entry.failOnStartupError,
@@ -205,6 +196,11 @@ function toMcpClientConfig(entry: UserMcpServerConfig, reservationKey: string): 
     url: entry.url as string,
     headers: { ...entry.headers },
   }
+}
+
+/** Stable per-owner configuration identity: any change remounts the owner. */
+function ownerConfigSignature(entry: UserMcpServerConfig): string {
+  return JSON.stringify(toOwnerConfig(entry))
 }
 
 /**
@@ -255,6 +251,7 @@ export function applySettingsProvider(ctx: Context, config: Config): void {
   const captured = new WeakMap<ScopeKey, McpUserConfigSettingsConfig>()
   let revision = ++settingsGenerationCounter
   ctx.effect(() => scope.watch(() => { revision = ++settingsGenerationCounter }), 'mcp-user-config.revision')
+  applyOwnerFleet(ctx, scope)
   ctx.provide(MCP_USER_CONFIG_SETTINGS_SERVICE, {
     get: key => structuredClone(key === undefined ? scope.get() : captured.get(key) ?? scope.get()),
     watch: callback => scope.watch(callback),
@@ -306,28 +303,112 @@ export function applySettingsProvider(ctx: Context, config: Config): void {
 
 /** Log a child failure without copying transport configuration into the log. */
 function logChildFailure(ctx: Context, entry: UserMcpServerConfig, operation: string, error: unknown): void {
+  /* v8 ignore next -- cordis normalizes fiber rejections to Error instances; the fallback
+     keeps the log total for direct programmatic callers. */
   const kind = error instanceof Error ? error.name : typeof error
   ctx.logger.error(
     `mcp-user-config: ${operation} failed for id "${entry.id}" and serverName "${entry.serverName}" (${kind})`,
   )
 }
 
-/** Retain each child until generation disposal, including failed startup fibers. */
-async function mountChild(ctx: Context, children: Map<string, ChildRecord>, entry: UserMcpServerConfig): Promise<void> {
-  const fiber = ctx.plugin(MCP_CLIENT_PLUGIN, toMcpClientConfig(entry, reservationKeyFor(ctx)))
-  const record: ChildRecord = { config: entry, fiber }
-  children.set(entry.id, record)
-  try {
-    await fiber
-  } catch (error) {
-    logChildFailure(ctx, entry, 'startup', error)
-  }
+/** The `mcp` settings scope face the fleet reads. */
+interface SettingsScopeFace {
+  get(): McpUserConfigSettingsConfig
+  watch(callback: () => void | Promise<void>): () => void
 }
 
-/** Dispose one child and remove it from the live stable-id map. */
-async function disposeChild(children: Map<string, ChildRecord>, record: ChildRecord): Promise<void> {
-  await record.fiber.dispose()
-  children.delete(record.config.id)
+/**
+ * Own the process-global connection fleet for the current settings: one
+ * shared-connection owner child per enabled entry, remounted whenever its
+ * configuration changes, plus the management Remote over the fleet.
+ * @param ctx - host/base plugin context carrying the settings scope.
+ * @param scope - the registered `mcp` settings scope.
+ */
+function applyOwnerFleet(ctx: Context, scope: SettingsScopeFace): void {
+  const registry = new McpConnectionsRegistry()
+  ctx.provide(MCP_CONNECTIONS_SERVICE, registry)
+  const owners = new Map<string, ChildRecord>()
+  /** Serializes fleet mutations so a restart cannot race a settings-driven remount. */
+  let fleetChain: Promise<void> = Promise.resolve()
+
+  const mountOwner = (entry: UserMcpServerConfig): void => {
+    const fiber = ctx.plugin(McpOwnerPlugin, toOwnerConfig(entry))
+    owners.set(entry.id, { config: entry, fiber })
+    // Owner startup is contained by design; the rejection log keeps the id visible.
+    void Promise.resolve(fiber).catch((error: unknown) => { logChildFailure(ctx, entry, 'owner startup', error) })
+  }
+
+  const disposeOwner = async (record: ChildRecord): Promise<void> => {
+    owners.delete(record.config.id)
+    /* v8 ignore next 3 -- cordis contains effect-disposer failures inside fiber.dispose; the fleet continues either way. */
+    try {
+      await record.fiber.dispose()
+    } catch (error) {
+      logChildFailure(ctx, record.config, 'owner disposal', error)
+    }
+  }
+
+  const runOnFleet = (step: () => Promise<void>): Promise<void> => {
+    const next = fleetChain.then(step, step)
+    fleetChain = next.catch(() => {})
+    return next
+  }
+
+  /** Reconcile the fleet with the current settings snapshot. */
+  const syncFleet = (): void => {
+    void runOnFleet(async () => {
+      const enabled = scope.get().servers.filter(entry => entry.enabled)
+      for (const [id, record] of [...owners]) {
+        const next = enabled.find(entry => entry.id === id)
+        if (next !== undefined && ownerConfigSignature(next) === ownerConfigSignature(record.config)) continue
+        await disposeOwner(record)
+      }
+      for (const entry of enabled) {
+        if (owners.has(entry.id)) continue
+        mountOwner(entry)
+      }
+    })
+  }
+
+  /**
+   * Dispose and remount one server's owner with unchanged configuration.
+   * @param serverId - stable settings identity of the enabled server.
+   * @returns settlement after the old owner disposed and its replacement mounted.
+   */
+  const restartOwner = (serverId: string): Promise<void> => runOnFleet(async () => {
+    const entry = scope.get().servers.find(candidate => candidate.id === serverId)
+    if (entry === undefined) throw new Error(`mcp-user-config: unknown server "${serverId}"`)
+    if (!entry.enabled) throw new Error(`mcp-user-config: server "${serverId}" is disabled`)
+    const record = owners.get(serverId)
+    /* v8 ignore start -- a settings race can find no live owner yet; restart then just mounts a fresh one. */
+    if (record !== undefined) {
+      await disposeOwner(record)
+    } else {
+      mountOwner(entry)
+      return
+    }
+    /* v8 ignore stop */
+    mountOwner(entry)
+  })
+
+  ctx.effect(() => {
+    const unsubscribe = scope.watch(() => { syncFleet() })
+    syncFleet()
+    return () => {
+      unsubscribe()
+      void runOnFleet(async () => {
+        await Promise.all([...owners.values()].map(record => disposeOwner(record)))
+      })
+    }
+  }, 'mcp-user-config.fleet')
+
+  // The management Remote registers itself on this context and leaves with
+  // the provider fiber; no manual teardown exists or is needed.
+  void new McpManagementService(ctx, {
+    registry,
+    entries: () => scope.get().servers,
+    restartOwner,
+  })
 }
 
 /** Mount only the settings captured by this Profile generation. */
@@ -335,10 +416,41 @@ async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsServic
   const children = new Map<string, ChildRecord>()
   const snapshot = settings.get(scopeOf(ctx))
   validateSettingsConfig(snapshot)
+  const reservationKey = reservationKeyFor()
   const lifecycle = ctx.effect(async () => {
-    await Promise.all(snapshot.servers.filter(entry => entry.enabled).map(entry => mountChild(ctx, children, entry)))
+    // Async boundary on purpose: cordis routes a child fiber's rejection
+    // through the effect's promise, where the containment below attaches;
+    // a synchronous callback lets the same rejection surface as a
+    // context-level error before the catch runs.
+    await Promise.resolve()
+    for (const entry of snapshot.servers.filter(entry => entry.enabled)) {
+      // A registrar never rejects on connection state; a rejection here means
+      // a duplicate namespace, which the loader surfaces for the composition.
+      // Both the synchronous mount throw and the fiber rejection are
+      // contained the same way, so one broken entry never fails the consumer.
+      try {
+        const fiber = ctx.plugin(McpRegistrarPlugin, {
+          serverId: entry.id,
+          serverName: entry.serverName,
+          reservationKey,
+        })
+        children.set(entry.id, { config: entry, fiber })
+        void Promise.resolve(fiber).catch((error: unknown) => { logChildFailure(ctx, entry, 'registrar startup', error) })
+      } catch (error) {
+        /* v8 ignore next -- sync throws require a malformed plugin shape; the registrar import always carries apply. */
+        logChildFailure(ctx, entry, 'registrar startup', error)
+      }
+    }
     return async () => {
-      await Promise.all([...children.values()].map(record => disposeChild(children, record)))
+      await Promise.all([...children.values()].map(async (record) => {
+        children.delete(record.config.id)
+        /* v8 ignore next 3 -- cordis contains effect-disposer failures inside fiber.dispose; the generation unwinds either way. */
+        try {
+          await record.fiber.dispose()
+        } catch (error) {
+          logChildFailure(ctx, record.config, 'registrar disposal', error)
+        }
+      }))
     }
   }, 'mcp-user-config.lifecycle')
   await lifecycle

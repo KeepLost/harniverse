@@ -784,6 +784,11 @@
         "@modelcontextprotocol/server-filesystem"
       ]
     },
+    "packages/mcp/mcp-user-config": {
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
     "packages/client/web": {
       "project": [
         "src/**/*.ts",

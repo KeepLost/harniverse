@@ -96,6 +96,7 @@ flowchart LR
   pkg_host_official_session_import["host-official-session-import"]
   pkg_mcp_resources["mcp-resources"]
   svc_mcpResources["ctx.mcpResources<br/>Scoped MCP resource seam"]
+  svc_mcpConnections["ctx.mcpConnections<br/>Host-shared MCP connection seam"]
   svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
   pkg_model_policy["model-policy"]
   svc_modelPolicy["ctx.modelPolicy<br/>Session model authorization and routing seam"]
@@ -343,6 +344,7 @@ flowchart LR
   pkg_llm_replay --> svc_llm
   pkg_lsp --> svc_lsp
   pkg_lsp_local --> svc_lsp
+  pkg_mcp_client --> svc_mcpConnections
   pkg_mcp_resources --> svc_mcpResources
   pkg_mcp_user_config --> svc_mcpUserConfigSettings
   pkg_message_feedback --> svc_messageFeedback
@@ -474,6 +476,8 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_llm --> pkg_compaction_lossless
   svc_lsp --> pkg_tool_lsp
+  svc_mcpConnections --> pkg_mcp_client
+  svc_mcpConnections --> pkg_mcp_user_config
   svc_mcpResources --> pkg_mcp_client
   svc_mcpUserConfigSettings --> pkg_mcp_user_config
   svc_modelPolicy --> pkg_apiproxy
@@ -617,6 +621,7 @@ flowchart LR
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
 | `ctx.sessionImport` | `seam` | [`session-import`](../packages/session/session-import) | [`session-import`](../packages/session/session-import) | [`agent-loop`](../packages/core/agent-loop), [`client-connection`](../packages/client/connection), [`host-official-session-import`](../packages/host/official-session-import), [`host-apiproxy`](../packages/host/apiproxy) | - | The runtime maps official v1-v4 logs (plain or Zstandard-framed) lossily into content-addressed archival native sessions with the source artifact retained beside them; the agent loop honors the contract resume guard so imported history never executes, the HTTP route and the official-session Remote import through it, and the API proxy continues an archive into a new session from its continuation seed. |
 | `ctx.mcpResources` | `seam` | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-client`](../packages/mcp/mcp-client) | - | Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list. |
+| `ctx.mcpConnections` | `seam` | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client), [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | 每个已配置服务器由一个 host 全局 owner 插件持有活连接与重连策略；preset 消费者挂载 registrar 子件暴露作用域工具，注册表跟踪世代，任何消费者都不会看到半应用的机群。 |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |
