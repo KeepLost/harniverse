@@ -202,7 +202,7 @@ watch(callback: (next: McpUserConfigSettingsConfig, prev: McpUserConfigSettingsC
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/mcp/mcp-user-config/src/index.ts:122`](../../packages/mcp/mcp-user-config/src/index.ts)
+Source: [`packages/mcp/mcp-user-config/src/index.ts:125`](../../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="ctxsettings--settingsprovider-abstract-seam"></a>
 

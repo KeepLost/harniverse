@@ -346,6 +346,11 @@
     - id: ui-settings-models
       name: '@deepseek-ai/dsh-client-ui-settings-models'
 
+    # MCP 管理设置页：mcp 设置命名空间承载增删改与启停，mcpManagement
+    # Remote 承载连接状态与就地重启；预设引用来自各预设的能力组合。
+    - id: ui-settings-mcp
+      name: '@deepseek-ai/dsh-client-ui-settings-mcp'
+
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
 

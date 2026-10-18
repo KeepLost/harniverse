@@ -8,7 +8,7 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserMcpServerConfig } from '../src/index.ts'
 
 import * as bridgeModule from '../src/index.ts'
@@ -147,15 +147,15 @@ describe('mcp-user-config plugin', () => {
   it('does not load or disclose a disabled entry', async () => {
     await mount([server('enabled'), server('disabled', { enabled: false })])
 
-    expect(ctx.tools.get('mcp__enabled__add')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__enabled__add')).toBeDefined() })
     expect(ctx.tools.get('mcp__disabled__add')).toBeUndefined()
   })
 
-  it('mounts multiple child clients and disposes every child', async () => {
+  it('mounts multiple shared servers and disposes every scoped registrar', async () => {
     await mount([server('one'), server('two')])
 
-    expect(ctx.tools.get('mcp__one__add')).toBeDefined()
-    expect(ctx.tools.get('mcp__two__add')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__one__add')).toBeDefined() })
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__two__add')).toBeDefined() })
 
     const bridge = bridges[0]
     if (bridge === undefined) throw new Error('test bridge was not mounted')
@@ -181,26 +181,28 @@ describe('mcp-user-config plugin', () => {
     expect(ctx.settings.describe().some(entry => entry.ns === bridgeModule.MCP_SETTINGS_NAMESPACE)).toBe(true)
   })
 
-  it('contains one child startup failure while exposing an unrelated child', async () => {
+  it('contains one owner startup failure while exposing an unrelated child', async () => {
     await mount([
       server('bad', { command: '/definitely/missing/mcp-server', args: [], failOnStartupError: true }),
       server('good'),
     ])
 
     expect(ctx.tools.get('mcp__bad__add')).toBeUndefined()
-    expect(ctx.tools.get('mcp__good__add')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__good__add')).toBeDefined() })
   })
 
-  it('keeps existing children pinned and applies changed settings only to new consumers', async () => {
+  it('remounts the global fleet on settings change while scoped registrars follow it', async () => {
     await mount([server('one')])
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__one__add')).toBeDefined() })
     const settings = ctx.get('settings') as MemorySettings
     await settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, { servers: [server('two')] })
-    expect(ctx.tools.get('mcp__one__add')).toBeDefined()
+    // The pinned composition keeps its registrar, but the global owner for
+    // "one" is gone: exposure follows the fleet, not the captured snapshot.
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__one__add')).toBeUndefined() })
     expect(ctx.tools.get('mcp__two__add')).toBeUndefined()
     const next = await mountProfile()
-    expect(next.tools.get('mcp__two__add')).toBeDefined()
+    await vi.waitFor(() => { expect(next.tools.get('mcp__two__add')).toBeDefined() })
     expect(next.tools.get('mcp__one__add')).toBeUndefined()
-    expect(ctx.tools.get('mcp__one__add')).toBeDefined()
   })
 
   it('rejects duplicate stable ids before mounting any child', async () => {

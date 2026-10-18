@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-命名的 Cordis consumer，读取由 host 拥有的 `mcp` 设置 namespace，并为每个启用的用户配置服务器挂载一个 `@deepseek-ai/dsh-mcp-client` 子插件。子插件继续使用现有的单服务器传输、重连、工具注册和 capability disclosure 合约。
+构建在 host 拥有的 `mcp` 设置 namespace 之上的命名的 Cordis 插件对。provider 为每条配置的服务器挂载一个宿主共享的 `mcp-client` owner——整个宿主上每个服务器只有一条连接——各预设的 consumer 则挂载 registrar 子插件，把共享连接的工具投影到该预设自己的作用域 `ctx.tools` 层。设置页（`dsh-client-ui-settings-mcp`）编辑同一 namespace，并通过本包的 `mcpManagement` Remote 读取实时状态。
 
 ## 用法
 
@@ -70,21 +70,31 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 
 ## 生命周期
 
-- provider 验证并仅注册一次 `mcp`。其 capability adapter 在 Profile 世代挂载前捕获私有设置快照。consumer 通过真实的 `ctx.plugin(mcp-client, config)` 子 fiber 仅挂载快照中已启用且选中的条目；密钥不进入世代签名或目录 descriptor。
-- 每个 consumer 都会提供内部 reservation owner key，因此同时运行的 Standard-family Profile 可以在不同 scoped registry 中呈现同一配置的公开 `serverName`，且不会削弱单个 consumer 内的重复检测。
-- 某个服务器的连接或启动失败会记录只包含稳定标识和错误类型的日志；不相关的服务器继续启动。
-- 禁用条目不会创建子插件，因此不会注册或 disclosure namespace 工具。
-- 设置变更推进 provider 拥有的世代标识。下一次 Profile 组装捕获新设置；已有 consumer 保留原有客户端、instructions、资源以及捕获的成员权限。重连仍使用同一份捕获配置。
-- consumer 释放时等待所有子插件。子 `mcp-client` 负责进程关闭、工具与资源注销、capability 更新和 server-name reservation 释放。
+- provider 验证并仅注册一次 `mcp`，随后为每条设置条目挂载一个 `McpOwnerPlugin` 子插件——禁用条目也包含在内，以停止状态存在，使启用写入不会引发 fiber 竞争。owner 经由机群链串行挂载，只有配置签名变化（而非瞬时重连状态）才会精确重挂载变化的 owner。owner 激活从不等待首次连接尝试：每条连接立即启动并在后台并行推进，因此宿主启动——以及随之启动的 web 监听——绝不会被慢的或不可达的服务器拖慢。
+- 某个 owner 的连接或启动失败由机群步骤遏制，并记录只含稳定标识与错误类型的日志；不相关的 owner 继续启动。`failOnStartupError` 是独立模式开关，对共享 owner 不生效。
+- consumer 为捕获世代快照中已启用且选中的每条条目挂载一个 `McpRegistrarPlugin` 子插件。registrar 按设置 id 附接到活的共享连接，并在注册表每次推送时重新同步其作用域工具注册；它从不拥有传输层。
+- 重命名服务器的 `serverName` 会保留设置 id——即共享连接槽位——而公开 namespace 随之移动。固定世代保留其捕获的成员选择；从设置中移除的槽位使其所有 registrar 以 `unknown server` 失败，服务器的 instructions 跟随活的连接而非捕获的世代。
+- 设置变更推进 provider 拥有的世代标识。下一次 Profile 组装捕获新设置；已有 consumer 保留其 registrar 直到所属作用域释放。密钥不进入世代签名或目录 descriptor。
+- consumer 释放时等待所有 registrar；provider 释放时等待机群并关闭每条共享连接。`mcp-client` 核心负责进程关闭、工具与资源注销、capability 更新和 server-name reservation 释放。
 - 两个 role 都声明 host 可用的 `settings` 和 `tools` injection。provider 使用 `settings`；consumer 使用 `ctx.get()` 读取可选的 `mcpUserConfigSettings` service，并使用注入的 `tools` scope。`minimal` 可以省略 consumer，因此不会接收 MCP 工具。
+
+## 管理 Remote
+
+`McpManagementService`（Typert namespace `mcpManagement`，两个操作都以 `harniverse.administer` 门禁）为设置页投影机群状态：
+
+| 操作 | 结果 |
+|---|---|
+| `status()` | 每条设置条目一行：稳定 id、`serverName`、传输方式、实时连接状态（`connecting`/`connected`/`reconnecting`/`exhausted`/`stopped`/`disposed`，或 `disabled`）、失败尝试计数、当前工具清单以及当前连接世代的纪元 |
+| `restart(serverId)` | 重建一条已启用服务器的共享连接；校验（`unknown server`、`server "X" is disabled`）位于机群步骤，重启无法绕过设置 |
 
 ## 消费的服务
 
 | 服务 | 用途 |
 |---|---|
 | `ctx.mcpUserConfigSettings` | 读取捕获的世代快照；独立 consumer 读取当前设置 |
+| `ctx.mcpConnections` | owner 创建、registrar 附接的共享连接注册表 |
 | `ctx.capabilities` | 可选的私有世代捕获及服务器选择集成 |
-| `ctx.tools` | 每个挂载的 `mcp-client` 子插件都需要它来注册模型工具 |
+| `ctx.tools` | 每个 registrar 都需要它来注册模型工具 |
 
 ## 模型体验
 
@@ -105,6 +115,8 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 ## 已知限制与暂缓事项
 
 - MCP 服务器自定义 prompts 仍暂缓实现。资源需要 Host 拥有的 `mcp-resources` 服务。
-- 被替代的 Profile 世代在所属常驻作用域释放前保留客户端；世代回收由 `agent-presets` 负责。
+- 被替代的 Profile 世代在所属常驻作用域释放前保留 registrar；世代回收由 `agent-presets` 负责。
 - 只有 wire consumer 请求 `ctx.settings.describe({ redactSecrets: true })` 时，设置 descriptor 才是安全的；`env` 和 `headers` 已使用 `role('secret')` 声明以支持该脱敏路径。
 - Host/base 拥有 provider row，Standard、Code 与 Cordis 拥有 consumer row。自定义组合必须保留这个单 provider、scoped consumer 划分。
+- 固定世代乘搭活的共享连接：捕获后被重命名的服务器同样向旧 registrar 暴露新的公开 namespace，被移除的槽位会搁浅它们直到作用域释放。
+- 管理 Remote 只报告状态、不推送状态。设置页在打开期间每 5 秒轮询 `status()`，而非订阅机群事件。

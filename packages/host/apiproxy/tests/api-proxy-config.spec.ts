@@ -377,8 +377,9 @@ describe('settings domain', () => {
     // The settings seam is general: any plugin may register a namespace for
     // its own configuration. The Web configuration plane remains opt-in, so a
     // future internal plugin cannot become remotely configurable just by
-    // registering; locale, permission, conversation, skin, theme, and the product
-    // onboarding namespace are intentionally admitted by this surface.
+    // registering; locale, permission, conversation, skin, theme, the MCP
+    // server settings namespace, and the product onboarding namespace are
+    // intentionally admitted by this surface.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig)
     ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
@@ -387,6 +388,14 @@ describe('settings domain', () => {
     }), {
       base: { defaultPreset: 'read-only' },
     })
+    ctx.settings.register(settingsNamespace('mcp'), z.object({
+      servers: z.array(z.object({
+        id: z.string(),
+        serverName: z.string(),
+        transport: z.union(['stdio', 'streamable-http']),
+        enabled: z.boolean().default(true),
+      })).default([]),
+    }))
     ctx.settings.register(settingsNamespace('ui-theme'), z.object({
       preference: z.union(['light', 'dark', 'system']).default('system'),
     }))
@@ -439,7 +448,7 @@ describe('settings domain', () => {
 
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.namespaces.map(view => view.ns)).toEqual([
-      'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation', 'ui-skin',
+      'llm-deepseek', 'permission', 'mcp', 'ui-theme', 'locale', 'ui-conversation', 'ui-skin',
       'shell', 'agent-loop', 'compaction', 'web-search-deepseek', 'web', 'web-search-exa',
       'web-search-perplexity', 'web-search-tavily', 'web-search-brave',
       'web-search-kagi', 'web-search-cloudflare', 'web-firecrawl',
@@ -449,6 +458,15 @@ describe('settings domain', () => {
       ops: [{ op: 'set', path: ['defaultPreset'], value: 'workspace-write' }],
     })))
     expect(permission.value).toEqual({ defaultPreset: 'workspace-write' })
+    const mcp = expectOk(await api.settings.mutate(request({
+      ns: 'mcp',
+      ops: [{ op: 'set', path: ['servers'], value: [
+        { id: 'a1b2c3d4', serverName: 'reference', transport: 'stdio', enabled: true },
+      ] }],
+    })))
+    expect(mcp.value).toEqual({ servers: [
+      { id: 'a1b2c3d4', serverName: 'reference', transport: 'stdio', enabled: true },
+    ] })
     const theme = expectOk(await api.settings.mutate(request({
       ns: 'ui-theme',
       ops: [{ op: 'set', path: ['preference'], value: 'dark' }],

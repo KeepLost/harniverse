@@ -19,6 +19,9 @@
     - button "资源治理":
       - img
       - text: 资源治理
+    - button "MCP 管理":
+      - img
+      - text: MCP 管理
     - button "Agent 预设":
       - img
       - text: Agent 预设

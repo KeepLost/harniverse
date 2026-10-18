@@ -26,7 +26,7 @@ import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { brotliCompressSync, gzipSync } from 'node:zlib'
+import { brotliCompress, gzip } from 'node:zlib'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -111,8 +111,8 @@ interface WebPluginRecord {
 
 interface BootstrapArtifact {
   plain: Buffer
-  gzip: Buffer
-  br: Buffer
+  gzip: Buffer | undefined
+  br: Buffer | undefined
 }
 
 /** Narrow an unknown parsed JSON value to the `dsh.client` declaration, throwing on malformed fields. */
@@ -347,16 +347,15 @@ export class ClientModuleRegistry extends Service {
     const deferred = [...this.table.values()].filter(record => record.entry.startup === 'deferred')
     const criticalPlain = bootstrapSource(critical)
     const deferredPlain = bootstrapSource(deferred)
-    this.bootstrapArtifacts.set(rev, {
-      plain: criticalPlain,
-      gzip: gzipSync(criticalPlain),
-      br: brotliCompressSync(criticalPlain),
-    })
-    this.bootstrapArtifacts.set(`${rev}:deferred`, {
-      plain: deferredPlain,
-      gzip: gzipSync(deferredPlain),
-      br: brotliCompressSync(deferredPlain),
-    })
+    // The wire encodings fill asynchronously: compressing the concatenated
+    // bootstrap on the main thread blocked composition start for tens of
+    // seconds, so until an encoding lands the route serves the plain body.
+    const criticalArtifact: BootstrapArtifact = { plain: criticalPlain, gzip: undefined, br: undefined }
+    const deferredArtifact: BootstrapArtifact = { plain: deferredPlain, gzip: undefined, br: undefined }
+    this.bootstrapArtifacts.set(rev, criticalArtifact)
+    this.bootstrapArtifacts.set(`${rev}:deferred`, deferredArtifact)
+    this.fillEncoding(rev, criticalArtifact)
+    this.fillEncoding(`${rev}:deferred`, deferredArtifact)
     while (this.bootstrapArtifacts.size > 4) {
       const oldest = this.bootstrapArtifacts.keys().next().value
       if (oldest === undefined) break
@@ -368,6 +367,22 @@ export class ClientModuleRegistry extends Service {
       deferredBootstrapUrl: `/plugins/bootstrap-deferred.js?rev=${rev}`,
       entries,
     }
+  }
+
+  /** Fill one artifact's wire encodings off the main thread. */
+  private fillEncoding(key: string, artifact: BootstrapArtifact): void {
+    const settle = (kind: 'br' | 'gzip', error: Error | null, body?: Buffer): void => {
+      if (error !== null || body === undefined) {
+        this.ctx.logger.warn(`client-modules: bootstrap ${kind} compression failed; the route keeps serving the plain body (${String(error ?? 'no output')})`)
+        return
+      }
+      /* v8 ignore next 2 -- a fill can only land after its key changed when two
+         compositions raced the same rev through eviction; the stale body is dropped. */
+      if (this.bootstrapArtifacts.get(key) !== artifact) return
+      artifact[kind] = body
+    }
+    brotliCompress(artifact.plain, (error, body) => { settle('br', error, body) })
+    gzip(artifact.plain, (error, body) => { settle('gzip', error, body) })
   }
 
   private notifyGraphChanged(): void {
@@ -497,15 +512,20 @@ export class ClientModuleRegistry extends Service {
       }
       const encodings = (req.headers['accept-encoding'] ?? '').split(',')
         .map(encoding => encoding.trim().split(';')[0])
-      const acceptsBrotli = encodings.includes('br')
-      const acceptsGzip = encodings.includes('gzip')
-      const body = acceptsBrotli ? artifact.br : acceptsGzip ? artifact.gzip : artifact.plain
+      // Undefined encodings until the background fill lands: the request then
+      // falls through to the plain body with no content-encoding header.
+      const body = encodings.includes('br') && artifact.br !== undefined
+        ? artifact.br
+        : encodings.includes('gzip') && artifact.gzip !== undefined
+          ? artifact.gzip
+          : artifact.plain
+      const encoding = body === artifact.br ? 'br' as const : body === artifact.gzip ? 'gzip' as const : undefined
       res.writeHead(200, {
         'content-type': 'text/javascript; charset=utf-8',
         'cache-control': 'private, max-age=31536000, immutable',
         'content-length': String(body.byteLength),
         'vary': 'accept-encoding',
-        ...(acceptsBrotli ? { 'content-encoding': 'br' } : acceptsGzip ? { 'content-encoding': 'gzip' } : {}),
+        ...(encoding === undefined ? {} : { 'content-encoding': encoding }),
       })
       res.end(req.method === 'HEAD' ? undefined : body)
       return

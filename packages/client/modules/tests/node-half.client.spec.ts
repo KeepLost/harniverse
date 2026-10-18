@@ -5,17 +5,49 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { brotliDecompressSync } from 'node:zlib'
+import { brotliDecompressSync, gunzipSync } from 'node:zlib'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { ClientModuleRegistry } from '../src/index.ts'
+
+// Compression controls: by default the real async zlib runs; a test can hold
+// every encoding back behind a gate or fail the calls outright.
+const { compression } = vi.hoisted(() => {
+  const compression = {
+    gate: undefined as undefined | Promise<void>,
+    fail: undefined as undefined | Error,
+  }
+  return { compression }
+})
+vi.mock('node:zlib', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:zlib')>()
+  const run = (call: () => void, cb: (error: Error | null, body?: Buffer) => void): void => {
+    if (compression.fail !== undefined) {
+      setImmediate(() => { cb(compression.fail as Error) })
+      return
+    }
+    if (compression.gate === undefined) { call(); return }
+    void compression.gate.then(() => { call() })
+  }
+  return {
+    ...real,
+    gzip: (input: Buffer, cb: (error: Error | null, body?: Buffer) => void): void => {
+      run(() => { real.gzip(input, (error, body) => { cb(error, body) }) }, cb)
+    },
+    brotliCompress: (input: Buffer, cb: (error: Error | null, body?: Buffer) => void): void => {
+      run(() => { real.brotliCompress(input, (error, body) => { cb(error, body) }) }, cb)
+    },
+  }
+})
 
 let root: string | undefined
 
 afterEach(() => {
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
   root = undefined
+  compression.gate = undefined
+  compression.fail = undefined
 })
 
 /** Create a resolvable package whose client export points at the returned path. */
@@ -170,6 +202,108 @@ describe('client bundle activation', () => {
     expect(bootstrapUrl).toBe(`/plugins/bootstrap.js?rev=${service.graph().rev}`)
     if (typeof bootstrapUrl !== 'string') throw new Error('expected bootstrap URL')
     const deferredBootstrapUrl = bootstrapUrl.replace('/plugins/bootstrap.js', '/plugins/bootstrap-deferred.js')
+    const request = async (): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> => {
+      let status = 0
+      let headers: Record<string, string> | undefined
+      let body = Buffer.alloc(0)
+      const response = {
+        writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
+          status = nextStatus
+          headers = nextHeaders
+          return response
+        },
+        end(chunk?: Uint8Array) {
+          body = chunk === undefined ? Buffer.alloc(0) : Buffer.from(chunk)
+          return response
+        },
+      } as unknown as ServerResponse
+      await route.handler({
+        method: 'GET', url: deferredBootstrapUrl, headers: { 'accept-encoding': 'gzip, deflate, br' },
+      } as IncomingMessage, response)
+      if (headers === undefined) throw new Error('expected response headers')
+      return { status, headers, body }
+    }
+
+    // The brotli body lands when the background fill completes.
+    const settled = await vi.waitFor(async () => {
+      const next = await request()
+      expect(next.headers['content-encoding']).toBe('br')
+      return next
+    }, { interval: 10 })
+
+    expect(settled.status).toBe(200)
+    expect(settled.headers).toMatchObject({
+      'cache-control': 'private, max-age=31536000, immutable',
+      'content-type': 'text/javascript; charset=utf-8',
+      'vary': 'accept-encoding',
+    })
+    const source = brotliDecompressSync(settled.body).toString('utf8')
+    expect(source).toContain('bootstrap-first')
+    expect(source).toContain('bootstrap-second')
+    expect(source).not.toContain('sourceMappingURL')
+    expect(authorizeHttpRequest).toHaveBeenCalled()
+  })
+
+  it('composes without waiting for compression and serves the plain body until an encoding lands', async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    compression.gate = gate.promise
+    const firstName = '@fixture/plain-first'
+    const secondName = '@fixture/plain-second'
+    for (const name of [firstName, secondName]) {
+      const clientPath = writePackage(name, { dsh: { client: { platform: 'web', immediately: true } } })
+      mkdirSync(dirname(clientPath), { recursive: true })
+      writeFileSync(clientPath, `window.__ModuleLoader__.load({id:"${name.split('/').at(-1)}",factory:()=>({})})\n`)
+    }
+    // Composition returns while every encoding is still gated behind `gate`.
+    const { service, route } = constructWithRoute([firstName, secondName])
+    const bootstrapUrl = service.graph().bootstrapUrl
+    const read = async (acceptEncoding?: string): Promise<{ headers: Record<string, string | undefined>; body: Buffer }> => {
+      let headers: Record<string, string> | undefined
+      let body = Buffer.alloc(0)
+      const response = {
+        writeHead(_status: number, nextHeaders?: Record<string, string>) {
+          headers = nextHeaders
+          return response
+        },
+        end(chunk?: Uint8Array) {
+          body = chunk === undefined ? Buffer.alloc(0) : Buffer.from(chunk)
+          return response
+        },
+      } as unknown as ServerResponse
+      await route.handler({
+        method: 'GET',
+        url: bootstrapUrl,
+        headers: acceptEncoding === undefined ? {} : { 'accept-encoding': acceptEncoding },
+      } as IncomingMessage, response)
+      if (headers === undefined) throw new Error('expected response headers')
+      return { headers, body }
+    }
+
+    const plain = await read('gzip, deflate, br')
+    expect(plain.headers['content-encoding']).toBeUndefined()
+    expect(plain.body.toString('utf8')).toContain('plain-first')
+
+    gate.resolve()
+    await vi.waitFor(async () => {
+      const br = await read('gzip, deflate, br')
+      expect(br.headers['content-encoding']).toBe('br')
+      expect(brotliDecompressSync(br.body).toString('utf8')).toContain('plain-second')
+    }, { interval: 10 })
+    const gzipped = await read('gzip')
+    expect(gzipped.headers['content-encoding']).toBe('gzip')
+    expect(gunzipSync(gzipped.body).toString('utf8')).toContain('plain-first')
+    const identity = await read()
+    expect(identity.headers['content-encoding']).toBeUndefined()
+    expect(identity.body.toString('utf8')).toContain('plain-first')
+  })
+
+  it('keeps serving the plain body when both encodings fail to compress', async () => {
+    compression.fail = new Error('disk full')
+    const packageName = '@fixture/compress-failed'
+    const clientPath = writePackage(packageName, { dsh: { client: { platform: 'web', immediately: true } } })
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'window.__ModuleLoader__.load({id:"compress-failed",factory:()=>({})})\n')
+    const { service, route } = constructWithRoute([packageName])
     let status = 0
     let headers: Record<string, string> | undefined
     let body = Buffer.alloc(0)
@@ -184,23 +318,15 @@ describe('client bundle activation', () => {
         return response
       },
     } as unknown as ServerResponse
-
-    await route.handler({
-      method: 'GET', url: deferredBootstrapUrl, headers: { 'accept-encoding': 'gzip, deflate, br' },
-    } as IncomingMessage, response)
-
-    expect(status).toBe(200)
-    expect(headers).toMatchObject({
-      'cache-control': 'private, max-age=31536000, immutable',
-      'content-encoding': 'br',
-      'content-type': 'text/javascript; charset=utf-8',
-      'vary': 'accept-encoding',
+    await vi.waitFor(async () => {
+      await route.handler({
+        method: 'GET', url: service.graph().bootstrapUrl, headers: { 'accept-encoding': 'br, gzip' },
+      } as IncomingMessage, response)
+      expect(status).toBe(200)
     })
-    const source = brotliDecompressSync(body).toString('utf8')
-    expect(source).toContain('bootstrap-first')
-    expect(source).toContain('bootstrap-second')
-    expect(source).not.toContain('sourceMappingURL')
-    expect(authorizeHttpRequest).toHaveBeenCalledOnce()
+    if (headers === undefined) throw new Error('expected response headers')
+    expect(headers['content-encoding']).toBeUndefined()
+    expect(body.toString('utf8')).toContain('compress-failed')
   })
 
   it('does not serve a client bundle before Connection admission', async () => {
