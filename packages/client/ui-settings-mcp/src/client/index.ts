@@ -34,8 +34,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Settings namespace of the `mcp` section the page binds. */
 const MCP_SETTINGS_NS = 'mcp'
 
-/** Required services: slots, locale, the Remote transport, and the settings scope. */
-export const inject = ['slots', 'locale', 'remote', 'settingsScope']
+/** Required services: slots, locale, the Remote transport and its two services, and the settings scope. */
+export const inject = ['slots', 'locale', 'remote', 'remote.mcpManagement', 'remote.capabilityManagement', 'settingsScope']
 
 /**
  * Client plugin body: register the dictionaries, the settings section, and

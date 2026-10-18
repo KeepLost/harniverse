@@ -4,7 +4,7 @@
  * every registration leaves with the plugin fiber (the HMR-safety rule).
  */
 
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
@@ -30,25 +30,21 @@ async function bench(options: { roster?: 'ok' | 'fail' | 'absent'; catalog?: 'ok
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
-  const listeners = new Map<string, Set<() => void>>()
   const catalogEntries = options.catalog === 'mixed'
     ? [...CATALOG_SELECTED.entries, { id: 'other:x', kind: 'agent-profile', selected: true }, { id: 'mcp-server:776562', kind: 'mcp-server', selected: false }]
     : CATALOG_SELECTED.entries
-  ctx.provide('remote', {
-    $on: (event: string, listener: () => void) => {
-      const set = listeners.get(event) ?? new Set()
-      listeners.set(event, set)
-      set.add(listener)
-      return () => { set.delete(listener) }
-    },
-    $mount: () => Promise.resolve(() => Promise.resolve()),
-    mcpManagement: {
-      status: vi.fn(() => options.status === 'throw' ? Promise.reject(new Error('remote gone')) : Promise.resolve({ ok: true as const, value: STATUS_ROWS })),
-      restart: vi.fn(() => Promise.resolve({ ok: true as const, value: undefined })),
-    },
-    capabilityManagement: {
-      catalog: vi.fn(() => options.catalog === 'fail' ? Promise.resolve({ ok: false as const, error: { message: 'denied' } }) : Promise.resolve({ ok: true as const, value: { entries: catalogEntries } })),
-    },
+  class RemoteService extends Service {
+    constructor(serviceCtx: Context) {
+      super(serviceCtx, 'remote')
+    }
+  }
+  new RemoteService(ctx)
+  ctx.provide('remote.mcpManagement', {
+    status: vi.fn(() => options.status === 'throw' ? Promise.reject(new Error('remote gone')) : Promise.resolve({ ok: true as const, value: STATUS_ROWS })),
+    restart: vi.fn(() => Promise.resolve({ ok: true as const, value: undefined })),
+  })
+  ctx.provide('remote.capabilityManagement', {
+    catalog: vi.fn(() => options.catalog === 'fail' ? Promise.resolve({ ok: false as const, error: { message: 'denied' } }) : Promise.resolve({ ok: true as const, value: { entries: catalogEntries } })),
   })
   const roster = options.roster ?? 'ok'
   ctx.provide('connection', roster === 'absent'
@@ -81,7 +77,7 @@ function declareRoot(slots: SlotRegistry): () => void {
 
 describe('ui-settings-mcp apply', () => {
   it('declares exactly the services it consumes', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'settingsScope'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.mcpManagement', 'remote.capabilityManagement', 'settingsScope'])
   })
 
   it('registers the section at id mcp with order 17, the shipped label, and the nav glyph', async () => {
