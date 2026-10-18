@@ -294,10 +294,42 @@ describe('shared connection supervisor', () => {
     // The owner contained the failure: it stays registered and reports it.
     const handle = registry?.get('github')
     expect(handle).toBeDefined()
-    expect(handle!.status().state).toBe('stopped')
+    await vi.waitFor(() => { expect(handle!.status().state).toBe('stopped') })
     expect(handle!.status().lastErrorKind).toBe('TypeError')
     await fiber.dispose()
     expect(registry?.get('github')).toBeUndefined()
+  })
+
+  it('owner activation never waits for the initial connection attempt', async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockImplementation(() => gate.promise)
+    const fiber = ctx.plugin(McpOwnerPlugin, ownerConfig('github', { enabled: false }))
+    // Resolves while the first attempt is still pending: a slow or dead
+    // server must never delay the composition hosting this owner.
+    await fiber
+    const handle = ctx.get(MCP_CONNECTIONS_SERVICE)?.get('github')
+    expect(handle).toBeDefined()
+    expect(handle!.status().state).toBe('connecting')
+    gate.resolve()
+    await vi.waitFor(() => { expect(handle!.connected()).toBe(true) })
+    await fiber.dispose()
+  })
+
+  it('owner mounts start their attempts without serializing on each other', async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockImplementationOnce(() => gate.promise)
+    const first = ctx.plugin(McpOwnerPlugin, ownerConfig('first', { enabled: false }))
+    // The second owner activates while the first attempt is still pending,
+    // so fleet connections establish in parallel rather than one by one.
+    const second = await ctx.plugin(McpOwnerPlugin, ownerConfig('second', { enabled: false }))
+    const registry = ctx.get(MCP_CONNECTIONS_SERVICE)
+    expect(registry?.get('first')).toBeDefined()
+    expect(registry?.get('second')).toBeDefined()
+    gate.resolve()
+    await vi.waitFor(() => { expect(registry?.get('first')?.connected()).toBe(true) })
+    await second.dispose()
+    await first.dispose()
+    await vi.waitFor(() => { expect(registry?.get('first')).toBeUndefined() })
   })
 })
 

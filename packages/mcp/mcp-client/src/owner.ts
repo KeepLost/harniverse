@@ -40,10 +40,14 @@ export const McpOwnerConfigSchema = z.intersect([
 ])
 
 /**
- * Start one shared connection and publish it into the registry.
+ * Start one shared connection and publish it into the registry. Activation
+ * returns before the first connection attempt settles: the supervisor
+ * connects in the background, so a slow or unreachable server never delays
+ * the composition — and the web listener it hosts — that mounts this owner.
  * @param ctx - owner plugin context in the host/base scope.
  * @param config - resolved transport, server identity, and stable id.
  */
+// oxlint-disable-next-line typescript/require-await -- async apply is the cordis plugin contract; see the module header.
 export async function ownerApply(ctx: Context, config: McpOwnerConfig): Promise<void> {
   // Fail loud at load: reconnect misconfiguration (including programmatic
   // construction that bypassed Schemastery) rejects THIS instance before any
@@ -59,7 +63,6 @@ export async function ownerApply(ctx: Context, config: McpOwnerConfig): Promise<
   ctx.effect(() => () => { void connection.dispose() }, 'mcp-client-owner.connection')
   // Startup never blocks on the first attempt: a shared connection reports
   // through status, and a down server disables tools, it does not fail boots.
-  await connection.ready
 }
 
 /** The owner plugin object programmatic mounts reference. */

@@ -12,7 +12,7 @@ Status: implemented
 
 连接是宿主全局的；注册保持按预设。这一切分放在 `dsh-mcp-client` 内部，使两种模式共享同一条暴露路径：
 
-- `McpConnectionsRegistry`（`ctx.mcpConnections`）为每个设置 id 维护一个只管传输的监督器。`McpOwnerPlugin` 把一个监督器作为子 fiber 挂载；它从不注册工具。
+- `McpConnectionsRegistry`（`ctx.mcpConnections`）为每个设置 id 维护一个只管传输的监督器。`McpOwnerPlugin` 把一个监督器作为子 fiber 挂载；它从不注册工具，且其激活在首次连接尝试结束之前就返回——每条连接立即启动并在后台并行推进，慢的或不可达的服务器绝不会拖慢组合启动，也不会拖慢随组合启动的 web 监听。
 - `McpRegistrarPlugin` 按设置 id 附接到一条运行中的共享连接，把工具清单投影进自己的作用域 `ctx.tools` 层，公共命名、能力与提示词小节规则与独立模式一致（`exposeScopedServer` 是两种模式共用的唯一暴露路径）。
 - `dsh-mcp-user-config` 的 provider 挂载 owner 机群（经机群链串行；只有配置签名变化才重挂载对应 owner）；每个 consumer 为其捕获世代中已启用且选中的条目各挂载一个 registrar。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ### 语义变化
 
-- 每服务器一个共享 owner：`failOnStartupError` 是独立模式开关；共享 owner 的启动失败由机群步骤遏制，并经注册表暴露。
+- 每服务器一个共享 owner：`failOnStartupError` 是独立模式开关；共享 owner 的启动失败由机群步骤遏制，并经注册表暴露。owner 激活从不等待首次尝试——`connection.ready` 在后台落定，后续 owner 的挂载也绝不串行阻塞在一条进行中的尝试后面。
 - 重命名 `serverName` 保留设置 id，连接槽位存续而公开 namespace 移动。重命名前固定的世代保留其捕获的成员选择，但跟随活的连接；从设置移除的槽位使其 registrar 以 `unknown server` 失败。
 - 服务器的 instructions 提示词小节跟随活的连接，而非捕获的世代。
 
@@ -30,9 +30,9 @@ Status: implemented
 
 ## 验证
 
-- `packages/mcp/mcp-client/tests/shared-connection.spec.ts` 覆盖注册表、owner/registrar 生命周期与连接抖动下的作用域注册（包内 178 测试，每文件 100 % 覆盖率）。
+- `packages/mcp/mcp-client/tests/shared-connection.spec.ts` 覆盖注册表、owner/registrar 生命周期与连接抖动下的作用域注册（包内 180 测试，每文件 100 % 覆盖率）。
 - `packages/mcp/mcp-user-config/tests/` 覆盖机群（重挂载纪律、世代捕获、每服务器一 owner）与 Remote 的投影及校验（40 测试）。
-- `packages/client/ui-settings-mcp/tests/` 覆盖注册/HMR 处置、合并店铺、解析器与每个组件分支（89 测试，每文件 100 % 覆盖率）。
+- `packages/client/ui-settings-mcp/tests/` 覆盖注册/HMR 处置、合并店铺、解析器与每个组件分支（90 测试，每文件 100 % 覆盖率）。
 
 ## 备选方案
 

@@ -70,7 +70,7 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 
 ## 生命周期
 
-- provider 验证并仅注册一次 `mcp`，随后为每条设置条目挂载一个 `McpOwnerPlugin` 子插件——禁用条目也包含在内，以停止状态存在，使启用写入不会引发 fiber 竞争。owner 经由机群链串行挂载，只有配置签名变化（而非瞬时重连状态）才会精确重挂载变化的 owner。
+- provider 验证并仅注册一次 `mcp`，随后为每条设置条目挂载一个 `McpOwnerPlugin` 子插件——禁用条目也包含在内，以停止状态存在，使启用写入不会引发 fiber 竞争。owner 经由机群链串行挂载，只有配置签名变化（而非瞬时重连状态）才会精确重挂载变化的 owner。owner 激活从不等待首次连接尝试：每条连接立即启动并在后台并行推进，因此宿主启动——以及随之启动的 web 监听——绝不会被慢的或不可达的服务器拖慢。
 - 某个 owner 的连接或启动失败由机群步骤遏制，并记录只含稳定标识与错误类型的日志；不相关的 owner 继续启动。`failOnStartupError` 是独立模式开关，对共享 owner 不生效。
 - consumer 为捕获世代快照中已启用且选中的每条条目挂载一个 `McpRegistrarPlugin` 子插件。registrar 按设置 id 附接到活的共享连接，并在注册表每次推送时重新同步其作用域工具注册；它从不拥有传输层。
 - 重命名服务器的 `serverName` 会保留设置 id——即共享连接槽位——而公开 namespace 随之移动。固定世代保留其捕获的成员选择；从设置中移除的槽位使其所有 registrar 以 `unknown server` 失败，服务器的 instructions 跟随活的连接而非捕获的世代。
