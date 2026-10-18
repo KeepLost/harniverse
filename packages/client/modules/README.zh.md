@@ -8,7 +8,7 @@
 
 解析分支顺序（`import(specifier)`）：平台种子词 → 外壳实例；记忆化记录 → 表层；外壳自身的静态注册表（`registerStatic`，app-shell）→ 模块；已注册 factory → 物化；模块图记录（`window.__DSH_BOOT__`）→ 加载外部 classic script + 物化；其他情况一律抛出异常。这是构建时 bundle 纯度门禁的运行时镜像。交给 factory 的同步 `require` 采用相同顺序，但不含异步加载分支，并把观察到的边记录到模块记录中。初始启动只为 critical factory 调用 `prefetchGraph`，激活 critical 配置项后，再在后台为 deferred 配置项调用 `prefetchDeferredGraph`；两者都继续受同一 Connection 准入保护。`prefetch(id)` 保留独立 bundle 到达，用于 HMR，并在聚合登记失败时作为回退。`invalidate` 丢弃一个 factory 与物化记录，使下一次 prefetch/import 重新加载该插件。
 
-Node 侧会扫描已启用的 Loader 配置项以发现 web `dsh.client` 包，解析每个 `exports["./client"]`，把构建后的 bundle 哈希写入启动图，并仅在 Connection 准入具有 `harniverse.observe` 权限的 principal 后通过 `/plugins` 提供该文件及其 sourcemap。每个客户端声明可把 `startup` 标记为 `critical` 或 `deferred`；模块注册表会按图 revision 缓存两份 bootstrap，使非关键代码不能拖住首屏。bootstrap 优先使用 Brotli，其次 gzip，并使用 immutable revision 缓存。初始启动只需一次受保护的 critical 脚本接入；deferred 脚本仍受保护，但在 critical UI 可交互后加载。独立资源和 map 仍供 HMR 与诊断使用。源码启动会把宿主侧导入映射到 TypeScript 源码，但仍消费这一构建后的客户端导出；缺失文件共享一条构建说明，随后以包／路径列表列出各项，而无关的文件系统错误仍是独立故障。
+Node 侧会扫描已启用的 Loader 配置项以发现 web `dsh.client` 包，解析每个 `exports["./client"]`，把构建后的 bundle 哈希写入启动图，并仅在 Connection 准入具有 `harniverse.observe` 权限的 principal 后通过 `/plugins` 提供该文件及其 sourcemap。每个客户端声明可把 `startup` 标记为 `critical` 或 `deferred`；模块注册表会按图 revision 缓存两份 bootstrap，使非关键代码不能拖住首屏。bootstrap 优先使用 Brotli，其次 gzip，并使用 immutable revision 缓存；两种编码在主线程之外异步压缩，落定之前路由直接回退发送明文并不带 `content-encoding` 头——组合启动绝不会被拼接 bundle 的压缩阻塞。初始启动只需一次受保护的 critical 脚本接入；deferred 脚本仍受保护，但在 critical UI 可交互后加载。独立资源和 map 仍供 HMR 与诊断使用。源码启动会把宿主侧导入映射到 TypeScript 源码，但仍消费这一构建后的客户端导出；缺失文件共享一条构建说明，随后以包／路径列表列出各项，而无关的文件系统错误仍是独立故障。
 
 ## 模型体验
 
