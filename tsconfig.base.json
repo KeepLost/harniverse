@@ -315,6 +315,7 @@
       "@deepseek-ai/dsh-client-ui-settings-im": ["./packages/client/ui-settings-im/src"],
       "@deepseek-ai/dsh-client-ui-session-import": ["./packages/client/ui-session-import/src"],
       "@deepseek-ai/dsh-client-ui-skin": ["./packages/client/ui-skin/src"],
+      "@deepseek-ai/dsh-client-ui-sound": ["./packages/client/ui-sound/src"],
       "@deepseek-ai/dsh-client-ui-remote-hosts": ["./packages/client/ui-remote-hosts/src"],
       "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web": ["./packages/client/web/src"],
