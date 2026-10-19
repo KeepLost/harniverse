@@ -73,7 +73,10 @@ export class AudioLibrary {
   }
 }
 
-/** Build the production IndexedDB-backed store; an in-memory empty one when unavailable. */
+/**
+ * Build the production IndexedDB-backed store; an in-memory empty one when unavailable.
+ * @returns the browser store promise, resolving to an empty store when IndexedDB is unavailable.
+ */
 export function openBrowserAudioStore(): Promise<AudioRecordStore> {
   const indexedDB = (globalThis as { indexedDB?: IDBFactory }).indexedDB
   if (indexedDB === undefined) return Promise.resolve(emptyStore())

@@ -40,14 +40,24 @@ const FIELD_STEMS = {
   failure: 'failure',
 } as const satisfies Record<SoundEventKind, string>
 
-/** Sound field name of one event kind on one channel. */
+/**
+ * Sound field name of one event kind on one channel.
+ * @param kind - the event kind whose sound field is named.
+ * @param channel - the channel (main agent or subagent) the field belongs to.
+ * @returns the settings field name holding that channel's sound for the kind.
+ */
 export function soundFieldFor(kind: SoundEventKind, channel: SoundChannel): string {
   const stem = FIELD_STEMS[kind]
   const upper = stem.charAt(0).toUpperCase() + stem.slice(1)
   return `${channel === 'subagent' ? `subagent${upper}` : stem}Sound`
 }
 
-/** Volume field name of one event kind on one channel. */
+/**
+ * Volume field name of one event kind on one channel.
+ * @param kind - the event kind whose volume field is named.
+ * @param channel - the channel (main agent or subagent) the field belongs to.
+ * @returns the settings field name holding that channel's volume for the kind.
+ */
 export function volumeFieldFor(kind: SoundEventKind, channel: SoundChannel): string {
   return `${soundFieldFor(kind, channel).slice(0, -'Sound'.length)}Volume`
 }
@@ -110,7 +120,10 @@ export interface SoundSettings {
   subagentFailureVolume: number
 }
 
-/** The complete default section. */
+/**
+ * The complete default section.
+ * @returns a fresh section value with every field at its default.
+ */
 export function defaultSoundSettings(): SoundSettings {
   const section = {
     enabled: true,
@@ -164,7 +177,11 @@ export const SoundSettingsSchema: z<SoundSettings> = z.object({
   subagentFailureVolume: volumeField(),
 })
 
-/** Resolve one raw section through the schema: defaults filled, invalid input throws. */
+/**
+ * Resolve one raw section through the schema: defaults filled, invalid input throws.
+ * @param section - the raw settings section value to resolve.
+ * @returns the section with defaults filled; throws on invalid input.
+ */
 export function resolveSoundSettings(section: unknown): SoundSettings {
   return SoundSettingsSchema(section as never)
 }

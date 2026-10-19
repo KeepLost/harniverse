@@ -56,6 +56,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/ptc-runtime/ptc-runtime-node': { kind: 'indirect', reason: 'The fresh-process backend delegates model rendering to PTC in dsh-tools.' },
   'packages/client/ui-agent-preset': { kind: 'indirect', reason: 'Browser-side settings row; the preset it selects owns every model-facing effect.' },
   'packages/client/ui-settings-mcp': { kind: 'none', reason: 'Browser settings surface over host-owned seams; the mcp-user-config settings namespace and mcpManagement remote own every model-facing effect.' },
+  'packages/client/ui-sound': { kind: 'none', reason: 'Browser-only notification sounds over a settings namespace and an IndexedDB audio store; nothing it observes or stores reaches a model request.' },
   'packages/core/agent-default-model': { kind: 'indirect', reason: 'The service supplies a ModelSelection; request assembly and adapters own the model-visible request.' },
   'packages/preset/agent-presets': { kind: 'indirect', reason: 'The mount installs a preset\'s own plugins, which own every model-facing registration it makes visible.' },
   'packages/typert/registry': { kind: 'none', reason: 'Runtime type registry; consumers (cordis_inspect, wire faces, gates) own any model-visible projection of registry contents.' },
