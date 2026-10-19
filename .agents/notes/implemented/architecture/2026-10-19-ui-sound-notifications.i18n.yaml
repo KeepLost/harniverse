@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-19-ui-sound-notifications.md
+2026-10-19-ui-sound-notifications.md: 9d7775e449967517214253ea8514e767e726ab9f
+2026-10-19-ui-sound-notifications.zh.md: 264e63b8f050fcd14562ac0b5d3635ab79b9089d

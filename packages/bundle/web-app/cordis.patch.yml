@@ -364,6 +364,11 @@
     - id: ui-skin
       name: '@deepseek-ai/dsh-client-ui-skin'
 
+    # 声音通知设置页：ui-sound 设置命名空间承载六类事件（主/子代理双通道）
+    # 的声音与音量；浏览器侧经补充 mux 订阅与 host 流检测事件并播放。
+    - id: ui-sound
+      name: '@deepseek-ai/dsh-client-ui-sound'
+
     # Scoped Agent Profile composition. Mutation stays behind the separate
     # authorized management Remote; the inventory tab remains read-only.
     - id: ui-settings-capabilities

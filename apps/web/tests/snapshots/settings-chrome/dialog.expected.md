@@ -34,6 +34,9 @@
     - button "语音输入":
       - img
       - text: 语音输入
+    - button "声音通知":
+      - img
+      - text: 声音通知
   - button "打开配置文件"
   - button "关闭":
     - img
@@ -58,4 +61,3 @@
   - button "自动区分":
     - text: 自动区分
     - img
-  - text: 当前版本：1.0.0-rc.2

@@ -112,6 +112,7 @@
     { "path": "./packages/client/ui-settings-plugin-inventory" },
     { "path": "./packages/client/ui-session-import" },
     { "path": "./packages/client/ui-skin" },
+    { "path": "./packages/client/ui-sound" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/web" },
     { "path": "./apps/web" }
