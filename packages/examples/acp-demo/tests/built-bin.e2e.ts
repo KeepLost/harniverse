@@ -127,7 +127,7 @@ afterEach(async () => {
     }
   }
   // Windows can briefly retain released handles after exit; retry removal.
-  if (consumer !== undefined) await rm(consumer, { recursive: true, force: true, maxReties: 10, retryDelay: 100 })
+  if (consumer !== undefined) await rm(consumer, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   consumer = undefined
 })
 
