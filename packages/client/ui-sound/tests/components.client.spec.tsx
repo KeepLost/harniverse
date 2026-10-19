@@ -125,6 +125,7 @@ describe('SoundSection header and tabs', () => {
     const harness = scopeHarness()
     const reason: unknown = 'denied'
     const actions = {
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- a non-Error covers String(error). */
       setField: vi.fn((): Promise<void> => Promise.reject(reason)),
       chooseFile: vi.fn((): Promise<string | undefined> => Promise.resolve(undefined)),
       audioName: vi.fn(async () => ''),
