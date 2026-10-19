@@ -123,8 +123,9 @@ describe('SoundSection header and tabs', () => {
 
   it('surfaces a failed write carrying a non-error reason', async () => {
     const harness = scopeHarness()
+    const reason: unknown = 'denied'
     const actions = {
-      setField: vi.fn((): Promise<void> => Promise.reject(new Error('denied'))),
+      setField: vi.fn((): Promise<void> => Promise.reject(reason)),
       chooseFile: vi.fn((): Promise<string | undefined> => Promise.resolve(undefined)),
       audioName: vi.fn(async () => ''),
       preview: vi.fn(),
