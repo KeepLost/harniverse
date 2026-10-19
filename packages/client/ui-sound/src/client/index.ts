@@ -114,9 +114,34 @@ export function apply(ctx: ClientContext): void {
     schedule: (fn, ms) => { return setTimeout(fn, ms) },
     cancel: (timer) => { clearTimeout(timer as ReturnType<typeof setTimeout>) },
   })
+  /**
+   * Open the supplementary streams only after the shared connection reports
+   * ready (plus a stagger), so boot never races the shared mux/host handshake
+   * for the carrier's attention; without a health source, start immediately.
+   */
+  const WATCHER_STAGGER_MS = 1500
   ctx.effect(() => {
-    watcher.start()
-    return () => { watcher.dispose() }
+    const connection = ctx.get('connection') as ConnectionHandle | undefined
+    const health = connection?.health
+    if (health === undefined) {
+      watcher.start()
+      return () => { watcher.dispose() }
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const launch = (): void => {
+      if (timer === undefined) timer = setTimeout(() => { watcher.start() }, WATCHER_STAGGER_MS)
+    }
+    const ready = (): boolean => {
+      const state = health.getSnapshot()
+      return state === 'connected' || state === 'bypass'
+    }
+    if (ready()) launch()
+    const unsubscribe = health.subscribe(() => { if (ready()) launch() })
+    return () => {
+      unsubscribe()
+      if (timer !== undefined) clearTimeout(timer)
+      watcher.dispose()
+    }
   }, 'ui-sound: watcher lifecycle')
 
   const t = ctx.locale.bind(NS)
