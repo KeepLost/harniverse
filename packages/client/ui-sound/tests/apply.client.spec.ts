@@ -187,6 +187,75 @@ describe('ui-sound apply', () => {
     }
   })
 
+  it('stands the watcher down when readiness drops and rearms a fresh generation later', async () => {
+    vi.useFakeTimers()
+    try {
+      let state: 'bypass' | 'reconnecting' | 'connected' = 'bypass'
+      const listeners = new Set<() => void>()
+      const signals: AbortSignal[] = []
+      let aborted = 0
+      const opens: string[] = []
+      const api = {
+        events: {
+          mux: (_request: object, signal: AbortSignal): AsyncIterable<never> => {
+            opens.push('mux')
+            signals.push(signal)
+            signal.addEventListener('abort', () => { aborted += 1 })
+            return (async function* muxStream(): AsyncIterable<never> {
+              /* ends immediately */
+            })()
+          },
+          host: (_request: object, signal: AbortSignal): AsyncIterable<never> => {
+            opens.push('host')
+            signals.push(signal)
+            signal.addEventListener('abort', () => { aborted += 1 })
+            return (async function* hostStream(): AsyncIterable<never> {
+              /* ends immediately */
+            })()
+          },
+        },
+      }
+      const ctx = new Context()
+      await ctx.plugin(SlotRegistry).await()
+      ctx.provide('locale', new LocaleRuntime(ctx))
+      ctx.provide('sessions', { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) } })
+      ctx.provide('connection', {
+        captureApi: () => api,
+        health: {
+          getSnapshot: () => state,
+          subscribe: (listener: () => void) => {
+            listeners.add(listener)
+            return () => { listeners.delete(listener) }
+          },
+        },
+      })
+      ctx.provide('settingsScope', { bind: () => ({ getSnapshot: () => ({ status: 'ready' as const, value: defaultSoundSettings(), writable: true }), subscribe: () => () => {}, set: vi.fn(() => Promise.resolve()) }) })
+      declareRoot(ctx.slots)
+      const fiber = await ctx.plugin({ apply, inject }).await()
+
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(opens).toContain('mux')
+      const firstWave = opens.length
+
+      state = 'reconnecting'
+      for (const listener of [...listeners]) listener()
+      expect(aborted).toBe(signals.length)
+      expect(opens).toHaveLength(firstWave)
+
+      state = 'connected'
+      for (const listener of [...listeners]) listener()
+      await vi.advanceTimersByTimeAsync(1_499)
+      expect(opens).toHaveLength(firstWave)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(opens.length).toBeGreaterThan(firstWave)
+
+      await fiber.dispose()
+      expect(aborted).toBe(signals.length)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('starts once when the connection is ready at mount and weathers later health flips', async () => {
     vi.useFakeTimers()
     try {
@@ -227,6 +296,8 @@ describe('ui-sound apply', () => {
       declareRoot(ctx.slots)
       const fiber = await ctx.plugin({ apply, inject }).await()
 
+      state = 'connected'
+      for (const listener of [...listeners]) listener()
       state = 'reconnecting'
       for (const listener of [...listeners]) listener()
       state = 'connected'

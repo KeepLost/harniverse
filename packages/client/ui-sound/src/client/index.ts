@@ -76,12 +76,6 @@ export function apply(ctx: ClientContext): void {
     if (dedupe !== undefined) dedupe.dispose()
   }, 'ui-sound: cross-tab lifecycle')
 
-  /** Stream controllers aborted when the plugin fiber leaves. */
-  const controllers = new Set<AbortController>()
-  ctx.effect(() => () => {
-    for (const controller of controllers) controller.abort()
-  }, 'ui-sound: stream controllers')
-
   /** Capture the current machine's API for one stream attempt. */
   const captureApi = (): IApiClient | undefined => {
     const connection = ctx.get('connection') as ConnectionHandle
@@ -92,55 +86,90 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
-  /** Open one fresh stream attempt; an immediate open failure ends it. */
-  const openStream = <F>(open: (api: IApiClient, signal: AbortSignal) => AsyncIterable<RpcRequest<F>>): WatcherStreamOpener<F> => () => {
+  /** Open one fresh stream attempt bound to one generation's abort registry; an immediate open failure ends it. */
+  const openStream = <F>(
+    registry: Set<AbortController>,
+    open: (api: IApiClient, signal: AbortSignal) => AsyncIterable<RpcRequest<F>>,
+  ): WatcherStreamOpener<F> => () => {
     const api = captureApi()
     if (api === undefined) return undefined
     const controller = new AbortController()
-    controllers.add(controller)
+    registry.add(controller)
     try {
       return open(api, controller.signal)
     } catch {
-      controllers.delete(controller)
+      registry.delete(controller)
       return endedStream<F>()
     }
   }
 
-  const watcher = new SoundWatcher({
-    sessions: sessionsFace,
-    openMux: openStream((api, signal) => api.events.mux({}, signal)),
-    openHost: openStream((api, signal) => api.events.host({}, signal)),
-    onEvent,
-    schedule: (fn, ms) => { return setTimeout(fn, ms) },
-    cancel: (timer) => { clearTimeout(timer as ReturnType<typeof setTimeout>) },
-  })
+  /** Build one watcher generation with its own stream abort registry. */
+  const makeWatcher = (): { watcher: SoundWatcher; abort: () => void } => {
+    const registry = new Set<AbortController>()
+    const watcher = new SoundWatcher({
+      sessions: sessionsFace,
+      openMux: openStream(registry, (api, signal) => api.events.mux({}, signal)),
+      openHost: openStream(registry, (api, signal) => api.events.host({}, signal)),
+      onEvent,
+      schedule: (fn, ms) => { return setTimeout(fn, ms) },
+      cancel: (timer) => { clearTimeout(timer as ReturnType<typeof setTimeout>) },
+    })
+    return { watcher, abort: () => { for (const controller of [...registry]) controller.abort() } }
+  }
+
   /**
-   * Open the supplementary streams only after the shared connection reports
-   * ready (plus a stagger), so boot never races the shared mux/host handshake
-   * for the carrier's attention; without a health source, start immediately.
+   * The supplementary streams exist only while the shared connection reports
+   * ready (plus a stagger, so boot never races the shared mux/host handshake);
+   * when the carrier leaves the ready states — an owned Host closing, a
+   * machine switch, a disconnect storm — the watcher generation is stood down
+   * so it never reopens streams against a closing carrier, and a fresh
+   * generation arms once readiness returns. Without a health source the
+   * single generation starts immediately and lives for the plugin fiber.
    */
   const WATCHER_STAGGER_MS = 1500
   ctx.effect(() => {
     const connection = ctx.get('connection') as ConnectionHandle | undefined
     const health = connection?.health
     if (health === undefined) {
-      watcher.start()
-      return () => { watcher.dispose() }
+      const generation = makeWatcher()
+      generation.watcher.start()
+      return () => {
+        generation.watcher.dispose()
+        generation.abort()
+      }
     }
+    let generation: ReturnType<typeof makeWatcher> | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
+    const standDown = (): void => {
+      if (timer !== undefined) {
+        clearTimeout(timer)
+        timer = undefined
+      }
+      if (generation !== undefined) {
+        generation.watcher.dispose()
+        generation.abort()
+        generation = undefined
+      }
+    }
     const launch = (): void => {
-      if (timer === undefined) timer = setTimeout(() => { watcher.start() }, WATCHER_STAGGER_MS)
+      if (generation === undefined && timer === undefined) {
+        /* standDown owns the only two reset paths (timer and generation), so at fire time both are clear. */
+        timer = setTimeout(() => {
+          timer = undefined
+          generation = makeWatcher()
+          generation.watcher.start()
+        }, WATCHER_STAGGER_MS)
+      }
     }
     const ready = (): boolean => {
       const state = health.getSnapshot()
       return state === 'connected' || state === 'bypass'
     }
     if (ready()) launch()
-    const unsubscribe = health.subscribe(() => { if (ready()) launch() })
+    const unsubscribe = health.subscribe(() => { if (ready()) launch(); else standDown() })
     return () => {
       unsubscribe()
-      if (timer !== undefined) clearTimeout(timer)
-      watcher.dispose()
+      standDown()
     }
   }, 'ui-sound: watcher lifecycle')
 
