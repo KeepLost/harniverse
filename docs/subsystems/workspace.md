@@ -151,6 +151,34 @@ abstract capability(): DirectoryPickerCapability
 
 Source: [`packages/host/directory-picker/src/index.ts:146`](../../packages/host/directory-picker/src/index.ts)
 
+<a id="ctxglobalrules--globalrules"></a>
+
+### `ctx.globalRules` — `GlobalRules`
+
+Read/write face over the harness-home `AGENTS.md`.
+
+```ts cordis-catalog
+/**
+ * Observe the current file state.
+ * @returns the file's content, existence, freshness token, and limits.
+ * @throws when the filesystem read fails for a reason other than absence.
+ */
+read(): Promise<GlobalRulesFileView>
+
+/**
+ * Persist new content, creating the file (and the harness home) when absent.
+ * @param content - full replacement content, UTF-8.
+ * @param expectedVersion - token the caller last observed; a mismatch refuses
+ * the write so concurrent external edits are not silently clobbered. Omit it
+ * to write unconditionally.
+ * @returns the write outcome with the new (or conflicting) freshness token.
+ * @throws when the filesystem write fails.
+ */
+write(content: string, expectedVersion?: string): Promise<GlobalRulesWriteResult>
+```
+
+Source: [`packages/context/global-rules/src/types.ts:32`](../../packages/context/global-rules/src/types.ts)
+
 <a id="ctxworkspacefilewrite--workspacefilewriteservice"></a>
 
 ### `ctx.workspaceFileWrite` — `WorkspaceFileWriteService`

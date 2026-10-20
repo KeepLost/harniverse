@@ -246,6 +246,11 @@ export class FakeApiClient implements IApiClient {
     prepare: payload => this.record('speech.prepare', payload, Promise.resolve(ok({ status: 'ready' as const }))),
   }
 
+  readonly globalRules: IApiClient['globalRules'] = {
+    read: payload => this.record('globalRules.read', payload, Promise.resolve(ok({ exists: false, content: '', displayPath: '~/.dsh/AGENTS.md', maxBytes: 1_048_576 }))),
+    write: payload => this.record('globalRules.write', payload, Promise.resolve(ok({ version: '0'.repeat(32) }))),
+  }
+
   onSubagentList: (payload: unknown) => Promise<RpcResponse<{ entries: never[]; parentAvailable: boolean }>>
     = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
   onSubagentProfiles: (payload: unknown) => Promise<RpcResponse<{ profiles: never[] }>>

@@ -241,6 +241,7 @@
     { "path": "./packages/skill/tool-skill" },
     { "path": "./packages/interaction/tool-ask-user" },
     { "path": "./packages/context/agent-instructions" },
+    { "path": "./packages/context/global-rules" },
     { "path": "./packages/core/agent-loop" },
     { "path": "./packages/llm/llm-retry" },
     { "path": "./packages/core/model-policy-fallback" },

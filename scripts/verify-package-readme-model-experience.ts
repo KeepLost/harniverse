@@ -45,6 +45,7 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
 const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/attachment/attachment': { kind: 'indirect', reason: 'The storage seam delegates model request rendering to provider adapters.' },
   'packages/attachment/attachment-local': { kind: 'indirect', reason: 'The local backend delegates model request rendering to provider adapters.' },
+  'packages/context/global-rules': { kind: 'indirect', reason: 'The service only edits the harness-home AGENTS.md; the agent-instructions baseline chain renders that file into model context.' },
   'packages/auth/authentication': { kind: 'none', reason: 'The admission seam runs before external callers can reach model-facing operations and registers no model context.' },
   'packages/auth/authentication-local': { kind: 'none', reason: 'The local admission provider stores and verifies network credentials without registering model context.' },
   'packages/shell/shell': { kind: 'indirect', reason: 'The service interface delegates all model rendering to dsh-tool-bash.' },
@@ -86,6 +87,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-connection-status': { kind: 'none', reason: 'Read-only browser connection indicator; it neither initiates operations nor registers model context.' },
   'packages/client/ui-remote-hosts': { kind: 'none', reason: 'Browser-side remote-host management surface; it registers no model context or tools.' },
   'packages/client/ui-queue': { kind: 'none', reason: 'The panel tab consumes the queue Remote only; delivery injection belongs to dsh-queue and its tools.' },
+  'packages/client/ui-settings-global-rules': { kind: 'indirect', reason: 'The browser editor only moves bytes over the globalRules Remote; the agent-instructions baseline chain renders the edited file into model context.' },
   'packages/client/ui-governor': { kind: 'none', reason: 'Browser-side governor board over the Remote; quota negotiation by the model rides the host package resource-quota tool.' },
   'packages/api/remotes': { kind: 'none', reason: 'The Remote BFF selects business methods and identity policy; selected services own any model-visible effect.' },
   'packages/client/runtime': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },

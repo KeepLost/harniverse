@@ -29,6 +29,8 @@ flowchart LR
   pkg_speech_openai["speech-openai"]
   pkg_speech_settings["speech-settings"]
   pkg_host_apiproxy["host-apiproxy"]
+  pkg_global_rules["global-rules"]
+  svc_globalRules["ctx.globalRules<br/>User-global rules file"]
   pkg_attachment["attachment"]
   svc_attachments["ctx.attachments<br/>Durable binary attachment storage"]
   pkg_attachment_local["attachment-local"]
@@ -329,6 +331,7 @@ flowchart LR
   pkg_fs_local --> svc_fs
   pkg_fs_sandbox --> svc_fs
   pkg_fs_ssh --> svc_fs
+  pkg_global_rules --> svc_globalRules
   pkg_goal --> svc_goals
   pkg_governor --> svc_governor
   pkg_hmr_coordination --> svc_hmrCoordination
@@ -459,6 +462,7 @@ flowchart LR
   svc_dynamicCordisRunner --> pkg_tool_cordis
   svc_fileReferences --> pkg_client_ui_reference
   svc_fs --> pkg_tool_fs
+  svc_globalRules --> pkg_host_apiproxy
   svc_governor --> pkg_client_ui_governor
   svc_governor --> pkg_tool_bash
   svc_harniverseClient --> pkg_chat_bridge
@@ -602,6 +606,7 @@ flowchart LR
 | `ctx.chatBridge` | `core` | [`chat-bridge`](../packages/chat/chat-bridge) | - | [`chat-manager`](../packages/chat/chat-manager) | - | The bridge owns pairing codes, owner bindings, and the per-bot defaults applied to owner sessions; the manager reads and drives them while it embeds the bridge in the host. |
 | `ctx.chatManager` | `core` | [`chat-manager`](../packages/chat/chat-manager) | - | `ui-settings-im` | - | The manager owns the bot registry, write-only secrets, the bridge Grant, and the lifecycle of the embedded bridge and its per-bot platform scopes; the settings page only calls its Remote methods. |
 | `ctx.speech` | `seam` | [`speech`](../packages/speech/speech) | [`speech-sensevoice`](../packages/speech/speech-sensevoice), [`speech-openai`](../packages/speech/speech-openai) | [`speech-settings`](../packages/speech/speech-settings), [`host-apiproxy`](../packages/host/apiproxy) | - | The seam owns WAV validation and provider resolution; recognizers own preparation and inference; the apiproxy exposes transcribe/prepare to clients. |
+| `ctx.globalRules` | `core` | [`global-rules`](../packages/context/global-rules) | - | [`host-apiproxy`](../packages/host/apiproxy) | - | The service owns the harness-home AGENTS.md read/write pair with optimistic version tokens; the apiproxy exposes it to the settings editor while the instruction loader reads the same file on its own. |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | `host-runtime`, [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileReferences` | `seam` | [`file-reference`](../packages/context/file-reference) | [`file-reference-local`](../packages/context/file-reference-local) | [`client-ui-reference`](../packages/client/ui-reference) | - | The abstract service returns path-only candidates in the addressed Agent workspace; the local provider owns bounded indexing and the browser consumer renders capability-gated completion without reading file contents. |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic), [`compaction-lossless`](../packages/compaction/compaction-lossless) | - | Adapters register provider implementations; the loop and compaction call the provider-neutral stream service. |

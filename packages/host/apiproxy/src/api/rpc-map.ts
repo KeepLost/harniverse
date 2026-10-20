@@ -21,6 +21,7 @@ import type { ApiMethodDescription } from './contract.ts'
 import type { OperationsApi } from './operations.ts'
 import type { JobsApi } from './jobs.ts'
 import type { SpeechApi } from './speech.ts'
+import type { GlobalRulesApi } from './global-rules.ts'
 import type { WorkspaceFilesApi } from './workspace-files.ts'
 import type { WorkspaceGitApi } from './workspace-git.ts'
 
@@ -36,6 +37,8 @@ export interface RpcMethodMap {
   'jobs.kill': JobsApi['kill']
   'speech.transcribe': SpeechApi['transcribe']
   'speech.prepare': SpeechApi['prepare']
+  'globalRules.read': GlobalRulesApi['read']
+  'globalRules.write': GlobalRulesApi['write']
   'session.list': SessionsApi['list']
   'session.search': SessionsApi['search']
   'session.create': SessionsApi['create']
@@ -118,6 +121,8 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'jobs.kill': 'harniverse.operate',
   'speech.transcribe': 'harniverse.operate',
   'speech.prepare': 'harniverse.operate',
+  'globalRules.read': 'harniverse.observe',
+  'globalRules.write': 'harniverse.operate',
   'session.list': 'harniverse.observe',
   'session.search': 'harniverse.observe',
   'session.create': 'harniverse.operate',
@@ -200,6 +205,8 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'jobs.kill': 'mutate',
   'speech.transcribe': 'mutate',
   'speech.prepare': 'mutate',
+  'globalRules.read': 'read',
+  'globalRules.write': 'mutate',
   'session.list': 'read',
   'session.search': 'read',
   'session.create': 'mutate',

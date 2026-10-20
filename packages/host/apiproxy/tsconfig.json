@@ -66,6 +66,9 @@
       "path": "../../goal/goal"
     },
     {
+      "path": "../../context/global-rules"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {

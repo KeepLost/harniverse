@@ -90,6 +90,7 @@ import { apiDescribeValueSchema } from '../api/contract.schema.ts'
 import { operationGetValueSchema } from '../api/operations.schema.ts'
 import { jobsFollowValueSchema, jobsKillValueSchema } from '../api/jobs.schema.ts'
 import { speechPrepareValueSchema, speechTranscribeValueSchema } from '../api/speech.schema.ts'
+import { globalRulesReadValueSchema, globalRulesWriteValueSchema } from '../api/global-rules.schema.ts'
 import {
   workspaceFilesListValueSchema, workspaceFilesReadBinaryValueSchema,
   workspaceFilesReadValueSchema, workspaceFilesSearchValueSchema,
@@ -130,6 +131,10 @@ export interface IApiClient {
   speech: {
     transcribe(payload: RequestPayload<'speech.transcribe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'speech.transcribe'>>>
     prepare(payload: RequestPayload<'speech.prepare'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'speech.prepare'>>>
+  }
+  globalRules: {
+    read(payload: RequestPayload<'globalRules.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'globalRules.read'>>>
+    write(payload: RequestPayload<'globalRules.write'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'globalRules.write'>>>
   }
   sessions: {
     list(payload: RequestPayload<'session.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.list'>>>
@@ -253,6 +258,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'jobs.kill': jobsKillValueSchema,
   'speech.transcribe': speechTranscribeValueSchema,
   'speech.prepare': speechPrepareValueSchema,
+  'globalRules.read': globalRulesReadValueSchema,
+  'globalRules.write': globalRulesWriteValueSchema,
   'session.list': sessionListValueSchema,
   'session.search': sessionSearchValueSchema,
   'session.create': sessionCreateValueSchema,
@@ -601,6 +608,11 @@ export abstract class AbstractApiClient implements IApiClient {
   readonly speech: IApiClient['speech'] = {
     transcribe: (payload, signal) => this.callUnary('speech.transcribe', payload, signal),
     prepare: (payload, signal) => this.callUnary('speech.prepare', payload, signal),
+  }
+
+  readonly globalRules: IApiClient['globalRules'] = {
+    read: (payload, signal) => this.callUnary('globalRules.read', payload, signal),
+    write: (payload, signal) => this.callUnary('globalRules.write', payload, signal),
   }
 
   readonly sessions: IApiClient['sessions'] = {

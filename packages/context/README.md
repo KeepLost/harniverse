@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Product plugins that add model-visible request context without defining a tool. `agent-instructions` is included by the default `dsh-agent-spine-demo` bundle and can be disabled through bundle config; `context-snapshot` is included by the default `dsh-base` composition; `harness-source` is included by every `dsh-web-app` composition; `time-context`, `tmux-context`, and `session-reference` are opt-in.
+Product plugins that add model-visible request context without defining a tool. `agent-instructions` is included by the default `dsh-agent-spine-demo` bundle and can be disabled through bundle config; `context-snapshot` is included by the default `dsh-base` composition; `harness-source` is included by every `dsh-web-app` composition; `time-context`, `tmux-context`, and `session-reference` are opt-in; `global-rules` is included by `dsh-web-app` compositions for the settings-panel editor.
 
 | Package | Role | ctx key |
 |---|---|---|
@@ -12,5 +12,6 @@ Product plugins that add model-visible request context without defining a tool. 
 | [`time-context/`](time-context/README.md) | Current-time and elapsed-time context | — |
 | [`tmux-context/`](tmux-context/README.md) | tmux location context | — |
 | [`agent-instructions/`](agent-instructions/README.md) | Workspace-instruction context | — |
+| [`global-rules/`](global-rules/README.md) | User-global rules editor service over the harness-home `AGENTS.md` | `ctx.globalRules` |
 
 Session references are documented in [docs/subsystems/session-reference.md](../../docs/subsystems/session-reference.md); the [`agent-instructions` decision record](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) owns its per-agent/session isolation and lifecycle split.

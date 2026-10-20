@@ -104,7 +104,14 @@ describe('web e2e: settings modal and General preferences', () => {
     await expect.poll(() => openRequests, { timeout: 5_000 }).toBe(1)
     await expect.poll(() => openDocument.isEnabled(), { timeout: 5_000 }).toBe(true)
     await page.unroute('**/api/settings.openDocument')
-    // Golden of the freshly opened dialog (default zh, General active).
+    // Golden of the freshly opened dialog (default zh, General active). The nav
+    // assembles as section packages register, so pin the full shipped roster
+    // first: a capture taken while a late module is still loading would pin a
+    // partial nav into the golden, and dev-source and prebuilt boots disagree
+    // on which module is last.
+    for (const section of ['通用设置', '外观', '模型', '模型方案', '全局规则', '插件', '资源治理', 'MCP 管理', 'Agent 预设', 'IM 机器人', '会话导入', '语音输入', '声音通知']) {
+      await dialog.getByRole('button', { name: section, exact: true }).waitFor({ timeout: 10_000 })
+    }
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DIALOG_EXPECTED, snapshot, MODE)
     // Section switch: aria-current moves (the Models page itself has its own scenario file).
@@ -489,6 +496,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'dialog.expected.md',
+      'global-rules.expected.md',
       'plugin-diagnostics.expected.md',
       'plugins.expected.md',
     ])

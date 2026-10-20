@@ -13,6 +13,9 @@
     - button "模型方案":
       - img
       - text: 模型方案
+    - button "全局规则":
+      - img
+      - text: 全局规则
     - button "插件":
       - img
       - text: 插件

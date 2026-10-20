@@ -96,6 +96,7 @@ import { apiDescribeRequestSchema } from '../api/contract.schema.ts'
 import { operationGetRequestSchema } from '../api/operations.schema.ts'
 import { jobsFollowRequestSchema, jobsKillRequestSchema } from '../api/jobs.schema.ts'
 import { speechPrepareRequestSchema, speechTranscribeRequestSchema } from '../api/speech.schema.ts'
+import { globalRulesReadRequestSchema, globalRulesWriteRequestSchema } from '../api/global-rules.schema.ts'
 import {
   workspaceFilesListRequestSchema, workspaceFilesReadBinaryRequestSchema,
   workspaceFilesReadRequestSchema, workspaceFilesSearchRequestSchema,
@@ -139,6 +140,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'jobs.kill': { schema: jobsKillRequestSchema, invoke: (api, r) => api.jobs?.kill(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'job kill is unavailable', details: {} } } }) },
   'speech.transcribe': { schema: speechTranscribeRequestSchema, invoke: (api, r, signal) => api.speech?.transcribe(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'speech transcription is unavailable', details: {} } } }) },
   'speech.prepare': { schema: speechPrepareRequestSchema, invoke: (api, r) => api.speech?.prepare(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'speech preparation is unavailable', details: {} } } }) },
+  'globalRules.read': { schema: globalRulesReadRequestSchema, invoke: (api, r) => api.globalRules?.read(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'global-rules-unavailable', message: 'the global rules editor is unavailable', details: {} } } }) },
+  'globalRules.write': { schema: globalRulesWriteRequestSchema, invoke: (api, r) => api.globalRules?.write(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'global-rules-unavailable', message: 'the global rules editor is unavailable', details: {} } } }) },
   'session.list': { schema: sessionListRequestSchema, invoke: (api, r) => api.sessions.list(r) },
   'session.search': { schema: sessionSearchRequestSchema, invoke: (api, r, signal) => api.sessions.search(r, signal) },
   'session.create': { schema: sessionCreateRequestSchema, invoke: (api, r) => api.sessions.create(r) },
