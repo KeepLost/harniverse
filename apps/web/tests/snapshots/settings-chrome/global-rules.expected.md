@@ -1,0 +1,9 @@
+- region "全局规则":
+  - heading "全局规则" [level=2]
+  - paragraph: 编辑 $DSH_HOME/AGENTS.md，对所有会话生效。保存后：新会话在第一步读取新内容；当前会话在下一次文件操作后感知变更。
+  - paragraph: 文件尚不存在，保存后将创建它。
+  - textbox "全局规则内容（Markdown）":
+    - /placeholder: "# 全局规则\n\n在这里编写对所有会话生效的指令…"
+  - text: 0 B / 1.0 MiB
+  - button "保存" [disabled]
+  - button "放弃更改" [disabled]
