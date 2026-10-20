@@ -49,11 +49,17 @@ export interface SoundWatcherDeps {
   readonly schedule: (fn: () => void, ms: number) => unknown
   /** Timer canceller paired with {@link SoundWatcherDeps.schedule}. */
   readonly cancel: (timer: unknown) => void
+  /** Fired once when the carrier keeps closing freshly opened streams; the watcher is already disposed when it runs. */
+  readonly onCarrierLost: () => void
 }
 
 /** Reopen backoff: base delay and growth ceiling. */
 const REOPEN_BASE_MS = 800
 const REOPEN_MAX_MS = 30_000
+
+/** Carrier breaker: consecutive immediate zero-event closes that retire the generation. */
+const TRIP_STRIKES = 2
+const IMMEDIATE_END_MS = 5_000
 
 /** The open-burst window: requested replays arriving with the open are muted. */
 const BURST_CLEAR_MS = 0
@@ -81,6 +87,12 @@ export class SoundWatcher {
     void this.runHostLoop()
   }
 
+  /** Retire on a closing carrier (owned-Host drain): reopen loops would starve its quiet close. */
+  private trip(): void {
+    this.dispose()
+    this.deps.onCarrierLost()
+  }
+
   /** Whether disposal already ran (a method read defeats boolean narrowing). */
   private isDisposed(): boolean {
     return this.disposed
@@ -97,18 +109,27 @@ export class SoundWatcher {
   /** The mux loop: subscribe, fold frames, reopen with backoff after breaks. */
   private async runMuxLoop(): Promise<void> {
     let delay = REOPEN_BASE_MS
+    let strikes = 0
     while (!this.disposed) {
       const stream = this.deps.openMux()
       if (stream === undefined || typeof stream[Symbol.asyncIterator] !== 'function') return
+      const openedAt = Date.now()
+      let envelopes = 0
       this.beginBurst()
       try {
         for await (const envelope of stream) {
           if (this.isDisposed()) return
+          envelopes += 1
           delay = REOPEN_BASE_MS
           this.handleMux(envelope)
         }
       } catch {
         /* stream break: connection loss or transport teardown; reopen below */
+      }
+      strikes = this.countStrike(strikes, envelopes, openedAt)
+      if (strikes >= TRIP_STRIKES) {
+        this.trip()
+        return
       }
       await this.wait(delay)
       if (this.isDisposed()) return
@@ -119,22 +140,37 @@ export class SoundWatcher {
   /** The host loop: agent-error frames only, same backoff shape. */
   private async runHostLoop(): Promise<void> {
     let delay = REOPEN_BASE_MS
+    let strikes = 0
     while (!this.disposed) {
       const stream = this.deps.openHost()
       if (stream === undefined || typeof stream[Symbol.asyncIterator] !== 'function') return
+      const openedAt = Date.now()
+      let envelopes = 0
       try {
         for await (const envelope of stream) {
           if (this.isDisposed()) return
+          envelopes += 1
           delay = REOPEN_BASE_MS
           this.handleHost(envelope)
         }
       } catch {
         /* stream break: reopen below */
       }
+      strikes = this.countStrike(strikes, envelopes, openedAt)
+      if (strikes >= TRIP_STRIKES) {
+        this.trip()
+        return
+      }
       await this.wait(delay)
       if (this.isDisposed()) return
       delay = Math.min(delay * 2, REOPEN_MAX_MS)
     }
+  }
+
+  /** One immediate zero-event close is a strike; anything lived resets the count. */
+  private countStrike(strikes: number, envelopes: number, openedAt: number): number {
+    if (envelopes > 0 || Date.now() - openedAt >= IMMEDIATE_END_MS) return 0
+    return strikes + 1
   }
 
   /** Fold one mux envelope into events. */

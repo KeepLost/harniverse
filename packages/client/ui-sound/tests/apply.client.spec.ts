@@ -531,4 +531,168 @@ describe('ui-sound apply', () => {
     }
     face.preview('ding', 1)
   })
+
+  it('retires a generation the carrier keeps closing and rearms after the cooldown', async () => {
+    vi.useFakeTimers()
+    try {
+      const state: 'bypass' | 'reconnecting' | 'connected' = 'connected'
+      const listeners = new Set<() => void>()
+      const signals: AbortSignal[] = []
+      let aborted = 0
+      let opens = 0
+      const api = {
+        events: {
+          mux: (_request: object, signal: AbortSignal): AsyncIterable<never> => {
+            opens += 1
+            signals.push(signal)
+            signal.addEventListener('abort', () => { aborted += 1 })
+            return (async function* muxStream(): AsyncIterable<never> {
+              /* the carrier closes fresh streams at once */
+            })()
+          },
+          host: (_request: object, signal: AbortSignal): AsyncIterable<never> => {
+            opens += 1
+            signals.push(signal)
+            signal.addEventListener('abort', () => { aborted += 1 })
+            return (async function* hostStream(): AsyncIterable<never> {
+              /* the carrier closes fresh streams at once */
+            })()
+          },
+        },
+      }
+      const ctx = new Context()
+      await ctx.plugin(SlotRegistry).await()
+      ctx.provide('locale', new LocaleRuntime(ctx))
+      ctx.provide('sessions', { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) } })
+      ctx.provide('connection', {
+        captureApi: () => api,
+        health: {
+          getSnapshot: () => state,
+          subscribe: (listener: () => void) => {
+            listeners.add(listener)
+            return () => { listeners.delete(listener) }
+          },
+        },
+      })
+      ctx.provide('settingsScope', { bind: () => ({ getSnapshot: () => ({ status: 'ready' as const, value: defaultSoundSettings(), writable: true }), subscribe: () => () => {}, set: vi.fn(() => Promise.resolve()) }) })
+      declareRoot(ctx.slots)
+      const fiber = await ctx.plugin({ apply, inject }).await()
+
+      await vi.advanceTimersByTimeAsync(1_500 + 800 + 800)
+      expect(opens).toBeGreaterThanOrEqual(2)
+      expect(aborted).toBe(signals.length)
+      const opensAtTrip = opens
+
+      await vi.advanceTimersByTimeAsync(55_000)
+      expect(opens).toBe(opensAtTrip)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(opens).toBeGreaterThan(opensAtTrip)
+
+      await fiber.dispose()
+      expect(aborted).toBe(signals.length)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the cooldown quiet when readiness lapsed without a notification', async () => {
+    vi.useFakeTimers()
+    try {
+      let state: 'connected' | 'reconnecting' = 'connected'
+      const listeners = new Set<() => void>()
+      let opens = 0
+      const api = {
+        events: {
+          mux: (): AsyncIterable<never> => {
+            opens += 1
+            return (async function* muxStream(): AsyncIterable<never> {
+              /* closed at once */
+            })()
+          },
+          host: (): AsyncIterable<never> => {
+            opens += 1
+            return (async function* hostStream(): AsyncIterable<never> {
+              /* closed at once */
+            })()
+          },
+        },
+      }
+      const ctx = new Context()
+      await ctx.plugin(SlotRegistry).await()
+      ctx.provide('locale', new LocaleRuntime(ctx))
+      ctx.provide('sessions', { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) } })
+      ctx.provide('connection', {
+        captureApi: () => api,
+        health: {
+          getSnapshot: () => state,
+          subscribe: (listener: () => void) => {
+            listeners.add(listener)
+            return () => { listeners.delete(listener) }
+          },
+        },
+      })
+      ctx.provide('settingsScope', { bind: () => ({ getSnapshot: () => ({ status: 'ready' as const, value: defaultSoundSettings(), writable: true }), subscribe: () => () => {}, set: vi.fn(() => Promise.resolve()) }) })
+      declareRoot(ctx.slots)
+      const fiber = await ctx.plugin({ apply, inject }).await()
+
+      await vi.advanceTimersByTimeAsync(1_500 + 1_600)
+      const opensAtTrip = opens
+      // The health source went stale without notifying; the cooldown must not rearm against it.
+      state = 'reconnecting'
+      await vi.advanceTimersByTimeAsync(60_001)
+      expect(opens).toBe(opensAtTrip)
+      state = 'connected'
+      for (const listener of [...listeners]) listener()
+      await vi.advanceTimersByTimeAsync(1_499)
+      expect(opens).toBe(opensAtTrip)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(opens).toBeGreaterThan(opensAtTrip)
+
+      await fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rearms the health-less generation once after the carrier cooldown', async () => {
+    vi.useFakeTimers()
+    try {
+      let opens = 0
+      const api = {
+        events: {
+          mux: (): AsyncIterable<never> => {
+            opens += 1
+            return (async function* muxStream(): AsyncIterable<never> {
+              /* closed at once */
+            })()
+          },
+          host: (): AsyncIterable<never> => {
+            opens += 1
+            return (async function* hostStream(): AsyncIterable<never> {
+              /* closed at once */
+            })()
+          },
+        },
+      }
+      const ctx = new Context()
+      await ctx.plugin(SlotRegistry).await()
+      ctx.provide('locale', new LocaleRuntime(ctx))
+      ctx.provide('sessions', { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) } })
+      ctx.provide('connection', { captureApi: () => api })
+      ctx.provide('settingsScope', { bind: () => ({ getSnapshot: () => ({ status: 'ready' as const, value: defaultSoundSettings(), writable: true }), subscribe: () => () => {}, set: vi.fn(() => Promise.resolve()) }) })
+      declareRoot(ctx.slots)
+      const fiber = await ctx.plugin({ apply, inject }).await()
+
+      await vi.advanceTimersByTimeAsync(800 + 800)
+      const opensAtTrip = opens
+      await vi.advanceTimersByTimeAsync(55_000)
+      expect(opens).toBe(opensAtTrip)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(opens).toBeGreaterThan(opensAtTrip)
+
+      await fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

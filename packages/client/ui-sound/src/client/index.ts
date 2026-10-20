@@ -103,9 +103,10 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
-  /** Build one watcher generation with its own stream abort registry. */
-  const makeWatcher = (): { watcher: SoundWatcher; abort: () => void } => {
+  /** Build one watcher generation with its own stream abort registry; the breaker aborts the registry itself. */
+  const makeWatcher = (onRetired: () => void): { watcher: SoundWatcher; abort: () => void } => {
     const registry = new Set<AbortController>()
+    const retire = (): void => { for (const controller of [...registry]) controller.abort() }
     const watcher = new SoundWatcher({
       sessions: sessionsFace,
       openMux: openStream(registry, (api, signal) => api.events.mux({}, signal)),
@@ -113,8 +114,9 @@ export function apply(ctx: ClientContext): void {
       onEvent,
       schedule: (fn, ms) => { return setTimeout(fn, ms) },
       cancel: (timer) => { clearTimeout(timer as ReturnType<typeof setTimeout>) },
+      onCarrierLost: () => { retire(); onRetired() },
     })
-    return { watcher, abort: () => { for (const controller of [...registry]) controller.abort() } }
+    return { watcher, abort: retire }
   }
 
   /**
@@ -123,19 +125,40 @@ export function apply(ctx: ClientContext): void {
    * when the carrier leaves the ready states — an owned Host closing, a
    * machine switch, a disconnect storm — the watcher generation is stood down
    * so it never reopens streams against a closing carrier, and a fresh
-   * generation arms once readiness returns. Without a health source the
-   * single generation starts immediately and lives for the plugin fiber.
+   * generation arms once readiness returns. A carrier that keeps closing
+   * freshly opened streams (an owned Host draining to a quiet close while
+   * the poll channel still answers) trips the generation's breaker: it is
+   * retired at once and rearmed only after a cooldown, so the drain's
+   * quiescence is never starved by supplementary reopens. Without a health
+   * source the single generation starts immediately and lives for the
+   * plugin fiber, with the same cooldown after a breaker trip.
    */
   const WATCHER_STAGGER_MS = 1500
+  const CARRIER_COOLDOWN_MS = 60_000
   ctx.effect(() => {
     const connection = ctx.get('connection') as ConnectionHandle | undefined
     const health = connection?.health
     if (health === undefined) {
-      const generation = makeWatcher()
-      generation.watcher.start()
+      let cooldown: ReturnType<typeof setTimeout> | undefined
+      const spawn = (): (() => void) => {
+        const generation = makeWatcher(() => {
+          /* the breaker fires once per live generation: arm the single cooldown rearm */
+          clearTimeout(cooldown)
+          cooldown = setTimeout(() => {
+            cooldown = undefined
+            teardown = spawn()
+          }, CARRIER_COOLDOWN_MS)
+        })
+        generation.watcher.start()
+        return () => {
+          generation.watcher.dispose()
+          generation.abort()
+        }
+      }
+      let teardown: () => void = spawn()
       return () => {
-        generation.watcher.dispose()
-        generation.abort()
+        if (cooldown !== undefined) clearTimeout(cooldown)
+        teardown()
       }
     }
     let generation: ReturnType<typeof makeWatcher> | undefined
@@ -151,22 +174,28 @@ export function apply(ctx: ClientContext): void {
         generation = undefined
       }
     }
-    const launch = (): void => {
-      if (generation === undefined && timer === undefined) {
-        /* standDown owns the only two reset paths (timer and generation), so at fire time both are clear. */
-        timer = setTimeout(() => {
-          timer = undefined
-          generation = makeWatcher()
-          generation.watcher.start()
-        }, WATCHER_STAGGER_MS)
-      }
-    }
     const ready = (): boolean => {
       const state = health.getSnapshot()
       return state === 'connected' || state === 'bypass'
     }
-    if (ready()) launch()
-    const unsubscribe = health.subscribe(() => { if (ready()) launch(); else standDown() })
+    const launch = (delay: number): void => {
+      if (generation === undefined && timer === undefined) {
+        /* standDown owns the only two reset paths (timer and generation), so at fire time both are clear. */
+        timer = setTimeout(() => {
+          timer = undefined
+          if (generation === undefined && ready()) {
+            generation = makeWatcher(() => {
+              /* the breaker already aborted the registry; retire and arm the cooldown */
+              standDown()
+              launch(CARRIER_COOLDOWN_MS)
+            })
+            generation.watcher.start()
+          }
+        }, delay)
+      }
+    }
+    if (ready()) launch(WATCHER_STAGGER_MS)
+    const unsubscribe = health.subscribe(() => { if (ready()) launch(WATCHER_STAGGER_MS); else standDown() })
     return () => {
       unsubscribe()
       standDown()

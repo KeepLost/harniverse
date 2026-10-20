@@ -123,6 +123,7 @@ function bench(options: { mux?: boolean; host?: boolean } = {}) {
   const timers = new TimerBank()
   const openMux = vi.fn(options.mux === false ? () => undefined : () => mux.iterable)
   const openHost = vi.fn(options.host === false ? () => undefined : () => host.iterable)
+  const carrierLost = vi.fn()
   const watcher = new SoundWatcher({
     sessions: sessions.face,
     openMux,
@@ -130,9 +131,10 @@ function bench(options: { mux?: boolean; host?: boolean } = {}) {
     onEvent: (event) => { events.push(event) },
     schedule: timers.api.schedule,
     cancel: timers.api.cancel,
+    onCarrierLost: carrierLost,
   })
   watcher.start()
-  return { watcher, sessions, mux, host, events, timers, openMux, openHost }
+  return { watcher, sessions, mux, host, events, timers, openMux, openHost, carrierLost }
 }
 
 
@@ -517,5 +519,132 @@ describe('SoundWatcher lifecycle', () => {
     kit.host.push({ type: 'host/session-status', sessionId: sid('s1'), running: true })
     await settle()
     expect(kit.events).toEqual([])
+  })
+  it('retires the generation after consecutive immediate zero-event closes', async () => {
+    const kit = bench()
+    await settle()
+    kit.mux.end()
+    await settle()
+    // First close strikes; the reopen finds the drained stream and the second strike trips.
+    kit.timers.flush()
+    await settle()
+    const muxOpensAtTrip = kit.openMux.mock.calls.length
+    expect(muxOpensAtTrip).toBe(2)
+    expect(kit.carrierLost).toHaveBeenCalledTimes(1)
+    kit.timers.flush()
+    await settle()
+    expect(kit.openMux.mock.calls.length).toBe(muxOpensAtTrip)
+    // The healthy host loop is disposed with the generation and never reopens either.
+    kit.host.end()
+    kit.timers.flush()
+    await settle()
+    expect(kit.openHost.mock.calls.length).toBe(1)
+  })
+
+  it('resets the strike count when a reopen delivers envelopes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const sessions = sessionsHarness()
+      const timers = new TimerBank()
+      const carrierLost = vi.fn()
+      const opens: Array<'mute' | 'immediate'> = ['immediate', 'mute', 'immediate', 'immediate']
+      let muxOpens = 0
+      let hostOpens = 0
+      const watcher = new SoundWatcher({
+        sessions: sessions.face,
+        openMux: () => {
+          const kind = opens[muxOpens]
+          muxOpens += 1
+          const stream = new ControlledStream<MuxFrame>()
+          if (kind === 'mute') stream.push({ type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 0 })
+          stream.end()
+          return stream.iterable
+        },
+        openHost: () => {
+          hostOpens += 1
+          return new ControlledStream<HostFrame>().iterable
+        },
+        onEvent: () => {},
+        schedule: timers.api.schedule,
+        cancel: timers.api.cancel,
+        onCarrierLost: carrierLost,
+      })
+      watcher.start()
+      await settle()
+      // immediate(1) -> reopen; the mute envelope's close resets the count.
+      for (let wave = 0; wave < 3; wave += 1) {
+        timers.flush()
+        await settle()
+      }
+      expect(muxOpens).toBe(4)
+      expect(carrierLost).toHaveBeenCalledTimes(1)
+      timers.flush()
+      await settle()
+      expect(muxOpens).toBe(4)
+      expect(hostOpens).toBe(1)
+      watcher.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resets the strike count when a stream stayed open past the immediate window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const sessions = sessionsHarness()
+      const timers = new TimerBank()
+      const carrierLost = vi.fn()
+      let muxOpens = 0
+      const watcher = new SoundWatcher({
+        sessions: sessions.face,
+        openMux: () => {
+          muxOpens += 1
+          const stream = new ControlledStream<MuxFrame>()
+          if (muxOpens === 2) queueMicrotask(() => {
+            vi.setSystemTime(Date.now() + 6_000)
+            stream.end()
+          })
+          else stream.end()
+          return stream.iterable
+        },
+        openHost: () => new ControlledStream<HostFrame>().iterable,
+        onEvent: () => {},
+        schedule: timers.api.schedule,
+        cancel: timers.api.cancel,
+        onCarrierLost: carrierLost,
+      })
+      watcher.start()
+      await settle()
+      // Opens: immediate(1), six-second quiet close (reset), immediate(1), immediate(2 -> trip).
+      timers.flush()
+      await settle()
+      timers.flush()
+      await settle()
+      timers.flush()
+      await settle()
+      expect(muxOpens).toBe(4)
+      expect(carrierLost).toHaveBeenCalledTimes(1)
+      watcher.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('retires from the host loop the same way', async () => {
+    const kit = bench()
+    await settle()
+    kit.host.end()
+    await settle()
+    kit.timers.flush()
+    await settle()
+    const hostOpensAtTrip = kit.openHost.mock.calls.length
+    expect(hostOpensAtTrip).toBe(2)
+    expect(kit.carrierLost).toHaveBeenCalledTimes(1)
+    kit.timers.flush()
+    await settle()
+    expect(kit.openHost.mock.calls.length).toBe(hostOpensAtTrip)
+    kit.mux.end()
+    kit.timers.flush()
+    await settle()
+    expect(kit.openMux.mock.calls.length).toBe(1)
   })
 })

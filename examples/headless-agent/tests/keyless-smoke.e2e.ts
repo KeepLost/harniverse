@@ -29,7 +29,11 @@ describe('headless-agent keyless smoke', () => {
         if (relativePath === undefined) return
         const compressed = await readFile(join(cwd, relativePath))
         expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
-        persistedHeader = JSON.parse((await decompress(compressed)).toString()) as Record<string, unknown>
+        // The write-behind layer appends later event batches as their own records, so
+        // the log may already hold more than the session header when read; take the
+        // first record instead of parsing the whole file.
+        const firstRecord = (await decompress(compressed)).toString().split('\n').find(line => line.trim().length > 0)
+        persistedHeader = JSON.parse(firstRecord!) as Record<string, unknown>
       },
     })
     const lines = stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
