@@ -8,6 +8,7 @@
  */
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { RpcId } from '@deepseek-ai/dsh-host-apiproxy'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { formatBytes, GlobalRulesSection } from '../src/client/GlobalRulesSection.tsx'
 import type { GlobalRulesSectionProps, GlobalRulesSectionInjected } from '../src/client/GlobalRulesSection.tsx'
@@ -28,9 +29,10 @@ function tzh(): Translate {
 }
 
 /** Mutable wire face the tests shape per case. */
-type ApiStub = GlobalRulesSectionInjected['api'] & {
-  readonly readMock: ReturnType<typeof vi.fn>
-  readonly writeMock: ReturnType<typeof vi.fn>
+type ApiFace = GlobalRulesSectionInjected['api']
+type ApiStub = ApiFace & {
+  readonly readMock: ApiFace['read']
+  readonly writeMock: ApiFace['write']
 }
 
 function stubApi(view: {
@@ -41,7 +43,7 @@ function stubApi(view: {
   maxBytes?: number
 }): ApiStub {
   const readMock = vi.fn(async () => ({
-    rpcId: 1,
+    rpcId: RpcId('r'),
     result: {
       ok: true as const,
       value: {
@@ -53,7 +55,7 @@ function stubApi(view: {
       },
     },
   }))
-  const writeMock = vi.fn(async () => ({ rpcId: 2, result: { ok: true as const, value: { version: 'ff'.repeat(16) } } }))
+  const writeMock = vi.fn(async () => ({ rpcId: RpcId('w'), result: { ok: true as const, value: { version: 'ff'.repeat(16) } } }))
   return {
     readMock,
     writeMock,
@@ -126,8 +128,8 @@ describe('GlobalRulesSection', () => {
   it('reports a conflict and reloads on request', async () => {
     const api = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
     const conflicting: ApiStub['write'] = async () => ({
-      rpcId: 2,
-      result: { ok: false as const, error: { code: 'global-rules-conflict', message: 'changed' } },
+      rpcId: RpcId('w'),
+      result: { ok: false as const, error: { code: 'global-rules-conflict', message: 'changed', details: {} } },
     })
     api.write = conflicting
     render(<GlobalRulesSection {...propsOf(api)} />)
@@ -196,8 +198,8 @@ describe('GlobalRulesSection', () => {
   it('localizes seam absence on load', async () => {
     const unavailable = stubApi({ exists: false, content: '' })
     const refusing: ApiStub['read'] = async () => ({
-      rpcId: 1,
-      result: { ok: false as const, error: { code: 'global-rules-unavailable', message: 'no seam' } },
+      rpcId: RpcId('r'),
+      result: { ok: false as const, error: { code: 'global-rules-unavailable', message: 'no seam', details: {} } },
     })
     unavailable.read = refusing
     render(<GlobalRulesSection {...propsOf(unavailable)} />)
@@ -207,7 +209,7 @@ describe('GlobalRulesSection', () => {
   it('shows the raw message for a non-unavailable read refusal', async () => {
     const api = stubApi({ exists: true, content: 'never' })
     api.read = vi.fn(async () => ({
-      rpcId: 1,
+      rpcId: RpcId('r'),
       result: { ok: false as const, error: { code: 'global-rules-read-failed', message: 'EISDIR' } },
     })) as unknown as ApiStub['read']
     render(<GlobalRulesSection {...propsOf(api)} />)
@@ -217,8 +219,8 @@ describe('GlobalRulesSection', () => {
   it('reports a refused write through the server message', async () => {
     const refused = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
     const rejecting: ApiStub['write'] = async () => ({
-      rpcId: 2,
-      result: { ok: false as const, error: { code: 'global-rules-too-large', message: 'over the cap' } },
+      rpcId: RpcId('w'),
+      result: { ok: false as const, error: { code: 'global-rules-too-large', message: 'over the cap', details: { maxBytes: 1024 } } },
     })
     refused.write = rejecting
     render(<GlobalRulesSection {...propsOf(refused)} />)
@@ -240,8 +242,8 @@ describe('GlobalRulesSection', () => {
   it('falls back to the generic save notice for an empty server message', async () => {
     const api = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
     const emptyMessage: ApiStub['write'] = async () => ({
-      rpcId: 2,
-      result: { ok: false as const, error: { code: 'global-rules-write-failed', message: '' } },
+      rpcId: RpcId('w'),
+      result: { ok: false as const, error: { code: 'global-rules-write-failed', message: '', details: {} } },
     })
     api.write = emptyMessage
     render(<GlobalRulesSection {...propsOf(api)} />)
