@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-在不定义工具的情况下添加模型可见的请求上下文的产品插件。`agent-instructions` 包含在默认 `dsh-agent-spine-demo` 组合包中，可通过组合包配置禁用；`context-snapshot` 包含在默认 `dsh-base` 组合中；`harness-source` 包含在每个 `dsh-web-app` 组合中；`time-context`、`tmux-context` 和 `session-reference` 需主动启用。
+在不定义工具的情况下添加模型可见的请求上下文的产品插件。`agent-instructions` 包含在默认 `dsh-agent-spine-demo` 组合包中，可通过组合包配置禁用；`context-snapshot` 包含在默认 `dsh-base` 组合中；`harness-source` 包含在每个 `dsh-web-app` 组合中；`time-context`、`tmux-context` 和 `session-reference` 需主动启用；`global-rules` 包含在 `dsh-web-app` 组合中，服务设置面板的编辑页。
 
 | 包 | 职责 | ctx key |
 |---|---|---|
@@ -12,5 +12,6 @@
 | [`time-context/`](time-context/README.md) | 当前时间与耗时上下文 | — |
 | [`tmux-context/`](tmux-context/README.md) | tmux 位置上下文 | — |
 | [`agent-instructions/`](agent-instructions/README.md) | 工作区指令上下文 | — |
+| [`global-rules/`](global-rules/README.md) | harness 主目录 `AGENTS.md` 的用户级全局规则编辑服务 | `ctx.globalRules` |
 
 会话引用见 [docs/subsystems/session-reference.md](../../docs/subsystems/session-reference.md)；[`agent-instructions` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)规定了其按 agent（智能体）/会话隔离与生命周期拆分。
