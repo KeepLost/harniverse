@@ -150,6 +150,11 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
   z.object({ code: z.literal('job-unavailable'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('speech-unavailable'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('speech-transcription-failed'), message: z.string(), details: z.object({}) }),
+  z.object({ code: z.literal('global-rules-unavailable'), message: z.string(), details: z.object({}) }),
+  z.object({ code: z.literal('global-rules-conflict'), message: z.string(), details: z.object({ version: z.string().optional() }) }),
+  z.object({ code: z.literal('global-rules-too-large'), message: z.string(), details: z.object({ maxBytes: z.number().int().min(1) }) }),
+  z.object({ code: z.literal('global-rules-read-failed'), message: z.string(), details: z.object({}) }),
+  z.object({ code: z.literal('global-rules-write-failed'), message: z.string(), details: z.object({}) }),
 ]) as unknown as z.ZodType<RpcError>
 
 /**

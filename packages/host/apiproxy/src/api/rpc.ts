@@ -209,6 +209,16 @@ export interface RpcErrorDetailsMap {
   'speech-unavailable': {}
   /** Audio intake or recognizer execution failed. */
   'speech-transcription-failed': {}
+  /** The global-rules seam is absent from this deployment. */
+  'global-rules-unavailable': {}
+  /** The rules file changed after the client's last read; its current token rides the details. */
+  'global-rules-conflict': { version?: string }
+  /** The replacement content exceeds the write cap; the cap rides the details. */
+  'global-rules-too-large': { maxBytes: number }
+  /** Reading the rules file failed for a filesystem reason other than absence. */
+  'global-rules-read-failed': {}
+  /** Writing the rules file failed at the filesystem. */
+  'global-rules-write-failed': {}
 }
 
 /** Closed error-code union (the keys of RpcErrorDetailsMap). */
@@ -304,6 +314,11 @@ export const RPC_ERROR_CODES = [
   'job-unavailable',
   'speech-unavailable',
   'speech-transcription-failed',
+  'global-rules-unavailable',
+  'global-rules-conflict',
+  'global-rules-too-large',
+  'global-rules-read-failed',
+  'global-rules-write-failed',
 ] as const satisfies readonly RpcErrorCode[]
 
 /** Compile-time exhaustiveness: a missing registry entry names itself here. */

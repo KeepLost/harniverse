@@ -100,6 +100,9 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // value import carries canonical WAV intake validation to this wire boundary.
 import type {} from '@deepseek-ai/dsh-speech'
 import { validateWav } from '@deepseek-ai/dsh-speech'
+// Type-only: resolves `ctx.get('globalRules')` (the user-global rules editor
+// seam); a composition without the provider still serves every other domain.
+import type {} from '@deepseek-ai/dsh-global-rules'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
@@ -4409,6 +4412,72 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           return err(request, {
             code: 'speech-transcription-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+    },
+
+    // The user-global rules editor over the globalRules seam. The service owns
+    // home resolution and the write cap; this surface maps its outcomes onto
+    // the wire's stable error codes.
+    globalRules: {
+      async read(request) {
+        const globalRules = ctx.get('globalRules')
+        if (globalRules === undefined) {
+          return err(request, {
+            code: 'global-rules-unavailable',
+            message: 'the global rules editor is unavailable in this deployment',
+            details: {},
+          })
+        }
+        try {
+          const view = await globalRules.read()
+          return ok(request, {
+            exists: view.exists,
+            content: view.content,
+            ...view.version === undefined ? {} : { version: view.version },
+            displayPath: view.displayPath,
+            maxBytes: view.maxBytes,
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'global-rules-read-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+
+      async write(request) {
+        const globalRules = ctx.get('globalRules')
+        if (globalRules === undefined) {
+          return err(request, {
+            code: 'global-rules-unavailable',
+            message: 'the global rules editor is unavailable in this deployment',
+            details: {},
+          })
+        }
+        const { content, expectedVersion } = request.payload
+        try {
+          const outcome = await globalRules.write(content, expectedVersion)
+          if (outcome.ok) return ok(request, { version: outcome.version })
+          if (outcome.reason === 'conflict') {
+            return err(request, {
+              code: 'global-rules-conflict',
+              message: 'the rules file changed after it was loaded',
+              details: outcome.version === undefined ? {} : { version: outcome.version },
+            })
+          }
+          return err(request, {
+            code: 'global-rules-too-large',
+            message: 'content exceeds the write cap',
+            details: { maxBytes: globalRules.maxBytes },
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'global-rules-write-failed',
             message: error instanceof Error ? error.message : String(error),
             details: {},
           })
