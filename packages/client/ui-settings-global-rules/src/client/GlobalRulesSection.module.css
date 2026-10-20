@@ -1,0 +1,92 @@
+/* The global rules section: a fixed header and actions row around the
+ * scrolling monospace editor, with byte accounting under the editor. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.intro {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.editor {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 320px;
+  flex: 1;
+  resize: vertical;
+  padding: 10px 12px;
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  outline: none;
+}
+
+.editor:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.editor::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.counter {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}

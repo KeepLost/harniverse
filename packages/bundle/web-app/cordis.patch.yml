@@ -293,6 +293,13 @@
     - id: client-hmr
       name: '@deepseek-ai/dsh-client-hmr'
 
+    # User-global rules editor seam: serves reads and version-checked writes
+    # of the harness home's AGENTS.md to the settings panel. Home resolution
+    # and the write cap mirror the agent-instructions loader (config over
+    # $DSH_HOME over ~/.dsh; default per-file cap).
+    - id: global-rules
+      name: '@deepseek-ai/dsh-global-rules'
+
     # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
     # Dual-face: the node half scans this tree, composes window.__DSH_BOOT__,
@@ -353,6 +360,11 @@
 
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
+
+    # 全局规则设置页：编辑 harness 主目录下的 AGENTS.md（用户级指令作用域）。
+    # 读写走 globalRules Remote；保存带内容指纹的乐观冲突检测。
+    - id: ui-settings-global-rules
+      name: '@deepseek-ai/dsh-client-ui-settings-global-rules'
 
     # Settings section importing official DeepSeek Harness sessions, plus the
     # archive banner that continues an imported session in a new one.

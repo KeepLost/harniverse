@@ -205,6 +205,11 @@ export class FakeApiClient implements IApiClient {
     prepare: (payload: unknown) => this.record('speech.prepare', payload, Promise.resolve(ok({ status: 'ready' as const }))),
   }
 
+  readonly globalRules: IApiClient['globalRules'] = {
+    read: payload => this.record('globalRules.read', payload, Promise.resolve(ok({ exists: false, content: '', displayPath: '~/.dsh/AGENTS.md', maxBytes: 1_048_576 }))),
+    write: payload => this.record('globalRules.write', payload, Promise.resolve(ok({ version: '0'.repeat(32) }))),
+  }
+
   readonly subagents: IApiClient['subagents'] = {
     list: (payload: unknown) => this.record('subagent.list', payload, Promise.resolve(ok({
       entries: [],
