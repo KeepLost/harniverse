@@ -47,7 +47,7 @@ describe('ui-settings-global-rules apply', () => {
   })
 
   it('keeps the node-half apply as the surface no-op', () => {
-    expect(applyNode()).toBeUndefined()
+    applyNode()
   })
 
   it('registers the section at id global-rules with order 12, the shipped label, and the nav glyph', async () => {

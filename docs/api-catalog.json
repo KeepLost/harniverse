@@ -38,6 +38,18 @@
       "stability": "stable"
     },
     {
+      "method": "globalRules.read",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "globalRules.write",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
       "method": "session.list",
       "requiredCapability": "harniverse.observe",
       "effect": "read",
@@ -616,6 +628,11 @@
     "operation-not-found",
     "job-unavailable",
     "speech-unavailable",
-    "speech-transcription-failed"
+    "speech-transcription-failed",
+    "global-rules-unavailable",
+    "global-rules-conflict",
+    "global-rules-too-large",
+    "global-rules-read-failed",
+    "global-rules-write-failed"
   ]
 }

@@ -57,8 +57,8 @@ function stubApi(view: {
   return {
     readMock,
     writeMock,
-    read: readMock as unknown as ApiStub['read'],
-    write: writeMock as unknown as ApiStub['write'],
+    read: readMock,
+    write: writeMock,
   }
 }
 
@@ -125,10 +125,11 @@ describe('GlobalRulesSection', () => {
 
   it('reports a conflict and reloads on request', async () => {
     const api = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
-    api.write = vi.fn(async () => ({
+    const conflicting: ApiStub['write'] = async () => ({
       rpcId: 2,
       result: { ok: false as const, error: { code: 'global-rules-conflict', message: 'changed' } },
-    })) as unknown as ApiStub['write']
+    })
+    api.write = conflicting
     render(<GlobalRulesSection {...propsOf(api)} />)
     fireEvent.change(await editor(), { target: { value: 'mine' } })
     fireEvent.click(saveButton())
@@ -171,13 +172,12 @@ describe('GlobalRulesSection', () => {
 
   it('shows a thrown read failure with a retry that recovers', async () => {
     const api = stubApi({ exists: true, content: 'late' })
-    const original = api.read
-    const throwing = vi.fn(async () => { throw new Error('EISDIR') })
-    api.read = throwing as unknown as ApiStub['read']
+    const throwing: ApiStub['read'] = async () => { throw new Error('EISDIR') }
+    api.read = throwing
     render(<GlobalRulesSection {...propsOf(api)} />)
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('EISDIR') })
 
-    api.read = original
+    api.read = api.readMock
     fireEvent.click(screen.getByRole('button', { name: zh.retry }))
     const editorElement = await editor()
     await waitFor(() => { expect(editorElement.value).toBe('late') })
@@ -185,8 +185,8 @@ describe('GlobalRulesSection', () => {
 
   it('falls back to the generic read notice for an empty non-Error rejection', async () => {
     const api = stubApi({ exists: true, content: 'never' })
-    const throwing = vi.fn(async () => { throw '' })
-    api.read = throwing as unknown as ApiStub['read']
+    const throwing: ApiStub['read'] = async () => { throw '' }
+    api.read = throwing
     render(<GlobalRulesSection {...propsOf(api)} />)
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe(zh.loadFailed.replace('{message}', zh.unknownError))
@@ -195,10 +195,11 @@ describe('GlobalRulesSection', () => {
 
   it('localizes seam absence on load', async () => {
     const unavailable = stubApi({ exists: false, content: '' })
-    unavailable.read = vi.fn(async () => ({
+    const refusing: ApiStub['read'] = async () => ({
       rpcId: 1,
       result: { ok: false as const, error: { code: 'global-rules-unavailable', message: 'no seam' } },
-    })) as unknown as ApiStub['read']
+    })
+    unavailable.read = refusing
     render(<GlobalRulesSection {...propsOf(unavailable)} />)
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain(zh.unavailable) })
   })
@@ -215,10 +216,11 @@ describe('GlobalRulesSection', () => {
 
   it('reports a refused write through the server message', async () => {
     const refused = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
-    refused.write = vi.fn(async () => ({
+    const rejecting: ApiStub['write'] = async () => ({
       rpcId: 2,
       result: { ok: false as const, error: { code: 'global-rules-too-large', message: 'over the cap' } },
-    })) as unknown as ApiStub['write']
+    })
+    refused.write = rejecting
     render(<GlobalRulesSection {...propsOf(refused)} />)
     fireEvent.change(await editor(), { target: { value: 'x' } })
     fireEvent.click(saveButton())
@@ -227,7 +229,8 @@ describe('GlobalRulesSection', () => {
 
   it('reports a thrown write rejection, Error or not', async () => {
     const api = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
-    api.write = vi.fn(async () => { throw new Error('network down') }) as unknown as ApiStub['write']
+    const throwing: ApiStub['write'] = async () => { throw new Error('network down') }
+    api.write = throwing
     render(<GlobalRulesSection {...propsOf(api)} />)
     fireEvent.change(await editor(), { target: { value: 'x' } })
     fireEvent.click(saveButton())
@@ -236,10 +239,11 @@ describe('GlobalRulesSection', () => {
 
   it('falls back to the generic save notice for an empty server message', async () => {
     const api = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
-    api.write = vi.fn(async () => ({
+    const emptyMessage: ApiStub['write'] = async () => ({
       rpcId: 2,
       result: { ok: false as const, error: { code: 'global-rules-write-failed', message: '' } },
-    })) as unknown as ApiStub['write']
+    })
+    api.write = emptyMessage
     render(<GlobalRulesSection {...propsOf(api)} />)
     fireEvent.change(await editor(), { target: { value: 'x' } })
     fireEvent.click(saveButton())
@@ -248,7 +252,8 @@ describe('GlobalRulesSection', () => {
 
   it('stringifies a non-Error write rejection', async () => {
     const nonError = stubApi({ exists: true, content: 'base', version: 'ab'.repeat(16) })
-    nonError.write = vi.fn(async () => { throw 'plain rejection' }) as unknown as ApiStub['write']
+    const plainRejection: ApiStub['write'] = async () => { throw 'plain rejection' }
+    nonError.write = plainRejection
     render(<GlobalRulesSection {...propsOf(nonError)} />)
     fireEvent.change(await editor(), { target: { value: 'x' } })
     fireEvent.click(saveButton())

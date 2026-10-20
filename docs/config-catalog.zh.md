@@ -1109,6 +1109,22 @@ export type Config = LocalConfig
 
 来源：[`packages/fs/fs-sandbox/src/index.ts:49`](../packages/fs/fs-sandbox/src/index.ts)
 
+<a id="deepseek-aidsh-global-rules"></a>
+
+## `@deepseek-ai/dsh-global-rules`
+
+```ts config-catalog
+/** User-facing provider configuration. */
+export interface Config {
+  /** Harness home override with the loader's precedence (`$DSH_HOME` then `~/.dsh`). */
+  dshHome?: string
+  /** Maximum UTF-8 bytes one write accepts; defaults to the loader's per-file cap. */
+  maxSourceBytes?: number
+}
+```
+
+来源：[`packages/context/global-rules/src/index.ts:48`](../packages/context/global-rules/src/index.ts)
+
 <a id="deepseek-aidsh-goal"></a>
 
 ## `@deepseek-ai/dsh-goal`
@@ -4483,6 +4499,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-capabilities` ([`packages/client/ui-settings-capabilities/src/index.ts`](../packages/client/ui-settings-capabilities/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-global-rules` ([`packages/client/ui-settings-global-rules/src/index.ts`](../packages/client/ui-settings-global-rules/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-im` ([`packages/client/ui-settings-im/src/index.ts`](../packages/client/ui-settings-im/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-models` ([`packages/client/ui-settings-models/src/index.ts`](../packages/client/ui-settings-models/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` ([`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts))

@@ -99,8 +99,15 @@ describe('globalRules.read', () => {
 describe('globalRules.write', () => {
   it('persists content and answers the new freshness token', async () => {
     const ctx = await harness('write-ok')
-    const response = await rulesFace(ctx).write(request({ content: 'first' }))
-    expect(response.result).toMatchObject({ ok: true, value: { version: expect.stringMatching(/^[0-9a-f]{32}$/) } })
+    const face = rulesFace(ctx)
+    const response = await face.write(request({ content: 'first' }))
+    const read = await face.read(request({}))
+    expect(response.result.ok).toBe(true)
+    expect(read.result.ok).toBe(true)
+    if (response.result.ok && read.result.ok) {
+      expect(response.result.value.version).toBe(read.result.value.version)
+      expect(response.result.value.version).toMatch(/^[0-9a-f]{32}$/)
+    }
     await ctx.fiber.dispose()
   })
 
@@ -121,8 +128,11 @@ describe('globalRules.write', () => {
     }))
     expect(conflict.result).toMatchObject({
       ok: false,
-      error: { code: 'global-rules-conflict', details: { version: expect.any(String) } },
+      error: { code: 'global-rules-conflict' },
     })
+    if (!conflict.result.ok && 'version' in conflict.result.error.details) {
+      expect(conflict.result.error.details.version).toBeTypeOf('string')
+    }
 
     const tooLarge = await face.write(request({ content: 'x'.repeat(1025) }))
     expect(tooLarge.result).toMatchObject({

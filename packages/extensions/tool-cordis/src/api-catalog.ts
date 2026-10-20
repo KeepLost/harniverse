@@ -360,6 +360,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
+        signature: 'globalRules?: GlobalRulesApi',
+        description: 'Optional only for compositions without the global-rules seam; the Host service always provides it.',
+        parameters: [],
+      },
+      {
         signature: 'workspaceFiles?: WorkspaceFilesApi',
         description: 'Optional only for legacy hand-built implementations; the Host service always provides it.',
         parameters: [],
@@ -1137,6 +1142,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Atomically edit literal text. When supplied, the version guard is checked before matching so stale content reports `FS_STALE_VERSION`; omission edits the current content without a freshness precondition.',
         parameters: [{ name: 'target', description: 'the resolved target to edit.' }, { name: 'edit', description: 'the literal search/replace request.' }, { name: 'expected', description: 'the version guard; omit for an unconditional edit.' }, { name: 'signal', description: 'aborts before atomic publication takes effect.' }, { name: 'sandboxPolicy', description: 'the per-call mode and workspace root this edit runs under; a sandboxing backend fences the edit by it, the bare backend ignores it. Omit to leave the backend its own default.' }],
         returns: 'the outcome, including the version the edit produced.',
+      },
+    ],
+  },
+  {
+    key: 'globalRules',
+    summary: 'Read/write face over the harness-home `AGENTS.md`.',
+    description: 'Read/write face over the harness-home `AGENTS.md`.',
+    methods: [
+      {
+        signature: 'readonly displayPath: string',
+        description: 'Symbolic display path of the edited file; never an absolute machine path.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly maxBytes: number',
+        description: 'Maximum UTF-8 byte count one write accepts.',
+        parameters: [],
+      },
+      {
+        signature: 'read(): Promise<GlobalRulesFileView>',
+        description: 'Observe the current file state.',
+        parameters: [],
+        returns: 'the file\'s content, existence, freshness token, and limits.',
+        throws: ['when the filesystem read fails for a reason other than absence.'],
+      },
+      {
+        signature: 'write(content: string, expectedVersion?: string): Promise<GlobalRulesWriteResult>',
+        description: 'Persist new content, creating the file (and the harness home) when absent.',
+        parameters: [{ name: 'content', description: 'full replacement content, UTF-8.' }, { name: 'expectedVersion', description: 'token the caller last observed; a mismatch refuses the write so concurrent external edits are not silently clobbered. Omit it to write unconditionally.' }],
+        returns: 'the write outcome with the new (or conflicting) freshness token.',
+        throws: ['when the filesystem write fails.'],
       },
     ],
   },
@@ -5484,6 +5520,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GenericResultView',
     declaration: 'export interface GenericResultView {\n    card: \'generic\';\n    title?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
+    name: 'GlobalRulesApi',
+    declaration: 'export interface GlobalRulesApi {\n    read(request: RpcRequest<{}>): Promise<RpcResponse<GlobalRulesReadView>>;\n    write(request: RpcRequest<{\n        content: string;\n        expectedVersion?: string;\n    }>): Promise<RpcResponse<{\n        version: string;\n    }>>;\n}',
+  },
+  {
+    name: 'GlobalRulesFileView',
+    declaration: 'export interface GlobalRulesFileView {\n    readonly exists: boolean;\n    readonly content: string;\n    readonly version: string | undefined;\n    readonly displayPath: string;\n    readonly maxBytes: number;\n}',
+  },
+  {
+    name: 'GlobalRulesReadView',
+    declaration: 'export interface GlobalRulesReadView {\n    exists: boolean;\n    content: string;\n    version?: string;\n    displayPath: string;\n    maxBytes: number;\n}',
+  },
+  {
+    name: 'GlobalRulesWriteResult',
+    declaration: 'export type GlobalRulesWriteResult = {\n    readonly ok: true;\n    readonly version: string;\n} | {\n    readonly ok: false;\n    readonly reason: \'conflict\';\n    readonly version: string | undefined;\n} | {\n    readonly ok: false;\n    readonly reason: \'too-large\';\n};',
   },
   {
     name: 'GoalActivation',
