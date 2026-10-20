@@ -148,6 +148,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The seam owns WAV validation and provider resolution; recognizers own preparation and inference; the apiproxy exposes transcribe/prepare to clients.',
   },
   {
+    key: 'globalRules',
+    pkg: 'global-rules',
+    title: 'User-global rules file',
+    mode: 'core',
+    consumers: ['host-apiproxy'],
+    note: 'The service owns the harness-home AGENTS.md read/write pair with optimistic version tokens; the apiproxy exposes it to the settings editor while the instruction loader reads the same file on its own.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

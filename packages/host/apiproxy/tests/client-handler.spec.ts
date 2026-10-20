@@ -358,6 +358,10 @@ describe('unary round trip', () => {
       .toBe('speech transcription is unavailable')
     expect(reasonOf((await c.speech.prepare({})).result ?? { ok: true, value: 0 }))
       .toBe('speech preparation is unavailable')
+    expect(reasonOf((await c.globalRules.read({})).result ?? { ok: true, value: 0 }))
+      .toBe('the global rules editor is unavailable')
+    expect(reasonOf((await c.globalRules.write({ content: 'x' })).result ?? { ok: true, value: 0 }))
+      .toBe('the global rules editor is unavailable')
   })
 
   it('routes the jobs and speech faces through the wire', async () => {
@@ -372,6 +376,10 @@ describe('unary round trip', () => {
       transcribe: record('speech.transcribe', r => ok(r, { text: 'recognized' })),
       prepare: record('speech.prepare', r => ok(r, { status: 'ready' as const })),
     }
+    api.globalRules = {
+      read: record('globalRules.read', r => ok(r, { exists: true, content: 'rules', version: 'ab'.repeat(16), displayPath: '~/.dsh/AGENTS.md', maxBytes: 1_048_576 })),
+      write: record('globalRules.write', r => ok(r, { version: 'cd'.repeat(16) })),
+    }
     const c = client(api)
     expect((await c.jobs.follow({ sessionId: sid('s1'), jobId: JobId('bash-1'), offsetBytes: 3 })).result)
       .toEqual({ ok: true, value: { text: 'hello', nextOffsetBytes: 5, truncated: false, totalBytes: 5, status: 'running' } })
@@ -381,7 +389,11 @@ describe('unary round trip', () => {
       .toEqual({ ok: true, value: { text: 'recognized' } })
     expect((await c.speech.prepare({})).result)
       .toEqual({ ok: true, value: { status: 'ready' } })
-    expect(seen.map(entry => entry.method)).toEqual(['jobs.follow', 'jobs.kill', 'speech.transcribe', 'speech.prepare'])
+    expect((await c.globalRules.read({})).result)
+      .toEqual({ ok: true, value: { exists: true, content: 'rules', version: 'ab'.repeat(16), displayPath: '~/.dsh/AGENTS.md', maxBytes: 1_048_576 } })
+    expect((await c.globalRules.write({ content: 'next' })).result)
+      .toEqual({ ok: true, value: { version: 'cd'.repeat(16) } })
+    expect(seen.map(entry => entry.method)).toEqual(['jobs.follow', 'jobs.kill', 'speech.transcribe', 'speech.prepare', 'globalRules.read', 'globalRules.write'])
     expect(seen[0]!.payload).toEqual({ sessionId: 's1', jobId: JobId('bash-1'), offsetBytes: 3 })
   })
 

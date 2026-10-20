@@ -20,7 +20,7 @@
 
 ## Model Experience
 
-间接且归属于他处：本服务编辑的文件经 `dsh-agent-instructions` 成为基线指令上下文，模型可见效果由其 README 说明。编辑或保存规则不会从本包发出任何模型请求。
+间接发生：本服务只编辑 harness 主目录下的 `AGENTS.md`，由 `dsh-agent-instructions` 基线链将该文件渲染为持久的用户全局指令消息；编辑或保存规则不会从本包发出任何模型请求。
 
 #### KV Cache effect
 

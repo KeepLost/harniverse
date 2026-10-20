@@ -23,7 +23,7 @@
 
 ## Model Experience
 
-间接且归属于他处：被编辑的文件经 `dsh-agent-instructions` 成为基线指令上下文。分区本身不发出任何模型请求，只负责编辑文件。
+间接发生：分区只经 globalRules Remote 搬运字节，被编辑的 `AGENTS.md` 由 `dsh-agent-instructions` 基线链渲染为持久的用户全局指令消息；分区本身不发出任何模型请求。
 
 #### KV Cache effect
 

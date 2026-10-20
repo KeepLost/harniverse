@@ -20,7 +20,7 @@ Every session picks an edit up through the loader's own reconcile — new sessio
 
 ## Model Experience
 
-Indirect and owned elsewhere: the file this service edits becomes baseline instruction context through `dsh-agent-instructions`, whose README owns the model-visible effects. Editing or saving rules issues no model request from this package.
+Indirectly, through the `dsh-agent-instructions` baseline chain, which renders the harness-home `AGENTS.md` this service edits into the durable user-global instruction message; editing or saving rules issues no model request from this package.
 
 #### KV Cache effect
 

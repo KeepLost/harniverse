@@ -23,7 +23,7 @@ The plugin injects `slots`, `locale`, and `connection`. It contributes one entry
 
 ## Model Experience
 
-Indirect and owned elsewhere: the edited file becomes baseline instruction context through `dsh-agent-instructions`. The section itself issues no model request; it only edits the file.
+Indirectly, through the `dsh-agent-instructions` baseline chain that renders the edited `AGENTS.md` into the durable user-global instruction message; the section itself issues no model request, it only edits the file.
 
 #### KV Cache effect
 
