@@ -187,7 +187,11 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     }).toBeTypeOf('string')
     const compressed = await readFile(join(sessionsRoot, log!))
     expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
-    expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session', id: sessionId })
+    // The write-behind layer appends later event batches as their own records,
+    // so by the time this reads the log it may already hold more than the
+    // session header; assert on the first record instead of the whole file.
+    const firstRecord = (await decompress(compressed)).toString().split('\n').find(line => line.trim().length > 0)
+    expect(JSON.parse(firstRecord!)).toMatchObject({ type: 'session', id: sessionId })
     expect(stderr.join('')).not.toContain('without inject')
     // stdout purity: every emitted line is a JSON-RPC frame, no logger leak.
     for (const line of rawOut.join('').split('\n').filter(l => l.trim().length > 0)) {

@@ -93,6 +93,20 @@ export const IconClockOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** Speaker glyph with one sound arc, stroke style of the outline set. */
+export const IconVolumeOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M8.25 3.01352C8.25 2.61149 7.77969 2.38834 7.46632 2.64623L4.64835 4.95H2.9C2.12717 4.95 1.5 5.57717 1.5 6.35V9.65C1.5 10.4228 2.12717 11.05 2.9 11.05H4.64835L7.46632 13.3538C7.77969 13.6117 8.25 13.3885 8.25 12.9865V3.01352Z"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinejoin="round"
+    />
+    <path d="M10.7 6.10004C11.25 6.61066 11.55 7.15 11.55 7.8C11.55 8.45005 11.25 8.98938 10.7 9.50001" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>
+)
+
+
 /** ic_ds_panel_left_outline_16 */
 export const IconPanelLeftOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

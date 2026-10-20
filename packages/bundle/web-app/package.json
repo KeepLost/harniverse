@@ -94,6 +94,7 @@
     "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
     "@deepseek-ai/dsh-client-ui-skill": "workspace:^",
     "@deepseek-ai/dsh-client-ui-skin": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-sound": "workspace:^",
     "@deepseek-ai/dsh-client-ui-subagent": "workspace:^",
     "@deepseek-ai/dsh-client-ui-terminal": "workspace:^",
     "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
