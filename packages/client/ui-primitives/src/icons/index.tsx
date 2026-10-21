@@ -106,18 +106,19 @@ export const IconVolumeOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
-/** Pushpin glyph: ring head over a tapering needle, stroke style of the outline set. */
+/** Pin glyph: an upward arrow whose tip meets the top bar (the CJK 置顶 mark), stroke style of the outline set. */
 export const IconPinOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path
-      d="M5 5a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+      d="M3 3.5h10"
       stroke="currentColor"
-      strokeWidth="1.2"
+      strokeWidth="1.3"
+      strokeLinecap="round"
     />
     <path
-      d="M6.8 7.7L7.4 9.4L8 14.6L8.6 9.4L9.2 7.7"
+      d="M4.7 8.1L8 4.8L11.3 8.1M8 4.8v8.2"
       stroke="currentColor"
-      strokeWidth="1.2"
+      strokeWidth="1.3"
       strokeLinecap="round"
       strokeLinejoin="round"
     />

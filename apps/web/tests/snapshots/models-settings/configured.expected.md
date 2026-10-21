@@ -47,6 +47,18 @@
   - heading "模型" [level=2]
   - paragraph: 填入各提供方的 API 密钥即可使用其模型。
   - status: 已保存 minimax-cn。
+  - heading "请求重试" [level=3]
+  - paragraph: 上游瞬时故障（限流、超时、服务器、网络错误）会自动重试，间隔按指数增长、最大不超过上限；重试耗尽后交给备用链接管。填写并保存会应用到本页所有提供方；全部留空则恢复引擎默认。
+  - text: 重试次数
+  - textbox "重试次数":
+    - /placeholder: "2"
+  - text: 首次重试间隔（秒）
+  - textbox "首次重试间隔（秒）":
+    - /placeholder: "0.5"
+  - text: 最大重试间隔（秒）
+  - textbox "最大重试间隔（秒）":
+    - /placeholder: "10"
+  - button "全部应用"
   - list:
     - listitem:
       - text: minimax-cn

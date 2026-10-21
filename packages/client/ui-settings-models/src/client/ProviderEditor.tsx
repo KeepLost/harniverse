@@ -10,10 +10,10 @@
  * both families, DeepSeek's id/name/context-window model catalog, and the
  * pi-ai identity fields — the display name of a route the adapter does not
  * ship, and the wire protocol every pi-ai route offers as the default its
- * models inherit when their own entry names none), plus the request-retry
- * fields every adapter family shares: retry count and the first/max retry
- * waits in seconds, written as the provider's `retryPolicy` with the waits
- * normalized to the engine's milliseconds and its initial<=max invariant.
+ * models inherit when their own entry names none). The page-level
+ * RequestRetryCard owns the request-retry posture, so per-provider retry
+ * fields stay off this card; a deployment that wants a route to deviate
+ * writes its `retryPolicy` through `settings.yaml`.
  * Reasoning effort is deliberately absent: it is a per-MODEL capability, and
  * the models under one provider disagree about it, so a provider-scoped
  * control can only be set to a value some of them reject. The composer's
@@ -46,105 +46,6 @@ type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
 
 /** The public DeepSeek endpoint shown as the deepseek base-URL placeholder. */
 const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
-
-/**
- * dsh-llm retry-policy defaults, mirrored for placeholders and for
- * normalizing a write that names only some fields (retry-policy.ts owns the
- * real resolution; these are its stable display-side constants).
- */
-const RETRY_DEFAULTS = { maxRetries: 2, initialDelayMs: 500, maxDelayMs: 10_000 } as const
-/** One scheduled retry wait cannot exceed the engine timer ceiling, in seconds. */
-const RETRY_WAIT_MAX_SECONDS = 2_147_483
-
-/** The three retry fields as raw input text; empty means "not overridden". */
-interface RetryRaw {
-  readonly count: string
-  readonly interval: string
-  readonly cap: string
-}
-
-function numberAt(source: unknown, key: string): number | undefined {
-  const value = getPath(source, [key])
-  return typeof value === 'number' ? value : undefined
-}
-
-/**
- * The retry policy a resolved profile carries, if any. Both adapter families
- * embed `retryPolicy` at the profile root in config shape (`backoff` nested);
- * a policy without `backoff` still names its waits flat nowhere, so the waits
- * read falls back to the policy object itself.
- */
-function retryPartsOf(profile: unknown): {
-  maxRetries: number | undefined
-  initialDelayMs: number | undefined
-  maxDelayMs: number | undefined
-} {
-  const policy = getPath(profile, ['retryPolicy'])
-  if (typeof policy !== 'object' || policy === null) {
-    return { maxRetries: undefined, initialDelayMs: undefined, maxDelayMs: undefined }
-  }
-  const backoff = getPath(policy, ['backoff'])
-  const waits = typeof backoff === 'object' && backoff !== null ? backoff : policy
-  return {
-    maxRetries: numberAt(policy, 'maxRetries'),
-    initialDelayMs: numberAt(waits, 'initialDelayMs'),
-    maxDelayMs: numberAt(waits, 'maxDelayMs'),
-  }
-}
-
-/**
- * The first invalid-retry message key, or undefined when the raw fields can
- * be written. Counts are non-negative safe integers; waits are positive
- * finite seconds no larger than the engine timer ceiling.
- */
-export function retryFailureOf(raw: RetryRaw): 'retryCountInvalid' | 'retryIntervalInvalid' | 'retryIntervalOrder' | undefined {
-  if (raw.count !== '' && (!/^\d+$/.test(raw.count) || !Number.isSafeInteger(Number(raw.count)))) {
-    return 'retryCountInvalid'
-  }
-  const badWait = (text: string): boolean => {
-    if (text === '') return false
-    const value = Number(text)
-    return !Number.isFinite(value) || value <= 0 || value > RETRY_WAIT_MAX_SECONDS
-  }
-  if (badWait(raw.interval) || badWait(raw.cap)) return 'retryIntervalInvalid'
-  const interval = raw.interval === '' ? undefined : Number(raw.interval)
-  const cap = raw.cap === '' ? undefined : Number(raw.cap)
-  if (interval !== undefined && cap !== undefined && interval > cap) return 'retryIntervalOrder'
-  return undefined
-}
-
-/**
- * Merge the raw retry fields into a profile draft: every field cleared drops
- * the override; any field kept writes a `normal`-mode policy whose backoff
- * always names both waits in milliseconds, raising the cap to at least the
- * first wait so the stored profile can never violate the engine's
- * initial<=max invariant.
- * @param draft - the edited user-layer subtree.
- * @param raw - the retry fields as typed.
- * @param fallback - the resolved profile the placeholders showed.
- * @returns the draft with `retryPolicy` set or removed.
- */
-export function retryPatch(
-  draft: Record<string, unknown>,
-  raw: RetryRaw,
-  fallback: unknown,
-): Record<string, unknown> {
-  if (raw.count === '' && raw.interval === '' && raw.cap === '') {
-    return deletePath(draft, ['retryPolicy'])
-  }
-  const effective = retryPartsOf(fallback)
-  const initialMs = raw.interval === ''
-    ? (effective.initialDelayMs ?? RETRY_DEFAULTS.initialDelayMs)
-    : Number(raw.interval) * 1000
-  const cappedMs = raw.cap === ''
-    ? (effective.maxDelayMs ?? RETRY_DEFAULTS.maxDelayMs)
-    : Number(raw.cap) * 1000
-  return setPath(draft, ['retryPolicy'], {
-    mode: 'normal',
-    ...(raw.count === '' ? {} : { maxRetries: Number(raw.count) }),
-    backoff: { initialDelayMs: initialMs, maxDelayMs: Math.max(cappedMs, initialMs) },
-  })
-}
 
 /** Props of {@link ProviderEditor}. */
 export interface ProviderEditorProps {
@@ -253,16 +154,6 @@ function refFor(namespace: SettingsNamespaceView, path: readonly string[], provi
 export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const { namespace, settingsPath, api, t } = props
   const [draft, setDraft] = useState<Record<string, unknown>>(() => draftAt(namespace, settingsPath))
-  // Retry fields keep their raw text: the draft stays settings-shaped, and
-  // the merge into it happens once at apply through `retryPatch`.
-  const [retryRaw, setRetryRaw] = useState<RetryRaw>(() => {
-    const parts = retryPartsOf(getPath(namespace.user, settingsPath))
-    return {
-      count: parts.maxRetries === undefined ? '' : String(parts.maxRetries),
-      interval: parts.initialDelayMs === undefined ? '' : String(parts.initialDelayMs / 1000),
-      cap: parts.maxDelayMs === undefined ? '' : String(parts.maxDelayMs / 1000),
-    }
-  })
   const [keyDraft, setKeyDraft] = useState('')
   const [keyState, setKeyState] = useState<CredentialView | undefined>(undefined)
   const [busy, setBusy] = useState(false)
@@ -323,8 +214,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // so a bad row is named by its position rather than by a blanket message.
   const modelFailure = validateDeepSeekModels(getPath(draft, ['models']))
   const keyFailure = apiKeyFailure(keyDraft)
-  const retryFailure = retryFailureOf(retryRaw)
-  const retryParts = retryPartsOf(fallback)
   // What a probe or a write must carry: the typed key with paste whitespace
   // removed. A blank field yields an empty string, which both call sites read
   // as "no key supplied" rather than as a key — that is how a card whose
@@ -367,14 +256,10 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const ns = namespace.ns
     // A pi-ai profile names the conventional reference only when this page is
     // about to store a key. Otherwise the provider keeps its native auth path.
-    const next = retryPatch(
-      layout === 'pi-ai' && stringAt(draft, 'apiKeyEnv') === undefined
-        && stringAt(fallback, 'apiKeyEnv') === undefined && keyValue.length > 0
-        ? setPath(draft, ['apiKeyEnv'], keyRef)
-        : draft,
-      retryRaw,
-      fallback,
-    )
+    const next = layout === 'pi-ai' && stringAt(draft, 'apiKeyEnv') === undefined
+      && stringAt(fallback, 'apiKeyEnv') === undefined && keyValue.length > 0
+      ? setPath(draft, ['apiKeyEnv'], keyRef)
+      : draft
     if (props.credentialOnly !== true) {
       // The same checker gates the submit button, so a card cannot reach this
       // with a bad row; it stays because the schema check below would refuse
@@ -587,53 +472,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 </div>
               )
               : null}
-            {/* Request retry: the adapter already owns a per-provider retry
-                policy; these fields expose it. Waits are typed in seconds
-                and normalized to the engine's milliseconds at write time. */}
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('retryCount')}</span>
-              <input
-                className={styles['input']}
-                type="text"
-                inputMode="numeric"
-                value={retryRaw.count}
-                placeholder={String(retryParts.maxRetries ?? RETRY_DEFAULTS.maxRetries)}
-                aria-label={t('retryCount')}
-                aria-invalid={retryFailure === 'retryCountInvalid'}
-                disabled={disabled}
-                onChange={(event) => { setRetryRaw({ ...retryRaw, count: event.target.value }) }}
-              />
-            </div>
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('retryInterval')}</span>
-              <input
-                className={styles['input']}
-                type="text"
-                inputMode="decimal"
-                value={retryRaw.interval}
-                placeholder={String((retryParts.initialDelayMs ?? RETRY_DEFAULTS.initialDelayMs) / 1000)}
-                aria-label={t('retryInterval')}
-                aria-invalid={retryFailure === 'retryIntervalInvalid' || retryFailure === 'retryIntervalOrder'}
-                disabled={disabled}
-                onChange={(event) => { setRetryRaw({ ...retryRaw, interval: event.target.value }) }}
-              />
-            </div>
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('retryCap')}</span>
-              <input
-                className={styles['input']}
-                type="text"
-                inputMode="decimal"
-                value={retryRaw.cap}
-                placeholder={String((retryParts.maxDelayMs ?? RETRY_DEFAULTS.maxDelayMs) / 1000)}
-                aria-label={t('retryCap')}
-                aria-invalid={retryFailure === 'retryIntervalOrder'}
-                disabled={disabled}
-                onChange={(event) => { setRetryRaw({ ...retryRaw, cap: event.target.value }) }}
-              />
-            </div>
-            <p className={styles['advancedHint']}>{t('retryHint')}</p>
-            {retryFailure === undefined ? null : <p className={styles['error']}>{t(retryFailure)}</p>}
             {/* Both families edit the same rows through the same contract; only
                 the extras differ — DeepSeek's inherited capacities, pi-ai's
                 endpoint interrogation. */}
@@ -690,7 +528,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         busy={busy}
         submitDisabled={disabled || layout === 'unknown'
           || (props.credentialOnly !== true && modelFailure !== undefined)
-          || retryFailure !== undefined
           || shownKeyFailure !== undefined
           || (props.credentialRequired === true && keyValue.length === 0)}
         submitLabel={props.submitLabel ?? 'apply'}

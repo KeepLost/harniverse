@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-21-models-retry-fields-and-pin-glyph.md
-2026-10-21-models-retry-fields-and-pin-glyph.md: ba4db7666c92dae3db4e14418656e127e9856fc2
-2026-10-21-models-retry-fields-and-pin-glyph.zh.md: bc6a38ce7d45b5b0ea8b62cf205bfaa2f668b0ca
+2026-10-21-models-retry-fields-and-pin-glyph.md: 243535f86af34e3f545d56913a1c04b2ba6def6e
+2026-10-21-models-retry-fields-and-pin-glyph.zh.md: 30e56752ef43ce06f301a589f6b66a1d297039d9
