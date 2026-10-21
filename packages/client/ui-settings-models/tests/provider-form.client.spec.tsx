@@ -58,6 +58,14 @@ const PiAiConfig = Schema.object({
     displayName: Schema.string(),
     api: Schema.union(PROTOCOLS),
     baseURL: Schema.string(),
+    retryPolicy: Schema.object({
+      mode: Schema.union(['normal', 'always']),
+      maxRetries: Schema.number(),
+      backoff: Schema.object({
+        initialDelayMs: Schema.number(),
+        maxDelayMs: Schema.number(),
+      }),
+    }),
     models: Schema.array(Schema.object({
       id: Schema.string().required(),
       name: Schema.string(),
@@ -530,6 +538,140 @@ describe('model list editing', () => {
 
 })
 
+describe('request retry fields', () => {
+  it('writes count and waits as one normalized retryPolicy op', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    // Empty fields offer the engine defaults as placeholders.
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCount).placeholder).toBe('2')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryInterval).placeholder).toBe('0.5')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCap).placeholder).toBe('10')
+
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(en.retryCap), { target: { value: '30' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate)).toMatchObject({
+      ns: 'llm-pi-ai',
+      ops: [{
+        op: 'set',
+        path: ['providers', 'openai', 'retryPolicy'],
+        value: { mode: 'normal', maxRetries: 5, backoff: { initialDelayMs: 2_000, maxDelayMs: 30_000 } },
+      }],
+    })
+  })
+
+  it('raises the cap to honor a first wait that outgrows the effective ceiling', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    // 30s first wait versus the 10s effective cap: the write keeps the
+    // engine's initial<=max invariant instead of shipping a rejected profile.
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '30' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual({
+      mode: 'normal',
+      backoff: { initialDelayMs: 30_000, maxDelayMs: 30_000 },
+    })
+  })
+
+  it('edits the count over a stored policy and unsets it when every field clears', async () => {
+    const retryPolicy = { mode: 'normal', maxRetries: 7, backoff: { initialDelayMs: 1_500, maxDelayMs: 20_000 } }
+    const { mutate } = await mountSection({
+      providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy.example/v1', retryPolicy } },
+    })
+    openEditor('openai')
+
+    // A stored policy seeds the fields instead of the placeholders.
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCount).value).toBe('7')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryInterval).value).toBe('1.5')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCap).value).toBe('20')
+
+    // Waits left empty keep the effective ones; only the count changes.
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(en.retryCap), { target: { value: '' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      ops: [{
+        op: 'set',
+        path: ['providers', 'openai', 'retryPolicy'],
+        value: { mode: 'normal', maxRetries: 4, backoff: { initialDelayMs: 1_500, maxDelayMs: 20_000 } },
+      }],
+    })
+
+    // Clearing every field drops the stored override rather than storing
+    // zeros; a policy without `backoff` still seeds the count it names.
+    const again = scriptedFace({
+      providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', retryPolicy: { mode: 'normal', maxRetries: 4 } } },
+    })
+    const controller = new ModelsSettingsStore(again.face as unknown as WireFace)
+    await controller.load()
+    cleanup()
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={again.face as never}
+      writeFence={writeFence}
+      isCurrent={isCurrent}
+      acceptResponse={acceptResponse}
+      acceptSettingsView={acceptSettingsView}
+      t={t}
+    />)
+    const row = screen.getByText('openai').closest('li')
+    if (row === null) throw new Error('no row for openai')
+    fireEvent.click(within_(row, en.edit))
+    fireEvent.click(document.querySelector('summary')!)
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(en.retryCap), { target: { value: '' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(again.mutate).toHaveBeenCalled() })
+    expect(again.mutate.mock.calls[0]?.[0]).toMatchObject({
+      ops: [{ op: 'unset', path: ['providers', 'openai', 'retryPolicy'] }],
+    })
+  })
+
+  it('refuses invalid counts and waits before any write', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    const count = screen.getByLabelText(en.retryCount)
+    const interval = screen.getByLabelText(en.retryInterval)
+    const cap = screen.getByLabelText(en.retryCap)
+
+    fireEvent.change(count, { target: { value: '-1' } })
+    expect(await screen.findByText(en.retryCountInvalid)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+
+    fireEvent.change(count, { target: { value: '1.5' } })
+    expect(screen.getByText(en.retryCountInvalid)).toBeTruthy()
+
+    fireEvent.change(count, { target: { value: '2' } })
+    fireEvent.change(interval, { target: { value: '0' } })
+    expect(screen.getByText(en.retryIntervalInvalid)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+
+    // An explicit first wait above an explicit cap is a user contradiction;
+    // the auto-raise only covers the unset cap.
+    fireEvent.change(interval, { target: { value: '5' } })
+    fireEvent.change(cap, { target: { value: '2' } })
+    expect(screen.getByText(en.retryIntervalOrder)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+
+    fireEvent.change(cap, { target: { value: '' } })
+    expect(screen.queryByText(en.retryIntervalOrder)).toBeNull()
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+})
+
 describe('capacity spellings', () => {
   it.each([
     ['', undefined],
@@ -961,7 +1103,8 @@ describe('hand-declared providers', () => {
     await mountSection({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
     openEditor('openai')
     fireEvent.click(screen.getByText(en.customized))
-    expect(fields()).toEqual([en.keyInput, en.baseUrl, en.customApi])
+    // The retry trio rides along on every provider family's card.
+    expect(fields()).toEqual([en.keyInput, en.baseUrl, en.customApi, en.retryCount, en.retryInterval, en.retryCap])
     cleanup()
 
     // A hand-declared route named its own protocol at creation, so editing it
@@ -971,7 +1114,7 @@ describe('hand-declared providers', () => {
       declaredRoutes: ['acme-gateway'],
     })
     openEditor('acme-gateway')
-    expect(fields()).toEqual([en.keyInput, en.customDisplayName, en.baseUrl, en.customApi])
+    expect(fields()).toEqual([en.keyInput, en.customDisplayName, en.baseUrl, en.customApi, en.retryCount, en.retryInterval, en.retryCap])
   })
 
   it('renames a declared route and falls back to its id when the name is cleared', async () => {

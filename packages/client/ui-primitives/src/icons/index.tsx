@@ -106,6 +106,24 @@ export const IconVolumeOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** Pushpin glyph: ring head over a tapering needle, stroke style of the outline set. */
+export const IconPinOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M5 5a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <path
+      d="M6.8 7.7L7.4 9.4L8 14.6L8.6 9.4L9.2 7.7"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
 
 /** ic_ds_panel_left_outline_16 */
 export const IconPanelLeftOutline16 = ({ size = 16, className }: IconProps) => (

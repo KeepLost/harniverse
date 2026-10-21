@@ -74,6 +74,16 @@
           - option "openai-completions" [selected]
           - option "openai-responses"
           - option "anthropic-messages"
+        - text: 重试次数
+        - textbox "重试次数":
+          - /placeholder: "2"
+        - text: 首次重试间隔（秒）
+        - textbox "首次重试间隔（秒）":
+          - /placeholder: "0.5"
+        - text: 最大重试间隔（秒）
+        - textbox "最大重试间隔（秒）":
+          - /placeholder: "10"
+        - paragraph: 上游瞬时故障（限流、超时、服务器、网络错误）会自动重试，间隔按指数增长、最大不超过上限；重试耗尽后交给备用链接管。
         - region "模型目录":
           - text: 模型目录 已自定义模型目录
           - button "恢复默认模型"

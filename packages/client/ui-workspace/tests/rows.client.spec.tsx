@@ -381,9 +381,12 @@ describe('workspace browser rows', () => {
     }
     const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
       onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} onPinToggle={onPinToggle} t={t} />)
-    // An unpinned row offers Pin and reports its current pinned state.
+    // An unpinned row offers Pin and reports its current pinned state; the
+    // pin entry carries the same leading glyph discipline as its siblings.
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '置顶会话' }))
+    const pinItem = screen.getByRole('menuitem', { name: '置顶会话' })
+    expect(pinItem.querySelector('svg')).not.toBeNull()
+    fireEvent.click(pinItem)
     expect(onPinToggle).toHaveBeenCalledExactlyOnceWith(node.id, false)
 
     view.rerender(<SessionNodeItem node={{ ...node, pinned: true }} currentId={undefined} now={0}

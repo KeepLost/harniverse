@@ -68,6 +68,14 @@ const DeepSeekConfig = Schema.object({
   apiKeyEnv: Schema.string().role('credential-ref'),
   baseURL: Schema.string().pattern(/^https:\/\//),
   reasoningEffort: Schema.union(['off', 'high', 'max']),
+  retryPolicy: Schema.object({
+    mode: Schema.union(['normal', 'always']),
+    maxRetries: Schema.number(),
+    backoff: Schema.object({
+      initialDelayMs: Schema.number(),
+      maxDelayMs: Schema.number(),
+    }),
+  }),
   defaultContextWindow: Schema.number().step(1).min(1),
   models: Schema.array(Schema.object({
     id: Schema.string().required(),
@@ -483,6 +491,28 @@ describe('ModelsSection', () => {
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
       ops: [{ op: 'set', path: ['baseURL'], value: 'https://next2' }],
+      expectedRevision: 0,
+    })
+  })
+
+  it('applies retry fields as a normalized whole-section retryPolicy op', async () => {
+    const { mutate } = await mountDeepSeekCard({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    // Only the count is overridden: the waits fall to the engine defaults the
+    // write names explicitly, so the stored profile never violates the
+    // engine's initial<=max invariant.
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '6' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{
+        op: 'set',
+        path: ['retryPolicy'],
+        value: { mode: 'normal', maxRetries: 6, backoff: { initialDelayMs: 500, maxDelayMs: 10_000 } },
+      }],
       expectedRevision: 0,
     })
   })

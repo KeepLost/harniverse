@@ -9,8 +9,8 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import {
   HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
-  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
-  IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
+  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPinOutline16,
+  IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
@@ -387,7 +387,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
     ...(onPinToggle === undefined
       ? []
-      : [{ id: 'pin', label: node.pinned ? t('menu.unpinSession') : t('menu.pinSession') }]),
+      : [{ id: 'pin', label: node.pinned ? t('menu.unpinSession') : t('menu.pinSession'), icon: <IconPinOutline16 /> }]),
     ...archiveable
       ? [{ id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> }]
       : [],
