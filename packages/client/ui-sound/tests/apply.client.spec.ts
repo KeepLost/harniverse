@@ -412,16 +412,17 @@ describe('ui-sound apply', () => {
 
   it('delivers a completed turn through the supplementary stream into the engine', async () => {
     const frames: Array<() => void> = []
-    const turnEnd = () => ({
+    const turnEnd = (sessionId: string) => ({
       rpcId: 1,
-      payload: { type: 'session/event', sessionId: 's1', event: { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } } },
+      payload: { type: 'session/event', sessionId, event: { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } } },
     })
+    let nextEvent = turnEnd('s1')
     const api = {
       events: {
         mux: (_request: object, _signal: AbortSignal): AsyncIterable<{ rpcId: number; payload: unknown }> => (async function* muxStream() {
           while (true) {
             await new Promise<void>((resolve) => { frames.push(resolve) })
-            yield turnEnd()
+            yield nextEvent
           }
         })(),
         host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => (async function* hostStream(): AsyncIterable<never> {
@@ -433,12 +434,16 @@ describe('ui-sound apply', () => {
       status: 'ready',
       value: defaultSoundSettings(),
     }
+    const open = vi.fn()
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     ctx.provide('locale', new LocaleRuntime(ctx))
-    ctx.provide('sessions', { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) } })
+    ctx.provide('sessions', {
+      open,
+      list: { getSnapshot: () => ({ ids: ['s1'], byId: { s1: { displayTitle: 'Session One' } }, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) },
+    })
     ctx.provide('connection', { captureApi: () => api })
-    const carrier = globalThis as { AudioContext?: unknown; BroadcastChannel?: unknown }
+    const carrier = globalThis as { AudioContext?: unknown; BroadcastChannel?: unknown; Notification?: unknown }
     const restoreAudio = carrier.AudioContext
     const restoreChannel = carrier.BroadcastChannel
     carrier.BroadcastChannel = class {
@@ -447,6 +452,23 @@ describe('ui-sound apply', () => {
       onmessage = null
     }
     const played: string[] = []
+    const toasts: Array<{ title: string; options: { body: string }; activate: () => void }> = []
+    const focusWindow = vi.fn()
+    carrier.Notification = class {
+      static permission = 'granted' as const
+      static requestPermission(): Promise<string> { return Promise.resolve('granted') }
+      onclick: (() => void) | null = null
+      constructor(public title: string, public options: { body: string }) {
+        toasts.push({ title, options, activate: () => { this.onclick?.() } })
+      }
+      close(): void { /* released */ }
+    }
+    const carrierDocument = carrier as { document?: unknown }
+    const carrierWindow = carrier as { window?: unknown }
+    const restoreDocument = carrierDocument.document
+    const restoreWindow = carrierWindow.window
+    carrierDocument.document = { visibilityState: 'hidden', hasFocus: () => false }
+    carrierWindow.window = { focus: focusWindow }
     carrier.AudioContext = class {
       state = 'running'
       currentTime = 0
@@ -481,9 +503,129 @@ describe('ui-sound apply', () => {
       scopeState.value = defaultSoundSettings()
       for (const release of frames.splice(0)) release()
       await vi.waitFor(() => { expect(played.length).toBeGreaterThan(0) })
+      await vi.waitFor(() => { expect(toasts.length).toBeGreaterThan(0) })
+      expect(toasts[0]!.title).toBe('任务完成')
+      expect(toasts[0]!.options.body).toBe('Session One')
+      toasts[0]!.activate()
+      expect(focusWindow).toHaveBeenCalledOnce()
+      expect(open).toHaveBeenCalledWith('s1')
+      nextEvent = turnEnd('s2')
+      for (const release of frames.splice(0)) release()
+      await vi.waitFor(() => { expect(toasts.length).toBeGreaterThan(1) })
+      expect(toasts[1]!.title).toBe('任务完成')
+      expect(toasts[1]!.options.body).toBe('')
+      toasts[1]!.activate()
+      expect(focusWindow).toHaveBeenCalledTimes(2)
+      expect(open).toHaveBeenCalledTimes(1)
     } finally {
       carrier.AudioContext = restoreAudio
       carrier.BroadcastChannel = restoreChannel
+      carrier.Notification = undefined
+      carrierDocument.document = restoreDocument
+      carrierWindow.window = restoreWindow
+      await fiber?.dispose()
+    }
+  })
+
+  it('prompts for permission once and toasts without cross-tab arbitration when no channel exists', async () => {
+    const frames: Array<() => void> = []
+    let nextEvent: { rpcId: number; payload: unknown } = {
+      rpcId: 1,
+      payload: { type: 'session/event', sessionId: 's1', event: { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } } },
+    }
+    const api = {
+      events: {
+        mux: (_request: object, _signal: AbortSignal): AsyncIterable<{ rpcId: number; payload: unknown }> => (async function* muxStream() {
+          while (true) {
+            await new Promise<void>((resolve) => { frames.push(resolve) })
+            yield nextEvent
+          }
+        })(),
+        host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => (async function* hostStream(): AsyncIterable<never> {
+          /* one ended stream: the loop enters its reopen wait, cancelled at dispose */
+        })(),
+      },
+    }
+    const open = vi.fn()
+    const ctx = new Context()
+    await ctx.plugin(SlotRegistry).await()
+    ctx.provide('locale', new LocaleRuntime(ctx))
+    ctx.provide('sessions', {
+      open,
+      list: { getSnapshot: () => ({ ids: ['s1'], byId: { s1: { displayTitle: 'Session One' } }, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) },
+    })
+    ctx.provide('connection', { captureApi: () => api })
+    ctx.provide('settingsScope', { bind: () => ({ getSnapshot: () => ({ status: 'ready' as const, value: defaultSoundSettings(), writable: true }), subscribe: () => () => {}, set: vi.fn(() => Promise.resolve()) }) })
+    const carrier = globalThis as {
+      AudioContext?: unknown
+      BroadcastChannel?: unknown
+      Notification?: unknown
+      document?: unknown
+      window?: unknown
+    }
+    const restoreAudio = carrier.AudioContext
+    const restoreChannel = carrier.BroadcastChannel
+    const restoreNotification = carrier.Notification
+    const restoreDocument = carrier.document
+    const restoreWindow = carrier.window
+    carrier.BroadcastChannel = undefined
+    const played: string[] = []
+    carrier.AudioContext = class {
+      state = 'running'
+      currentTime = 0
+      destination = {}
+      resume() { return Promise.resolve() }
+      createOscillator() {
+        const oscillator = { type: 'sine', frequency: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, connect: () => {}, start: () => { played.push('osc') }, stop: () => {} }
+        return oscillator
+      }
+      createGain() { return { gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {}, value: 1 }, connect: () => {} } }
+      decodeAudioData() { return Promise.resolve({}) }
+      createBufferSource() { return { buffer: undefined, connect: () => {}, start: () => {} } }
+    }
+    const toasts: Array<{ title: string; options: { body: string }; activate: () => void }> = []
+    const focusWindow = vi.fn()
+    let requests = 0
+    carrier.Notification = class {
+      static permission = 'default'
+      static requestPermission(): Promise<string> {
+        requests += 1
+        this.permission = 'granted'
+        return Promise.resolve('granted')
+      }
+      onclick: (() => void) | null = null
+      constructor(public title: string, public options: { body: string }) {
+        toasts.push({ title, options, activate: () => { this.onclick?.() } })
+      }
+      close(): void { /* released */ }
+    }
+    carrier.document = { visibilityState: 'visible', hasFocus: () => false }
+    carrier.window = { focus: focusWindow }
+    declareRoot(ctx.slots)
+    let fiber: Awaited<ReturnType<typeof ctx.plugin>> | undefined
+    try {
+      fiber = await ctx.plugin({ apply, inject }).await()
+      for (const release of frames.splice(0)) release()
+      await vi.waitFor(() => { expect(played.length).toBeGreaterThan(0) })
+      await vi.waitFor(() => { expect(toasts.length).toBeGreaterThan(0) })
+      expect(requests).toBe(1)
+      expect(toasts[0]!.title).toBe('任务完成')
+      toasts[0]!.activate()
+      expect(focusWindow).toHaveBeenCalledOnce()
+      expect(open).toHaveBeenCalledWith('s1')
+      nextEvent = {
+        rpcId: 2,
+        payload: { type: 'session/event', sessionId: 's1', event: { type: 'turn/end', seq: 2, time: 2, data: { turn: 2, reason: { kind: 'completed' } } } },
+      }
+      for (const release of frames.splice(0)) release()
+      await vi.waitFor(() => { expect(toasts.length).toBeGreaterThan(1) })
+      expect(requests).toBe(1)
+    } finally {
+      carrier.AudioContext = restoreAudio
+      carrier.BroadcastChannel = restoreChannel
+      carrier.Notification = restoreNotification
+      carrier.document = restoreDocument
+      carrier.window = restoreWindow
       await fiber?.dispose()
     }
   })

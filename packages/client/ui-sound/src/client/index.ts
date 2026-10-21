@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { AudioLibrary, openBrowserAudioStore } from './audio-library.ts'
 import { CrossTabDedupe, type CrossTabChannel } from './cross-tab.ts'
 import { SoundEngine } from './engine.ts'
+import { SoundNotifier, type NotificationFace } from './notifier.ts'
 import { SoundSection } from './SoundSection.tsx'
 import type { SoundSectionInjected } from './SoundSection.tsx'
 import { NavIcon } from './NavIcon.tsx'
@@ -62,13 +63,37 @@ export function apply(ctx: ClientContext): void {
   const library = new AudioLibrary(openBrowserAudioStore)
   const dedupe = createCrossTabDedupe()
   const engine = new SoundEngine({ audio: lazyAudioContext, library, dedupe })
+  const notifier = new SoundNotifier({
+    notifications: browserNotifications(),
+    alertable: () => document.visibilityState === 'visible' && document.hasFocus(),
+  })
 
-  /** Play one detected occurrence per the current settings. */
+  const t = ctx.locale.bind(NS)
+
+  /** Deliver one detected occurrence: permission-gated sound plus toast. */
   const onEvent = (event: Parameters<typeof resolvePlayback>[1]): void => {
     const snapshot = scope.getSnapshot()
     if (snapshot.status !== 'ready' || snapshot.value === undefined) return
     const decision = resolvePlayback(snapshot.value, event, sessionsFace.getSnapshot().current)
-    if (decision !== undefined) engine.play(decision.sound, decision.volume, decision.sourceKey)
+    if (decision === undefined) return
+    const row = sessionsFace.getSnapshot().byId[event.sessionId]
+    notifier.alert({
+      title: t(`event.${event.kind}`),
+      body: row?.displayTitle ?? '',
+      onActivate: () => {
+        if (sessionsFace.getSnapshot().byId[event.sessionId] !== undefined) {
+          ctx.sessions.open(event.sessionId)
+        }
+      },
+      ring: () => { engine.play(decision.sound, decision.volume, decision.sourceKey) },
+      arbitrate: (present) => {
+        if (dedupe === undefined) {
+          present()
+          return
+        }
+        dedupe.declare(`notify:${decision.sourceKey}`, present)
+      },
+    })
   }
 
   /** Cross-tab arbitration leaves with the plugin fiber. */
@@ -202,8 +227,6 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'ui-sound: watcher lifecycle')
 
-  const t = ctx.locale.bind(NS)
-
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'sound',
@@ -249,4 +272,31 @@ function createCrossTabDedupe(): CrossTabDedupe | undefined {
 function lazyAudioContext(): AudioContext | undefined {
   const carrier = globalThis as { AudioContext?: new () => AudioContext }
   return carrier.AudioContext === undefined ? undefined : new carrier.AudioContext()
+}
+
+/**
+ * Feature-detect the platform Notification API for this browser. The toast
+ * stays silent (`silent: true` where honored): the alert's own chime is the
+ * sound, so the OS must not layer its default notification sound on top.
+ */
+function browserNotifications(): NotificationFace | undefined {
+  const carrier = globalThis as { Notification?: typeof Notification }
+  const ctor = carrier.Notification
+  if (ctor === undefined) return undefined
+  return {
+    permission: () => ctor.permission,
+    request: () => ctor.requestPermission(),
+    show: (title, body, onActivate) => {
+      try {
+        const toast = new ctor(title, { body, silent: true })
+        toast.onclick = () => {
+          window.focus()
+          onActivate()
+          toast.close()
+        }
+      } catch {
+        /* a refused toast construction stays silent */
+      }
+    },
+  }
 }

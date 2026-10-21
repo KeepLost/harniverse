@@ -10,7 +10,7 @@ export type SoundLocaleKey = keyof typeof zh
 export const zh = {
   'nav': '声音通知',
   'title': '声音通知',
-  'intro': '任务完成或需要人工介入时播放提示音；主代理与子代理事件独立配置。',
+  'intro': '任务完成或需要人工介入时发出系统通知并播放提示音；声音随通知权限生效，未允许通知权限时保持静音。主代理与子代理事件独立配置。',
   'master': '启用声音通知',
   'masterDesc': '关闭后所有事件保持静音',
   'quietCurrent': '静音当前会话的完成提示',
@@ -54,7 +54,7 @@ export const zh = {
 export const en: Record<SoundLocaleKey, string> = {
   'nav': 'Sound Notifications',
   'title': 'Sound Notifications',
-  'intro': 'Play a chime when a task finishes or needs a human; main-agent and subagent events are configured independently.',
+  'intro': 'When a task finishes or needs a human, the app posts a system notification and plays its chime with it; sounds stay silent until the browser grants notification permission. Main-agent and subagent events are configured independently.',
   'master': 'Enable sound notifications',
   'masterDesc': 'Every event stays silent while off',
   'quietCurrent': 'Silence completion for the open session',

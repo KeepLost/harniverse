@@ -23,7 +23,7 @@ export interface SoundEventOccurrence {
   /** Routing channel derived from the event's origin. */
   readonly channel: SoundChannel
   /** Session the occurrence belongs to (the quiet-current check reads it). */
-  readonly sessionId: SessionId | undefined
+  readonly sessionId: SessionId
 }
 
 /** Narrow sessions-list read face the watcher needs. */

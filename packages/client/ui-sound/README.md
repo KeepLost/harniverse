@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Sound notifications for the Web UI: a settings section plus an always-on detector that rings six event kinds — completion, approval request, user question, plan review, goal blocked, and failure — each with its own sound and volume, on two independent channels (the main agent and subagents). The node half registers one settings namespace; the browser half owns the whole feature.
+Sound notifications for the Web UI: a settings section plus an always-on detector that alerts on six event kinds — completion, approval request, user question, plan review, goal blocked, and failure — each with its own sound and volume, on two independent channels (the main agent and subagents). Every alert rides the browser's system notifications: the sound is part of the notification, so an unsupported or denied Notifications permission silences the alert entirely, and a visible focused tab skips the toast while the sound still plays. The node half registers one settings namespace; the browser half owns the whole feature.
 
 ## Composition
 
@@ -25,7 +25,11 @@ The watcher opens one supplementary `events.mux` subscription plus the `events.h
 - **Silent by contract** — aborted, blocked, and `max-tokens` turns; killed jobs; `session/subscribed`, `session/queue`, and resolved frames; and the mux open-burst replay of still-pending requests (refresh recovery) plus any `rpcId` already seen this page life. A `question/resolved` frame re-arms its rpcId.
 - **Channels** — an event routes to the subagent channel when its session row is marked `origin: 'subagent'`/`parentId` or the job's kind is `subagent`. Subagent sounds default to mute; `ignoreSubagent` silences the whole channel.
 
-Playback decisions live in one pure router: no sound while the master switch is off, subagent events follow their own fields, and quiet-current mutes only a completion of the session currently open.
+Playback decisions live in one pure router: no alert while the master switch is off, subagent events follow their own fields, and quiet-current mutes only a completion of the session currently open.
+
+## Notification
+
+The notifier mirrors the OpenCode web behavior: the first alert on a `default` permission triggers one `Notification.requestPermission()` prompt (concurrent alerts share the in-flight request; a rejected prompt reads as denied), and only a granted permission delivers. On delivery the chime plays and — unless the tab is visible and focused — a system toast appears with the localized event title and the session's display title; activating the toast focuses the window and opens that session. The toast claims `silent` where honored (the alert's own chime is the sound), and cross-tab arbitration presents each occurrence's toast in exactly one tab, next to the existing one-tab sound arbitration.
 
 ## Playback
 
@@ -49,3 +53,4 @@ None; this package neither assembles nor sends a provider request.
 - **Question classification races the list snapshot** — when a `question/requested` frame arrives before the sessions row settles its `pendingInteraction`, the frame-shape fallback decides; the two rules match, but the row remains the authority.
 - **Playback failures are invisible** — autoplay policy, unsupported codecs, a closed context, and missing IndexedDB all degrade to silence without a surface; the section's preview button is the only diagnostic.
 - **No per-workspace or quiet-hours policy** — the master switch, quiet-current, and the ignore toggles are the whole gating model; scheduling and per-workspace routing are deferred.
+- **Permission state has no in-section surface** — a denied notification permission silences alerts with no banner or re-prompt button in the settings section (the browser's own site-settings UI is the recovery path); a permission prompt without a user gesture is also Safari's documented denial path, so first alerts there stay silent.
