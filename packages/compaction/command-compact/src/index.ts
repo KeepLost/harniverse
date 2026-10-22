@@ -4,7 +4,8 @@
  */
 
 import { CordisError, type Context } from '@deepseek-ai/cordis'
-import { ManualCompactionError } from '@deepseek-ai/dsh-compaction'
+import { ManualCompactionError, type CompactionEngine } from '@deepseek-ai/dsh-compaction'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 
@@ -59,6 +60,7 @@ function expectedFailure(error: ManualCompactionError): CommandResult {
 async function executeCompact(
   ctx: Context,
   invocation: CommandInvocation,
+  deferRunning: (invocation: CommandInvocation, compaction: CompactionEngine) => CommandResult,
 ): Promise<CommandResult> {
   if (invocation.rawInput.trim().length > 0) {
     return { kind: 'error', text: USAGE }
@@ -68,6 +70,12 @@ async function executeCompact(
   if (compaction === undefined) {
     return { kind: 'error', text: 'Compaction is unavailable for this Agent Profile.' }
   }
+  // A live turn parks compaction behind its closed-turn boundary. Waiting
+  // inside this handler would tie that boundary to the dispatching request's
+  // lifetime (a web page refresh aborts it mid-wait), so a running agent
+  // resolves admission immediately and the engine runs at the boundary under
+  // the plugin's own lifecycle; the durable brackets carry the command id.
+  if (invocation.agent.status === 'running') return deferRunning(invocation, compaction)
   try {
     const result = await compaction.compactNow(invocation.agent, invocation.signal, invocation.commandId)
     if (result === null) return { kind: 'success', text: 'No compactable history yet.' }
@@ -91,9 +99,40 @@ async function executeCompact(
  * @param ctx - root context carrying the command registry.
  */
 export function apply(ctx: Context): void {
-  const active = new Set<Promise<CommandResult>>()
+  const active = new Set<Promise<unknown>>()
+  const queued = new Map<Agent, AbortController>()
+  const deferRunning = (invocation: CommandInvocation, compaction: CompactionEngine): CommandResult => {
+    const existing = queued.get(invocation.agent)
+    if (existing !== undefined) {
+      return { kind: 'success', text: 'Compaction is already queued behind the running turn.' }
+    }
+    const controller = new AbortController()
+    queued.set(invocation.agent, controller)
+    const operation = (async (): Promise<void> => {
+      try {
+        await invocation.agent.whenIdle()
+        // A queued prompt can claim the driver first; compactNow re-waits
+        // behind whichever turn is then live. Its bracket carries the command
+        // id, so the durable events are the outcome record.
+        await compaction.compactNow(invocation.agent, controller.signal, invocation.commandId)
+      } catch (error: unknown) {
+        // The durable compaction bracket records engine failures; this log
+        // covers the cases with no bracket (an idle-wait disposal race).
+        ctx.logger.warn('command /compact (queued behind a running turn) failed:')
+        ctx.logger.warn(error)
+      } finally {
+        queued.delete(invocation.agent)
+      }
+    })()
+    active.add(operation)
+    // The operation never rejects (engine failures are contained inside it),
+    // but the shared retire keeps the observer promise from ever mirroring one.
+    const retire = (): void => { active.delete(operation) }
+    void operation.then(retire, retire)
+    return { kind: 'success', text: 'Compaction queued: it runs when the current turn completes.' }
+  }
   const handler = (invocation: CommandInvocation): Promise<CommandResult> => {
-    const operation = executeCompact(ctx, invocation)
+    const operation = executeCompact(ctx, invocation, deferRunning)
     active.add(operation)
     const retire = (): void => { active.delete(operation) }
     // Both branches retire without rethrowing, so the derived observer promise
@@ -105,7 +144,12 @@ export function apply(ctx: Context): void {
   ctx.effect(function* () {
     // Yield drain before registration: composite teardown is LIFO, so no new
     // invocation can enter while already-started handler promises quiesce.
-    yield async () => { await Promise.allSettled(active) }
+    // Queued compactions are cancelled first so the drain cannot hang on a
+    // summarizer that a shutting-down Host would never read.
+    yield async () => {
+      for (const controller of queued.values()) controller.abort()
+      await Promise.allSettled(active)
+    }
     yield ctx.commands.register({
       name: 'compact',
       description: 'Compact older conversation history',
