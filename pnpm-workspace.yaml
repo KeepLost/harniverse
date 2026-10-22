@@ -30,12 +30,25 @@ overrides:
   'http-cache-semantics': '4.3.0'
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
+  # GHSA-22jm-h49p-29qw / GHSA-6prh-2h8m-c8cw / GHSA-rvq5-wwqv-78pq
+  # (CVE-2026-111767/111769/111771): @modelcontextprotocol/sdk < 1.32.0
+  # SSTI in tool descriptions and two request-forgery vectors; declared by
+  # mcp-client and ssh plus transitive consumers — pin every resolution.
+  '@modelcontextprotocol/sdk': '1.32.0'
+  # GHSA-698v-4r3x-3vcv / GHSA-587h-7wmj-h5pm / GHSA-r825-w8mm-5pxw
+  # (CVE-2026-112943/112942/112944): vite 8.0.0–8.1.5 — dev-server fs
+  # exposure and request-smuggling in proxy mode; only the vitest chain
+  # resolves the 8 line (apps pin vite 6), so scope the pin to it.
+  'vite@8': '8.1.6'
   'brace-expansion@2': '2.1.7'
   'brace-expansion@5': '5.0.12'
   browserslist@4: 4.28.7
   dompurify: '3.4.16'
   fast-uri@3: 3.1.8
-  hono@4: 4.13.7
+  # GHSA-5r4p-p66f-jhc7 (CVE-2026-111757): hono < 4.13.11 DoS via
+  # crafted multipart boundary — transitive under @modelcontextprotocol/sdk
+  # and @hono/node-server; force the patched release.
+  'hono@4': '4.13.11'
   js-yaml: '4.3.2'
   # CVE-2026-103923 (GHSA-238p-pmpm-9mq7): every katex before 0.18.2 is
   # affected, and the 0.16 line pulled in by mermaid and
@@ -108,6 +121,9 @@ minimumReleaseAgeExclude:
   - node-addon-require-builtin-win32-x64-msvc@0.1.4
   - node-addon-require-builtin@0.1.4
   - http-cache-semantics@4.3.0
+  - '@modelcontextprotocol/sdk@1.32.0'
+  - hono@4.13.11
+  - vite@8.1.6
 
 patchedDependencies:
   '@earendil-works/pi-ai@0.87.1': patches/@earendil-works__pi-ai@0.87.1.patch
