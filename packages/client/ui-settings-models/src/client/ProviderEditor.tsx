@@ -10,7 +10,10 @@
  * both families, DeepSeek's id/name/context-window model catalog, and the
  * pi-ai identity fields — the display name of a route the adapter does not
  * ship, and the wire protocol every pi-ai route offers as the default its
- * models inherit when their own entry names none).
+ * models inherit when their own entry names none). The page-level
+ * RequestRetryCard owns the request-retry posture, so per-provider retry
+ * fields stay off this card; a deployment that wants a route to deviate
+ * writes its `retryPolicy` through `settings.yaml`.
  * Reasoning effort is deliberately absent: it is a per-MODEL capability, and
  * the models under one provider disagree about it, so a provider-scoped
  * control can only be set to a value some of them reject. The composer's

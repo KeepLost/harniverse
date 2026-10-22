@@ -47,6 +47,18 @@
   - heading "模型方案与备用链" [level=1]
   - paragraph: 方案决定一个会话可使用的模型与备用链；备用链在同模型重试放弃后按顺序尝试后续模型。
   - status: 已保存。
+  - heading "请求重试" [level=3]
+  - paragraph: 上游瞬时故障（限流、超时、服务器、网络错误）会自动重试，间隔按指数增长、最大不超过上限；重试耗尽后交给备用链接管。填写并保存会应用到所有提供方；全部留空则恢复引擎默认。
+  - text: 重试次数
+  - textbox "重试次数":
+    - /placeholder: "2"
+  - text: 首次重试间隔（秒）
+  - textbox "首次重试间隔（秒）":
+    - /placeholder: "0.5"
+  - text: 最大重试间隔（秒）
+  - textbox "最大重试间隔（秒）":
+    - /placeholder: "10"
+  - button "全部应用"
   - heading "备用链" [level=2]
   - list:
     - listitem:

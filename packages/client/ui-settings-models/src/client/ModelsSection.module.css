@@ -298,6 +298,13 @@
   gap: 6px;
 }
 
+.retryRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(96px, 1fr)) auto;
+  align-items: end;
+  gap: 10px;
+}
+
 .fieldLabel {
   display: inline-flex;
   align-items: center;

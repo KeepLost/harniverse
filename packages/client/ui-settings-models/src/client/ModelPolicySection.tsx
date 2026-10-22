@@ -11,14 +11,17 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, Modal, Select } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { ProfileEditor } from './ProfileEditor.tsx'
+import { RequestRetryCard } from './RequestRetryCard.tsx'
 import { RouteEditor } from './RouteEditor.tsx'
 import { SectionError } from './SectionError.tsx'
 import { freshProfileId, freshRouteId, policyDocOf } from './policy-store.ts'
 import type {
   ModelPolicyState, ModelPolicyStore, PolicyDoc, PolicyProfileRow, PolicyRouteRow,
 } from './policy-store.ts'
+import type { ModelsSettingsState, ModelsSettingsStore } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -28,6 +31,16 @@ export interface ModelPolicySectionInjected {
   controller: ModelPolicyStore
   /** uSES subscription hook bound to the store. */
   useSnapshot: SnapshotSelectorHook<ModelPolicyState>
+  /** The Models store whose provider rows the request-retry card fans out to. */
+  modelsController?: ModelsSettingsStore | undefined
+  /** uSES subscription hook bound to the Models store. */
+  modelsSnapshot?: SnapshotSelectorHook<ModelsSettingsState> | undefined
+  /** Wire face for the request-retry card's settings writes. */
+  api?: Pick<IApiClient, 'settings'> | undefined
+  /** Shared mirror write fencing and successful-response fold. */
+  writeFence?: (() => number) | undefined
+  isCurrent?: ((fence: number) => boolean) | undefined
+  acceptSettingsView?: ((view: SettingsNamespaceView, fence: number, authentication?: unknown) => boolean) | undefined
   /** Section copy. */
   t: (key: keyof typeof en) => string
 }
@@ -104,7 +117,17 @@ export function docWithout(doc: PolicyDoc, target: DeleteTarget): PolicyDoc {
 export function ModelPolicySection(props: ModelPolicySectionProps): ReactNode {
   const { controller, useSnapshot, t } = props
   if (controller === undefined || useSnapshot === undefined || t === undefined) return null
-  return <Boundary injected={{ controller, useSnapshot, t }} />
+  return <Boundary injected={{
+    controller,
+    useSnapshot,
+    modelsController: props.modelsController,
+    modelsSnapshot: props.modelsSnapshot,
+    api: props.api,
+    writeFence: props.writeFence,
+    isCurrent: props.isCurrent,
+    acceptSettingsView: props.acceptSettingsView,
+    t,
+  }} />
 }
 
 function Boundary({ injected }: { injected: ModelPolicySectionInjected }): ReactNode {
@@ -115,6 +138,7 @@ function Boundary({ injected }: { injected: ModelPolicySectionInjected }): React
 function Loaded({ injected }: { injected: ModelPolicySectionInjected }): ReactNode {
   const { controller, t } = injected
   const state = injected.useSnapshot(snapshot => snapshot)
+  const models = injected.modelsSnapshot === undefined ? undefined : injected.modelsSnapshot(snapshot => snapshot)
   const [editing, setEditing] = useState<Editing | undefined>(undefined)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | undefined>(undefined)
   const [deleting, setDeleting] = useState(false)
@@ -124,6 +148,9 @@ function Loaded({ injected }: { injected: ModelPolicySectionInjected }): ReactNo
   const [defaultBusy, setDefaultBusy] = useState(false)
 
   if (state.status === 'idle') void controller.load()
+  if (models !== undefined && injected.modelsController !== undefined && models.status === 'idle') {
+    void injected.modelsController.load()
+  }
   if (state.status === 'error') {
     // The error status always carries text; the fallback satisfies the nullable type.
     /* v8 ignore next -- same defensive arm as the provider page */
@@ -213,6 +240,21 @@ function Loaded({ injected }: { injected: ModelPolicySectionInjected }): ReactNo
       {state.catalogError === null ? null : <p className={styles['notice']}>{t('catalogFailed')}</p>}
       {saved ? <p className={styles['savedNotice']} role="status" aria-live="polite">{t('policySaved')}</p> : null}
       {actionError === undefined ? null : <p className={styles['error']}>{actionError}</p>}
+
+      {models !== undefined && injected.modelsController !== undefined && injected.api !== undefined
+        ? (
+          <RequestRetryCard
+            rows={models.rows.map(row => ({ settingsNs: row.entry.settingsNs, settingsPath: row.entry.settingsPath }))}
+            namespaces={models.namespaces}
+            writable={models.writable}
+            api={injected.api}
+            writeFence={injected.writeFence ?? (() => 0)}
+            isCurrent={injected.isCurrent ?? (() => true)}
+            acceptSettingsView={injected.acceptSettingsView ?? (() => true)}
+            t={t}
+          />
+        )
+        : null}
 
       <h2 className={styles['groupTitle']}>{t('routesTitle')}</h2>
       <ul className={styles['rows']}>

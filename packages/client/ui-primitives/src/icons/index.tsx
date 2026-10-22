@@ -106,6 +106,25 @@ export const IconVolumeOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** Pin glyph: an upward arrow whose tip meets the top bar (the CJK 置顶 mark), stroke style of the outline set. */
+export const IconPinOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M1.5 3h13"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M3.4 7.7L8 3.2L12.6 7.7M8 3.2v10.3"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
 
 /** ic_ds_panel_left_outline_16 */
 export const IconPanelLeftOutline16 = ({ size = 16, className }: IconProps) => (

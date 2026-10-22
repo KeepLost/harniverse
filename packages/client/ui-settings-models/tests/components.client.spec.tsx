@@ -13,6 +13,8 @@ import {
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
+import { RequestRetryCard } from '../src/client/RequestRetryCard.tsx'
+import type { RequestRetryCardProps } from '../src/client/RequestRetryCard.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
@@ -59,6 +61,14 @@ const PiAiConfig = Schema.object({
   providers: Schema.dict(Schema.object({
     apiKeyEnv: Schema.string().role('credential-ref'),
     baseURL: Schema.string(),
+    retryPolicy: Schema.object({
+      mode: Schema.union(['normal', 'always']),
+      maxRetries: Schema.number(),
+      backoff: Schema.object({
+        initialDelayMs: Schema.number(),
+        maxDelayMs: Schema.number(),
+      }),
+    }),
     reasoning: Schema.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     headers: Schema.dict(Schema.string()),
   })),
@@ -68,6 +78,14 @@ const DeepSeekConfig = Schema.object({
   apiKeyEnv: Schema.string().role('credential-ref'),
   baseURL: Schema.string().pattern(/^https:\/\//),
   reasoningEffort: Schema.union(['off', 'high', 'max']),
+  retryPolicy: Schema.object({
+    mode: Schema.union(['normal', 'always']),
+    maxRetries: Schema.number(),
+    backoff: Schema.object({
+      initialDelayMs: Schema.number(),
+      maxDelayMs: Schema.number(),
+    }),
+  }),
   defaultContextWindow: Schema.number().step(1).min(1),
   models: Schema.array(Schema.object({
     id: Schema.string().required(),
@@ -1681,5 +1699,260 @@ describe('apiKeyFailure', () => {
     // heuristic leaves them alone rather than guessing at a paste error.
     expect(apiKeyFailure('"')).toBeUndefined()
     expect(apiKeyFailure('"a')).toBeUndefined()
+  })
+})
+
+/** The page's provider rows as the retry card receives them (broken/unowned included). */
+const RETRY_ROWS: RequestRetryCardProps['rows'] = [
+  // A settings-less or unloaded row is skipped, never a fan-out target.
+  { settingsNs: '', settingsPath: ['nowhere'] },
+  { settingsNs: 'llm-unloaded', settingsPath: [] },
+  { settingsNs: 'llm-deepseek', settingsPath: [] },
+  { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+  { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'] },
+  { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'] },
+  { settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'] },
+  { settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'] },
+]
+
+/** Mount the retry card alone over the shared namespace fixtures. */
+function mountRetryCard(overrides: {
+  namespaces?: SettingsNamespaceView[]
+  rows?: RequestRetryCardProps['rows']
+  writable?: boolean
+  mutate?: ReturnType<typeof vi.fn>
+  acceptSettingsView?: RequestRetryCardProps['acceptSettingsView']
+  isCurrent?: RequestRetryCardProps['isCurrent']
+} = {}) {
+  const namespaces = overrides.namespaces ?? wireNamespaces()
+  const mutate = overrides.mutate ?? vi.fn(() => Promise.resolve(ok(namespaces[0] as SettingsNamespaceView)))
+  render(<RequestRetryCard
+    rows={overrides.rows ?? RETRY_ROWS}
+    namespaces={new Map(namespaces.map(namespace => [namespace.ns, namespace]))}
+    writable={overrides.writable ?? true}
+    api={{ settings: { mutate } } as never}
+    writeFence={() => 0}
+    isCurrent={overrides.isCurrent ?? (() => true)}
+    acceptSettingsView={overrides.acceptSettingsView ?? (() => true)}
+    t={key => en[key]}
+  />)
+  return { mutate }
+}
+
+/** Namespaces with one shared stored policy on every retry-owning profile. */
+function uniformRetryNamespaces(): SettingsNamespaceView[] {
+  const retryPolicy = { mode: 'normal', maxRetries: 7, backoff: { initialDelayMs: 1_500, maxDelayMs: 20_000 } }
+  const [deepseek, plain, piAi, policy] = wireNamespaces() as [SettingsNamespaceView, SettingsNamespaceView,
+  SettingsNamespaceView & { user: { providers: Record<string, Record<string, unknown>> } }, SettingsNamespaceView]
+  return [
+    { ...deepseek, user: { ...(deepseek.user as Record<string, unknown>), retryPolicy } },
+    plain,
+    {
+      ...piAi,
+      user: {
+        providers: {
+          openai: { ...piAi.user.providers.openai, retryPolicy },
+          anthropic: { retryPolicy },
+          zombie: { ...piAi.user.providers.zombie, retryPolicy },
+        },
+      },
+    },
+    policy,
+  ]
+}
+
+/** Rows whose providers own no retry policy in any schema. */
+const NO_RETRY_ROWS: RequestRetryCardProps['rows'] = [
+  { settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'] },
+  { settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'] },
+]
+
+describe('request retry card', () => {
+  it('renders nothing while no provider owns a retry policy', () => {
+    mountRetryCard({ rows: NO_RETRY_ROWS })
+    expect(screen.queryByLabelText(en.retryCount)).toBeNull()
+  })
+
+  it('shows the engine defaults until a policy is stored', () => {
+    mountRetryCard()
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCount).placeholder).toBe('2')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryInterval).placeholder).toBe('0.5')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCap).placeholder).toBe('10')
+  })
+
+  it('reads a uniform stored policy back into the fields', () => {
+    mountRetryCard({ namespaces: uniformRetryNamespaces() })
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCount).value).toBe('7')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryInterval).value).toBe('1.5')
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCap).value).toBe('20')
+  })
+
+  it('reports mixed stored policies instead of guessing one', () => {
+    // DeepSeek carries a policy, the pi-ai routes do not: the fields stay
+    // empty and the mixed note says saving overwrites the disagreement.
+    const [deepseek, plain, piAi, policy] = wireNamespaces() as [
+      SettingsNamespaceView, SettingsNamespaceView, SettingsNamespaceView, SettingsNamespaceView,
+    ]
+    const diverging = [
+      { ...deepseek, user: { ...(deepseek.user as Record<string, unknown>), retryPolicy: { mode: 'normal', maxRetries: 3 } } },
+      plain,
+      piAi,
+      policy,
+    ]
+    mountRetryCard({ namespaces: diverging })
+    expect(screen.getByText(en.retryMixed)).toBeTruthy()
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCount).value).toBe('')
+  })
+
+  it('fans a saved policy out to every retry-owning provider', async () => {
+    const mutate = vi.fn((_call: { ns: string; ops: unknown[]; expectedRevision: number }) =>
+      Promise.resolve(ok(wireNamespaces()[0] as SettingsNamespaceView)))
+    mountRetryCard({ mutate })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '10' } })
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(en.retryCap), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(2) })
+    const value = { mode: 'normal', maxRetries: 10, backoff: { initialDelayMs: 2_000, maxDelayMs: 30_000 } }
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{ op: 'set', path: ['retryPolicy'], value }],
+      expectedRevision: 0,
+    })
+    expect(mutate.mock.calls[1]?.[0]).toEqual({
+      ns: 'llm-pi-ai',
+      ops: [
+        { op: 'set', path: ['providers', 'openai', 'retryPolicy'], value },
+        { op: 'set', path: ['providers', 'anthropic', 'retryPolicy'], value },
+        { op: 'set', path: ['providers', 'zombie', 'retryPolicy'], value },
+      ],
+      expectedRevision: 0,
+    })
+    expect(screen.getByText(en.retryApplied.replace('{count}', '4'))).toBeTruthy()
+  })
+
+  it('raises the cap to the first wait so a partial save cannot invert the backoff', async () => {
+    const mutate = vi.fn((_call: { ns: string; ops: unknown[]; expectedRevision: number }) =>
+      Promise.resolve(ok(wireNamespaces()[0] as SettingsNamespaceView)))
+    mountRetryCard({ mutate })
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]?.ops[0]).toEqual({
+      op: 'set',
+      path: ['retryPolicy'],
+      value: { mode: 'normal', backoff: { initialDelayMs: 30_000, maxDelayMs: 30_000 } },
+    })
+  })
+
+  it('unsets the policy everywhere when every field is cleared', async () => {
+    const mutate = vi.fn((_call: { ns: string; ops: unknown[]; expectedRevision: number }) =>
+      Promise.resolve(ok(wireNamespaces()[0] as SettingsNamespaceView)))
+    mountRetryCard({ namespaces: uniformRetryNamespaces(), mutate })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(en.retryCap), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(2) })
+    expect(mutate.mock.calls[0]?.[0].ops).toEqual([{ op: 'unset', path: ['retryPolicy'] }])
+    expect(mutate.mock.calls[1]?.[0].ops).toEqual([
+      { op: 'unset', path: ['providers', 'openai', 'retryPolicy'] },
+      { op: 'unset', path: ['providers', 'anthropic', 'retryPolicy'] },
+      { op: 'unset', path: ['providers', 'zombie', 'retryPolicy'] },
+    ])
+  })
+
+  it('rejects invalid fields and keeps the save button disabled', () => {
+    mountRetryCard()
+    const count = screen.getByLabelText<HTMLInputElement>(en.retryCount)
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: en.retryApply })
+    fireEvent.change(count, { target: { value: '-1' } })
+    expect(screen.getByText(en.retryCountInvalid)).toBeTruthy()
+    expect(save.disabled).toBe(true)
+    fireEvent.change(count, { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '0' } })
+    expect(screen.getByText(en.retryIntervalInvalid)).toBeTruthy()
+    expect(save.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText(en.retryInterval), { target: { value: '40' } })
+    fireEvent.change(screen.getByLabelText(en.retryCap), { target: { value: '20' } })
+    expect(screen.getByText(en.retryIntervalOrder)).toBeTruthy()
+    expect(save.disabled).toBe(true)
+  })
+
+  it('stops the sweep on a conflict and names it', async () => {
+    const mutate = vi.fn()
+      .mockResolvedValueOnce(ok(wireNamespaces()[0]))
+      .mockResolvedValueOnce(fail('someone else moved it', 'settings-conflict'))
+    mountRetryCard({ mutate })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(2) })
+    expect(screen.getByText(en.conflict)).toBeTruthy()
+    expect(screen.queryByText(en.retryApplied.replace('{count}', '4'))).toBeNull()
+  })
+
+  it('surfaces a rejected write without writing further namespaces', async () => {
+    const mutate = vi.fn()
+      .mockResolvedValueOnce(ok(wireNamespaces()[0]))
+      .mockResolvedValueOnce(fail('schema refused it'))
+    mountRetryCard({ mutate })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(screen.getByText('schema refused it')).toBeTruthy() })
+  })
+
+  it('stops quietly when a stale fence folds the refreshed view instead', async () => {
+    const mutate = vi.fn(() => Promise.resolve(ok(wireNamespaces()[0])))
+    mountRetryCard({ mutate, acceptSettingsView: () => false })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(screen.queryByText(en.retryApplied.replace('{count}', '4'))).toBeNull()
+  })
+
+  it('keeps the card usable when the write rejects instead of answering', async () => {
+    const mutate = vi.fn(() => Promise.reject(new Error('transport dropped')))
+    mountRetryCard({ mutate })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(screen.getByText('transport dropped')).toBeTruthy() })
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: en.retryApply }).disabled).toBe(false)
+  })
+
+  it('ignores success, conflict, and rejection alike once the fence went stale', async () => {
+    // A stale fence means the page moved on — whatever the wire answers now
+    // must neither show nor stick: no status, no failure, no busy reset.
+    const stale = (): { isCurrent: RequestRetryCardProps['isCurrent'] } => ({ isCurrent: () => false })
+    mountRetryCard({
+      ...stale(),
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(screen.queryByRole('status')).toBeNull() })
+    cleanup()
+
+    mountRetryCard({
+      ...stale(),
+      mutate: vi.fn(() => Promise.resolve(fail('someone else moved it', 'settings-conflict'))),
+    })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(screen.queryByText(en.conflict)).toBeNull() })
+    cleanup()
+
+    mountRetryCard({
+      ...stale(),
+      mutate: vi.fn(() => Promise.reject(new Error('transport dropped'))),
+    })
+    fireEvent.change(screen.getByLabelText(en.retryCount), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: en.retryApply }))
+    await waitFor(() => { expect(screen.queryByText('transport dropped')).toBeNull() })
+  })
+
+  it('disables the fields on a read-only settings provider', () => {
+    mountRetryCard({ writable: false })
+    expect(screen.getByLabelText<HTMLInputElement>(en.retryCount).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: en.retryApply }).disabled).toBe(true)
   })
 })
