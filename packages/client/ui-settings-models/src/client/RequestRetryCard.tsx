@@ -1,15 +1,16 @@
 /**
- * The Models page's request-retry card: one always-visible trio — retry
- * count plus first/max retry waits in seconds — standing in for the global
- * model-request retry posture OpenCode exposes. The engine seam is
- * per-provider (`retryPolicy` under each provider profile; the dsh-llm-retry
- * executor refuses a plugin-level policy), so the card fans the typed policy
- * out to every provider row whose settings schema declares `retryPolicy`:
- * one `settings.mutate` per namespace, `unset` ops when every field is
- * cleared, and a `normal`-mode policy with both waits named in milliseconds
- * otherwise, its cap raised to at least the first wait. Providers that
- * disagree today are reported as mixed and overwritten together; a provider
- * added later keeps the engine defaults until the card is saved again.
+ * The Model Profiles (模型方案) section's request-retry card: one
+ * always-visible trio — retry count plus first/max retry waits in seconds —
+ * standing in for the global model-request retry posture OpenCode exposes.
+ * The engine seam is per-provider (`retryPolicy` under each provider
+ * profile; the dsh-llm-retry executor refuses a plugin-level policy), so the
+ * card fans the typed policy out to every provider row whose settings schema
+ * declares `retryPolicy`: one `settings.mutate` per namespace, `unset` ops
+ * when every field is cleared, and a `normal`-mode policy with both waits
+ * named in milliseconds otherwise, its cap raised to at least the first
+ * wait. Providers that disagree today are reported as mixed and overwritten
+ * together; a provider added later keeps the engine defaults until the card
+ * is saved again.
  */
 
 import { useEffect, useMemo, useState } from 'react'

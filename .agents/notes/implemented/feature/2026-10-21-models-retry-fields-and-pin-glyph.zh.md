@@ -1,4 +1,4 @@
-# Agent Note：模型页页面级请求重试卡片与置顶菜单字形
+# Agent Note：「模型方案」页面级请求重试卡片与置顶菜单字形
 
 Status: implemented
 
@@ -10,17 +10,17 @@ Status: implemented
 
 ## 决策
 
-- **模型方案页面在提供方行列表上方新增页面级请求重试卡片**——始终可见、不折叠、不按提供方拆分，因为用户面对的问题姿态是"我的模型请求怎么重试"，整页一个答案。引擎接缝保持按提供方（`dsh-llm-retry` 明确拒绝插件级策略；`resolveRetryPolicy` 逐 profile 根读取），因此卡片把**一份共享三件套扇出**到 settings schema 在 profile 处声明了 `retryPolicy` 的每个提供方行（`llm-deepseek` 的整分节根与每个 `llm-pi-ai` 路由 profile；没有该字段的 schema、无法解析的路径、未加载的 namespace 一律跳过，绝不写入）。每个 namespace 一次 `settings.mutate` 携带全部 op——三个字段全清空时对每个目标 `unset`，否则写入 `normal` 模式策略、两次间隔都以**毫秒**落盘（键入用**秒**），留空字段取引擎默认，且上限抬升到不低于首次间隔，存储的 profile 因此永远不会违反 `resolveRetryPolicy` 的 initial≤max 不变式。读回：所有已存用户层策略一致时预填字段；不一致（或全未设置）则留空并显示引擎默认占位符（2 / 0.5s / 10s），不一致状态会明说——保存即统一覆盖。校验镜像引擎规则：次数为非负安全整数、间隔为正的有限秒数且低于计时器上限、两者都填时首次 ≤ 上限。无界 `always` 模式仍归 `settings.yaml`：次数字段表达不了它，而静默覆盖部署的 `always` 等于把策略反转伪装成一次编辑。保存按钮写"全部应用 / Apply to all"，因此无论查询还是读屏地标导航都不会与某张提供方卡片自己的"应用/保存"相撞。
+- **「模型方案」选项卡在其路由与方案两组上方新增页面级请求重试卡片**——始终可见、不折叠、不按提供方拆分，因为用户面对的问题姿态是"我的模型请求怎么重试"，整个部署一个答案。卡片宿主在策略选项卡（设置页的「模型方案」一栏），经策略分节的 slot inject 从模型页的 store 取数，提供方选项卡因此只管凭据与目录行。引擎接缝保持按提供方（`dsh-llm-retry` 明确拒绝插件级策略；`resolveRetryPolicy` 逐 profile 根读取），因此卡片把**一份共享三件套扇出**到 settings schema 在 profile 处声明了 `retryPolicy` 的每个提供方行（`llm-deepseek` 的整分节根与每个 `llm-pi-ai` 路由 profile；没有该字段的 schema、无法解析的路径、未加载的 namespace 一律跳过，绝不写入）。每个 namespace 一次 `settings.mutate` 携带全部 op——三个字段全清空时对每个目标 `unset`，否则写入 `normal` 模式策略、两次间隔都以**毫秒**落盘（键入用**秒**），留空字段取引擎默认，且上限抬升到不低于首次间隔，存储的 profile 因此永远不会违反 `resolveRetryPolicy` 的 initial≤max 不变式。读回：所有已存用户层策略一致时预填字段；不一致（或全未设置）则留空并显示引擎默认占位符（2 / 0.5s / 10s），不一致状态会明说——保存即统一覆盖。校验镜像引擎规则：次数为非负安全整数、间隔为正的有限秒数且低于计时器上限、两者都填时首次 ≤ 上限。无界 `always` 模式仍归 `settings.yaml`：次数字段表达不了它，而静默覆盖部署的 `always` 等于把策略反转伪装成一次编辑。保存按钮写"全部应用 / Apply to all"，因此无论查询还是读屏地标导航都不会与某张提供方卡片自己的"应用/保存"相撞。
 - **置顶项获得 `IconPinOutline16`**，一个以描边系列风格手工绘制的字形：箭头向上、尖端顶住上方横线——正是行菜单"置顶"一词对应的中文习惯字形（本地设计数据没有可导出的图钉字形）。同一字形同时服务置顶与取消置顶两种文案，与其余无切换态的兄弟条目一致；[ui-primitives README](../../../../packages/client/ui-primitives/README.md) 记录了手工绘制出处。图标集计数 spec 升至 73。
 
 引擎零改动：`dsh-llm-retry`、`retry-policy.ts` 与 `agent/request-error` 瀑布均未触碰——本次变更只是把既有的按提供方策略接缝，经由[配置平面笔记](../architecture/2026-07-30-web-config-plane.md)已经拥有的 settings 写入路径呈现出来。
 
 ## 验证
 
-- `packages/client/ui-settings-models` —— 330 个测试（针对卡片直挂真实 namespace fixture 新增 13 个用例：schema 驱动的目标解析含不可解析/无字段跳过、引擎默认占位符、一致读回、不一致报告、按两个 namespace 各自 revision 的归一化扇出、上限自动抬升、全清空的 unset 清扫、非法次数/间隔/次序拒绝并禁用保存、冲突停止并显示消息、写入被拒、陈旧栅栏下成功/冲突/拒绝一律静默、只读禁用）；per-file 100% statements/branches/functions/lines。
+- `packages/client/ui-settings-models` —— 333 个测试（卡片直挂真实 namespace fixture 的 13 个用例，另有三个策略分节宿主用例（接线后渲染且 fence 逐 ns 转发、经真实保存走回退 fence、无 models controller 则不加载目录）：schema 驱动的目标解析含不可解析/无字段跳过、引擎默认占位符、一致读回、不一致报告、按两个 namespace 各自 revision 的归一化扇出、上限自动抬升、全清空的 unset 清扫、非法次数/间隔/次序拒绝并禁用保存、冲突停止并显示消息、写入被拒、陈旧栅栏下成功/冲突/拒绝一律静默、只读禁用）；per-file 100% statements/branches/functions/lines。
 - `packages/client/ui-primitives` —— 图标集计数 73，每个字形以 `currentColor` 渲染且无硬编码色板。
 - `packages/client/ui-workspace` —— 置顶菜单项现在携带 svg 字形，由既有的置顶/取消置顶行菜单测试断言。
-- 无密钥 e2e 金标（`apps/web/tests/snapshots/models-settings/*.expected.md`）有意刷新：卡片出现在每种姿态的行列表上方。
+- 无密钥 e2e 金标有意刷新（`models-settings` 移除卡片、`models-policy` 在路由与方案两组上方新增卡片）：每种姿态下卡片都住在「模型方案」选项卡。
 
 ## 考虑过的替代方案
 

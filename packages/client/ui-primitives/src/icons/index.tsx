@@ -110,15 +110,15 @@ export const IconVolumeOutline16 = ({ size = 16, className }: IconProps) => (
 export const IconPinOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path
-      d="M3 3.5h10"
+      d="M1.5 3h13"
       stroke="currentColor"
-      strokeWidth="1.3"
+      strokeWidth="1.5"
       strokeLinecap="round"
     />
     <path
-      d="M4.7 8.1L8 4.8L11.3 8.1M8 4.8v8.2"
+      d="M3.4 7.7L8 3.2L12.6 7.7M8 3.2v10.3"
       stroke="currentColor"
-      strokeWidth="1.3"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
     />

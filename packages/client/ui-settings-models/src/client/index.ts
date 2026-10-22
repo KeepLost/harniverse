@@ -82,6 +82,12 @@ export function apply(ctx: ClientContext): void {
   const policyInjected = (): ModelPolicySectionInjected => ({
     controller: policyController,
     useSnapshot: policySnapshot,
+    modelsController: controller,
+    modelsSnapshot: useSnapshot,
+    api: connection.api,
+    writeFence: () => describeFace.writeFence(),
+    isCurrent: fence => describeFace.isCurrent(fence),
+    acceptSettingsView: (view, fence, authentication) => describeFace.acceptView(view, fence, authentication as never),
     t,
   })
 

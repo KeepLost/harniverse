@@ -141,6 +141,18 @@ describe('ui-settings-models apply', () => {
     b.locale.setLocale('en')
     expect(resolveSlotLabel(entry.options.label)).toBe('Model Profiles')
     b.locale.setLocale('zh')
+    // The retry-card faces forward to the same Models store and describe
+    // fence the models page captured, so both pages write under one
+    // principal-binding contract.
+    const injected = (b.slots.entries('settings.section')[0]!.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected)()
+    const policyInjected = (entry.inject as unknown as () => import('../src/client/ModelPolicySection.tsx').ModelPolicySectionInjected)()
+    expect(policyInjected.modelsController).toBe(injected.controller)
+    expect(policyInjected.modelsSnapshot).toBe(injected.useSnapshot)
+    expect(policyInjected.api).toBe(injected.api)
+    expect(policyInjected.writeFence!()).toBe(7)
+    expect(policyInjected.isCurrent!(7)).toBe(true)
+    expect(policyInjected.isCurrent!(8)).toBe(false)
+    expect(policyInjected.acceptSettingsView!({ ns: 'llm-deepseek' } as never, 7, undefined)).toBe(true)
   })
 
   it('locale change while the slot is undeclared stays a no-op', async () => {

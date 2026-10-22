@@ -2,8 +2,9 @@
 /** Model Policy section behavior over a scripted wire face. */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { ConnectionAuthenticationSource, RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ConnectionAuthenticationSource, IApiClient, RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { docWithout, ModelPolicySection } from '../src/client/ModelPolicySection.tsx'
 import type { ModelPolicySectionInjected } from '../src/client/ModelPolicySection.tsx'
@@ -11,6 +12,7 @@ import {
   freshProfileId, freshRouteId, ModelPolicyStore, policyDocOf, policyDraftIssue,
 } from '../src/client/policy-store.ts'
 import type { PolicyDoc } from '../src/client/policy-store.ts'
+import { ModelsSettingsStore as SharedModelsSettingsStore } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
 const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
@@ -134,10 +136,51 @@ function mount(
   return { scripted, controller }
 }
 
-function renderSection(controller: PolicyStore) {
+/** A wired deployment: the policy view plus a retry-owning provider namespace. */
+function mountWithRetryFaces() {
+  const retryView: SettingsNamespaceView = {
+    ns: 'llm-deepseek',
+    schema: JSON.parse(JSON.stringify(Schema.object({ retryPolicy: Schema.any() }).toJSON())) as unknown,
+    value: {}, base: {}, user: {},
+    applies: 'live', secrets: [], revision: 0,
+  }
+  const view = policyView({ defaultProfile: 'unrestricted', profiles: {}, routes: {} })
+  const describe = vi.fn(() => Promise.resolve(ok({
+    writable: true,
+    hasDocument: false,
+    namespaces: [view, retryView],
+  })))
+  const providers = vi.fn(() => Promise.resolve(ok({
+    providers: [
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+    ],
+  })))
+  const mutate = vi.fn(() => Promise.resolve(ok(retryView)))
+  const scripted = {
+    llm: { ...face(describe, vi.fn()).llm, providers },
+    settings: { describe, replace: vi.fn(), mutate },
+  }
+  const controller = new PolicyStore(scripted as never)
+  const models = new SharedModelsSettingsStore(scripted as never, controller.mirror)
+  return { scripted, controller, models, providers }
+}
+
+function renderSection(controller: PolicyStore, retry?: {
+  models?: SharedModelsSettingsStore
+  api?: Pick<IApiClient, 'settings'>
+  writeFence?: () => number
+  isCurrent?: (fence: number) => boolean
+  acceptSettingsView?: (view: SettingsNamespaceView, fence: number, authentication?: unknown) => boolean
+}) {
   return render(<ModelPolicySection
     controller={controller}
     useSnapshot={bindSnapshotSelector(controller.store)}
+    modelsController={retry?.models}
+    modelsSnapshot={retry?.models === undefined ? undefined : bindSnapshotSelector(retry.models.store)}
+    api={retry?.api}
+    writeFence={retry?.writeFence}
+    isCurrent={retry?.isCurrent}
+    acceptSettingsView={retry?.acceptSettingsView}
     t={t}
   />)
 }
@@ -155,6 +198,42 @@ describe('ModelPolicySection', () => {
     expect(scripted.settings.describe).toHaveBeenCalledOnce()
     expect(scripted.llm.models).toHaveBeenCalledOnce()
     controller.dispose()
+  })
+
+  it('hosts the request-retry card from the Models store', async () => {
+    const { scripted, controller, models, providers } = mountWithRetryFaces()
+    renderSection(controller, {
+      models,
+      api: { settings: scripted.settings } as unknown as Pick<IApiClient, 'settings'>,
+      writeFence: () => 0,
+      isCurrent: () => true,
+      acceptSettingsView: () => true,
+    })
+    expect(await screen.findByLabelText(en.retryCount)).toBeTruthy()
+    expect(screen.getByText(en.retryTitle)).toBeTruthy()
+    expect(providers).toHaveBeenCalledOnce()
+    controller.dispose()
+    models.dispose()
+  })
+
+  it('renders the retry card with fallback fencing when the host wires no fence faces', async () => {
+    const { scripted, controller, models } = mountWithRetryFaces()
+    renderSection(controller, { models, api: { settings: scripted.settings } as unknown as Pick<IApiClient, 'settings'> })
+    fireEvent.change(await screen.findByLabelText<HTMLInputElement>(en.retryCount), { target: { value: '5' } })
+    fireEvent.click(screen.getByText(en.retryApply))
+    await waitFor(() => { expect(scripted.settings.mutate).toHaveBeenCalledOnce() })
+    controller.dispose()
+    models.dispose()
+  })
+
+  it('loads no Models directory while the host wires no models controller', async () => {
+    const { controller, models, providers } = mountWithRetryFaces()
+    renderSection(controller, {})
+    expect(await screen.findByText(en.routesTitle)).toBeTruthy()
+    expect(screen.queryByLabelText(en.retryCount)).toBeNull()
+    expect(providers).not.toHaveBeenCalled()
+    controller.dispose()
+    models.dispose()
   })
 
   it('renders configured rows with names, ids, the default tag, and the built-in tag', async () => {

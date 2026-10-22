@@ -21,7 +21,6 @@ import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, messageOf, protocolChoices, providerUsable } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
-import { RequestRetryCard } from './RequestRetryCard.tsx'
 import { SectionError } from './SectionError.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -319,16 +318,6 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             {providerCopy(t('savedProvider'), savedIdentity)}
           </p>
         )}
-      <RequestRetryCard
-        rows={state.rows.map(row => ({ settingsNs: row.entry.settingsNs, settingsPath: row.entry.settingsPath }))}
-        namespaces={state.namespaces}
-        writable={state.writable}
-        api={api}
-        writeFence={writeFence}
-        isCurrent={isCurrent}
-        acceptSettingsView={acceptSettingsView}
-        t={t}
-      />
       <ul className={styles['rows']}>
         {configured.map((row) => {
           const target = targetOf(row)
