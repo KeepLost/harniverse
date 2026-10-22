@@ -13,7 +13,7 @@ import {
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
-import { RequestRetryCard } from '../src/client/RequestRetryCard.tsx'
+import { RequestRetryCard, retryTargetsOf } from '../src/client/RequestRetryCard.tsx'
 import type { RequestRetryCardProps } from '../src/client/RequestRetryCard.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
@@ -1823,12 +1823,31 @@ describe('request retry card', () => {
       ns: 'llm-pi-ai',
       ops: [
         { op: 'set', path: ['providers', 'openai', 'retryPolicy'], value },
-        { op: 'set', path: ['providers', 'anthropic', 'retryPolicy'], value },
         { op: 'set', path: ['providers', 'zombie', 'retryPolicy'], value },
       ],
       expectedRevision: 0,
     })
-    expect(screen.getByText(en.retryApplied.replace('{count}', '4'))).toBeTruthy()
+    expect(screen.getByText(en.retryApplied.replace('{count}', '3'))).toBeTruthy()
+  })
+
+  it('never materializes a dormant directory provider through a save', () => {
+    // `anthropic` sits in the directory with no stored profile: it must not
+    // become a fan-out target, or the `set` op would conjure the provider
+    // into the user layer and a row of ghost providers would appear.
+    const targets = retryTargetsOf(
+      [
+        { settingsNs: 'llm-deepseek', settingsPath: [] as readonly string[] },
+        { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'] },
+        { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+        { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'] },
+      ],
+      new Map(wireNamespaces().map(view => [view.ns, view])),
+    )
+    expect(targets.map(target => [target.ns, target.path])).toEqual([
+      ['llm-deepseek', []],
+      ['llm-pi-ai', ['providers', 'openai']],
+      ['llm-pi-ai', ['providers', 'zombie']],
+    ])
   })
 
   it('raises the cap to the first wait so a partial save cannot invert the backoff', async () => {
@@ -1857,7 +1876,6 @@ describe('request retry card', () => {
     expect(mutate.mock.calls[0]?.[0].ops).toEqual([{ op: 'unset', path: ['retryPolicy'] }])
     expect(mutate.mock.calls[1]?.[0].ops).toEqual([
       { op: 'unset', path: ['providers', 'openai', 'retryPolicy'] },
-      { op: 'unset', path: ['providers', 'anthropic', 'retryPolicy'] },
       { op: 'unset', path: ['providers', 'zombie', 'retryPolicy'] },
     ])
   })

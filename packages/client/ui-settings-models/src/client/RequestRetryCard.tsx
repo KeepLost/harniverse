@@ -143,9 +143,12 @@ export function retryValueOf(raw: RetryRaw): { kind: 'unset' } | { kind: 'set'; 
 
 /**
  * Resolve the fan-out destinations from the page's provider rows: every row
- * whose namespace is loaded and whose schema node at the row's settings path
- * declares `retryPolicy` (this is what keeps the fan-out to provider families
- * that own a retry policy, and drops rows addressing unresolvable paths).
+ * whose namespace is loaded, whose schema node at the row's settings path
+ * declares `retryPolicy`, and whose profile already exists in the composed
+ * namespace value (this is what keeps the fan-out to provider families that
+ * own a retry policy, drops rows addressing unresolvable paths, and skips
+ * dormant directory providers — a `set` op at a missing path would
+ * materialize a provider the user never added).
  * @param rows - the page's provider rows.
  * @param namespaces - the loaded namespace views by name.
  * @returns the writable destinations, in row order.
@@ -168,6 +171,9 @@ export function retryTargetsOf(
     if (node?.type !== 'object' || (node.dict as Record<string, SchemaNode> | undefined)?.retryPolicy === undefined) {
       return []
     }
+    // Whole-section roots always resolve; a path-ful row must already have a
+    // stored profile, or the write would conjure the provider into being.
+    if (row.settingsPath.length > 0 && getPath(namespace.value, row.settingsPath) === undefined) return []
     return [{
       ns: namespace.ns,
       path: row.settingsPath,
