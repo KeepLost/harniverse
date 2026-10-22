@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-22-compact-queued-behind-running-turn.md
+2026-10-22-compact-queued-behind-running-turn.md: f64f6d374a93d970ec8e866f74dc186d51c77532
+2026-10-22-compact-queued-behind-running-turn.zh.md: e813136d8479edd6d5619c17518e17c8d9c4847e

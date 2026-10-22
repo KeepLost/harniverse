@@ -109,7 +109,7 @@ describe('web e2e: settings modal and General preferences', () => {
     // first: a capture taken while a late module is still loading would pin a
     // partial nav into the golden, and dev-source and prebuilt boots disagree
     // on which module is last.
-    for (const section of ['通用设置', '外观', '模型', '模型方案', '全局规则', '插件', '资源治理', 'MCP 管理', 'Agent 预设', 'IM 机器人', '会话导入', '语音输入', '声音通知']) {
+    for (const section of ['通用设置', '外观', '模型', '故障恢复', '全局规则', '插件', '资源治理', 'MCP 管理', 'Agent 预设', 'IM 机器人', '会话导入', '语音输入', '声音通知']) {
       await dialog.getByRole('button', { name: section, exact: true }).waitFor({ timeout: 10_000 })
     }
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)

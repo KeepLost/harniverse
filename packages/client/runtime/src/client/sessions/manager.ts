@@ -1023,7 +1023,7 @@ export class SessionManager {
   }
 
   /**
-   * Last contiguous durable seq for every resident ordinary Session with an authoritative window.
+   * Last contiguous durable seq for every resident Session with an authoritative window.
    * @returns the per-Session cursors to resume a mux generation.
    */
   muxSince(): Record<SessionId, number> {

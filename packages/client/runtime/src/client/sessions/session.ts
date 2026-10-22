@@ -491,11 +491,14 @@ export class Session implements SessionFace {
   }
 
   /**
-   * Contiguous durable cursor offered to a new ordinary-session mux generation.
+   * Contiguous durable seq offered to a new mux generation. Addressed
+   * subagent windows publish too: the host admits an authorized child into
+   * the generation through this cursor, keeping an open child view live
+   * across reconnects instead of frozen at its first snapshot.
    * @returns the last installed seq, `-1` for an open empty window, or undefined when no cursor is authoritative.
    */
   syncCursor(): number | undefined {
-    if (this.address !== undefined || this.openState !== 'open') return undefined
+    if (this.openState !== 'open') return undefined
     return this.windowTailSeq() ?? -1
   }
 

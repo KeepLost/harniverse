@@ -10,9 +10,9 @@
     - button "模型":
       - img
       - text: 模型
-    - button "模型方案":
+    - button "故障恢复":
       - img
-      - text: 模型方案
+      - text: 故障恢复
     - button "全局规则":
       - img
       - text: 全局规则
@@ -44,7 +44,7 @@
   - button "关闭":
     - img
     - text: 关闭
-  - heading "模型方案与备用链" [level=1]
+  - heading "故障恢复" [level=1]
   - paragraph: 方案决定一个会话可使用的模型与备用链；备用链在同模型重试放弃后按顺序尝试后续模型。
   - status: 已保存。
   - heading "请求重试" [level=3]

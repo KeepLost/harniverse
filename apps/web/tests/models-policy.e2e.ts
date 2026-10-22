@@ -65,7 +65,7 @@ describe('web e2e: Model Policy page manages profiles and fallback chains', () =
   it('renders the empty policy page with the unrestricted default', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-policy-empty'))
     const dialog = page.getByRole('dialog', { name: '设置' })
-    await dialog.getByRole('button', { name: '模型方案', exact: true }).click()
+    await dialog.getByRole('button', { name: '故障恢复', exact: true }).click()
     await dialog.getByText('方案决定一个会话可使用的模型与备用链；备用链在同模型重试放弃后按顺序尝试后续模型。')
       .waitFor({ timeout: 10_000 })
     await dialog.getByText('还没有备用链。').waitFor({ timeout: 10_000 })

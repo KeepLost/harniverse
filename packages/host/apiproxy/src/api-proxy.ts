@@ -4594,6 +4594,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { childSessionId },
           })
         }
+        // The verified durable address is the read-side twin of the prompt
+        // authorization: a principal that opened a child view receives that
+        // child's mux stream, or the view would freeze at its first snapshot.
+        const streamKey = principalKey(request)
+        if (streamKey !== undefined && attached !== undefined) {
+          const authorized = addressedMuxAuthorizations.get(streamKey) ?? new Set<SessionId>()
+          authorized.add(childSessionId)
+          addressedMuxAuthorizations.set(streamKey, authorized)
+          for (const subscriber of addressedMuxSubscribers.values()) {
+            if (subscriber.principalKey === streamKey) subscriber.subscribe(attached)
+          }
+        }
         const page = historyPage(ctx, events, beforeSeq, maxMessages)
         return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },

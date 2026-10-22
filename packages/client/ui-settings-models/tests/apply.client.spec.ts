@@ -137,9 +137,9 @@ describe('ui-settings-models apply', () => {
     const entry = b.slots.entries('settings.section')[1]!
     expect(entry.component).toBe(ModelPolicySection)
     expect(entry.options).toMatchObject({ id: 'model-policy', order: 11 })
-    expect(resolveSlotLabel(entry.options.label)).toBe('模型方案')
+    expect(resolveSlotLabel(entry.options.label)).toBe('故障恢复')
     b.locale.setLocale('en')
-    expect(resolveSlotLabel(entry.options.label)).toBe('Model Profiles')
+    expect(resolveSlotLabel(entry.options.label)).toBe('Fault Recovery')
     b.locale.setLocale('zh')
     // The retry-card faces forward to the same Models store and describe
     // fence the models page captured, so both pages write under one

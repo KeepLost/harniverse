@@ -457,7 +457,7 @@ describe('live event path', () => {
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
   })
 
-  it('publishes only its contiguous ordinary-session cursor', async () => {
+  it('publishes its contiguous cursor for ordinary and addressed windows alike', async () => {
     const { api, session } = makeSession()
     expect(session.syncCursor()).toBeUndefined()
     api.onHistory = () => histResponse([])
@@ -465,8 +465,18 @@ describe('live event path', () => {
     expect(session.syncCursor()).toBe(-1)
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(0, 'first') })
     expect(session.syncCursor()).toBe(0)
-    session.configureSubagent({ parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' })
-    expect(session.syncCursor()).toBeUndefined()
+
+    // An addressed child window opens through its own history route and must
+    // still offer its tail: a new mux generation resumes the authorized child
+    // stream from this cursor instead of dropping the view back to its
+    // frozen first snapshot.
+    const childApi = new FakeApiClient()
+    childApi.onSubagentHistory = () =>
+      Promise.resolve(ok({ events: entries([ev.turnStart(0, 1), ev.user(1, 'child')]) as never[], hasMore: false }))
+    const { session: child } = makeSession(childApi)
+    child.configureSubagent({ parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' })
+    await child.open()
+    expect(child.syncCursor()).toBe(1)
   })
 
   it('repairs before accepting seq one into an empty open window', async () => {

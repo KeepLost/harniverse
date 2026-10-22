@@ -1,5 +1,7 @@
 /**
- * The Model Profiles (模型方案) section's request-retry card: one
+ * The Fault Recovery (故障恢复) section's request-retry card (the section was
+ * renamed from Model Profiles so settings navigation cannot be confused with
+ * the Models tab): one
  * always-visible trio — retry count plus first/max retry waits in seconds —
  * standing in for the global model-request retry posture OpenCode exposes.
  * The engine seam is per-provider (`retryPolicy` under each provider

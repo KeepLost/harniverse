@@ -12,7 +12,7 @@
 | `/compact`，但没有可压缩历史 | `No compactable history yet.`：不会写入标记，也不会变更 surface。 |
 | `/compact <anything>` | `Usage: /compact (no arguments)`：该命令不接受参数，也不会调用压缩后端。 |
 
-该命令与后端无关，只依赖 `compactNow(agent, signal)`。它会先读取普通的 Agent-local Provider，再使用可选 Agent Presets 服务的宿主侧 `serviceFor()` 地址读取 preset 隔离的 Provider。调用该命令的 agent（智能体）就是操作的确切目标，发起分发的 UI 会通过 seam 转发取消信号。没有压缩 Provider 的 Profile 会收到 `Compaction is unavailable for this Agent Profile.`。压缩服务会在 Provider／Profile teardown 期间等待每个已启动的手动操作；根层命令插件则在根层 teardown 期间独立等待已启动的处理器。每次完成的调用都会记录执行器所属的纯日志事件对 `command/run` / `command/done`；两者都不进入模型历史。成功时，`command/done.sourceEventSeq` 会指明该事务的 `compaction/summary` 事件，让呈现层无须解析结果文本或假定两行相邻，即可将命令生命周期归并到对应检查点中。
+该命令与后端无关，只依赖 `compactNow(agent, signal)`。它会先读取普通的 Agent-local Provider，再使用可选 Agent Presets 服务的宿主侧 `serviceFor()` 地址读取 preset 隔离的 Provider。调用该命令的 agent（智能体）就是操作的确切目标，发起分发的 UI 会通过 seam 转发取消信号。当 agent 处于轮次中时，接纳立即以 `Compaction queued: it runs when the current turn completes.` 结算，引擎在闭轮边界由插件自身生命周期驱动执行——分发请求中途消失（网页刷新）不会取消已接纳的压缩，同一 agent 的第二次 `/compact` 以「已在排队」接纳。引擎的持久化括号携带排队运行的 `sourceCommandId`，呈现层据此把结果归并进该命令的生命周期行。没有压缩 Provider 的 Profile 会收到 `Compaction is unavailable for this Agent Profile.`。压缩服务会在 Provider／Profile teardown 期间等待每个已启动的手动操作；根层命令插件则在根层 teardown 期间独立等待已启动的处理器。每次完成的调用都会记录执行器所属的纯日志事件对 `command/run` / `command/done`；两者都不进入模型历史。成功时，`command/done.sourceEventSeq` 会指明该事务的 `compaction/summary` 事件，让呈现层无须解析结果文本或假定两行相邻，即可将命令生命周期归并到对应检查点中。
 
 预期的 `ManualCompactionError` 代码会成为稳定的直接错误：
 
@@ -61,6 +61,6 @@ busy 结果有意限定在进程范围内：活动的未匹配标记会阻塞，
 
 ## 已知限制与暂缓事项
 
-- **仅限空闲状态**：当一个轮次或已获接纳的唤醒提示词拥有优先权时，`/compact` 会报告 `busy`；命令本身不会排队。
+- **每个 agent 一次排队**：一次排队未结算时，同一 agent 的第二次 `/compact` 以「已在排队」接纳而不叠加；排队运行若在空闲相位争夺中输给唤醒工作，则继续等待那轮结束。
 - **不接受范围或策略参数**：无参数形式使各命令适配器的行为保持稳定。显式范围仍由编程接口 `compactRegion()` 处理。
 - **仅限命令适配器**：没有 `ctx.commands` 的接口无法调用该命令，只能依赖自动压力压缩。

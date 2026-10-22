@@ -336,6 +336,38 @@ describe('subagent gateway', () => {
     await stream.return?.()
   })
 
+  it('authorizes a viewing principal for addressed child mux replay and live events', async () => {
+    const { api, ctx, childEvents, liveChildSession } = bench({ liveChild: true, childStatus: 'running' })
+    const principal = { kind: 'bypass' as const, capabilities: [] }
+    const abort = new AbortController()
+    const stream = api.events.mux({
+      rpcId: RpcId('subagent-mux'), payload: {}, principal,
+    }, abort.signal)[Symbol.asyncIterator]()
+    const firstFrame = stream.next()
+    await api.subagents.history({
+      ...request({ parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable' as const }),
+      principal,
+    }, abort.signal)
+    await expect(firstFrame).resolves.toMatchObject({
+      value: { payload: { type: 'session/subscribed', sessionId: CHILD } },
+    })
+    await expect(stream.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/event', sessionId: CHILD, event: { seq: 0 } } },
+    })
+
+    const liveEvent = {
+      type: 'user/message', seq: 1, time: 2,
+      data: { content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } },
+    } as SessionEvent
+    childEvents.push(liveEvent)
+    ctx.emit('session/event', liveChildSession, liveEvent)
+    await expect(stream.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/event', sessionId: CHILD, event: { seq: 1 } } },
+    })
+    abort.abort()
+    await stream.return?.()
+  })
+
   it('canonicalizes browser-zone provenance before delivering a child prompt', async () => {
     const { api, parent, followup } = bench()
     const alias = 'US/Pacific'

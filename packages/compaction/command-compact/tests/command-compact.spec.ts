@@ -31,7 +31,7 @@ const RESULT: CompactionResult = {
 class StubCompactionEngine extends CompactionEngine {
   result: CompactionResult | null = RESULT
   failure: unknown
-  operation: (() => Promise<CompactionResult | null>) | undefined
+  operation: ((signal: AbortSignal) => Promise<CompactionResult | null>) | undefined
   calls: { agent: ManualCompactAgentContext; signal: AbortSignal }[] = []
 
   override compactIfNeeded(
@@ -52,7 +52,7 @@ class StubCompactionEngine extends CompactionEngine {
     sourceCommandId?: Parameters<CompactionEngine['compactNow']>[2],
   ): Promise<CompactionResult | null> {
     this.calls.push({ agent, signal })
-    if (this.operation !== undefined) return this.operation()
+    if (this.operation !== undefined) return this.operation(signal)
     return this.failure === undefined
       ? Promise.resolve(this.result === null ? null : this.appendResult(agent, this.result, sourceCommandId))
       // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercise arbitrary backend rejection values.
@@ -301,6 +301,65 @@ describe('/compact human command', () => {
     unexpected.compact.failure = bug
     await expect(run(unexpected)).rejects.toBe(bug)
     expectLastLifecycle(unexpected, '', { kind: 'error', text: bug.message })
+  })
+
+  it('queues compaction behind a running turn under the plugin lifecycle, not the request', async () => {
+    const test = await harness()
+    const stub = test.agent as unknown as { status: string; whenIdle: () => Promise<void> }
+    stub.status = 'running'
+    const gate = Promise.withResolvers<undefined>()
+    stub.whenIdle = () => gate.promise
+
+    const controller = new AbortController()
+    const execution = await run(test, '', controller)
+    expect(execution.result).toEqual({
+      kind: 'success',
+      text: 'Compaction queued: it runs when the current turn completes.',
+    })
+    const commandId = expectLastLifecycle(test, '', {
+      kind: 'success',
+      text: 'Compaction queued: it runs when the current turn completes.',
+    })
+    expect(test.compact.calls).toHaveLength(0)
+
+    // The dispatching request going away (a web page refresh) must not cancel
+    // the admitted compaction: the queued engine run carries its own signal.
+    controller.abort(new Error('request disconnected'))
+    gate.resolve(undefined)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(test.compact.calls).toHaveLength(1)
+    expect(test.compact.calls[0]?.signal.aborted).toBe(false)
+    const start = test.agent.session.events.findLast(event => event.type === 'compaction/start')
+    expect(start?.type === 'compaction/start' && start.data.sourceCommandId).toBe(commandId)
+  })
+
+  it('admits one queued compaction per running agent and cancels the queue at teardown', async () => {
+    const test = await harness()
+    const stub = test.agent as unknown as { status: string; whenIdle: () => Promise<void> }
+    stub.status = 'running'
+    const gate = Promise.withResolvers<undefined>()
+    stub.whenIdle = () => gate.promise
+    const started = Promise.withResolvers<undefined>()
+    test.compact.operation = signal => new Promise<never>((_resolve, reject) => {
+      started.resolve(undefined)
+      // Parked until teardown aborts the plugin-owned signal (a real engine
+      // forwards cancellation into the summarizer the same way).
+      signal.addEventListener('abort', () => {
+        reject(signal.reason instanceof Error ? signal.reason : new Error('queued run cancelled'))
+      }, { once: true })
+    })
+
+    await run(test)
+    await run(test)
+    expect(test.agent.session.events.filter(event => event.type === 'command/done')).toHaveLength(2)
+    expect([...test.agent.session.events.filter(event => event.type === 'command/done')].at(-1)?.data)
+      .toMatchObject({ kind: 'success', text: 'Compaction is already queued behind the running turn.' })
+
+    gate.resolve(undefined)
+    await started.promise
+    expect(test.compact.calls).toHaveLength(1)
+    await test.plugin.dispose()
+    expect(test.compact.calls[0]?.signal.aborted).toBe(true)
   })
 
   it('drains an aborted handler through close and flush before plugin disposal settles', async () => {

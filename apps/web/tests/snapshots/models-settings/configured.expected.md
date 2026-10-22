@@ -10,9 +10,9 @@
     - button "模型":
       - img
       - text: 模型
-    - button "模型方案":
+    - button "故障恢复":
       - img
-      - text: 模型方案
+      - text: 故障恢复
     - button "全局规则":
       - img
       - text: 全局规则
