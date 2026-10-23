@@ -43,7 +43,15 @@ overrides:
   'brace-expansion@2': '2.1.7'
   'brace-expansion@5': '5.0.12'
   browserslist@4: 4.28.7
-  dompurify: '3.4.16'
+  # GHSA-c6gr-qvv4-5v3f / GHSA-cg2g-xh64-v4q7 / GHSA-mrv2-3pqr-j5jr:
+  # dompurify <= 3.4.16 — SAFE_FOR_TEMPLATES and IN_PLACE sanitizer bypasses
+  # plus an SMIL href guard skip; mermaid and vitepress chains resolve the
+  # vulnerable line.
+  dompurify: '3.4.17'
+  # GHSA-rxp7-6hxx-x8q5: ip-address <= 10.7.3 quadratic zone-identifier
+  # matching stalls the process; transitive under express-rate-limit,
+  # mcp-client, ssh, and subagent packages.
+  ip-address: '10.7.4'
   fast-uri@3: 3.1.8
   # GHSA-5r4p-p66f-jhc7 (CVE-2026-111757): hono < 4.13.11 DoS via
   # crafted multipart boundary — transitive under @modelcontextprotocol/sdk
@@ -69,7 +77,12 @@ overrides:
   'undici@7': '7.29.1'
   'undici@8': 8.9.0
   undici8: 'undici@8.9.0'
-  'vitepress>vite': '6.4.3'
+  # GHSA-587h-7wmj-h5pm / GHSA-698v-4r3x-3vcv / GHSA-9jrq-w75r-8gcw /
+  # GHSA-r825-w8mm-5pxw / GHSA-rq7h-c2jc-7f22: vite <= 6.4.3 — custom
+  # middleware cross-origin script execution, server.fs.allow bypass, and
+  # launch-editor command execution; scoped to the vitepress chain (apps pin
+  # their own vite 6 in their manifests).
+  'vitepress>vite': '6.4.4'
 
 peerDependencyRules:
   allowedVersions:
