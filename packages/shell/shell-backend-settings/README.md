@@ -30,10 +30,10 @@ Under `git-bash` on Windows the model's terminal tool is `bash` (Git Bash) inste
 
 None beyond the tool swap: no prompt sections or schema fields are added or removed by the selection itself.
 
-#### KV-cache effect
+#### KV Cache effect
 
 None; the selection is read once per start and never enters per-turn assembly.
 
 ## Known Limitations and Deferred Work
 
-Git Bash under the win32 ACL restricted-token sandbox has not been validated on real Windows hardware (wine CI cannot exercise the koffi/ACL path). A `git-bash` selection that hits a runner-launch failure under confinement reports `SANDBOX_UNAVAILABLE` per call; the owner decision to keep, gate, or pair the preference with an explicit full-access acknowledgment rides that empirical result.
+- Git Bash under the win32 ACL restricted-token sandbox has not been validated on real Windows hardware (wine CI cannot exercise the koffi/ACL path); a `git-bash` selection that hits a runner-launch failure under confinement reports `SANDBOX_UNAVAILABLE` per call, and the keep/gate/pair-with-full-access decision rides that result.

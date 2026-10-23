@@ -2,11 +2,13 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyShellBackendBootEnv, SHELL_BACKEND_ENV } from '../src/index.ts'
+import { resolveShellBackend } from '@deepseek-ai/dsh-shell'
 
 const homes: string[] = []
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true })
 })
 
@@ -54,5 +56,20 @@ describe('applyShellBackendBootEnv', () => {
     const env: Record<string, string | undefined> = {}
     applyShellBackendBootEnv({ env, home, platform: 'win32' })
     expect(env[SHELL_BACKEND_ENV]).toBe('pwsh')
+  })
+
+  it('takes the platform default from documents that do not shape a preference', () => {
+    for (const document of ['other:\n  key: 1\n', '42\n', 'shell-backend: 5\n', 'shell-backend:\n  backend: cmd\n']) {
+      const env: Record<string, string | undefined> = {}
+      applyShellBackendBootEnv({ env, home: seededHome(document), platform: 'win32' })
+      expect(env[SHELL_BACKEND_ENV], document).toBe('pwsh')
+    }
+  })
+
+  it('acts on this process when given no options', () => {
+    vi.stubEnv('DSH_HOME', seededHome('shell-backend:\n  backend: git-bash\n'))
+    vi.stubEnv(SHELL_BACKEND_ENV, '')
+    applyShellBackendBootEnv()
+    expect(process.env[SHELL_BACKEND_ENV]).toBe(resolveShellBackend(process.platform, 'git-bash'))
   })
 })

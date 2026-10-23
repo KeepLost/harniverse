@@ -30,10 +30,10 @@ Windows 上选择 `git-bash` 后,模型的终端工具为 `bash`(Git Bash)而非
 
 除工具互换外无影响:选择本身不增删任何提示词小节或 schema 字段。
 
-#### KV-cache 影响
+#### KV Cache 影响
 
 无;该选择每次启动读取一次,不进入逐轮组装。
 
 ## Known Limitations and Deferred Work
 
-Git Bash 在 win32 ACL restricted-token 沙箱下的行为尚未在真实 Windows 硬件上验证(wine CI 无法覆盖 koffi/ACL 路径)。选择 `git-bash` 后若受限运行器启动失败,将以每次调用报告 `SANDBOX_UNAVAILABLE`;保留、限制该偏好或为其搭配显式全量放开确认,取决于该实证结果的所有者决策。
+- Git Bash 在 win32 ACL restricted-token 沙箱下的行为尚未在真实 Windows 硬件上验证(wine CI 无法覆盖 koffi/ACL 路径);选择 `git-bash` 后若受限运行器启动失败,将以每次调用报告 `SANDBOX_UNAVAILABLE`,保留/限制/搭配全量放开确认的决策取决于该实证结果。
