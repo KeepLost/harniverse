@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import {
-  Button, IconEditOutline16, IconRefreshOutline16, IconTrashOutline16,
+  Button, IconEditOutline16, IconRefreshOutline16, IconTrashOutline16, Pill,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { McpServerRow } from './section-store.ts'
 import type { McpLocaleKey } from './locales.ts'
@@ -110,9 +110,13 @@ export function ServerRow(props: ServerRowProps) {
       <div className={css.cardMeta}>
         <span>{row.id}</span>
         <span>{row.transport}</span>
-        <button type="button" className={css.cardMeta} disabled={tools.length === 0} onClick={() => { setOpen(!open) }}>
-          {toolsLabel}
-        </button>
+        {tools.length > 0
+          ? (
+            <Pill active={open} onClick={() => { setOpen(!open) }}>
+              {toolsLabel}
+            </Pill>
+          )
+          : <Pill>{toolsLabel}</Pill>}
       </div>
       <div className={css.presets}>{presetText}</div>
       {open && tools.length > 0 && (
