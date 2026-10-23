@@ -81,8 +81,11 @@ overrides:
   # GHSA-r825-w8mm-5pxw / GHSA-rq7h-c2jc-7f22: vite <= 6.4.3 — custom
   # middleware cross-origin script execution, server.fs.allow bypass, and
   # launch-editor command execution; scoped to the vitepress chain (apps pin
-  # their own vite 6 in their manifests).
-  'vitepress>vite': '6.4.4'
+  # their own vite 6 in their manifests). Pinned to the same 6.4.5 the direct
+  # manifests resolve so the vitepress chain and the website config share one
+  # vite copy — a split (6.4.4 vs 6.4.5) makes their ViteDevServer types
+  # structurally incompatible in .vitepress/config.ts.
+  'vitepress>vite': '6.4.5'
 
 peerDependencyRules:
   allowedVersions:

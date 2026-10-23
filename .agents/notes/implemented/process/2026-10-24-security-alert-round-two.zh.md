@@ -12,7 +12,7 @@ GitHub 报出二十五项打开的 Dependabot 告警:十四条 `electron` 公告
 
 直接依赖升到首个修复版:`apps/desktop` 钉 `electron` `43.7.6`(覆盖全部十四条公告),四份 `vitest` 清单(root、`apps/web`、`client-runtime`、`acp-snapshot`)取 `^4.1.12`,其解析器带入 `@vitest/mocker` `4.1.12`;两份 `vite` 6 清单升到 `^6.4.4`(`website` 自 `^6.4.3`,`apps/web` 自 `^6.0.0`;均解析为 6.4.5,高于 6.4.4 下限)。
 
-`pnpm-workspace.yaml` overrides 覆盖传递解析:`dompurify` `3.4.17` 替换 3.4.16 钉版(mermaid 与 vitepress 链),`vitepress>vite` `6.4.4` 替换 6.4.3(文档站自带的 vite 6 副本),新增 `ip-address: 10.7.4` 地板钉,约束 `express-rate-limit`、`mcp-client`、`ssh` 与 subagent 包下的全部解析。
+`pnpm-workspace.yaml` overrides 覆盖传递解析:`dompurify` `3.4.17` 替换 3.4.16 钉版(mermaid 与 vitepress 链),`vitepress>vite` `6.4.5` 替换 6.4.3(文档站自带的 vite 6 副本,与直接清单的解析对齐使两侧共享同一副本),新增 `ip-address: 10.7.4` 地板钉,约束 `express-rate-limit`、`mcp-client`、`ssh` 与 subagent 包下的全部解析。中途把 `vitepress>vite` 钉在 6.4.4 时 vite 6 分裂为两副本,`.vitepress/config.ts` 不再编译:其 `ViteDevServer`(来自直接依赖 6.4.5)与 vitepress 链的 `ServerHook`(来自 6.4.4)结构不兼容——陈旧的根 tsbuildinfo 在本地掩盖了失败,直到干净聚合构建复现。
 
 ## Alternatives considered
 
@@ -24,4 +24,4 @@ GitHub 报出二十五项打开的 Dependabot 告警:十四条 `electron` 公告
 
 ## Consequences
 
-lockfile 不再解析出二十五条告警范围内的任何版本:`electron` 43.7.6、`@vitest/mocker` 4.1.12、`dompurify` 3.4.17、`ip-address` 10.7.4,vite 6 仅存 6.4.4(vitepress 链)与 6.4.5(直接依赖)。vite 6 双副本保持到 vitepress override 退役为止;没有消费者感知差异。新解析下 `pnpm install`、`pnpm run typecheck`、`pnpm run build`、`pnpm run test:gui`(7382 通过、1 跳过)与 `pnpm run test:desktop` 全部通过。#203 与 #204 在其目标告警解除后自动关闭。
+lockfile 不再解析出二十五条告警范围内的任何版本:`electron` 43.7.6、`@vitest/mocker` 4.1.12、`dompurify` 3.4.17、`ip-address` 10.7.4,vite 6 由 vitepress 链与直接清单共享一份 6.4.5。新解析下 `pnpm install`、`pnpm run typecheck`、干净聚合的 `pnpm run build`、`pnpm run test:gui`(7382 通过、1 跳过)与 `pnpm run test:desktop` 全部通过。#203 与 #204 在其目标告警解除后自动关闭。

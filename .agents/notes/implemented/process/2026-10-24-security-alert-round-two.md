@@ -12,7 +12,7 @@ GitHub reported twenty-five open Dependabot alerts: fourteen `electron` advisori
 
 Direct dependencies move to the first patched release: `apps/desktop` pins `electron` `43.7.6` (covering all fourteen advisories), the four `vitest` manifests (root, `apps/web`, `client-runtime`, `acp-snapshot`) take `^4.1.12`, whose resolver brings `@vitest/mocker` `4.1.12`, and the two `vite` 6 manifests move to `^6.4.4` (`website` from `^6.4.3`, `apps/web` from `^6.0.0`; both resolve 6.4.5, above the 6.4.4 floor).
 
-The `pnpm-workspace.yaml` overrides cover the transitive resolutions: `dompurify` `3.4.17` replaces the 3.4.16 pin (mermaid and vitepress chains), `vitepress>vite` `6.4.4` replaces 6.4.3 (the documentation build's own vite 6 copy), and a new `ip-address: 10.7.4` floor pins every resolution under `express-rate-limit`, `mcp-client`, `ssh`, and the subagent packages.
+The `pnpm-workspace.yaml` overrides cover the transitive resolutions: `dompurify` `3.4.17` replaces the 3.4.16 pin (mermaid and vitepress chains), `vitepress>vite` `6.4.5` replaces 6.4.3 (the documentation build's own vite 6 copy, matched to the direct manifests' resolution so both share one copy), and a new `ip-address: 10.7.4` floor pins every resolution under `express-rate-limit`, `mcp-client`, `ssh`, and the subagent packages. An interim pin of `vitepress>vite` 6.4.4 split vite 6 into two copies, and `.vitepress/config.ts` stopped compiling: its `ViteDevServer` (from the direct 6.4.5) is structurally incompatible with the vitepress chain's `ServerHook` (from 6.4.4) — a stale-root tsbuildinfo hid the failure locally until a clean host-aggregate build reproduced it.
 
 ## Alternatives considered
 
@@ -24,4 +24,4 @@ The `pnpm-workspace.yaml` overrides cover the transitive resolutions: `dompurify
 
 ## Consequences
 
-The lockfile resolves no version inside any of the twenty-five alert ranges: `electron` 43.7.6, `@vitest/mocker` 4.1.12, `dompurify` 3.4.17, `ip-address` 10.7.4, and vite 6 only as 6.4.4 (vitepress chain) and 6.4.5 (direct). The vite 6 pair stays two copies until the vitepress override retires; nothing consumes the difference. `pnpm install`, `pnpm run typecheck`, `pnpm run build`, `pnpm run test:gui` (7382 passed, 1 skipped), and `pnpm run test:desktop` all pass on the new resolution. #203 and #204 close automatically once the alerts they target resolve.
+The lockfile resolves no version inside any of the twenty-five alert ranges: `electron` 43.7.6, `@vitest/mocker` 4.1.12, `dompurify` 3.4.17, `ip-address` 10.7.4, and one vite 6 copy at 6.4.5 shared by the vitepress chain and the direct manifests. `pnpm install`, `pnpm run typecheck`, clean-aggregate `pnpm run build`, `pnpm run test:gui` (7382 passed, 1 skipped), and `pnpm run test:desktop` all pass on the new resolution. #203 and #204 close automatically once the alerts they target resolve.
