@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-23-mcp-instruction-sections-per-server.md
-2026-10-23-mcp-instruction-sections-per-server.md: 0b65503ed1807ba5567bfedbb6cc596e4115aeda
-2026-10-23-mcp-instruction-sections-per-server.zh.md: 471397f7949eb9f0c8ef9a297e5819d05c983269
+2026-10-23-mcp-instruction-sections-per-server.md: eb66f3b6335838b77aa0e0fcdff696f762ce6474
+2026-10-23-mcp-instruction-sections-per-server.zh.md: 879a2318046e3db84b199f11aa1818b8f6b76197
