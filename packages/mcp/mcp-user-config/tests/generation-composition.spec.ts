@@ -209,6 +209,22 @@ describe('shipped MCP Profile composition', () => {
     expect((await call(ctx, standard, 'docs', 'docs://guide')).isError).toBe(false)
   }, 30_000)
 
+  it('attributes instructions from every configured server inside one profile generation', async () => {
+    const ctx = await boot()
+    const settings = ctx.get('settings') as MemorySettings
+    await settings.replace(Bridge.MCP_SETTINGS_NAMESPACE, {
+      servers: [server('docs'), { ...server('notes'), id: 'notes' }],
+    })
+    await waitForServer(ctx, 'docs')
+    await waitForServer(ctx, 'notes')
+    const standard = caller(await ctx.agentPresets.standingKeyFor('standard'))
+    const prompt = renderPrompt(await ctx.systemPrompt.assemble({ scope: standard }))
+    expect(prompt).toContain('### MCP server: docs')
+    expect(prompt).toContain('### MCP server: notes')
+    expect((await call(ctx, standard, 'docs', 'docs://guide')).isError).toBe(false)
+    expect((await call(ctx, standard, 'notes', 'docs://guide')).isError).toBe(false)
+  }, 30_000)
+
   it('rejects continuously changing settings and recovers once discovery stabilizes', async () => {
     const ctx = await boot()
     const settings = ctx.get('settings') as MemorySettings

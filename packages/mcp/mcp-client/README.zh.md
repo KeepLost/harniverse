@@ -79,7 +79,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 - 连接时：插件激活会等待 `listTools()`，并在组合开始首个轮次前通过 `ctx.tools.register()` 以公开名称注册每个工具。初始连接、发现或注册失败始终会记录日志；`failOnStartupError` 为 true 时拒绝激活，否则插件仍会激活但不注册工具。
 - 监听 `notifications/tools/list_changed` → 重新同步；获取阶段失败时保留上一世代的注册，注册冲突则会回滚本次尝试的世代，并且不保留该服务器的任何工具。
 - 工具执行：`client.callTool({ name: rawName, arguments }, { signal })`，支持超时 + 中止；公开名称绝不会发给服务器。
-- 服务器 instructions：连接与发现成功后，捕获服务器 initialize 返回的 instructions 字面文本，添加归属（`### MCP server: <serverName>`），再通过 server-context 注册为逐字的 `mcp:<serverName>` 提示词小节。超过 `maxInstructionBytes` 的载荷会像其他同步错误一样使本次尝试失败；重连彻底放弃时会清除该小节。
+- 服务器 instructions：连接与发现成功后，捕获服务器 initialize 返回的 instructions 字面文本，添加归属（`### MCP server: <serverName>`），再通过 server-context 注册为逐字的 `mcp:<serverName>` 提示词小节（registrar 挂载预约连接时为 `mcp:<reservationKey>:<serverName>`，因此一个预约键服务多台服务器时每台各占一节）。超过 `maxInstructionBytes` 的载荷会像其他同步错误一样使本次尝试失败；重连彻底放弃时会清除该小节。
 - 资源发现：服务器声明 resources 能力时，连接在每次同步后排空分页的 `resources/list` 与 `resources/templates/list` 到排序缓存；两个列表原子发布，发现失败被抑制（记录日志、保留旧缓存）。缓存的 URI 与模板供 capability snapshot 和触发运行中拓扑刷新的变化检测使用。
 - 分页防护：工具、资源与模板的每个 continuation-cursor 排空都会在下一次请求前拒绝 malformed cursor、重复 cursor 和超过 128 页的链路，而不是死循环；空 cursor 仍作为不透明值传递。
 - 资源请求：`resources.request` 在存活连接上路由 `resources/list`、`resources/templates/list` 与 `resources/read`（connected 守卫、`toolCallTimeoutMs` 超时、支持中止）并返回原始 JSON 值；由 `mcp-resources` 的工具渲染。Profile 成员可见性在该表面强制执行（见上）。
