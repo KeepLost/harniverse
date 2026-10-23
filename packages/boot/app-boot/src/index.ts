@@ -9,13 +9,14 @@
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { inspect, parseEnv } from 'node:util'
-import { basename, dirname, isAbsolute, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from '@deepseek-ai/cordis'
 import Loader, { type Entry, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Group from '@deepseek-ai/cordis-plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { resolveShellBackend, type ShellBackendPreference } from '@deepseek-ai/dsh-shell'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-hmr-coordination'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
@@ -687,6 +688,59 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   }
 }
 
+/** Environment variable carrying the resolved shell backend; the shell rows' `disabled` expressions read it. */
+export const SHELL_BACKEND_ENV = 'DSH_SHELL_BACKEND'
+
+/** Options steering {@link applyShellBackendBootEnv}; every field defaults to this process. */
+export interface ShellBackendBootEnvOptions {
+  /** Environment mapping read for the explicit override and written with the resolved selection. */
+  env?: Record<string, string | undefined>
+  /** Harness home providing `settings.yaml`; defaults to the resolved `$DSH_HOME`/`~/.dsh`. */
+  home?: string
+  /** Platform the preference resolves against; defaults to the current host. */
+  platform?: NodeJS.Platform
+}
+
+/**
+ * Read the stored `shell-backend` preference from the user settings document.
+ * @param home - harness home holding `settings.yaml`.
+ * @returns The stored preference, or `'platform-default'` when absent.
+ */
+function readStoredShellBackend(home: string): ShellBackendPreference {
+  try {
+    const document: unknown = yaml.load(readFileSync(join(home, 'settings.yaml'), 'utf8'))
+    const section = typeof document === 'object' && document !== null
+      ? (document as Record<string, unknown>)['shell-backend']
+      : undefined
+    const backend = typeof section === 'object' && section !== null
+      ? (section as Record<string, unknown>).backend
+      : undefined
+    return backend === 'git-bash' ? 'git-bash' : 'platform-default'
+  } catch {
+    // Absent, unreadable, or malformed document: the settings provider owns
+    // the loud read/validation error when it loads; composition takes the
+    // default meanwhile.
+    return 'platform-default'
+  }
+}
+
+/**
+ * Publish the resolved shell backend as `$DSH_SHELL_BACKEND` before the config
+ * tree mounts, so the shell rows' `disabled` expressions evaluate against a
+ * settled value (loader entries start concurrently, so a service-based gate
+ * would race). An explicit non-blank env value wins over the document, the
+ * same escape-hatch shape as `$DSH_PERMISSION_MODE`; a committed settings
+ * change therefore applies on the next start.
+ * @param options - overrides for testability; defaults act on this process.
+ */
+export function applyShellBackendBootEnv(options: ShellBackendBootEnvOptions = {}): void {
+  const env = options.env ?? process.env
+  const explicit = env[SHELL_BACKEND_ENV]
+  if (explicit !== undefined && explicit.trim().length > 0) return
+  const preference = readStoredShellBackend(options.home ?? resolveDshHome())
+  env[SHELL_BACKEND_ENV] = resolveShellBackend(options.platform ?? process.platform, preference)
+}
+
 /**
  * Value mirrors used because Cordis's const enum has no runtime object to import.
  * Keep aligned with `packages/extensions/tool-cordis/src/fiber-state.ts` and
@@ -792,6 +846,9 @@ export async function boot(
   try {
     ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
     ctx.provide('dshHomePath', dshHomePath)
+    // Publish the resolved shell backend before the tree mounts; the shell
+    // rows' disabled expressions read it (see applyShellBackendBootEnv).
+    applyShellBackendBootEnv()
     await ctx.plugin(Loader)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'
