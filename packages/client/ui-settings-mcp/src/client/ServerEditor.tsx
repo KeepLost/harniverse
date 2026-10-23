@@ -250,7 +250,7 @@ export function ServerEditor(props: ServerEditorProps) {
           <span className={css.formLabel}>{t('editor.instructionBytes')}</span>
           <Input value={draft.maxInstructionBytes} inputMode="numeric" onChange={(event) => { setDraft({ ...draft, maxInstructionBytes: event.target.value }) }} />
         </label>
-        <label className={css.formRow}>
+        <label className={css.checkRow}>
           <input type="checkbox" checked={draft.failOnStartupError} onChange={(event) => { setDraft({ ...draft, failOnStartupError: event.target.checked }) }} />
           <span className={css.formLabel}>{t('editor.failOnStartupError')}</span>
         </label>

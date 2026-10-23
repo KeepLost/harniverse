@@ -94,8 +94,10 @@ export function exposeScopedServer(
 
   // Resource requests are enforced at the provider — the composition that
   // made the decision cannot be bypassed by calling the shared tools with a
-  // different server argument.
-  registerServerContext(ctx, serverName, reservationKey ?? serverName, {
+  // different server argument. The instruction-section owner mirrors the root
+  // reservation identity (`<key>:<serverName>`, or the bare public name), so
+  // one reservation key serving several servers keeps one section per server.
+  registerServerContext(ctx, serverName, reservationKey === undefined ? serverName : `${reservationKey}:${serverName}`, {
     resources: {
       async request(request, exec): Promise<JsonValue> {
         const record = nearestResourceRecord(exec.agent)

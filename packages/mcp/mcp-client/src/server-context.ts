@@ -24,8 +24,9 @@ export interface ServerContext {
  * Contribute server context to the services enabled by this composition.
  * @param ctx - server plugin's registration scope and effect owner.
  * @param server - configured public server identity used for resource routing.
- * @param owner - reservation identity; distinct owners of one public name keep
- * distinct instruction sections instead of colliding in the same scope layer.
+ * @param owner - reservation identity naming this server's entries; distinct
+ * owners or public names keep distinct instruction sections instead of
+ * colliding in the same scope layer.
  * @param connection - live resource operations and successful instruction snapshot.
  * @param visible - authorization for the caller's scope key, not its Context.
  */

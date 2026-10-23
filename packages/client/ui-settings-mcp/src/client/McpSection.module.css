@@ -153,6 +153,30 @@
   gap: 10px;
 }
 
+.form textarea {
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  padding: 7px 8px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
+.form textarea:focus-visible {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: none;
+}
+
+.checkRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .formRow {
   display: flex;
   flex-direction: column;
