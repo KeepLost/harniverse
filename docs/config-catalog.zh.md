@@ -2903,6 +2903,24 @@ export interface Config {
 
 来源：[`packages/settings/settings-file/src/index.ts:21`](../packages/settings/settings-file/src/index.ts)
 
+<a id="deepseek-aidsh-shell-backend-settings"></a>
+
+## `@deepseek-ai/dsh-shell-backend-settings`
+
+需要：`settings`
+
+```ts config-catalog
+/** Stored shell-backend settings; every field is optional over the schema defaults. */
+export interface ShellBackendSettings {
+  /** Shell family the host composes on Windows; inert elsewhere. */
+  backend?: ShellBackendPreference
+}
+```
+
+依赖：[`ShellBackendPreference`](../packages/shell/shell/src/index.ts)
+
+来源：[`packages/shell/shell-backend-settings/src/index.ts:20`](../packages/shell/shell-backend-settings/src/index.ts)
+
 <a id="deepseek-aidsh-shell-env"></a>
 
 ## `@deepseek-ai/dsh-shell-env`

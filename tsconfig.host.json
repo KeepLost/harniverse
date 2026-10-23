@@ -272,6 +272,7 @@
     { "path": "./packages/sandbox/sandbox-policy" },
     { "path": "./packages/sandbox/sandbox-windows-acl" },
     { "path": "./packages/shell/bash-sandbox" },
+    { "path": "./packages/shell/shell-backend-settings" },
     { "path": "./packages/shell/tool-bash" },
     { "path": "./packages/fs/fs" },
     { "path": "./packages/fs/fs-codec" },

@@ -59,13 +59,16 @@
 # never reached the model's shell at all. Both shell tools consume the host
 # registry from here; their executors (`bash-sandbox`/`pwsh-sandbox`) are
 # host-plane too.
+# Both shell tools carry the `$DSH_SHELL_BACKEND` flag pair published by app
+# boot from the `shell-backend:` settings section; unset, it falls back to the
+# platform split (pwsh on win32, bash elsewhere).
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
-  disabled: !!js process.platform === 'win32'
+  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'pwsh'"
 
 - id: tool-pwsh
   name: '@deepseek-ai/dsh-tool-pwsh'
-  disabled: !!js process.platform !== 'win32'
+  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'bash'"
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 

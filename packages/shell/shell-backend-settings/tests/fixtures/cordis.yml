@@ -1,0 +1,47 @@
+# REAL-composition fixture for the shell-backend chain: app boot reads the
+# `shell-backend:` user section (seeded by the spec) and publishes
+# `$DSH_SHELL_BACKEND`; both shell stacks carry the symmetric flag pair, so
+# exactly the selected stack mounts. Driven by the package's loader.spec.ts.
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: settings
+  name: '@deepseek-ai/dsh-settings-file'
+
+- id: shell-backend-settings
+  name: '@deepseek-ai/dsh-shell-backend-settings'
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+
+- id: bash-sandbox
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'pwsh'"
+
+- id: pwsh-sandbox
+  name: '@deepseek-ai/dsh-pwsh-sandbox'
+  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'bash'"
+
+- id: shell-env
+  name: '@deepseek-ai/dsh-shell-env'
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'pwsh'"
+  config:
+    enableRunInBackground: false
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'bash'"
+  config:
+    enableRunInBackground: false

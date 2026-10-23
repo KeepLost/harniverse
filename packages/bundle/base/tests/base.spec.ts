@@ -114,7 +114,7 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'tools')?.config).toBeUndefined()
   })
 
-  it('gates each shell stack by platform with a symmetric disabled expression', () => {
+  it('gates each shell stack on the boot-published shell backend with a symmetric flag pair', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const parsed = yaml.load(
       readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
@@ -126,24 +126,42 @@ describe('dsh-base bundle', () => {
         ? (patch as { insert?: Record<string, unknown>[] }).insert ?? []
         : [],
     )
-    // Symmetric gating: each stack's executor and tool rows carry the same
-    // platform fact, inverted between the bash and pwsh twins, so exactly one
-    // shell stack mounts per host. Evaluate with a platform-scoped context
-    // (the `with` scope shadows the global `process`) so both outcomes pin on
-    // every host.
-    for (const [id, win32, linux] of [
-      ['bash-sandbox', true, false],
-      ['tool-bash', true, false],
-      ['pwsh-sandbox', false, true],
-      ['tool-pwsh', false, true],
+    // The shell stacks gate on `$DSH_SHELL_BACKEND`, published by app boot
+    // from the `shell-backend:` user settings section. Each stack's executor
+    // and tool rows carry the same flag, inverted between the bash and pwsh
+    // twins, so exactly one shell stack mounts per host; an unset value (a
+    // tree mounted without the boot bridge) falls back to the platform split.
+    // Evaluate with scoped contexts (the `with` scope shadows the global
+    // `process`) so every outcome pins on every host.
+    const outcomes = [
+      { env: undefined, platform: 'win32', bash: true, pwsh: false },
+      { env: undefined, platform: 'linux', bash: false, pwsh: true },
+      { env: 'bash', platform: 'win32', bash: false, pwsh: true },
+      { env: 'pwsh', platform: 'linux', bash: true, pwsh: false },
+    ] as const
+    for (const [id, stack] of [
+      ['bash-sandbox', 'bash'],
+      ['tool-bash', 'bash'],
+      ['pwsh-sandbox', 'pwsh'],
+      ['tool-pwsh', 'pwsh'],
     ] as const) {
       const row = rows.find(candidate => candidate.id === id)
       if (row === undefined) throw new Error(`base patch must mount ${id}`)
       const expression = (row.disabled as { __jsExpr?: string } | undefined)?.__jsExpr
       if (expression === undefined) throw new Error(`${id} must gate on a !!js disabled expression`)
-      expect(Boolean(evaluate({ process: { platform: 'win32' } }, expression)), `${id} on win32`).toBe(win32)
-      expect(Boolean(evaluate({ process: { platform: 'linux' } }, expression)), `${id} on linux`).toBe(linux)
+      for (const outcome of outcomes) {
+        const scope = { process: { platform: outcome.platform, env: { DSH_SHELL_BACKEND: outcome.env } } }
+        const label = `${id} on ${outcome.platform} with DSH_SHELL_BACKEND=${String(outcome.env)}`
+        expect(Boolean(evaluate(scope, expression)), label).toBe(outcome[stack])
+      }
     }
+    // The settings namespace the boot bridge reads is registered in the same
+    // layer, ahead of both stacks.
+    const order = rows.map(row => row.id)
+    const switchboardAt = order.indexOf('shell-backend-settings')
+    expect(switchboardAt).toBeGreaterThanOrEqual(0)
+    expect(switchboardAt).toBeLessThan(order.indexOf('bash-sandbox'))
+    expect(switchboardAt).toBeLessThan(order.indexOf('pwsh-sandbox'))
     // The platform layer folded into these rows: no separate patch file ships.
     expect(existsSync(resolve(root, 'windows.cordis.patch.yml'))).toBe(false)
   })

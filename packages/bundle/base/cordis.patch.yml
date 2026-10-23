@@ -175,15 +175,24 @@
         mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
         workspaceRoot: !!js process.cwd()
 
+    # The shell stacks gate on `$DSH_SHELL_BACKEND`, published by app boot from
+    # the `shell-backend:` user settings section (`applies: 'restart'`); an
+    # explicit env value wins, and an unset value (a tree mounted without the
+    # boot bridge) falls back to the platform split — pwsh on win32, bash
+    # elsewhere. The rows below register the settings namespace the bridge
+    # reads; the executor/tool rows carry the symmetric flag pair.
+    - id: shell-backend-settings
+      name: '@deepseek-ai/dsh-shell-backend-settings'
+
     - id: bash-sandbox
       name: '@deepseek-ai/dsh-bash-sandbox'
-      disabled: !!js process.platform === 'win32'
+      disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'pwsh'"
       config:
         timeoutMs: 60000
 
     - id: pwsh-sandbox
       name: '@deepseek-ai/dsh-pwsh-sandbox'
-      disabled: !!js process.platform !== 'win32'
+      disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'bash'"
 
     - id: approval
       name: '@deepseek-ai/dsh-user-approval'
@@ -209,11 +218,11 @@
 
     - id: tool-bash
       name: '@deepseek-ai/dsh-tool-bash'
-      disabled: !!js process.platform === 'win32'
+      disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'pwsh'"
 
     - id: tool-pwsh
       name: '@deepseek-ai/dsh-tool-pwsh'
-      disabled: !!js process.platform !== 'win32'
+      disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'bash'"
 
     - id: tool-jobs
       name: '@deepseek-ai/dsh-tool-jobs'

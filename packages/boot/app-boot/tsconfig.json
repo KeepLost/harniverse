@@ -30,6 +30,9 @@
       "path": "../../core/system-prompt"
     },
     {
+      "path": "../../shell/shell"
+    },
+    {
       "path": "../../util/launch-environment"
     },
     {

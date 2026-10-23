@@ -282,7 +282,7 @@ abstract run(spec: ShellExecSpec): Promise<ShellRunResult>
 abstract start(spec: ShellExecSpec): ShellProcess | Promise<ShellProcess>
 ```
 
-Source: [`packages/shell/shell/src/index.ts:72`](../../packages/shell/shell/src/index.ts)
+Source: [`packages/shell/shell/src/index.ts:77`](../../packages/shell/shell/src/index.ts)
 
 <a id="ctxshellenv--shellenvregistry"></a>
 

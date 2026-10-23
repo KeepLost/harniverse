@@ -43,6 +43,11 @@ export {
   defaultShellName,
   isZshShell,
 } from './platform.ts'
+export { resolveShellBackend } from './backend.ts'
+export type {
+  ShellBackendPreference,
+  ShellBackendSelection,
+} from './backend.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
