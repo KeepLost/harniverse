@@ -74,6 +74,8 @@ flowchart LR
   cfg --> plugin_dsh_base_sandbox
   plugin_dsh_base_sandbox_policy["sandbox-policy<br/>@deepseek-ai/dsh-sandbox-policy"]
   cfg --> plugin_dsh_base_sandbox_policy
+  plugin_dsh_base_shell_backend_settings["shell-backend-settings<br/>@deepseek-ai/dsh-shell-backend-settings"]
+  cfg --> plugin_dsh_base_shell_backend_settings
   plugin_dsh_base_bash_sandbox["bash-sandbox<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_dsh_base_bash_sandbox
   plugin_dsh_base_pwsh_sandbox["pwsh-sandbox<br/>@deepseek-ai/dsh-pwsh-sandbox"]
@@ -257,6 +259,7 @@ flowchart LR
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
 | `sandbox-policy` | `@deepseek-ai/dsh-sandbox-policy` |
+| `shell-backend-settings` | `@deepseek-ai/dsh-shell-backend-settings` |
 | `bash-sandbox` | `@deepseek-ai/dsh-bash-sandbox` |
 | `pwsh-sandbox` | `@deepseek-ai/dsh-pwsh-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
