@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-在有界预算内跟随重定向，包括跨源。每一跳都重跑直接请求会得到的完整验证：`Location` 头相对响应 URL 解析，`validateFetchUrl` 重新检查 URL 卫生（协议、凭证、长度），`requestOnce` 重新执行字面范围检查、DNS 答案验证与公共地址钉死。跨源目标同样跟随，因为请求是匿名的——不存在可转发的 cookie、凭证或会话（[web 包规则](../../../packages/web/AGENTS.md) 拒绝的是带凭证提供方请求的重定向，本提供方不属于此类），而 SSRF 防御由逐跳地址检查承担，与源无关。`maxRedirects` 默认 `5`（上游先例数字），可配置，`0` 表示一律不跟随；超出预算抛 `WEB_REDIRECT_BLOCKED`，无可用 `Location` 的重定向抛 `WEB_PROVIDER_ERROR`，每次抛出前先取消响应体以免 socket 泄漏。抓取结果如实报告实际落地的最终 URL，引用不会错误归属内容来源。
+在有界预算内跟随重定向，包括跨源。每一跳都重跑直接请求会得到的完整验证：`Location` 头相对响应 URL 解析，`validateFetchUrl` 重新检查 URL 卫生（协议、凭证、长度），`requestOnce` 重新执行字面范围检查、DNS 答案验证与公共地址钉死。跨源目标同样跟随，因为请求是匿名的——不存在可转发的 cookie、凭证或会话（[web 包规则](../../../../packages/web/AGENTS.md) 拒绝的是带凭证提供方请求的重定向，本提供方不属于此类），而 SSRF 防御由逐跳地址检查承担，与源无关。`maxRedirects` 默认 `5`（上游先例数字），可配置，`0` 表示一律不跟随；超出预算抛 `WEB_REDIRECT_BLOCKED`，无可用 `Location` 的重定向抛 `WEB_PROVIDER_ERROR`，每次抛出前先取消响应体以免 socket 泄漏。抓取结果如实报告实际落地的最终 URL，引用不会错误归属内容来源。
 
 这里有意偏离上游的同源限定：上游的跨源错误消息会点名目标并邀请手动重试，同一模型下一轮即可经同一工具与同一逐跳校验到达同一目标——在 agent 语境下该限定不带来防护，只增加一次工具调用。此为 Harniverse 下游决策。
 

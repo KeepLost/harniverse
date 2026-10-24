@@ -444,6 +444,12 @@ describe('HttpFetchProvider redirects', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 
+  it('rejects a redirect whose Location fails URL hygiene', async () => {
+    handler = (_req, res) => { res.writeHead(302, { location: 'ftp://example.com/x' }); res.end() }
+    await expect(provider().fetch({ url: `${base}/start` }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_INVALID_URL' }))
+  })
+
   it('revalidates every redirect hop against the public-address policy', async () => {
     let targetHits = 0
     handler = (req, res) => {
