@@ -39,7 +39,7 @@ function loopbackFetchPlugin(targetPort: number, timeoutMs: number): {
         maxResponseBytes: 5_000_000,
         maxBodyChars: 100_000,
         timeoutMs,
-        maxRedirects: 0,
+        maxRedirects: 5,
         userAgent: 'integration-test',
       }, {
         resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
@@ -119,11 +119,21 @@ describe('web_fetch integration over the real backend', () => {
     expect(out.error?.info?.code).toBe('WEB_INVALID_URL')
   })
 
-  it('surfaces a blocked cross-origin redirect as WEB_REDIRECT_BLOCKED', async () => {
-    handler = (_req, res) => { res.writeHead(302, { location: 'https://example.com/' }); res.end() }
+  it('follows a cross-origin redirect and reports the final URL', async () => {
+    handler = (req, res) => {
+      if (req.url === '/') {
+        res.writeHead(302, { location: 'http://example.com/moved' })
+        res.end()
+        return
+      }
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end('moved page')
+    }
     const out = await call('web_fetch', { url: base })
-    expect(out.isError).toBe(true)
-    expect(out.error?.info?.code).toBe('WEB_REDIRECT_BLOCKED')
+    expect(out.isError).toBe(false)
+    const text = out.content.map(b => b.type === 'text' ? b.text : '').join('')
+    expect(text).toContain('Fetched http://example.com/moved (HTTP 200)')
+    expect(text).toContain('moved page')
   })
 })
 
@@ -202,7 +212,7 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
       maxResponseBytes: 5_000_000,
       maxBodyChars: 100_000,
       timeoutMs: 50,
-      maxRedirects: 0,
+      maxRedirects: 5,
       userAgent: 'integration-test',
     }, {
       resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],

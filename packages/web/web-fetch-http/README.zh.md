@@ -19,9 +19,9 @@
 - 只接受 `http:` 和 `https:` URL；拒绝 URL 中的凭据（`WEB_BLOCKED_URL`）以及过长／格式错误的 URL（`WEB_INVALID_URL`）。
 - 拒绝字面量或 DNS 解析得到的非公共 IPv4／IPv6 地址，包括 loopback、私有、link-local、保留、multicast、metadata 和 IPv4-mapped IPv6 地址；除非运营者的 `no_proxy` 旁路名单显式点名了该目的地（主机、IP 或 IPv4 CIDR 网段）——这是运营者的豁免，直连钉死路径保持不变、仅放行被点名的私有范围。DNS 错误、空答案、无效答案以及公共／非公共混合答案依旧 fail closed。
 - 在每次请求前解析主机名，并把 socket 直接连接到已验证的地址，同时保留 URL 主机名作为 HTTP `Host` 标头和 HTTPS TLS server name。当进程级出站代理策略让该 URL 走代理时，该跳改走策略的共享隧道且不做本地地址解析——由代理解析源站——回环与旁路名单中的 URL 仍走固定的直连路径。
-- 强制执行 URL 最大长度、响应字节上限（`WEB_FETCH_TOO_LARGE`）、解码主体字符上限、超时（`WEB_FETCH_TIMEOUT`）以及固定的重定向拒绝策略。
+- 强制执行 URL 最大长度、响应字节上限（`WEB_FETCH_TOO_LARGE`）、解码主体字符上限、超时（`WEB_FETCH_TIMEOUT`）以及有界的重定向预算。
 - 把调用方的中止信号（`WEB_ABORTED`）传播到网络请求与流式读取。
-- 拒绝所有 HTTP 重定向并返回 `WEB_REDIRECT_BLOCKED`；`maxRedirects` 是固定安全设置，必须为 `0`，目标 URL 必须重新发起工具调用并独立通过 URL 与 DNS 策略。
+- 跟随 HTTP 重定向（包括跨源——请求是匿名的，没有可转发的凭证），不超过 `maxRedirects` 跳数预算；每一跳都重新执行完整的 URL 卫生与公共地址验证，超预算时报 `WEB_REDIRECT_BLOCKED`，抓取结果如实报告最终落地的 URL。
 - 发送显式的产品 `User-Agent`，绝不伪装成浏览器。
 - 不受支持的内容类型（例如二进制）以 `WEB_UNSUPPORTED_CONTENT_TYPE` 拒绝。
 
@@ -33,10 +33,10 @@
 | `maxResponseBytes` | `5_000_000` | 响应主体最大字节数。 |
 | `maxBodyChars` | `100_000` | 解码主体最大字符数。 |
 | `timeoutMs` | `30_000` | Node 定时器范围内的抓取超时：直接 `ctx.web.fetch()` 调用方的资源兜底，而非面向模型的工具调用预算（后者属于 `dsh-tool-call-timeout-policy`）。 |
-| `maxRedirects` | `0` | 固定拒绝重定向；任何非零值都会使插件构造失败。 |
+| `maxRedirects` | `5` | 跟随的最大重定向跳数（`0` 表示一律不跟随）。每一跳都重新执行 URL、DNS 与公共地址验证。 |
 | `userAgent` | `deepseek-harness/…` | `User-Agent` 标头。 |
 
-数值限制会在插件构造时验证：除 `maxRedirects` 外，每个上限都必须是正的有限数；`maxRedirects` 必须严格为 `0`。无效值会抛出异常，不会静默构造限制荒谬的提供方。
+数值限制会在插件构造时验证：每个上限都必须是正的有限数；`maxRedirects` 必须是非负整数。无效值会抛出异常，不会静默构造限制荒谬的提供方。
 
 ## 模型体验
 

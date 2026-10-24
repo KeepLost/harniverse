@@ -4227,14 +4227,14 @@ export interface Config {
   maxBodyChars?: number
   /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
-  /** Must be zero; redirects are disabled by fixed security policy. */
+  /** Maximum number of redirect hops to follow (0 follows none). */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
   userAgent?: string
 }
 ```
 
-Source: [`packages/web/web-fetch-http/src/index.ts:35`](../packages/web/web-fetch-http/src/index.ts)
+Source: [`packages/web/web-fetch-http/src/index.ts:36`](../packages/web/web-fetch-http/src/index.ts)
 
 <a id="deepseek-aidsh-web-firecrawl"></a>
 
