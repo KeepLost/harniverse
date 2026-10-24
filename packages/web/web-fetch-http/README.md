@@ -19,9 +19,9 @@ A shipping web-tool deployment sets the provider backstop above the tool budget,
 - Accepts only `http:` and `https:` URLs; rejects credentials in URLs (`WEB_BLOCKED_URL`) and over-long/malformed URLs (`WEB_INVALID_URL`).
 - Rejects literal or DNS-resolved non-public IPv4/IPv6 addresses, including loopback, private, link-local, reserved, multicast, metadata, and IPv4-mapped IPv6 addresses, unless the operator's `no_proxy` bypass list explicitly names the destination (a host, an IP, or an IPv4 CIDR range) — the operator's opt-in, which keeps the pinned direct path while admitting the named private scope. DNS errors, empty answers, invalid answers, and mixed public/non-public answer sets still fail closed.
 - Resolves hostnames before each request and connects directly to the validated address while preserving the URL hostname for the HTTP `Host` header and HTTPS TLS server name. When the process-wide outbound proxy policy routes the URL through a proxy, the hop instead takes that policy's shared tunnel with no local address resolution — the proxy resolves the origin — while loopback and bypassed URLs stay on the pinned direct path.
-- Enforces a max URL length, response byte cap (`WEB_FETCH_TOO_LARGE`), decoded body character cap, timeout (`WEB_FETCH_TIMEOUT`), and fixed redirect denial.
+- Enforces a max URL length, response byte cap (`WEB_FETCH_TOO_LARGE`), decoded body character cap, timeout (`WEB_FETCH_TIMEOUT`), and a bounded redirect budget.
 - Propagates the caller's abort signal (`WEB_ABORTED`) into the network request and the streaming read.
-- Rejects every HTTP redirect with `WEB_REDIRECT_BLOCKED`; `maxRedirects` is a fixed security setting and must be `0`, requiring a fresh tool call for the target URL.
+- Follows HTTP redirects — including cross-origin, since requests are anonymous and carry nothing forwardable — up to the `maxRedirects` hop budget, revalidating every hop against the full URL-hygiene and public-address policy; exceeding the budget fails with `WEB_REDIRECT_BLOCKED`, and the fetched result reports the final URL actually served.
 - Sends an explicit product `User-Agent`, never a browser disguise.
 - Rejects unsupported (e.g. binary) content types with `WEB_UNSUPPORTED_CONTENT_TYPE`.
 
@@ -33,10 +33,10 @@ A shipping web-tool deployment sets the provider backstop above the tool budget,
 | `maxResponseBytes` | `5_000_000` | Maximum response body size in bytes. |
 | `maxBodyChars` | `100_000` | Maximum decoded body length in characters. |
 | `timeoutMs` | `30_000` | Fetch timeout within Node's timer range — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-tool-call-timeout-policy`). |
-| `maxRedirects` | `0` | Fixed redirect-deny policy; any non-zero value fails plugin construction. |
+| `maxRedirects` | `5` | Maximum redirect hops to follow (`0` follows none). Every hop re-runs URL, DNS, and public-address validation. |
 | `userAgent` | `deepseek-harness/…` | `User-Agent` header. |
 
-The numeric limits are validated at plugin construction: every cap except `maxRedirects` must be a positive finite number, and `maxRedirects` must be exactly `0`. An invalid value throws rather than silently constructing a provider with nonsensical limits.
+The numeric limits are validated at plugin construction: every cap must be a positive finite number, and `maxRedirects` must be a non-negative integer. An invalid value throws rather than silently constructing a provider with nonsensical limits.
 
 ## Model Experience
 

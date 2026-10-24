@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { Readable } from 'node:stream'
 import { AddressInfo } from 'node:net'
 import { Context } from '@deepseek-ai/cordis'
-import WebRuntime from '@deepseek-ai/dsh-web'
+import WebRuntime, { WebError } from '@deepseek-ai/dsh-web'
 import { HttpFetchProvider, LOCAL_FETCH_PROVIDER_ID } from '@deepseek-ai/dsh-web-fetch-http'
 import type { HttpFetchLimits } from '@deepseek-ai/dsh-web-fetch-http'
 import * as fetchPlugin from '@deepseek-ai/dsh-web-fetch-http'
@@ -14,7 +14,7 @@ const limits: HttpFetchLimits = {
   maxResponseBytes: 5_000_000,
   maxBodyChars: 100_000,
   timeoutMs: 5_000,
-  maxRedirects: 0,
+  maxRedirects: 5,
   userAgent: 'test-agent/1.0',
 }
 
@@ -371,29 +371,94 @@ describe('HttpFetchProvider caps', () => {
 })
 
 describe('HttpFetchProvider redirects', () => {
-  it.each([300, 301, 302, 303, 305, 306, 307, 308])('rejects HTTP %i redirects without contacting the target', async (status) => {
-    let requests = 0
+  it('follows a same-origin redirect with a relative Location to the final response', async () => {
+    handler = (req, res) => {
+      if (req.url === '/start') {
+        res.writeHead(301, { location: '/final' })
+        res.end()
+        return
+      }
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end('landed')
+    }
+    const result = await provider().fetch({ url: `${base}/start` })
+    expect(result.statusCode).toBe(200)
+    expect(result.url).toBe(`${base}/final`)
+    expect(result.body).toEqual({ kind: 'text', content: 'landed' })
+  })
+
+  it('follows a cross-origin redirect to the final response and reports the final URL', async () => {
     let targetHits = 0
     handler = (req, res) => {
-      requests++
       if (req.url === '/start') {
-        res.writeHead(status, { location: `http://target.test:${port}/target` })
-      } else {
-        targetHits++
-        res.writeHead(200, { 'content-type': 'text/plain' })
+        res.writeHead(302, { location: `http://elsewhere.test:${port}/target` })
+        res.end()
+        return
       }
+      targetHits++
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end('elsewhere')
+    }
+    const result = await provider().fetch({ url: `${base}/start` })
+    expect(result.statusCode).toBe(200)
+    expect(result.url).toBe(`http://elsewhere.test:${port}/target`)
+    expect(result.body).toEqual({ kind: 'text', content: 'elsewhere' })
+    expect(targetHits).toBe(1)
+  })
+
+  it('enforces the redirect budget', async () => {
+    let requests = 0
+    handler = (_req, res) => {
+      requests++
+      res.writeHead(302, { location: `${base}/loop` })
       res.end()
     }
-    await expect(provider().fetch({ url: `${base}/start` }))
+    let caught: unknown
+    await provider().fetch({ url: `${base}/start` }).then(() => {}, (error: unknown) => { caught = error })
+    expect(caught).toBeInstanceOf(WebError)
+    expect((caught as WebError).code).toBe('WEB_REDIRECT_BLOCKED')
+    expect((caught as WebError).message).toContain('maximum of 5 redirects')
+    expect(requests).toBe(6)
+  })
+
+  it.each([300, 301, 302, 303, 305, 306, 307, 308])('follows no redirect when the cap is 0: HTTP %i', async (status) => {
+    let targetHits = 0
+    handler = (req, res) => {
+      if (req.url === '/start') {
+        res.writeHead(status, { location: `${base}/target` })
+        res.end()
+        return
+      }
+      targetHits++
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end()
+    }
+    await expect(provider({ maxRedirects: 0 }).fetch({ url: `${base}/start` }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
-    expect(requests).toBe(1)
     expect(targetHits).toBe(0)
   })
 
-  it('rejects a redirect without a Location header under the same fixed policy', async () => {
+  it('rejects a redirect without a Location header as a provider error', async () => {
     handler = (_req, res) => { res.writeHead(302); res.end() }
     await expect(provider().fetch({ url: base }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('revalidates every redirect hop against the public-address policy', async () => {
+    let targetHits = 0
+    handler = (req, res) => {
+      if (req.url === '/start') {
+        res.writeHead(302, { location: `http://127.0.0.1:${port}/target` })
+        res.end()
+        return
+      }
+      targetHits++
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end()
+    }
+    await expect(provider().fetch({ url: `${base}/start` }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
+    expect(targetHits).toBe(0)
   })
 })
 
@@ -577,10 +642,10 @@ describe('HttpFetchProvider body cancellation on error paths', () => {
     return { response, cancelled: () => cancelled }
   }
 
-  it('cancels the body when a redirect is blocked', async () => {
+  it('cancels the body when a redirect exceeds the budget', async () => {
     const { response, cancelled } = fakeResponse({ status: 302, headers: {}, location: 'https://elsewhere.test/' })
     vi.stubGlobal('fetch', vi.fn(async () => response))
-    await expect(provider().fetch({ url: 'http://public.test:9/' }))
+    await expect(provider({ maxRedirects: 0 }).fetch({ url: 'http://public.test:9/' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
     expect(cancelled()).toBe(true)
   })
@@ -597,7 +662,7 @@ describe('HttpFetchProvider body cancellation on error paths', () => {
     const { response, cancelled } = fakeResponse({ status: 302, headers: {} })
     vi.stubGlobal('fetch', vi.fn(async () => response))
     await expect(provider().fetch({ url: 'http://public.test:9/' }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
     expect(cancelled()).toBe(true)
   })
 })
@@ -643,29 +708,23 @@ describe('web-fetch-http plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     await expect(ctx.plugin(fetchPlugin, { maxRedirects: 1.5 }))
-      .rejects.toThrow(/maxRedirects must be 0 because redirects are disabled/)
+      .rejects.toThrow(/maxRedirects must be a non-negative integer/)
   })
 
   it('rejects a negative redirect cap at construction', async () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     await expect(ctx.plugin(fetchPlugin, { maxRedirects: -1 }))
-      .rejects.toThrow(/maxRedirects must be 0 because redirects are disabled/)
+      .rejects.toThrow(/maxRedirects must be a non-negative integer/)
   })
 
-  it('rejects a positive redirect cap at construction', async () => {
+  it('accepts zero, the default, and positive redirect caps at construction', async () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
-    await expect(ctx.plugin(fetchPlugin, { maxRedirects: 1 }))
-      .rejects.toThrow(/maxRedirects must be 0 because redirects are disabled/)
-  })
-
-  it('accepts maxRedirects: 0 as valid config', async () => {
-    const ctx = new Context()
-    await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
-    const fiber = await ctx.plugin(fetchPlugin, { maxRedirects: 0 })
-    await expect(ctx.web.fetch({ url: 'http://127.0.0.1:1/' }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
-    await fiber.dispose()
+    const zero = await ctx.plugin(fetchPlugin, { maxRedirects: 0 })
+    await zero.dispose()
+    const seven = await ctx.plugin(fetchPlugin, { maxRedirects: 7 })
+    await seven.dispose()
+    await expect(ctx.plugin(fetchPlugin, {})).resolves.toBeTruthy()
   })
 })

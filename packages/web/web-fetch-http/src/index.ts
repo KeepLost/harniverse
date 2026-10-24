@@ -3,7 +3,8 @@
  * `WebFetchProvider` with `ctx.web`. A function/namespace plugin (NOT a
  * default-export service): it registers INTO the seam's fetch registry, like the
  * search providers register into the search registry. The provider only connects
- * to validated public addresses and rejects redirects.
+ * to validated public addresses and follows redirects within a bounded budget,
+ * revalidating every hop.
  *
  * @module @deepseek-ai/dsh-web-fetch-http
  */
@@ -41,7 +42,7 @@ export interface Config {
   maxBodyChars?: number
   /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
-  /** Must be zero; redirects are disabled by fixed security policy. */
+  /** Maximum number of redirect hops to follow (0 follows none). */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
   userAgent?: string
@@ -52,7 +53,7 @@ export const Config: z<Config> = z.object({
   maxResponseBytes: z.number().default(5_000_000),
   maxBodyChars: z.number().default(100_000),
   timeoutMs: z.number().default(30_000),
-  maxRedirects: z.number().default(0),
+  maxRedirects: z.number().default(5),
   userAgent: z.string().default(DEFAULT_USER_AGENT),
 })
 
@@ -74,6 +75,13 @@ function assertTimeoutMs(value: number): void {
   }
 }
 
+/** The redirect hop budget is a count: a non-negative integer (0 follows no redirects). */
+function assertNonNegativeInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`web-fetch-http: ${name} must be a non-negative integer`)
+  }
+}
+
 /** Register the local HTTP(S) fetch provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
@@ -82,6 +90,7 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveFinite('maxResponseBytes', resolved.maxResponseBytes)
   assertPositiveFinite('maxBodyChars', resolved.maxBodyChars)
   assertTimeoutMs(resolved.timeoutMs)
+  assertNonNegativeInteger('maxRedirects', resolved.maxRedirects)
   const limits: HttpFetchLimits = {
     maxUrlLength: resolved.maxUrlLength,
     maxResponseBytes: resolved.maxResponseBytes,

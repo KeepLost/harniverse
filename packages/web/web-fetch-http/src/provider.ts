@@ -1,6 +1,7 @@
 /**
  * Safe HTTP(S) retrieval for `ctx.web`: validates URLs, resolves and pins public addresses,
- * rejects redirects, enforces time and size limits, classifies and decodes text, and leaves
+ * follows redirects within a bounded budget with every hop revalidated, enforces time and
+ * size limits, classifies and decodes text, and leaves
  * presentation to `@deepseek-ai/dsh-tool-web`. Requests carry no browser cookies or ambient
  * credentials and use direct Node transports; when the process-wide outbound proxy policy
  * routes the URL through a proxy, the hop takes that policy's shared tunnel instead of local
@@ -31,7 +32,7 @@ export interface HttpFetchLimits {
   maxBodyChars: number
   /** Default fetch timeout in milliseconds. */
   timeoutMs: number
-  /** Must be zero; redirects are a fixed-deny policy. */
+  /** Maximum number of redirect hops to follow (0 follows none). */
   maxRedirects: number
   /** `User-Agent` header sent on every request. */
   userAgent: string
@@ -67,9 +68,6 @@ export class HttpFetchProvider implements WebFetchProvider {
   private readonly requestTransport: FetchTransport
 
   constructor(private readonly limits: HttpFetchLimits, seams: HttpFetchSeams = {}) {
-    if (limits.maxRedirects !== 0) {
-      throw new Error('web-fetch-http: maxRedirects must be 0 because redirects are disabled')
-    }
     this.resolveHostname = seams.resolveHostname ?? resolveHostname
     this.requestTransport = seams.request ?? requestDirect
   }
@@ -85,18 +83,55 @@ export class HttpFetchProvider implements WebFetchProvider {
     // One signal stops both the request and body read. The deadline's TimeoutReason later
     // distinguishes this provider's timeout from caller or outer-deadline cancellation.
     using d = deadline(signal, this.limits.timeoutMs, 'WEB_FETCH_TIMEOUT')
-    return await this.requestAndRead(request.url, d.signal)
+    return await this.followAndRead(request.url, d.signal)
   }
 
-  /** Resolve the public destination, make one request, and read its final response. */
-  private async requestAndRead(initialUrl: string, signal: AbortSignal): Promise<WebFetchResult> {
-    const url = validateFetchUrl(initialUrl, this.limits.maxUrlLength)
-    const response = await this.requestOnce(url, signal)
-    if (isRedirectStatus(response.status)) {
-      await response.body?.cancel()
-      throw new WebError('redirect responses are disabled; retry the URL directly', 'WEB_REDIRECT_BLOCKED')
+  /**
+   * Follow redirects up to the hop cap, then read the final response. Every hop
+   * re-runs the full request-time validation — URL hygiene here, then literal
+   * scope, DNS answers, and public-address pinning in {@link requestOnce} — so
+   * a redirect is never a bypass around the transport policy a direct request
+   * gets. Cross-origin targets are followed: the request is anonymous, so there
+   * are no credentials to forward, and the address checks carry the SSRF
+   * defense regardless of origin.
+   */
+  private async followAndRead(initialUrl: string, signal: AbortSignal): Promise<WebFetchResult> {
+    let currentUrl = validateFetchUrl(initialUrl, this.limits.maxUrlLength)
+    let redirectsFollowed = 0
+
+    for (;;) {
+      const response = await this.requestOnce(currentUrl, signal)
+      if (isRedirectStatus(response.status)) {
+        // Enforce the redirect budget before resolving the next hop.
+        if (redirectsFollowed >= this.limits.maxRedirects) {
+          await response.body?.cancel()
+          throw new WebError(`exceeded the maximum of ${this.limits.maxRedirects} redirects`, 'WEB_REDIRECT_BLOCKED')
+        }
+        const location = response.headers.get('location')
+        if (location === null) {
+          // A redirect status without a Location header is not a usable resource. Cancel
+          // the (possibly streaming) body before throwing so no socket leaks.
+          await response.body?.cancel()
+          throw new WebError(`redirect response (HTTP ${response.status}) without a Location header`, 'WEB_PROVIDER_ERROR')
+        }
+        const target = resolveRedirect(location, currentUrl)
+        // Re-validate the target against the same URL hygiene a direct request gets: a
+        // redirect must not be a back door to a credentialed, non-http(s), or over-long URL.
+        let validatedTarget: URL
+        try {
+          validatedTarget = validateFetchUrl(target.toString(), this.limits.maxUrlLength)
+        } catch (error: unknown) {
+          await response.body?.cancel()
+          throw error
+        }
+        await response.body?.cancel()
+        currentUrl = validatedTarget
+        redirectsFollowed++
+        continue
+      }
+
+      return await this.readBody(response, currentUrl, signal)
     }
-    return await this.readBody(response, url, signal)
   }
 
   private async requestOnce(url: URL, signal: AbortSignal): Promise<Response> {
@@ -243,6 +278,23 @@ export class HttpFetchProvider implements WebFetchProvider {
 /** Reject every redirection response; `304 Not Modified` is not a redirect. */
 function isRedirectStatus(status: number): boolean {
   return status >= 300 && status < 400 && status !== 304
+}
+
+/**
+ * Resolve a redirect `Location` against the responding URL, wrapping resolution
+ * failure as a provider error.
+ *
+ * @param location - the raw `Location` header value (absolute or relative).
+ * @param base - the URL that produced the redirect response.
+ * @returns the redirect target as an absolute URL, not yet policy-validated.
+ */
+function resolveRedirect(location: string, base: URL): URL {
+  try {
+    return new URL(location, base)
+  } catch (error: unknown) {
+    /* v8 ignore next 2 -- resolution against a valid absolute base effectively never throws; defensive guard. */
+    throw new WebError(`invalid redirect Location "${location}"`, 'WEB_PROVIDER_ERROR', { cause: error })
+  }
 }
 
 function stripIpv6Brackets(hostname: string): string {
