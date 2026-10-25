@@ -2145,6 +2145,26 @@ export type Config = Readonly<Record<string, never>>
 
 Source: [`packages/core/model-policy-fallback/src/index.ts:17`](../packages/core/model-policy-fallback/src/index.ts)
 
+<a id="deepseek-aidsh-network-proxy"></a>
+
+## `@deepseek-ai/dsh-network-proxy`
+
+Requires: `settings`
+
+```ts config-catalog
+/** Stored network-proxy settings; every field is optional over the schema defaults. */
+export interface NetworkProxySettings {
+  /** Which route the process-wide policy takes. */
+  mode?: 'off' | 'system' | 'manual'
+  /** Manual-mode proxy URL; empty is the deliberate direct route. */
+  url?: string
+  /** Operator-entered bypass entries, merged with the loopback floor. */
+  noProxy?: string[]
+}
+```
+
+Source: [`packages/host/network-proxy/src/index.ts:36`](../packages/host/network-proxy/src/index.ts)
+
 <a id="deepseek-aidsh-notification-http"></a>
 
 ## `@deepseek-ai/dsh-notification-http`
