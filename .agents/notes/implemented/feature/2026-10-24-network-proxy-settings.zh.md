@@ -16,11 +16,14 @@ Harniverse 原生携带 `dsh-http-proxy`,但它只是启动时的环境缝:启�
 - **失败带警告回退,绝不静默**:传输无法路由的手动 URL(SOCKS、无法解析)或 `system` 无结果,保持启动策略并记录 `dsh-http-proxy` 既有的面向操作者的诊断(结构上不含凭证)。
 - **有意不做按 provider 路由。** 参考插件的招牌特性在这里价值最低:需要独立路由的 provider 已经有——它的 base URL。带上按 provider 分发就得引入 AsyncLocalStorage 的 `fetch` 包装(插件的 `fetch-router`),其唯一目的是全局缝不需要的按请求 dispatcher 选择。
 - Web 设置页经网关 `WEB_SETTINGS_NAMESPACES` 白名单访问该 namespace(现含 `'network-proxy'`),与 `shell-backend` 同路;dsh-base 以默认 `off` 组合本插件,恢复的启动策略逐字节一致,未动过的安装行为与之前完全相同。
+- **用户可见的设置页是 `packages/client/ui-settings-network-proxy`**(`settings.section` id `network-proxy`,order 13,位于全局规则与插件之间):关闭 / 系统代理 / 手动 单选表单,手动模式独享地址输入对。它经 `ctx.settingsScope.bind` 绑定命名空间,只按顺序写入变化字段(mode、url、noProxy;清空的可选字段清除其覆盖);非 http(s) 的地址在客户端即禁用保存,宿主仍是最终执法者。
 
 ## Verification
 
 - `@deepseek-ai/dsh-http-proxy` —— `override.spec.ts`:针对有/无启动策略的 override/restore 往返、空 URL 直连、环回合并、socks/不可解析拒绝诊断;既有 102 测试保持绿。
 - `@deepseek-ai/dsh-network-proxy` —— `detect.spec.ts`:env 优先级与非 HTTP(S) 跳过、Windows 单服务器与按协议注册表形状及禁用/失败查询、macOS scutil 的 https 优先、Linux 永不执行命令;`network-proxy.spec.ts`:决策表(off/manual/system × 可用/不可用/未检出)与 `MemorySettings` 文档上的应用行为——namespace 默认、实时 manual 路由、off 恢复启动策略、system 从快照解析、带警告回退。
+- `@deepseek-ai/dsh-client-ui-settings-network-proxy`——30 个 client 测试:注册/生命周期(HMR 安全卸载)、namespace 解码器的收窄表、设置页的表现矩阵(加载/不可用/只读态、手动独享输入、URL 校验、按序字段写入与覆盖清除、忙碌/失败提示、干净草稿对外部修订的采纳);逐文件覆盖率 100%。
+- 无密钥 web e2e(`apps/web/tests/settings-chrome.e2e.ts`)覆盖真实组合的端到端:nav 名册与对话框 golden 增加网络代理分节,场景切换手动、保存 `http://127.0.0.1:7890` 与例外列表进 `settings.yaml`、重载后作为活动草稿读回、并恢复 `off`。
 - 集成邻域保持绿:apiproxy、bundle base(REAL 组合)、shell-backend-settings——五个受影响包共 891 测试。
 
 ## Alternatives considered
@@ -34,5 +37,5 @@ Harniverse 原生携带 `dsh-http-proxy`,但它只是启动时的环境缝:启�
 ## Consequences
 
 - harniverse 拥有的代理模式在上游不存在:官方 dsh 保持仅环境缝,因此本包是一项长期分歧,本 note 即其记录(absorption review 将其视为下游扩展,同类如 2026-10-24 的重定向跟随预算)。
-- 设置页展示字段但不展示实时探测结论;状态行待设置 schema 能承载只读诊断后再做。
+- 设置页展示字段但不展示实时探测结论;状态行待设置视图能承载只读诊断后再做。
 - 30 秒轮询仅在 `system` 模式激活时存在;Linux 上永不执行命令(仅环境探测)。

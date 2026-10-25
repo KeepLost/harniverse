@@ -87,6 +87,7 @@
     "@deepseek-ai/dsh-client-ui-settings-capabilities": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-general": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-global-rules": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-settings-network-proxy": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-im": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-mcp": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-models": "workspace:^",

@@ -109,7 +109,7 @@ describe('web e2e: settings modal and General preferences', () => {
     // first: a capture taken while a late module is still loading would pin a
     // partial nav into the golden, and dev-source and prebuilt boots disagree
     // on which module is last.
-    for (const section of ['通用设置', '外观', '模型', '故障恢复', '全局规则', '插件', '资源治理', 'MCP 管理', 'Agent 预设', 'IM 机器人', '会话导入', '语音输入', '声音通知']) {
+    for (const section of ['通用设置', '外观', '模型', '故障恢复', '全局规则', '网络代理', '插件', '资源治理', 'MCP 管理', 'Agent 预设', 'IM 机器人', '会话导入', '语音输入', '声音通知']) {
       await dialog.getByRole('button', { name: section, exact: true }).waitFor({ timeout: 10_000 })
     }
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
@@ -211,6 +211,47 @@ describe('web e2e: settings modal and General preferences', () => {
       ['sandbox/mode', { mode: 'danger-full-access' }],
       ['approval/policy', { policy: 'never' }],
     ])
+    await page.keyboard.press('Escape')
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('routes network proxy section writes into the live namespace and back to off', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-network-proxy'))
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: '网络代理', exact: true }).click()
+    await dialog.getByRole('radio', { name: '关闭', exact: true }).waitFor({ timeout: 10_000 })
+    expect(await dialog.getByRole('radio', { name: '关闭', exact: true }).isChecked()).toBe(true)
+
+    // Manual reveals the address pair; an unusable URL keeps saving disabled.
+    await dialog.getByRole('radio', { name: '手动', exact: true }).click()
+    const url = dialog.getByLabel('代理地址')
+    await url.fill('socks://127.0.0.1:1080')
+    await dialog.getByText('代理地址必须是 http:// 或 https:// 开头的有效 URL。').waitFor({ timeout: 5_000 })
+    expect(await dialog.getByRole('button', { name: '保存', exact: true }).isDisabled()).toBe(true)
+    await url.fill('http://127.0.0.1:7890')
+    await dialog.getByLabel('例外列表').fill('localhost,127.0.0.1')
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await dialog.getByText('已保存，路由立即生效。').waitFor({ timeout: 5_000 })
+    await expect.poll(() => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
+      .toMatch(/network-proxy:\n\s+mode: manual\n\s+url: http:\/\/127\.0\.0\.1:7890\n\s+noProxy:\n\s+- localhost\n\s+- 127\.0\.0\.1/)
+    await page.keyboard.press('Escape')
+
+    // The saved route reloads as the active draft; restoring off leaves the
+    // process back on the launch policy for everything that follows.
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const reopened = page.getByRole('dialog', { name: '设置' })
+    await reopened.waitFor({ timeout: 10_000 })
+    await reopened.getByRole('button', { name: '网络代理', exact: true }).click()
+    await reopened.getByRole('radio', { name: '手动', exact: true }).waitFor({ timeout: 10_000 })
+    expect(await reopened.getByRole('radio', { name: '手动', exact: true }).isChecked()).toBe(true)
+    expect(await reopened.getByLabel('代理地址').inputValue()).toBe('http://127.0.0.1:7890')
+    await reopened.getByRole('radio', { name: '关闭', exact: true }).click()
+    await reopened.getByRole('button', { name: '保存', exact: true }).click()
+    await reopened.getByText('已保存，路由立即生效。').waitFor({ timeout: 5_000 })
+    await expect.poll(() => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
+      .toMatch(/network-proxy:\n\s+mode: off/)
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

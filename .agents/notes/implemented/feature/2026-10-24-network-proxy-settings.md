@@ -16,11 +16,14 @@ Harniverse carried `dsh-http-proxy` as a native library but only as a launch-tim
 - **Failure falls back with a warning, never silently**: a manual URL the transport cannot route (SOCKS, unparseable) or a `system` miss keeps the launch policy and logs the operator-facing diagnostic `dsh-http-proxy` already produces (credential-free by construction).
 - **Per-provider routing is deliberately absent.** The reference plugin's headline feature is its least valuable layer here: a provider that needs its own route already has one — its base URL. Carrying per-provider dispatch would import an AsyncLocalStorage `fetch` wrapper (the plugin's `fetch-router`) whose only purpose is per-request dispatcher selection the global seam does not need.
 - The web Settings page reaches the namespace through the gateway's `WEB_SETTINGS_NAMESPACES` allowlist (now naming `'network-proxy'`), the same path `shell-backend` takes; dsh-base composes the plugin with default `off`, which restores the launch policy byte-for-byte, so an untouched install behaves exactly as before.
+- **The user-facing surface is `packages/client/ui-settings-network-proxy`** (`settings.section` id `network-proxy`, order 13, between Global rules and Plugins): the off / system / manual radio fieldset with the manual-only address pair. It binds the namespace through `ctx.settingsScope.bind` and writes only changed fields in order (mode, url, noProxy; an emptied optional clears its override); a non-http(s) URL keeps saving disabled client-side while the host stays the enforcer.
 
 ## Verification
 
 - `@deepseek-ai/dsh-http-proxy` — `override.spec.ts`: override/restore round-trips against an installed and an absent launch policy, direct-on-empty-url, loopback merge, socks/unparseable rejection diagnostics; the pre-existing 102 tests stay green.
 - `@deepseek-ai/dsh-network-proxy` — `detect.spec.ts`: env precedence and non-HTTP(S) skip, Windows single-server and per-protocol registry shapes plus disabled/failed queries, macOS scutil with https-over-http, linux never spawning a command; `network-proxy.spec.ts`: the decision table (off/manual/system × usable/unusable/undetected) and application behavior against a `MemorySettings` document — namespace defaults, live manual route, off-restore of the launch policy, system-from-snapshot, warned fallback.
+- `@deepseek-ai/dsh-client-ui-settings-network-proxy` — 30 client tests: registration/lifecycle (HMR-safe disposal), the namespace decoder's narrowing table, and the section's presentation matrix (load/unavailable/readonly states, manual-only inputs, URL validation, ordered field writes with override clears, busy/failure notices, clean-draft adoption of external revisions); per-file coverage is 100%.
+- The keyless web e2e (`apps/web/tests/settings-chrome.e2e.ts`) covers the real composition end-to-end: the nav roster and dialog golden gain the 网络代理 section, and a scenario switches to manual, saves `http://127.0.0.1:7890` with exclusions into `settings.yaml`, reloads it as the active draft, and restores `off`.
 - Integration neighborhoods stay green: apiproxy, bundle base (REAL composition), shell-backend-settings — 891 tests across the five touched packages.
 
 ## Alternatives considered
@@ -34,5 +37,5 @@ Harniverse carried `dsh-http-proxy` as a native library but only as a launch-tim
 ## Consequences
 
 - A harniverse-owned proxy mode exists upstream-absent: official dsh keeps the env-only seam, so this package is a standing divergence and this note is its record (absorption review treats it as a downstream extension, like the redirect-following budget of 2026-10-24).
-- The Settings page shows fields but not the live detection verdict; a status row waits for a settings schema able to carry read-only diagnostics.
+- The Settings page shows fields but not the live detection verdict; a status row waits for a settings view able to carry read-only diagnostics.
 - The 30s poll exists only while `system` mode is active; it never spawns commands on Linux (env-only detection).
