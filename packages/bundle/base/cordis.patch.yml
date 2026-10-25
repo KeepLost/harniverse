@@ -469,6 +469,12 @@
     - id: web-fetch-http
       name: '@deepseek-ai/dsh-web-fetch-http'
 
+    # Runtime network-proxy settings: one global route (off / system /
+    # manual) applied without a restart through the dsh-http-proxy transport
+    # seam. Default off keeps the launch environment's policy byte-for-byte.
+    - id: network-proxy
+      name: '@deepseek-ai/dsh-network-proxy'
+
     # Own the one user MCP settings namespace on the host plane. Profile rows
     # consume this service and create their own scoped client children; this
     # provider has no model-facing tools, so Minimal remains MCP-free.

@@ -13,6 +13,7 @@ import {
   type Dispatcher,
 } from './dispatcher.ts'
 import {
+  DIRECT_POLICY,
   explicitlyBypasses,
   proxyForUrl,
   resolveProxyPolicy,
@@ -26,6 +27,15 @@ let active: ProxyPolicy | undefined
 
 /** The dispatcher installed with {@link active}, so a route can hand back the one already routing. */
 let installed: ProxyDispatcher | undefined
+
+/** The policy the launch environment resolved to; the target a `null` override restores. */
+let launchPolicy: ProxyPolicy | undefined
+
+/** The dispatcher the launch install left, kept open so a `null` override can remount it unchanged. */
+let launchAgent: ProxyDispatcher | undefined
+
+/** The global dispatcher before the launch install — usually Node's own default, restored on direct overrides. */
+let launchDelegate: Dispatcher | undefined
 
 /**
  * How this process must send one request.
@@ -160,7 +170,45 @@ export async function installProxyFromEnvironment(
 ): Promise<() => Promise<void>> {
   const { policy, diagnostics } = resolveProxyPolicy(env)
   for (const diagnostic of diagnostics) report(diagnostic.message)
-  return await installGlobalProxy(policy)
+  const preLaunch = currentGlobalDispatcher()
+  const dispose = await installGlobalProxy(policy)
+  launchDelegate = preLaunch
+  launchPolicy = policy
+  launchAgent = installed
+  return async () => {
+    await dispose()
+    launchDelegate = undefined
+    launchPolicy = undefined
+    launchAgent = undefined
+  }
+}
+
+/**
+ * Switch the process-wide proxy policy after launch — the runtime half of the network-proxy
+ * settings page. `null` restores the launch environment's policy exactly (direct when launch
+ * exported nothing); a policy whose source is `none` uninstalls to the pre-launch dispatcher.
+ *
+ * The launch-installed dispatcher is never closed here, only unmounted — a later `null` override
+ * remounts the very agent, sockets and all. A superseded runtime dispatcher is closed once no
+ * route can reach it.
+ *
+ * @param policy - the policy to route by, or `null` for the launch policy.
+ * @returns after the swap settles and a superseded runtime agent has closed.
+ */
+export async function setProxyOverride(policy: ProxyPolicy | null): Promise<void> {
+  const next = policy ?? launchPolicy ?? DIRECT_POLICY
+  const previousAgent = installed
+  if (next.source === 'none') {
+    setGlobalDispatcher(launchDelegate)
+    active = next
+    installed = undefined
+  } else {
+    const agent = new ProxyDispatcher(next, launchDelegate)
+    setGlobalDispatcher(agent)
+    active = next
+    installed = agent
+  }
+  if (previousAgent !== undefined && previousAgent !== launchAgent) await previousAgent.close()
 }
 
 /**
