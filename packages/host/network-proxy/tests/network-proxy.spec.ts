@@ -170,19 +170,27 @@ describe('@deepseek-ai/dsh-network-proxy application', () => {
   })
 
   it('system mode with nothing usable warns and keeps the launch policy', async () => {
-    const ctx = await boot()
-    const warnings: string[] = []
-    const warn = ctx.logger.warn
-    ctx.logger.warn = (message: unknown) => { warnings.push(String(message)) }
+    // Pin linux so the verdict cannot wobble with a runner's own OS proxy state.
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    let ctx: Context | undefined
     try {
-      await ctx.settings.update(networkProxy.NETWORK_PROXY_SETTINGS_NAMESPACE, { mode: 'system' })
-      await settle()
+      ctx = await boot()
+      const warnings: string[] = []
+      const warn = ctx.logger.warn
+      ctx.logger.warn = (message: unknown) => { warnings.push(String(message)) }
+      try {
+        await ctx.settings.update(networkProxy.NETWORK_PROXY_SETTINGS_NAMESPACE, { mode: 'system' })
+        await settle()
+      } finally {
+        ctx.logger.warn = warn
+      }
+      expect(warnings[0]).toBe('no usable system proxy found; keeping the launch proxy settings')
+      expect(proxyRouteFor(new URL('https://target.example/')).proxied).toBe(false)
     } finally {
-      ctx.logger.warn = warn
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+      await ctx?.fiber.dispose()
     }
-    expect(warnings[0]).toBe('no usable system proxy found; keeping the launch proxy settings')
-    expect(proxyRouteFor(new URL('https://target.example/')).proxied).toBe(false)
-    await ctx.fiber.dispose()
   })
 
   it('a composition config layer seeds the manual route before any commit', async () => {
