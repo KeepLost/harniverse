@@ -42,6 +42,10 @@ overrides:
   'vite@8': '8.1.6'
   'brace-expansion@2': '2.1.7'
   'brace-expansion@5': '5.0.12'
+  # GHSA-27r3-jxmh-p828: body-parser < 2.4.0 — DoS via trailing bytes after
+  # a compressed request body; transitive under @modelcontextprotocol/sdk —
+  # force the patched release.
+  'body-parser@2': '2.4.0'
   browserslist@4: 4.28.7
   # GHSA-c6gr-qvv4-5v3f / GHSA-cg2g-xh64-v4q7 / GHSA-mrv2-3pqr-j5jr:
   # dompurify <= 3.4.16 — SAFE_FOR_TEMPLATES and IN_PLACE sanitizer bypasses
@@ -52,7 +56,14 @@ overrides:
   # matching stalls the process; transitive under express-rate-limit,
   # mcp-client, ssh, and subagent packages.
   ip-address: '10.7.4'
-  fast-uri@3: 3.1.8
+  # GHSA-xhq7-xmqj-769h / GHSA-w74x-v6f9-j3xg / GHSA-wjr9-j795-jxcr /
+  # GHSA-333x-w4r6-6crp: fast-uri < 3.1.9 — scheme injection via an
+  # unescaped first-segment colon in suffix references, URI scheme spoofing
+  # via percent-encoded scheme decoding, host confusion through unchecked
+  # WHATWG host canonicalization, and improper path equivalence in relative
+  # reference normalization; vitest-chain transitive — force the patched
+  # release across every resolution.
+  fast-uri@3: 3.1.9
   # GHSA-5r4p-p66f-jhc7 (CVE-2026-111757): hono < 4.13.11 DoS via
   # crafted multipart boundary — transitive under @modelcontextprotocol/sdk
   # and @hono/node-server; force the patched release.
@@ -74,7 +85,15 @@ overrides:
   postcss: '8.5.26'
   protobufjs: '7.6.5'
   qs@6: 6.16.0
-  'undici@7': '7.29.1'
+  # GHSA-xjj6-f33q-929c: undici >= 7.18.0 < 7.30.1 — DoS via an unhandled
+  # error on excessive content-encodings; vitest-chain transitive — force
+  # the patched release.
+  'undici@7': '7.30.1'
+  # GHSA-4qv8-2p9j-2685 / GHSA-xjj6-f33q-929c: undici 6 line < 6.29.1 —
+  # unbounded memory in the EventSource parser plus the same
+  # content-encoding DoS as the 7 line; transitive under electron-builder
+  # in the desktop chain.
+  'undici@6': '6.29.1'
   'undici@8': 8.9.0
   undici8: 'undici@8.9.0'
   # GHSA-587h-7wmj-h5pm / GHSA-698v-4r3x-3vcv / GHSA-9jrq-w75r-8gcw /
