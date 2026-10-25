@@ -319,6 +319,7 @@
       "@deepseek-ai/dsh-client-ui-skin": ["./packages/client/ui-skin/src"],
       "@deepseek-ai/dsh-client-ui-sound": ["./packages/client/ui-sound/src"],
       "@deepseek-ai/dsh-client-ui-settings-global-rules": ["./packages/client/ui-settings-global-rules/src"],
+      "@deepseek-ai/dsh-client-ui-settings-network-proxy": ["./packages/client/ui-settings-network-proxy/src"],
       "@deepseek-ai/dsh-client-ui-remote-hosts": ["./packages/client/ui-remote-hosts/src"],
       "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web": ["./packages/client/web/src"],
