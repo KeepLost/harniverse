@@ -20,17 +20,11 @@ Web 客户端通过 `settings.describe` / `settings.update` 访问该 namespace(
 
 ## 模型体验
 
-### 模型看到什么
+无,因为这些设置只改变出站请求的网络路径;提示词、工具、schema 均不受影响。
 
-提示词、工具、schema 均无变化;变化的只是进程出站 HTTP 的走向。
+#### KV Cache 影响
 
-### Token 影响
-
-无;路由不进入逐轮组装。
-
-### KV Cache 影响
-
-无。
+这里没有任何内容进入模型请求,provider 缓存复用不受影响。
 
 ## 已知限制与遗留工作
 

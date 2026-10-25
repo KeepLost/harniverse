@@ -10,8 +10,11 @@ import {
   proxyRouteFor,
   setProxyOverride,
 } from '@deepseek-ai/dsh-http-proxy'
+import { execFile } from 'node:child_process'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import * as networkProxy from '../src/index.ts'
+
+vi.mock('node:child_process', () => ({ execFile: vi.fn() }))
 import { resolveProxyDecision } from '../src/index.ts'
 
 class MemorySettings extends SettingsProvider {
@@ -84,6 +87,24 @@ describe('@deepseek-ai/dsh-network-proxy decision', () => {
     expect(override?.source).toBe('runtime')
     expect(override?.httpProxy).toBe('http://env.example:3')
     expect(override?.noProxy.split(',')).toContain('b.example')
+  })
+
+  it('an absent mode and absent manual fields default safely', () => {
+    expect(resolveProxyDecision({})).toEqual({ override: null, warnings: [] })
+    const emptyManual = resolveProxyDecision({ mode: 'manual' })
+    expect(emptyManual.override?.source).toBe('none')
+  })
+
+  it('system with an os detection missing its url is the deliberate direct route', () => {
+    const decision = resolveProxyDecision({ mode: 'system' }, { source: 'os' })
+    expect(decision.override?.source).toBe('none')
+    expect(decision.warnings).toEqual([])
+  })
+
+  it('system with an unroutable detected url falls back to launch with warnings', () => {
+    const decision = resolveProxyDecision({ mode: 'system' }, { source: 'os', url: 'socks5://os.example:8' })
+    expect(decision.override).toBeNull()
+    expect(decision.warnings.at(-1)).toBe('keeping the launch proxy settings')
   })
 })
 
@@ -162,5 +183,70 @@ describe('@deepseek-ai/dsh-network-proxy application', () => {
     expect(warnings[0]).toBe('no usable system proxy found; keeping the launch proxy settings')
     expect(proxyRouteFor(new URL('https://target.example/')).proxied).toBe(false)
     await ctx.fiber.dispose()
+  })
+
+  it('a composition config layer seeds the manual route before any commit', async () => {
+    const ctx = new Context()
+    await ctx.plugin(MemorySettings).await()
+    networkProxy.apply(ctx, { mode: 'manual', url: 'http://seeded.example:9', noProxy: [] })
+    await settle()
+    expect(proxyRouteFor(new URL('https://target.example/'))).toMatchObject({
+      proxied: true,
+      proxy: 'http://seeded.example:9',
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('apply defaults the composition layer when mounted without one', async () => {
+    const ctx = new Context()
+    await ctx.plugin(MemorySettings).await()
+    networkProxy.apply(ctx)
+    await settle()
+    expect(ctx.settings.get(networkProxy.NETWORK_PROXY_SETTINGS_NAMESPACE))
+      .toEqual({ mode: 'off', url: '', noProxy: [] })
+    await ctx.fiber.dispose()
+  })
+
+  it('system mode reads the Windows registry through the real command adapter', async () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    vi.mocked(execFile).mockImplementation(((_command: string, _args: unknown, _options: unknown, callback: unknown) => {
+      (callback as (error: Error | null, result: { stdout: string }) => void)(null, {
+        stdout: '    ProxyEnable    REG_DWORD    0x1\r\n    ProxyServer    REG_SZ    127.0.0.1:7890',
+      })
+      return undefined
+    }) as unknown as typeof execFile)
+    try {
+      const ctx = await boot()
+      await ctx.settings.update(networkProxy.NETWORK_PROXY_SETTINGS_NAMESPACE, { mode: 'system' })
+      await settle()
+      expect(proxyRouteFor(new URL('https://target.example/'))).toMatchObject({
+        proxied: true,
+        proxy: 'http://127.0.0.1:7890/',
+      })
+      await ctx.fiber.dispose()
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+      vi.mocked(execFile).mockReset()
+    }
+  })
+
+  it('a failing platform command reads as no proxy and keeps the launch policy', async () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    vi.mocked(execFile).mockImplementation(((_command: string, _args: unknown, _options: unknown, callback: unknown) => {
+      (callback as (error: Error | null) => void)(new Error('reg: command not found'))
+      return undefined
+    }) as unknown as typeof execFile)
+    try {
+      const ctx = await boot()
+      await ctx.settings.update(networkProxy.NETWORK_PROXY_SETTINGS_NAMESPACE, { mode: 'system' })
+      await settle()
+      expect(proxyRouteFor(new URL('https://target.example/')).proxied).toBe(false)
+      await ctx.fiber.dispose()
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+      vi.mocked(execFile).mockReset()
+    }
   })
 })

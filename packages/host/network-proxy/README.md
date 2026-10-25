@@ -20,17 +20,11 @@ The web client reaches this namespace through `settings.describe` / `settings.up
 
 ## Model Experience
 
-### What the model sees
+None, as the settings only change which network path outbound requests take; prompts, tools, and schemas are untouched.
 
-Nothing changes in prompts, tools, or schemas; only where the process's outbound HTTP connects.
+#### KV Cache effect
 
-### Token effect
-
-None; the route never enters per-turn assembly.
-
-### KV Cache effect
-
-None.
+Nothing here enters a model request, so provider cache reuse is unaffected.
 
 ## Known Limitations and Deferred Work
 

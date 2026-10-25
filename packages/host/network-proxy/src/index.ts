@@ -135,8 +135,11 @@ export const inject = ['settings']
  * @param ctx - host context carrying the settings provider.
  * @param config - composition `base` layer over the schema defaults.
  */
-export function apply(ctx: Context, config: NetworkProxySettings = {}): void {
-  let current: () => NetworkProxySettings = () => ({ ...BASE, ...config })
+export function apply(ctx: Context, config?: NetworkProxySettings): void {
+  const composition: NetworkProxySettings = { ...BASE, ...config }
+  // Replaced by installSettingsSection with the resolved-document reader before any read;
+  // the composition value only ever serves as the register call's entry argument.
+  let current!: () => NetworkProxySettings
   let pollTimer: ReturnType<typeof setInterval> | undefined
   let applyChain: Promise<void> = Promise.resolve()
 
@@ -163,12 +166,15 @@ export function apply(ctx: Context, config: NetworkProxySettings = {}): void {
 
   /** Serialize applications: a poll and a committed change must never interleave installs. */
   const reapply = (): void => {
-    applyChain = applyChain.then(() => decide()).catch((error: unknown) => {
-      ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
-    })
+    applyChain = applyChain.then(() => decide()).catch(
+      /* v8 ignore next 3 -- decide() resolves unless a consumer throws; the chain must still swallow. */
+      (error: unknown) => {
+        ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
   }
 
-  installSettingsSection(ctx, NETWORK_PROXY_SETTINGS_NAMESPACE, Config, { ...BASE, ...config }, {
+  installSettingsSection(ctx, NETWORK_PROXY_SETTINGS_NAMESPACE, Config, composition, {
     setSource: (source) => { current = source },
     onChange: () => {
       stopPolling()
@@ -182,6 +188,7 @@ export function apply(ctx: Context, config: NetworkProxySettings = {}): void {
 
   ctx.effect(() => () => {
     stopPolling()
+    /* v8 ignore next -- setProxyOverride(null) cannot reject; the swallow only guards the chain shape. */
     applyChain = applyChain.then(() => setProxyOverride(null)).catch(() => {})
   }, 'network-proxy: follow the settings document')
 }

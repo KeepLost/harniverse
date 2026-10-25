@@ -66,6 +66,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/modules': { kind: 'none', reason: 'Browser-side module-loading kernel machinery; registers nothing model-facing.' },
   'packages/client/store': { kind: 'none', reason: 'Browser-side state primitives; registers nothing model-facing.' },
   'packages/util/http-proxy': { kind: 'indirect', reason: 'Outbound routing library; it changes which network path a request takes without touching model-visible vocabulary.' },
+  'packages/host/network-proxy': { kind: 'none', reason: 'Runtime outbound-routing settings; they change which network path requests take without registering model context or tools.' },
   'packages/ssh/ssh': { kind: 'none', reason: 'Host aliases, authentication and stream capabilities are private deployment details; consumers own every model-visible operation.' },
   'packages/ssh/remote-hosts-ssh': { kind: 'none', reason: 'Pinned SSH transport and forwarding are private deployment details; consumers own every model-visible operation.' },
   'packages/ssh/remote-hosts': { kind: 'none', reason: 'Remote host records, deployment, settings synchronization, and browser proxying are operator infrastructure; no model context or tool is registered.' },

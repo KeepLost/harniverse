@@ -120,4 +120,85 @@ describe('detectSystemProxy', () => {
     expect(result).toEqual({ source: 'none' })
     expect(noRun).not.toHaveBeenCalled()
   })
+  it('reports none when the Windows ProxyServer value cannot form a URL', async () => {
+    const run = vi.fn(async () => ({
+      stdout: '    ProxyEnable    REG_DWORD    0x1\r\n    ProxyServer    REG_SZ    ::',
+    }))
+    const result = await detectSystemProxy({ platform: 'win32', env: envOf({}), run })
+    expect(result.source).toBe('none')
+  })
+
+  it('reports none when the Windows query lacks the ProxyEnable or ProxyServer row', async () => {
+    const noEnable = await detectSystemProxy({
+      platform: 'win32',
+      env: envOf({}),
+      run: vi.fn(async () => ({ stdout: '    ProxyServer    REG_SZ    127.0.0.1:7890' })),
+    })
+    expect(noEnable.source).toBe('none')
+
+    const noServer = await detectSystemProxy({
+      platform: 'win32',
+      env: envOf({}),
+      run: vi.fn(async () => ({ stdout: '    ProxyEnable    REG_DWORD    0x1' })),
+    })
+    expect(noServer.source).toBe('none')
+  })
+
+  it('reports none for a Windows per-protocol list without http or https', async () => {
+    const run = vi.fn(async () => ({
+      stdout: '    ProxyEnable    REG_DWORD    0x1\r\n    ProxyServer    REG_SZ    ftp=127.0.0.1:21',
+    }))
+    const result = await detectSystemProxy({ platform: 'win32', env: envOf({}), run })
+    expect(result.source).toBe('none')
+  })
+
+  it('reads macOS scutil with only the http proxy enabled', async () => {
+    const run = vi.fn(async () => ({
+      stdout: '<dictionary> {\n  HTTPEnable : 1\n  HTTPProxy : 127.0.0.1\n  HTTPPort : 8080\n}',
+    }))
+    const result = await detectSystemProxy({ platform: 'darwin', env: envOf({}), run })
+    expect(result).toEqual({ source: 'os', url: 'http://127.0.0.1:8080/' })
+  })
+
+  it('falls past an incomplete macOS https row to the http row', async () => {
+    const run = vi.fn(async () => ({
+      stdout: [
+        '<dictionary> {',
+        '  HTTPSEnable : 1',
+        '  HTTPEnable : 1',
+        '  HTTPProxy : 127.0.0.1',
+        '  HTTPPort : 8080',
+        '}',
+      ].join('\n'),
+    }))
+    const result = await detectSystemProxy({ platform: 'darwin', env: envOf({}), run })
+    expect(result).toEqual({ source: 'os', url: 'http://127.0.0.1:8080/' })
+  })
+
+  it('reports none when the macOS http row is incomplete', async () => {
+    const result = await detectSystemProxy({
+      platform: 'darwin',
+      env: envOf({}),
+      run: vi.fn(async () => ({
+        stdout: '<dictionary> {\n  HTTPSEnable : 0\n  HTTPEnable : 1\n  HTTPProxy : 127.0.0.1\n}',
+      })),
+    })
+    expect(result.source).toBe('none')
+  })
+
+  it('reports none when macOS scutil fails or has no enabled row with values', async () => {
+    const failed = await detectSystemProxy({
+      platform: 'darwin', env: envOf({}), run: vi.fn(async () => undefined),
+    })
+    expect(failed.source).toBe('none')
+
+    const emptyHost = await detectSystemProxy({
+      platform: 'darwin',
+      env: envOf({}),
+      run: vi.fn(async () => ({
+        stdout: '<dictionary> {\n  HTTPSEnable : 1\n  HTTPSProxy : \n  HTTPSPort : 7890\n  HTTPEnable : 0\n}',
+      })),
+    })
+    expect(emptyHost.source).toBe('none')
+  })
 })
