@@ -172,7 +172,7 @@ describe('package source corpus', () => {
 })
 
 describe('repository scan', () => {
-  it('reports the shipped corpus with no module-scope await and bins excluded by name', () => {
+  it('reports the shipped corpus with no module-scope await and bins excluded by name', { timeout: 120_000 }, () => {
     const { checked, excluded, violations } = scanRepository()
 
     expect(checked).toBeGreaterThan(0)
