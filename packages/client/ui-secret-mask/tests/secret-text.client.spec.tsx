@@ -4,6 +4,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SecretText } from '../src/client/SecretText.tsx'
+import { createSecretRule } from '../src/client/secret-rule.tsx'
 
 afterEach(() => {
   cleanup()
@@ -52,5 +53,21 @@ describe('SecretText', () => {
     rerender(<SecretText raw={other} interactive data={{ masked: `${other.slice(0, 8)}${'*'.repeat(other.length - 8)}` }} t={t} />)
     expect(screen.queryByText(RAW)).toBeNull()
     expect(screen.getByRole('button', { name: t('secret.reveal') })).toBeTruthy()
+  })
+
+  it('falls back to drawing the raw characters when the seam carries no prepared form', () => {
+    const element = render(<SecretText raw={RAW} interactive={false} data={undefined} t={t} />)
+      .container.querySelector('[data-secret]') as HTMLElement
+    expect(element.textContent).toBe(RAW)
+  })
+
+  it('renders through the rule Render component over the seam props', () => {
+    const rule = createSecretRule(t)
+    const match = rule.nextMatch(`x ${RAW} y`, 0)
+    expect(match).toBeDefined()
+    const element = render(
+      <rule.Render raw={RAW} interactive data={match?.data} />,
+    ).container.querySelector('[data-secret]') as HTMLElement
+    expect(element.textContent).toBe(MASKED)
   })
 })

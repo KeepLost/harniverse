@@ -28,9 +28,6 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/search.js",
-    "lib/fetch.js",
-    "lib/transport.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

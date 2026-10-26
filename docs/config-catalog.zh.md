@@ -4249,7 +4249,7 @@ export interface Config {
 需要：`web`
 
 ```ts config-catalog
-/** Plugin config (all optional — `apply` fills constant defaults). */
+/** Plugin config (all optional — the schema defaults fill every field but the literal key). */
 export interface Config {
   /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
   apiKey?: string

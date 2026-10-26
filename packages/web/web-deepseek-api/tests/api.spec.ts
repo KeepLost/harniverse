@@ -180,6 +180,155 @@ describe('DeepSeekSearchApiProvider', () => {
     expect(error.message).toContain('web-deepseek-api.baseURL')
   })
 
+  it('reads a plain-string error field as the provider detail', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ error: 'plain failure detail' }, { status: 500 })))
+    await expect(searchProvider(baseOptions).search({ query: 'q' }))
+      .rejects.toThrow('plain failure detail')
+  })
+
+  it('reads a top-level message field when the error body carries no error object', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ message: 'top-level detail' }, { status: 403 })))
+    await expect(searchProvider(baseOptions).search({ query: 'q' }))
+      .rejects.toThrow('top-level detail')
+  })
+
+  it('keeps the HTTP status when the error body is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response('gateway noise', { status: 502, headers: { 'content-type': 'text/plain' } })))
+    await expect(searchProvider(baseOptions).search({ query: 'q' }))
+      .rejects.toThrow('HTTP 502')
+  })
+
+  it('keeps the HTTP status when the error body is JSON but carries no usable detail', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(null, { status: 503 })))
+    await expect(searchProvider(baseOptions).search({ query: 'q' }))
+      .rejects.toThrow('HTTP 503')
+  })
+
+  it('surfaces a mid-body abort as WEB_ABORTED rather than an HTTP error', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      // The transport starts reading the error body after the caller aborted.
+      controller.abort()
+      return new Response('busy', { status: 429, headers: { 'content-type': 'text/plain' } })
+    }))
+    await expect(searchProvider(baseOptions).search({ query: 'q' }, controller.signal))
+      .rejects.toMatchObject({ code: 'WEB_ABORTED' })
+  })
+
+  it('wraps a malformed success body as an unprocessable provider response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse('just a string')))
+    const failure = await searchProvider(baseOptions).search({ query: 'q' }).then(
+      () => { throw new Error('expected a provider failure') },
+      (cause: unknown) => cause,
+    )
+    if (!(failure instanceof WebError)) throw failure
+    expect(failure.code).toBe('WEB_PROVIDER_ERROR')
+    expect(failure.message).toContain('invalid response body')
+  })
+
+  it('forwards the caller signal to the dispatch and the fetch provider does the same', async () => {
+    const inits: (RequestInit | undefined)[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      inits.push(init)
+      return Promise.resolve(jsonResponse(urlText(url).endsWith('/fetch') ? { content: '# page' } : SEARCH_PAYLOAD))
+    }))
+    const controller = new AbortController()
+    await searchProvider(baseOptions).search({ query: 'q' }, controller.signal)
+    await fetchProvider({ apiKey: 'ds-key', baseURL: baseOptions.baseURL }).fetch({ url: 'https://a.test' }, controller.signal)
+    await fetchProvider({ apiKey: 'ds-key', baseURL: baseOptions.baseURL }).fetch({ url: 'https://a.test' })
+    expect(inits[0]?.signal).toBe(controller.signal)
+    expect(inits[1]?.signal).toBe(controller.signal)
+    expect(inits[2]?.signal).toBeUndefined()
+  })
+
+  it('maps a rejecting credential resolver to a provider error without contacting the endpoint', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const failure = await searchProvider({
+      baseURL: baseOptions.baseURL,
+      count: baseOptions.count,
+      resolveApiKey: () => Promise.reject(new Error('credential storage offline')),
+    }).search({ query: 'q' }).then(
+      () => { throw new Error('expected a provider failure') },
+      (cause: unknown) => cause,
+    )
+    if (!(failure instanceof WebError)) throw failure
+    expect(failure.code).toBe('WEB_PROVIDER_ERROR')
+    expect(failure.message).toContain('credential resolution failed')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reports a credential resolver that rejects with an abort as WEB_ABORTED', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(searchProvider({
+      baseURL: baseOptions.baseURL,
+      count: baseOptions.count,
+      resolveApiKey: () => Promise.reject(new DOMException('resolver aborted', 'AbortError')),
+    }).search({ query: 'q' })).rejects.toMatchObject({ code: 'WEB_ABORTED' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('cancels a pending credential resolution through the caller signal', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    const pending = searchProvider({
+      baseURL: baseOptions.baseURL,
+      count: baseOptions.count,
+      resolveApiKey: () => new Promise(() => {}),
+    }).search({ query: 'q' }, controller.signal)
+    const outcome = pending.then(
+      () => { throw new Error('expected an abort failure') },
+      (cause: unknown) => cause,
+    )
+    controller.abort()
+    const failure = await outcome
+    expect(failure).toMatchObject({ code: 'WEB_ABORTED' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('settles a resolved credential through a present caller signal', async () => {
+    const headers: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      headers.push(String((init?.headers as Record<string, string>).authorization))
+      return Promise.resolve(jsonResponse(SEARCH_PAYLOAD))
+    }))
+    const controller = new AbortController()
+    await searchProvider({
+      baseURL: baseOptions.baseURL,
+      count: baseOptions.count,
+      resolveApiKey: async () => 'ds-resolved-key',
+    }).search({ query: 'q' }, controller.signal)
+    expect(headers[0]).toBe('Bearer ds-resolved-key')
+  })
+
+  it('reports a rejecting credential resolver through a present caller signal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(SEARCH_PAYLOAD)))
+    const failure = await searchProvider({
+      baseURL: baseOptions.baseURL,
+      count: baseOptions.count,
+      resolveApiKey: () => Promise.reject(new Error('resolver failed late')),
+    }).search({ query: 'q' }, new AbortController().signal).then(
+      () => { throw new Error('expected a provider failure') },
+      (cause: unknown) => cause,
+    )
+    expect(String(failure)).toContain('credential resolution failed')
+  })
+
+  it('reports an abort raised while reading a success body as WEB_ABORTED', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new DOMException('body read aborted', 'AbortError')),
+    }) as unknown as Response))
+    await expect(searchProvider(baseOptions).search({ query: 'q' }))
+      .rejects.toMatchObject({ code: 'WEB_ABORTED' })
+  })
+
   it('names the credential reference when no key resolves', async () => {
     const failure = await searchProvider({ baseURL: baseOptions.baseURL, count: baseOptions.count })
       .search({ query: 'q' }).then(
@@ -205,6 +354,38 @@ describe('DeepSeekSearchApiProvider', () => {
     )
     expect(failure).toMatchObject({ code: 'WEB_ABORTED' })
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the bare HTTP status when the error detail is an empty string', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: '' }, { status: 500 })))
+    const failure = await searchProvider(baseOptions).search({ query: 'q' }).then(
+      () => { throw new Error('expected a provider failure') },
+      (cause: unknown) => cause,
+    )
+    expect(String(failure)).toContain('HTTP 500')
+    expect(String(failure)).not.toContain('HTTP 500: ')
+  })
+
+  it('reports an abort raised while reading the error body as WEB_ABORTED', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: () => Promise.reject(new DOMException('body read aborted', 'AbortError')),
+    }) as unknown as Response))
+    await expect(searchProvider(baseOptions).search({ query: 'q' }))
+      .rejects.toMatchObject({ code: 'WEB_ABORTED' })
+  })
+
+  it('wraps a non-JSON success body as an unprocessable provider response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response('not json', { status: 200, headers: { 'content-type': 'text/plain' } })))
+    const failure = await searchProvider(baseOptions).search({ query: 'q' }).then(
+      () => { throw new Error('expected a provider failure') },
+      (cause: unknown) => cause,
+    )
+    if (!(failure instanceof WebError)) throw failure
+    expect(failure.code).toBe('WEB_PROVIDER_ERROR')
+    expect(failure.message).toContain('unprocessable response body')
   })
 
   it('maps an abort raised inside dispatch to WEB_ABORTED', async () => {

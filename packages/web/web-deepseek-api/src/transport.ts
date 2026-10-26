@@ -230,6 +230,7 @@ async function resolveCredential(
  */
 function abortable<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return operation
+  /* v8 ignore next -- the dispatch pre-check already rejected pre-aborted signals; only a same-tick abort between the two can land here */
   if (signal.aborted) return Promise.reject(webAborted(signal))
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => { reject(webAborted(signal)) }

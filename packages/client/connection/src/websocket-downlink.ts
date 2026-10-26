@@ -395,7 +395,7 @@ function isAuthenticationRequest(value: unknown): value is { method: string; pay
 function sendText(
   socket: WebSocket,
   text: string,
-  shouldCompress: (text: string) => boolean = () => false,
+  shouldCompress: (text: string) => boolean,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (socket.readyState !== WebSocket.OPEN) { reject(new Error('websocket closed')); return }

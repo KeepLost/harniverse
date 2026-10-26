@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SentUserTextRule } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import * as plugin from '../src/client/index.ts'
+import * as hostPlugin from '../src/index.ts'
 
 const roots: Context[] = []
 
@@ -42,5 +43,11 @@ describe('ui-secret-mask client plugin', () => {
     await fiber.dispose()
     expect(rules.map(rule => rule.id)).not.toContain('secret')
     expect(dictionaries.has('secretMask')).toBe(false)
+  })
+})
+
+describe('ui-secret-mask host plugin', () => {
+  it('is a display-only plugin whose host body is a no-op', () => {
+    expect(() => { hostPlugin.apply() }).not.toThrow()
   })
 })

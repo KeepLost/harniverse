@@ -27,7 +27,10 @@ export function createSecretRule(t: (key: SecretMaskKey) => string): SentUserTex
   )
   return {
     id: 'secret',
-    nextMatch: (text, from) => scanner.match(text, from),
+    nextMatch: (text, from) => {
+      const match = scanner.match(text, from)
+      return match === undefined ? undefined : { start: match.start, end: match.end, data: { masked: match.masked } }
+    },
     Render,
   }
 }

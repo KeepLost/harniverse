@@ -4,11 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import * as deepseekApiPlugin from '@deepseek-ai/dsh-web-deepseek-api'
-import { DEEPSEEK_SEARCH_API_PROVIDER_ID, WEB_DEEPSEEK_API_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-web-deepseek-api'
+import { DEEPSEEK_SEARCH_API_PROVIDER_ID, DEEPSEEK_WEB_API_BASE_URL, WEB_DEEPSEEK_API_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-web-deepseek-api'
 
 /** The smallest real provider: one in-memory document, always writable. */
 class MemorySettings extends SettingsProvider {
@@ -60,6 +61,11 @@ function sessionWithPrompt(text: string): { deriveMessages(): unknown[] } {
       content: [{ type: 'text', text }],
     }],
   }
+}
+
+/** A session face with an arbitrary derived history. */
+function sessionWithMessages(messages: unknown[]): { deriveMessages(): unknown[] } {
+  return { deriveMessages: () => messages }
 }
 
 async function boot(config: Record<string, unknown> = {}): Promise<{ ctx: Context; settingsFiber: Fiber; pluginFiber: Fiber }> {
@@ -176,6 +182,119 @@ describe('web-deepseek-api settings section', () => {
     await bench.pluginFiber.dispose()
 
     expect(bench.ctx.settings.describe().map(row => String(row.ns))).not.toContain('web-deepseek-api')
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('sends the latest human prompt, skipping injected user-role context and non-text blocks', async () => {
+    const bench = await boot()
+    const bodies: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(bodyText(init))
+      return Promise.resolve(jsonResponse(SEARCH_PAYLOAD))
+    })
+    bench.ctx.provide('agents')
+    bench.ctx.set('agents', {
+      currentInitiator: () => ({
+        session: sessionWithMessages([
+          { role: 'assistant', source: { kind: 'user' }, content: [{ type: 'text', text: 'an answer' }] },
+          { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'What changed' }] },
+          { role: 'user', source: { kind: 'system-prompt' }, content: [{ type: 'text', text: 'Injected instructions' }] },
+        ]),
+      }),
+    } as never)
+
+    await bench.ctx.web.search({ query: 'q' })
+    expect(JSON.parse(bodies[0] as string)).toMatchObject({ ori_question: 'What changed' })
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('omits ori_question when the latest human prompt carries no text blocks', async () => {
+    const bench = await boot()
+    const bodies: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(bodyText(init))
+      return Promise.resolve(jsonResponse(SEARCH_PAYLOAD))
+    })
+    bench.ctx.provide('agents')
+    bench.ctx.set('agents', {
+      currentInitiator: () => ({
+        session: sessionWithMessages([
+          { role: 'user', source: { kind: 'user' }, content: [{ type: 'reasoning', text: 'not prompt text' }] },
+        ]),
+      }),
+    } as never)
+
+    await bench.ctx.web.search({ query: 'q' })
+    expect(JSON.parse(bodies[0] as string)).not.toHaveProperty('ori_question')
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('resolves the ambient environment key when no credentials seam exists', async () => {
+    const bench = await boot({ apiKey: undefined, apiKeyEnv: 'DEEPSEEK_AMBIENT_KEY' })
+    bench.ctx.provide('launchEnvironment')
+    bench.ctx.set('launchEnvironment', createLaunchEnvironmentSnapshot([
+      { source: 'process', values: { DEEPSEEK_AMBIENT_KEY: 'ds-ambient-key' } },
+    ]))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(SEARCH_PAYLOAD))
+
+    await expect(bench.ctx.web.search({ query: 'q' })).resolves.toBeDefined()
+
+    // An empty ambient value is no credential at all.
+    bench.ctx.set('launchEnvironment', createLaunchEnvironmentSnapshot([
+      { source: 'process', values: { DEEPSEEK_AMBIENT_KEY: '' } },
+    ]))
+    await expect(bench.ctx.web.search({ query: 'q' })).rejects.toMatchObject({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' })
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('treats an empty literal key as absent and falls through to the environment', async () => {
+    const bench = await boot({ apiKey: '', apiKeyEnv: 'DEEPSEEK_AMBIENT_KEY' })
+    bench.ctx.provide('launchEnvironment')
+    bench.ctx.set('launchEnvironment', createLaunchEnvironmentSnapshot([
+      { source: 'process', values: { DEEPSEEK_AMBIENT_KEY: 'ds-ambient-key' } },
+    ]))
+    const authHeader: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
+      authHeader.push(String((init?.headers as Record<string, string>).authorization))
+      return Promise.resolve(jsonResponse(SEARCH_PAYLOAD))
+    })
+
+    await bench.ctx.web.search({ query: 'q' })
+    expect(authHeader[0]).toBe('Bearer ds-ambient-key')
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('keeps serving the composition entry endpoint after a partial section commit', async () => {
+    const bench = await boot()
+    await bench.ctx.settings.update(WEB_DEEPSEEK_API_SETTINGS_NAMESPACE, { count: 7 })
+
+    const urls: string[] = []
+    const bodies: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(urlText(url))
+      bodies.push(bodyText(init))
+      return Promise.resolve(jsonResponse(urlText(url).endsWith('/fetch') ? FETCH_PAYLOAD : SEARCH_PAYLOAD))
+    })
+
+    await bench.ctx.web.search({ query: 'q' })
+    await bench.ctx.web.fetch({ url: 'https://a.test' })
+    // The committed count rides along; the untouched endpoint stays the entry's.
+    expect(urls).toEqual(['https://api.entry.test/v1/tools/search', 'https://api.entry.test/v1/tools/fetch'])
+    expect(JSON.parse(bodies[0] as string)).toMatchObject({ count: 7 })
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('serves the documented default base when the composition entry carries none', async () => {
+    const bench = await boot({ baseURL: undefined })
+    const urls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: RequestInfo | URL) => {
+      urls.push(urlText(url))
+      return Promise.resolve(jsonResponse(urlText(url).endsWith('/fetch') ? FETCH_PAYLOAD : SEARCH_PAYLOAD))
+    })
+
+    await bench.ctx.web.search({ query: 'q' })
+    await bench.ctx.web.fetch({ url: 'https://a.test' })
+    expect(urls).toEqual([`${DEEPSEEK_WEB_API_BASE_URL}/search`, `${DEEPSEEK_WEB_API_BASE_URL}/fetch`])
     await bench.ctx.fiber.dispose()
   })
 })

@@ -35,7 +35,7 @@ export const inject = ['web']
 
 const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
 
-/** Plugin config (all optional — `apply` fills constant defaults). */
+/** Plugin config (all optional — the schema defaults fill every field but the literal key). */
 export interface Config {
   /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
   apiKey?: string
@@ -48,6 +48,9 @@ export interface Config {
   /** Send the triggering user question, bounded to 128 characters, as `ori_question`. Defaults to true. */
   sendOriginalQuestion?: boolean
 }
+
+/** A settings-scope-resolved section: every schema-defaulted field carries its value. */
+type ResolvedConfig = Required<Pick<Config, 'apiKeyEnv' | 'baseURL' | 'count' | 'sendOriginalQuestion'>> & Pick<Config, 'apiKey'>
 
 export const Config: z<Config> = z.object({
   apiKey: z.string().role('secret'),
@@ -79,17 +82,16 @@ function latestUserQuestion(session: Session | undefined): string | undefined {
  * serves. Environment fallbacks stay here rather than in the providers: every
  * value they read is already fully defaulted.
  * @param ctx - plugin context supplying the credential and environment planes.
- * @param config - the currently authoritative section.
+ * @param config - the currently authoritative section, schema defaults resolved.
  * @returns authentication sources for one operation.
  */
 function resolveAuth(
   ctx: Context,
-  config: Config,
+  config: ResolvedConfig,
 ): { apiKey?: string; resolveApiKey: () => Promise<string | undefined>; apiKeyEnv: ReturnType<typeof credentialRef> } {
-  const apiKeyEnv = credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV)
-  const literalApiKey = config.apiKey !== undefined && config.apiKey.length > 0
-    ? config.apiKey
-    : undefined
+  const apiKeyEnv = credentialRef(config.apiKeyEnv)
+  const rawApiKey = config.apiKey
+  const literalApiKey = rawApiKey === undefined || rawApiKey.length === 0 ? undefined : rawApiKey
   return {
     ...literalApiKey === undefined ? {} : { apiKey: literalApiKey },
     resolveApiKey: async () => {
@@ -109,6 +111,7 @@ function resolveAuth(
  * @param config - resolved plugin config (schema defaults applied).
  */
 export function apply(ctx: Context, config: Config): void {
+  /* v8 ignore next -- setSource overwrites this initializer before any read; it exists for definite assignment */
   let current: () => Config = () => config
   installSettingsSection(ctx, WEB_DEEPSEEK_API_SETTINGS_NAMESPACE, Config, config, {
     setSource: (source) => {
@@ -119,19 +122,21 @@ export function apply(ctx: Context, config: Config): void {
     onChange: () => {},
   })
   const searchApi = new DeepSeekSearchApiProvider((): DeepSeekSearchApiOptions => {
-    const section = current()
+    // The settings scope resolves schema defaults, so the section is complete at read time.
+    const section = current() as ResolvedConfig
+    const question = section.sendOriginalQuestion
+      ? (): string | undefined => latestUserQuestion(ctx.get('agents')?.currentInitiator()?.session)
+      : undefined
     return {
       ...resolveAuth(ctx, section),
-      baseURL: section.baseURL ?? DEEPSEEK_WEB_API_BASE_URL,
-      count: section.count ?? DEEPSEEK_DEFAULT_COUNT,
-      ...(section.sendOriginalQuestion ?? true) ? {
-        originalQuestion: () => latestUserQuestion(ctx.get('agents')?.currentInitiator()?.session),
-      } : {},
+      baseURL: section.baseURL,
+      count: section.count,
+      ...question === undefined ? {} : { originalQuestion: question },
     }
   })
   const fetchApi = new DeepSeekFetchApiProvider((): DeepSeekFetchApiOptions => {
-    const section = current()
-    return { ...resolveAuth(ctx, section), baseURL: section.baseURL ?? DEEPSEEK_WEB_API_BASE_URL }
+    const section = current() as ResolvedConfig
+    return { ...resolveAuth(ctx, section), baseURL: section.baseURL }
   })
   ctx.web.registerSearchProvider({
     id: searchApi.id,
