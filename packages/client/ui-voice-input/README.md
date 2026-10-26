@@ -8,13 +8,15 @@ Voice input, a pure browser surface plugin in two seats: the composer microphone
 
 A small always-visible button beside the composer chrome. Click starts a recording (`getUserMedia` + `MediaRecorder`); a second click stops, decodes through `AudioContext`, downmixes and resamples to canonical 16 kHz mono PCM16 WAV entirely in the browser, and sends `speech.transcribe`; the transcript inserts at the draft's end through the scoped `slash/input-insert-text` event (the draft-revision CAS guards it, and a miss offers the transcript for manual insertion). Holding the configured `pushToTalkKey` (settings namespace, lowercased) records while held — keydown starts, keyup stops and transcribes.
 
-Readiness guidance is locale-owned (`voice` dictionary, zh/en): a disabled recognizer (`'off'`), refused microphone permission, unsupported capture APIs, an empty transcript, and wire failures each render their own copy instead of failing silently.
+Readiness guidance is locale-owned (`voice` dictionary, zh/en): a disabled recognizer (`'off'`), refused microphone permission, unsupported capture APIs, an empty transcript, and wire failures each render their own copy instead of failing silently. The capture pins the browser-selected input device (see the Settings section); an empty selection follows the system default.
 
 While recording, a live level meter (one bar per 100 ms over the capture's peak input level) shows the microphone is actually picking sound up; an empty transcript over a near-silent capture renders dedicated silence guidance with the measured duration and peak, separating "no sound reached the browser" from "the recognizer found no speech".
 
 ## Settings section
 
-Recognizer selection (`off` / SenseVoice local / OpenAI-compatible cloud), language hint, push-to-talk key, local model precision (INT8/FP32), and the write-only cloud API key (the settings mirror redacts it; presence in the user layer marks it configured). The prepare button triggers `speech.prepare` and renders the settled status — ready, unprepared, or failed with the provider's detail — over the same section.
+Recognizer selection (`off` / SenseVoice local / OpenAI-compatible cloud), input device, language hint, push-to-talk key, local model precision (INT8/FP32), and the write-only cloud API key (the settings mirror redacts it; presence in the user layer marks it configured). The prepare button triggers `speech.prepare` and renders the settled status — ready, unprepared, or failed with the provider's detail — over the same section.
+
+The input-device picker enumerates the browser's audio inputs (the system-default row first, named after the physical default), refreshes on `devicechange`, keeps a disconnected selection listed but disabled, and previews the selected device's live level while the section is visible (released while the tab is hidden). The selection persists browser-locally (`dsh.voice-input.microphone`): device ids are browser-instance facts, so they never enter the host `speech` namespace, and dictation captures read the current choice at each `getUserMedia` (`deviceId: { exact }`).
 
 ## Model Experience
 

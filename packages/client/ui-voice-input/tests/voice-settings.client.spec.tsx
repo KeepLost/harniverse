@@ -63,8 +63,27 @@ function speechFixture() {
   return { api, setAnswer: (value: PrepareAnswer): void => { answer = value } }
 }
 
-function mount(injected: VoiceSettingsInjected) {
-  return render(<VoiceSettingsSection close={() => {}} t={t} scope={injected.scope} api={injected.api} />)
+/** Scripted device verbs: the system-default selection and a silent preview. */
+function deviceVerbs() {
+  const selectMicrophone = vi.fn()
+  const createDevicePreview = vi.fn(async (): Promise<{ level(): number; dispose(): void }> => ({ level: () => 0, dispose: () => {} }))
+  return { selectMicrophone, createDevicePreview }
+}
+
+function mount(injected: Omit<VoiceSettingsInjected, 'hooks' | 'selectMicrophone' | 'createDevicePreview'>) {
+  const devices = deviceVerbs()
+  const view = render(
+    <VoiceSettingsSection
+      close={() => {}}
+      t={t}
+      scope={injected.scope}
+      api={injected.api}
+      useMicrophoneDevice={selector => selector({ id: '', label: '' })}
+      selectMicrophone={devices.selectMicrophone}
+      createDevicePreview={devices.createDevicePreview}
+    />,
+  )
+  return { ...view, devices }
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -77,6 +96,14 @@ describe('VoiceSettingsSection fields', () => {
     expect(select.value).toBe('sensevoice')
     fireEvent.change(select, { target: { value: 'openai-compatible' } })
     expect(scope.writes).toEqual([{ field: 'recognizer', value: 'openai-compatible' }])
+  })
+
+  it('renders the input-device row over the injected selection', async () => {
+    const scope = scopeFixture()
+    const view = mount({ scope, api: speechFixture().api })
+    const row = view.getByText(t('settings.device')).closest('label')
+    const select = row?.querySelector('select') as HTMLSelectElement
+    expect(select.value).toBe('')
   })
 
   it('clears a field when its input empties', () => {

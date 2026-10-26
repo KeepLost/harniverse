@@ -58,6 +58,20 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   return { ctx, fiber, scope, decode }
 }
 
+/** The settings-section inject face off the ledger, the way the outlet would read it. */
+function sectionFace(ctx: Context): {
+  selectMicrophone: (device: { id: string; label: string }) => void
+  hooks: { microphoneDevice: { getSnapshot(): { id: string; label: string } } }
+  createDevicePreview: (deviceId: string, onEnded: () => void) => Promise<{ level(): number; dispose(): void }>
+} {
+  const entry = ctx.slots.entries('settings.section').find(candidate => candidate.options.id === 'voice')
+  return (entry as unknown as { inject: () => {
+    selectMicrophone: (device: { id: string; label: string }) => void
+    hooks: { microphoneDevice: { getSnapshot(): { id: string; label: string } } }
+    createDevicePreview: (deviceId: string, onEnded: () => void) => Promise<{ level(): number; dispose(): void }>
+  } }).inject()
+}
+
 function micFace(ctx: Context): VoiceMicInjected {
   const entry = ctx.slots.entries('conversation.input.left').find(candidate => candidate.options.id === 'voice-input')
   return (entry as unknown as { inject: () => VoiceMicInjected }).inject()
@@ -66,6 +80,47 @@ function micFace(ctx: Context): VoiceMicInjected {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+})
+
+describe('ui-voice-input microphone selection', () => {
+  it('routes the browser-local selection into the composer capture constraints', async () => {
+    const constraints: MediaStreamConstraints[] = []
+    vi.stubGlobal('MediaRecorder', class {
+      ondataavailable: ((event: { data: { size: number } }) => void) | null = null
+      start(): void {}
+      stop(): void {}
+    })
+    vi.stubGlobal('AudioContext', class {
+      createMediaStreamSource = () => ({ connect: vi.fn() })
+      createAnalyser = () => ({ fftSize: 0, getFloatTimeDomainData: vi.fn() })
+      close = vi.fn()
+    })
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: async (request: MediaStreamConstraints) => {
+        constraints.push(request)
+        return { getTracks: () => [] } as unknown as MediaStream
+      } },
+    })
+    const { ctx, fiber } = await bench()
+    try {
+      const section = sectionFace(ctx)
+      const face = micFace(ctx)
+      await face.createRecording().start()
+      expect(constraints).toEqual([{ audio: true }])
+      section.selectMicrophone({ id: 'mic-7', label: 'Desk' })
+      await face.createRecording().start()
+      expect(constraints).toEqual([{ audio: true }, { audio: { deviceId: { exact: 'mic-7' } } }])
+
+      // The settings face hands out the same live-level monitor over the real container.
+      const preview = await section.createDevicePreview('mic-7', () => {})
+      expect(preview.level()).toBeGreaterThanOrEqual(0)
+      preview.dispose()
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
 })
 
 describe('ui-voice-input browser bindings', () => {

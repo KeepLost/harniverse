@@ -19,7 +19,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { createRecording } from './audio.ts'
+import { createDevicePreview, createRecording } from './audio.ts'
+import { createMicrophoneDeviceStore } from './microphone-device.ts'
 import { VoiceMicControl } from './VoiceMicControl.tsx'
 import type { VoiceMicInjected, VoicePreferences } from './VoiceMicControl.tsx'
 import { VoiceSettingsSection } from './VoiceSettingsSection.tsx'
@@ -128,6 +129,7 @@ export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle
   const scope = ctx.settingsScope.bind({ namespace: 'speech', decode: decodeVoiceSection })
   const mirror = new VoicePreferencesMirror(scope)
+  const microphone = createMicrophoneDeviceStore()
   const t = ctx.locale.bind(NS)
 
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
@@ -138,7 +140,7 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: (): VoiceMicInjected => ({
       api: connection.api,
-      createRecording: () => createRecording(browserContainer),
+      createRecording: () => createRecording(browserContainer, microphone.getSnapshot().id),
       insertText: (sessionId: SessionId, text: string, span: TokenSpan): boolean => {
         const actx = ctx.sessions.scope(sessionId)
         return actx !== undefined && actx.bail(actx, 'slash/input-insert-text', { text, span }) === true
@@ -154,6 +156,12 @@ export function apply(ctx: ClientContext): void {
     order: 25,
     label: () => t('settings.nav'),
     locale: NS,
-    inject: (): VoiceSettingsInjected => ({ scope, api: connection.api }),
+    inject: (): VoiceSettingsInjected => ({
+      scope,
+      api: connection.api,
+      hooks: { microphoneDevice: microphone },
+      selectMicrophone: (device) => { microphone.set(device) },
+      createDevicePreview: (deviceId, onEnded) => createDevicePreview(browserContainer, deviceId, onEnded),
+    }),
   }, VoiceSettingsSection))
 }

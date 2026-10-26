@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { createRecording } from '../src/client/audio.ts'
+import { createDevicePreview, createRecording } from '../src/client/audio.ts'
 import type { MediaContainer } from '../src/client/audio.ts'
 import { encodeWav16kMono } from '../src/client/wav.ts'
 import { VoiceMicControl } from '../src/client/VoiceMicControl.tsx'
@@ -573,6 +573,76 @@ describe('canonical wire payload', () => {
     const wav = encodeWav16kMono(new Float32Array(8))
     expect(wav.length).toBe(60)
     expect(wav[0]).toBe('R'.charCodeAt(0))
+  })
+})
+
+describe('device-pinned capture', () => {
+  it('requests the pinned device id exactly and keeps the default unconstrained', async () => {
+    const constraints: MediaStreamConstraints[] = []
+    const container = mediaContainer()
+    container.getUserMedia = async (request) => {
+      constraints.push(request)
+      return {} as MediaStream
+    }
+    await createRecording(container, 'mic-2').start()
+    await createRecording(container).start()
+    expect(constraints).toEqual([{ audio: { deviceId: { exact: 'mic-2' } } }, { audio: true }])
+  })
+})
+
+describe('createDevicePreview', () => {
+  /** Container whose single track records stops and hands back scripted levels. */
+  function previewContainer(options: { level?: number; deny?: boolean; analyser?: boolean } = {}) {
+    const events: string[] = []
+    const track = { stop: () => { events.push('stopped') }, onended: null as (() => void) | null }
+    const constraints: MediaStreamConstraints[] = []
+    const container: MediaContainer & { events: () => string[]; constraints: () => MediaStreamConstraints[]; track: typeof track } = {
+      getUserMedia: async (request) => {
+        constraints.push(request)
+        if (options.deny) throw new DOMException('denied', 'NotAllowedError')
+        return { getTracks: () => [track] } as unknown as MediaStream
+      },
+      createRecorder: () => { throw new Error('not used') },
+      decode: async () => { throw new Error('not used') },
+      events: () => events,
+      constraints: () => constraints,
+      track,
+    }
+    if (options.analyser !== false) {
+      container.createAnalyser = () => ({
+        read: (target: Float32Array) => { target.fill(options.level ?? 0.5) },
+        dispose: () => { events.push('tap') },
+      })
+    }
+    return container
+  }
+
+  it('pins the requested device, reports live level, and settles device loss once', async () => {
+    const container = previewContainer()
+    const ended: number[] = []
+    const preview = await createDevicePreview(container, 'mic-2', () => { ended.push(1) })
+    expect(container.constraints()).toEqual([{ audio: { deviceId: { exact: 'mic-2' } } }])
+    expect(preview.level()).toBeCloseTo(0.5)
+    container.track.onended?.()
+    container.track.onended?.()
+    expect(ended).toEqual([1])
+    preview.dispose()
+    expect(container.events()).toEqual(['tap', 'stopped'])
+    container.track.onended?.()
+    expect(ended).toEqual([1])
+  })
+
+  it('keeps the system default unconstrained', async () => {
+    const container = previewContainer()
+    await createDevicePreview(container, '', () => {})
+    expect(container.constraints()).toEqual([{ audio: true }])
+  })
+
+  it('maps permission failures like capture and refuses analyser-less containers', async () => {
+    const denied = previewContainer({ deny: true })
+    await expect(createDevicePreview(denied, '', () => {})).rejects.toMatchObject({ kind: 'denied' })
+    const bare = previewContainer({ analyser: false })
+    await expect(createDevicePreview(bare, '', () => {})).rejects.toMatchObject({ kind: 'unsupported' })
   })
 })
 

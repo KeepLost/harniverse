@@ -9,12 +9,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import { Button, Input, Select } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsRuntime, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsRuntime, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { DevicePreview } from './audio.ts'
+import type { MicrophoneDevice } from './microphone-device.ts'
+import { MicrophonePicker } from './MicrophonePicker.tsx'
 import { NS } from './locales.ts'
 import css from './VoiceSettingsSection.module.css'
 
-/** Speech namespace mirror plus the prepare verb, injected by apply. */
+/** Speech namespace mirror, the prepare verb, and the browser-local device verbs, injected by apply. */
 export interface VoiceSettingsInjected {
+  /** Browser-local microphone selection; device ids never enter the host namespace. */
+  hooks: { microphoneDevice: SnapshotStore<MicrophoneDevice> }
+  /** Persist one microphone selection. */
+  selectMicrophone: (device: MicrophoneDevice) => void
+  /** Open one input device (empty id = system default) for live level monitoring. */
+  createDevicePreview: (deviceId: string, onEnded: () => void) => Promise<DevicePreview>
   /** Shared settings-namespace scope for the `speech` section. */
   scope: {
     getSnapshot(): {
@@ -48,7 +58,7 @@ export interface VoiceSection {
 }
 
 /** Component props: the section owner share's close verb, locale, and the inject face. */
-export type VoiceSettingsSectionProps = Pick<PropsRuntime<'settings.section'>, 'close'> & PropsLocale<typeof NS> & VoiceSettingsInjected
+export type VoiceSettingsSectionProps = Pick<PropsRuntime<'settings.section'>, 'close'> & PropsLocale<typeof NS> & InjectFace<VoiceSettingsInjected>
 
 /** One labeled row: control on its own line under the label. */
 function Row({ label, children }: { label: string; children: ReactNode }): ReactElement {
@@ -61,7 +71,9 @@ function Row({ label, children }: { label: string; children: ReactNode }): React
 }
 
 /** Render the Voice input settings column. */
-export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProps) {
+export function VoiceSettingsSection(
+  { t, scope, api, useMicrophoneDevice, selectMicrophone, createDevicePreview }: VoiceSettingsSectionProps,
+) {
   const snapshot = scope.getSnapshot()
   const [, force] = useState(0)
   useEffect(() => scope.subscribe(() => { force(count => count + 1) }), [scope])
@@ -117,6 +129,14 @@ export function VoiceSettingsSection({ t, scope, api }: VoiceSettingsSectionProp
           placeholder={t('settings.language.placeholder')}
           disabled={disabled}
           onChange={(event) => { write('language', event.target.value.trim() || '') }}
+        />
+      </Row>
+      <Row label={t('settings.device')}>
+        <MicrophonePicker
+          t={t}
+          useMicrophoneDevice={useMicrophoneDevice}
+          selectMicrophone={selectMicrophone}
+          createDevicePreview={createDevicePreview}
         />
       </Row>
       <Row label={t('settings.pushToTalkKey')}>

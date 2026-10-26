@@ -44,3 +44,12 @@ UPSTREAM-ABSORPTION-REVIEW.md 的 X15 行：Harniverse 此前没有语音输入�
 - `apps/desktop`（`tests/main.spec.ts`）：麦克风仅对已连接 loopback Web origin 授予；非 media 与外部 origin 拒绝。
 - 门禁：`tsc -b tsconfig.host.json` 与 `tsc -b tsconfig.client.json`（0 错误）、对所有改动文件跑 `run-oxlint.ts`（0 错误）、`vitest run packages/speech packages/client/ui-voice-input packages/host/apiproxy packages/client/connection packages/client/runtime apps/desktop/tests/main.spec.ts` 全绿、`verify-package-invariants`、`verify-cordis-config`、再生成的 `THIRD_PARTY_NOTICES.md`（verify-third-party-notices）。
 - 交由 CI：带 fake recognizer 的浏览器 e2e、三 OS 打包 Desktop 资格测试、以及使用所有者凭据的真实云端端点检查。
+
+## 增量：麦克风设备选择（2026-10-26）
+
+Wave-5 调查第 7 行（所有者 2026-10-26 裁决：吸收）。设置分区新增输入设备选择器，听写采集固定所选设备。
+
+- **浏览器本地持久化，不进 speech 命名空间。** 设备 id 是浏览器实例事实（各浏览器自行分配且可能轮换），选择经客户端快照 store 持久化于 `dsh.voice-input.microphone`，`restore` 带校验（损坏存储回退系统默认）。宿主 `speech` 命名空间不变；选择器也不受宿主设置可写状态门控。
+- **采集在每次 `getUserMedia` 时遵循选择。** `createRecording(container, deviceId)` 对固定设备发送 `audio: { deviceId: { exact } }`，系统默认则发送纯 `audio: true`；麦克风席位的注入工厂按次录制读取 store 快照，会话中改选下一次采集即生效，无需重挂任何组件。
+- **选择器行为（上游形态）。** 挂载即 `enumerateDevices` 并监听 `devicechange`；系统默认行置顶，按物理默认设备命名（groupId 匹配，排除 `default`/`communications` 伪 id）；未授权前无标签的枚举绝不判为断开；缺失的选中项保留在列表、禁用并标注断开，同时释放其预览；未命名输入按位置回退命名。实时电平条（`createDevicePreview`：getUserMedia + analyser，无 MediaRecorder）在分区可见时预览所选设备，标签页隐藏即释放，track `onended`（设备丢失）至多结算一次并触发重新枚举。
+- **新增验证：** `tests/microphone-device.client.spec.ts`（默认值、持久化、损坏存储回退）、`tests/microphone-picker.client.spec.tsx`（枚举/命名、选择写入、devicechange 刷新、断开标记、电平条、隐藏页释放、设备结束重取、全部拆卸/迟到结算守卫、失败文案）、`tests/voice-mic.client.spec.tsx` 中设备固定采集约束与 `createDevicePreview` 失败类别、`tests/media-bindings.client.spec.tsx` 中浏览器本地选择流入输入框采集约束及设置面预览动词、`tests/browser-plugin.client.spec.ts` 注入面扩展、`tests/voice-settings.client.spec.tsx` 设置分区设备行；逐文件覆盖率保持 100%。
