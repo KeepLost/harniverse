@@ -2148,6 +2148,26 @@ export type Config = Readonly<Record<string, never>>
 
 来源：[`packages/core/model-policy-fallback/src/index.ts:17`](../packages/core/model-policy-fallback/src/index.ts)
 
+<a id="deepseek-aidsh-network-proxy"></a>
+
+## `@deepseek-ai/dsh-network-proxy`
+
+Requires: `settings`
+
+```ts config-catalog
+/** Stored network-proxy settings; every field is optional over the schema defaults. */
+export interface NetworkProxySettings {
+  /** Which route the process-wide policy takes. */
+  mode?: 'off' | 'system' | 'manual'
+  /** Manual-mode proxy URL; empty is the deliberate direct route. */
+  url?: string
+  /** Operator-entered bypass entries, merged with the loopback floor. */
+  noProxy?: string[]
+}
+```
+
+来源：[`packages/host/network-proxy/src/index.ts:36`](../packages/host/network-proxy/src/index.ts)
+
 <a id="deepseek-aidsh-notification-http"></a>
 
 ## `@deepseek-ai/dsh-notification-http`
@@ -4520,6 +4540,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-settings-global-rules` ([`packages/client/ui-settings-global-rules/src/index.ts`](../packages/client/ui-settings-global-rules/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-im` ([`packages/client/ui-settings-im/src/index.ts`](../packages/client/ui-settings-im/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-models` ([`packages/client/ui-settings-models/src/index.ts`](../packages/client/ui-settings-models/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-network-proxy` ([`packages/client/ui-settings-network-proxy/src/index.ts`](../packages/client/ui-settings-network-proxy/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` ([`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugins` ([`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))

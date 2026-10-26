@@ -200,6 +200,8 @@ flowchart LR
   cfg --> plugin_dsh_base_web_firecrawl
   plugin_dsh_base_web_fetch_http["web-fetch-http<br/>@deepseek-ai/dsh-web-fetch-http"]
   cfg --> plugin_dsh_base_web_fetch_http
+  plugin_dsh_base_network_proxy["network-proxy<br/>@deepseek-ai/dsh-network-proxy"]
+  cfg --> plugin_dsh_base_network_proxy
   plugin_dsh_base_mcp_user_config_settings["mcp-user-config-settings<br/>@deepseek-ai/dsh-mcp-user-config"]
   cfg --> plugin_dsh_base_mcp_user_config_settings
   plugin_dsh_base_tool_web["tool-web<br/>@deepseek-ai/dsh-tool-web"]
@@ -322,6 +324,7 @@ flowchart LR
 | `web-search-cloudflare` | `@deepseek-ai/dsh-web-search-cloudflare` |
 | `web-firecrawl` | `@deepseek-ai/dsh-web-firecrawl` |
 | `web-fetch-http` | `@deepseek-ai/dsh-web-fetch-http` |
+| `network-proxy` | `@deepseek-ai/dsh-network-proxy` |
 | `mcp-user-config-settings` | `@deepseek-ai/dsh-mcp-user-config` |
 | `tool-web` | `@deepseek-ai/dsh-tool-web` |
 | `tools` | `@deepseek-ai/dsh-tools` |

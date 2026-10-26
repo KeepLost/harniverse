@@ -114,6 +114,7 @@
     { "path": "./packages/client/ui-skin" },
     { "path": "./packages/client/ui-sound" },
     { "path": "./packages/client/ui-settings-global-rules" },
+    { "path": "./packages/client/ui-settings-network-proxy" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/web" },
     { "path": "./apps/web" }

@@ -1,0 +1,97 @@
+/* Network proxy settings page: a mode fieldset framed like the board's
+ * header and notes column, on the shared theme tokens. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 20px 24px;
+  overflow: auto;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+}
+
+.modeRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.radioLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.manualRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.input:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}

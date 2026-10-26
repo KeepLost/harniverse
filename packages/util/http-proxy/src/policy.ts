@@ -72,8 +72,8 @@ export interface ProxyPolicy {
   readonly httpsProxy?: string
   /** The bypass list, already merged with {@link LOOPBACK_NO_PROXY}. Empty when nothing is bypassed. */
   readonly noProxy: string
-  /** Which layer supplied the winning proxy URL; `env` when either field came from the environment. */
-  readonly source: 'env' | 'none'
+  /** Which layer supplied the winning proxy URL; `env` at launch, `runtime` for a settings override, `none` when direct. */
+  readonly source: 'env' | 'runtime' | 'none'
 }
 
 /** A policy that proxies nothing. Callers that have not installed a policy resolve URLs against this. */
@@ -394,6 +394,32 @@ export function resolveProxyPolicy(env: EnvLookup): ProxyResolution {
       ...httpsProxy === undefined ? {} : { httpsProxy },
       noProxy: withLoopback(readEnv(env, 'no_proxy')?.value),
       source: 'env',
+    },
+    diagnostics,
+  }
+}
+
+/**
+ * Build one runtime policy from a manually entered proxy URL and bypass list — the values the
+ * network-proxy settings page saves. An empty URL is the deliberate direct route, not a rejection;
+ * a non-empty URL this transport cannot route is rejected with a diagnostic and resolves to the
+ * direct policy, so a bad entry can never silently proxy everything somewhere else.
+ *
+ * @param url - the operator-entered proxy URL; empty selects the direct route.
+ * @param noProxy - operator-entered bypass entries, merged with the loopback floor.
+ * @returns the resolution, carrying diagnostics for every rejected candidate value.
+ */
+export function policyFromManual(url: string, noProxy: readonly string[]): ProxyResolution {
+  const diagnostics: ProxyDiagnostic[] = []
+  if (url.trim() === '') return { policy: DIRECT_POLICY, diagnostics }
+  const candidate = acceptProxyUrl({ value: url, name: 'network-proxy.url' }, diagnostics)
+  if (candidate.kind !== 'accepted') return { policy: DIRECT_POLICY, diagnostics }
+  return {
+    policy: {
+      httpProxy: candidate.value,
+      httpsProxy: candidate.value,
+      noProxy: withLoopback(noProxy.join(',')),
+      source: 'runtime',
     },
     diagnostics,
   }

@@ -16,6 +16,9 @@
     - button "全局规则":
       - img
       - text: 全局规则
+    - button "网络代理":
+      - img
+      - text: 网络代理
     - button "插件":
       - img
       - text: 插件

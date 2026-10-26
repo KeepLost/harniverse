@@ -19,6 +19,7 @@ export {
   installProxyFromEnvironment,
   operatorBypassed,
   proxyRouteFor,
+  setProxyOverride,
   type ProxyRoute,
 } from './install.ts'
 export {
@@ -29,3 +30,4 @@ export {
   type ProxyHop,
   type ProxyRequestOptions,
 } from './dispatcher.ts'
+export { policyFromManual, type EnvLookup, type ProxyPolicy } from './policy.ts'

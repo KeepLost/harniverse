@@ -198,6 +198,7 @@ flowchart TD
     pkg_client_ui_settings_im["client-ui-settings-im"]
     pkg_client_ui_settings_mcp["client-ui-settings-mcp"]
     pkg_client_ui_settings_models["client-ui-settings-models"]
+    pkg_client_ui_settings_network_proxy["client-ui-settings-network-proxy"]
     pkg_client_ui_settings_plugin_inventory["client-ui-settings-plugin-inventory"]
     pkg_client_ui_settings_plugins["client-ui-settings-plugins"]
     pkg_client_ui_sidebar["client-ui-sidebar"]
@@ -285,6 +286,7 @@ flowchart TD
     pkg_host_plugin_inventory["host-plugin-inventory"]
     pkg_host_skin_library["host-skin-library"]
     pkg_host_webserver["host-webserver"]
+    pkg_network_proxy["network-proxy"]
     pkg_workspace_file_write["workspace-file-write"]
   end
   subgraph group_interaction["packages/interaction"]
@@ -548,6 +550,10 @@ flowchart TD
   pkg_host_skin_library --> pkg_invariants
   pkg_host_skin_library --> pkg_settings
   pkg_host_skin_library --> pkg_typert_protocol
+  pkg_network_proxy --> pkg_http_proxy
+  pkg_network_proxy --> pkg_invariants
+  pkg_network_proxy --> pkg_launch_environment
+  pkg_network_proxy --> pkg_settings
   pkg_settings_file --> pkg_atomic_write
   pkg_settings_file --> pkg_home_paths
   pkg_settings_file --> pkg_invariants
@@ -1742,6 +1748,12 @@ flowchart TD
   pkg_client_ui_settings_mcp --> pkg_client_ui_slots
   pkg_client_ui_settings_mcp --> pkg_invariants
   pkg_client_ui_settings_mcp --> pkg_mcp_user_config
+  pkg_client_ui_settings_network_proxy --> pkg_client_locale
+  pkg_client_ui_settings_network_proxy --> pkg_client_runtime
+  pkg_client_ui_settings_network_proxy --> pkg_client_ui_primitives
+  pkg_client_ui_settings_network_proxy --> pkg_client_ui_settings
+  pkg_client_ui_settings_network_proxy --> pkg_client_ui_slots
+  pkg_client_ui_settings_network_proxy --> pkg_invariants
   pkg_client_ui_settings_plugin_inventory --> pkg_api_remotes
   pkg_client_ui_settings_plugin_inventory --> pkg_client_locale
   pkg_client_ui_settings_plugin_inventory --> pkg_client_runtime
@@ -2174,6 +2186,7 @@ flowchart TD
 | [`credentials-encrypted`](../packages/credentials/credentials-encrypted) | `credentials` | [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`credentials-local`](../packages/credentials/credentials-local) | `credentials` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment) |
 | [`host-skin-library`](../packages/host/skin-library) | `host` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
+| [`network-proxy`](../packages/host/network-proxy) | `host` | [`http-proxy`](../packages/util/http-proxy), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings) |
 | [`settings-file`](../packages/settings/settings-file) | `settings` | [`atomic-write`](../packages/util/atomic-write), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
 | [`speech-settings`](../packages/speech/speech-settings) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`speech`](../packages/speech/speech) |
 | [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`fs-codec`](../packages/fs/fs-codec), [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
@@ -2374,6 +2387,7 @@ flowchart TD
 | [`client-ui-settings-global-rules`](../packages/client/ui-settings-global-rules) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-settings-im`](../packages/client/ui-settings-im) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol) |
 | [`client-ui-settings-mcp`](../packages/client/ui-settings-mcp) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`mcp-user-config`](../packages/mcp/mcp-user-config) |
+| [`client-ui-settings-network-proxy`](../packages/client/ui-settings-network-proxy) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-settings-plugin-inventory`](../packages/client/ui-settings-plugin-inventory) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-settings-plugins`](../packages/client/ui-settings-plugins) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
