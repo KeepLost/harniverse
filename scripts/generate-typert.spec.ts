@@ -65,7 +65,9 @@ describe('fingerprintProjectRoots', () => {
     write(join(root, 'packages/shared/tsconfig.json'), JSON.stringify({ compilerOptions: { composite: true }, include: ['src'] }))
     write(join(root, 'packages/shared/src/index.ts'), 'export {}\n')
 
-    const rootsRelative = fingerprintProjectRoots(root).map(dir => dir.slice(root.length + 1)).sort()
+    const rootsRelative = fingerprintProjectRoots(root)
+      .map(dir => dir.slice(root.length + 1).replaceAll('\\', '/'))
+      .sort()
     expect(rootsRelative).toEqual(['packages/a', 'packages/b', 'packages/shared'])
   })
 })
