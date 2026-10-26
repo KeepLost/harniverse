@@ -31,6 +31,27 @@ export interface TypertPluginOptions {
 }
 
 /**
+ * Discover and emit every workspace Typert artifact for the given faces,
+ * standalone (no bundling). The tsdown workspace mode and the source-only
+ * generation script share this entry so their outputs stay identical.
+ * @param root - workspace root containing the face aggregate tsconfigs.
+ * @param faces - independent TypeScript program faces to include.
+ * @returns repository-absolute paths of every artifact file written.
+ */
+export function generateWorkspaceArtifacts(root: string, faces?: readonly TypertFace[]): string[] {
+  const generator = new WorkspaceTypertGenerator(root)
+  const packages = generator.discover(faces)
+    .filter(candidate => hasTypertExport(readManifest(join(root, candidate.root)).exports))
+    .map(candidate => candidate.package)
+  if (packages.length === 0) return []
+  const written: string[] = []
+  for (const artifact of generator.generate(packages, faces)) {
+    written.push(...emitArtifacts(join(root, artifact.packageRoot), [artifact]))
+  }
+  return written
+}
+
+/**
  * Create the decorator-lowering and typert-generation plugin for the root tsdown config.
  * @param pluginOptions - package/workspace emission mode and independent program faces.
  * @returns a rolldown-compatible plugin that lowers source decorators and emits local and Host-for-Client artifacts.
@@ -65,7 +86,7 @@ export function typertPlugin(pluginOptions: TypertPluginOptions = {}): TypertPlu
       const root = workspaceRoot(bundleOptions.dir)
       if (emittedWorkspaces.has(root)) return
       if (pluginOptions.mode === 'workspace') {
-        emitWorkspace(root, pluginOptions.faces)
+        generateWorkspaceArtifacts(root, pluginOptions.faces)
         emittedWorkspaces.add(root)
         return
       }
@@ -88,30 +109,23 @@ export function typertPlugin(pluginOptions: TypertPluginOptions = {}): TypertPlu
     },
   }
 
-  function emitWorkspace(root: string, faces: readonly TypertFace[] | undefined): void {
-    const generator = new WorkspaceTypertGenerator(root)
-    const packages = generator.discover(faces)
-      .filter(candidate => hasTypertExport(readManifest(join(root, candidate.root)).exports))
-      .map(candidate => candidate.package)
-    if (packages.length === 0) return
-    for (const artifact of generator.generate(packages, faces)) {
-      emitArtifacts(join(root, artifact.packageRoot), [artifact])
-    }
-  }
 }
 
-function emitArtifacts(packageDir: string, artifacts: readonly WorkspaceEmitResult[]): void {
+function emitArtifacts(packageDir: string, artifacts: readonly WorkspaceEmitResult[]): string[] {
   const output = join(packageDir, 'lib')
   mkdirSync(output, { recursive: true })
   let emittedRemote = false
+  const written: string[] = []
   for (const artifact of artifacts) {
     writeFileSync(join(output, `typert.${artifact.face}.js`), artifact.js)
     writeFileSync(join(output, `typert.${artifact.face}.d.ts`), artifact.dts)
+    written.push(`typert.${artifact.face}.js`, `typert.${artifact.face}.d.ts`)
     if (artifact.remote !== undefined) {
       emittedRemote = true
       writeFileSync(join(output, 'typert.remote-client.js'), artifact.remote.js)
       writeFileSync(join(output, 'typert.remote-client.d.ts'), artifact.remote.dts)
       writeFileSync(join(output, 'typert.remote-client.d.ts.map'), artifact.remote.dtsMap)
+      written.push('typert.remote-client.js', 'typert.remote-client.d.ts')
     }
   }
   if (!emittedRemote && artifacts.some(artifact => artifact.face === 'host')) {
@@ -121,6 +135,7 @@ function emitArtifacts(packageDir: string, artifacts: readonly WorkspaceEmitResu
       'typert.remote-client.d.ts.map',
     ]) rmSync(join(output, file), { force: true })
   }
+  return written.map(file => join(output, file))
 }
 
 function readManifest(packageDir: string): { name?: string; exports?: unknown } {
