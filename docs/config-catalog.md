@@ -539,13 +539,13 @@ export interface Config {
   accessLogMaxBytes?: number
   /** Number of rotated access-log files retained. */
   accessLogMaxFiles?: number
-  /** Invalid credential attempts allowed within one rate-limit window. */
+  /** Invalid browser-login proofs or invitation redemptions allowed from one direct peer within one window. */
   authFailureLimit?: number
   /** Authentication failure counting window in milliseconds. */
   authFailureWindowMs?: number
   /** Rate-limit block duration in milliseconds. */
   authFailureBlockMs?: number
-  /** Maximum peer-and-channel rate-limit records retained. */
+  /** Maximum peer-and-operation rate-limit records retained. */
   maxAuthFailureKeys?: number
 }
 ```

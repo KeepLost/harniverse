@@ -524,34 +524,38 @@ describe('credential capacity refusal', () => {
 })
 
 describe('rate limit windows', () => {
-  it('forgets a failure window once it elapses', async () => {
-    const { ctx } = await owned({ authFailureLimit: 2, authFailureWindowMs: 40, authFailureBlockMs: 10_000 })
+  /** Submit one browser-login proof whose signature cannot verify. */
+  async function invalidLogin(
+    { ctx, fixture }: Awaited<ReturnType<typeof owned>>,
+    peerAddress: string,
+  ): Promise<unknown> {
+    const issued = await ctx.authentication.createChallenge(fixture.grant.id, 'browser-session')
+    if (issued.kind !== 'accepted') throw new Error('expected a challenge')
+    return await ctx.authentication.createBrowserSession({ challengeId: issued.value.id, signature: 'A'.repeat(86) }, peerAddress)
+  }
 
-    await ctx.authentication.authenticate({ channel: 'http-api', authorization: 'Bearer bad', peerAddress: '10.0.0.1' })
+  it('forgets a failure window once it elapses', async () => {
+    const service = await owned({ authFailureLimit: 2, authFailureWindowMs: 40, authFailureBlockMs: 10_000 })
+
+    await invalidLogin(service, '10.0.0.1')
     // The window lapses before the second failure, so no block accrues.
     await new Promise((resolve) => { setTimeout(resolve, 60) })
-    await ctx.authentication.authenticate({ channel: 'http-api', authorization: 'Bearer bad', peerAddress: '10.0.0.1' })
+    await invalidLogin(service, '10.0.0.1')
 
-    await expect(ctx.authentication.authenticate({
-      channel: 'http-api',
-      authorization: 'Bearer bad',
-      peerAddress: '10.0.0.1',
-    })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
+    await expect(invalidLogin(service, '10.0.0.1')).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
   })
 
   it('bounds the failure key table', async () => {
-    const { ctx } = await owned({ maxAuthFailureKeys: 2 })
+    const service = await owned({ authFailureLimit: 2, authFailureWindowMs: 60_000, maxAuthFailureKeys: 2 })
 
-    for (const peer of ['10.0.0.1', '10.0.0.2', '10.0.0.3']) {
-      await ctx.authentication.authenticate({ channel: 'http-api', authorization: 'Bearer bad', peerAddress: peer })
-    }
+    await invalidLogin(service, '10.0.0.1')
+    await invalidLogin(service, '10.0.0.2')
+    // A third peer evicts the oldest window, so the first peer's next failure
+    // opens a fresh window instead of reaching its limit.
+    await invalidLogin(service, '10.0.0.3')
+    await invalidLogin(service, '10.0.0.1')
 
-    // The oldest peers were evicted, so the newest still gets a fresh window.
-    await expect(ctx.authentication.authenticate({
-      channel: 'http-api',
-      authorization: 'Bearer bad',
-      peerAddress: '10.0.0.3',
-    })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
+    await expect(invalidLogin(service, '10.0.0.1')).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
   })
 
   it('forgets an enrollment window once it elapses and bounds its key table', async () => {

@@ -43,6 +43,13 @@ function text(value: string, status: number): Response {
   return new Response(value, { status, headers: noStoreHeaders() })
 }
 
+function rateLimited(retryAfterMs: number): Response {
+  return new Response('rate limited', {
+    status: 429,
+    headers: noStoreHeaders({ 'retry-after': String(Math.ceil(retryAfterMs / 1_000)) }),
+  })
+}
+
 function browserRequestDetails(request: Request, peerAddress: string | undefined): string {
   return `${describeApiTrustRequest(request)} peer=${JSON.stringify(peerAddress ?? '-')}`
 }
@@ -80,10 +87,7 @@ function exchangeStatus(reason: 'invalid-grant' | 'invalid-proof' | 'expired' | 
 function enrollmentRejection(decision: Extract<AuthenticationEnrollmentDecision, { kind: 'rejected' }>): Response {
   switch (decision.reason) {
     case 'rate-limited':
-      return new Response('rate limited', {
-        status: 429,
-        headers: noStoreHeaders({ 'retry-after': String(Math.ceil(decision.retryAfterMs / 1_000)) }),
-      })
+      return rateLimited(decision.retryAfterMs)
     case 'authentication-unavailable':
       return text('authentication unavailable', 503)
     case 'invalid-name':
@@ -132,6 +136,7 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
           ...(browserSession !== undefined && { browserSession }),
           ...(peerAddress !== undefined && { peerAddress }),
         })
+        if (decision.kind === 'rejected' && decision.reason === 'rate-limited') return rateLimited(decision.retryAfterMs)
         return json({ ...status, authenticated: decision.kind === 'accepted' })
       }
       if (pathname === AUTH_ENROLLMENT_PATH && request.method === 'POST') {
@@ -193,11 +198,7 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
           }
           ctx.logger.warn(`client-connection: invitation redemption rejected enrollment=${JSON.stringify(enrollmentId)} reason=${JSON.stringify(decision.reason)} peer=${JSON.stringify(peerAddress ?? '-')}`)
           switch (decision.reason) {
-            case 'rate-limited':
-              return new Response('rate limited', {
-                status: 429,
-                headers: noStoreHeaders({ 'retry-after': String(Math.ceil(decision.retryAfterMs / 1_000)) }),
-              })
+            case 'rate-limited': return rateLimited(decision.retryAfterMs)
             case 'authentication-unavailable': return text('authentication unavailable', 503)
             case 'invalid-invitation': return text('invalid invitation', 401)
             case 'invitation-name': return text('invitation name mismatch', 409)
