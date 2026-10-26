@@ -181,6 +181,16 @@ describe('browser authentication status', () => {
     await harness.dispose()
   })
 
+  it('answers a rate-limited credential check with its retry interval instead of an unauthenticated status', async () => {
+    const harness = await mounted({ decision: { kind: 'rejected', reason: 'rate-limited', retryAfterMs: 2_500 } })
+
+    const state = await harness.call(request({ method: 'GET', path: '/auth/status' }))
+    expect(state).toMatchObject({ status: 429, body: 'rate limited' })
+    expect(state.headers?.['retry-after']).toBe('3')
+    expect(state.headers?.['cache-control']).toBe('no-store')
+    await harness.dispose()
+  })
+
   it('never lets a browser cache an authentication answer', async () => {
     const harness = await mounted()
     const state = await harness.call(request({ method: 'GET', path: '/auth/status' }))

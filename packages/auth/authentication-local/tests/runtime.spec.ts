@@ -337,22 +337,38 @@ describe('local Grant authentication runtime', () => {
     expect(records).toContain('"reasonCode":"capacity"')
   })
 
-  it('rate limits repeated invalid bearer credentials by channel and peer', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-08-17T00:00:00.000Z'))
+  it('admits a valid credential however many unknown credentials its peer presented first', async () => {
     const dshHome = await home()
-    await createGrantFixture(dshHome, 'phone')
+    const phone = await createGrantFixture(dshHome, 'phone')
     const ctx = await boot(dshHome, 'authenticated', {
       authFailureLimit: 2,
-      authFailureWindowMs: 1_000,
-      authFailureBlockMs: 5_000,
+      authFailureWindowMs: 60_000,
+      authFailureBlockMs: 60_000,
     })
-    const attempt = { channel: 'http-api' as const, authorization: 'Bearer invalid', peerAddress: '192.0.2.10' }
-    await expect(ctx.authentication.authenticate(attempt)).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
-    await expect(ctx.authentication.authenticate(attempt)).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
-    await expect(ctx.authentication.authenticate(attempt)).resolves.toEqual({
-      kind: 'rejected', reason: 'rate-limited', retryAfterMs: 5_000,
-    })
+    const peerAddress = '192.0.2.10'
+    // A restarted process knows none of the values the previous one issued, so
+    // every open tab and API client presents one until it signs a new exchange.
+    const unknown = [
+      { authorization: 'Bearer invalid' },
+      { authorization: `Bearer dsha1_${'A'.repeat(16)}_${'B'.repeat(43)}` },
+      { browserSession: 'C'.repeat(43) },
+      { browserSession: 'D'.repeat(43) },
+    ]
+    for (const channel of ['http-api', 'websocket-mux', 'websocket-host'] as const) {
+      for (const credential of unknown) {
+        await expect(ctx.authentication.authenticate({ channel, peerAddress, ...credential }))
+          .resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
+      }
+    }
+
+    const login = await ctx.authentication.createBrowserSession(await signedProof(ctx, phone, 'browser-session'), peerAddress)
+    if (login.kind !== 'accepted') throw new Error('expected a browser session')
+    const token = await ctx.authentication.exchangeAccessToken(await signedProof(ctx, phone, 'access-token'), peerAddress)
+    if (token.kind !== 'accepted') throw new Error('expected an Access Token')
+    await expect(ctx.authentication.authenticate({ channel: 'http-api', peerAddress, browserSession: login.session.value }))
+      .resolves.toMatchObject({ kind: 'accepted' })
+    await expect(ctx.authentication.authenticate({ channel: 'websocket-mux', peerAddress, authorization: `Bearer ${token.value.value}` }))
+      .resolves.toMatchObject({ kind: 'accepted' })
   })
 
   it('rate limits enrollment creation per direct peer', async () => {

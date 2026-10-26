@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-18-enrollment-invitation.md
-2026-09-18-enrollment-invitation.md: 0e5c18eab2899b048859ed98a92e1868b18cf67a
-2026-09-18-enrollment-invitation.zh.md: 80875a6e1f3064bd5d7a96481affd14ff299d8e6
+2026-09-18-enrollment-invitation.md: d24f7b7293e33daafb4615655418312c33f21b93
+2026-09-18-enrollment-invitation.zh.md: add2a78ae4567e4cd18b7e1c4e953a1eba504df0

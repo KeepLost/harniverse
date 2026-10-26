@@ -10,6 +10,7 @@
   "include": [
     "apps/web/tests/scaffold.ts",
     "apps/web/tests/authentication-gate.e2e.ts",
+    "apps/web/tests/authentication-restart.e2e.ts",
     "apps/web/tests/chat-bridge.e2e.ts",
     "apps/web/tests/chat-bridge-interactions.e2e.ts",
     "apps/web/tests/chat-bridge-world.ts",

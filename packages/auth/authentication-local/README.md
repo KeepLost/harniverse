@@ -20,7 +20,9 @@ dsh auth code revoke <invitation-id>
 
 An authenticated instance may start without Grants. Its static browser shell accepts enrollment requests, but business APIs remain sealed until local CLI approval creates the first owner and seal again whenever no active owner remains. Human-readable Grant names contain 1-64 Unicode letters or numbers and may include spaces, dots, underscores, or hyphens. Invalid names, invalid browser keys, and name conflicts produce stable actionable rejections; unexpected registry or audit failures remain server errors and are logged by the connection Consumer. Pending requests have a durable global bound and a per-peer creation limit. An owner browser can manage pending requests and Grants at `/auth/manage`. Device Grants use persistent non-exportable browser keys; temporary device keys remain in memory and Grants are limited to 60 minutes with a 15-minute idle timeout. API clients register a public key locally and use signed challenge exchange. The owner management route can issue one nonrenewable Access Token for at most 15 minutes without `harniverse.authorize`.
 
-Enrollment invitations are pre-issued approvals: a one-time `dshi1_` token minted by `dsh auth code issue` (lifetime up to 7 days, at most 64 active per registry, stored only as SHA-256 hashes in the same `grants.json` under a cross-process lock). Redemption caps capabilities at the invitation's ceiling, binds the enrolled name for `--bind` invitations, and marks the token used atomically with Grant creation; a new enrollment signed by the same browser key supersedes that key's pending request. Repeated invalid redemptions from one peer share the invalid-credential limiter; kind and name rejections do not count. Settled invitations are retained for 7 days for audit and then pruned lazily.
+Enrollment invitations are pre-issued approvals: a one-time `dshi1_` token minted by `dsh auth code issue` (lifetime up to 7 days, at most 64 active per registry, stored only as SHA-256 hashes in the same `grants.json` under a cross-process lock). Redemption caps capabilities at the invitation's ceiling, binds the enrolled name for `--bind` invitations, and marks the token used atomically with Grant creation; a new enrollment signed by the same browser key supersedes that key's pending request. Repeated invalid redemptions from one peer count toward the failure limiter; kind and name rejections do not count. Settled invitations are retained for 7 days for audit and then pruned lazily.
+
+Only signed-proof and invitation guesses are rate-limited. An invalid browser-login proof or invitation redemption counts toward its direct peer's failure window for that operation; reaching `authFailureLimit` blocks the operation for that peer with a `rate-limited` retry interval. Business admission never counts or blocks: an unknown or expired browser session or Access Token is always `invalid-credential`, so the values every open tab and API client still holds after a restart cannot lock out their shared peer.
 
 `$DSH_HOME/auth/tokens.json` is rejected as an unsupported legacy format. There is no migration or bearer compatibility mode.
 
@@ -48,8 +50,8 @@ Enrollment invitations are pre-issued approvals: a one-time `dshi1_` token minte
 | `reconcileIntervalMs` | `5000` | Mandatory periodic registry reconciliation. |
 | `accessLogMaxBytes` | 10 MiB | Active JSONL size before rotation. |
 | `accessLogMaxFiles` | `5` | Rotated files retained. |
-| `authFailureLimit` | `10` | Invalid credentials allowed per channel and direct peer in one window. |
-| `authFailureWindowMs` | `60000` | Invalid-credential counting window. |
+| `authFailureLimit` | `10` | Invalid browser-login proofs or invitation redemptions allowed per direct peer in one window. |
+| `authFailureWindowMs` | `60000` | Failure counting window. |
 | `authFailureBlockMs` | `300000` | Block duration after the failure limit. |
 | `maxAuthFailureKeys` | `4096` | Maximum limiter states retained in memory. |
 

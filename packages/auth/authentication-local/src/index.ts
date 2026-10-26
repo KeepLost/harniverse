@@ -112,13 +112,13 @@ export interface Config {
   accessLogMaxBytes?: number
   /** Number of rotated access-log files retained. */
   accessLogMaxFiles?: number
-  /** Invalid credential attempts allowed within one rate-limit window. */
+  /** Invalid browser-login proofs or invitation redemptions allowed from one direct peer within one window. */
   authFailureLimit?: number
   /** Authentication failure counting window in milliseconds. */
   authFailureWindowMs?: number
   /** Rate-limit block duration in milliseconds. */
   authFailureBlockMs?: number
-  /** Maximum peer-and-channel rate-limit records retained. */
+  /** Maximum peer-and-operation rate-limit records retained. */
   maxAuthFailureKeys?: number
 }
 
@@ -426,10 +426,7 @@ export class LocalAuthentication extends InboundAuthentication {
       else if (!this.watcherHealthy || !this.ownerAvailable) decision = { kind: 'rejected', reason: 'authentication-unavailable' }
       else {
         try {
-          const key = this.failureKey(attempt.channel, attempt.peerAddress)
-          decision = this.rateLimited(key) ?? await this.decide(attempt, readRegistry)
-          if (decision.kind === 'accepted') this.authenticationFailures.delete(key)
-          else if (decision.reason === 'invalid-credential') this.recordAuthenticationFailure(key)
+          decision = await this.decide(attempt, readRegistry)
         } catch (error) {
           this.ctx.logger.warn('authentication-local: Grant verification unavailable')
           this.ctx.logger.warn(error)
@@ -819,10 +816,7 @@ export class LocalAuthentication extends InboundAuthentication {
     return this.grants.get(grantKey({ grantId: principal.grantId, grantRevision: principal.grantRevision }))
   }
 
-  private failureKey(
-    channel: AuthenticationAttempt['channel'] | 'browser-login' | 'invitation-redeem',
-    peerAddress: string | undefined,
-  ): string {
+  private failureKey(channel: 'browser-login' | 'invitation-redeem', peerAddress: string | undefined): string {
     return `${channel}:${peerAddress ?? 'unknown'}`
   }
 

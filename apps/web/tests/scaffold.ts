@@ -201,6 +201,13 @@ export interface LaunchOptions {
   /** Admission mode for this scaffold; ordinary post-admission scenarios default to explicit bypass. */
   authentication?: 'bypass' | 'grant'
   /**
+   * Invalid-proof limit on the grant scaffold's authentication row. Restart
+   * scenarios lower it so a lockout cannot hide below the shipped threshold.
+   */
+  authFailureLimit?: number
+  /** Fixed listener port; a relaunched Host on the same port keeps the browser's origin and cookie jar. */
+  port?: number
+  /**
    * Optional product overlay applied after the shipped Web surface and before
    * the scaffold's hermetic test patches, matching the launcher's `--patch`
    * ordering.
@@ -375,7 +382,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // browser scenario, while lease and access records remain active here.
     {
       id: 'authentication',
-      config: { mode: options.authentication === 'grant' ? 'authenticated' : 'bypass', watch: false },
+      config: {
+        mode: options.authentication === 'grant' ? 'authenticated' : 'bypass',
+        watch: false,
+        ...(options.authFailureLimit !== undefined && { authFailureLimit: options.authFailureLimit }),
+      },
     },
     // The roster's `roots` is an assembly fact AppCLIEntry resolves and patches
     // in, exactly like `distIndex` on the webserver row — the shipped preset
@@ -425,12 +436,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // workspace, keeping the composition untouched.
     { id: 'agent-instructions', disabled: true },
     { id: 'session-title-llm', disabled: true },
-    // Use an ephemeral port while preserving the shipped compression policy;
-    // a patch replaces the row's complete config.
+    // Use an ephemeral port unless a scenario pins one, while preserving the
+    // shipped compression policy; a patch replaces the row's complete config.
     {
       id: 'webserver',
       config: {
-        host: '127.0.0.1', port: 0, compression: 'gzip',
+        host: '127.0.0.1', port: options.port ?? 0, compression: 'gzip',
         compressionLevel: 1, compressionThresholdBytes: 1024,
       },
     },

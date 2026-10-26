@@ -6,7 +6,7 @@
 
 每个 endpoint 要求四项正交 capability 之一：`harniverse.observe`、`harniverse.operate`、`harniverse.administer` 或 `harniverse.authorize`。Grant principal 携带准确的 Grant id 与 revision、capability 和过期时间。注册表变更会撤销匹配的 Access Token、浏览器会话和 WebSocket，而不影响其他 Grant。
 
-Authenticated 启动允许空的 sealed 注册表，以便浏览器提交首个设备 enrollment 请求；本地 CLI 批准后创建首个 owner Grant。待处理 enrollment 受持久全局上限和每 peer 创建限制约束。CLI 签发的 enrollment 邀请口令是预签发的批准：浏览器用一次性 `dshi1_` token 兑换自己的待处理请求，capability 以口令上限封顶，且只有无效兑换才计入每 peer 的无效凭据限速器。设备与 API client 使用一次性 P-256 签名 challenge 换取短期凭据。临时设备必须有过期时间和空闲超时，应急 token 不能 authorize，且 `$DSH_HOME/auth/tokens.json` 会在不迁移的情况下被拒绝。显式 bypass 仍保留每主目录实例 lease 与强制访问记录并仅限回环；全接口 listener 必须直接启用 TLS。
+Authenticated 启动允许空的 sealed 注册表，以便浏览器提交首个设备 enrollment 请求；本地 CLI 批准后创建首个 owner Grant。待处理 enrollment 受持久全局上限和每 peer 创建限制约束。CLI 签发的 enrollment 邀请口令是预签发的批准：浏览器用一次性 `dshi1_` token 兑换自己的待处理请求，capability 以口令上限封顶，且只有无效兑换才计入每 peer 的失败限速器。设备与 API client 使用一次性 P-256 签名 challenge 换取短期凭据。该限速器只统计无效登录证明与兑换；业务接入从不限速，因为重启后每个打开的标签页和 API client 仍会出示上一进程签发、当前未知的会话或 Access Token。临时设备必须有过期时间和空闲超时，应急 token 不能 authorize，且 `$DSH_HOME/auth/tokens.json` 会在不迁移的情况下被拒绝。显式 bypass 仍保留每主目录实例 lease 与强制访问记录并仅限回环；全接口 listener 必须直接启用 TLS。
 
 来源：[`packages/auth/authentication/src/index.ts`](../../packages/auth/authentication/src/index.ts)
 

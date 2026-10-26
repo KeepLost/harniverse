@@ -24,6 +24,7 @@
   "exclude": [
     "tests/scaffold.ts",
     "tests/authentication-gate.e2e.ts",
+    "tests/authentication-restart.e2e.ts",
     "tests/chat-bridge.e2e.ts",
     "tests/chat-bridge-interactions.e2e.ts",
     "tests/chat-bridge-world.ts",
