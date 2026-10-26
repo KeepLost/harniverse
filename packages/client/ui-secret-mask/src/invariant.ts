@@ -1,23 +1,24 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-web-search-deepseek`.
- * @module @deepseek-ai/dsh-web-search-deepseek/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-client-ui-secret-mask`.
+ * @module @deepseek-ai/dsh-client-ui-secret-mask/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-web-search-deepseek'
+const PACKAGE_NAME = '@deepseek-ai/dsh-client-ui-secret-mask'
 
 /** Cordis companion plugin name. */
-export const name = 'web-search-deepseek-invariant'
+export const name = 'ui-secret-mask-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the package emits a pre-dispatch log event but owns no
- * later authoritative dispatch event to relate it to. Exact envelope equality
- * is pinned at the provider boundary instead.
+ * No runtime invariant: this package projects the queue Remote onto one
+ * in-page tab. It emits no cordis events, owns no cross-plugin mutable
+ * state, and its slot registration proves disposal through the HMR-safety
+ * spec.
  */
 const install: InvariantInstaller = () => {}
 

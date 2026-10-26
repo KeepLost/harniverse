@@ -120,6 +120,7 @@
   "exclude": [
     "packages/client/*/src/**",
     "packages/*/*/tests/**/*.client.ts",
+    "benchmarks/**/*.client.ts",
     "packages/*/*/tests/**/*.client.tsx",
     "packages/*/*/tests/**/*.client.spec.ts",
     "packages/*/*/tests/**/*.client.spec.tsx",
@@ -297,7 +298,7 @@
     { "path": "./packages/web/web" },
     { "path": "./packages/web/web-search-exa" },
     { "path": "./packages/web/web-search-perplexity" },
-    { "path": "./packages/web/web-search-deepseek" },
+    { "path": "./packages/web/web-deepseek-api" },
     { "path": "./packages/web/web-search-tavily" },
     { "path": "./packages/web/web-search-brave" },
     { "path": "./packages/web/web-search-kagi" },

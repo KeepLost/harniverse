@@ -587,6 +587,56 @@ jobs:
   # parallelized without putting multiple Chromium or benchmark trees on one
   # runner. Each benchmark runner serializes its samples and enforces a
   # process-tree RSS ceiling.
+  performance-user-text:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: performance / user text
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Run user-text credential-matching benchmark
+        run: pnpm run benchmark:user-text
+
+  performance-session-open:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: performance / session open
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Run session-open restore benchmark
+        run: pnpm run benchmark:session-open
+
   performance-terminal:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -696,7 +746,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, desktop-platform, node-24-coverage, node-24-consumers, node-24-web-snapshot, node-compat, python-sdk, python-runtime, windows, performance-terminal, performance-browser, performance-stream]
+    needs: [node-24, desktop-platform, node-24-coverage, node-24-consumers, node-24-web-snapshot, node-compat, python-sdk, python-runtime, windows, performance-terminal, performance-browser, performance-stream, performance-user-text, performance-session-open]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed

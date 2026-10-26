@@ -480,6 +480,32 @@ describe('PersistenceCoordinator bounded writes', () => {
     await ctx.fiber.dispose()
   })
 
+  it('loads a log carrying a retired event type as inert data', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('header-retired-event')
+    backend.store.set(id, {
+      meta: { version: SESSION_FORMAT_VERSION, id, createdAt: 1, cwd: '/work' },
+      events: [
+        {
+          type: 'web/deepseek-search-llm-request', seq: 0, time: 1,
+          data: { endpoint: 'https://api.deepseek.test/messages', apiVersion: '2023-06-01', body: {} },
+        } as unknown as SessionEvent,
+        {
+          type: 'request/header', seq: 1, time: 2,
+          data: { header: { config: { provider: 'route', model: 'model' } }, reason: 'initial' },
+        },
+      ],
+    })
+    const coordinator = new PersistenceCoordinator(ctx, backend)
+
+    await expect(coordinator.readRequestHeader(id)).resolves.toEqual({
+      config: { provider: 'route', model: 'model' },
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('cancels the batching deadline when live initialization rejects', async () => {
     vi.useFakeTimers()
     const ctx = new Context()

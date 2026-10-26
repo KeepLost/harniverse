@@ -184,7 +184,7 @@ export interface WebScaffold {
 }
 
 /** Official search-provider ids mounted by the shipped base composition. */
-type OfficialWebSearchProviderId = 'deepseek-official' | 'exa' | 'perplexity'
+type OfficialWebSearchProviderId = 'deepseek-search-api' | 'exa' | 'perplexity'
 
 /** Deterministic provider endpoint and credential reference for one search scenario. */
 interface WebSearchTestConfig {
@@ -369,7 +369,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   const surfaceContext = webRuntimeConfig?.surfaceContext !== false
   const webSearch = options.webSearch ?? (options.deepSeekSearch === undefined
     ? undefined
-    : { provider: 'deepseek-official', ...options.deepSeekSearch } as const)
+    : { provider: 'deepseek-search-api', ...options.deepSeekSearch } as const)
   // Standard-family Web tools are shipped enabled; a search scenario only
   // replaces the provider and narrows fetch back off through its overlay.
   const presetRoot = SHIPPED_PRESET_DIR
@@ -619,16 +619,13 @@ function webSearchPatches(config: WebSearchTestConfig | undefined): PatchOptions
     id: 'tool-web',
     config: { search: true, fetch: false, searchTimeoutMs: 60000 },
   }
-  if (config.provider === 'deepseek-official') {
+  if (config.provider === 'deepseek-search-api') {
     return [selector, tool, {
-      id: 'web-search-deepseek',
+      id: 'web-deepseek-api',
       config: {
         apiKeyEnv: config.apiKeyEnv,
         baseURL: config.baseURL,
-        model: 'deepseek-v4-flash',
-        apiVersion: '2023-06-01',
-        maxTokens: 4096,
-        maxUses: 5,
+        count: 10,
       },
     }]
   }

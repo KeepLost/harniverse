@@ -48,8 +48,8 @@ describe('dsh-base bundle', () => {
       name: '@deepseek-ai/dsh-llm-deepseek',
       disabled: true,
     })
-    expect(rows.filter(row => row.id === 'web-search-deepseek')).toEqual([expect.objectContaining({
-      name: '@deepseek-ai/dsh-web-search-deepseek',
+    expect(rows.filter(row => row.id === 'web-deepseek-api')).toEqual([expect.objectContaining({
+      name: '@deepseek-ai/dsh-web-deepseek-api',
     })])
     expect(rows.filter(row => row.id === 'web-search-exa')).toEqual([expect.objectContaining({
       name: '@deepseek-ai/dsh-web-search-exa',
@@ -61,8 +61,8 @@ describe('dsh-base bundle', () => {
       name: '@deepseek-ai/dsh-web-search-cloudflare',
     })])
     expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-web-deepseek-api': 'workspace:^',
       '@deepseek-ai/dsh-web-search-cloudflare': 'workspace:^',
-      '@deepseek-ai/dsh-web-search-deepseek': 'workspace:^',
       '@deepseek-ai/dsh-web-search-exa': 'workspace:^',
       '@deepseek-ai/dsh-web-search-perplexity': 'workspace:^',
     })
@@ -70,7 +70,7 @@ describe('dsh-base bundle', () => {
       __jsExpr?: string
     } | undefined)?.__jsExpr
     if (searchProviderExpression === undefined) throw new Error('web.searchProvider must be a !!js expression')
-    expect(evaluate({ process: { env: {} } }, searchProviderExpression)).toBe('deepseek-official')
+    expect(evaluate({ process: { env: {} } }, searchProviderExpression)).toBe('deepseek-search-api')
     expect(evaluate({ process: { env: { DSH_WEB_SEARCH_PROVIDER: 'exa' } } }, searchProviderExpression)).toBe('exa')
     expect(evaluate({ process: { env: { DSH_WEB_SEARCH_PROVIDER: 'perplexity' } } }, searchProviderExpression)).toBe('perplexity')
     expect(rows.find(row => row.id === 'tool-web')?.config).toMatchObject({

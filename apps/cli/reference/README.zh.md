@@ -84,7 +84,7 @@ dsh web --help
 
 `DSH_WEB_SEARCH_PROVIDER` 会更改未经改动的随附默认值。后续显式的 `web.config.searchProvider` patch 会替换该行的完整配置，因此优先级更高。`WebRuntime` 会暴露一个只包含 `searchProvider` 的实时 `web` settings 分节；浏览器覆盖从下一次搜索开始生效，清除后恢复组装选择。`fetchProvider` 仍只能通过组装配置，每次搜索都会在操作入口对其选择生成快照。
 
-Host 将 `web`、`web-search-deepseek`、`web-search-exa` 与 `web-search-perplexity` 列入白名单。一张浏览器 Web 搜索卡片绑定全部四个 settings scope，暂存选择器与所有提供方表单，并保留隐藏提供方的草稿。卡片公开每个提供方的只写密钥与专属字段：DeepSeek 的 `baseURL`、`model`、`apiVersion`、`maxTokens` 和 `maxUses`；Exa 的 `baseURL`、`searchType`、`numResults` 和 `highlightsPerResult`；Perplexity 的 `baseURL`、`model`、`maxTokens` 和 `searchRecency`。一次保存会按顺序、以非事务方式写入四个命名空间：成功的写入会结算，每个失败表单则保留自己的草稿。每个提供方都会在每次搜索时读取实时设置与凭据，在操作入口一次性快照完整选项；挂载的凭据服务具有最终权威。
+Host 将 `web`、`web-deepseek-api`、`web-search-exa` 与 `web-search-perplexity` 列入白名单。一张浏览器 Web 搜索卡片绑定全部四个 settings scope，暂存选择器与所有提供方表单，并保留隐藏提供方的草稿。卡片公开每个提供方的只写密钥与专属字段：DeepSeek 的 `baseURL`、`count` 和 `sendOriginalQuestion`；Exa 的 `baseURL`、`searchType`、`numResults` 和 `highlightsPerResult`；Perplexity 的 `baseURL`、`model`、`maxTokens` 和 `searchRecency`。一次保存会按顺序、以非事务方式写入四个命名空间：成功的写入会结算，每个失败表单则保留自己的草稿。每个提供方都会在每次搜索时读取实时设置与凭据，在操作入口一次性快照完整选项；挂载的凭据服务具有最终权威。
 
 会话遥测已退役：没有任何组合挂载它，进程不会自行外发任何内容，`DSH_TELEMETRY_*` 环境变量也不再读取。移除记录见[退役 Agent Note](../../../.agents/notes/implemented/feature/2026-10-02-telemetry-retirement.md)。
 

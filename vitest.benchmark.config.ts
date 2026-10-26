@@ -10,7 +10,7 @@ export default defineConfig({
   ],
   test: {
     execArgv: [...vitestExecArgv, '--expose-gc'],
-    include: ['benchmarks/**/*.bench.ts'],
+    include: ['benchmarks/**/*.bench.ts', 'benchmarks/**/*.bench.client.ts'],
     fileParallelism: false,
     maxWorkers: 1,
     minWorkers: 1,

@@ -82,12 +82,19 @@ export interface ConnectionConfig {
   trustedOrigins?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Whether the WebSocket event downlinks negotiate `permessage-deflate`:
+   * `'deflate'` compresses outbound frames past a 1,024-character threshold;
+   * `'none'` accepts the same upgrades without the extension.
+   */
+  websocketCompression?: 'deflate' | 'none'
 }
 
 export const Config: z<ConnectionConfig> = z.object({
   trustedHosts: z.array(String).default([]),
   trustedOrigins: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
+  websocketCompression: z.union([z.const('deflate'), z.const('none')]).default('deflate'),
 })
 
 /**
@@ -103,6 +110,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
   const trustedOrigins = config?.trustedOrigins ?? []
+  const websocketCompression = config?.websocketCompression ?? 'deflate'
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
@@ -173,7 +181,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     const downlinks = new WebSocketDownlinks(apiCtx.apiProxy, (error) => {
       apiCtx.logger.warn('client-connection: WebSocket event stream failed')
       apiCtx.logger.warn(error)
-    })
+    }, { compression: websocketCompression === 'deflate' })
     const registerDownlink = (path: string): void => {
       apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
         path,

@@ -9,7 +9,7 @@ This family provides provider-neutral web search and fetch operations plus the m
 | [`web/`](web/README.md) | Defines web provider registration, selection, and shared errors | `ctx.web` |
 | [`web-search-exa/`](web-search-exa/README.md) | Provides web search through Exa | registers on `ctx.web` |
 | [`web-search-perplexity/`](web-search-perplexity/README.md) | Provides web search through Perplexity | registers on `ctx.web` |
-| [`web-search-deepseek/`](web-search-deepseek/README.md) | Provides native DeepSeek web search | registers on `ctx.web` |
+| [`web-deepseek-api/`](web-deepseek-api/README.md) | DeepSeek Search / Fetch API providers (direct requests, no model call) | registers on `ctx.web` |
 | [`web-search-tavily/`](web-search-tavily/README.md) | Provides web search through Tavily | registers on `ctx.web` |
 | [`web-search-brave/`](web-search-brave/README.md) | Provides web search through Brave | registers on `ctx.web` |
 | [`web-search-kagi/`](web-search-kagi/README.md) | Provides web search through Kagi | registers on `ctx.web` |

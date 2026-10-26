@@ -30,6 +30,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../llm/llm"
+    },
+    {
       "path": "../../credentials/credentials"
     },
     {

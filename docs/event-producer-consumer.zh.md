@@ -6,7 +6,6 @@
 [English](event-producer-consumer.md) | 中文
 
 本矩阵展示哪些包会派发各个 harness 自有事件，以及哪些包会监听这些事件。事件之间存在多对多关系，因此密集的关系数据以表格而非一张大型关系图呈现。接收方和事件名称类型还涵盖有意绕过 `ctx.emit` 的内含派发位置，例如 subagent 生命周期封装。
-
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
 | `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:184`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
@@ -88,11 +87,11 @@
 | `workflow/log` | `emit` | [`packages/workflow/workflow/src/index.ts:58`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | [`tool-workflow`](../packages/workflow/tool-workflow) |
 | `workflow/phase` | `emit` | [`packages/workflow/workflow/src/index.ts:51`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | [`tool-workflow`](../packages/workflow/tool-workflow) |
 | `workflow/start` | `emit` | [`packages/workflow/workflow/src/index.ts:43`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | [`workflow`](../packages/workflow/workflow) |
-| `workspace-file/saved` | `emit` | [`packages/host/workspace-file-write/src/index.ts:86`](../packages/host/workspace-file-write/src/index.ts) | [`workspace-file-write`](../packages/host/workspace-file-write) (`emit`) | [`workspace-file-write`](../packages/host/workspace-file-write) |
+| `workspace-file/saved` | `emit` | [`packages/host/workspace-file-write/src/index.ts:95`](../packages/host/workspace-file-write/src/index.ts) | [`workspace-file-write`](../packages/host/workspace-file-write) (`emit`) | [`workspace-file-write`](../packages/host/workspace-file-write) |
 | `workspace/session-activity` | `waterfall` | [`packages/workspace/workspace/src/index.ts:125`](../packages/workspace/workspace/src/index.ts) | [`workspace`](../packages/workspace/workspace) (`waterfall`) | `apiproxy`, [`jobs-local`](../packages/jobs/jobs-local), [`scheduler`](../packages/schedule/scheduler), [`subagent`](../packages/subagent/subagent) |
 | `workspace/session-stop` | `parallel` | [`packages/workspace/workspace/src/index.ts:144`](../packages/workspace/workspace/src/index.ts) | [`workspace`](../packages/workspace/workspace) (`parallel`) | `apiproxy`, [`jobs-local`](../packages/jobs/jobs-local), [`subagent`](../packages/subagent/subagent) |
 
-## 包源码中出现的非 harness 或未声明事件字符串
+## Non-harness or undeclared event strings seen in package source
 
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
@@ -101,4 +100,4 @@
 | `internal/service` | - | [`agent-presets`](../packages/preset/agent-presets), `gateway` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
 
-维护模式：生成内容。Cordis 事件声明及生产方／监听方的关系边由仓库的 TypeScript Program 解析。
+Maintenance mode: generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program.

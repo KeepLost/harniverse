@@ -18,6 +18,7 @@ import { splitFileHandleText } from './file-badges.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
+import { useSentUserTextRules, type SentUserTextRule } from '../sent-user-text.ts'
 import css from './MessageItem.module.css'
 import iconActionsCss from './MessageIconActions.module.css'
 
@@ -155,24 +156,81 @@ function TurnMaxTokensItem({ t }: {
  * scan as the composer, minus the lexicon: sent tokens were validated at
  * compose time, so shape alone decorates).
  */
-function projectUserText(text: string): ReactNode {
+function decoratePlainSegment(text: string, parts: ReactNode[], keyBase: number): number {
   const re = /(^|\s)([/@][\w-]+)(?=\s|$)/g
-  const parts: ReactNode[] = []
   let cursor = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const tokenStart = m.index + (m[1]?.length ?? 0)
     const label = m[2] ?? ''
-    if (tokenStart > cursor) parts.push(<MessageText key={cursor} text={text.slice(cursor, tokenStart)} />)
+    if (tokenStart > cursor) parts.push(<MessageText key={`${keyBase}:${cursor}`} text={text.slice(cursor, tokenStart)} />)
     parts.push(
-      <span key={tokenStart} className={css.refChip} data-ref-chip={label.startsWith('@') ? 'subagent' : 'skill'}>
+      <span key={`${keyBase}:${tokenStart}`} className={css.refChip} data-ref-chip={label.startsWith('@') ? 'subagent' : 'skill'}>
         {label}
       </span>,
     )
     cursor = tokenStart + label.length
   }
-  if (parts.length === 0) return <MessageText text={text} />
-  if (cursor < text.length) parts.push(<MessageText key={cursor} text={text.slice(cursor)} />)
+  if (cursor < text.length) parts.push(<MessageText key={`${keyBase}:${cursor}`} text={text.slice(cursor)} />)
+  return cursor
+}
+
+/**
+ * Collect the non-overlapping rule matches over `text`, earliest start first;
+ * a rule's own ranges never overlap by contract, and same-start ties keep the
+ * earliest-registered rule's range.
+ */
+/** One rule's non-overlapping matched range. */
+interface SentTextMatch {
+  readonly start: number
+  readonly end: number
+  readonly rule: SentUserTextRule
+  readonly data?: unknown
+}
+
+function matchedRanges(text: string, rules: readonly SentUserTextRule[]): SentTextMatch[] {
+  const matches: SentTextMatch[] = []
+  let from = 0
+  while (from <= text.length) {
+    let chosen: SentTextMatch | undefined
+    for (const rule of rules) {
+      const match = rule.nextMatch(text, from)
+      if (match === undefined) continue
+      if (chosen === undefined || match.start < chosen.start) {
+        chosen = { start: match.start, end: match.end, rule, data: match.data }
+      }
+    }
+    if (chosen === undefined) break
+    matches.push(chosen)
+    from = Math.max(chosen.end, chosen.start + 1)
+  }
+  return matches
+}
+
+/** A user bubble's text: plain segments keep the reference decoration, matched ranges render through their rule. */
+function projectUserText(text: string, rules: readonly SentUserTextRule[], interactive: boolean): ReactNode {
+  const matches = rules.length === 0 ? [] : matchedRanges(text, rules)
+  if (matches.length === 0) {
+    const parts: ReactNode[] = []
+    decoratePlainSegment(text, parts, 0)
+    return parts.length === 0 ? <MessageText text={text} /> : <>{parts}</>
+  }
+  const parts: ReactNode[] = []
+  let cursor = 0
+  for (const match of matches) {
+    if (match.start > cursor) decoratePlainSegment(text.slice(cursor, match.start), parts, cursor)
+    const { Render } = match.rule
+    parts.push(
+      <Render
+        key={match.start}
+        raw={text.slice(match.start, match.end)}
+        interactive={interactive}
+        data={match.data}
+      />,
+    )
+    cursor = match.end
+  }
+  if (cursor < text.length) decoratePlainSegment(text.slice(cursor), parts, cursor)
   return <>{parts}</>
 }
 
@@ -202,6 +260,7 @@ function UserStyleBubble({
     }))
     : recovered
   const truncated = (total: number): string => t('json.truncated', { total })
+  const rules = useSentUserTextRules()
   const showBubble = text !== '' || rest.length > 0
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
@@ -209,7 +268,7 @@ function UserStyleBubble({
         <FileBadgeList files={badges} labels={fileBadgeLabels(t)} />
         <ImageGallery images={images} load={imageLoader} align="end" labels={messageImageLabels(t)} />
         {showBubble && <div className={css.bubble}>
-          {projectUserText(text)}
+          {projectUserText(text, rules, !pending)}
           {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
         </div>}
       </div>

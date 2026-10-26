@@ -20,6 +20,7 @@ import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './contract/input-blocks.ts'
 import type { DraftAttachmentId, SessionInputResolver } from './contract/input.ts'
+import { sentUserTextRules } from './sent-user-text.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
 /**
@@ -35,6 +36,11 @@ export interface IConversation {
    * cannot import makes a session's input inert with its own reason.
    */
   readonly blocks: ComposerBlocks
+  /**
+   * The sent-user-text decoration registry: how a plugin that cannot import
+   * this package's module state registers a display-only rule for sent text.
+   */
+  readonly sentUserText: typeof sentUserTextRules
   /**
    * Send a prompt into the caller scope's session (queued turn).
    * @param text - prompt text, sent verbatim as one text block.
@@ -128,6 +134,8 @@ export class ConversationController extends Service implements IConversation {
   readonly input: SessionInputResolver
   /** The per-session composer-block registry. */
   readonly blocks: ComposerBlocks
+  /** The sent-user-text decoration registry (module state owned here). */
+  readonly sentUserText: typeof sentUserTextRules = sentUserTextRules
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()

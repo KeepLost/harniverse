@@ -824,6 +824,12 @@ export interface ConnectionConfig {
   trustedOrigins?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Whether the WebSocket event downlinks negotiate `permessage-deflate`:
+   * `'deflate'` compresses outbound frames past a 1,024-character threshold;
+   * `'none'` accepts the same upgrades without the extension.
+   */
+  websocketCompression?: 'deflate' | 'none'
 }
 ```
 
@@ -4230,6 +4236,30 @@ export interface Config {
 
 Source: [`packages/bundle/web-app/src/index.ts:33`](../packages/bundle/web-app/src/index.ts)
 
+<a id="deepseek-aidsh-web-deepseek-api"></a>
+
+## `@deepseek-ai/dsh-web-deepseek-api`
+
+Requires: `web`
+
+```ts config-catalog
+/** Plugin config (all optional — `apply` fills constant defaults). */
+export interface Config {
+  /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  apiKey?: string
+  /** Credential reference resolved for each operation; defaults to `DEEPSEEK_API_KEY`. */
+  apiKeyEnv?: string
+  /** API base including its path prefix; `/search` and `/fetch` are appended. Defaults to the official endpoint. */
+  baseURL?: string
+  /** Search API results per search, from 1 through 50; a smaller request bound wins. Defaults to 10. */
+  count?: number
+  /** Send the triggering user question, bounded to 128 characters, as `ori_question`. Defaults to true. */
+  sendOriginalQuestion?: boolean
+}
+```
+
+Source: [`packages/web/web-deepseek-api/src/index.ts:39`](../packages/web/web-deepseek-api/src/index.ts)
+
 <a id="deepseek-aidsh-web-fetch-http"></a>
 
 ## `@deepseek-ai/dsh-web-fetch-http`
@@ -4338,34 +4368,6 @@ export type CloudflareSearchEngine = typeof CLOUDFLARE_ENGINES[number]
 ```
 
 Source: [`packages/web/web-search-cloudflare/src/index.ts:42`](../packages/web/web-search-cloudflare/src/index.ts)
-
-<a id="deepseek-aidsh-web-search-deepseek"></a>
-
-## `@deepseek-ai/dsh-web-search-deepseek`
-
-Requires: `web`
-
-```ts config-catalog
-/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
-export interface Config {
-  /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
-  apiKey?: string
-  /** Credential reference resolved for each search; defaults to `DEEPSEEK_API_KEY`. */
-  apiKeyEnv?: string
-  /** Anthropic-compatible endpoint base; `/messages` is appended. */
-  baseURL?: string
-  /** Anthropic-format model name. Defaults to `deepseek-v4-flash`. */
-  model?: string
-  /** `anthropic-version` header value. Defaults to `2023-06-01`. */
-  apiVersion?: string
-  /** Upper bound on generated tokens for the Messages request. Defaults to 4096. */
-  maxTokens?: number
-  /** Maximum `web_search` server-tool uses per request. Defaults to 5. */
-  maxUses?: number
-}
-```
-
-Source: [`packages/web/web-search-deepseek/src/index.ts:46`](../packages/web/web-search-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-web-search-exa"></a>
 
@@ -4527,6 +4529,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-remote-hosts` ([`packages/client/ui-remote-hosts/src/index.ts`](../packages/client/ui-remote-hosts/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-scheduler` ([`packages/client/ui-scheduler/src/index.ts`](../packages/client/ui-scheduler/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-secret-mask` ([`packages/client/ui-secret-mask/src/index.ts`](../packages/client/ui-secret-mask/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-session-import` ([`packages/client/ui-session-import/src/index.ts`](../packages/client/ui-session-import/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-capabilities` ([`packages/client/ui-settings-capabilities/src/index.ts`](../packages/client/ui-settings-capabilities/src/index.ts))

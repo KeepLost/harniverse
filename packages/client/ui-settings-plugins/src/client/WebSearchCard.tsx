@@ -44,7 +44,7 @@ export function WebSearchCard(props: WebSearchCardProps) {
         disabled={!state.selector.writable}
         {...state.selector.searchProvider}
         options={[
-          { value: 'deepseek-official', label: t('webSearchProviderDeepSeek') },
+          { value: 'deepseek-search-api', label: t('webSearchProviderDeepSeek') },
           { value: 'exa', label: t('webSearchProviderExa') },
           { value: 'perplexity', label: t('webSearchProviderPerplexity') },
           { value: 'tavily', label: t('webSearchProviderTavily') },
@@ -65,6 +65,7 @@ export function WebSearchCard(props: WebSearchCardProps) {
         {...state.selector.fetchProvider}
         options={[
           { value: 'http', label: t('webSearchFetchProviderHttp') },
+          { value: 'deepseek-fetch-api', label: t('webSearchFetchProviderDeepSeek') },
           { value: 'firecrawl', label: t('webSearchFetchProviderFirecrawl') },
         ]}
         onEdit={(text) => { props.edit('selector.fetchProvider', text) }}
@@ -173,7 +174,7 @@ function ProviderUnavailable({ t }: { t: T }) {
 }
 
 function SearchProviderFields(props: { t: T; state: WebSearchCardState; edit: Edit; reset: Reset }) {
-  if (props.state.selectedProvider === 'deepseek-official') {
+  if (props.state.selectedProvider === 'deepseek-search-api') {
     return <DeepSeekFields t={props.t} state={props.state.deepseek} edit={props.edit} reset={props.reset} />
   }
   if (props.state.selectedProvider === 'exa') {
@@ -207,11 +208,9 @@ function DeepSeekFields(props: { t: T; state: DeepSeekWebSearchState; edit: Edit
         label="webSearchDeepSeekApiKey" state={props.state}
         address="deepseek.apiKey" edit={props.edit}
       />
-      <ProviderValue {...common} id="plugin-config-web-search-deepseek-base-url" label="webSearchBaseUrl" hint="webSearchBaseUrlHint" state={props.state.baseURL} address="deepseek.baseURL" />
-      <ProviderValue {...common} id="plugin-config-web-search-deepseek-model" label="webSearchDeepSeekModel" hint="webSearchDeepSeekModelHint" state={props.state.model} address="deepseek.model" />
-      <ProviderValue {...common} id="plugin-config-web-search-deepseek-api-version" label="webSearchDeepSeekApiVersion" hint="webSearchDeepSeekApiVersionHint" state={props.state.apiVersion} address="deepseek.apiVersion" />
-      <ProviderValue {...common} numeric id="plugin-config-web-search-deepseek-max-tokens" label="webSearchDeepSeekMaxTokens" hint="webSearchDeepSeekMaxTokensHint" state={props.state.maxTokens} address="deepseek.maxTokens" />
-      <ProviderValue {...common} numeric id="plugin-config-web-search-deepseek-max-uses" label="webSearchDeepSeekMaxUses" hint="webSearchDeepSeekMaxUsesHint" state={props.state.maxUses} address="deepseek.maxUses" />
+      <ProviderValue {...common} id="plugin-config-web-search-deepseek-base-url" label="webSearchBaseUrl" hint="webSearchDeepSeekBaseUrlHint" state={props.state.baseURL} address="deepseek.baseURL" />
+      <ProviderValue {...common} numeric id="plugin-config-web-search-deepseek-count" label="webSearchDeepSeekCount" hint="webSearchDeepSeekCountHint" state={props.state.count} address="deepseek.count" />
+      <ProviderBoolean {...common} id="plugin-config-web-search-deepseek-original-question" label="webSearchDeepSeekOriginalQuestion" hint="webSearchDeepSeekOriginalQuestionHint" state={props.state.sendOriginalQuestion} address="deepseek.sendOriginalQuestion" />
     </>
   )
 }

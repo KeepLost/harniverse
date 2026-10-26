@@ -9,7 +9,7 @@
 | 包 | 职责 |
 |---|---|
 | `@deepseek-ai/dsh-web`（本包） | Service Definition：服务、提供方注册表、选择策略、请求／结果词汇、`WebError` 分类体系 |
-| `@deepseek-ai/dsh-web-search-deepseek` | 搜索提供方：DeepSeek 官方搜索 |
+| `@deepseek-ai/dsh-web-deepseek-api` | 搜索与抓取提供方：DeepSeek Search / Fetch API |
 | `@deepseek-ai/dsh-web-search-exa` | 搜索提供方：Exa |
 | `@deepseek-ai/dsh-web-search-perplexity` | 搜索提供方：Perplexity |
 | `@deepseek-ai/dsh-web-search-tavily` | 搜索提供方：Tavily |

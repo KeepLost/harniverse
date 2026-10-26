@@ -9,7 +9,7 @@ This package owns the Service Definition role of the web capability. Unlike shel
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-web` (this) | Service Definition: the service, provider registries, selection policy, request/result vocabulary, the `WebError` taxonomy |
-| `@deepseek-ai/dsh-web-search-deepseek` | Search provider: DeepSeek official search |
+| `@deepseek-ai/dsh-web-deepseek-api` | Search and fetch providers: DeepSeek Search / Fetch APIs |
 | `@deepseek-ai/dsh-web-search-exa` | Search provider: Exa |
 | `@deepseek-ai/dsh-web-search-perplexity` | Search provider: Perplexity |
 | `@deepseek-ai/dsh-web-search-tavily` | Search provider: Tavily |

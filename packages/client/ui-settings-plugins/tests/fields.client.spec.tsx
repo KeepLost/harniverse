@@ -94,7 +94,7 @@ describe('SelectField', () => {
         {...frame}
         text="exa"
         options={[
-          { value: 'deepseek-official', label: 'DeepSeek' },
+          { value: 'deepseek-search-api', label: 'DeepSeek' },
           { value: 'exa', label: 'Exa' },
           { value: 'perplexity', label: 'Perplexity' },
         ]}

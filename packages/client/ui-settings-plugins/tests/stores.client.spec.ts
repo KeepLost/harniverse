@@ -82,8 +82,8 @@ function webSearchController(credentials = credentialsApi({
   )
   selector.publish({
     status: 'ready', writable: true,
-    value: { searchProvider: 'deepseek-official', fetchProvider: 'http' },
-    base: { searchProvider: 'deepseek-official', fetchProvider: 'http' }, user: {},
+    value: { searchProvider: 'deepseek-search-api', fetchProvider: 'http' },
+    base: { searchProvider: 'deepseek-search-api', fetchProvider: 'http' }, user: {},
   })
   deepseek.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
   exa.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
@@ -369,7 +369,7 @@ describe('CardForm', () => {
 
   it('accepts only declared select options', () => {
     const host = stubSettingsScope<Record<string, unknown>>()
-    const subject = new CardForm(host.scope, [selectField('provider', ['deepseek-official', 'exa', 'perplexity'])])
+    const subject = new CardForm(host.scope, [selectField('provider', ['deepseek-search-api', 'exa', 'perplexity'])])
     host.publish({ status: 'ready', writable: true, value: { provider: 'exa' }, user: {} })
 
     subject.actions().edit('provider', 'other')
@@ -643,8 +643,8 @@ describe('WebSearchCardController', () => {
     const { face, selector } = webSearchController()
 
     expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({
-      selectedProvider: 'deepseek-official',
-      selector: { available: true, searchProvider: { text: 'deepseek-official' } },
+      selectedProvider: 'deepseek-search-api',
+      selector: { available: true, searchProvider: { text: 'deepseek-search-api' } },
       deepseek: { available: true },
       exa: { available: true },
       perplexity: { available: true },
@@ -745,16 +745,16 @@ describe('WebSearchCardController', () => {
   it('routes every provider field with unambiguous addresses', () => {
     const { face } = webSearchController()
 
-    face.edit('deepseek.model', 'deepseek-search')
+    face.edit('deepseek.count', '25')
     face.edit('exa.numResults', '8')
     face.edit('perplexity.searchRecency', 'week')
-    face.resetField('deepseek.maxTokens')
+    face.resetField('deepseek.sendOriginalQuestion')
     face.resetField('exa.searchType')
     face.resetField('perplexity.model')
     face.resetField('selector.searchProvider')
 
     const state = face.hooks.webSearchCard.getSnapshot()
-    expect(state.deepseek.model.text).toBe('deepseek-search')
+    expect(state.deepseek.count.text).toBe('25')
     expect(state.exa.numResults.text).toBe('8')
     expect(state.perplexity.searchRecency.text).toBe('week')
   })
@@ -796,7 +796,7 @@ describe('WebSearchCardController', () => {
     acceptWrites(fixture.selector)
     acceptWrites(fixture.deepseek)
     acceptWrites(fixture.perplexity)
-    fixture.face.edit('deepseek.model', 'accepted-model')
+    fixture.face.edit('deepseek.count', '20')
     fixture.face.edit('exa.numResults', '9')
     fixture.face.edit('perplexity.model', 'sonar-pro')
 
@@ -813,7 +813,7 @@ describe('WebSearchCardController', () => {
   it('discards drafts from the selector and every provider', () => {
     const { face } = webSearchController()
     face.edit('selector.searchProvider', 'exa')
-    face.edit('deepseek.model', 'draft-deepseek')
+    face.edit('deepseek.count', '20')
     face.edit('exa.numResults', '4')
     face.edit('perplexity.model', 'draft-perplexity')
 
@@ -821,8 +821,8 @@ describe('WebSearchCardController', () => {
 
     expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({
       dirty: false,
-      selectedProvider: 'deepseek-official',
-      deepseek: { model: { text: '' } },
+      selectedProvider: 'deepseek-search-api',
+      deepseek: { count: { text: '' } },
       exa: { numResults: { text: '' } },
       perplexity: { model: { text: '' } },
     })
@@ -835,7 +835,7 @@ describe('WebSearchCardController', () => {
     expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({
       available: true,
       selector: { writable: true },
-      selectedProvider: 'deepseek-official',
+      selectedProvider: 'deepseek-search-api',
       exa: { available: false },
     })
   })
@@ -898,15 +898,15 @@ describe('WebSearchCardController', () => {
     fixture.face.edit('selector.searchProvider', 'unknown-provider')
 
     expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({
-      selectedProvider: 'deepseek-official',
+      selectedProvider: 'deepseek-search-api',
       invalid: true,
     })
   })
 
   it('rejects non-positive and fractional provider integer drafts', async () => {
     const fixture = webSearchController()
-    fixture.face.edit('deepseek.maxTokens', '0')
-    fixture.face.edit('deepseek.maxUses', '-1')
+    fixture.face.edit('deepseek.count', '0')
+    fixture.face.edit('deepseek.count', '-1')
     fixture.face.edit('exa.numResults', '1.5')
     fixture.face.edit('exa.highlightsPerResult', '0')
     fixture.face.edit('perplexity.maxTokens', '-2')
@@ -914,7 +914,7 @@ describe('WebSearchCardController', () => {
     expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({
       dirty: true,
       invalid: true,
-      deepseek: { maxTokens: { invalid: true }, maxUses: { invalid: true } },
+      deepseek: { count: { invalid: true } },
       exa: { numResults: { invalid: true }, highlightsPerResult: { invalid: true } },
       perplexity: { maxTokens: { invalid: true } },
     })
