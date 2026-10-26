@@ -73,7 +73,7 @@ pnpm run build:web
 
 两次 tsdown 都使用同一组完整 workspace 匹配，不扫描构建产物来发现 Client 包，也不维护 Host/Client 包过滤表。包内 tsdown 配置根据 `DSH_BUILD_FACE` 决定当前阶段的入口：普通 Client 插件在 Client 阶段同时生成 Node loader 与 browser bundle；`api-remotes` 通过 `hostPhase: true` 提前生成 Host 入口，再在 Client 阶段只生成 browser bundle。tsdown 只消费 `lib/types` 中由前置 tsc 发射的 JavaScript。
 
-Typert 只在 Host tsdown 中以 `tsconfig.host.json` 为种子运行。它分析 Host 类型并生成 Host 反射产物及 Host-for-Client Remote 投影；Client tsdown 不启动 Typert。`pnpm run typecheck` 因此先执行完整 Host lib 阶段，再运行 Client tsc；`pnpm run build` 继续执行 Client tsdown 和 Web 构建。该顺序的决策记录见 [API Remotes 生成约定构建 Note](../.agents/notes/implemented/process/2026-08-08-api-remotes-generated-contract-build.md)。
+Typert 在 Host tsdown 中运行，也可通过独立的 `pnpm run generate-typert` 运行，以 `tsconfig.host.json` 为种子。两个入口共享同一生成器实现，写入相同的 Host 反射产物与 Host-for-Client Remote 投影；Client tsdown 不启动 Typert。`pnpm run typecheck` 让 Host 聚合构建与源码态 Typert 生成并发运行，随后运行 Client tsc —— 它不产出任何打包产物；`pnpm run build` 继续执行两个 tsdown 阶段与 Web 构建。Host 先于 Client 的顺序记录见 [API Remotes 生成约定构建 Note](../.agents/notes/implemented/process/2026-08-08-api-remotes-generated-contract-build.md)，并发检查形态见 [typecheck 拆分 Note](../.agents/notes/implemented/process/2026-10-26-typecheck-artifacts-check-split.md)。
 
 `pnpm run build` 把调用方精确的 `DSH_CLIENT_*` 值内联进 Web 壳和每个动态 client bundle；调用方未设置时不使用任何公开 client 值。`pnpm run build:harniverse` 是 CI 与 release 产物构建的跨平台本地等价命令。每次完整构建成功后都会写入一份被 gitignore 的记录，把这些值和源码 revision 绑定到生成的浏览器产物；`release:pack --family dsh` 会拒绝缺失记录、不同 profile，或被后续局部构建改动的产物。该决策见 [client build profile Note](../.agents/notes/implemented/process/2026-08-23-harniverse-client-build-profile.md)。
 
@@ -110,7 +110,7 @@ lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 
 - `pre-commit` 对照暂存的配对文档 blob 校验暂存的配对记录，使用不加载项目的 `.oxlintrc.staged.json` 配置验证暂存文件，并通过一次有界重试应用 Oxlint 修复，在暂存文件属于 `THIRD_PARTY_NOTICES.md` 的输入时重新生成该文件，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
 - `pre-merge-commit` 在 Git 创建自动合并提交前执行同样以索引为准的配对检查；
-- `pre-push` 运行 `pnpm run typecheck`；该命令会先完成包含 Typert 约定生成的完整 Host lib 阶段，再运行 Client TypeScript 检查。
+- `pre-push` 运行 `pnpm run typecheck`；该命令让 Host 聚合构建与 Typert 生成并发运行（指纹未变时生成直接跳过），再运行 Client TypeScript 检查；它不做打包。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 
