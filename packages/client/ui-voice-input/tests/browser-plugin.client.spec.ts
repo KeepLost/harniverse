@@ -89,9 +89,20 @@ describe('ui-voice-input browser half', () => {
       const sectionEntry = ctx.slots.entries('settings.section').find(entry => entry.options.id === 'voice')
       expect(sectionEntry).toBeDefined()
       expect((sectionEntry!.options as { label?: () => string }).label?.()).toBe(zh['settings.nav'])
-      const section = ((sectionEntry as unknown as { inject: () => unknown }).inject as unknown as () => { scope: unknown; api: unknown })()
+      const section = ((sectionEntry as unknown as { inject: () => unknown }).inject as unknown as () => {
+        scope: unknown
+        api: unknown
+        hooks: { microphoneDevice: { getSnapshot(): { id: string; label: string } } }
+        selectMicrophone: (device: { id: string; label: string }) => void
+        createDevicePreview: (deviceId: string, onEnded: () => void) => Promise<unknown>
+      })()
       expect(section.scope).toBeDefined()
       expect(section.api).toEqual({ speech: {} })
+      expect(section.hooks.microphoneDevice.getSnapshot()).toEqual({ id: '', label: '' })
+      expect(typeof section.selectMicrophone).toBe('function')
+      expect(typeof section.createDevicePreview).toBe('function')
+      section.selectMicrophone({ id: 'mic-1', label: 'One' })
+      expect(section.hooks.microphoneDevice.getSnapshot()).toEqual({ id: 'mic-1', label: 'One' })
     } finally {
       await fiber.dispose()
     }
