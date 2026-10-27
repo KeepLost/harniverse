@@ -15,7 +15,7 @@ import WorkingDirectoryService, { effectiveCwd } from '@deepseek-ai/dsh-working-
 const signal = new AbortController().signal
 
 /** Build one live agent whose injections enter a recording inbox. */
-function stubAgent(cwd?: string): { agent: Agent; session: Session; injected: SessionEvent[] } {
+function stubAgent(cwd?: string, agentCtx?: Context): { agent: Agent; session: Session; injected: SessionEvent[] } {
   const id = SessionId('s1')
   const session = Session.create(id, [], cwd === undefined ? undefined : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
   const injected: SessionEvent[] = []
@@ -26,7 +26,7 @@ function stubAgent(cwd?: string): { agent: Agent; session: Session; injected: Se
     session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status,
-    ctx: new Context(),
+    ctx: agentCtx ?? new Context(),
     send: () => {},
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
@@ -296,7 +296,7 @@ describe('working directory service', () => {
     const ctx = await boot()
     try {
       await mkdir(target)
-      const { agent, session } = stubAgent(root)
+      const { agent, session } = stubAgent(root, ctx)
       const before = session.events.length
       const canonical = await ctx.workingDirectory.set(agent, 'effective')
       syncProjection(ctx, session, before)
