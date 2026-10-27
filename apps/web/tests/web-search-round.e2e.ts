@@ -86,7 +86,7 @@ interface CapturedSearchRequest {
   body: unknown
 }
 
-/** Start the deterministic DeepSeek Messages double used by the real provider. */
+/** Start the deterministic DeepSeek Search API double used by the real provider. */
 async function startSearchServer(captured: CapturedSearchRequest[]): Promise<{ server: Server; baseURL: string }> {
   const server = createServer((request, response) => {
     let body = ''
@@ -101,30 +101,17 @@ async function startSearchServer(captured: CapturedSearchRequest[]): Promise<{ s
         body: requestBody,
       })
       response.writeHead(200, { 'content-type': 'application/json' })
-      const bodyText = JSON.stringify(requestBody)
-      const queryIndex = QUERIES.findIndex(query => bodyText.includes(query))
+      const requestQuery = (requestBody as { query?: unknown }).query
+      const queryIndex = QUERIES.findIndex(query => query === requestQuery)
       if (queryIndex < 0) throw new Error('provider request did not contain a known query')
       response.end(JSON.stringify({
-        content: [
-          {
-            type: 'text',
-            text: `Found ${PROVIDER_RESULT_COUNT} sources for ${QUERIES[queryIndex]}.`,
-            citations: RESULT_ORDINALS.map(ordinal => ({
-              type: 'web_search_result_location',
-              url: resultUrl(queryIndex, ordinal),
-              cited_text: resultSnippet(queryIndex, ordinal),
-            })),
-          },
-          {
-            type: 'web_search_tool_result',
-            content: RESULT_ORDINALS.map(ordinal => ({
-              type: 'web_search_result',
-              url: resultUrl(queryIndex, ordinal),
-              title: resultTitle(queryIndex, ordinal),
-              page_age: resultPageAge(ordinal),
-            })),
-          },
-        ],
+        results: RESULT_ORDINALS.map(ordinal => ({
+          url: resultUrl(queryIndex, ordinal),
+          title: resultTitle(queryIndex, ordinal),
+          snippet: resultSnippet(queryIndex, ordinal),
+          summary: `Summary ${queryIndex + 1}-${ordinal} the seam drops.`,
+          date: resultPageAge(ordinal),
+        })),
       }))
     })
   })
@@ -175,7 +162,6 @@ describe('web e2e: opt-in DeepSeek web search', () => {
   let browser: Browser
   let page: Page
   let searchServer: Server | undefined
-  let searchBaseURL: string
   let tripwire: ReturnType<typeof watchConsole>
   const searchRequests: CapturedSearchRequest[] = []
   const sessionEvents: SessionEvent[] = []
@@ -183,7 +169,6 @@ describe('web e2e: opt-in DeepSeek web search', () => {
   beforeAll(async () => {
     const search = await startSearchServer(searchRequests)
     searchServer = search.server
-    searchBaseURL = search.baseURL
     scaffold = await launchWebScaffold({
       deepSeekSearch: {
         baseURL: search.baseURL,
@@ -234,29 +219,18 @@ describe('web e2e: opt-in DeepSeek web search', () => {
     expect(searchRequests).toHaveLength(2)
     const orderedRequests = [...searchRequests].sort((left, right) => JSON.stringify(left.body).localeCompare(JSON.stringify(right.body)))
     for (const [index, request] of orderedRequests.entries()) {
-      expect(request).toMatchObject({
-        path: '/messages',
-        apiKey: SEARCH_CREDENTIAL,
+      expect(request).toEqual({
+        path: '/search',
+        apiKey: undefined,
+        authorization: `Bearer ${SEARCH_CREDENTIAL}`,
         body: {
-          messages: [{
-            role: 'user',
-            content: [{ type: 'text', text: `Perform a web search for the query: ${QUERIES[index]}` }],
-          }],
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          query: QUERIES[index],
+          count: WEB_SEARCH_MAX_RESULTS,
+          need_content: false,
+          ori_question: Array.from(PROMPT.replace(/\s+/gu, ' ').trim()).slice(0, 128).join(''),
         },
       })
     }
-
-    const auxiliaryRequests = sessionEvents.filter(
-      (event): event is Extract<SessionEvent, { type: 'web/deepseek-search-llm-request' }> =>
-        event.type === 'web/deepseek-search-llm-request',
-    )
-    expect(auxiliaryRequests).toHaveLength(2)
-    const orderedAuxiliaryRequests = [...auxiliaryRequests].sort((left, right) => (
-      JSON.stringify(left.data.body).localeCompare(JSON.stringify(right.data.body))
-    ))
-    expect(orderedAuxiliaryRequests.map(event => event.data.body)).toEqual(orderedRequests.map(request => request.body))
-    expect(auxiliaryRequests.every(event => event.data.endpoint === `${searchBaseURL}/messages` && event.data.apiVersion === '2023-06-01')).toBe(true)
 
     const searchCall = sessionEvents.find(
       (event): event is Extract<SessionEvent, { type: 'tool/call' }> =>

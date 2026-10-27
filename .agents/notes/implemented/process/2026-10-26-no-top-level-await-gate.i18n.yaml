@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-10-26-no-top-level-await-gate.md
+2026-10-26-no-top-level-await-gate.md: 238a7b8bce4947dd4145ab3352076bd4290049d3
+2026-10-26-no-top-level-await-gate.zh.md: 6efe71df144f4e525ae7249f375a2782737eb74f

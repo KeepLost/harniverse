@@ -84,7 +84,7 @@ describe('web e2e: plugin configuration section', () => {
     expect(await dialog.getByLabel('命令超时（毫秒）').count()).toBe(0)
     await dialog.getByText('网页搜索', { exact: true }).click()
     await dialog.getByLabel('搜索提供方').waitFor({ timeout: 10_000 })
-    expect(await dialog.getByLabel('搜索提供方').inputValue()).toBe('deepseek-official')
+    expect(await dialog.getByLabel('搜索提供方').inputValue()).toBe('deepseek-search-api')
     expect(await dialog.getByLabel('DeepSeek API Key').count()).toBe(1)
 
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
@@ -184,7 +184,7 @@ describe('web e2e: plugin configuration section', () => {
     }
     const provider = dialog.getByLabel('搜索提供方')
     await provider.waitFor({ timeout: 10_000 })
-    expect(await provider.inputValue()).toBe('deepseek-official')
+    expect(await provider.inputValue()).toBe('deepseek-search-api')
 
     await provider.selectOption('exa')
 

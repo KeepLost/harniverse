@@ -18,6 +18,7 @@ export { apply, inject } from './apply.ts'
 export { ConversationController } from './service.ts'
 export type { IConversation } from './service.ts'
 export type { DraftAttachmentId } from './contract/input.ts'
+export type { SentUserTextRule, SentUserTextRunProps } from './sent-user-text.ts'
 
 export type {
   CallId, ChatStoreState, SelectionTarget, ViewTab,

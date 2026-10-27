@@ -16,14 +16,13 @@ export type PluginsSettingsLocaleKey =
   | 'webSearchProviderTavily' | 'webSearchProviderBrave' | 'webSearchProviderKagi'
   | 'webSearchProviderCloudflare' | 'webSearchProviderFirecrawl'
   | 'webSearchFetchProvider' | 'webSearchFetchProviderHint'
-  | 'webSearchFetchProviderHttp' | 'webSearchFetchProviderFirecrawl'
+  | 'webSearchFetchProviderHttp' | 'webSearchFetchProviderDeepSeek' | 'webSearchFetchProviderFirecrawl'
   | 'webSearchBooleanTrue' | 'webSearchBooleanFalse'
   | 'webSearchApiKeyHint' | 'webSearchApiKeySet' | 'webSearchApiKeyUnset'
   | 'webSearchBaseUrl' | 'webSearchBaseUrlHint'
-  | 'webSearchDeepSeekApiKey' | 'webSearchDeepSeekModel' | 'webSearchDeepSeekModelHint'
-  | 'webSearchDeepSeekApiVersion' | 'webSearchDeepSeekApiVersionHint'
-  | 'webSearchDeepSeekMaxTokens' | 'webSearchDeepSeekMaxTokensHint'
-  | 'webSearchDeepSeekMaxUses' | 'webSearchDeepSeekMaxUsesHint'
+  | 'webSearchDeepSeekApiKey' | 'webSearchDeepSeekBaseUrlHint'
+  | 'webSearchDeepSeekCount' | 'webSearchDeepSeekCountHint'
+  | 'webSearchDeepSeekOriginalQuestion' | 'webSearchDeepSeekOriginalQuestionHint'
   | 'webSearchExaApiKey' | 'webSearchExaSearchType' | 'webSearchExaSearchTypeHint'
   | 'webSearchExaSearchTypeAuto' | 'webSearchExaSearchTypeKeyword' | 'webSearchExaSearchTypeNeural'
   | 'webSearchExaNumResults' | 'webSearchExaNumResultsHint'
@@ -104,6 +103,7 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   webSearchFetchProvider: 'Fetch provider',
   webSearchFetchProviderHint: 'The provider used when a Web page is fetched.',
   webSearchFetchProviderHttp: 'HTTP',
+  webSearchFetchProviderDeepSeek: 'DeepSeek Fetch API',
   webSearchFetchProviderFirecrawl: 'Firecrawl',
   webSearchBooleanTrue: 'Enabled',
   webSearchBooleanFalse: 'Disabled',
@@ -113,14 +113,11 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   webSearchBaseUrl: 'Endpoint',
   webSearchBaseUrlHint: 'Leave blank to use the provider default.',
   webSearchDeepSeekApiKey: 'DeepSeek API key',
-  webSearchDeepSeekModel: 'Model',
-  webSearchDeepSeekModelHint: 'Anthropic-compatible model used for search.',
-  webSearchDeepSeekApiVersion: 'API version',
-  webSearchDeepSeekApiVersionHint: 'Value sent in the anthropic-version header.',
-  webSearchDeepSeekMaxTokens: 'Max answer tokens',
-  webSearchDeepSeekMaxTokensHint: 'Upper bound on generated tokens for one search response.',
-  webSearchDeepSeekMaxUses: 'Max searches per request',
-  webSearchDeepSeekMaxUsesHint: 'How many searches one request may perform before answering.',
+  webSearchDeepSeekBaseUrlHint: 'Search / Fetch API base including its /v1/tools prefix; /search and /fetch are appended.',
+  webSearchDeepSeekCount: 'Results per search',
+  webSearchDeepSeekCountHint: 'Results the Search API returns per search, 1 through 50; a smaller request bound wins.',
+  webSearchDeepSeekOriginalQuestion: 'Send the triggering question',
+  webSearchDeepSeekOriginalQuestionHint: 'Send the triggering user question, cut to 128 characters, to improve result ranking.',
   webSearchExaApiKey: 'Exa API key',
   webSearchExaSearchType: 'Search type',
   webSearchExaSearchTypeHint: 'How Exa chooses and ranks retrieval results.',
@@ -227,6 +224,7 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   webSearchFetchProvider: '抓取提供方',
   webSearchFetchProviderHint: '抓取网页时使用的提供方。',
   webSearchFetchProviderHttp: 'HTTP',
+  webSearchFetchProviderDeepSeek: 'DeepSeek Fetch API',
   webSearchFetchProviderFirecrawl: 'Firecrawl',
   webSearchBooleanTrue: '启用',
   webSearchBooleanFalse: '停用',
@@ -236,14 +234,11 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   webSearchBaseUrl: '接口地址',
   webSearchBaseUrlHint: '留空则使用提供方默认地址。',
   webSearchDeepSeekApiKey: 'DeepSeek API Key',
-  webSearchDeepSeekModel: '模型',
-  webSearchDeepSeekModelHint: '搜索使用的 Anthropic 兼容模型。',
-  webSearchDeepSeekApiVersion: 'API 版本',
-  webSearchDeepSeekApiVersionHint: '随 anthropic-version 请求头发送的值。',
-  webSearchDeepSeekMaxTokens: '回答 token 上限',
-  webSearchDeepSeekMaxTokensHint: '单次搜索回答最多生成多少 token。',
-  webSearchDeepSeekMaxUses: '单次请求最多搜索次数',
-  webSearchDeepSeekMaxUsesHint: '一次请求在作答前最多可以搜索多少次。',
+  webSearchDeepSeekBaseUrlHint: 'Search / Fetch API 基址(含 /v1/tools 前缀);自动追加 /search 与 /fetch。',
+  webSearchDeepSeekCount: '每次搜索结果数',
+  webSearchDeepSeekCountHint: 'Search API 单次搜索返回的结果数,1 到 50;更小的请求上限优先。',
+  webSearchDeepSeekOriginalQuestion: '发送触发问题',
+  webSearchDeepSeekOriginalQuestionHint: '把触发本次搜索的用户问题(截断到 128 字符)一并发送,以改进结果排序。',
   webSearchExaApiKey: 'Exa API Key',
   webSearchExaSearchType: '搜索类型',
   webSearchExaSearchTypeHint: 'Exa 选择和排序检索结果的方式。',

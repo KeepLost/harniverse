@@ -44,26 +44,32 @@ function authenticationRequest(admission: AcceptedAuthentication): ServerRequest
   }
 }
 
-function send(socket: WebSocket, frame: RpcRequest<Frame>): Promise<void> {
+function send(socket: WebSocket, frame: RpcRequest<Frame>, shouldCompress: (text: string) => boolean): Promise<void> {
   return new Promise((resolve, reject) => {
     if (socket.readyState !== WebSocket.OPEN) {
       reject(new Error('websocket downlink closed before frame delivery'))
       return
     }
-    socket.send(JSON.stringify(serverRequest(frame)), (error) => {
+    const text = JSON.stringify(serverRequest(frame))
+    socket.send(text, { compress: shouldCompress(text) }, (error) => {
       if (error) reject(error)
       else resolve()
     })
   })
 }
 
-function sendRequest(socket: WebSocket, request: ServerRequest): Promise<void> {
+function sendRequest(
+  socket: WebSocket,
+  request: ServerRequest,
+  shouldCompress: (text: string) => boolean,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     if (socket.readyState !== WebSocket.OPEN) {
       reject(new Error('websocket downlink closed before control delivery'))
       return
     }
-    socket.send(JSON.stringify(request), (error) => {
+    const text = JSON.stringify(request)
+    socket.send(text, { compress: shouldCompress(text) }, (error) => {
       if (error == null) resolve()
       else reject(error)
     })
@@ -81,20 +87,34 @@ function failureFrame(): RpcRequest<Frame> {
 }
 
 /**
+ * Outbound JSON text reaches the compression threshold in characters; shorter
+ * frames stay uncompressed (the per-message zlib header would outweigh them).
+ */
+const COMPRESS_THRESHOLD_CHARS = 1024
+
+/** Constructor options for the downlink pair. */
+export interface WebSocketDownlinkOptions {
+  /** Negotiate `permessage-deflate` and compress outbound frames past the threshold. */
+  readonly compression?: boolean
+}
+
+/**
  * Owns WebSocket negotiation and frame pumping for the connection plugin's
  * two downlinks. Client messages are a protocol violation: upstream traffic
  * remains on HTTP.
  */
 export class WebSocketDownlinks {
-  private readonly server = new WebSocketServer({ noServer: true })
+  private readonly server: WebSocketServer
   private readonly pumps = new Set<Promise<void>>()
   private readonly admissions = new Map<WebSocket, AcceptedAuthentication>()
   private readonly revokedGrants = new Map<string, number>()
   private authenticationAvailable = true
+  private readonly compression: boolean
 
   /**
    * @param api - host API supplying the typed event streams.
    * @param reportError - server-side diagnostic sink for source failures.
+   * @param options - whether to negotiate and apply `permessage-deflate`.
    */
   constructor(
     private readonly api: ApiProxy,
@@ -102,7 +122,21 @@ export class WebSocketDownlinks {
     private readonly reportError: (error: unknown) => void = (error) => {
       console.error('[client-connection] WebSocket event stream failed:', error)
     },
-  ) {}
+    options: WebSocketDownlinkOptions = {},
+  ) {
+    this.compression = options.compression === true
+    // Level 1 keeps compression asynchronous and cheap relative to frame JSON
+    // serialization; the extension is only offered when compression is on.
+    this.server = new WebSocketServer({
+      noServer: true,
+      ...this.compression ? { perMessageDeflate: { zlibDeflateOptions: { level: 1 } } } : {},
+    })
+  }
+
+  /** Whether one outbound text crosses the compression threshold. */
+  private shouldCompress(text: string): boolean {
+    return this.compression && text.length >= COMPRESS_THRESHOLD_CHARS
+  }
 
   /**
    * Upgrade one socket and pump the mux stream until either side closes.
@@ -185,7 +219,7 @@ export class WebSocketDownlinks {
       const pump = (async () => {
         let upstream: RemoteWebSocket | undefined
         try {
-          await sendRequest(websocket, authenticationRequest(admission))
+          await sendRequest(websocket, authenticationRequest(admission), text => this.shouldCompress(text))
           upstream = await open(abort.signal)
           let sending = Promise.resolve()
           upstream.on('message', (raw: unknown) => {
@@ -199,7 +233,9 @@ export class WebSocketDownlinks {
             if (isAuthenticationRequest(frame)) {
               frame.payload = authenticationPrincipalIdentity(admission.principal)
             }
-            sending = sending.then(() => sendText(websocket, JSON.stringify(frame))).catch(() => { websocket.close() })
+            sending = sending.then(
+              () => sendText(websocket, JSON.stringify(frame), text => this.shouldCompress(text)),
+            ).catch(() => { websocket.close() })
           })
           const stop = (): void => { upstream?.close(); websocket.close() }
           upstream.once('close', stop)
@@ -329,8 +365,8 @@ export class WebSocketDownlinks {
     admission: AcceptedAuthentication,
   ): Promise<void> {
     try {
-      await sendRequest(socket, authenticationRequest(admission))
-      for await (const frame of frames) await send(socket, frame)
+      await sendRequest(socket, authenticationRequest(admission), text => this.shouldCompress(text))
+      for await (const frame of frames) await send(socket, frame, text => this.shouldCompress(text))
     } catch (error) {
       if (!abort.signal.aborted) {
         try {
@@ -339,7 +375,7 @@ export class WebSocketDownlinks {
           // A diagnostic sink must not replace downstream failure containment.
         }
         try {
-          await send(socket, failureFrame())
+          await send(socket, failureFrame(), text => this.shouldCompress(text))
         } catch {
           // Socket loss won the race; no downstream remains to receive the failure frame.
         }
@@ -356,10 +392,14 @@ function isAuthenticationRequest(value: unknown): value is { method: string; pay
     && value.method === CONNECTION_AUTHENTICATED_METHOD && 'payload' in value
 }
 
-function sendText(socket: WebSocket, text: string): Promise<void> {
+function sendText(
+  socket: WebSocket,
+  text: string,
+  shouldCompress: (text: string) => boolean,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     if (socket.readyState !== WebSocket.OPEN) { reject(new Error('websocket closed')); return }
-    socket.send(text, (error) => { if (error) reject(error); else resolve() })
+    socket.send(text, { compress: shouldCompress(text) }, (error) => { if (error) reject(error); else resolve() })
   })
 }
 

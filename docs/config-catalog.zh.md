@@ -826,6 +826,12 @@ export interface ConnectionConfig {
   trustedOrigins?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Whether the WebSocket event downlinks negotiate `permessage-deflate`:
+   * `'deflate'` compresses outbound frames past a 1,024-character threshold;
+   * `'none'` accepts the same upgrades without the extension.
+   */
+  websocketCompression?: 'deflate' | 'none'
 }
 ```
 
@@ -4238,6 +4244,30 @@ export interface Config {
 
 <a id="deepseek-aidsh-web-fetch-http"></a>
 
+## `@deepseek-ai/dsh-web-deepseek-api`
+
+需要：`web`
+
+```ts config-catalog
+/** Plugin config (all optional — the schema defaults fill every field but the literal key). */
+export interface Config {
+  /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  apiKey?: string
+  /** Credential reference resolved for each operation; defaults to `DEEPSEEK_API_KEY`. */
+  apiKeyEnv?: string
+  /** API base including its path prefix; `/search` and `/fetch` are appended. Defaults to the official endpoint. */
+  baseURL?: string
+  /** Search API results per search, from 1 through 50; a smaller request bound wins. Defaults to 10. */
+  count?: number
+  /** Send the triggering user question, bounded to 128 characters, as `ori_question`. Defaults to true. */
+  sendOriginalQuestion?: boolean
+}
+```
+
+来源：[`packages/web/web-deepseek-api/src/index.ts:87`](../packages/web/web-deepseek-api/src/index.ts)
+
+<a id="deepseek-aidsh-web-search-exa"></a>
+
 ## `@deepseek-ai/dsh-web-fetch-http`
 
 需要：`web`
@@ -4345,35 +4375,7 @@ export type CloudflareSearchEngine = typeof CLOUDFLARE_ENGINES[number]
 
 来源：[`packages/web/web-search-cloudflare/src/index.ts:42`](../packages/web/web-search-cloudflare/src/index.ts)
 
-<a id="deepseek-aidsh-web-search-deepseek"></a>
-
-## `@deepseek-ai/dsh-web-search-deepseek`
-
-需要：`web`
-
-```ts config-catalog
-/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
-export interface Config {
-  /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
-  apiKey?: string
-  /** Credential reference resolved for each search; defaults to `DEEPSEEK_API_KEY`. */
-  apiKeyEnv?: string
-  /** Anthropic-compatible endpoint base; `/messages` is appended. */
-  baseURL?: string
-  /** Anthropic-format model name. Defaults to `deepseek-v4-flash`. */
-  model?: string
-  /** `anthropic-version` header value. Defaults to `2023-06-01`. */
-  apiVersion?: string
-  /** Upper bound on generated tokens for the Messages request. Defaults to 4096. */
-  maxTokens?: number
-  /** Maximum `web_search` server-tool uses per request. Defaults to 5. */
-  maxUses?: number
-}
-```
-
-来源：[`packages/web/web-search-deepseek/src/index.ts:46`](../packages/web/web-search-deepseek/src/index.ts)
-
-<a id="deepseek-aidsh-web-search-exa"></a>
+<a id="deepseek-aidsh-web-deepseek-api"></a>
 
 ## `@deepseek-ai/dsh-web-search-exa`
 
@@ -4533,6 +4535,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-remote-hosts` ([`packages/client/ui-remote-hosts/src/index.ts`](../packages/client/ui-remote-hosts/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-scheduler` ([`packages/client/ui-scheduler/src/index.ts`](../packages/client/ui-scheduler/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-secret-mask` ([`packages/client/ui-secret-mask/src/index.ts`](../packages/client/ui-secret-mask/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-session-import` ([`packages/client/ui-session-import/src/index.ts`](../packages/client/ui-session-import/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-capabilities` ([`packages/client/ui-settings-capabilities/src/index.ts`](../packages/client/ui-settings-capabilities/src/index.ts))
@@ -4614,14 +4617,14 @@ Abstract service classes — a deployment loads a concrete implementation packag
 
 - `@deepseek-ai/dsh-attachment` — 抽象 `AttachmentStore`（[`packages/attachment/attachment/src/index.ts`](../packages/attachment/attachment/src/index.ts)）
 - `@deepseek-ai/dsh-authentication` — 抽象 `InboundAuthentication`（[`packages/auth/authentication/src/index.ts`](../packages/auth/authentication/src/index.ts)）
- - `@deepseek-ai/dsh-compaction` — 抽象 `CompactionEngine`（[`packages/compaction/compaction/src/index.ts`](../packages/compaction/compaction/src/index.ts)）
+- `@deepseek-ai/dsh-compaction` — 抽象 `CompactionEngine`（[`packages/compaction/compaction/src/index.ts`](../packages/compaction/compaction/src/index.ts)）
 - `@deepseek-ai/dsh-credentials` — 抽象 `Credentials`（[`packages/credentials/credentials/src/index.ts`](../packages/credentials/credentials/src/index.ts)）
 - `@deepseek-ai/dsh-file-reference` — 抽象 `FileReferenceService`（[`packages/context/file-reference/src/index.ts`](../packages/context/file-reference/src/index.ts)）
 - `@deepseek-ai/dsh-fs` — 抽象 `FileSystem`（[`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts)）
 - `@deepseek-ai/dsh-host-directory-picker` — 抽象 `DirectoryPicker`（[`packages/host/directory-picker/src/index.ts`](../packages/host/directory-picker/src/index.ts)）
 - `@deepseek-ai/dsh-jobs` — 抽象 `JobRegistry`（[`packages/jobs/jobs/src/index.ts`](../packages/jobs/jobs/src/index.ts)）
- - `@deepseek-ai/dsh-notification` — 抽象 `NotificationBackend`（[`packages/notification/notification/src/index.ts`](../packages/notification/notification/src/index.ts)）
- - `@deepseek-ai/dsh-ptc-runtime` — 抽象 `PtcRuntime`（[`packages/ptc-runtime/ptc-runtime/src/index.ts`](../packages/ptc-runtime/ptc-runtime/src/index.ts)）
+- `@deepseek-ai/dsh-notification` — 抽象 `NotificationBackend`（[`packages/notification/notification/src/index.ts`](../packages/notification/notification/src/index.ts)）
+- `@deepseek-ai/dsh-ptc-runtime` — 抽象 `PtcRuntime`（[`packages/ptc-runtime/ptc-runtime/src/index.ts`](../packages/ptc-runtime/ptc-runtime/src/index.ts)）
 - `@deepseek-ai/dsh-sandbox` — 抽象 `SandboxProvider`（[`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts)）
 - `@deepseek-ai/dsh-session-delivery` — 抽象 `SessionDelivery`（[`packages/session-query/session-delivery/src/index.ts`](../packages/session-query/session-delivery/src/index.ts)）
 - `@deepseek-ai/dsh-session-persistence` — 抽象 `SessionPersistence`（[`packages/session/session-persistence/src/index.ts`](../packages/session/session-persistence/src/index.ts)）

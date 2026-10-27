@@ -85,6 +85,7 @@
         - text: 抓取提供方
         - combobox "抓取提供方":
           - option "HTTP" [selected]
+          - option "DeepSeek Fetch API"
           - option "Firecrawl"
         - paragraph: 抓取网页时使用的提供方。
         - text: DeepSeek API Key 未配置密钥；配置之前搜索不可用。
@@ -93,26 +94,17 @@
         - text: 接口地址
         - textbox "接口地址":
           - /placeholder: ""
-        - paragraph: 留空则使用提供方默认地址。
-        - text: 模型
-        - textbox "模型":
+          - text: https://api.deepseek.com/v1/tools
+        - paragraph: Search / Fetch API 基址(含 /v1/tools 前缀);自动追加 /search 与 /fetch。
+        - text: 每次搜索结果数
+        - textbox "每次搜索结果数":
           - /placeholder: ""
-          - text: deepseek-v4-flash
-        - paragraph: 搜索使用的 Anthropic 兼容模型。
-        - text: API 版本
-        - textbox "API 版本":
-          - /placeholder: ""
-          - text: 2023-06-01
-        - paragraph: 随 anthropic-version 请求头发送的值。
-        - text: 回答 token 上限
-        - textbox "回答 token 上限":
-          - /placeholder: ""
-          - text: "4096"
-        - paragraph: 单次搜索回答最多生成多少 token。
-        - text: 单次请求最多搜索次数
-        - textbox "单次请求最多搜索次数":
-          - /placeholder: ""
-          - text: "5"
-        - paragraph: 一次请求在作答前最多可以搜索多少次。
+          - text: "10"
+        - paragraph: Search API 单次搜索返回的结果数,1 到 50;更小的请求上限优先。
+        - text: 发送触发问题
+        - combobox "发送触发问题":
+          - option "启用" [selected]
+          - option "停用"
+        - paragraph: 把触发本次搜索的用户问题(截断到 128 字符)一并发送,以改进结果排序。
         - button "放弃修改" [disabled]
         - button "保存" [disabled]

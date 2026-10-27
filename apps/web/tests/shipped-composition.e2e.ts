@@ -143,14 +143,14 @@ it('assembles the shipped Web catalog, file-reference guidance, and confined acc
   }
 }, 120_000)
 
-it.each(['deepseek-official', 'exa', 'perplexity'] as const)(
+it.each(['deepseek-search-api', 'exa', 'perplexity'] as const)(
   'mounts the shipped %s search row without requiring a credential at boot',
   async (provider) => {
     scaffold = await launchWebScaffold({
       webSearch: {
         provider,
         baseURL: 'http://127.0.0.1:9',
-        apiKeyEnv: `DSH_WEB_SEARCH_MISSING_${provider.toUpperCase().replace('-', '_')}`,
+        apiKeyEnv: `DSH_WEB_SEARCH_MISSING_${provider.toUpperCase().replaceAll('-', '_')}`,
       },
     })
 

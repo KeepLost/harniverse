@@ -387,8 +387,7 @@ describe('WebSearchCard', () => {
   const deepseekState = () => ({
     ...settled,
     apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
-    baseURL: field(''), model: field('deepseek-v4-flash'), apiVersion: field('2023-06-01'),
-    maxTokens: field('4096'), maxUses: field('5'),
+    baseURL: field(''), count: field('10'), sendOriginalQuestion: field('true'),
   })
   const exaState = () => ({
     ...settled,
@@ -431,9 +430,9 @@ describe('WebSearchCard', () => {
   function renderWebSearch(state: Partial<WebSearchCardState> = {}) {
     const store = createSnapshotStore<WebSearchCardState>({
       ...settled,
-      selectedProvider: 'deepseek-official',
+      selectedProvider: 'deepseek-search-api',
       selectedFetchProvider: 'http',
-      selector: { ...settled, searchProvider: field('deepseek-official'), fetchProvider: field('http') },
+      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http') },
       deepseek: deepseekState(),
       exa: exaState(),
       perplexity: perplexityState(),
@@ -460,12 +459,10 @@ describe('WebSearchCard', () => {
       en.webSearchProviderCloudflare, en.webSearchProviderFirecrawl,
     ])
     expect([...screen.getByLabelText(en.webSearchFetchProvider).querySelectorAll('option')].map(option => option.textContent)).toEqual([
-      en.webSearchFetchProviderHttp, en.webSearchFetchProviderFirecrawl,
+      en.webSearchFetchProviderHttp, en.webSearchFetchProviderDeepSeek, en.webSearchFetchProviderFirecrawl,
     ])
-    expect(screen.getByLabelText(en.webSearchDeepSeekModel)).toBeTruthy()
-    expect(screen.getByLabelText(en.webSearchDeepSeekApiVersion)).toBeTruthy()
-    expect(screen.getByLabelText(en.webSearchDeepSeekMaxTokens)).toBeTruthy()
-    expect(screen.getByLabelText(en.webSearchDeepSeekMaxUses)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchDeepSeekCount)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchDeepSeekOriginalQuestion)).toBeTruthy()
     expect(screen.queryByLabelText(en.webSearchExaSearchType)).toBeNull()
     expect(screen.queryByLabelText(en.webSearchPerplexitySearchRecency)).toBeNull()
   })
@@ -481,7 +478,7 @@ describe('WebSearchCard', () => {
     expect(screen.getByLabelText(en.webSearchFirecrawlIncludeSearchContent)).toBeTruthy()
     expect(screen.getByLabelText(en.webSearchFirecrawlSearchContentMaxChars)).toBeTruthy()
     expect(screen.getByLabelText(en.webSearchFirecrawlMaxChars)).toBeTruthy()
-    expect(screen.queryByLabelText(en.webSearchDeepSeekModel)).toBeNull()
+    expect(screen.queryByLabelText(en.webSearchDeepSeekCount)).toBeNull()
   })
 
   it('renders one shared Firecrawl key when both capabilities select Firecrawl', () => {
@@ -539,12 +536,12 @@ describe('WebSearchCard', () => {
       ['cloudflare.accountId'],
       ['cloudflare.engine'],
     ])
-    expect(screen.queryByLabelText(en.webSearchDeepSeekModel)).toBeNull()
+    expect(screen.queryByLabelText(en.webSearchDeepSeekCount)).toBeNull()
   })
 
   it('routes provider selection and DeepSeek controls with scoped addresses', () => {
     const actions = renderWebSearch({
-      selector: { ...settled, searchProvider: field('deepseek-official', { overridden: true }), fetchProvider: field('http') },
+      selector: { ...settled, searchProvider: field('deepseek-search-api', { overridden: true }), fetchProvider: field('http') },
       deepseek: {
         ...deepseekState(),
         apiKey: field(''),
@@ -554,7 +551,7 @@ describe('WebSearchCard', () => {
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
     fireEvent.change(screen.getByLabelText(en.webSearchProvider), { target: { value: 'exa' } })
-    fireEvent.change(screen.getByLabelText(en.webSearchDeepSeekModel), { target: { value: 'deepseek-search' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchDeepSeekCount), { target: { value: '25' } })
     fireEvent.change(screen.getByLabelText(en.webSearchDeepSeekApiKey), { target: { value: 'ds-secret' } })
     const resets = screen.getAllByRole('button', { name: en.reset })
     fireEvent.click(resets[0]!)
@@ -562,7 +559,7 @@ describe('WebSearchCard', () => {
 
     expect(actions.edit.mock.calls).toEqual([
       ['selector.searchProvider', 'exa'],
-      ['deepseek.model', 'deepseek-search'],
+      ['deepseek.count', '25'],
       ['deepseek.apiKey', 'ds-secret'],
     ])
     expect(actions.resetField.mock.calls).toEqual([
@@ -581,7 +578,7 @@ describe('WebSearchCard', () => {
     expect(screen.getByLabelText(en.webSearchExaSearchType)).toBeTruthy()
     expect(screen.getByLabelText(en.webSearchExaNumResults)).toBeTruthy()
     expect(screen.getByLabelText(en.webSearchExaHighlightsPerResult)).toBeTruthy()
-    expect(screen.queryByLabelText(en.webSearchDeepSeekModel)).toBeNull()
+    expect(screen.queryByLabelText(en.webSearchDeepSeekCount)).toBeNull()
     expect(screen.queryByLabelText(en.webSearchPerplexityModel)).toBeNull()
     fireEvent.change(screen.getByLabelText(en.webSearchExaSearchType), { target: { value: 'neural' } })
     fireEvent.click(screen.getByRole('button', { name: en.reset }))
@@ -622,7 +619,7 @@ describe('WebSearchCard', () => {
 
   it('routes fetch-provider selection and reset with scoped addresses', () => {
     const actions = renderWebSearch({
-      selector: { ...settled, searchProvider: field('deepseek-official'), fetchProvider: field('http', { overridden: true }) },
+      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http', { overridden: true }) },
     })
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
@@ -648,7 +645,7 @@ describe('WebSearchCard', () => {
   })
 
   it.each([
-    ['deepseek-official', 'deepseek'],
+    ['deepseek-search-api', 'deepseek'],
     ['exa', 'exa'],
     ['perplexity', 'perplexity'],
     ['tavily', 'tavily'],

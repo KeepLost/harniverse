@@ -254,6 +254,7 @@ export function gatesForMode(selected: Mode): Gate[] {
           docTypecheckScript: 'doc-typecheck:contracts-ready',
         }),
         pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
+        pnpmScript('no-top-level-await', 'verify-no-top-level-await', { label: 'no top-level await' }),
       ]
     case 'doc-sync':
       return docSyncLeafGates()
@@ -267,6 +268,7 @@ function ciSharedStaticGates(): Gate[] {
     pnpmScript('dsh-package-licenses', 'verify-dsh-package-licenses', { label: 'DSH package licenses' }),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+    pnpmScript('no-top-level-await', 'verify-no-top-level-await', { label: 'no top-level await' }),
     pnpmExec('compaction-contract', [
       'vitest',
       'run',

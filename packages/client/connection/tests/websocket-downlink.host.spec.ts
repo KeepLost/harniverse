@@ -8,6 +8,7 @@ import type {
   ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   ALL_AUTHENTICATION_CAPABILITIES,
   authenticationGrantId,
@@ -659,8 +660,9 @@ describe('control frame delivery', () => {
     running.push(host.close)
     const sendSpy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(((
       _data: unknown,
+      options?: unknown,
       callback?: (error?: Error) => void,
-    ) => { callback?.(new Error('simulated send failure')) }) as typeof WebSocket.prototype.send)
+    ) => { (typeof options === 'function' ? options : callback)?.(new Error('simulated send failure')) }) as typeof WebSocket.prototype.send)
     try {
       const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
       await once(socket, 'open')
@@ -1073,5 +1075,81 @@ describe('rejectUnauthorizedWebSocket', () => {
     await closed
     const closeUpstream = Reflect.get(upstream, 'close') as ReturnType<typeof vi.fn>
     await vi.waitFor(() => { expect(closeUpstream).toHaveBeenCalled() })
+  })
+})
+
+describe('WebSocket downlink compression', () => {
+  it('negotiates permessage-deflate on both downlinks when enabled', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle), undefined, { compression: true })
+    const server = await serve(downlinks)
+    running.push(server.close)
+    const mux = new WebSocket(`${server.origin}${MUX_EVENTS_PATH}`, { perMessageDeflate: {} })
+    const host = new WebSocket(`${server.origin}${HOST_EVENTS_PATH}`, { perMessageDeflate: {} })
+    await Promise.all([once(mux, 'open'), once(host, 'open')])
+
+    expect(mux.extensions).toContain('permessage-deflate')
+    expect(host.extensions).toContain('permessage-deflate')
+    mux.close()
+    host.close()
+    await Promise.all([once(mux, 'close'), once(host, 'close')])
+  })
+
+  it('accepts upgrades without the extension when compression is disabled', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle), undefined, { compression: false })
+    const server = await serve(downlinks)
+    running.push(server.close)
+    const socket = new WebSocket(`${server.origin}${MUX_EVENTS_PATH}`, { perMessageDeflate: {} })
+    await once(socket, 'open')
+
+    expect(socket.extensions).toBe('')
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('delivers a large frame intact through the compressed stream', async () => {
+    const large = 'x'.repeat(4_096)
+    const sessionId = '00000000-0000-4000-8000-000000000000' as SessionId
+    async function *one (signal: AbortSignal): AsyncGenerator<RpcRequest<MuxFrame>> {
+      yield {
+        rpcId: RpcId('00000000-0000-4000-8000-000000000000'),
+        payload: { type: 'session/subscribed', sessionId, lastSeq: large.length },
+      }
+      await untilAbort(signal)
+    }
+    const downlinks = new WebSocketDownlinks(api(one, idle), undefined, { compression: true })
+    const server = await serve(downlinks)
+    running.push(server.close)
+    const socket = new WebSocket(`${server.origin}${MUX_EVENTS_PATH}`, { perMessageDeflate: {} })
+    const received = read(socket)
+    await once(socket, 'open')
+    const message = await received
+
+    expect(message.payload).toEqual({ type: 'session/subscribed', sessionId, lastSeq: large.length })
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('compresses a bridged remote frame that reaches the threshold', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle), undefined, { compression: true })
+    const upstream = remoteSocket()
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      downlinks.handleRemote(request, socket, head, { kind: 'accepted', principal: grant('local-owner') }, async () => upstream)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`, { perMessageDeflate: {} })
+    const received = read(socket)
+    await once(socket, 'open')
+    upstream.emit('message', JSON.stringify({ method: 'host/remote-event', payload: { text: 'y'.repeat(3_000) } }))
+    const message = await received
+
+    expect(message.payload).toEqual({ text: 'y'.repeat(3_000) })
+    socket.close()
+    await once(socket, 'close')
   })
 })

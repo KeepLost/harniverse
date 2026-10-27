@@ -55,8 +55,7 @@
     "turn/end",
     "turn/start",
     "user/file",
-    "user/message",
-    "web/deepseek-search-llm-request"
+    "user/message"
   ],
   "surfaceEventTypes": [
     "assistant/message",
@@ -116,8 +115,7 @@
     "turn/end": "{ turn: number; reason: TurnEndReason }",
     "turn/start": "{ turn: number }",
     "user/file": "{ files: readonly FileAttachmentRef[] }",
-    "user/message": "UserMessage",
-    "web/deepseek-search-llm-request": "DeepSeekSearchLlmRequest"
+    "user/message": "UserMessage"
   },
   "envelope": [
     {

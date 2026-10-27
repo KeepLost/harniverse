@@ -435,7 +435,7 @@ describe('settings domain', () => {
     ctx.settings.register(settingsNamespace('compaction'), z.object({
       thresholdRatio: z.number(),
     }))
-    ctx.settings.register(settingsNamespace('web-search-deepseek'), z.object({
+    ctx.settings.register(settingsNamespace('web-deepseek-api'), z.object({
       baseURL: z.string(),
     }))
     ctx.settings.register(settingsNamespace('web'), z.object({
@@ -467,7 +467,7 @@ describe('settings domain', () => {
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.namespaces.map(view => view.ns)).toEqual([
       'llm-deepseek', 'permission', 'mcp', 'ui-theme', 'locale', 'ui-conversation', 'ui-skin',
-      'shell', 'agent-loop', 'compaction', 'web-search-deepseek', 'web', 'web-search-exa',
+      'shell', 'agent-loop', 'compaction', 'web-deepseek-api', 'web', 'web-search-exa',
       'web-search-perplexity', 'web-search-tavily', 'web-search-brave',
       'web-search-kagi', 'web-search-cloudflare', 'web-firecrawl',
     ])
@@ -521,7 +521,7 @@ describe('settings domain', () => {
     })))
     expect(compaction.value).toEqual({ thresholdRatio: 0.65 })
     const webSearch = expectOk(await api.settings.mutate(request({
-      ns: 'web-search-deepseek',
+      ns: 'web-deepseek-api',
       ops: [{ op: 'set', path: ['baseURL'], value: 'https://search.test/v1' }],
     })))
     expect(webSearch.value).toEqual({ baseURL: 'https://search.test/v1' })

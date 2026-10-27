@@ -649,10 +649,9 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/web/web-search-deepseek": {
+    "packages/web/web-deepseek-api": {
       "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -806,6 +805,18 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/client/ui-secret-mask": {
+      "entry": [
+        "tests/**/*.client.spec.ts",
+        "tests/**/*.client.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.ts",
+        "tests/**/*.tsx"
       ]
     },
     "packages/client/ui-remote-hosts": {

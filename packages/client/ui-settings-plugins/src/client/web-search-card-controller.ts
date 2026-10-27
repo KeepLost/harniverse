@@ -10,7 +10,7 @@ import {
 /** Provider-neutral selector namespace. */
 export const WEB_NS = 'web'
 /** DeepSeek provider settings namespace. */
-export const WEB_SEARCH_DEEPSEEK_NS = 'web-search-deepseek'
+export const WEB_SEARCH_DEEPSEEK_NS = 'web-deepseek-api'
 /** Exa provider settings namespace. */
 export const WEB_SEARCH_EXA_NS = 'web-search-exa'
 /** Perplexity provider settings namespace. */
@@ -28,12 +28,12 @@ export const WEB_FIRECRAWL_NS = 'web-firecrawl'
 
 /** Provider ids accepted by the Web runtime selector. */
 export const WEB_SEARCH_PROVIDER_IDS = [
-  'deepseek-official', 'exa', 'perplexity', 'tavily', 'brave', 'kagi', 'cloudflare', 'firecrawl',
+  'deepseek-search-api', 'exa', 'perplexity', 'tavily', 'brave', 'kagi', 'cloudflare', 'firecrawl',
 ] as const
 /** A selectable Web search provider id. */
 export type WebSearchProviderId = typeof WEB_SEARCH_PROVIDER_IDS[number]
 /** Provider ids accepted by the Web fetch selector. */
-export const WEB_FETCH_PROVIDER_IDS = ['http', 'firecrawl'] as const
+export const WEB_FETCH_PROVIDER_IDS = ['http', 'deepseek-fetch-api', 'firecrawl'] as const
 /** A selectable Web fetch provider id. */
 export type WebFetchProviderId = typeof WEB_FETCH_PROVIDER_IDS[number]
 
@@ -46,10 +46,8 @@ export interface WebSettings { searchProvider?: string; fetchProvider?: string }
 export interface DeepSeekWebSearchSettings {
   apiKeyEnv?: string
   baseURL?: string
-  model?: string
-  apiVersion?: string
-  maxTokens?: number
-  maxUses?: number
+  count?: number
+  sendOriginalQuestion?: boolean
 }
 
 /** Live Exa Web search settings. */
@@ -133,10 +131,8 @@ export interface WebSearchSelectorState extends CardShell {
 /** DeepSeek provider form projected into the aggregate card. */
 export interface DeepSeekWebSearchState extends ProviderCredentialState {
   baseURL: CardFieldState
-  model: CardFieldState
-  apiVersion: CardFieldState
-  maxTokens: CardFieldState
-  maxUses: CardFieldState
+  count: CardFieldState
+  sendOriginalQuestion: CardFieldState
 }
 
 /** Exa provider form projected into the aggregate card. */
@@ -237,7 +233,7 @@ export class WebSearchCardController {
   private readonly firecrawlForm: CardForm<FirecrawlWebSearchSettings>
   private readonly store: SnapshotStore<WebSearchCardState>
   private readonly credentials: Record<WebSearchProviderId, CredentialState> = {
-    'deepseek-official': credential('DEEPSEEK_API_KEY'),
+    'deepseek-search-api': credential('DEEPSEEK_API_KEY'),
     exa: credential('EXA_API_KEY'),
     perplexity: credential('PERPLEXITY_API_KEY'),
     tavily: credential('TAVILY_API_KEY'),
@@ -263,10 +259,9 @@ export class WebSearchCardController {
     this.deepseekForm = new CardForm(
       scopes.deepseek,
       [
-        textField('baseURL'), textField('model'), textField('apiVersion'),
-        positiveIntegerField('maxTokens'), positiveIntegerField('maxUses'),
+        textField('baseURL'), positiveIntegerField('count'), booleanField('sendOriginalQuestion'),
       ],
-      [{ field: API_KEY_FIELD, write: value => this.writeKey('deepseek-official', value) }],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('deepseek-search-api', value) }],
     )
     this.exaForm = new CardForm(
       scopes.exa,
@@ -383,7 +378,7 @@ export class WebSearchCardController {
     const kagi = this.kagiState()
     const cloudflare = this.cloudflareState()
     const firecrawl = this.firecrawlState()
-    const selected = selectedProvider === 'deepseek-official'
+    const selected = selectedProvider === 'deepseek-search-api'
       ? deepseek
       : selectedProvider === 'exa' ? exa
         : selectedProvider === 'perplexity' ? perplexity
@@ -428,12 +423,10 @@ export class WebSearchCardController {
 
   private deepseekState(): DeepSeekWebSearchState {
     return {
-      ...this.providerShell('deepseek-official', this.deepseekForm),
+      ...this.providerShell('deepseek-search-api', this.deepseekForm),
       baseURL: this.deepseekForm.field('baseURL'),
-      model: this.deepseekForm.field('model'),
-      apiVersion: this.deepseekForm.field('apiVersion'),
-      maxTokens: this.deepseekForm.field('maxTokens'),
-      maxUses: this.deepseekForm.field('maxUses'),
+      count: this.deepseekForm.field('count'),
+      sendOriginalQuestion: this.deepseekForm.field('sendOriginalQuestion'),
     }
   }
 
@@ -541,7 +534,7 @@ export class WebSearchCardController {
   }
 
   private scope(provider: WebSearchProviderId): SettingsScope<{ apiKeyEnv?: string }> {
-    if (provider === 'deepseek-official') {
+    if (provider === 'deepseek-search-api') {
       return this.scopes.deepseek
     }
     if (provider === 'exa') return this.scopes.exa
@@ -611,7 +604,7 @@ function credential(ref: string): CredentialState {
 }
 
 function defaultRef(provider: WebSearchProviderId): string {
-  if (provider === 'deepseek-official') return 'DEEPSEEK_API_KEY'
+  if (provider === 'deepseek-search-api') return 'DEEPSEEK_API_KEY'
   if (provider === 'exa') return 'EXA_API_KEY'
   if (provider === 'perplexity') return 'PERPLEXITY_API_KEY'
   if (provider === 'tavily') return 'TAVILY_API_KEY'
@@ -627,7 +620,7 @@ function refOf(snapshot: SettingsScopeSnapshot<{ apiKeyEnv?: string }>, fallback
 }
 
 function providerId(value: string): WebSearchProviderId {
-  return WEB_SEARCH_PROVIDER_IDS.find(provider => provider === value) ?? 'deepseek-official'
+  return WEB_SEARCH_PROVIDER_IDS.find(provider => provider === value) ?? 'deepseek-search-api'
 }
 
 function fetchProviderId(value: string): WebFetchProviderId {

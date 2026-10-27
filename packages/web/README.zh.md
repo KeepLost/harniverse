@@ -9,7 +9,7 @@
 | [`web/`](web/README.md) | 定义 web 提供方注册、选择和共享错误 | `ctx.web` |
 | [`web-search-exa/`](web-search-exa/README.md) | 通过 Exa 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-perplexity/`](web-search-perplexity/README.md) | 通过 Perplexity 提供 web 搜索 | 注册到 `ctx.web` |
-| [`web-search-deepseek/`](web-search-deepseek/README.md) | 提供 DeepSeek 原生 web 搜索 | 注册到 `ctx.web` |
+| [`web-deepseek-api/`](web-deepseek-api/README.md) | DeepSeek Search / Fetch API 提供方(直接请求,无模型调用) | 注册到 `ctx.web` |
 | [`web-search-tavily/`](web-search-tavily/README.md) | 通过 Tavily 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-brave/`](web-search-brave/README.md) | 通过 Brave 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-kagi/`](web-search-kagi/README.md) | 通过 Kagi 提供 web 搜索 | 注册到 `ctx.web` |
