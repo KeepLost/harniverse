@@ -106,7 +106,7 @@ describe('WorkspaceStallGuard breaker', () => {
 
 describe('inspector operations under the guard', () => {
   it('reads a real file unchanged through the shared-guard seam', async () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'stall-ok-')))
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'stall-ok-')))
     try {
       writeFileSync(join(root, 'note.md'), 'first\n')
       const preview = await readWorkspaceFile(root, 'note.md', new AbortController().signal, {}, new WorkspaceStallGuard({ timeoutMs: 2_000 }))
@@ -118,7 +118,7 @@ describe('inspector operations under the guard', () => {
   })
 
   it('surfaces the open breaker as a structured error before any filesystem work', async () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'stall-open-')))
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'stall-open-')))
     try {
       mkdirSync(join(root, 'sub'))
       const guard = new WorkspaceStallGuard({ timeoutMs: 0 })
