@@ -229,7 +229,7 @@ describe('working directory service', () => {
       const { agent } = stubAgent(root)
       const assembly = await ctx.systemPrompt.assemble({ agent, signal })
       const contribution = assembly.contexts.find(entry => entry.name === 'working-directory:current')
-      expect(contribution?.text).toBe(`Current working directory: ${JSON.stringify(await realpath(root))}.`)
+      expect(contribution?.text).toBe(`Current working directory: ${JSON.stringify(root)}.`)
     } finally {
       await ctx.fiber.dispose()
     }
@@ -292,12 +292,15 @@ describe('working directory service', () => {
 
   it('derives the effective cwd with and without the owner mounted', async () => {
     const root = await tempDir()
+    const target = join(root, 'effective')
     const ctx = await boot()
     try {
+      await mkdir(target)
       const { agent, session } = stubAgent(root)
       const before = session.events.length
-      const canonical = await ctx.workingDirectory.set(agent, root)
+      const canonical = await ctx.workingDirectory.set(agent, 'effective')
       syncProjection(ctx, session, before)
+      expect(canonical).toBe(await realpath(target))
       expect(effectiveCwd(agent)).toBe(canonical)
       expect(effectiveCwd(undefined)).toBeUndefined()
     } finally {
