@@ -196,7 +196,7 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         ]
         if len(system_prompts) != 1 or not all(
             prompt.startswith("You are working on the machine ")
-            and "The working directory for this session is " in prompt
+            and "This session started in " in prompt
             for prompt in system_prompts
         ):
             raise AssertionError(f"minimal agent smoke assembled unexpected system prompts: {system_prompts}")

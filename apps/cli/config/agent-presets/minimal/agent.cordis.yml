@@ -1,4 +1,4 @@
-# The `minimal` agent preset is a controlled two-tool coding composition.
+# The `minimal` agent preset is a controlled three-tool coding composition.
 #
 # Its persona uses the same dynamic context path as every other Agent Profile.
 # The shell is one-shot and platform-specific; filesystem reads and editor writes
@@ -30,6 +30,9 @@
   name: '@deepseek-ai/dsh-tool-str-replace-editor'
   config:
     maxOutputChars: 16000
+
+- id: tool-working-directory
+  name: '@deepseek-ai/dsh-tool-working-directory'
 
 - id: compaction
   name: cordis:group

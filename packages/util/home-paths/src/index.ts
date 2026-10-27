@@ -17,6 +17,15 @@ export const DEFAULT_DSH_HOME_DISPLAY = `~/${DSH_HOME_DIR_NAME}`
 /** Environment variable that overrides the default DeepSeek Harness home. */
 export const DSH_HOME_ENV = 'DSH_HOME'
 
+/** Directory name for the default shared agent configuration root under the OS home. */
+export const AGENTS_HOME_DIR_NAME = '.agents'
+
+/** Stable user-facing display form for the default shared agent configuration root. */
+export const DEFAULT_AGENTS_HOME_DISPLAY = `~/${AGENTS_HOME_DIR_NAME}`
+
+/** Environment variable that overrides the default shared agent configuration root. */
+export const DSH_AGENTS_HOME_ENV = 'DSH_AGENTS_HOME'
+
 /**
  * Give a native filesystem watcher one canonical spelling of a path, even
  * when its final components do not exist yet. The deepest existing ancestor
@@ -109,4 +118,40 @@ export function dshHomePath(...segments: string[]): string {
  */
 export function dshHomeDisplay(resolvedHome: string): string {
   return resolvedHome === resolve(defaultDshHome()) ? DEFAULT_DSH_HOME_DISPLAY : `$${DSH_HOME_ENV}`
+}
+
+/**
+ * Resolve the default shared agent configuration root using Node's platform path rules.
+ * @returns the absolute default shared agent root path.
+ */
+export function defaultAgentsHome(): string {
+  return join(homedir(), AGENTS_HOME_DIR_NAME)
+}
+
+/**
+ * Resolve the shared agent configuration root.
+ *
+ * Precedence, highest first: an explicit configured path, `$DSH_AGENTS_HOME`,
+ * then `~/.agents`. Tilde expansion and blank-environment handling match
+ * {@link resolveDshHome}, so the two user roots share one resolver semantics.
+ * @param configured - explicit shared-root override, which has highest precedence.
+ * @param env - environment mapping used to read `DSH_AGENTS_HOME`.
+ * @returns the normalized absolute shared agent root path.
+ */
+export function resolveAgentsHome(configured?: string, env: Record<string, string | undefined> = process.env): string {
+  const fromEnv = env[DSH_AGENTS_HOME_ENV]
+  const selected = configured ?? (fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : defaultAgentsHome())
+  return resolve(expandHomePath(selected))
+}
+
+/**
+ * Describe a resolved shared agent root symbolically for user-facing display.
+ *
+ * It never returns an absolute machine path: the default root is labelled
+ * `~/.agents`, and any configured root is labelled `$DSH_AGENTS_HOME`.
+ * @param resolvedHome - the absolute path returned by {@link resolveAgentsHome}.
+ * @returns `~/.agents` for the default root, otherwise `$DSH_AGENTS_HOME`.
+ */
+export function agentsHomeDisplay(resolvedHome: string): string {
+  return resolvedHome === resolve(defaultAgentsHome()) ? DEFAULT_AGENTS_HOME_DISPLAY : `$${DSH_AGENTS_HOME_ENV}`
 }

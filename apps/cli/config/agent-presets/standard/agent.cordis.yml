@@ -282,6 +282,12 @@
     autoContinueIncomplete: true
     maxAutoContinueTurns: 8
 
+- id: tool-working-directory
+  name: '@deepseek-ai/dsh-tool-working-directory'
+
+- id: tool-worktree
+  name: '@deepseek-ai/dsh-tool-worktree'
+
 - id: tool-session-query
   name: '@deepseek-ai/dsh-tool-session-query'
 

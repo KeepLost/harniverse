@@ -1111,3 +1111,20 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 ```
 
 来源：[`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts)
+
+### `working-directory/*`
+
+<a id="working-directorychange--log-only"></a>
+
+#### `working-directory/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Effective working directory; the immutable session header retains the
+ * original project directory. Whole-value payload: the complete
+ * post-change directory, never a bare delta.
+ */
+'working-directory/change': import('./types.ts').WorkingDirectoryChange
+```
+
+来源：[`packages/session/working-directory/src/index.ts:47`](../packages/session/working-directory/src/index.ts)

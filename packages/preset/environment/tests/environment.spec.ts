@@ -61,13 +61,13 @@ describe('the environment section text', () => {
   it('states machine, OS, shell, userland, and the session-fixed working directory', () => {
     expect(Environment.environmentSectionText({ os: 'Linux', shell: 'bash', userland: 'GNU', machine: 'box' }))
       .toBe('You are working on the machine box (Linux, bash shell with a GNU userland). '
-        + 'The working directory for this session is {{cwd}}; it stays fixed for the session\'s lifetime.')
+        + 'This session started in {{cwd}}; the working directory can change during the session.')
   })
 
   it('omits the userland clause when it does not apply', () => {
     expect(Environment.environmentSectionText({ os: 'Windows', shell: 'PowerShell', machine: 'pc' }))
       .toBe('You are working on the machine pc (Windows, PowerShell shell). '
-        + 'The working directory for this session is {{cwd}}; it stays fixed for the session\'s lifetime.')
+        + 'This session started in {{cwd}}; the working directory can change during the session.')
   })
 })
 
@@ -83,7 +83,7 @@ describe('the environment row', () => {
     expect(text).toContain(process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : 'Linux')
     expect(text).toContain('{{cwd}}')
     expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key })))
-      .toContain('The working directory for this session is /workspace;')
+      .toContain('This session started in /workspace; the working directory can change during the session.')
     // The section is absent for scopes that did not mount the row.
     expect(await sectionText(ctx)).toBeUndefined()
   })

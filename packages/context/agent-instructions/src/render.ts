@@ -86,25 +86,56 @@ function sectionText(file: LoadedInstructionFile): string {
   return `Instructions from: ${file.displayPath}\n\n${file.content}`
 }
 
-/** Directory component that identifies the single user-global instruction scope. */
+/** Directory component that identifies the harness-home user-global instruction scope. */
 export const USER_GLOBAL_DIRECTORY = 'user-global'
 
+/** Directory component that identifies the shared-agents-root user-global instruction scope. */
+export const AGENTS_GLOBAL_DIRECTORY = 'agents-global'
+
 /**
- * File name of the single user-global instruction file under `$DSH_HOME`.
- * Discovery (`$DSH_HOME/<name>`) and reconciliation (the user-global scope key's
- * candidate component) both key on this name, so it lives in one place: were the
- * two to disagree, the user-global instruction would load but never reconcile.
+ * File name of the user-global instruction file under both user roots
+ * (`$DSH_HOME` first, then the shared agents root). Discovery under both roots
+ * and reconciliation (the user-global scope keys' candidate component) key on
+ * this name, so it lives in one place: were they to disagree, a user-global
+ * instruction would load but never reconcile.
  */
 export const USER_GLOBAL_FILE = 'AGENTS.md'
+
+/** Logical directories reserved for the two user-global instruction scopes. */
+const RESERVED_SCOPE_DIRECTORIES = new Set([USER_GLOBAL_DIRECTORY, AGENTS_GLOBAL_DIRECTORY])
+
+/** Display form of the user-global instruction file under each user root. */
+const USER_GLOBAL_DISPLAY_DIRECTORY: Readonly<Record<string, string>> = {
+  '~/.dsh/AGENTS.md': USER_GLOBAL_DIRECTORY,
+  '$DSH_HOME/AGENTS.md': USER_GLOBAL_DIRECTORY,
+  '~/.agents/AGENTS.md': AGENTS_GLOBAL_DIRECTORY,
+  '$DSH_AGENTS_HOME/AGENTS.md': AGENTS_GLOBAL_DIRECTORY,
+}
 
 /**
  * Derive the logical instruction scope from a model-facing path.
  * @param displayPath - project-relative or user-global instruction path.
- * @returns `user-global`, `.`, or the containing project-relative directory.
+ * @returns `user-global`, `agents-global`, `.`, or the containing project-relative
+ * directory; a project directory whose name would collide with a reserved scope
+ * keeps its own scope through a `./` prefix.
  */
 export function scopeForDisplayPath(displayPath: string): string {
-  if (displayPath === '~/.dsh/AGENTS.md' || displayPath === '$DSH_HOME/AGENTS.md') return USER_GLOBAL_DIRECTORY
-  return dirname(displayPath)
+  const userGlobal = USER_GLOBAL_DISPLAY_DIRECTORY[displayPath]
+  if (userGlobal !== undefined) return userGlobal
+  const dir = dirname(displayPath)
+  return RESERVED_SCOPE_DIRECTORIES.has(dir) ? `./${dir}` : dir
+}
+
+/**
+ * Map a logical instruction directory onto its trimmed-content dedup group.
+ * The two user-global roots form one authority group — a trimmed-identical
+ * shared-root file collapses against the harness-home file, whose copy keeps
+ * rendering — while every project directory stays its own group.
+ * @param directory - logical instruction directory from {@link scopeForDisplayPath} or a scope key.
+ * @returns the dedup group the directory belongs to.
+ */
+export function instructionDedupGroup(directory: string): string {
+  return RESERVED_SCOPE_DIRECTORIES.has(directory) ? USER_GLOBAL_DIRECTORY : directory
 }
 
 const SCOPE_SEPARATOR = '\u0000'

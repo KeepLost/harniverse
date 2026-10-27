@@ -12,14 +12,13 @@
 import { access, lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import chokidar from 'chokidar'
 import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { canonicalizeWatchPath, resolveAgentsHome, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import {
   BUNDLED_SKILL_RANK,
   isSkillName,
@@ -187,7 +186,7 @@ function resolveLayout(config: Config): ProviderLayout {
     name: config.providerName ?? 'filesystem',
     includeDefaultRoots,
     dshHome: resolveDshHome(config.dshHome),
-    agentsHome: resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents')),
+    agentsHome: resolveAgentsHome(config.agentsHome),
     customSkillDirs: (config.customSkillDirs ?? []).map(root => resolve(root)),
     bundledSkillDir: bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir),
   }

@@ -10,6 +10,7 @@
     { "path": "../../core/agent" },
     { "path": "../../core/tools" },
     { "path": "../../shell/shell" },
+    { "path": "../../session/working-directory" },
     { "path": "../../terminal/terminal" },
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../util/output-retention" },

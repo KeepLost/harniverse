@@ -496,6 +496,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values.',
   },
   {
+    key: 'workingDirectory',
+    pkg: 'working-directory',
+    title: 'Session working directory',
+    mode: 'core',
+    consumers: ['tool-working-directory', 'tool-bash', 'tool-fs', 'tool-lsp', 'tool-bash-persistent', 'agent-instructions', 'worktree'],
+    note: 'Owns one logged effective directory per session: an additive whole-value change event, a folded projection, filesystem-validated set/ensure with recovery to the original project, and one injected notice per committed change; the header cwd stays the identity and sandbox root.',
+  },
+  {
+    key: 'worktrees',
+    pkg: 'worktree',
+    title: 'Retained Git worktree creation',
+    mode: 'core',
+    consumers: ['tool-worktree'],
+    note: 'Creates one retained branch-plus-checkout from a local revision under the calling session policy, disables checkout filters through command-local overrides, and enters the checkout through the working-directory owner.',
+  },
+  {
     key: 'sessionProjectionCache',
     pkg: 'session-projection-cache',
     title: 'Persisted projection cache',

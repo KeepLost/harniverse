@@ -96,7 +96,7 @@ describe('minimal agent preset', () => {
            2",
         "prompt": "You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH). Harniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.
 
-      You are working on the machine {{machine}} ({{environment}}). The working directory for this session is {{cwd}}; it stays fixed for the session's lifetime.
+      You are working on the machine {{machine}} ({{environment}}). This session started in {{cwd}}; the working directory can change during the session.
 
       Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call. On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 
@@ -104,7 +104,7 @@ describe('minimal agent preset', () => {
         "shell": "MINIMAL_SHELL_OK",
       }
     `)
-    expect(requestHeader.tools?.map(tool => tool.name)).toEqual([shellName, 'str_replace_editor'])
+    expect(requestHeader.tools?.map(tool => tool.name)).toEqual([shellName, 'str_replace_editor', 'working_directory'])
     expect(requestHeader.tools?.toSorted((left, right) => left.name.localeCompare(right.name)))
       .toEqual(scaffold.ctx.tools.schemas(agentHandle.agent).toSorted((left, right) => left.name.localeCompare(right.name)))
     expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'compaction')).toBeDefined()

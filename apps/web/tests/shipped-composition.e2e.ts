@@ -40,6 +40,7 @@ const EXPECTED_TOOLS = [
   'compaction_history_inspect',
   'context_compact',
   'create_goal',
+  'create_worktree',
   'edit',
   'exit_plan_mode',
   'get_goal',
@@ -72,6 +73,7 @@ const EXPECTED_TOOLS = [
   'web_fetch',
   'web_search',
   'workflow',
+  'working_directory',
   'write',
 ]
 

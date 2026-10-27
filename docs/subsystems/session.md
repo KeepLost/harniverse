@@ -883,6 +883,48 @@ Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persist
 
 Source: [`packages/core/session/src/index.ts:997`](../../packages/core/session/src/index.ts)
 
+<a id="ctxworkingdirectory--workingdirectoryservice"></a>
+
+### `ctx.workingDirectory` — `WorkingDirectoryService`
+
+One owner for each session's effective directory and its model-visible changes.
+
+```ts cordis-catalog
+/**
+ * Read the committed directory without filesystem I/O.
+ * @param session - session whose directory is requested.
+ * @returns its effective absolute directory.
+ */
+get(session: Session): string
+
+/**
+ * Validate the current directory and restore the original project when it
+ * disappeared. A session that never recorded a change commits its implicit
+ * starting directory so replay and resume carry it.
+ * @param agent - live agent owning the session.
+ * @param signal - cancellation for filesystem inspection.
+ * @returns the existing directory; recovery is committed before fulfillment.
+ * A notice failure is warned without reverting the committed state.
+ * @throws when neither the current nor the original directory exists.
+ */
+ensure(agent: Agent, signal?: AbortSignal): Promise<string>
+
+/**
+ * Change one session's directory without changing existing processes or
+ * write permissions.
+ * @param agent - live agent owning the session.
+ * @param path - absolute path or a path relative to the current directory.
+ * @param signal - cancellation before the durable change.
+ * @returns the canonical absolute directory, committed before fulfillment.
+ * @throws when the requested path is not an existing directory.
+ */
+set(agent: Agent, path: string, signal?: AbortSignal): Promise<string>
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/session/working-directory/src/index.ts:67`](../../packages/session/working-directory/src/index.ts)
+
 <a id="session-events"></a>
 
 ### `session/*` events

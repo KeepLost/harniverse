@@ -11,7 +11,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { basename, resolve } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -74,7 +73,11 @@ import SessionDelivery, {
 } from '@deepseek-ai/dsh-session-delivery'
 import * as ToolSessionDelivery from '@deepseek-ai/dsh-tool-session-delivery'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
+import { Context, Service } from '@deepseek-ai/cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolWorkingDirectory from '@deepseek-ai/dsh-tool-working-directory'
+import * as ToolWorktree from '@deepseek-ai/dsh-tool-worktree'
+import WorkingDirectoryService from '@deepseek-ai/dsh-working-directory'
 import * as ToolPresent from '@deepseek-ai/dsh-tool-present'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 import CompactionEngine from '@deepseek-ai/dsh-compaction'
@@ -261,6 +264,18 @@ export interface ToolPackage {
  * `packages/`). Ordered by package name (the render order); the completeness
  * guard proves it is exhaustive against the on-disk glob.
  */
+
+/** Schema-mount stub: satisfies the worktree seam without executing git. */
+class CatalogWorktrees extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'worktrees')
+  }
+
+  create(): Promise<{ path: string; branch: string; baseCommit: string; repositoryRoot: string }> {
+    return Promise.resolve({ path: '', branch: '', baseCommit: '', repositoryRoot: '' })
+  }
+}
+
 const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-ask-user',
@@ -676,6 +691,30 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-working-directory',
+    dir: 'tool-working-directory',
+    source: 'packages/session/tool-working-directory/src/index.ts',
+    requires: ['ctx.tools', 'ctx.workingDirectory', 'a calling Agent session'],
+    writes: ['tool/call', 'working-directory/change', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(WorkingDirectoryService)
+      await ctx.plugin(ToolWorkingDirectory)
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-worktree',
+    dir: 'tool-worktree',
+    source: 'packages/workspace/tool-worktree/src/index.ts',
+    requires: ['ctx.tools', 'ctx.worktrees', 'a calling Agent session'],
+    writes: ['tool/call', 'working-directory/change through the entered checkout', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(CatalogWorktrees)
+      await ctx.plugin(ToolWorktree)
+    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

@@ -387,6 +387,32 @@ Types: [SessionId](core.md)
 
 Source: [`packages/workspace/workspace/src/index.ts:167`](../../packages/workspace/workspace/src/index.ts)
 
+<a id="ctxworktrees--worktreeservice"></a>
+
+### `ctx.worktrees` — `WorktreeService`
+
+Creates retained Git worktrees under the mounted filesystem and sandbox providers.
+
+```ts cordis-catalog
+/**
+ * Create a fresh branch and checkout at a pinned local revision, then enter it.
+ * Existing branches or checkout paths fail. Uncommitted files stay in the source checkout.
+ * Checkout disables configured clean, smudge, and process filters without changing Git config.
+ * Repository-local replacement refs still apply; baseCommit reports the resolved object name.
+ * The new checkout becomes current only after Git setup succeeds. Failures may retain newly
+ * allocated Git/filesystem artifacts; no branch or checkout is removed automatically.
+ * @param agent - caller whose current directory selects the source repository and file policy.
+ * @param request - optional new name and local revision; defaults are generated name and HEAD.
+ * @param signal - cancellation of lookup, creation, and working-directory publication.
+ * @returns canonical checkout path, branch name, pinned commit, and source repository root.
+ */
+async create(agent: Agent, request: CreateWorktreeRequest = {}, signal?: AbortSignal): Promise<CreatedWorktree>
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/workspace/worktree/src/index.ts:60`](../../packages/workspace/worktree/src/index.ts)
+
 <a id="workspace-events"></a>
 
 ### `workspace/*` events

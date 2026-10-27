@@ -21,8 +21,10 @@ import {
   type LoadedInstructionFile,
 } from './files.ts'
 import {
+  AGENTS_GLOBAL_DIRECTORY,
   candidateScopeKey,
   decodeScopeKey,
+  instructionDedupGroup,
   instructionScopeKey,
   renderInstructionChanges,
   USER_GLOBAL_DIRECTORY,
@@ -231,7 +233,11 @@ export function applyInstructionVersionUpdates(
 
 function relativeScope(projectRoot: string, dir: string): string {
   const scope = relativeDisplay(projectRoot, dir)
-  return scope.length === 0 ? '.' : scope
+  if (scope.length === 0) return '.'
+  // A project directory named like a reserved user-global scope would collide
+  // with it in every scope-keyed map; the './' prefix keeps its own scope.
+  const [first] = scope.split(/[\\/]/)
+  return first === USER_GLOBAL_DIRECTORY || first === AGENTS_GLOBAL_DIRECTORY ? `./${scope}` : scope
 }
 
 /**
@@ -276,6 +282,7 @@ export async function reconcileInstructionContext(
     addDirScopes(target, relativeScope(projectRoot, dir))
   }
   baselineScopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
+  baselineScopes.add(candidateScopeKey(AGENTS_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
   for (const dir of ancestorChain(projectRoot, cwd)) addProjectScopes(baselineScopes, dir)
   if (options.includeBaselineScopes) {
     for (const scope of baselineScopes) scopes.add(scope)
@@ -292,6 +299,7 @@ export async function reconcileInstructionContext(
     if (!options.includeBaselineScopes && baselineScopes.has(scope)) continue
     const { directory } = decodeScopeKey(scope)
     if (directory === USER_GLOBAL_DIRECTORY) scopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
+    else if (directory === AGENTS_GLOBAL_DIRECTORY) scopes.add(candidateScopeKey(AGENTS_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
     else addDirScopes(scopes, directory)
   }
   for (const touchedPath of options.touchedPaths) {
@@ -304,11 +312,15 @@ export async function reconcileInstructionContext(
   // candidate order (base before local); a later sibling matching an earlier one
   // is a duplicate and is dropped or removed rather than rendered twice.
   const keptTrimmedByDir = new Map<string, Set<string>>()
+  // The two user-global roots share one dedup group, so a trimmed-identical
+  // shared-root file drops against the harness-home file and is promoted when
+  // the retained copy changes or disappears.
   const registerKeptTrimmed = (directory: string, digest: string): boolean => {
-    let digests = keptTrimmedByDir.get(directory)
+    const group = instructionDedupGroup(directory)
+    let digests = keptTrimmedByDir.get(group)
     if (digests === undefined) {
       digests = new Set()
-      keptTrimmedByDir.set(directory, digests)
+      keptTrimmedByDir.set(group, digests)
     }
     if (digests.has(digest)) return true
     digests.add(digest)
@@ -360,7 +372,7 @@ export async function reconcileInstructionContext(
           else versions.set(candidateScope, prior)
         }
         for (const absolutePath of addedAbsolutePaths) seenAbsolutePaths.delete(absolutePath)
-        keptTrimmedByDir.delete(directory)
+        keptTrimmedByDir.delete(instructionDedupGroup(directory))
         break
       }
       if (probe.kind === 'absent') {
