@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -146,7 +146,7 @@ describe('worktree service', () => {
       const agent = stubAgent(repo)
       const created = await ctx.worktrees.create(agent, { name: 'feature' }, signal)
       expect(created.branch).toBe('feature')
-      expect(created.repositoryRoot).toBe((await git(repo, 'rev-parse', '--show-toplevel')).trim())
+      expect(created.repositoryRoot).toBe(resolve((await git(repo, 'rev-parse', '--show-toplevel')).trim()))
       expect(created.baseCommit).toBe((await git(repo, 'rev-parse', 'HEAD')).trim())
       expect((await readFile(join(created.path, 'second.txt'), 'utf8')).trimEnd()).toBe('second')
       // The checkout pool carries a self-ignoring .gitignore from first allocation.
