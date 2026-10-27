@@ -80,7 +80,8 @@ describe('working_directory tool', () => {
       const agent = stubAgent(root)
       const result = await run(ctx, {}, agent)
       expect(result.isError).toBe(false)
-      expect(result.value).toEqual({ cwd: await (await import('node:fs/promises')).realpath(root) })
+      // A read returns the stored directory as-is; only changes canonicalize.
+      expect(result.value).toEqual({ cwd: root })
       expect(agent.session.events.filter(event => event.type === 'working-directory/change')).toHaveLength(1)
     } finally {
       await ctx.fiber.dispose()

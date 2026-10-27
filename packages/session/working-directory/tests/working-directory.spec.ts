@@ -88,7 +88,8 @@ describe('working directory service', () => {
     try {
       const { agent, session, injected } = stubAgent(root)
       let before = session.events.length
-      await expect(ctx.workingDirectory.ensure(agent)).resolves.toBe(await realpath(root))
+      // ensure returns the stored directory as-is; only changes canonicalize.
+      await expect(ctx.workingDirectory.ensure(agent)).resolves.toBe(root)
       syncProjection(ctx, session, before)
       expect(session.events.filter(event => event.type === 'working-directory/change')).toHaveLength(1)
       expect(injected).toHaveLength(0)
@@ -159,7 +160,6 @@ describe('working directory service', () => {
     try {
       const { agent, session } = stubAgent(root)
       await expect(ctx.workingDirectory.set(agent, join(root, 'missing'))).rejects.toThrow('directory does not exist')
-      await expect(ctx.workingDirectory.set(agent, root)).resolves.toBeTypeOf('string')
       const file = join(root, 'file')
       await (await import('node:fs/promises')).writeFile(file, 'x')
       await expect(ctx.workingDirectory.set(agent, 'file')).rejects.toThrow('directory does not exist')

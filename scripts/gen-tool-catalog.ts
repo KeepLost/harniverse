@@ -271,8 +271,8 @@ class CatalogWorktrees extends Service {
     super(ctx, 'worktrees')
   }
 
-  async create(): Promise<{ path: string; branch: string; baseCommit: string; repositoryRoot: string }> {
-    return { path: '', branch: '', baseCommit: '', repositoryRoot: '' }
+  create(): Promise<{ path: string; branch: string; baseCommit: string; repositoryRoot: string }> {
+    return Promise.resolve({ path: '', branch: '', baseCommit: '', repositoryRoot: '' })
   }
 }
 

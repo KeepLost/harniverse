@@ -12994,6 +12994,9 @@ importers:
       '@deepseek-ai/dsh-workflow-worker-thread':
         specifier: workspace:^
         version: link:../../packages/workflow/workflow-worker-thread
+      '@deepseek-ai/dsh-working-directory':
+        specifier: workspace:^
+        version: link:../../packages/session/working-directory
       '@deepseek-ai/dsh-workspace':
         specifier: workspace:^
         version: link:../../packages/workspace/workspace
