@@ -1376,7 +1376,7 @@ describe('events.adopt and the mux page token', () => {
     const abort = new AbortController()
     const pull = (stream: AsyncIterable<unknown>, controller: AbortController): void => {
       const iterator = stream as unknown as AsyncIterator<unknown>
-      void iterator.next().then(() => controller.abort(), () => controller.abort())
+      void iterator.next().then(() => { controller.abort() }, () => { controller.abort() })
     }
     pull(probe.events.mux({ page: 'page-1' }, abort.signal), abort)
     const withSinceAbort = new AbortController()

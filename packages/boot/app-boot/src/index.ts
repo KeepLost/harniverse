@@ -6,6 +6,12 @@
  * @module @deepseek-ai/dsh-app-boot
  */
 
+// First import of the root entry, before anything in this graph can touch the
+// filesystem: raises the libuv threadpool floor so one stalled mount cannot
+// starve every client's I/O. App bins rely on this via their own first import
+// of the package root; importing a dedicated lib subpath instead would break
+// the no-build source launcher (tsx remaps only the root export to src).
+import './threadpool-floor.js'
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { inspect, parseEnv } from 'node:util'

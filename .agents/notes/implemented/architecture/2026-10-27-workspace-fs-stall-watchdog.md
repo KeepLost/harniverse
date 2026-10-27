@@ -20,11 +20,18 @@ Four independent hardenings, each owned by the layer that owns the failure:
 - **Watchdog** (`WorkspaceStallGuard.run`): every filesystem operation races a 10-second bound. A settled operation resolves or rejects unchanged; a stalled one is *abandoned*, not cancelled — the caller's response path and the breaker budget are released immediately, while the orphaned filesystem promise settles whenever the mount answers. Handles close non-blockingly (`close().catch(...)`, never awaited on the caller's path). Failures surface as the structured `workspace-entry-stalled` / `workspace-root-stalled` RPC errors instead of a raw timeout.
 - **Breaker**: strikes accumulate per workspace root (3 stalls within a rolling 60s); a full set opens a 30-second cooldown in which every operation on that root fails fast without touching the filesystem, so one wedged mount cannot drain the shared pool through retries. After the cooldown the next healthy operation reopens the root; strikes age out of the window.
 - **Round-trip halving**: each operation resolves the canonical workspace root once and threads it through the containment re-verification (`containedPath`/`openedPathInfo`), preserving the TOCTOU re-check while removing the redundant `realpath(root)` calls.
-- **Threadpool floor** (`@deepseek-ai/dsh-app-boot/threadpool-floor`, first import of every host-process bin — CLI, remote-server, desktop host): raises `UV_THREADPOOL_SIZE` to 16 when unset or smaller, before any filesystem call sizes the pool; an explicit larger operator setting wins.
+- **Threadpool floor** (`@deepseek-ai/dsh-app-boot (root entry first import)`, first import of every host-process bin — CLI, remote-server, desktop host): raises `UV_THREADPOOL_SIZE` to 16 when unset or smaller, before any filesystem call sizes the pool; an explicit larger operator setting wins.
 
 The browser side maps the carrier timeout to an actionable message ("workspace file read timed out: the host filesystem did not answer within the request window") instead of surfacing Chrome's DOMException text.
 
 The mount-side trigger (why that one file stalls the corporate filesystem) is outside this repository's control; these changes bound its blast radius to one clearly-reported error per operation instead of a process-wide wedge.
+
+## Consequences
+
+- A stalled operation is abandoned, not cancelled: the hung threadpool request and its fd stay pinned until the process exits — the watchdog bounds the caller's wait and the breaker stops feeding a wedged root, but `UV_THREADPOOL_SIZE=16` is what keeps the rest of the process alive; a permanently wedged mount still leaks one slot per strike window.
+- Workspace reads on a healthy-but-slow network root now hard-fail after 10s; the cooldown error names the workspace so the user can remount, and the browser maps its 30s carrier timeout to the same actionable message.
+- The floor rides the app-boot root entry's first import (not a subpath export): tsx's no-build source launcher remaps only the root export to `src/`, so a dedicated `lib/` subpath would break the node-compat smoke vector.
+- `workspace-entry-stalled`/`workspace-root-stalled` join the RPC error surface, and the canonical root resolves once per operation — containment logic now threads an optional `canonicalRoot` through the shared helpers.
 
 ## Verification
 

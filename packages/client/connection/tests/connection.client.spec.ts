@@ -236,12 +236,16 @@ describe('connection lifecycle', () => {
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(api.callsOf('events.mux')).toEqual([{ page: expect.any(String), since: { [SID]: 3 } }])
+      const firstCalls = api.callsOf('events.mux') as Array<Record<string, unknown>>
+      expect(firstCalls).toEqual([{ page: expect.any(String), since: { [SID]: 3 } }]) // oxlint-disable-line typescript/no-unsafe-assignment
       cursor = 8
       api.failStreams(new Error('stream torn'))
       await vi.waitFor(() => { expect(connected).toBe(2) })
-      expect(api.callsOf('events.mux')).toEqual([
+      const retryCalls = api.callsOf('events.mux') as Array<Record<string, unknown>>
+      expect(retryCalls).toEqual([
+        // oxlint-disable-next-line typescript/no-unsafe-assignment
         { page: expect.any(String), since: { [SID]: 3 } },
+        // oxlint-disable-next-line typescript/no-unsafe-assignment
         { page: expect.any(String), since: { [SID]: 8 } },
       ])
     } finally {

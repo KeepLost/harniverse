@@ -1,7 +1,8 @@
 /** Private child entry. Arguments are the shell-owned home and installed CLI manifest. */
-// First import, before anything can touch the filesystem: raises the libuv
-// threadpool floor so one stalled mount cannot starve every client's I/O.
-import '@deepseek-ai/dsh-app-boot/threadpool-floor'
+// First import, before anything can touch the filesystem: the root entry
+// raises the libuv threadpool floor so one stalled mount cannot starve
+// every client's I/O.
+import '@deepseek-ai/dsh-app-boot'
 import { isAbsolute } from 'node:path'
 import { serveOwnedHost, type HostChannel } from './ipc.ts'
 import { startDesktopProfile } from './profile.ts'

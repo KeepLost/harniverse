@@ -20,11 +20,18 @@ Status: implemented
 - **看门狗**（`WorkspaceStallGuard.run`）：每个文件系统操作与 10 秒上限竞速。正常结算的操作原样返回或抛错；卡死的操作被*放弃*而非取消——调用方的响应路径与熔断预算立即释放，孤儿文件系统 promise 等挂载应答后自行结算。句柄以不阻塞的方式关闭（`close().catch(...)`，永不阻塞调用方路径）。失败以结构化的 `workspace-entry-stalled`／`workspace-root-stalled` RPC 错误呈现，而非原始超时。
 - **熔断**：卡死打击按工作区根累积（滚动 60 秒内 3 次）；集满后开启 30 秒冷却，期间该根上的所有操作快速失败、不触碰文件系统，使单个钉死的挂载无法通过重试抽干共享线程池。冷却后下一个健康操作重新开放该根；打击会滑出窗口。
 - **往返减半**：每个操作只解析一次规范化工作区根，并贯穿包含性复验（`containedPath`／`openedPathInfo`），保留 TOCTOU 复查的同时删去冗余的 `realpath(root)`。
-- **线程池下限**（`@deepseek-ai/dsh-app-boot/threadpool-floor`，每个宿主进程 bin 的首位导入——CLI、remote-server、desktop host）：在任何文件系统调用确定池大小之前，把未设置或小于 16 的 `UV_THREADPOOL_SIZE` 提升到 16；运维显式设置的更大值优先。
+- **线程池下限**（`@deepseek-ai/dsh-app-boot (root entry first import)`，每个宿主进程 bin 的首位导入——CLI、remote-server、desktop host）：在任何文件系统调用确定池大小之前，把未设置或小于 16 的 `UV_THREADPOOL_SIZE` 提升到 16；运维显式设置的更大值优先。
 
 浏览器侧把载体超时映射为可行动的信息（「workspace file read timed out: the host filesystem did not answer within the request window」），而不是透出 Chrome 的 DOMException 文案。
 
 挂载侧的触发因（为什么恰是那个文件卡死公司文件系统）不在本仓库的控制范围内；这些改动把它的影响半径收敛为每次操作一个报错清晰的可读错误，而不是全进程卡死。
+
+## 后果
+
+- 卡死的操作是被放弃而非取消：悬死的线程池请求与其 fd 会一直占用到进程退出——看门狗限定的是调用方的等待、熔断器停止向卡死的根继续投喂，但真正让进程其余部分活下来的是 `UV_THREADPOOL_SIZE=16`；永久卡死的挂载在每个打击窗口内仍会泄漏一个槽位。
+- 健康但缓慢的网络根上的工作区读取现在 10 秒后硬失败；冷却期错误会点名工作区以便用户重新挂载，浏览器也把 30 秒载体超时映射为同一条可操作信息。
+- 线程池地板随 app-boot 根入口的首位导入生效（而非子路径导出）：tsx 的免构建源码启动器只把根导出重映射到 `src/`，专用 `lib/` 子路径会破坏 node 兼容冒烟向量。
+- `workspace-entry-stalled`/`workspace-root-stalled` 加入 RPC 错误面，且规范根每操作只解析一次——遏制逻辑现在通过共享辅助函数传递可选的 `canonicalRoot`。
 
 ## 验证
 

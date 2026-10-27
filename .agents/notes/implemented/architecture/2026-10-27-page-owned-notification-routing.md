@@ -20,6 +20,14 @@ Notification detection and arbitration move to the host; pages declare presence.
 
 Adoption grants no capability beyond frame routing (`harniverse.observe`, a read effect): a page can only receive occurrences for sessions its own streams can already see.
 
+## Consequences
+
+- A session no adopting page still serves is silent by design: background sessions ring nowhere until some page opens them (owner-accepted tradeoff; the raw event stream still flows, so a future ambient surface can adopt without protocol change).
+- `events.adopt` joins the required client face (`harniverse.observe`, effect `read`): the connection/runtime test doubles gained a stub — the same cost every new unary domain pays.
+- Detection authority moves fully server-side; a stale client cannot opt out or ring for a session its page never adopted, and ui-sound's consumer is protocol-coupled to `session/notify` rather than the raw event vocabulary.
+- Pages that never send a `page` token (non-browser remotes, scripts) keep today's behavior: they receive no notify frames at all.
+- Adoption survives reconnects (the token re-binds on each mux reopen) but not a full page reload; the fresh token starts with no adoptions until the runtime re-declares on the next current change.
+
 ## Verification
 
 `notify-detector.spec.ts` pins every fold rule; `api-proxy-notify.spec.ts` pins owner-only delivery, most-recent-declarer arbitration, stream-close fallback, the no-adoption drop (while raw events still flow), and whole-set replacement through a real proxy; the WebSocket and SSE carrier tests pin the `page` query on both carriers; the runtime tests pin adoption-on-current-change and silence without a token; the rewritten `ui-sound` suites pin the notify-frame consumer at full per-file coverage.

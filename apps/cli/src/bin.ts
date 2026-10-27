@@ -8,12 +8,12 @@
 
 /* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */
 
-// First import, before anything can touch the filesystem: raises the libuv
-// threadpool floor so one stalled mount cannot starve every client's I/O.
-import '@deepseek-ai/dsh-app-boot/threadpool-floor'
+// The app-boot import is first, before anything can touch the filesystem:
+// its root entry raises the libuv threadpool floor so one stalled mount
+// cannot starve every client's I/O.
+import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
 
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
