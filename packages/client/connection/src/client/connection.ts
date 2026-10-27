@@ -19,6 +19,9 @@ export interface ConnectionConfig {
   preReadyBufferMaxFrames?: number
 }
 
+/** Stable per-page presence token riding every mux open (session/notify routing). */
+export const PAGE_TOKEN = crypto.randomUUID()
+
 const CONNECTION_DEFAULTS: Required<ConnectionConfig> = {
   backoffBaseMs: 500,
   backoffFactor: 2,
@@ -165,7 +168,9 @@ export class ConnectionController {
         }
         ac.signal.addEventListener('abort', settle, { once: true })
         const since = this.sinks.muxSince?.()
-        const muxPayload = since === undefined || Object.keys(since).length === 0 ? {} : { since }
+        const muxPayload = since === undefined || Object.keys(since).length === 0
+          ? { page: PAGE_TOKEN }
+          : { page: PAGE_TOKEN, since }
         void this.pumpStream(this.api.events.mux(muxPayload, ac.signal, muxOpened, muxAuthenticated), muxAdmission, settle, ac)
         void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened, hostAuthenticated), hostAdmission, settle, ac)
       })

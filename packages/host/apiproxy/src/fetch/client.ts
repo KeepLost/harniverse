@@ -91,6 +91,7 @@ import { operationGetValueSchema } from '../api/operations.schema.ts'
 import { jobsFollowValueSchema, jobsKillValueSchema } from '../api/jobs.schema.ts'
 import { speechPrepareValueSchema, speechTranscribeValueSchema } from '../api/speech.schema.ts'
 import { globalRulesReadValueSchema, globalRulesWriteValueSchema } from '../api/global-rules.schema.ts'
+import { eventsAdoptValueSchema } from '../api/events.schema.ts'
 import {
   workspaceFilesListValueSchema, workspaceFilesReadBinaryValueSchema,
   workspaceFilesReadValueSchema, workspaceFilesSearchValueSchema,
@@ -216,6 +217,7 @@ export interface IApiClient {
     terminal(payload: Parameters<ApiProxy['events']['terminal']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<TerminalStreamFrame>>
     hold(payload: Parameters<ApiProxy['events']['hold']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<HoldStreamFrame>>
     browser(payload: Parameters<ApiProxy['events']['browser']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<BrowserStreamFrame>>
+    adopt(payload: RequestPayload<'events.adopt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'events.adopt'>>>
   }
   goals: {
     create(payload: RequestPayload<'goal.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.create'>>>
@@ -332,6 +334,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'llm.models': llmModelsValueSchema,
   'llm.modelProfiles': llmModelProfilesValueSchema,
   'llm.discoverModels': llmDiscoverModelsValueSchema,
+  'events.adopt': eventsAdoptValueSchema,
 }
 
 /** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -497,8 +500,8 @@ export abstract class AbstractApiClient implements IApiClient {
   protected openMux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<MuxFrame>> {
     const since = payload.since
     const path = since === undefined || Object.keys(since).length === 0
-      ? '/api/events.mux'
-      : `/api/events.mux?${new URLSearchParams({ since: JSON.stringify(since) }).toString()}`
+      ? payload.page === undefined ? '/api/events.mux' : `/api/events.mux?${new URLSearchParams({ page: payload.page }).toString()}`
+      : `/api/events.mux?${new URLSearchParams({ ...(payload.page === undefined ? {} : { page: payload.page }), since: JSON.stringify(since) }).toString()}`
     return this.readSse(path, signal, muxFrameSchema, onOpen, onAuthenticated)
   }
 
@@ -740,6 +743,7 @@ export abstract class AbstractApiClient implements IApiClient {
     terminal: (payload, signal, onOpen, onAuthenticated) => this.openTerminal(payload, signal, onOpen, onAuthenticated),
     hold: (payload, signal, onOpen, onAuthenticated) => this.openHold(payload, signal, onOpen, onAuthenticated),
     browser: (payload, signal, onOpen, onAuthenticated) => this.openBrowser(payload, signal, onOpen, onAuthenticated),
+    adopt: (payload, signal) => this.callUnary('events.adopt', payload, signal),
   }
 
   async respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt> {

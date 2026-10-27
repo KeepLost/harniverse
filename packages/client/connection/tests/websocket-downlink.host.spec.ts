@@ -269,6 +269,41 @@ describe('WebSocket downlinks', () => {
     await once(socket, 'close')
   })
 
+  it('forwards the mux page token to the host stream', async () => {
+    let payload: unknown
+    const idle = (signal: AbortSignal): AsyncIterable<RpcRequest<never>> => {
+      void signal
+      return (async function* () { /* no frames */ })()
+    }
+    const downlinks = new WebSocketDownlinks(api((signal, request) => {
+      payload = request.payload
+      return idle(signal)
+    }, idle))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}?page=page-1`)
+    await once(socket, 'open')
+    expect(payload).toEqual({ page: 'page-1' })
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('rejects a duplicate mux page token', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}?page=a&page=b`)
+    const status = await new Promise<number>((resolve, reject) => {
+      socket.once('unexpected-response', (_request, response) => {
+        response.resume()
+        resolve(response.statusCode ?? 0)
+      })
+      socket.once('open', () => { reject(new Error('duplicate page was upgraded')) })
+      socket.once('error', () => undefined)
+    })
+    expect(status).toBe(400)
+  })
+
   it('rejects malformed mux resume cursors before WebSocket negotiation', async () => {
     const downlinks = new WebSocketDownlinks(api(idle, idle))
     const host = await serve(downlinks)

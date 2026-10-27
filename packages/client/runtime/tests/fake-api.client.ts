@@ -401,6 +401,10 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly events: IApiClient['events'] = {
+    adopt: (payload: { page: string; sessionIds: import('@deepseek-ai/dsh-session/types').SessionId[] }) => {
+      this.calls.push({ method: 'events.adopt', payload })
+      return Promise.resolve({ rpcId: undefined as never, result: { ok: true as const, value: {} } })
+    },
     mux: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.muxConns, signal, onOpen),
     host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.hostConns, signal, onOpen),
     terminal: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.terminalConns, signal, onOpen),

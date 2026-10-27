@@ -215,6 +215,26 @@ describe('WorkspaceRuntime', () => {
     await expect(workspaces.readBinaryFile(wid('alpha'), 'pixel.png')).rejects.toThrow('preview unavailable')
   })
 
+  it('translates the carrier timeout into an actionable filesystem message per fs call', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    const timeout = (): Promise<never> => {
+      const failure = new Error('signal timed out')
+      failure.name = 'TimeoutError'
+      return Promise.reject(failure)
+    }
+    api.workspaceFiles.read = timeout
+    api.workspaceFiles.readBinary = timeout
+    api.workspaceFiles.list = timeout
+    api.workspaceFiles.search = timeout
+    await expect(workspaces.readFile(wid('alpha'), 'slow.md')).rejects.toThrow('workspace file read timed out')
+    await expect(workspaces.readBinaryFile(wid('alpha'), 'slow.png')).rejects.toThrow('workspace binary file read timed out')
+    await expect(workspaces.listFiles(wid('alpha'))).rejects.toThrow('workspace file listing timed out')
+    await expect(workspaces.searchFiles(wid('alpha'), 'needle')).rejects.toThrow('workspace file search timed out')
+  })
+
   it('routes commit graph reads through the API client with the new wire fields', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

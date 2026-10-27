@@ -9,6 +9,7 @@
 | `resolveConfigPath(path, snapshotMode, cwd?)` | 生成绝对配置路径；当 `snapshotMode === 'replay'` 时，把 basename 为 `cordis.yml`/`.yaml` 的文件替换为同级 `cordis.snapshot.yml` |
 | `loadEnv(binName, dir?, warn?)` | 加载已被 git 忽略的 `.env`（Node `process.loadEnvFile`）；文件不存在不影响启动，文件无法加载时输出一行带标签的警告（默认写入 stderr） |
 | `loadLayeredEnv(binName, cwd?, warn?)` | 构建产品 CLI（命令行界面）冻结的「继承环境 > 项目 `.env` > 用户 `.env`」快照，拒绝文件中的 bootstrap-only 变量，并在不替换继承值的前提下物化其余文件值 |
+| `./threadpool-floor` (`THREADPOOL_FLOOR`) | 供所有宿主进程 bin 首位导入的副作用模块：在任何文件系统调用确定线程池大小之前，把未设置或小于 16 的 `UV_THREADPOOL_SIZE` 提升到 16——一个卡死的网络挂载不得饿死支撑所有客户端工作区 I/O 的共享线程池 |
 | `installFailLoud(binName, proc?, release?)` | 将进程生命周期内任一时刻的未处理 rejection（`fatal load failure`）或未捕获异常（`fatal uncaught exception`）转换为一行带标签的 stderr 诊断并执行 `exit(1)`；诊断使用 `util.inspect(err, { depth: 4, maxArrayLength: 50 })`，因此 `node:fs` 错误的 `code`/`syscall`/`path` 及任何 `cause` 链都会被记录；两者之间会等待可选的 `release` 清理钩子（以 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 为上限），使持有终端的界面能在退出前恢复终端，且闩锁保证被报告的始终是第一个失败；返回卸载函数 |
 | `acquireHomeOwnership(configured?, options?)` | 获取规范化后 Harness home 的独占租约，或独立获取 `options.profile` 的独占租约；同一范围已有存活持有者时拒绝启动，可回收已退出进程的租约；返回可重复调用的异步释放函数 |
 | `FAIL_LOUD_RELEASE_TIMEOUT_MS` | `installFailLoud` 等待其 `release` 回调的时长；卡死的 disposer 只会延迟致命退出，而不会取消它 |

@@ -141,9 +141,11 @@ export class WebApiClient extends AbstractApiClient {
   ): AsyncIterable<RpcRequest<MuxFrame>> {
     if (this.delegate !== undefined) return this.delegate().openMux(payload, signal, onOpen, onAuthenticated)
     const since = payload.since
-    const path = since === undefined || Object.keys(since).length === 0
-      ? MUX_EVENTS_PATH
-      : `${MUX_EVENTS_PATH}?${new URLSearchParams({ since: JSON.stringify(since) }).toString()}`
+    const query = new URLSearchParams({
+      ...(payload.page === undefined ? {} : { page: payload.page }),
+      ...(since === undefined || Object.keys(since).length === 0 ? {} : { since: JSON.stringify(since) }),
+    })
+    const path = [...query.keys()].length === 0 ? MUX_EVENTS_PATH : `${MUX_EVENTS_PATH}?${query.toString()}`
     const generation = this.generation?.()
     return this.readWebSocket(path, generation?.signal(signal) ?? signal, muxFrameSchema, onOpen, onAuthenticated, generation)
   }

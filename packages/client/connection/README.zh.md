@@ -22,7 +22,7 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 
 ## `/api` WebSocket 下行
 
-`/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送传输认证控制消息及其后的对应 `ServerRequest` 文本消息；客户端不会在这些 socket 上发送业务数据。每个 generation 开始前，`ConnectionController` 会采样 runtime 当前按 Session 划分的连续游标，浏览器把非空游标表编码到 mux URL 的 `since` 查询中，Host 则在 upgrade 前校验。任一 socket 结束都会使当前 connection generation 失败，并用新的游标采样重建两条流；连接就绪要求两条认证控制消息、匹配的 `host.describe` 响应身份以及流建立全部完成，随后带缓冲的业务帧才能抵达消费方。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE（Server-Sent Events）回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
+`/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送传输认证控制消息及其后的对应 `ServerRequest` 文本消息；客户端不会在这些 socket 上发送业务数据。每个 generation 开始前，`ConnectionController` 会采样 runtime 当前按 Session 划分的连续游标，浏览器把非空游标表编码到 mux URL 的 `since` 查询中，并同时携带页面稳定的在场令牌 `page`（主机把该令牌绑定到这条流，使 `session/notify` 帧路由到认领会话的页面；令牌以 `pageToken` 暴露在连接句柄上）；Host 在 upgrade 前一并校验。任一 socket 结束都会使当前 connection generation 失败，并用新的游标采样重建两条流；连接就绪要求两条认证控制消息、匹配的 `host.describe` 响应身份以及流建立全部完成，随后带缓冲的业务帧才能抵达消费方。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE（Server-Sent Events）回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
 
 ## 远程主机目标
 

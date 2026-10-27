@@ -89,7 +89,8 @@ import {
   subagentProfilesRequestSchema,
 } from '../api/subagents.schema.ts'
 import {
-  eventsBrowserRequestSchema, eventsHoldRequestSchema, eventsMuxRequestSchema, eventsTerminalRequestSchema,
+  eventsAdoptRequestSchema, eventsBrowserRequestSchema, eventsHoldRequestSchema, eventsMuxRequestSchema,
+  eventsTerminalRequestSchema,
 } from '../api/events.schema.ts'
 import type { BrowserStreamFrame, HoldStreamFrame, TerminalStreamFrame } from '../api/events.ts'
 import { apiDescribeRequestSchema } from '../api/contract.schema.ts'
@@ -214,6 +215,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'llm.models': { schema: llmModelsRequestSchema, invoke: (api, r) => api.llm.models(r) },
   'llm.modelProfiles': { schema: llmModelProfilesRequestSchema, invoke: (api, r) => api.llm.modelProfiles(r) },
   'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
+  'events.adopt': { schema: eventsAdoptRequestSchema, invoke: (api, r) => api.events.adopt(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */
@@ -454,14 +456,19 @@ export function toFetchHandler(
       // physical routes that answer directly, without a wire envelope.
       if (path === '/api/events.mux' && req.method === 'GET') {
         const values = url.searchParams.getAll('since')
+        const pages = url.searchParams.getAll('page')
         let decoded: unknown = undefined
         try {
           if (values.length > 1) throw new Error('duplicate since')
+          if (pages.length > 1) throw new Error('duplicate page')
           if (values[0] !== undefined) decoded = JSON.parse(values[0])
         } catch {
           return new Response('invalid since query parameter', { status: 400 })
         }
-        const parsed = eventsMuxRequestSchema.safeParse(decoded === undefined ? {} : { since: decoded })
+        const parsed = eventsMuxRequestSchema.safeParse({
+          ...(decoded === undefined ? {} : { since: decoded }),
+          ...(pages[0] === undefined ? {} : { page: pages[0] }),
+        })
         if (!parsed.success) return new Response('invalid since query parameter', { status: 400 })
         // JSON has no undefined-valued record entries; collapse Wire<> to the
         // exact payload after the schema has validated every key and value.

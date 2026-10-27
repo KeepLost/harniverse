@@ -1,12 +1,11 @@
 /**
  * The playback engine: synthesized built-in chimes through Web Audio, local
  * audio files decoded through the same context (immune to the element
- * autoplay policy), same-source dedupe, and cross-tab arbitration. Playback
- * failures stay silent — notification sounds never surface errors.
+ * autoplay policy), and same-source dedupe. Playback failures stay silent —
+ * notification sounds never surface errors.
  */
 
 import { AudioLibrary } from './audio-library.ts'
-import { CrossTabDedupe } from './cross-tab.ts'
 import { BUILTIN_SOUND_KEYS, type BuiltinSoundKey } from '../sound-settings.ts'
 
 /** Same-source dedupe window: repeated frames of one occurrence stay quiet. */
@@ -24,8 +23,6 @@ export interface SoundEngineDeps {
   readonly audio: () => AudioContext | undefined
   /** Per-browser audio file library. */
   readonly library: AudioLibrary
-  /** Cross-tab arbitration participant; undefined disables arbitration. */
-  readonly dedupe: CrossTabDedupe | undefined
   /** Monotonic clock for dedupe (tests). */
   readonly now?: () => number
 }
@@ -39,7 +36,7 @@ export class SoundEngine {
   private readonly now: () => number
 
   /**
-   * @param deps - context source, audio library, arbitration, clock.
+   * @param deps - context source, audio library, clock.
    */
   constructor(private readonly deps: SoundEngineDeps) {
     this.now = deps.now ?? (() => Date.now())
@@ -62,10 +59,6 @@ export class SoundEngine {
       this.lastPlayed.set(sourceKey, now)
       this.playCount += 1
       if (this.playCount % PRUNE_EVERY_PLAYS === 0) this.prune(now)
-      if (this.deps.dedupe !== undefined) {
-        this.deps.dedupe.declare(sourceKey, () => { this.emit(value, volume) })
-        return
-      }
     }
     this.emit(value, volume)
   }

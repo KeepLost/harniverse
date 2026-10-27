@@ -38,17 +38,15 @@ const settle = async (): Promise<void> => { await new Promise((resolve) => { set
 /** Build a minimal alert request recording ring invocations. */
 function request(overrides: Partial<SoundAlertRequest> = {}): SoundAlertRequest & {
   rang: () => number
-  presented: () => number
 } {
-  const state = { rang: 0, presented: 0 }
+  const state = { rang: 0 }
   return Object.assign({
     title: '任务完成',
     body: 'Refactor the parser',
     onActivate: vi.fn(),
     ring: () => { state.rang += 1 },
-    arbitrate: (present: () => void) => { state.presented += 1; present() },
     ...overrides,
-  }, { rang: () => state.rang, presented: () => state.presented })
+  }, { rang: () => state.rang })
 }
 
 describe('SoundNotifier', () => {
@@ -58,7 +56,6 @@ describe('SoundNotifier', () => {
     notifier.alert(alert)
     await settle()
     expect(alert.rang()).toBe(0)
-    expect(alert.presented()).toBe(0)
   })
 
   it('rings and shows the toast once permission is already granted', async () => {
@@ -108,13 +105,14 @@ describe('SoundNotifier', () => {
 
   it('treats a rejected permission request as a denial', async () => {
     let requests = 0
+    let shown = 0
     const double: NotificationFace = {
       permission: () => 'default',
       request: () => {
         requests += 1
         return Promise.reject(new Error('no gesture'))
       },
-      show: () => { /* never reached */ },
+      show: () => { shown += 1 },
     }
     const notifier = new SoundNotifier({ notifications: double, alertable: () => false })
     const alert = request()
@@ -122,7 +120,7 @@ describe('SoundNotifier', () => {
     await settle()
     expect(requests).toBe(1)
     expect(alert.rang()).toBe(0)
-    expect(alert.presented()).toBe(0)
+    expect(shown).toBe(0)
   })
 
   it('shares one in-flight request across concurrent alerts', async () => {
@@ -147,16 +145,5 @@ describe('SoundNotifier', () => {
     expect(first.rang()).toBe(1)
     expect(second.rang()).toBe(1)
     expect(shown).toHaveLength(2)
-  })
-
-  it('presents the toast through the request arbitration', async () => {
-    const double = face('granted')
-    const notifier = new SoundNotifier({ notifications: double.face, alertable: () => false })
-    const arbitrate = vi.fn((present: () => void) => { present() })
-    const alert = request({ arbitrate })
-    notifier.alert(alert)
-    await settle()
-    expect(arbitrate).toHaveBeenCalledTimes(1)
-    expect(double.shown).toHaveLength(1)
   })
 })

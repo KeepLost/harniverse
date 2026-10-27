@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /** Native Node entry for the installed remote-server composition. */
+// First import, before anything can touch the filesystem: raises the libuv
+// threadpool floor so one stalled mount cannot starve every client's I/O.
+import '@deepseek-ai/dsh-app-boot/threadpool-floor'
 import 'node-addon-require-builtin'
 import { parseArgs } from 'node:util'
 import { runRemoteServer } from './index.ts'

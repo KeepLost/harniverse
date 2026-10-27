@@ -41,6 +41,7 @@ async function mount(): Promise<Bench> {
     },
   }
   const handle: ConnectionHandle = {
+    pageToken: 'test-page',
     target: {
       getSnapshot: () => target,
       subscribe: (listener) => { targetListeners.add(listener); return () => { targetListeners.delete(listener) } },

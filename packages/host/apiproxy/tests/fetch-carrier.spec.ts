@@ -359,6 +359,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
     },
     events: {
+      async adopt(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
       mux: (_request, signal) => stream(muxFrames, signal),
       host: (_request, signal) => stream(hostFrames, signal),
       terminal: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').TerminalStreamFrame>>,
@@ -943,6 +946,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const api = fakeApi()
     const seen: { mux?: unknown; host?: unknown } = {}
     api.events = {
+      adopt: async request => ({ rpcId: request.rpcId, result: { ok: true, value: {} } }),
       mux: (request) => {
         seen.mux = request.principal
         return (async function *() { /* no frames */ })()
@@ -1350,6 +1354,37 @@ describe('envelope observation', () => {
     await new Promise((resolve) => { setTimeout(resolve, 0) })
     const total = batches.reduce((n, batch) => n + batch.length, 0)
     expect(total).toBe(4)
+  })
+})
+
+describe('events.adopt and the mux page token', () => {
+  it('carries the unary adopt payload through the /api/events.adopt path', async () => {
+    const api = fakeApi()
+    const response = await client(api).events.adopt({ page: 'page-1', sessionIds: ['s1' as never] })
+    expect(response.result).toEqual({ ok: true, value: {} })
+  })
+
+  it('rides the page token on every mux open form', async () => {
+    const urls: string[] = []
+    class Probe extends AbstractApiClient {
+      protected override async doFetch(input: URL): Promise<Response> {
+        urls.push(input.pathname + input.search)
+        return new Response(null, { status: 200 })
+      }
+    }
+    const probe = new Probe()
+    const abort = new AbortController()
+    const pull = (stream: AsyncIterable<unknown>, controller: AbortController): void => {
+      const iterator = stream as unknown as AsyncIterator<unknown>
+      void iterator.next().then(() => controller.abort(), () => controller.abort())
+    }
+    pull(probe.events.mux({ page: 'page-1' }, abort.signal), abort)
+    const withSinceAbort = new AbortController()
+    pull(probe.events.mux({ page: 'page-1', since: { s1: 3 } as never }, withSinceAbort.signal), withSinceAbort)
+    await vi.waitFor(() => { expect(urls).toHaveLength(2) })
+    expect(urls[0]).toBe('/api/events.mux?page=page-1')
+    expect(urls[1]).toContain('page=page-1')
+    expect(urls[1]).toContain('since=')
   })
 })
 

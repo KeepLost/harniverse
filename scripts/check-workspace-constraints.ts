@@ -204,6 +204,9 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // A surface bundle's startup row is its own bundle: the Loader imports it
     // as a row module, so it cannot ride inside the package entry.
     ...exportDefault(manifest, './startup') === './lib/startup.js' ? ['lib/startup.js'] : [],
+    // The boot glue's threadpool floor is imported first by every host bin,
+    // before the package entry or any filesystem call can run.
+    ...exportDefault(manifest, './threadpool-floor') === './lib/threadpool-floor.js' ? ['lib/threadpool-floor.js'] : [],
     ...extras,
     // Subpaths whose runtime default is the tsc-emitted tree (lib/types/*.js —
     // browser-safe source channels rehomed off src so plain Node can import

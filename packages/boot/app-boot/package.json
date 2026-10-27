@@ -22,12 +22,17 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./threadpool-floor": {
+      "types": "./lib/types/threadpool-floor.d.ts",
+      "default": "./lib/threadpool-floor.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/threadpool-floor.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

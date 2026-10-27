@@ -15,7 +15,7 @@ import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-sessio
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { TerminalAttachmentId, TerminalFrame, TerminalRetentionFrame, WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import type { BrowserAttachmentId, BrowserFrame, HostBrowserPageId } from '@deepseek-ai/dsh-api-browser-controller/types'
-import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
+import type { RpcError, RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { JobView } from './jobs.ts'
 import type { WorkspaceView } from './workspace.ts'
 
@@ -56,8 +56,23 @@ export interface EventsApi {
    * caller applied. The stream emits that Session's later durable events up to
    * its subscription cut before live delivery. Missing entries request no
    * durable replay; transient baselines still replay on every open.
+   *
+   * `page` names the opening browser page (a stable token the client mints
+   * once per page load): it binds the stream as that page's presence carrier,
+   * so `session/notify` frames route to the page holding the session open and
+   * the binding dies with the stream.
    */
-  mux(request: RpcRequest<{ since?: Record<SessionId, number> }>, signal: AbortSignal): AsyncIterable<RpcRequest<MuxFrame>>
+  mux(request: RpcRequest<{ since?: Record<SessionId, number>; page?: string }>, signal: AbortSignal): AsyncIterable<RpcRequest<MuxFrame>>
+
+  /**
+   * Declare which sessions the sending page currently has open. Idempotent
+   * whole-set replacement, ordered per session: the most recent declarer owns
+   * the session's `session/notify` frames; when none of a session's declarers
+   * holds a live mux stream the notifications are dropped. Pure presence
+   * state — no capability is granted beyond frame routing, and delivery still
+   * passes each stream's own session-visibility fence.
+   */
+  adopt(request: RpcRequest<{ page: string; sessionIds: SessionId[] }>): Promise<RpcResponse<{}>>
 
   /**
    * Host-level info stream: session create/destroy, running-status flips, and
@@ -145,6 +160,17 @@ export type MuxFrame =
    * express.
    */
   | { type: 'session/jobs'; sessionId: SessionId; jobs: JobView[] }
+  /**
+   * One notification occurrence the host detected for this session (turn
+   * completion/failure, a requested approval or question, a background job's
+   * terminal edge, the goal projection entering `blocked`, or a live
+   * agent-error). Delivered only on the mux streams of the page that most
+   * recently adopted the session — every other page stays silent, and a
+   * session with no adopting page is not delivered at all. `sourceKey`
+   * deduplicates the occurrence across reconnects; `questions` rides only the
+   * `question` kind so the receiving page can classify plan-review locally.
+   */
+  | { type: 'session/notify'; sessionId: SessionId; kind: 'approval' | 'question' | 'completion' | 'failure' | 'goal-blocked'; sourceKey: string; questions?: AskUserQuestionItem[] }
   /**
    * One projection unit's finished value changed (session-projection RFC).
    * Live push state, never logged — replay recomputes on the host (the

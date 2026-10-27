@@ -19,7 +19,17 @@ import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 /** events.mux payload, also used to validate the no-envelope query carrier. */
 export const eventsMuxRequestSchema = z.object({
   since: z.record(z.string().min(1), z.number().int().min(-1)).optional(),
+  page: z.string().regex(/^[\w-]{1,128}$/u).optional(),
 }) as z.ZodType<Wire<Parameters<EventsApi['mux']>[0]['payload']>>
+
+/** Page presence declaration: whole-set replacement of a page's open sessions. */
+export const eventsAdoptRequestSchema = z.object({
+  page: z.string().regex(/^[\w-]{1,128}$/u),
+  sessionIds: z.array(sessionIdSchema).max(64),
+}) as z.ZodType<Wire<Parameters<EventsApi['adopt']>[0]['payload']>>
+
+/** Adoption is fire-and-forget presence state; the settled value carries nothing. */
+export const eventsAdoptValueSchema = z.object({})
 
 /** Question fields validated strictly against core dsh-user-questions. */
 export const askUserQuestionItemSchema = z.object({
@@ -68,6 +78,13 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
     items: z.array(queuedInboxItemSchema),
   }),
   z.object({ type: z.literal('session/jobs'), sessionId: sessionIdSchema, jobs: z.array(taskViewSchema) }),
+  z.object({
+    type: z.literal('session/notify'),
+    sessionId: sessionIdSchema,
+    kind: z.union([z.literal('approval'), z.literal('question'), z.literal('completion'), z.literal('failure'), z.literal('goal-blocked')]),
+    sourceKey: z.string().min(1),
+    questions: z.array(askUserQuestionItemSchema).min(1).optional(),
+  }),
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.
   z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),

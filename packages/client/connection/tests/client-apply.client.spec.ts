@@ -357,7 +357,10 @@ describe('connection client apply', () => {
       ])
       await handle.switchTarget({ kind: 'host' })
       expect(handle.target.getSnapshot()).toEqual({ kind: 'host' })
-      expect(sockets.slice(-2).every(socket => new URL(socket.url).search === '')).toBe(true)
+      const [lastMux, lastHost] = sockets.slice(-2).map(socket => new URL(socket.url)) as [URL, URL]
+      expect(lastMux.searchParams.get('page')).toMatch(/^[\w-]{36}$/u)
+      expect(lastMux.searchParams.size).toBe(1)
+      expect(lastHost.search).toBe('')
     } finally { loop.stop(); fetch.mockRestore() }
   })
 

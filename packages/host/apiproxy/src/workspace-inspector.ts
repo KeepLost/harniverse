@@ -34,6 +34,8 @@ type WorkspaceInspectorErrorCode =
   | 'workspace-file-binary'
   | 'workspace-file-preview-unsupported'
   | 'workspace-file-too-large'
+  | 'workspace-entry-stalled'
+  | 'workspace-root-stalled'
   | 'workspace-git-not-repository'
   | 'workspace-git-failed'
 
@@ -124,10 +126,112 @@ const PREVIEW_MEDIA_TYPES: Readonly<Record<string, string>> = {
 const READ_ONLY_NOFOLLOW_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW
 const READ_FILE_FLAGS = READ_ONLY_NOFOLLOW_FLAGS | (process.platform === 'win32' ? 0 : constants.O_NONBLOCK)
 
-function abortSignal(signal: AbortSignal): AbortSignal {
-  signal.throwIfAborted()
-  return AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+/**
+ * Watchdog ceiling for one filesystem inspection operation. Filesystem
+ * promises accept no AbortSignal, so a stalled mount would otherwise pin the
+ * calling request (and its libuv threadpool thread) forever: the watchdog
+ * abandons the operation at this bound instead of cancelling it.
+ */
+export const WORKSPACE_FS_STALL_MS = 10_000
+
+/** Consecutive stalls inside the strike window that open a root's cooldown. */
+const STALL_STRIKES = 3
+/** Rolling window in which stalls accumulate toward the cooldown. */
+const STALL_WINDOW_MS = 60_000
+/** Cooldown during which every operation on an open root fails fast. */
+const STALL_COOLDOWN_MS = 30_000
+
+interface RootStallState {
+  /** Timestamps of recent stalls, ascending. */
+  readonly strikes: number[]
+  /** First instant operations may run again; undefined while the root is closed. */
+  openUntil: number | undefined
 }
+
+/**
+ * Per-root stall watchdog and circuit breaker for workspace filesystem
+ * inspection. `run` races one operation against the stall bound: a settled
+ * operation resolves or rejects unchanged, while a stalled one records a
+ * strike and rejects immediately — the underlying filesystem promises keep
+ * running, but the caller, its response path, and the breaker budget are
+ * released. Strikes accumulate per workspace root; a full set opens a
+ * cooldown window in which every operation on that root fails fast, so one
+ * wedged network mount cannot drain the shared libuv threadpool through
+ * retries. After the cooldown a single probe operation reopens the root on
+ * success and re-arms the cooldown on another stall.
+ */
+export class WorkspaceStallGuard {
+  private readonly roots = new Map<string, RootStallState>()
+
+  /**
+   * @param deps - injectable clock and stall bound for tests.
+   */
+  constructor(private readonly deps: { timeoutMs?: number; now?: () => number } = {}) {}
+
+  /**
+   * Run one operation under the watchdog and breaker.
+   * @param root - workspace root the breaker state is keyed by.
+   * @param path - workspace-relative path the failure reports.
+   * @param signal - caller cancellation, honored before the operation starts.
+   * @param op - the filesystem operation; never cancelled once started.
+   * @returns the operation's settled value.
+   */
+  async run<T>(root: string, path: string, signal: AbortSignal, op: () => Promise<T>): Promise<T> {
+    const now = this.deps.now ?? Date.now
+    const timeoutMs = this.deps.timeoutMs ?? WORKSPACE_FS_STALL_MS
+    signal.throwIfAborted()
+    const state = this.stateOf(root)
+    if (state.openUntil !== undefined && now() < state.openUntil) {
+      throw new WorkspaceInspectorError(
+        'workspace-root-stalled',
+        `workspace root operations are paused after repeated filesystem stalls (${Math.ceil((state.openUntil - now()) / 1000)}s remaining)`,
+        path,
+      )
+    }
+    const settled = op().then(
+      (value: T) => ({ value }),
+      (error: unknown) => ({ error }),
+    )
+    const outcome = await Promise.race([
+      settled.then(result => ({ stalled: false as const, result })),
+      new Promise<{ stalled: true }>((resolve) => { setTimeout(() => { resolve({ stalled: true }) }, timeoutMs) }),
+    ])
+    if (outcome.stalled) {
+      this.recordStrike(state, now())
+      throw new WorkspaceInspectorError(
+        'workspace-entry-stalled',
+        `workspace filesystem did not answer within ${Math.round(timeoutMs / 1000)}s; the operation was abandoned`,
+        path,
+      )
+    }
+    state.openUntil = undefined
+    if ('error' in outcome.result) throw outcome.result.error
+    return outcome.result.value
+  }
+
+  /** Record one stall; a full strike set inside the window opens the cooldown. */
+  private recordStrike(state: RootStallState, at: number): void {
+    state.strikes.push(at)
+    while (state.strikes.length > 0 && at - (state.strikes[0] as number) > STALL_WINDOW_MS) state.strikes.shift()
+    if (state.strikes.length >= STALL_STRIKES) {
+      state.strikes.length = 0
+      state.openUntil = at + STALL_COOLDOWN_MS
+    }
+  }
+
+  /** The root's breaker state, created on first touch. */
+  private stateOf(root: string): RootStallState {
+    let state = this.roots.get(root)
+    if (state === undefined) {
+      state = { strikes: [], openUntil: undefined }
+      this.roots.set(root, state)
+    }
+    return state
+  }
+}
+
+/** Process-wide shared breaker; operations accept an alternative for tests. */
+const sharedStallGuard = new WorkspaceStallGuard()
 
 /**
  * Resolve one workspace-relative request path to its absolute lexical target,
@@ -158,21 +262,34 @@ export function sameFilesystemPath(left: string, right: string): boolean {
   return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
-async function containedPath(root: string, path: string, signal: AbortSignal): Promise<string> {
+/** Resolve and validate the canonical workspace root once; read operations reuse the answer. */
+async function canonicalRootOf(root: string, signal: AbortSignal): Promise<string> {
   signal.throwIfAborted()
-  let canonicalRoot: string
-  let canonicalTarget: string
   try {
-    canonicalRoot = await realpath(root)
+    const canonicalRoot = await realpath(root)
     if (!sameFilesystemPath(canonicalRoot, resolve(root))) {
       throw new WorkspaceInspectorError(
         'workspace-path-invalid',
         'the registered workspace path no longer resolves to its canonical directory',
-        path,
       )
     }
+    return canonicalRoot
+  } catch (error: unknown) {
+    if (error instanceof WorkspaceInspectorError) throw error
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      throw new WorkspaceInspectorError('workspace-entry-not-found', 'the workspace root was not found')
+    }
+    throw new WorkspaceInspectorError('workspace-entry-not-readable', 'the workspace root cannot be resolved')
+  }
+}
+
+/** Resolve one request path under an already-canonical root, refusing escapes and symlinks. */
+async function containedTarget(canonicalRoot: string, path: string, signal: AbortSignal): Promise<string> {
+  signal.throwIfAborted()
+  try {
     const target = relativePath(canonicalRoot, path)
-    canonicalTarget = await realpath(target)
+    const canonicalTarget = await realpath(target)
     if (!sameFilesystemPath(canonicalTarget, target)) {
       throw new WorkspaceInspectorError(
         'workspace-path-invalid',
@@ -180,6 +297,7 @@ async function containedPath(root: string, path: string, signal: AbortSignal): P
         path,
       )
     }
+    return canonicalTarget
   } catch (error: unknown) {
     if (error instanceof WorkspaceInspectorError) throw error
     const code = (error as NodeJS.ErrnoException).code
@@ -188,7 +306,13 @@ async function containedPath(root: string, path: string, signal: AbortSignal): P
     }
     throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace entry ${JSON.stringify(path)} cannot be resolved`, path)
   }
-  const fromRoot = relative(canonicalRoot, canonicalTarget)
+}
+
+/** Resolve one workspace-relative request path to its canonical contained target. */
+async function containedPath(root: string, path: string, signal: AbortSignal, canonicalRoot?: string): Promise<string> {
+  const resolvedRoot = canonicalRoot ?? await canonicalRootOf(root, signal)
+  const canonicalTarget = await containedTarget(resolvedRoot, path, signal)
+  const fromRoot = relative(resolvedRoot, canonicalTarget)
   /* v8 ignore next 3 -- containment fence over a resolver that answered out of
      tree: relativePath already confined the target to the canonical root and
      the symlink check above proved the canonical form equals it. */
@@ -205,13 +329,14 @@ async function readDirectoryEntries(
   limit: number,
   signal: AbortSignal,
   detectOverflow = true,
+  canonicalRoot?: string,
 ): Promise<{ entries: Dirent[]; truncated: boolean }> {
-  const target = await containedPath(root, path, signal)
+  const target = await containedPath(root, path, signal, canonicalRoot)
   let handle
   let directory
   try {
     handle = await open(target, READ_ONLY_NOFOLLOW_FLAGS | constants.O_DIRECTORY)
-    await openedPathInfo(root, path, target, handle, signal, 'directory')
+    await openedPathInfo(root, path, target, handle, signal, 'directory', canonicalRoot)
     const descriptorPath = process.platform === 'linux'
     const readTarget = descriptorPath ? `/dev/fd/${handle.fd}` : target
     directory = await opendir(readTarget)
@@ -228,7 +353,7 @@ async function readDirectoryEntries(
       entries.push(entry)
     }
     if (!descriptorPath) {
-      await openedPathInfo(root, path, target, handle, signal, 'directory')
+      await openedPathInfo(root, path, target, handle, signal, 'directory', canonicalRoot)
     }
     const truncated = !exhausted && (detectOverflow ? entries.length > limit : entries.length === limit)
     return { entries: entries.slice(0, limit), truncated }
@@ -260,6 +385,7 @@ async function readDirectoryEntries(
  * @param handle - opened no-follow descriptor.
  * @param signal - caller cancellation signal.
  * @param kind - required descriptor kind.
+ * @param canonicalRoot - already-resolved canonical root; skips its re-resolution.
  * @returns descriptor metadata after identity validation.
  */
 export async function openedPathInfo(
@@ -269,12 +395,13 @@ export async function openedPathInfo(
   handle: FileHandle,
   signal: AbortSignal,
   kind: 'file' | 'directory',
+  canonicalRoot?: string,
 ): Promise<Stats> {
   const info = await handle.stat()
   if (kind === 'file' ? !info.isFile() : !info.isDirectory()) {
     throw new WorkspaceInspectorError('workspace-entry-type-invalid', `workspace entry ${JSON.stringify(path)} is not a ${kind}`, path)
   }
-  const currentTarget = await containedPath(root, path, signal)
+  const currentTarget = await containedPath(root, path, signal, canonicalRoot)
   const currentInfo = await stat(currentTarget)
   if (!sameFilesystemPath(currentTarget, target) || currentInfo.dev !== info.dev || currentInfo.ino !== info.ino) {
     throw new WorkspaceInspectorError('workspace-path-invalid', `workspace file ${JSON.stringify(path)} changed while opening`, path)
@@ -312,26 +439,31 @@ function entryKind(entry: { isFile(): boolean; isDirectory(): boolean; isSymboli
  * @param root - registered canonical Workspace root.
  * @param path - Workspace-relative directory.
  * @param signal - caller cancellation signal.
+ * @param guard - stall watchdog and breaker; defaults to the shared instance.
  * @returns the bounded, directory-first immediate children.
  */
 export async function listWorkspaceFiles(
   root: string,
   path: string,
   signal: AbortSignal,
+  guard: WorkspaceStallGuard = sharedStallGuard,
 ): Promise<{ path: string; entries: WorkspaceFileEntry[]; truncated: boolean }> {
-  const result = await readDirectoryEntries(root, path, WORKSPACE_DIRECTORY_ENTRY_LIMIT, signal)
-  signal.throwIfAborted()
-  result.entries.sort((left, right) => {
-    const leftDirectory = left.isDirectory() ? 0 : 1
-    const rightDirectory = right.isDirectory() ? 0 : 1
-    return leftDirectory - rightDirectory || left.name.localeCompare(right.name)
+  return guard.run(root, path, signal, async () => {
+    const canonicalRoot = await canonicalRootOf(root, signal)
+    const result = await readDirectoryEntries(root, path, WORKSPACE_DIRECTORY_ENTRY_LIMIT, signal, true, canonicalRoot)
+    signal.throwIfAborted()
+    result.entries.sort((left, right) => {
+      const leftDirectory = left.isDirectory() ? 0 : 1
+      const rightDirectory = right.isDirectory() ? 0 : 1
+      return leftDirectory - rightDirectory || left.name.localeCompare(right.name)
+    })
+    const entries = result.entries.map(entry => ({
+      name: entry.name,
+      path: path === '.' || path === '' ? entry.name : `${path.replace(/\/$/u, '')}/${entry.name}`,
+      kind: entryKind(entry),
+    }))
+    return { path, entries, truncated: result.truncated }
   })
-  const entries = result.entries.map(entry => ({
-    name: entry.name,
-    path: path === '.' || path === '' ? entry.name : `${path.replace(/\/$/u, '')}/${entry.name}`,
-    kind: entryKind(entry),
-  }))
-  return { path, entries, truncated: result.truncated }
 }
 
 /**
@@ -341,6 +473,7 @@ export async function listWorkspaceFiles(
  * @param signal - caller cancellation signal.
  * @param filters - optional include/exclude globs; an absent or empty exclude
  *   list applies the default dependency and build-output skips.
+ * @param guard - stall watchdog and breaker; defaults to the shared instance.
  * @returns bounded matching files and whether either search limit was reached.
  */
 export async function searchWorkspaceFiles(
@@ -348,51 +481,55 @@ export async function searchWorkspaceFiles(
   query: string,
   signal: AbortSignal,
   filters: WorkspaceSearchFilters = {},
+  guard: WorkspaceStallGuard = sharedStallGuard,
 ): Promise<{ entries: WorkspaceFileEntry[]; truncated: boolean }> {
-  const needle = query.trim().toLowerCase()
-  // Caller excludes replace the defaults rather than adding to them: a user who
-  // writes an exclude list is scoping the search deliberately, and a hidden
-  // extra list would make `dist/**` unsearchable with no way to opt out.
-  const include = compileGlobFilter(filters.include, 'pass')
-  const exclude = compileGlobFilter(
-    filters.exclude === undefined || filters.exclude.length === 0
-      ? WORKSPACE_SEARCH_DEFAULT_EXCLUDES
-      : filters.exclude,
-    'reject',
-  )
-  const directories = ['.']
-  const entries: WorkspaceFileEntry[] = []
-  let scanned = 0
-  let directoryIndex = 0
-  while (directoryIndex < directories.length) {
-    const path = directories[directoryIndex++] as string
-    // A directory that fills the remaining budget reports itself truncated and
-    // returns below, so the budget is still positive on every entry here.
-    const remaining = WORKSPACE_FILE_SEARCH_SCAN_LIMIT - scanned
-    const result = await readDirectoryEntries(root, path, remaining, signal, false)
-    result.entries.sort((left, right) => left.name.localeCompare(right.name))
-    for (const child of result.entries) {
-      signal.throwIfAborted()
-      scanned++
-      const childPath = path === '.' ? child.name : `${path}/${child.name}`
-      if (child.isDirectory()) {
-        // Prune here rather than at match time: an excluded tree must not cost
-        // scan budget, and an anchored include list makes the rest unreachable.
-        if (exclude.matchesDirectory(childPath) || !include.mayContainMatch(childPath)) continue
-        directories.push(childPath)
-      } else if (
-        child.isFile()
-        && child.name.toLowerCase().includes(needle)
-        && include.matches(childPath)
-        && !exclude.matches(childPath)
-      ) {
-        entries.push({ name: child.name, path: childPath, kind: 'file' })
-        if (entries.length >= WORKSPACE_FILE_SEARCH_RESULT_LIMIT) return { entries, truncated: true }
+  return guard.run(root, '.', signal, async () => {
+    const canonicalRoot = await canonicalRootOf(root, signal)
+    const needle = query.trim().toLowerCase()
+    // Caller excludes replace the defaults rather than adding to them: a user who
+    // writes an exclude list is scoping the search deliberately, and a hidden
+    // extra list would make `dist/**` unsearchable with no way to opt out.
+    const include = compileGlobFilter(filters.include, 'pass')
+    const exclude = compileGlobFilter(
+      filters.exclude === undefined || filters.exclude.length === 0
+        ? WORKSPACE_SEARCH_DEFAULT_EXCLUDES
+        : filters.exclude,
+      'reject',
+    )
+    const directories = ['.']
+    const entries: WorkspaceFileEntry[] = []
+    let scanned = 0
+    let directoryIndex = 0
+    while (directoryIndex < directories.length) {
+      const path = directories[directoryIndex++] as string
+      // A directory that fills the remaining budget reports itself truncated and
+      // returns below, so the budget is still positive on every entry here.
+      const remaining = WORKSPACE_FILE_SEARCH_SCAN_LIMIT - scanned
+      const result = await readDirectoryEntries(root, path, remaining, signal, false, canonicalRoot)
+      result.entries.sort((left, right) => left.name.localeCompare(right.name))
+      for (const child of result.entries) {
+        signal.throwIfAborted()
+        scanned++
+        const childPath = path === '.' ? child.name : `${path}/${child.name}`
+        if (child.isDirectory()) {
+          // Prune here rather than at match time: an excluded tree must not cost
+          // scan budget, and an anchored include list makes the rest unreachable.
+          if (exclude.matchesDirectory(childPath) || !include.mayContainMatch(childPath)) continue
+          directories.push(childPath)
+        } else if (
+          child.isFile()
+          && child.name.toLowerCase().includes(needle)
+          && include.matches(childPath)
+          && !exclude.matches(childPath)
+        ) {
+          entries.push({ name: child.name, path: childPath, kind: 'file' })
+          if (entries.length >= WORKSPACE_FILE_SEARCH_RESULT_LIMIT) return { entries, truncated: true }
+        }
       }
+      if (result.truncated) return { entries, truncated: true }
     }
-    if (result.truncated) return { entries, truncated: true }
-  }
-  return { entries, truncated: false }
+    return { entries, truncated: false }
+  })
 }
 
 function decodeUtf8Prefix(bytes: Uint8Array): string {
@@ -443,6 +580,7 @@ export interface WorkspaceTextPreview {
  * @param path - Workspace-relative regular file.
  * @param signal - caller cancellation signal.
  * @param opts - optional explicit iconv-lite encoding name to re-open with.
+ * @param guard - stall watchdog and breaker; defaults to the shared instance.
  * @returns decoded content, full byte size, truncation state, and the decision.
  */
 export async function readWorkspaceFile(
@@ -450,61 +588,72 @@ export async function readWorkspaceFile(
   path: string,
   signal: AbortSignal,
   opts: { encoding?: string } = {},
+  guard: WorkspaceStallGuard = sharedStallGuard,
 ): Promise<WorkspaceTextPreview> {
-  const target = await containedPath(root, path, signal)
-  let handle
-  try {
-    handle = await open(target, READ_FILE_FLAGS)
-    const info = await openedPathInfo(root, path, target, handle, signal, 'file')
-    const length = Math.min(info.size, WORKSPACE_FILE_BYTE_LIMIT)
-    const buffer = Buffer.allocUnsafe(length)
-    const bytesRead = await readIntoBuffer(handle, buffer, signal)
-    const finalInfo = await handle.stat()
-    if (bytesRead !== length || finalInfo.size !== info.size) {
-      throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} changed while reading`, path)
+  return guard.run(root, path, signal, async () => {
+    const canonicalRoot = await canonicalRootOf(root, signal)
+    const target = await containedPath(root, path, signal, canonicalRoot)
+    let handle
+    try {
+      handle = await open(target, READ_FILE_FLAGS)
+      const info = await openedPathInfo(root, path, target, handle, signal, 'file', canonicalRoot)
+      const length = Math.min(info.size, WORKSPACE_FILE_BYTE_LIMIT)
+      const buffer = Buffer.allocUnsafe(length)
+      const bytesRead = await readIntoBuffer(handle, buffer, signal)
+      const finalInfo = await handle.stat()
+      if (bytesRead !== length || finalInfo.size !== info.size) {
+        throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} changed while reading`, path)
+      }
+      signal.throwIfAborted()
+      const truncated = info.size > bytesRead
+      const sample = trimIncompleteTail(buffer.subarray(0, bytesRead), truncated)
+      const outcome = sniffAndDecode(sample, {
+        ...(opts.encoding === undefined ? {} : { explicit: opts.encoding }),
+        priors: await hostPriors(),
+      })
+      if (!outcome.ok) {
+        const requested = opts.encoding ?? ''
+        /* v8 ignore start -- the probe list's total pages leave no reachable zero-candidate rejection. */
+        const detail = outcome.reason === 'explicit'
+          ? `workspace file ${JSON.stringify(path)} is not decodable as ${requested}`
+          : outcome.candidates.length > 0
+            ? `workspace file ${JSON.stringify(path)} is not decodable text (viable encodings: ${outcome.candidates.join(', ')})`
+            : `workspace file ${JSON.stringify(path)} is not valid text`
+        /* v8 ignore stop */
+        throw new WorkspaceInspectorError('workspace-file-binary', detail, path)
+      }
+      return {
+        path,
+        content: outcome.text,
+        bytes: info.size,
+        truncated,
+        encoding: outcome.decision.encoding,
+        encodingSource: outcome.decision.source,
+        bom: outcome.decision.bom,
+        eol: outcome.decision.eol,
+      }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      if (error instanceof WorkspaceInspectorError) throw error
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ELOOP') {
+        throw new WorkspaceInspectorError('workspace-path-invalid', `workspace path ${JSON.stringify(path)} contains a symbolic link`, path)
+      }
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        throw new WorkspaceInspectorError('workspace-entry-not-found', `workspace file ${JSON.stringify(path)} was not found`, path)
+      }
+      throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} cannot be read`, path)
+    } finally {
+      /* Not awaited on the caller's path after a watchdog abandonment: the
+         abandoned operation settles this close whenever the stalled mount
+         answers, and a healthy mount closes in microseconds anyway. */
+      void handle?.close().catch(
+        /* v8 ignore next -- a rejected close needs the mock fs double to fail
+           close specifically; the swallow exists for abandoned stalled mounts. */
+        () => {},
+      )
     }
-    signal.throwIfAborted()
-    const truncated = info.size > bytesRead
-    const sample = trimIncompleteTail(buffer.subarray(0, bytesRead), truncated)
-    const outcome = sniffAndDecode(sample, {
-      ...(opts.encoding === undefined ? {} : { explicit: opts.encoding }),
-      priors: await hostPriors(),
-    })
-    if (!outcome.ok) {
-      const requested = opts.encoding ?? ''
-      /* v8 ignore start -- the probe list's total pages leave no reachable zero-candidate rejection. */
-      const detail = outcome.reason === 'explicit'
-        ? `workspace file ${JSON.stringify(path)} is not decodable as ${requested}`
-        : outcome.candidates.length > 0
-          ? `workspace file ${JSON.stringify(path)} is not decodable text (viable encodings: ${outcome.candidates.join(', ')})`
-          : `workspace file ${JSON.stringify(path)} is not valid text`
-      /* v8 ignore stop */
-      throw new WorkspaceInspectorError('workspace-file-binary', detail, path)
-    }
-    return {
-      path,
-      content: outcome.text,
-      bytes: info.size,
-      truncated,
-      encoding: outcome.decision.encoding,
-      encodingSource: outcome.decision.source,
-      bom: outcome.decision.bom,
-      eol: outcome.decision.eol,
-    }
-  } catch (error: unknown) {
-    signal.throwIfAborted()
-    if (error instanceof WorkspaceInspectorError) throw error
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ELOOP') {
-      throw new WorkspaceInspectorError('workspace-path-invalid', `workspace path ${JSON.stringify(path)} contains a symbolic link`, path)
-    }
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
-      throw new WorkspaceInspectorError('workspace-entry-not-found', `workspace file ${JSON.stringify(path)} was not found`, path)
-    }
-    throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} cannot be read`, path)
-  } finally {
-    await handle?.close()
-  }
+  })
 }
 
 /**
@@ -512,55 +661,65 @@ export async function readWorkspaceFile(
  * @param root - registered canonical Workspace root.
  * @param path - Workspace-relative allowlisted image or PDF.
  * @param signal - caller cancellation signal.
+ * @param guard - stall watchdog and breaker; defaults to the shared instance.
  * @returns complete base64 data, media type, and byte size.
  */
 export async function readWorkspaceBinary(
   root: string,
   path: string,
   signal: AbortSignal,
+  guard: WorkspaceStallGuard = sharedStallGuard,
 ): Promise<{ path: string; dataBase64: string; mediaType: string; bytes: number }> {
-  const target = await containedPath(root, path, signal)
-  const mediaType = PREVIEW_MEDIA_TYPES[extname(path).toLowerCase()]
-  if (mediaType === undefined) {
-    throw new WorkspaceInspectorError(
-      'workspace-file-preview-unsupported',
-      `workspace file ${JSON.stringify(path)} is not a supported image or PDF`,
-      path,
-    )
-  }
-  let handle
-  try {
-    handle = await open(target, READ_FILE_FLAGS)
-    const info = await openedPathInfo(root, path, target, handle, signal, 'file')
-    if (info.size > WORKSPACE_BINARY_BYTE_LIMIT) {
+  return guard.run(root, path, signal, async () => {
+    const canonicalRoot = await canonicalRootOf(root, signal)
+    const target = await containedPath(root, path, signal, canonicalRoot)
+    const mediaType = PREVIEW_MEDIA_TYPES[extname(path).toLowerCase()]
+    if (mediaType === undefined) {
       throw new WorkspaceInspectorError(
-        'workspace-file-too-large',
-        `workspace file ${JSON.stringify(path)} exceeds the binary preview limit`,
+        'workspace-file-preview-unsupported',
+        `workspace file ${JSON.stringify(path)} is not a supported image or PDF`,
         path,
       )
     }
-    const buffer = Buffer.allocUnsafe(info.size)
-    const bytesRead = await readIntoBuffer(handle, buffer, signal)
-    const finalInfo = await handle.stat()
-    if (bytesRead !== info.size || finalInfo.size !== info.size) {
-      throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} changed while reading`, path)
+    let handle
+    try {
+      handle = await open(target, READ_FILE_FLAGS)
+      const info = await openedPathInfo(root, path, target, handle, signal, 'file', canonicalRoot)
+      if (info.size > WORKSPACE_BINARY_BYTE_LIMIT) {
+        throw new WorkspaceInspectorError(
+          'workspace-file-too-large',
+          `workspace file ${JSON.stringify(path)} exceeds the binary preview limit`,
+          path,
+        )
+      }
+      const buffer = Buffer.allocUnsafe(info.size)
+      const bytesRead = await readIntoBuffer(handle, buffer, signal)
+      const finalInfo = await handle.stat()
+      if (bytesRead !== info.size || finalInfo.size !== info.size) {
+        throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} changed while reading`, path)
+      }
+      signal.throwIfAborted()
+      return { path, dataBase64: buffer.toString('base64'), mediaType, bytes: bytesRead }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      if (error instanceof WorkspaceInspectorError) throw error
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ELOOP') {
+        throw new WorkspaceInspectorError('workspace-path-invalid', `workspace path ${JSON.stringify(path)} contains a symbolic link`, path)
+      }
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        throw new WorkspaceInspectorError('workspace-entry-not-found', `workspace file ${JSON.stringify(path)} was not found`, path)
+      }
+      throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} cannot be read`, path)
+    } finally {
+      /* Same non-blocking close posture as the text read. */
+      void handle?.close().catch(
+        /* v8 ignore next -- a rejected close needs the mock fs double to fail
+           close specifically; the swallow exists for abandoned stalled mounts. */
+        () => {},
+      )
     }
-    signal.throwIfAborted()
-    return { path, dataBase64: buffer.toString('base64'), mediaType, bytes: bytesRead }
-  } catch (error: unknown) {
-    signal.throwIfAborted()
-    if (error instanceof WorkspaceInspectorError) throw error
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ELOOP') {
-      throw new WorkspaceInspectorError('workspace-path-invalid', `workspace path ${JSON.stringify(path)} contains a symbolic link`, path)
-    }
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
-      throw new WorkspaceInspectorError('workspace-entry-not-found', `workspace file ${JSON.stringify(path)} was not found`, path)
-    }
-    throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} cannot be read`, path)
-  } finally {
-    await handle?.close()
-  }
+  })
 }
 
 interface GitResult {
@@ -569,8 +728,15 @@ interface GitResult {
   overflow: boolean
 }
 
+/** Git subprocesses accept real signals, so a hard 10s bound aborts the child. */
+function abortSignal(signal: AbortSignal): AbortSignal {
+  signal.throwIfAborted()
+  return AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+}
+
 async function runGit(root: string, args: readonly string[], signal: AbortSignal, operation: string): Promise<GitResult> {
   const target = await containedPath(root, '.', signal)
+  signal.throwIfAborted()
   const handle = await open(target, READ_ONLY_NOFOLLOW_FLAGS | constants.O_DIRECTORY)
   try {
     await openedPathInfo(root, '.', target, handle, signal, 'directory')

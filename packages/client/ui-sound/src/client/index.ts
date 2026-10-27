@@ -13,7 +13,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { AudioLibrary, openBrowserAudioStore } from './audio-library.ts'
-import { CrossTabDedupe, type CrossTabChannel } from './cross-tab.ts'
 import { SoundEngine } from './engine.ts'
 import { SoundNotifier, type NotificationFace } from './notifier.ts'
 import { SoundSection } from './SoundSection.tsx'
@@ -61,8 +60,7 @@ export function apply(ctx: ClientContext): void {
   const sessionsFace = { getSnapshot: () => ctx.sessions.list.getSnapshot() }
 
   const library = new AudioLibrary(openBrowserAudioStore)
-  const dedupe = createCrossTabDedupe()
-  const engine = new SoundEngine({ audio: lazyAudioContext, library, dedupe })
+  const engine = new SoundEngine({ audio: lazyAudioContext, library })
   const notifier = new SoundNotifier({
     notifications: browserNotifications(),
     alertable: () => document.visibilityState === 'visible' && document.hasFocus(),
@@ -86,20 +84,8 @@ export function apply(ctx: ClientContext): void {
         }
       },
       ring: () => { engine.play(decision.sound, decision.volume, decision.sourceKey) },
-      arbitrate: (present) => {
-        if (dedupe === undefined) {
-          present()
-          return
-        }
-        dedupe.declare(`notify:${decision.sourceKey}`, present)
-      },
     })
   }
-
-  /** Cross-tab arbitration leaves with the plugin fiber. */
-  ctx.effect(() => () => {
-    if (dedupe !== undefined) dedupe.dispose()
-  }, 'ui-sound: cross-tab lifecycle')
 
   /** Capture the current machine's API for one stream attempt. */
   const captureApi = (): IApiClient | undefined => {
@@ -135,7 +121,6 @@ export function apply(ctx: ClientContext): void {
     const watcher = new SoundWatcher({
       sessions: sessionsFace,
       openMux: openStream(registry, (api, signal) => api.events.mux({}, signal)),
-      openHost: openStream(registry, (api, signal) => api.events.host({}, signal)),
       onEvent,
       schedule: (fn, ms) => { return setTimeout(fn, ms) },
       cancel: (timer) => { clearTimeout(timer as ReturnType<typeof setTimeout>) },
@@ -255,17 +240,6 @@ export function apply(ctx: ClientContext): void {
     name: 'settings.nav.icon',
     key: 'sound',
   }, NavIcon))
-}
-
-/** Build the cross-tab arbitration participant when the platform provides the channel. */
-function createCrossTabDedupe(): CrossTabDedupe | undefined {
-  const carrier = globalThis as { BroadcastChannel?: new (name: string) => BroadcastChannel }
-  if (carrier.BroadcastChannel === undefined) return undefined
-  try {
-    return new CrossTabDedupe(new carrier.BroadcastChannel('dsh-ui-sound') as unknown as CrossTabChannel)
-  } catch {
-    return undefined
-  }
 }
 
 /** Lazily create this tab's Web Audio context when the platform provides it. */
