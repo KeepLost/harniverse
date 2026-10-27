@@ -187,7 +187,7 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
     )
     if minimal_prompt is not None:
         names = advertised_tool_names(body)
-        if names != {"bash", "str_replace_editor"}:
+        if names != {"bash", "str_replace_editor", "working_directory"}:
             raise AssertionError(f"minimal agent smoke advertised unexpected tools: {names}")
         system_prompts = [
             message_text(message.get("content"))
