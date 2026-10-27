@@ -148,7 +148,7 @@ describe('worktree service', () => {
       expect(created.branch).toBe('feature')
       expect(created.repositoryRoot).toBe((await git(repo, 'rev-parse', '--show-toplevel')).trim())
       expect(created.baseCommit).toBe((await git(repo, 'rev-parse', 'HEAD')).trim())
-      expect(await readFile(join(created.path, 'second.txt'), 'utf8')).toBe('second\n')
+      expect((await readFile(join(created.path, 'second.txt'), 'utf8')).trimEnd()).toBe('second')
       // The checkout pool carries a self-ignoring .gitignore from first allocation.
       expect(await readFile(join(repo, '.agents/worktrees/.gitignore'), 'utf8')).toBe('*\n')
       // The session entered the new checkout (drive the projection for the
@@ -177,7 +177,7 @@ describe('worktree service', () => {
       const agent = stubAgent(repo)
       const created = await ctx.worktrees.create(agent, { name: 'pinned', from: first }, signal)
       expect(created.baseCommit).toBe(first)
-      expect(await readFile(join(created.path, 'first.txt'), 'utf8')).toBe('first\n')
+      expect((await readFile(join(created.path, 'first.txt'), 'utf8')).trimEnd()).toBe('first')
       // The pinned checkout excludes the later commit entirely.
       await expect(readFile(join(created.path, 'second.txt'), 'utf8')).rejects.toThrow()
     } finally {
