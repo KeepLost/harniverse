@@ -18,6 +18,14 @@ Shared filesystem path helpers for DeepSeek Harness user data.
 
 `expandHomePath()` expands `~`, `~/...`, and Windows-style `~\...` prefixes against the operating-system home directory. It leaves non-tilde paths and `~user/...` untouched.
 
+## Agents root
+
+`resolveAgentsHome()` resolves the shared agent configuration root that agent tools exchange through `~/.agents`. Precedence, highest first: an explicit configured path, `$DSH_AGENTS_HOME`, then `~/.agents`. Tilde expansion and blank-environment handling match `resolveDshHome()`, so the two user roots share one resolver semantics.
+
+`agentsHomeDisplay()` names the root symbolically: `~/.agents` for the default root, `$DSH_AGENTS_HOME` for any configured root. It never leaks an absolute machine path.
+
+`AGENTS_HOME_DIR_NAME` owns the default shared-root directory name: `.agents`, and `defaultAgentsHome()` joins it onto the operating-system home directory.
+
 ## Watch paths
 
 `canonicalizeWatchPath()` gives a native filesystem watcher one stable spelling of its target. It resolves the deepest existing ancestor through `fs.realpath()` and restores any missing suffix, so a file or directory may still be watched before it is created. In particular, Windows 8.3 aliases cannot be mixed with the long paths emitted by the native watcher backend.

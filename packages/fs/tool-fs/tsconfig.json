@@ -34,6 +34,9 @@
       "path": "../fs-observation-policy"
     },
     {
+      "path": "../../session/working-directory"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

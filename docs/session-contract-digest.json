@@ -55,7 +55,8 @@
     "turn/end",
     "turn/start",
     "user/file",
-    "user/message"
+    "user/message",
+    "working-directory/change"
   ],
   "surfaceEventTypes": [
     "assistant/message",
@@ -115,7 +116,8 @@
     "turn/end": "{ turn: number; reason: TurnEndReason }",
     "turn/start": "{ turn: number }",
     "user/file": "{ files: readonly FileAttachmentRef[] }",
-    "user/message": "UserMessage"
+    "user/message": "UserMessage",
+    "working-directory/change": "import('./types.ts').WorkingDirectoryChange"
   },
   "envelope": [
     {

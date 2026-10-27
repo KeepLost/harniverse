@@ -104,6 +104,8 @@ export const SERVICE_PAGE: Record<string, string> = {
   sessionReferenceResolver: 'session-reference.md',
   sessionProjectionCache: 'session-projection.md',
   sessionProjections: 'session-projection.md',
+  workingDirectory: 'session.md',
+  worktrees: 'workspace.md',
   sessions: 'session.md',
   sessionImport: 'persistence.md',
   ssh: 'ssh.md',
@@ -695,6 +697,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  CreatedWorktree: 'the worktree creation contract is owned by packages/workspace/worktree/README.md',
+  CreateWorktreeRequest: 'the worktree creation contract is owned by packages/workspace/worktree/README.md',
   HarniverseMux: 'the chat client event stream is owned by packages/chat/chat-harniverse-client/README.md',
   MuxOptions: 'the chat client event stream handlers are owned by packages/chat/chat-harniverse-client/README.md',
   TypertEndpoint: 'the chat client endpoint tables are owned by packages/chat/chat-harniverse-client/README.md',

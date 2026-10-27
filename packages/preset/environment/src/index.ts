@@ -65,7 +65,7 @@ export function detectEnvironmentFacts(
 export function environmentSectionText(facts: EnvironmentFacts): string {
   const userland = facts.userland === undefined ? '' : ` with a ${facts.userland} userland`
   return `You are working on the machine ${facts.machine} (${facts.os}, ${facts.shell} shell${userland}). `
-    + 'The working directory for this session is {{cwd}}; it stays fixed for the session\'s lifetime.'
+    + 'This session started in {{cwd}}; the working directory can change during the session.'
 }
 
 /**

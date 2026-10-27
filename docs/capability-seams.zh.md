@@ -165,6 +165,15 @@ flowchart LR
   svc_commands["ctx.commands<br/>Human command registry"]
   pkg_session_projection["session-projection"]
   svc_sessionProjections["ctx.sessionProjections<br/>Session projection units"]
+  pkg_working_directory["working-directory"]
+  svc_workingDirectory["ctx.workingDirectory<br/>Session working directory"]
+  pkg_tool_working_directory["tool-working-directory"]
+  pkg_tool_lsp["tool-lsp"]
+  pkg_tool_bash_persistent["tool-bash-persistent"]
+  pkg_agent_instructions["agent-instructions"]
+  pkg_worktree["worktree"]
+  svc_worktrees["ctx.worktrees<br/>Retained Git worktree creation"]
+  pkg_tool_worktree["tool-worktree"]
   pkg_session_projection_cache["session-projection-cache"]
   svc_sessionProjectionCache["ctx.sessionProjectionCache<br/>Persisted projection cache"]
   pkg_skill["skill"]
@@ -283,7 +292,6 @@ flowchart LR
   pkg_lsp["lsp"]
   svc_lsp["ctx.lsp<br/>Language-server navigation seam"]
   pkg_lsp_local["lsp-local"]
-  pkg_tool_lsp["tool-lsp"]
   svc_apiProxy["ctx.apiProxy<br/>Host API dispatch"]
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
@@ -430,8 +438,10 @@ flowchart LR
   pkg_webserver --> svc_webServer
   pkg_workflow --> svc_workflowEngine
   pkg_workflow_worker_thread --> svc_workflowEngine
+  pkg_working_directory --> svc_workingDirectory
   pkg_workspace --> svc_workspaceRegistry
   pkg_workspace_file_write --> svc_workspaceFileWrite
+  pkg_worktree --> svc_worktrees
   svc_agentDefaultModel --> pkg_headless
   svc_agentDefaultModel --> pkg_host_apiproxy
   svc_agentLoop --> pkg_agent_spine_demo
@@ -595,8 +605,16 @@ flowchart LR
   svc_webServer --> pkg_modules
   svc_workflowEngine --> pkg_tool_ralph
   svc_workflowEngine --> pkg_tool_workflow
+  svc_workingDirectory --> pkg_agent_instructions
+  svc_workingDirectory --> pkg_tool_bash
+  svc_workingDirectory --> pkg_tool_bash_persistent
+  svc_workingDirectory --> pkg_tool_fs
+  svc_workingDirectory --> pkg_tool_lsp
+  svc_workingDirectory --> pkg_tool_working_directory
+  svc_workingDirectory --> pkg_worktree
   svc_workspaceFileWrite --> pkg_client_ui_workspace_editor
   svc_workspaceRegistry --> pkg_apiproxy
+  svc_worktrees --> pkg_tool_worktree
   svc_fs -. event gate .-> pkg_fs_observation_policy
 ```
 
@@ -650,6 +668,8 @@ flowchart LR
 | `ctx.agentPresets` | `core` | [`agent-presets`](../packages/preset/agent-presets) | - | - | - | Discovers preset directories over trusted and user-authored roots and mounts one preset cordis.yml under an agent scope during creation, rejecting a row that never activates or that publishes into the root service realm. |
 | `ctx.commands` | `core` | [`commands`](../packages/interaction/commands) | - | - | - | Plugins register direct human commands without sending invocations to the model. |
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title), [`host-apiproxy`](../packages/host/apiproxy) | - | Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values. |
+| `ctx.workingDirectory` | `core` | [`working-directory`](../packages/session/working-directory) | - | [`tool-working-directory`](../packages/session/tool-working-directory), [`tool-bash`](../packages/shell/tool-bash), [`tool-fs`](../packages/fs/tool-fs), [`tool-lsp`](../packages/lsp/tool-lsp), [`tool-bash-persistent`](../packages/shell/tool-bash-persistent), [`agent-instructions`](../packages/context/agent-instructions), [`worktree`](../packages/workspace/worktree) | - | Owns one logged effective directory per session: an additive whole-value change event, a folded projection, filesystem-validated set/ensure with recovery to the original project, and one injected notice per committed change; the header cwd stays the identity and sandbox root. |
+| `ctx.worktrees` | `core` | [`worktree`](../packages/workspace/worktree) | - | [`tool-worktree`](../packages/workspace/tool-worktree) | - | Creates one retained branch-plus-checkout from a local revision under the calling session policy, disables checkout filters through command-local overrides, and enters the checkout through the working-directory owner. |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`host-apiproxy`](../packages/host/apiproxy) | - | Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), `subagent-inprocess` | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |

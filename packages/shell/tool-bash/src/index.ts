@@ -24,6 +24,7 @@ import { ESCALATION_TARGETS, approveEscalation, canonicalPath, normalizeRedundan
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX, defaultShellName } from '@deepseek-ai/dsh-shell'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
+import { effectiveCwd } from '@deepseek-ai/dsh-working-directory'
 import { processJob } from './background.ts'
 import { runPromotableForeground } from './promotable.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
@@ -167,8 +168,8 @@ function resolveWorkdir(
   exec: { agent?: Agent },
   policyWorkspaceRoot?: string,
 ): string | undefined {
-  const headerCwd = exec.agent?.session.header.cwd
-  const sessionCwd = policyWorkspaceRoot ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
+  const effective = effectiveCwd(exec.agent)
+  const sessionCwd = policyWorkspaceRoot ?? (effective === undefined ? undefined : canonicalPath(effective))
   if (modelWorkdir === undefined) return sessionCwd
   if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
     return resolvePath(sessionCwd, modelWorkdir)

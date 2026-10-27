@@ -29,7 +29,7 @@ One static system-prompt section at order −90, between the harness identity an
 ##### The section prose
 
 ```markdown
-You are working on the machine <machine> (<os>, <shell> shell[ with a <userland> userland]). The working directory for this session is {{cwd}}; it stays fixed for the session's lifetime.
+You are working on the machine <machine> (<os>, <shell> shell[ with a <userland> userland]). This session started in {{cwd}}; the working directory can change during the session.
 ```
 
 #### Token effect

@@ -111,8 +111,10 @@ export interface Config {
 ```ts config-catalog
 /** User-facing workspace instruction loader configuration. */
 export interface Config {
-  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** Harness home containing the first user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
+  /** Shared agent configuration root containing the second user-global `AGENTS.md`; defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
+  agentsHome?: string
   /** Directory entries that identify the project root while walking upward from the session cwd. */
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
@@ -3011,7 +3013,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/skill/skill-filesystem/src/index.ts:48`](../packages/skill/skill-filesystem/src/index.ts)
+来源：[`packages/skill/skill-filesystem/src/index.ts:47`](../packages/skill/skill-filesystem/src/index.ts)
 
 <a id="deepseek-aidsh-spill-local"></a>
 
@@ -4501,6 +4503,50 @@ export interface Config {
 
 来源：[`packages/workflow/workflow-worker-thread/src/index.ts:32`](../packages/workflow/workflow-worker-thread/src/index.ts)
 
+<a id="deepseek-aidsh-working-directory"></a>
+
+## `@deepseek-ai/dsh-working-directory`
+
+需要：`fs` · `sessionProjections`
+
+```ts config-catalog
+/** Deployment default for sessions without an original project directory. */
+export interface Config {
+  /** Absolute fallback directory; omitted values use the launch directory. */
+  defaultDirectory?: string
+}
+```
+
+来源：[`packages/session/working-directory/src/types.ts:18`](../packages/session/working-directory/src/types.ts)
+
+<a id="deepseek-aidsh-worktree"></a>
+
+## `@deepseek-ai/dsh-worktree`
+
+需要：`workingDirectory` · `fs` · `subprocess` · `sandbox` · `sandboxPolicy`
+
+```ts config-catalog
+/** Worktree location, generated names, executables, and subprocess resource limits. */
+export interface Config {
+  /** Relative checkout pool inside the source repository. */
+  directory?: string
+  /** Prefix for automatically generated branch and checkout names. */
+  namePrefix?: string
+  /** Executable name or absolute execution-world path of a Git release that honors `GIT_NO_LAZY_FETCH`. */
+  gitCommand?: string
+  /** Node executable used for sandboxed directory allocation. */
+  nodeCommand?: string
+  /** Deadline in milliseconds for one command. */
+  timeoutMs?: number
+  /** Subprocess termination grace in milliseconds. */
+  graceMs?: number
+  /** Maximum captured bytes per subprocess output stream. */
+  maxOutputBytes?: number
+}
+```
+
+来源：[`packages/workspace/worktree/src/index.ts:21`](../packages/workspace/worktree/src/index.ts)
+
 ## 无配置的可加载插件
 
 这些插件通过 `cordis.yml` 中不含 `config:` 块的条目加载；它们未声明任何配置接口。
@@ -4607,6 +4653,8 @@ export interface Config {
 - `@deepseek-ai/dsh-tool-scheduler` — requires `scheduler` · `tools` ([`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts))
 - `@deepseek-ai/dsh-tool-session-delivery` — requires `tools` · `sessionDelivery` ([`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts))
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
+- `@deepseek-ai/dsh-tool-working-directory` — requires `tools` · `workingDirectory` ([`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts))
+- `@deepseek-ai/dsh-tool-worktree` — requires `tools` · `worktrees` ([`packages/workspace/tool-worktree/src/index.ts`](../packages/workspace/tool-worktree/src/index.ts))
 - `@deepseek-ai/dsh-user-questions` ([`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 - `@deepseek-ai/dsh-workspace-file-write` — requires `workspaceRegistry` · `fs` ([`packages/host/workspace-file-write/src/index.ts`](../packages/host/workspace-file-write/src/index.ts))

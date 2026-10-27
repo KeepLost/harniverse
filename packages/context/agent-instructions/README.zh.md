@@ -24,6 +24,10 @@ Instructions from: ~/.dsh/AGENTS.md
 
 ...
 
+Instructions from: ~/.agents/AGENTS.md
+
+...
+
 Instructions from: AGENTS.md
 
 ...
@@ -42,7 +46,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 </system-reminder>
 ```
 
-同一文件的编辑以 `Updated instructions from: <path>` 开头，并说明使用新内容替代之前加载的内容。候选文件消失或成为同一目录中较早候选文件的重复项时，消息是 `Instructions removed: <path>`，后跟 `The previously loaded instructions from this file no longer apply.`。指令内容或模型可见的路径、scope 与预算元数据中出现的字面 `</system-reminder>` 文本都会转义，因此仓库控制的文本无法关闭插件控制的框架。
+同一文件的编辑以 `Updated instructions from: <path>` 开头，并说明使用新内容替代之前加载的内容。候选文件消失，或成为较早候选文件的重复项——同一目录内，或跨两个用户全局根——时，消息是 `Instructions removed: <path>`，后跟 `The previously loaded instructions from this file no longer apply.`。指令内容或模型可见的路径、scope 与预算元数据中出现的字面 `</system-reminder>` 文本都会转义，因此仓库控制的文本无法关闭插件控制的框架。
 
 该插件控制完整的 `<system-reminder>` 框架，每个注入的 `user/message` 都不经核心包装便原样传给模型。
 
@@ -59,6 +63,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 ```ts
 export interface Config {
   dshHome?: string
+  agentsHome?: string
   projectRootMarkers?: string[]
   maxBytes: number
   maxSourceBytes?: number
@@ -69,7 +74,7 @@ export interface Config {
 
 `maxBytes` 必填，因此每个部署都必须显式选择提示词预算。`maxSourceBytes` 在渲染前限制每个源指令文件，默认为 1 MiB。`projectRootMarkers` 默认为 `['.git']`，`instructionFileCandidates` 默认为 `['AGENTS.md']`。每个项目目录中的所有现有候选文件都会加载，在去除周围空白后与较早候选文件内容匹配的文件会被丢弃。`localInstructionFileCandidates` 默认为 `['AGENTS.local.md']`，会与同一目录的基础文件一起加载其现有 overlay（渲染在它们之后），并应用同一个每目录去重；空列表会禁用 overlay。两个列表中的候选项都必须是同一目录下的文件名，因此会忽略空项、`.`／`..`、包含 `/` 或 `\` 的项，以及已移除的 `CLAUDE.md` 或 `CLAUDE.local.md` 名称。
 
-用户全局文件始终是 `$DSH_HOME/AGENTS.md`，没有本地 overlay；两个候选列表只控制项目 scope。`$DSH_HOME` 默认为 `~/.dsh`，已配置的 `~`、`~/...` 与 Windows 风格 `~\...` 前缀会基于操作系统 home 目录展开。非正数或非有限渲染预算会同时禁用基线与动态加载；已配置 `maxSourceBytes` 必须是正整数。
+用户全局链有两个有序根，且没有本地 overlay：先是 `$DSH_HOME/AGENTS.md`，然后是 `$DSH_AGENTS_HOME/AGENTS.md`；两个候选列表只控制项目 scope。两个根构成一个去除空白后的内容去重组，因此内容相同的共享根文件只会从 harness home 渲染一次，并在该副本变更或消失后被提升。`$DSH_HOME` 默认为 `~/.dsh`，`$DSH_AGENTS_HOME` 默认为 `~/.agents`；已配置的 `~`、`~/...` 与 Windows 风格 `~\...` 前缀会基于操作系统 home 目录展开。名为 `user-global` 或 `agents-global` 的项目目录通过 `./` 显示转义保持自己的 scope。非正数或非有限渲染预算会同时禁用基线与动态加载；已配置 `maxSourceBytes` 必须是正整数。
 
 ## 预算与有界读取
 
@@ -163,7 +168,7 @@ The previously loaded instructions from this file no longer apply.
 
 - **发现跟随结构化 fs 工具，而非 shell 导航**：更改目录的 `bash` 命令不会触发嵌套指令发现，因为 shell 语法与每次调用 shell 状态不是可靠的文件系统 seam。
 - **刷新由 touch 驱动**：没有 watcher；外部编辑会在下一次成功的第一方 `read`、`write` 或 `edit` 时、恢复过程对账可见基线时，或进入步骤的 pre-step 恢复被遮蔽的基线时可见。
-- **候选语义有意保持简单**：不解释小写名称、`.claude/rules/` 与 `@path` import；项目 scope 默认加载 `AGENTS.local.md` overlay，用户全局 `$DSH_HOME` scope 没有本地 overlay，其他自定义名称需要显式候选配置。`CLAUDE.md` 与 `CLAUDE.local.md` 不是受支持的候选名称。
-- **每目录去重基于内容**：受支持的同级候选文件只有在去除首尾空白后字节完全一致时才折叠；内容已经漂移的独立实体副本会与其他候选一起完整加载。
+- **候选语义有意保持简单**：不解释小写名称、`.claude/rules/` 与 `@path` import；项目 scope 默认加载 `AGENTS.local.md` overlay，两个用户全局 scope 没有本地 overlay，其他自定义名称需要显式候选配置。`CLAUDE.md` 与 `CLAUDE.local.md` 不是受支持的候选名称。
+- **每目录去重基于内容**：受支持的同级候选文件只有在去除首尾空白后字节完全一致时才折叠；内容已经漂移的独立实体副本会与其他候选一起完整加载。两个用户全局根是这样一个去重组：harness home 副本渲染，共享根重复项折叠，直到保留副本变更或消失。
 - **Symlink 指令文件会跨越信任边界跟随**：最终组件是 symlink 的候选文件会被解析并加载其目标，因此克隆仓库可以将树外文件内容呈现为较低优先级的工作区指引（它绝不会覆盖 system、developer 或用户直接下达的指令）。加载不受信任仓库时，请用文件系统策略门禁或 OS 沙箱限制 `ctx.fs`。
 - **指令内容受限但不会被摘要**：超出预算的宽泛文件会被省略，最具体文件可能被截断；该插件绝不请求模型压缩指令文本。

@@ -45,6 +45,9 @@
       "path": "../../sandbox/sandbox"
     },
     {
+      "path": "../../session/working-directory"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

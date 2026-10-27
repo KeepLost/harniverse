@@ -24,6 +24,10 @@ Instructions from: ~/.dsh/AGENTS.md
 
 ...
 
+Instructions from: ~/.agents/AGENTS.md
+
+...
+
 Instructions from: AGENTS.md
 
 ...
@@ -42,7 +46,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 </system-reminder>
 ```
 
-A same-file edit starts with `Updated instructions from: <path>` and says to use the new content instead of the previously loaded content. When a candidate disappears or becomes a per-directory duplicate of an earlier candidate, the message is `Instructions removed: <path>` followed by `The previously loaded instructions from this file no longer apply.` Literal `</system-reminder>` text anywhere in instruction content or model-visible path, scope, and budget metadata is escaped so repository-controlled text cannot close the plugin-owned frame.
+A same-file edit starts with `Updated instructions from: <path>` and says to use the new content instead of the previously loaded content. When a candidate disappears or becomes a duplicate of an earlier candidate — within one directory, or across the two user-global roots — the message is `Instructions removed: <path>` followed by `The previously loaded instructions from this file no longer apply.` Literal `</system-reminder>` text anywhere in instruction content or model-visible path, scope, and budget metadata is escaped so repository-controlled text cannot close the plugin-owned frame.
 
 The plugin owns the complete `<system-reminder>` framing, and every injected `user/message` reaches the model verbatim with no core wrapper.
 
@@ -59,6 +63,7 @@ The initial baseline event itself is not rewritten. Its typed changes remain aut
 ```ts
 export interface Config {
   dshHome?: string
+  agentsHome?: string
   projectRootMarkers?: string[]
   maxBytes: number
   maxSourceBytes?: number
@@ -69,7 +74,7 @@ export interface Config {
 
 `maxBytes` is required so each deployment makes its prompt-budget choice explicitly. `maxSourceBytes` limits each source instruction file before rendering and defaults to 1 MiB. `projectRootMarkers` defaults to `['.git']`, and `instructionFileCandidates` defaults to `['AGENTS.md']`. In each project directory every existing candidate loads, and candidates whose content matches an earlier one after trimming surrounding whitespace are dropped. `localInstructionFileCandidates` defaults to `['AGENTS.local.md']` and loads its existing overlays alongside the base files of the same directory (rendered after them) under the same per-directory dedup; an empty list disables the overlay. Candidate entries in both lists must be same-directory file names, so empty entries, `.`/`..`, entries containing `/` or `\`, and the removed `CLAUDE.md` or `CLAUDE.local.md` names are ignored.
 
-The user-global file is always `$DSH_HOME/AGENTS.md` with no local overlay; both candidate lists only control project scopes. `$DSH_HOME` defaults to `~/.dsh`, and configured `~`, `~/...`, and Windows-style `~\...` prefixes are expanded against the operating-system home directory. A non-positive or non-finite render budget disables both baseline and dynamic loading; configured `maxSourceBytes` must be a positive integer.
+The user-global chain has two ordered roots with no local overlay: `$DSH_HOME/AGENTS.md` first, then `$DSH_AGENTS_HOME/AGENTS.md`; both candidate lists only control project scopes. The two roots form one trimmed-content dedup group, so an identical shared-root file renders once from the harness home and is promoted when that copy changes or disappears. `$DSH_HOME` defaults to `~/.dsh` and `$DSH_AGENTS_HOME` defaults to `~/.agents`; configured `~`, `~/...`, and Windows-style `~\...` prefixes are expanded against the operating-system home directory. A project directory named `user-global` or `agents-global` keeps its own scope through a `./` display escape. A non-positive or non-finite render budget disables both baseline and dynamic loading; configured `maxSourceBytes` must be a positive integer.
 
 ## Budgeting And Bounded Reads
 
@@ -163,7 +168,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **Discovery follows structured fs tools, not shell navigation** — a `bash` command that changes directories does not trigger nested instruction discovery because shell syntax and per-call shell state are not a reliable filesystem seam.
 - **Refresh is touch-driven** — there is no watcher; external edits become visible on the next successful first-party `read`, `write`, or `edit`, when resume reconciles a visible baseline, or when an entering pre-step restores a shadowed baseline.
-- **Candidate semantics stay intentionally small** — lowercase names, `.claude/rules/`, and `@path` imports are not interpreted; project scopes load `AGENTS.local.md` overlays by default, while the user-global `$DSH_HOME` scope has no local overlay and other custom names require explicit candidate configuration. `CLAUDE.md` and `CLAUDE.local.md` are unsupported candidate names.
-- **Per-directory dedup is content-based** — supported sibling candidates collapse only when byte-identical after trimming leading and trailing whitespace; distinct real copies that have drifted load in full alongside each other.
+- **Candidate semantics stay intentionally small** — lowercase names, `.claude/rules/`, and `@path` imports are not interpreted; project scopes load `AGENTS.local.md` overlays by default, while the two user-global scopes have no local overlay and other custom names require explicit candidate configuration. `CLAUDE.md` and `CLAUDE.local.md` are unsupported candidate names.
+- **Per-directory dedup is content-based** — supported sibling candidates collapse only when byte-identical after trimming leading and trailing whitespace; distinct real copies that have drifted load in full alongside each other. The two user-global roots are one such dedup group: the harness-home copy renders and the shared-root duplicate collapses until the retained copy changes or disappears.
 - **Symlinked instruction files are followed across the trust boundary** — a candidate whose final component is a symlink is resolved and its target loaded, so a cloned repository can surface off-tree file content as lower-authority workspace guidance (it never overrides system, developer, or direct user instructions). Confine `ctx.fs` with the filesystem policy gate or an OS sandbox when loading untrusted repositories.
 - **Instruction content is bounded, not summarized** — over-budget broad files are omitted and the most-specific file may be truncated; the plugin never asks a model to compress instruction prose.

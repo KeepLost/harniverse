@@ -1,0 +1,55 @@
+# Test-only composition: drive the working-directory and worktree domains
+# through a Loader-mounted step consumer. The sandbox stub keeps the smoke
+# deterministic on hosts without a usable kernel-sandbox backend; confinement
+# routing itself is covered by the worktree package's own suite.
+- id: cli-mock-llm
+  name: '../cli-mock-llm.ts'
+
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: stub-sandbox
+  name: './stub-sandbox.ts'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+
+- id: projections
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+
+- id: working-directory
+  name: '@deepseek-ai/dsh-working-directory'
+
+- id: worktree
+  name: '@deepseek-ai/dsh-worktree'
+
+- id: seed-working-directory
+  name: './seed-working-directory.ts'
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents:
+      - id: main
+        provider: cli-mock
+        model: cli-mock
+        cwd: !!js process.cwd()
+    persona: 'Test the working-directory domain.'
+    workspaceContext: false
+
+# Where the agent works: OS, shell, working machine, and the session-fixed
+# working directory, computed once from process-stable platform facts.
+- id: environment
+  name: '@deepseek-ai/dsh-environment'
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: none
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

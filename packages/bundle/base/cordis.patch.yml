@@ -238,6 +238,22 @@
       config:
         sampleOverCapGlobResults: false
 
+    # One logged effective directory per session; consumers and the
+    # working_directory tool read it instead of the immutable header cwd.
+    - id: working-directory
+      name: '@deepseek-ai/dsh-working-directory'
+
+    - id: tool-working-directory
+      name: '@deepseek-ai/dsh-tool-working-directory'
+
+    # Retained Git worktrees created under the session's file policy and
+    # entered through the working-directory owner.
+    - id: worktree
+      name: '@deepseek-ai/dsh-worktree'
+
+    - id: tool-worktree
+      name: '@deepseek-ai/dsh-tool-worktree'
+
     - id: agent-instructions
       name: '@deepseek-ai/dsh-agent-instructions'
       config:

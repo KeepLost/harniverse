@@ -1,6 +1,7 @@
 /**
  * Derive the working directory a filesystem tool resolves relative paths against: the calling
- * agent's per-session workspace (`exec.agent.session.header.cwd`), so each session's
+ * agent's effective session directory (the working-directory owner's committed value, falling
+ * back to the immutable header cwd), so each session's
  * `read`/`write`/`edit` act on ITS workspace, not the server's launch dir — mirroring how
  * `dsh-tool-bash` defaults a bash `workdir` to the session cwd.
  * Non-agent calls return `undefined`, leaving the fallback in the provider rather than reading
@@ -10,18 +11,19 @@
 
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { canonicalPath } from '@deepseek-ai/dsh-sandbox'
+import { effectiveCwd } from '@deepseek-ai/dsh-working-directory'
 
 const PARENT_PATH_SEGMENT = /(?:^|[\\/])\.\.(?:[\\/]|$)/
 
 /**
- * The session workspace cwd for this call, or `undefined` when none applies.
+ * The effective session directory for this call, or `undefined` when none applies.
  * @param exec - the tool-execution context; only its optional `agent` is read.
  * @param requestedPath - the path the provider will resolve; parent traversal
  *   makes a symlinked cwd's filesystem identity observable.
- * @returns the calling agent's session cwd, or undefined for a non-agent caller (the backend then applies its own default).
+ * @returns the calling agent's effective directory, or undefined for a non-agent caller (the backend then applies its own default).
  */
 export function sessionCwd(exec: ToolExecution, requestedPath: string): string | undefined {
-  const cwd = exec.agent?.session.header.cwd
+  const cwd = effectiveCwd(exec.agent)
   if (cwd === undefined || (!PARENT_PATH_SEGMENT.test(cwd) && !PARENT_PATH_SEGMENT.test(requestedPath))) return cwd
   return canonicalPath(cwd)
 }

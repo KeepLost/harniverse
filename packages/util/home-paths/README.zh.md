@@ -18,6 +18,14 @@ DeepSeek Harness 用户数据的共享文件系统路径辅助工具。
 
 `expandHomePath()` 使用操作系统主目录展开 `~`、`~/...` 和 Windows 风格的 `~\...` 前缀。它会保留非波浪号路径和 `~user/...` 原样不变。
 
+## Agents 根目录
+
+`resolveAgentsHome()` 解析各 agent 工具通过 `~/.agents` 交换的共享 agent 配置根目录。优先级从高到低为：显式配置的路径、`$DSH_AGENTS_HOME`、`~/.agents`。波浪号展开与空白环境变量处理与 `resolveDshHome()` 一致，因此两个用户根目录共享同一套解析语义。
+
+`agentsHomeDisplay()` 以符号方式表示该根目录：默认根目录表示为 `~/.agents`，任何已配置的根目录表示为 `$DSH_AGENTS_HOME`。它绝不会泄露机器的绝对路径。
+
+`AGENTS_HOME_DIR_NAME` 定义默认共享根目录名：`.agents`；`defaultAgentsHome()` 将其拼接到操作系统主目录下。
+
 ## 监听路径
 
 `canonicalizeWatchPath()` 为原生文件系统 watcher 提供一种稳定的目标路径表示。它通过 `fs.realpath()` 解析层级最深的现有祖先路径，再拼回缺失的后缀，因此即使文件或目录尚未创建也仍可监听。尤其是，Windows 8.3 别名不能与原生 watcher 后端发出的长路径混用。

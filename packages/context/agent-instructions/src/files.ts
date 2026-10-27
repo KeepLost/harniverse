@@ -9,12 +9,15 @@ import { stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { FileSystem, FsInfo, FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
 import { assertNever } from '@deepseek-ai/dsh-llm'
-import { dshHomeDisplay } from '@deepseek-ai/dsh-home-paths'
+import { agentsHomeDisplay, dshHomeDisplay } from '@deepseek-ai/dsh-home-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
 import { trimmedInstructionDigest } from './digest.ts'
 import {
+  AGENTS_GLOBAL_DIRECTORY,
   decodeScopeKey,
+  instructionDedupGroup,
   renderWorkspaceInstructionSet,
+  scopeForDisplayPath,
   type RenderedWorkspaceContext,
   USER_GLOBAL_DIRECTORY,
   USER_GLOBAL_FILE,
@@ -49,6 +52,7 @@ export interface ProbedInstructionFile extends InstructionFile {
 interface DiscoverOptions {
   cwd: string
   dshHome?: string
+  agentsHome?: string
   projectRootMarkers?: string[]
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
@@ -277,22 +281,27 @@ async function discoverInstructionFiles(
     files.push(file)
   }
 
-  const userGlobal = join(config.dshHome, USER_GLOBAL_FILE)
-  const userGlobalProbe = await statFile(userGlobal, fileSystem, options.signal)
-  switch (userGlobalProbe.kind) {
-    case 'present':
-      addFile({
-        absolutePath: userGlobal,
-        displayPath: userGlobalDisplayPath(config.dshHome),
-        ...userGlobalProbe.info,
-      })
-      break
-    case 'absent':
-    case 'unavailable':
-      break
-    /* v8 ignore next 2 -- StatFileProbe is closed; this arm only makes adding a kind a compile error. */
-    default:
-      assertNever(userGlobalProbe, 'StatFileProbe')
+  for (const [home, directory] of [
+    [config.dshHome, USER_GLOBAL_DIRECTORY],
+    [config.agentsHome, AGENTS_GLOBAL_DIRECTORY],
+  ] as const) {
+    const userGlobal = join(home, USER_GLOBAL_FILE)
+    const userGlobalProbe = await statFile(userGlobal, fileSystem, options.signal)
+    switch (userGlobalProbe.kind) {
+      case 'present':
+        addFile({
+          absolutePath: userGlobal,
+          displayPath: `${directory === USER_GLOBAL_DIRECTORY ? dshHomeDisplay(home) : agentsHomeDisplay(home)}/${USER_GLOBAL_FILE}`,
+          ...userGlobalProbe.info,
+        })
+        break
+      case 'absent':
+      case 'unavailable':
+        break
+      /* v8 ignore next 2 -- StatFileProbe is closed; this arm only makes adding a kind a compile error. */
+      default:
+        assertNever(userGlobalProbe, 'StatFileProbe')
+    }
   }
 
   const cwd = resolve(options.cwd)
@@ -310,8 +319,10 @@ async function discoverInstructionFiles(
 
 /**
  * Discover host-visible user-global and root-to-cwd instruction candidates.
- * All present candidates in each directory are returned; trimmed-content
- * duplicates are collapsed later, once content is read.
+ * The harness home probes before the shared agents root; all present
+ * candidates in each directory are returned, and trimmed-content duplicates
+ * (including across the two user-global roots) are collapsed later, once
+ * content is read.
  * @param options - cwd, home, root marker, and candidate configuration.
  * @returns path-deduplicated instruction candidates in model precedence order.
  */
@@ -358,8 +369,10 @@ async function readBounded(
 
 /**
  * Drop later candidates whose trimmed content duplicates an earlier sibling in
- * the same directory. Different directories never collapse even when identical;
- * within one directory the earliest candidate in discovery order is kept and its
+ * the same directory. Different directories never collapse even when identical,
+ * except the two user-global roots, which form one authority group: a
+ * trimmed-identical shared-root file collapses against the harness-home file.
+ * Within one group the earliest candidate in discovery order is kept and its
  * original bytes are rendered. A candidate that symlinks a sibling resolves to
  * the same content and collapses here like any byte-identical real file.
  * @param files - loaded files in discovery order.
@@ -369,7 +382,7 @@ export function dedupInstructionFilesByDirectory(files: LoadedInstructionFile[])
   const keptDigestsByDir = new Map<string, Set<string>>()
   const kept: LoadedInstructionFile[] = []
   for (const file of files) {
-    const dir = dirname(file.displayPath)
+    const dir = instructionDedupGroup(scopeForDisplayPath(file.displayPath))
     let digests = keptDigestsByDir.get(dir)
     if (digests === undefined) {
       digests = new Set()
@@ -467,7 +480,9 @@ export async function probeScopeInstruction(
   const { directory, candidateName } = decodeScopeKey(scope)
   const dir = directory === USER_GLOBAL_DIRECTORY
     ? resolved.dshHome
-    : directory === '.' ? projectRoot : join(projectRoot, directory)
+    : directory === AGENTS_GLOBAL_DIRECTORY
+      ? resolved.agentsHome
+      : directory === '.' ? projectRoot : join(projectRoot, directory)
   const absolutePath = join(dir, candidateName)
   // resolve() follows a final-component symlink; stat then classifies the target.
   // A non-file target (missing, or a link to a directory) is a confirmed absence;
@@ -484,7 +499,11 @@ export async function probeScopeInstruction(
   if (info?.type !== 'file') return { kind: 'absent' }
   const file: ProbedInstructionFile = {
     absolutePath,
-    displayPath: directory === USER_GLOBAL_DIRECTORY ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
+    displayPath: directory === USER_GLOBAL_DIRECTORY
+      ? userGlobalDisplayPath(resolved.dshHome)
+      : directory === AGENTS_GLOBAL_DIRECTORY
+        ? agentsGlobalDisplayPath(resolved.agentsHome)
+        : relativeDisplay(projectRoot, absolutePath),
     target,
     version: info.version,
     ...info.size === undefined ? {} : { size: info.size },
@@ -518,4 +537,8 @@ export async function readScopeInstruction(
 
 function userGlobalDisplayPath(dshHome: string): string {
   return `${dshHomeDisplay(dshHome)}/AGENTS.md`
+}
+
+function agentsGlobalDisplayPath(agentsHome: string): string {
+  return `${agentsHomeDisplay(agentsHome)}/AGENTS.md`
 }
