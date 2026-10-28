@@ -4,6 +4,8 @@ import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SessionId } from '../src/client/api.ts'
 
+type SocketItem<F> = { kind: 'frame'; envelope: { rpcId: RpcId; payload: F } } | { kind: 'end' }
+
 const sid = (id: string): SessionId => id as SessionId
 
 function frame(n: number): { kind: 'frame'; envelope: { rpcId: ReturnType<typeof RpcId>; payload: MuxFrame } } {
@@ -15,7 +17,7 @@ function frame(n: number): { kind: 'frame'; envelope: { rpcId: ReturnType<typeof
 
 describe('web-api-client socket ring', () => {
   it('delivers frames in FIFO order across slot reuse', () => {
-    const ring = new SocketRing<MuxFrame>()
+    const ring = new SocketRing<SocketItem<MuxFrame>>()
     ring.push(frame(1))
     ring.push(frame(2))
     expect(ring.length).toBe(2)
@@ -29,7 +31,7 @@ describe('web-api-client socket ring', () => {
   })
 
   it('re-linearizes when growth lands on a wrapped tail', () => {
-    const ring = new SocketRing<MuxFrame>()
+    const ring = new SocketRing<SocketItem<MuxFrame>>()
     ring.push(frame(1))
     ring.push(frame(2))
     expect(ring.take()).toEqual(frame(1))
@@ -43,7 +45,7 @@ describe('web-api-client socket ring', () => {
   })
 
   it('releases every slot once drained to empty', () => {
-    const ring = new SocketRing<MuxFrame>()
+    const ring = new SocketRing<SocketItem<MuxFrame>>()
     ring.push(frame(1))
     ring.push(frame(2))
     ring.push(frame(3))
@@ -57,7 +59,7 @@ describe('web-api-client socket ring', () => {
   })
 
   it('carries the end marker like any other frame', () => {
-    const ring = new SocketRing<MuxFrame>()
+    const ring = new SocketRing<SocketItem<MuxFrame>>()
     const end = { kind: 'end' } as const
     ring.push(end)
     expect(ring.take()).toEqual(end)

@@ -87,7 +87,8 @@ export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'
 export type {
   BrowserStreamBinding, BrowserStreamFrame,
-  EventsApi, HoldStreamFrame, MuxFrame, HostFrame, QueuedInboxItem, TerminalHoldBinding, TerminalStreamBinding,
+  EntityStreamFamily, EntityStreamOpenPayload, EventsApi, HoldStreamFrame, MuxFrame, HostFrame, QueuedInboxItem,
+  StreamsFrame, TerminalHoldBinding, TerminalStreamBinding,
   TerminalStreamFrame, ToolCallView, ToolEventView, ToolResultView,
 } from './events.ts'
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'

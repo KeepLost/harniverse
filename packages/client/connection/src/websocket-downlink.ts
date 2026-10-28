@@ -10,12 +10,12 @@ import {
 } from '@deepseek-ai/dsh-authentication'
 import WebSocket, { WebSocketServer } from 'ws'
 import type {
-  ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
+  ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest, StreamsFrame,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { CONNECTION_AUTHENTICATED_METHOD, RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { eventsMuxRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 
-type Frame = MuxFrame | HostFrame
+type Frame = MuxFrame | HostFrame | StreamsFrame
 type AcceptedAuthentication = Extract<AuthenticationDecision, { kind: 'accepted' }>
 
 /** Minimal upstream socket face used by the SSH remote-host provider. */
@@ -185,6 +185,30 @@ export class WebSocketDownlinks {
     this.upgrade(req, socket, head, signal => this.api.events.host({
       rpcId: RpcId(randomUUID()),
       payload: {},
+      principal: admission.principal,
+    }, signal), admission)
+  }
+
+  /**
+   * Upgrade one entity-stream downlink and pump its substreams until either
+   * side closes. The `page` query token is required — it is the binding
+   * `events.streams.open` subscriptions address.
+   * @param req - HTTP upgrade request.
+   * @param socket - Raw socket transferred by the HTTP server.
+   * @param head - Bytes already read after the upgrade headers.
+   * @param admission - accepted principal and optional revocable credential.
+   */
+  handleStreams(req: IncomingMessage, socket: Duplex, head: Buffer, admission: AcceptedAuthentication): void {
+    const url = new URL(req.url ?? '/', 'http://dsh.internal')
+    const pages = url.searchParams.getAll('page')
+    const page = pages[0]
+    if (pages.length !== 1 || page === undefined || !/^[\w-]{1,128}$/u.test(page)) {
+      rejectBadRequest(socket)
+      return
+    }
+    this.upgrade(req, socket, head, signal => this.api.events.streams({
+      rpcId: RpcId(randomUUID()),
+      payload: { page },
       principal: admission.principal,
     }, signal), admission)
   }

@@ -90,7 +90,7 @@ import {
 } from '../api/subagents.schema.ts'
 import {
   eventsAdoptRequestSchema, eventsBrowserRequestSchema, eventsHoldRequestSchema, eventsMuxRequestSchema,
-  eventsTerminalRequestSchema,
+  eventsStreamsCloseRequestSchema, eventsStreamsOpenRequestSchema, eventsTerminalRequestSchema,
 } from '../api/events.schema.ts'
 import type { BrowserStreamFrame, HoldStreamFrame, TerminalStreamFrame } from '../api/events.ts'
 import { apiDescribeRequestSchema } from '../api/contract.schema.ts'
@@ -216,6 +216,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'llm.modelProfiles': { schema: llmModelProfilesRequestSchema, invoke: (api, r) => api.llm.modelProfiles(r) },
   'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
   'events.adopt': { schema: eventsAdoptRequestSchema, invoke: (api, r) => api.events.adopt(r) },
+  'events.streams.open': { schema: eventsStreamsOpenRequestSchema, invoke: (api, r) => api.events.streamsOpen(r) },
+  'events.streams.close': { schema: eventsStreamsCloseRequestSchema, invoke: (api, r) => api.events.streamsClose(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */

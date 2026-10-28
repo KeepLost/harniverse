@@ -12,3 +12,6 @@ export const MUX_EVENTS_PATH = `${API_PATH}/events.mux`
 
 /** Browser host-frame WebSocket pathname. */
 export const HOST_EVENTS_PATH = `${API_PATH}/events.host`
+
+/** Browser entity-stream downlink pathname (per-entity streams multiplex as substreams). */
+export const STREAMS_EVENTS_PATH = `${API_PATH}/events.streams`

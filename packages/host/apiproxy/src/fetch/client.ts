@@ -91,7 +91,9 @@ import { operationGetValueSchema } from '../api/operations.schema.ts'
 import { jobsFollowValueSchema, jobsKillValueSchema } from '../api/jobs.schema.ts'
 import { speechPrepareValueSchema, speechTranscribeValueSchema } from '../api/speech.schema.ts'
 import { globalRulesReadValueSchema, globalRulesWriteValueSchema } from '../api/global-rules.schema.ts'
-import { eventsAdoptValueSchema } from '../api/events.schema.ts'
+import {
+  eventsAdoptValueSchema, eventsStreamsCloseValueSchema, eventsStreamsOpenValueSchema,
+} from '../api/events.schema.ts'
 import {
   workspaceFilesListValueSchema, workspaceFilesReadBinaryValueSchema,
   workspaceFilesReadValueSchema, workspaceFilesSearchValueSchema,
@@ -335,6 +337,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'llm.modelProfiles': llmModelProfilesValueSchema,
   'llm.discoverModels': llmDiscoverModelsValueSchema,
   'events.adopt': eventsAdoptValueSchema,
+  'events.streams.open': eventsStreamsOpenValueSchema,
+  'events.streams.close': eventsStreamsCloseValueSchema,
 }
 
 /** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -556,6 +560,7 @@ export abstract class AbstractApiClient implements IApiClient {
   ): AsyncGenerator<RpcRequest<F>> {
     const response = await this.doFetch(new URL(path, this.resolveBase()), { signal })
     if (!response.ok || response.body === null) throw new Error(`transport failure for ${path}: HTTP ${response.status}`)
+    this.onLongLivedStreamOpen(path)
     onOpen?.()
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -589,9 +594,16 @@ export abstract class AbstractApiClient implements IApiClient {
         }
       }
     } finally {
+      this.onLongLivedStreamEnd(path)
       await reader.cancel().catch(() => undefined)
     }
   }
+
+  /** Carrier hook: one long-lived SSE stream opened (subclass connection-budget instrumentation). */
+  protected onLongLivedStreamOpen(_path: string): void {}
+
+  /** Carrier hook: one long-lived SSE stream ended. */
+  protected onLongLivedStreamEnd(_path: string): void {}
 
   // ---- IApiClient API (arrow properties so destructured/passed references stay bound) ----
 

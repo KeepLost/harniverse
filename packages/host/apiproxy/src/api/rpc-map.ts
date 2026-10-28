@@ -113,6 +113,8 @@ export interface RpcMethodMap {
   'llm.modelProfiles': LlmApi['modelProfiles']
   'llm.discoverModels': LlmApi['discoverModels']
   'events.adopt': EventsApi['adopt']
+  'events.streams.open': EventsApi['streamsOpen']
+  'events.streams.close': EventsApi['streamsClose']
 }
 
 /** Required effect capability for every legacy unary endpoint. */
@@ -198,6 +200,8 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'llm.modelProfiles': 'harniverse.observe',
   'llm.discoverModels': 'harniverse.administer',
   'events.adopt': 'harniverse.observe',
+  'events.streams.open': 'harniverse.observe',
+  'events.streams.close': 'harniverse.observe',
 }
 
 /** Whether each unary method mutates Host or durable application state. */
@@ -283,6 +287,8 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'llm.modelProfiles': 'read',
   'llm.discoverModels': 'mutate',
   'events.adopt': 'read',
+  'events.streams.open': 'read',
+  'events.streams.close': 'read',
 }
 
 /**
@@ -294,6 +300,7 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
 export const CARRIER_ENDPOINT_CAPABILITIES: Readonly<Record<string, AuthenticationCapability>> = {
   'events.mux': 'harniverse.observe',
   'events.host': 'harniverse.observe',
+  'events.streams': 'harniverse.observe',
   'events.terminal': 'harniverse.observe',
   'events.hold': 'harniverse.observe',
   'events.browser': 'harniverse.observe',

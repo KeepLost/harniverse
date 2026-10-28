@@ -17,7 +17,7 @@ W14 最初把浏览器面板做成用户自己浏览器里的沙箱 `<iframe>`�
 
 面板改为运行在 harness 旁的真实浏览器进程的远程视图，页面由宿主拥有。
 
-新增的 `packages/api/browser-controller` 镜像 `terminal-controller` 的生命周期模型：`browser` 命名空间下的 `TypertRemoteService`、按 Session 拥有、调用方铸造标识、幂等 create、`maxPages` 上界、能力把关的动词（`environment`/`list` 为 observe；`create`/`navigate`/`act`/`input`/`resize`/`close` 为 operate），以及被 apiproxy 包装为 `events.browser` SSE 流的非 `@Remote` `follow()` 生成器。一个 Session 最多启动一个 Chromium 并记忆化：第一个页面拉起它，最后一个页面释放时关停它。
+新增的 `packages/api/browser-controller` 镜像 `terminal-controller` 的生命周期模型：`browser` 命名空间下的 `TypertRemoteService`、按 Session 拥有、调用方铸造标识、幂等 create、`maxPages` 上界、能力把关的动词（`environment`/`list` 为 observe；`create`/`navigate`/`act`/`input`/`resize`/`close` 为 operate），以及被 apiproxy 包装为 `events.browser` SSE 流的非 `@Remote` `follow()` 生成器（网络上该家族乘 [`events.streams` 子流下行](2026-10-28-entity-stream-downlink-channel.md)，同一生产者；SSE 路由保留为进程内载体）。一个 Session 最多启动一个 Chromium 并记忆化：第一个页面拉起它，最后一个页面释放时关停它。
 
 控制通过 Node 全局 `WebSocket` 走 CDP，因此该能力不引入新依赖。像素来自 `Page.startScreencast` 的 JPEG 帧，输入以页面空间坐标经 `Input.dispatch*` 回传，因此宿主永不看到客户端的元素几何。历史使用 `Page.getNavigationHistory` 加 `navigateToHistoryEntry`，因为协议暴露的是条目而非 back/forward。
 

@@ -115,6 +115,7 @@
     "tests/pwsh-terminal.e2e.ts",
     "tests/browser-panel.e2e.ts",
     "tests/terminal-panel.e2e.ts",
+    "tests/stream-connection-budget.e2e.ts",
     "tests/workflow-run.e2e.ts"
   ],
   "references": [

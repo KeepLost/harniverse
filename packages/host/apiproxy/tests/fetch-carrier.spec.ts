@@ -366,6 +366,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       host: (_request, signal) => stream(hostFrames, signal),
       terminal: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').TerminalStreamFrame>>,
       hold: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').HoldStreamFrame>>,
+      streams: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').StreamsFrame>>,
+      streamsOpen: async request => ({ rpcId: request.rpcId, result: { ok: true, value: { sub: 'sub-1' } } }),
+      streamsClose: async request => ({ rpcId: request.rpcId, result: { ok: true, value: {} } }),
       browser: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').BrowserStreamFrame>>,
     },
     async respond(message: ClientResponse): Promise<RpcReceipt> {
@@ -965,6 +968,11 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       browser: () => {
         return (async function *() { /* no frames */ })()
       },
+      streams: () => {
+        return (async function *() { /* no frames */ })()
+      },
+      streamsOpen: async request => ({ rpcId: request.rpcId, result: { ok: true, value: { sub: 'sub-1' } } }),
+      streamsClose: async request => ({ rpcId: request.rpcId, result: { ok: true, value: {} } }),
     }
     const handler = toFetchHandler(api, principal)
 

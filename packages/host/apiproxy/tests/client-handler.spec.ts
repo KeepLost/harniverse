@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, BrowserStreamFrame, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, TerminalStreamFrame, WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy, BrowserStreamFrame, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, StreamsFrame, TerminalStreamFrame, WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-host-apiproxy'
 import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-host-apiproxy'
 import { ALL_AUTHENTICATION_CAPABILITIES } from '@deepseek-ai/dsh-authentication'
 import type { TerminalAttachmentId, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
@@ -196,6 +196,9 @@ function scriptedApi(overrides: {
       terminal: () => empty<TerminalStreamFrame>(),
       hold: () => empty<HoldStreamFrame>(),
       browser: () => empty<BrowserStreamFrame>(),
+      streams: () => empty<StreamsFrame>(),
+      streamsOpen: r => ok(r, { sub: 'sub-1' }),
+      streamsClose: r => ok(r, {}),
       ...overrides.events,
     },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),

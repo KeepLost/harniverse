@@ -487,6 +487,18 @@
       "requiredCapability": "harniverse.observe",
       "effect": "read",
       "stability": "stable"
+    },
+    {
+      "method": "events.streams.open",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "events.streams.close",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
     }
   ],
   "carrier": [
@@ -504,6 +516,12 @@
     },
     {
       "endpoint": "events.host",
+      "kind": "stream",
+      "method": "POST",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
+      "endpoint": "events.streams",
       "kind": "stream",
       "method": "POST",
       "requiredCapability": "harniverse.observe"
@@ -579,6 +597,8 @@
     "workspace-git-failed",
     "workspace-watch-unsupported",
     "workspace-watch-limit-reached",
+    "stream-channel-absent",
+    "stream-sub-limit-reached",
     "directory-unreadable",
     "directory-exists",
     "directory-create-failed",
