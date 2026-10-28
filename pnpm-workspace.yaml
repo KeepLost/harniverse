@@ -36,11 +36,14 @@ overrides:
   # mcp-client and ssh plus transitive consumers — pin every resolution.
   '@modelcontextprotocol/sdk': '1.32.0'
   # GHSA-698v-4r3x-3vcv / GHSA-587h-7wmj-h5pm / GHSA-r825-w8mm-5pxw
-  # (CVE-2026-112943/112942/112944) plus the 8.3.0–8.3.2 launch-editor and
-  # dev-server advisories: only the vitest chain resolves the 8 line (apps
-  # and the website pin vite 6; rolldown's CSS sheet order breaks the
-  # scrollbar-theme e2e cascade assertions), so scope the pin to it.
-  'vite@8': '8.3.5'
+  # (CVE-2026-112943/112942/112944): vite 8.0.0–8.1.5 — dev-server fs
+  # exposure and request-smuggling in proxy mode; only the vitest chain
+  # resolves the 8 line (apps and the website pin vite 6 — rolldown CSS
+  # sheet order breaks the scrollbar-theme e2e cascade assertions), so
+  # scope the pin to it. Stay on 8.1.6: it predates the vulnerable
+  # 8.3.0–8.3.2 launch-editor range, and moving the measurement chain
+  # shifted v8 coverage attribution off inline boolean callbacks.
+  'vite@8': '8.1.6'
   'brace-expansion@2': '2.1.7'
   'brace-expansion@5': '5.0.12'
   # GHSA-27r3-jxmh-p828: body-parser < 2.4.0 — DoS via trailing bytes after
