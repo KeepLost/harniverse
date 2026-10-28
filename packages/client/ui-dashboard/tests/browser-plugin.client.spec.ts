@@ -116,7 +116,10 @@ describe('ui-dashboard browser half', () => {
 
   it('serves the tab ledger with thunk, string, and absent labels', async () => {
     const { ctx, captured } = await bench()
-    // Extra entries through the real registry: a string label and an absent one.
+    // Extra entries through the real registry: a thunk label, a string label, and an absent one.
+    ctx.slots.register({
+      name: 'dashboard.center.tab', id: 'thunk-labelled', order: 20, locale: NS, label: () => 'Thunk label',
+    } as never, () => null)
     ctx.slots.register({
       name: 'dashboard.center.tab', id: 'string-labelled', order: 30, locale: NS, label: 'Fixed label',
     } as never, () => null)
@@ -132,6 +135,7 @@ describe('ui-dashboard browser half', () => {
     void closeView
     const descriptors = tabs.list()
     const byId = new Map(descriptors.map(d => [d.id, d.label]))
+    expect(byId.get('thunk-labelled')).toBe('Thunk label')
     expect(byId.get('string-labelled')).toBe('Fixed label')
     expect(byId.get('unlabelled')).toBe('unlabelled')
     const before = tabs.version()

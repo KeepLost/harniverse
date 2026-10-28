@@ -102,6 +102,7 @@ describe('ui-governor browser half', () => {
     const { ctx, captured } = await bench()
     const resources = captured.find(({ options }) => options['id'] === 'resources')
     expect(resources).toBeDefined()
+    expect((resources!.options['label'] as () => string)()).toBe(zh['tab.resources'])
     const injectFace = resources!.options['inject'] as () => {
       overview: () => Promise<unknown>
       adjustQuota: (sessionId: string, memoryBytes: number | null) => Promise<unknown>

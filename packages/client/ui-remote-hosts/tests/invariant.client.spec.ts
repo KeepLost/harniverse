@@ -23,7 +23,7 @@ describe('invariant companion', () => {
 describe('client composition', () => {
   it('registers the dashboard tab and machine faces with live remote actions', async () => {
     const factories: Array<() => unknown> = []
-    const registrations: Array<{ config: { inject?: () => unknown } }> = []
+    const registrations: Array<{ config: { inject?: () => unknown }; label?: () => string }> = []
     type Roster =
       | { ok: true; value: Array<{ id: string; name: string }> }
       | { ok: false; error: { code: string; message: string; details: Record<string, never> } }
@@ -49,12 +49,17 @@ describe('client composition', () => {
       remote: { remoteHosts },
       slots: {
         inject: (_name: string, factory: () => unknown) => { factories.push(factory) },
-        register: (config: { inject?: () => unknown }) => { registrations.push({ config }); return () => {} },
+        register: (config: { inject?: () => unknown; label?: () => string }) => {
+          registrations.push(config.label === undefined ? { config } : { config, label: config.label })
+          return () => {}
+        },
       },
     } as never
     applyClient(ctx)
     for (const factory of factories) factory()
     expect(registrations).toHaveLength(2)
+    // The stub bind renders <ns>:<key>, so the tab label asserts the thunk wiring.
+    expect((registrations[0] as { label?: () => string }).label!()).toBe('remoteHosts:nav')
     const tab = registrations[0]!.config.inject!() as Record<string, (...args: unknown[]) => unknown>
     await tab.list!()
     await tab.upsert!({ name: 'host' })

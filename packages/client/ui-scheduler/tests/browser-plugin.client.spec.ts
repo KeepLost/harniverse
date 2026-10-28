@@ -147,6 +147,7 @@ describe('ui-scheduler browser half', () => {
     const { ctx, captured } = await bench()
     const registration = captured.find(({ options }) => options['id'] === 'schedules')
     expect(registration).toBeDefined()
+    expect((registration!.options['label'] as () => string)()).toBe(zh['view.nav'])
     const inject = registration!.options['inject'] as () => {
       listAll: () => Promise<unknown>
       runsOf: (id: string) => Promise<unknown>

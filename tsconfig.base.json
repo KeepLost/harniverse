@@ -301,6 +301,7 @@
       "@deepseek-ai/dsh-client-ui-settings-plugins": ["./packages/client/ui-settings-plugins/src"],
       "@deepseek-ai/dsh-client-ui-jobs": ["./packages/client/ui-jobs/src"],
       "@deepseek-ai/dsh-client-ui-voice-input": ["./packages/client/ui-voice-input/src"],
+      "@deepseek-ai/dsh-client-ui-dashboard": ["./packages/client/ui-dashboard/src"],
       "@deepseek-ai/dsh-client-ui-scheduler": ["./packages/client/ui-scheduler/src"],
       "@deepseek-ai/dsh-client-ui-governor": ["./packages/client/ui-governor/src"],
       "@deepseek-ai/dsh-client-ui-browser": ["./packages/client/ui-browser/src"],
