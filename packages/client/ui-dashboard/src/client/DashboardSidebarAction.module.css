@@ -1,11 +1,9 @@
-/* Sidebar footer trigger for the schedules management view.
+/* Sidebar footer trigger for the dashboard.
  *
- * The box mirrors the Settings trigger it stacks above (ui-settings-general
- * SettingsRoot.module.css `.trigger`): same 34px compact row, same left-aligned
- * content, same -4px side bleed so the hover fill reaches the column inset, and
- * the same 36px circle on the rail. Two adjacent footer rows drawn to different
- * geometry read as two unrelated controls — this one was centered while
- * Settings was left-aligned. */
+ * The box mirrors the sibling footer triggers (ui-cordis panel trigger):
+ * same 34px compact row, same left-aligned content, same -4px side bleed so
+ * the hover fill reaches the column inset, and the same 36px circle on the
+ * rail. */
 
 .row,
 .rail {

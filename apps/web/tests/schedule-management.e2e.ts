@@ -53,9 +53,9 @@ describe('web e2e: scheduled-task management view', () => {
     expect(tripwire.pageErrors).toEqual([])
   })
 
-  it('opens the management view from the sidebar footer above Settings and back', async () => {
+  it('opens the dashboard from the sidebar footer above Settings and back', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-open'))
-    const trigger = page.getByRole('button', { name: '打开定时任务' })
+    const trigger = page.getByRole('button', { name: '打开仪表盘' })
     await trigger.waitFor({ timeout: 10_000 })
     // The footer stacks the trigger above the Settings entry.
     const settings = page.getByRole('button', { name: '设置', exact: true })
@@ -63,24 +63,26 @@ describe('web e2e: scheduled-task management view', () => {
     expect(await trigger.getAttribute('aria-pressed')).toBe('false')
 
     await trigger.click()
-    const view = page.getByRole('region', { name: '定时任务' })
-    await view.waitFor({ timeout: 10_000 })
+    const dashboard = page.getByRole('region', { name: '仪表盘' })
+    await dashboard.waitFor({ timeout: 10_000 })
     expect(await trigger.getAttribute('aria-pressed')).toBe('true')
-    // Blank boot: every schedule table is empty.
-    await view.getByText('还没有任何定时任务。').waitFor({ timeout: 10_000 })
+    // The schedules tab leads the ring; blank boot: every schedule table is empty.
+    expect(await dashboard.getByRole('tab', { name: '定时任务' }).getAttribute('aria-selected')).toBe('true')
+    await dashboard.getByText('还没有任何定时任务。').waitFor({ timeout: 10_000 })
 
     // The exit returns to the conversation and releases the trigger.
-    await view.getByRole('button', { name: '返回会话' }).click()
-    await page.getByRole('region', { name: '定时任务' }).waitFor({ state: 'hidden', timeout: 10_000 })
+    await dashboard.getByRole('button', { name: '返回会话' }).click()
+    await page.getByRole('region', { name: '仪表盘' }).waitFor({ state: 'hidden', timeout: 10_000 })
     expect(await trigger.getAttribute('aria-pressed')).toBe('false')
   })
 
   it('creates a schedule through the drawer and exercises the row verbs', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-crud'))
-    const trigger = page.getByRole('button', { name: '打开定时任务' })
+    const trigger = page.getByRole('button', { name: '打开仪表盘' })
     await trigger.click()
-    const view = page.getByRole('region', { name: '定时任务' })
-    await view.waitFor({ timeout: 10_000 })
+    const dashboard = page.getByRole('region', { name: '仪表盘' })
+    await dashboard.waitFor({ timeout: 10_000 })
+    const view = dashboard
     await view.getByText('还没有任何定时任务。').waitFor({ timeout: 10_000 })
 
     // Create: prompt + a 30-minute one-shot delay bound to this session —
@@ -130,6 +132,6 @@ describe('web e2e: scheduled-task management view', () => {
     await row.getByRole('button', { name: '删除' }).click()
     await view.getByText('还没有任何定时任务。').waitFor({ timeout: 10_000 })
     await view.getByRole('button', { name: '返回会话' }).click()
-    await page.getByRole('region', { name: '定时任务' }).waitFor({ state: 'hidden', timeout: 10_000 })
+    await page.getByRole('region', { name: '仪表盘' }).waitFor({ state: 'hidden', timeout: 10_000 })
   })
 })

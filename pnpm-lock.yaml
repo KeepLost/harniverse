@@ -2037,6 +2037,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-cordis':
         specifier: workspace:^
         version: link:../../extensions/ui-cordis
+      '@deepseek-ai/dsh-client-ui-dashboard':
+        specifier: workspace:^
+        version: link:../../client/ui-dashboard
       '@deepseek-ai/dsh-client-ui-deliverables':
         specifier: workspace:^
         version: link:../../client/ui-deliverables
@@ -3090,6 +3093,42 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1
 
+  packages/client/ui-dashboard:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../locale
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-test-runtime':
+        specifier: workspace:^
+        version: link:../../test-support/client-runtime
+      '@deepseek-ai/dsh-client-ui-layout':
+        specifier: workspace:^
+        version: link:../ui-layout
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../ui-primitives
+      '@deepseek-ai/dsh-client-ui-sidebar':
+        specifier: workspace:^
+        version: link:../ui-sidebar
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+
   packages/client/ui-deliverables:
     dependencies:
       react:
@@ -3275,18 +3314,15 @@ importers:
       '@deepseek-ai/dsh-client-test-runtime':
         specifier: workspace:^
         version: link:../../test-support/client-runtime
-      '@deepseek-ai/dsh-client-ui-layout':
+      '@deepseek-ai/dsh-client-ui-dashboard':
         specifier: workspace:^
-        version: link:../ui-layout
+        version: link:../ui-dashboard
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: workspace:^
         version: link:../ui-primitives
       '@deepseek-ai/dsh-client-ui-settings':
         specifier: workspace:^
         version: link:../ui-settings
-      '@deepseek-ai/dsh-client-ui-sidebar':
-        specifier: workspace:^
-        version: link:../ui-sidebar
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -3680,9 +3716,9 @@ importers:
       '@deepseek-ai/dsh-client-test-runtime':
         specifier: workspace:^
         version: link:../../test-support/client-runtime
-      '@deepseek-ai/dsh-client-ui-governor':
+      '@deepseek-ai/dsh-client-ui-dashboard':
         specifier: workspace:^
-        version: link:../ui-governor
+        version: link:../ui-dashboard
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -3747,15 +3783,15 @@ importers:
       '@deepseek-ai/dsh-client-test-runtime':
         specifier: workspace:^
         version: link:../../test-support/client-runtime
+      '@deepseek-ai/dsh-client-ui-dashboard':
+        specifier: workspace:^
+        version: link:../ui-dashboard
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../ui-layout
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: workspace:^
         version: link:../ui-primitives
-      '@deepseek-ai/dsh-client-ui-sidebar':
-        specifier: workspace:^
-        version: link:../ui-sidebar
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -3799,15 +3835,12 @@ importers:
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../ui-conversation
-      '@deepseek-ai/dsh-client-ui-layout':
+      '@deepseek-ai/dsh-client-ui-dashboard':
         specifier: workspace:^
-        version: link:../ui-layout
+        version: link:../ui-dashboard
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: workspace:^
         version: link:../ui-primitives
-      '@deepseek-ai/dsh-client-ui-sidebar':
-        specifier: workspace:^
-        version: link:../ui-sidebar
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots

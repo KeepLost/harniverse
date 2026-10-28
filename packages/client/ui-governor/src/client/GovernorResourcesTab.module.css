@@ -1,48 +1,10 @@
-/** Panel (会话看板) center view: a header over an in-page tab ring, each tab
- * rendering one governor.center.tab contribution (resources first). */
-
-.view {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  padding: 20px 24px;
-  overflow: auto;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.headerMain {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary);
-}
+/** Local resources tab of the dashboard: enforcement-tier line, budget
+ * bar, host sentinels, and the sessions-as-processes table. */
 
 .tier {
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
-}
-
-.headerActions {
-  display: flex;
-  gap: 8px;
-  flex: none;
 }
 
 .button {
@@ -165,46 +127,6 @@
   font-size: 12px;
   background: var(--dsw-alias-state-error-primary);
   color: var(--dsw-alias-label-primary-foreground);
-}
-
-/* In-page tab ring, mirroring the session header tabs: 35px strip, 13/16
- * text, bottom-aligned 2px indicator in the business blue. */
-.tabs {
-  display: flex;
-  gap: 36px;
-  padding: 0 0 0 8px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-
-.tab {
-  position: relative;
-  padding: 0 0 11px;
-  border: none;
-  background: transparent;
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.tab::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 1px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
-}
-
-.tabActive {
-  color: var(--dsw-alias-state-business-primary);
-}
-
-.tabActive::after {
-  background: var(--dsw-alias-state-business-primary);
 }
 
 /* One tab's surface: the shell gap rhythm continues inside the tab body. */

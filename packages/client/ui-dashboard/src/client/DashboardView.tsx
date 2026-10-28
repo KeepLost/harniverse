@@ -1,46 +1,46 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { createGovernorViewStore } from './stores.ts'
+import type { createDashboardViewStore } from './stores.ts'
 import { NS } from './locales.ts'
-import css from './GovernorCenterView.module.css'
+import css from './DashboardView.module.css'
 
 /** Injected business face of the shell (view dismissal plus the tab ledger). */
-export interface GovernorCenterActions {
+export interface DashboardCenterActions {
   closeView: () => void
-  /** Tab descriptors resolved from the `governor.center.tab` slot registry. */
-  tabs: GovernorTabsSource
+  /** Tab descriptors resolved from the `dashboard.center.tab` slot registry. */
+  tabs: DashboardTabsSource
 }
 
 /** One in-page tab descriptor: entry id plus its resolved label. */
-export interface GovernorTabDescriptor {
+export interface DashboardTabDescriptor {
   id: string
   label: string
 }
 
 /** The entries face the apply world derives from the tab slot registry. */
-export interface GovernorTabsSource {
-  list: () => readonly GovernorTabDescriptor[]
+export interface DashboardTabsSource {
+  list: () => readonly DashboardTabDescriptor[]
   subscribe: (fn: () => void) => () => void
   version: () => number
 }
 
-/** Full props composed by the center-view slot. */
-export type GovernorCenterViewProps =
+/** Full props composed by the dashboard center-view slot. */
+export type DashboardViewProps =
   PropsRuntime<'center.view'>
-  & PropsStore<ReturnType<typeof createGovernorViewStore>>
-  & InjectFace<GovernorCenterActions>
-  & PropsRenderSlots<'governor.center.tab'>
+  & PropsStore<ReturnType<typeof createDashboardViewStore>>
+  & InjectFace<DashboardCenterActions>
+  & PropsRenderSlots<'dashboard.center.tab'>
   & PropsLocale<typeof NS>
 
 /**
- * The panel shell (会话看板): title and dismissal, the in-page tab ring over
- * the `governor.center.tab` contributions, and the active tab's surface.
- * With a single contribution the tab ring stays hidden and the view reads as
- * the plain resources board it used to be.
+ * The dashboard panel shell (仪表盘): title and dismissal, the in-page tab
+ * ring over the `dashboard.center.tab` contributions, and the active tab's
+ * surface. With a single contribution the tab ring stays hidden and the view
+ * reads as the plain surface it hosts.
  * @param props - center slot currency, the shared store, the tabs ledger, the child renderer, and the translator.
  * @returns the panel shell.
  */
-export function GovernorCenterView({ actions, closeView, tabs, useStore, renderSlot, t }: GovernorCenterViewProps) {
+export function DashboardView({ actions, closeView, tabs, useStore, renderSlot, t }: DashboardViewProps) {
   useEffect(() => { actions.setOpen(true); return () => { actions.setOpen(false) } }, [actions])
   useSyncExternalStore(tabs.subscribe, tabs.version)
   const tab = useStore(state => state.tab)
@@ -70,7 +70,7 @@ export function GovernorCenterView({ actions, closeView, tabs, useStore, renderS
           ))}
         </div>
       ) : null}
-      {active !== undefined ? renderSlot('governor.center.tab', {}, { only: active.id }) : null}
+      {active !== undefined ? renderSlot('dashboard.center.tab', {}, { only: active.id }) : null}
     </section>
   )
 }

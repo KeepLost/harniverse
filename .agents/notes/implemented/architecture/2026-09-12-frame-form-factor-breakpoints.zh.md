@@ -33,7 +33,7 @@ Status: implemented
 - **输入栏行**（[ui-conversation](../../../../packages/client/ui-conversation/src/client/skeleton/InputBar.module.css)）——尾部一组在碰撞之前先让出宽度，到最窄档时整行折成两行。用的是容器查询而非框架属性：该行响应的是它所在的列。
 - **统计行**——换行而不再截断，并采用手机档更窄的输入栏侧留白。
 - **设置面板**（[ui-settings-general](../../../../packages/client/ui-settings-general/src/client/SettingsRoot.module.css)）——变成整屏铺满的 sheet，导航导轨变成横向标签条，关闭控件锚在 sheet 角上。贡献行（外观、字号、语言、权限）占满内容列。
-- **定时任务表格**（[ui-scheduler](../../../../packages/client/ui-scheduler/src/client/ScheduleCenterView.module.css)）——每一行变成一张标签/值配对的卡片。表头文字通过 `data-label` 移进各单元格，因此 DOM 仍是一张表，桌面网格不受影响。
+- **定时任务表格**（[ui-scheduler](../../../../packages/client/ui-scheduler/src/client/ScheduleTab.module.css)）——每一行变成一张标签/值配对的卡片。表头文字通过 `data-label` 移进各单元格，因此 DOM 仍是一张表，桌面网格不受影响。
 
 ## 备选方案
 

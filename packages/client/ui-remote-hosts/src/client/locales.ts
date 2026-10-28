@@ -2,7 +2,7 @@
 
 /** English labels for the remote-host management surface. */
 export const en = {
-  nav: 'Remote hosts', open: 'Open remote hosts', title: 'Remote hosts',
+  nav: 'Remote hosts', title: 'Remote hosts',
   summary: '{count} connected',
   refresh: 'Refresh', add: 'Add host', addTitle: 'Add remote host', close: 'Close',
   connect: 'Connect', openRemote: 'Open workspace',
@@ -54,7 +54,7 @@ export const en = {
 
 /** Simplified Chinese labels for the remote-host management surface. */
 export const zh = {
-  nav: '远程主机', open: '打开远程主机', title: '远程主机',
+  nav: '远程主机', title: '远程主机',
   summary: '已连接 {count} 台',
   refresh: '刷新', add: '添加主机', addTitle: '添加远程主机', close: '关闭',
   connect: '连接', openRemote: '打开工作区',

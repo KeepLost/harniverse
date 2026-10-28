@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-会话看板（Panel），浏览器半：一个侧栏底部触发器占用中心列，壳层自带页内选项卡环（`governor.center.tab` 槽位贡献；仅一个贡献时不显示选项卡）。「资源」选项卡呈现「会话即进程」总览——每会话 CPU tick、对照有效限额的内存热条、活动命令数、违约徽标、内联内存配额协商（MiB）、执法档位徽标、全局预算条，以及宿主磁盘/网络哨兵。数据经生成的 `governor` Remote（`ctx.remote.governor`）按采样节奏轮询，因此页面构造上就是脚本使用的同一 HTTP API 面。节点半不注册宿主行为；宿主服务位于 `@deepseek-ai/dsh-governor`。
+资源治理界面，浏览器半：仪表盘的「本机资源」选项卡（`dashboard.center.tab`）呈现「会话即进程」总览——每会话 CPU tick、对照有效限额的内存热条、活动命令数、违约徽标、内联内存配额协商（MiB）、执法档位徽标、全局预算条，以及宿主磁盘/网络哨兵。数据经生成的 `governor` Remote（`ctx.remote.governor`）按采样节奏轮询，因此页面构造上就是脚本使用的同一 HTTP API 面。节点半不注册宿主行为；宿主服务位于 `@deepseek-ai/dsh-governor`。
 
 ## Composition
 
@@ -15,7 +15,7 @@
   name: '@deepseek-ai/dsh-client-ui-governor'
 ```
 
-看板注册 `sidebar.footer.action`（触发器）与 `center.view`（看板），共享一个查看 store 支撑按压态；配额编辑调用 `sessionQuotaAdjust`（宿主侧 `harniverse.operate` 门控）。一个 `settings.section` 注册（id `governor`，排在 Plugins 页之后——运行时治理随宿主配置而来）构成「资源治理」设置页。
+选项卡注册 `dashboard.center.tab`（id `resources`，排在远程主机选项卡之后）；配额编辑调用 `sessionQuotaAdjust`（宿主侧 `harniverse.operate` 门控）。一个 `settings.section` 注册（id `governor`，排在 Plugins 页之后——运行时治理随宿主配置而来）构成「资源治理」设置页。
 
 设置页承载全局配额：全局内存预算——自动（宿主侧解析为物理内存与自身 cgroup 上限中较小者的 80%）或自定义 GiB 数值。写入经客户端 settings 作用域（`ctx.settingsScope.bind({ namespace: 'governor' })`）通过 `settings.mutate` 落入 `governor:` settings 节，由设置域的 `harniverse.administer` 门授权；无该能力的身份看到只读表单。宿主服务的 settings 钩子在变更时热重解析并重应用预算，无需重启。表单旁显示的生效预算经 `configGet` 回读——解析归宿主，页面从不禁自算。会话级配额默认继承全局预算，始终是按会话的决定（agent 的 `resource-quota` 工具或看板内联协商），绝不进 preset 字段；CPU、磁盘、网络按设计仅观测，cgroup 档将交换预算钉在 0，rlimit 档不做交换限制。
 

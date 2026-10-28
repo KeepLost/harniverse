@@ -23,7 +23,7 @@ async function bench(): Promise<{
   ctx.slots.register({
     name: 'root',
     children: {
-      'governor.center.tab': { kind: 'list', scope: 'global' },
+      'dashboard.center.tab': { kind: 'list', scope: 'global' },
     },
   } as never, () => null)
   const remoteCalls: unknown[][] = []
@@ -77,19 +77,19 @@ describe('ui-queue browser half', () => {
     expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.queue'])
   })
 
-  it('registers the panel tab, and fiber teardown removes it (HMR safety)', async () => {
+  it('registers the dashboard tab, and fiber teardown removes it (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
 
-    expect(ctx.slots.entries('governor.center.tab').map(entry => entry.options.id)).toContain('queue')
+    expect(ctx.slots.entries('dashboard.center.tab').map(entry => entry.options.id)).toContain('queue')
     await fiber.dispose()
-    expect(ctx.slots.entries('governor.center.tab')).toEqual([])
+    expect(ctx.slots.entries('dashboard.center.tab')).toEqual([])
   })
 
-  it('labels the tab through its own locale and orders after resources', async () => {
+  it('labels the tab through its own locale and orders after the local-resources tab', async () => {
     const { captured } = await bench()
     const tab = captured.find(({ options }) => options['id'] === 'queue')
     expect(tab).toBeDefined()
-    expect(tab!.options['order']).toBe(20)
+    expect(tab!.options['order']).toBe(40)
     const label = tab!.options['label'] as () => string
     expect(label()).toBe('消息队列')
   })

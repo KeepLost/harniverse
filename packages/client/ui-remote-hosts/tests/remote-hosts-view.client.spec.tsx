@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ConnectivityResult, RemoteHostId, RemoteHostProgress, RemoteHostView } from '@deepseek-ai/dsh-remote-hosts/types'
-import { createRemoteHostsViewStore } from '../src/client/stores.ts'
 import { RemoteHostsView, type RemoteHostsViewProps } from '../src/client/RemoteHostsView.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -44,7 +43,6 @@ type Face = {
 }
 
 function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = []) {
-  const store = createRemoteHostsViewStore().create()
   const face: Face = {
     list: vi.fn(async () => ({ ok: true as const, value: initialHosts })),
     upsert: vi.fn(async () => ({ ok: true as const, value: host() })),
@@ -61,11 +59,7 @@ function mount(overrides: Partial<Face> = {}, initialHosts: RemoteHostView[] = [
     ...overrides,
   }
   const props = {
-    active: true,
-    useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
-    actions: store.actions,
     ...face,
-    closeView: vi.fn(),
     t,
   } as unknown as RemoteHostsViewProps
   const view = render(<RemoteHostsView {...props} />)
@@ -94,19 +88,6 @@ async function enabledKeyFileButton(): Promise<HTMLButtonElement> {
 }
 
 describe('RemoteHostsView', () => {
-  it('renders nothing while the view is inactive', () => {
-    const store = createRemoteHostsViewStore().create()
-    render(<RemoteHostsView {...({
-      active: false,
-      useStore: ((selector: (value: ReturnType<typeof store.getSnapshot>) => unknown) => selector(store.getSnapshot())) as never,
-      actions: store.actions,
-      list: vi.fn(async () => ({ ok: true as const, value: [] })), upsert: vi.fn(), verify: vi.fn(), pickKeyFile: vi.fn(),
-      connect: vi.fn(), openRemote: vi.fn(),
-      disconnect: vi.fn(), remove: vi.fn(), closeView: vi.fn(), t,
-    } as unknown as RemoteHostsViewProps)} />)
-    expect(screen.queryByRole('heading', { name: zh.title })).toBeNull()
-  })
-
   it('requires a connectivity test before saving and records the tested evidence', async () => {
     const list = vi.fn(async () => ({ ok: true as const, value: [] }))
     const upsert = vi.fn(async (input: Parameters<RemoteHostsViewProps['upsert']>[0]) => ({ ok: true as const, value: host({
@@ -547,12 +528,10 @@ describe('RemoteHostsView', () => {
 
   it('offers the remote workspace opener only after the SSH session is connected', async () => {
     const openRemote = vi.fn()
-    const { props, view } = mount({ openRemote }, [host({ state: 'connected' })])
+    mount({ openRemote }, [host({ state: 'connected' })])
     await waitFor(() => { expect(screen.getByRole('button', { name: zh.openRemote })).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: zh.openRemote }))
     expect(openRemote).toHaveBeenCalledWith(hostId)
-    fireEvent.click(view.container.querySelector('header button:last-child')!)
-    expect(props.closeView).toHaveBeenCalled()
   })
 
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-12-frame-form-factor-breakpoints.md
-2026-09-12-frame-form-factor-breakpoints.md: e9c35a097f7380b3b14e075d5c5d0177fcf91551
-2026-09-12-frame-form-factor-breakpoints.zh.md: b13ccf22b4c75078246eda3bc52d671498919d25
+2026-09-12-frame-form-factor-breakpoints.md: cf28eba1adc0a842cd0565f8dd8e45cb617a4c63
+2026-09-12-frame-form-factor-breakpoints.zh.md: 3cb7616b581e22218b64b188b3d991a3b764fa27

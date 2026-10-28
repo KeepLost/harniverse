@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-Message-queue panel tab, browser half: registers the 消息队列 tab into the panel (会话看板) center view through the `governor.center.tab` slot. The tab lists topics with live/archived counts, subscriber totals, and offset bounds; one topic opens its message history (live plus forced-archived, dimmed) with expiry clocks, the subscription relation with dormant badges for archived subscribers, and publish / subscribe / unsubscribe controls gated by the queue Remote's capabilities. Data arrives through the generated `queue` Remote (`ctx.remote.queue`) polled at the sampling cadence — the same HTTP API surface scripts and the model tools use. The node half registers no host behavior; the host service lives in `@deepseek-ai/dsh-queue`.
+Message-queue dashboard tab, browser half: registers the 消息队列 tab into the dashboard (仪表盘) center view through the `dashboard.center.tab` slot. The tab lists topics with live/archived counts, subscriber totals, and offset bounds; one topic opens its message history (live plus forced-archived, dimmed) with expiry clocks, the subscription relation with dormant badges for archived subscribers, and publish / subscribe / unsubscribe controls gated by the queue Remote's capabilities. Data arrives through the generated `queue` Remote (`ctx.remote.queue`) polled at the sampling cadence — the same HTTP API surface scripts and the model tools use. The node half registers no host behavior; the host service lives in `@deepseek-ai/dsh-queue`.
 
 ## Composition
 
-- Declares no slots of its own; contributes one `governor.center.tab` entry (id `queue`, ordered after the built-in resources tab).
+- Declares no slots of its own; contributes one `dashboard.center.tab` entry (id `queue`, ordered after the local-resources tab).
 - `inject`: `slots`, `locale`, `remote`, `remote.queue`.
 
 ## Model Experience

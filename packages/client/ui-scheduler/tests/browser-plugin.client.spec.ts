@@ -1,8 +1,8 @@
 /**
- * ui-scheduler plugin halves: the browser entry's dictionary and slot
- * registrations against the real SlotRegistry (with fiber teardown proving
- * removal — HMR safety), the inert node entry, and the invariant companion's
- * ownership reservation.
+ * ui-scheduler plugin halves: the browser entry's dictionary, dashboard tab,
+ * and session-header list registrations against the real SlotRegistry (with
+ * fiber teardown proving removal — HMR safety), the inert node entry, and
+ * the invariant companion's ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
@@ -25,12 +25,11 @@ function headerEntryIds(ctx: Context): (string | undefined)[] {
 /** One registration captured while the plugin applies. */
 interface CapturedRegistration { options: Record<string, unknown>; component: unknown }
 
-/** Boot the browser half over a real slot tree declaring all three contributions. */
+/** Boot the browser half over a real slot tree declaring both contributions. */
 async function bench(): Promise<{
   ctx: Context
   fiber: ReturnType<Context['plugin']>
   captured: CapturedRegistration[]
-  layoutCalls: string[]
 }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -38,8 +37,7 @@ async function bench(): Promise<{
     name: 'root',
     children: {
       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
-      'sidebar.footer.action': { kind: 'list', scope: 'global' },
-      'center.view': { kind: 'list', scope: 'global' },
+      'dashboard.center.tab': { kind: 'list', scope: 'global' },
     },
   } as never, () => null)
   ctx.provide('sessions', {})
@@ -65,11 +63,6 @@ async function bench(): Promise<{
     remove: async () => ({ ok: true, value: false }),
   } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
-  const layoutCalls: string[] = []
-  ctx.provide('layout', {
-    setCenterView: (id: string | undefined) => { layoutCalls.push(id === undefined ? 'clear' : `set:${id}`) },
-    clearCenterView: () => { layoutCalls.push('clear') },
-  } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const captured: CapturedRegistration[] = []
   const fiber = ctx.plugin({
@@ -87,32 +80,21 @@ async function bench(): Promise<{
     },
   })
   await fiber.await()
-  return { ctx, fiber, captured, layoutCalls }
+  return { ctx, fiber, captured }
 }
 
 describe('ui-scheduler browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'slots', 'locale', 'remote', 'remote.scheduler', 'layout'])
+    expect(inject).toEqual(['sessions', 'slots', 'locale', 'remote', 'remote.scheduler'])
   })
 
-  it('registers all three slots, and fiber teardown removes them (HMR safety)', async () => {
+  it('registers both slots, and fiber teardown removes them (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
     expect(headerEntryIds(ctx)).toContain('schedule-list')
-    expect(ctx.slots.entries('sidebar.footer.action').map(entry => entry.options.id)).toContain('schedule-view')
-    expect(ctx.slots.entries('center.view').map(entry => entry.options.id)).toContain('schedules')
+    expect(ctx.slots.entries('dashboard.center.tab').map(entry => entry.options.id)).toContain('schedules')
     await fiber.dispose()
     expect(headerEntryIds(ctx)).not.toContain('schedule-list')
-    expect(ctx.slots.entries('sidebar.footer.action')).toEqual([])
-    expect(ctx.slots.entries('center.view')).toEqual([])
-  })
-
-  it('shares one view store between the footer trigger and the center view', async () => {
-    const { captured } = await bench()
-    const trigger = captured.find(({ options }) => options['id'] === 'schedule-view')
-    const view = captured.find(({ options }) => options['id'] === 'schedules')
-    expect(trigger).toBeDefined()
-    expect(view).toBeDefined()
-    expect(trigger!.options['store']).toBe(view!.options['store'])
+    expect(ctx.slots.entries('dashboard.center.tab')).toEqual([])
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
@@ -161,17 +143,17 @@ describe('ui-scheduler browser half', () => {
     ])
   })
 
-  it('binds the center view verbs to the global Remote surface and the layout exit', async () => {
-    const { ctx, captured, layoutCalls } = await bench()
+  it('binds the dashboard tab verbs to the global Remote surface', async () => {
+    const { ctx, captured } = await bench()
     const registration = captured.find(({ options }) => options['id'] === 'schedules')
     expect(registration).toBeDefined()
+    expect((registration!.options['label'] as () => string)()).toBe(zh['view.nav'])
     const inject = registration!.options['inject'] as () => {
       listAll: () => Promise<unknown>
       runsOf: (id: string) => Promise<unknown>
       create: (sessionId: string, input: unknown) => Promise<unknown>
       update: (id: string, patch: unknown) => Promise<unknown>
       remove: (id: string) => Promise<unknown>
-      closeView: () => void
     }
     const calls: unknown[][] = []
     const scheduler = (ctx.get('remote') as unknown as { scheduler: Record<string, ((...args: unknown[]) => Promise<unknown>) | undefined> }).scheduler
@@ -196,21 +178,6 @@ describe('ui-scheduler browser half', () => {
       ['updateAny', 'sched-9', { status: 'paused' }],
       ['deleteAny', 'sched-9'],
     ])
-    verbs.closeView()
-    expect(layoutCalls).toContain('clear')
-  })
-
-  it('binds the footer trigger to the layout center-view occupancy', async () => {
-    const { ctx, captured, layoutCalls } = await bench()
-    const registration = captured.find(({ options }) => options['id'] === 'schedule-view')
-    expect(registration).toBeDefined()
-    const inject = registration!.options['inject'] as () => { openView: () => void }
-    inject().openView()
-    const centerRegistration = captured.find(({ options }) => options['id'] === 'schedules')
-    const centerInject = centerRegistration!.options['inject'] as () => { closeView: () => void }
-    centerInject().closeView()
-    expect(layoutCalls).toEqual(['set:schedules', 'clear'])
-    expect((ctx.get('layout') as { setCenterView: unknown }).setCenterView).toBeDefined()
   })
 })
 

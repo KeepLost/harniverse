@@ -19,7 +19,7 @@ Status: implemented
 - **offset 与边界**:串行发布链下每 topic 稠密 offset;载荷 ≤256KiB、每 topic live ≤10000(满额拒绝)、archived ≤10000(清扫器按最旧裁剪)。
 - **会话三态**:已归档订阅者保留订阅但不生效——不投递、不唤醒、水位照常推进(错过即错过,恢复后也不补投);对已归档会话 `subscribe` 拒绝。会话删除在一个清扫周期内解除关系行(删除路径暂无宿主事件)。
 - **工具**(`dsh-queue/tool`,standard preset 的 `tool-queue` 行):`queue-topic` list/inspect/delete(inspect 支持按 topic 或按 session 双向查关系,`current`=调用方)、`queue-history`(不动位点的过去时读取)、`queue-subscription`(仅限调用方会话)、`queue-publish`。
-- **面板**:`ui-governor` 改名会话看板/Panel,页内 tab 环走新槽位 `governor.center.tab`(单贡献时隐藏);`ui-queue` 贡献"消息队列" tab(topic 表、单 topic 历史、带休眠徽标的订阅关系、受能力栅约束的控件),轮询 `queue` Remote 命名空间。
+- **面板**:队列 tab 现乘仪表盘外壳(`ui-dashboard`,`dashboard.center.tab` 槽位;发布时外壳为 `ui-governor` 的会话看板与 `governor.center.tab`,后经[仪表盘合并笔记](2026-10-28-dashboard-center-merge.md)改名);`ui-queue` 贡献"消息队列" tab(topic 表、单 topic 历史、带休眠徽标的订阅关系、受能力栅约束的控件),轮询 `queue` Remote 命名空间。
 
 ## Alternatives considered
 
@@ -31,7 +31,7 @@ Status: implemented
 
 - 投递 at-most-once:cursor 与注入同批推进;注入落账与 cursor 写入之间崩溃可能重复注入。
 - 每宿主进程一个 broker:"分布式"是 N 个会话/面板消费一条持久日志,不是集群。
-- 面板后续的底部 tab 一律走 `governor.center.tab` 槽位缝,不再新开 center view。
+- 仪表盘后续的管理 tab 一律走 `dashboard.center.tab` 槽位缝,不再新开 center view。
 
 ## Testing
 

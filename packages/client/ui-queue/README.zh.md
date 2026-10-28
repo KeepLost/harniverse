@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-消息队列面板 tab,浏览器半:经 `governor.center.tab` 槽位向会话看板中心视图注册"消息队列"tab。tab 列出 topic 的 live/archived 数、订阅数与 offset 边界;点开 topic 查看消息历史(live + 灰显的强制归档,带过期时钟)、带"休眠"徽标的订阅关系(已归档订阅者),以及受队列 Remote 能力栅约束的发布/订阅/退订控件。数据经生成的 `queue` Remote(`ctx.remote.queue`)按采样节奏轮询——与脚本、模型工具使用的同一 HTTP API 面。节点半不注册宿主行为;宿主服务位于 `@deepseek-ai/dsh-queue`。
+消息队列仪表盘 tab,浏览器半:经 `dashboard.center.tab` 槽位向仪表盘中心视图注册"消息队列"tab。tab 列出 topic 的 live/archived 数、订阅数与 offset 边界;点开 topic 查看消息历史(live + 灰显的强制归档,带过期时钟)、带"休眠"徽标的订阅关系(已归档订阅者),以及受队列 Remote 能力栅约束的发布/订阅/退订控件。数据经生成的 `queue` Remote(`ctx.remote.queue`)按采样节奏轮询——与脚本、模型工具使用的同一 HTTP API 面。节点半不注册宿主行为;宿主服务位于 `@deepseek-ai/dsh-queue`。
 
 ## Composition
 
-- 不声明槽位;贡献一个 `governor.center.tab` 条目(id `queue`,排在内置资源 tab 之后)。
+- 不声明槽位;贡献一个 `dashboard.center.tab` 条目(id `queue`,排在本机资源 tab 之后)。
 - `inject`:`slots`、`locale`、`remote`、`remote.queue`。
 
 ## Model Experience

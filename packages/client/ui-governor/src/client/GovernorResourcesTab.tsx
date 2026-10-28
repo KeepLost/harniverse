@@ -4,7 +4,7 @@ import type { GovernorOverview, SessionResourceRow } from '@deepseek-ai/dsh-gove
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { formatBytes } from './bytes.ts'
 import { NS } from './locales.ts'
-import css from './GovernorCenterView.module.css'
+import css from './GovernorResourcesTab.module.css'
 
 /** Injected business face of the resources tab (the governor Remote verbs). */
 export interface GovernorResourcesActions {
@@ -13,9 +13,9 @@ export interface GovernorResourcesActions {
   pollMs: number
 }
 
-/** Full props composed by the governor.center.tab slot. */
+/** Full props composed by the dashboard.center.tab slot. */
 export type GovernorResourcesTabProps =
-  PropsRuntime<'governor.center.tab'>
+  PropsRuntime<'dashboard.center.tab'>
   & InjectFace<GovernorResourcesActions>
   & PropsLocale<typeof NS>
 

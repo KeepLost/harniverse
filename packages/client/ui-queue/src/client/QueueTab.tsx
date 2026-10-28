@@ -30,7 +30,7 @@ export type QueueTabSubscriptions =
 
 /** Full props composed by the governor.center.tab slot. */
 export type QueueTabProps =
-  PropsRuntime<'governor.center.tab'>
+  PropsRuntime<'dashboard.center.tab'>
   & InjectFace<QueueTabActions>
   & PropsLocale<typeof NS>
 

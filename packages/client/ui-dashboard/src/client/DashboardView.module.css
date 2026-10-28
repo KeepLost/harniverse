@@ -1,0 +1,85 @@
+/** Dashboard (仪表盘) center view: a header over an in-page tab ring, each tab
+ * rendering one dashboard.center.tab contribution (schedules first). */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 20px 24px;
+  overflow: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.button {
+  border: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+/* In-page tab ring, mirroring the session header tabs: 35px strip, 13/16
+ * text, bottom-aligned 2px indicator in the business blue. */
+.tabs {
+  display: flex;
+  gap: 36px;
+  padding: 0 0 0 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.tab {
+  position: relative;
+  padding: 0 0 11px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.tabActive {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.tabActive::after {
+  background: var(--dsw-alias-state-business-primary);
+}

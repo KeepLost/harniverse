@@ -1,6 +1,6 @@
 /**
- * Queue panel tab, browser half: registers the 消息队列 tab into the panel
- * (会话看板) center view through the `governor.center.tab` slot, polling the
+ * Queue panel tab, browser half: registers the 消息队列 tab into the
+ * dashboard (仪表盘) center view through the `dashboard.center.tab` slot, polling the
  * queue Remote at the sampling cadence — the same HTTP API surface scripts
  * and the model tools use, so the page cannot drift from the service.
  */
@@ -9,8 +9,8 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: loads the queue namespace merge onto TypertClientRemote.
 import type {} from '@deepseek-ai/dsh-queue/remote'
-// Type-only: pulls the ui-governor SlotMap merge (the panel tab list).
-import type {} from '@deepseek-ai/dsh-client-ui-governor/client'
+// Type-only: pulls the ui-dashboard SlotMap merge (the dashboard tab list).
+import type {} from '@deepseek-ai/dsh-client-ui-dashboard/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
@@ -37,10 +37,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-queue: dictionaries')
   const t = ctx.locale.bind(NS)
-  ctx.slots.inject('governor.center.tab', () => ctx.slots.register({
-    name: 'governor.center.tab',
+  ctx.slots.inject('dashboard.center.tab', () => ctx.slots.register({
+    name: 'dashboard.center.tab',
     id: 'queue',
-    order: 20,
+    order: 40,
     locale: NS,
     label: () => t('tab.queue'),
     inject: () => ({
