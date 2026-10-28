@@ -26,7 +26,7 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 
 ## 实体流下行与连接预算
 
-`/api/events.streams` 是第三条下行：页面作用域的载体（必填的 `page` 查询令牌，upgrade 前校验），把全部按实体划分的流家族——终端跟随、终端保活、浏览器跟随、工作区文件监视——多路复用为可寻址的子流，页面持有的长连接数量因此恒定，与监视的目录数、终端数、工作区数无关。浏览器同源 HTTP/1.1 连接池约六条且跨标签页共享；原先"每实体一条 GET"的流会饿死该连接池（见[实体流下行 Agent Note](../../../.agents/notes/implemented/architecture/2026-10-28-entity-stream-downlink-channel.md)记录的事故）。子流的开关走普通 `events.streams.open`／`events.streams.close` unary POST（capability 为 `harniverse.observe`，与各家族自身的流同一栅栏）；帧按订阅标记为 `sub/ready`→`sub/frame`→`sub/end`。下行严格只下行；socket 掉线会把每个子流以传输失败终结，由各消费方自己的恢复阶梯重新打开；页面最后一条下行退出时，服务端会回收其残余子流（即流中止即解除挂接的子流形态）。网络 GET 四条遗留按实体流路径一律回答 410，不做 SSE 回退；`toFetchHandler` 的 SSE 编解码只继续服务进程内同构载体，与 mux/host 的 SSE 形态完全一致。
+`/api/events.streams` 是第三条下行：页面作用域的载体（必填的 `page` 查询令牌，upgrade 前校验），把全部按实体划分的流家族——终端跟随、终端保活、浏览器跟随、工作区文件监视——多路复用为可寻址的子流，页面持有的长连接数量因此恒定，与监视的目录数、终端数、工作区数无关。浏览器同源 HTTP/1.1 连接池约六条且跨标签页共享；原先"每实体一条 GET"的流会饿死该连接池（见[实体流下行 Agent Note](../../../.agents/notes/implemented/architecture/2026-10-28-entity-stream-downlink-channel.md)记录的事故）。子流的开关走普通 `events.streams.open`／`events.streams.close` unary POST（capability 为 `harniverse.observe`，与各家族自身的流同一栅栏）；帧按订阅标记为 `sub/ready`→`sub/frame`→`sub/end`。下行严格只下行；socket 掉线会把每个子流以传输失败终结，由各消费方自己的恢复阶梯重新打开；页面最后一条下行退出时，服务端会回收其残余子流（即流中止即解除挂接的子流形态）。浏览器 GET（携带 `Sec-Fetch-Site`）访问四条遗留按实体流路径一律回答 410，不做 SSE 回退；一等方非浏览器客户端（desktop 主进程、脚本）与进程内同构载体保留各家族 SSE 路由——与 mux/host 的 SSE 形态完全一致。
 
 客户端持有长连接账本（`connection-budget`）：页面打开的每条 WebSocket 与每条长寿命 SSE 流都会计数，越过六连接线时在控制台告警一次。乘上实体流下行的页面恰好持有三条事件 WebSocket、零条悬挂 SSE GET——e2e 连接预算场景用 CDP 级断言钉住这一不变量。
 

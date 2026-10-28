@@ -4712,7 +4712,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AuthenticationChannel',
-    declaration: 'export type AuthenticationChannel = \'http-api\' | \'websocket-mux\' | \'websocket-host\';',
+    declaration: 'export type AuthenticationChannel = \'http-api\' | \'websocket-mux\' | \'websocket-host\' | \'websocket-streams\';',
   },
   {
     name: 'AuthenticationDecision',

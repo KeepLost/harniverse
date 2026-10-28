@@ -16,7 +16,7 @@ Status: implemented
 - **子流。** `events.streams.open({page, family, payload})` 是普通 unary POST（能力 `harniverse.observe`、效应 `read`——与 `events.adopt` 确立的在场式分类一致），铸造 `sub` id 并运行该家族**完全相同的生产者**（提升出的 `terminalStream`/`holdStream`/`browserStream`/`watchFilesStream`——一种行为、两种载体）。帧以 `sub/ready` → `sub/frame`（家族帧原样透传）→ `sub/end` 流动。`events.streams.close({page, sub})` 幂等。页面最后一条存活下行退出时中止其持有的全部子流——即流中止即解除挂接的子流形态，终端/浏览器独占挂接与保活保留语义原样保留。
 - **各家族语义不变。** 终端严格序列失败、浏览器 newest-image-wins 折叠、watch 突发合并都留在各自生产者内；家族失败仍以家族自身的 `stream/error` 帧乘 `sub/frame` 抵达。一个子流的失败绝不拖垮通道；通道失败把每个子流以传输错误终结，由各消费方**自己的恢复阶梯**（终端重挂、watch 退避、浏览器重挂）重新打开——通道自身从不自动重连。
 - **界限。** 页面没有存活下行时 `events.streams.open` 以 `stream-channel-absent` 拒绝；每页并发子流受 `entityStreamSubsMaxPerPage`（默认 `256`，越限 `stream-sub-limit-reached`）约束——这是 watch 上限早已在工作区维度施行的注册表约束，现在按页覆盖全部家族。
-- **遗留路径。** 四条家族路径的网络 GET 一律回答 **410**（mux/host 保持 426）；SSE 编解码只存活于 `toFetchHandler` 的进程内载体作为同构证明——与 2026-08-04 笔记为 mux/host 设定的姿态一致。
+- **遗留路径。** 浏览器 GET（携带 `Sec-Fetch-Site`）访问四条家族路径回答 **410**（mux/host 对一切网络 GET 保持 426）；一等方非浏览器客户端——desktop 主进程、脚本——在回环上保留各家族 SSE 路由，`toFetchHandler` 的进程内载体亦作为同构证明保留。
 - **客户端。** `WebApiClient` 携带页面令牌并按机器 generation 懒开一条 `EntityStreamChannel`；四个 `IApiClient` opener 签名未动，所有消费方（终端/浏览器面板、工作台 change-feed、编辑器 watch）零改动完成迁移。订阅经普通 unary 载体打开（代际栅栏、认证、诊断抽头全部生效）；帧在 yield 时按家族自身的 schema 校验；未认领帧（POST 派发与返回之间抵达的帧）有界缓冲；调用方中止触发幂等 close。
 - **护栏。** 连接预算账本统计页面打开的每条 WebSocket 与每条长寿命 SSE 流，越过六条线即告警一次——未来的按实体扇出在开发期就会很响。`stream-connection-budget` e2e 驱动目录监视加活跃终端，并在 CDP 层断言：恰好三条事件 WebSocket、对遗留家族路径的零请求、文件读取仍然完成。事故类从此是被钉死的不变量，而不是期望。
 
@@ -33,7 +33,7 @@ Status: implemented
 - `packages/host/apiproxy/tests/api-proxy-entity-streams.spec.ts`：终端子流的 sub/ready→frames→sub/end；hold 投递与页面消亡回收；`stream-channel-absent`、幂等 close、每页上限；watch 拒绝乘 `sub/frame` 抵达。
 - `packages/client/connection/tests/streams-channel.client.spec.ts`：两家族共享一条 socket、按 sub 路由、身份发布、有界未认领缓冲、socket 消亡失败与已中止方静默结束、调用方中止 close（generation 退役时抑制）、畸形帧丢弃、socket 失败后的干净重试、预算计数。
 - `packages/client/connection/tests/websocket-downlink.host.spec.ts`：upgrade 前的页令牌校验、principal 附着、子流帧原样透传、第三条 socket 的只下行强制。
-- `packages/client/connection/tests/node-half.host.spec.ts`：三条 upgrade 路由、全部事件路径 GET 426、四条遗留家族 GET 410。
+- `packages/client/connection/tests/node-half.host.spec.ts`：三条 upgrade 路由、全部事件路径 GET 426、四条遗留家族 GET 的浏览器门控 410（一等方 GET 放行）。
 - `apps/web/tests/stream-connection-budget.e2e.ts`：真实组合下的 CDP 级预算断言（三条 WebSocket、零遗留 GET、读取完成）。
 - `test:gui` 529 文件 / 7,586 用例绿；`DSH_SNAPSHOT=replay pnpm run test:web` 绿（golden 不变——纯线协议变更）。
 

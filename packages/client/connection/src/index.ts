@@ -122,17 +122,20 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   }
   const connection = new HostConnectionService(ctx, trustedHosts, trustedOrigins)
   registerRemoteHostProxy(ctx, connection)
-  // Per-entity stream GET carriers the entity-stream downlink supersedes on
-  // the network: one long-lived HTTP connection per watched entity starves the
-  // browser's finite per-origin pool. The in-process toFetchHandler carrier
-  // keeps serving them (isomorphism proof, the same posture as the mux/host
-  // SSE codec); the network answers a loud redirect instead of silence.
+  // Per-entity stream GET carriers the entity-stream downlink supersedes for
+  // browsers: one long-lived HTTP connection per watched entity starves the
+  // browser's finite per-origin pool. The gate keys on `Sec-Fetch-Site`
+  // (every browser sends it; first-party non-browser clients — the desktop
+  // main process, scripts — do not), so those clients keep the per-family SSE
+  // routes, as does the in-process toFetchHandler carrier (isomorphism proof,
+  // the same posture as the mux/host SSE codec).
   const LEGACY_ENTITY_STREAM_GET_PATHS = new Set([
     '/api/events.terminal',
     '/api/events.hold',
     '/api/events.browser',
     '/api/workspace.files.watch',
   ])
+  const isBrowserAuthored = (request: Request): boolean => request.headers.get('sec-fetch-site') !== null
   const fallbackFetchHandler = (principal: AuthenticationPrincipal): FetchHandler => ({
     async fetch(request) {
       const pathname = new URL(request.url).pathname
@@ -143,7 +146,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
           headers: { connection: 'Upgrade', upgrade: 'websocket' },
         })
       }
-      if (request.method === 'GET' && LEGACY_ENTITY_STREAM_GET_PATHS.has(pathname)) {
+      if (request.method === 'GET' && isBrowserAuthored(request) && LEGACY_ENTITY_STREAM_GET_PATHS.has(pathname)) {
         return new Response('stream family moved to the events.streams downlink', { status: 410 })
       }
       const apiProxy = ctx.get('apiProxy')

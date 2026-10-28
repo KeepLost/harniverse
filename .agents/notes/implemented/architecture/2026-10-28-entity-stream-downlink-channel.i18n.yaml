@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-28-entity-stream-downlink-channel.md
-2026-10-28-entity-stream-downlink-channel.md: fde180868fcd52f2aaae564ed96ab5ac2e5709d0
-2026-10-28-entity-stream-downlink-channel.zh.md: ad7e265c8fe4457f3fc858a7a88e896ac8aa31d6
+2026-10-28-entity-stream-downlink-channel.md: 3c0d6bf27f284e628faf93cfa7065bcbba55b853
+2026-10-28-entity-stream-downlink-channel.zh.md: 36873204548eaefb54fef1bb468d1519a6dd9e94
