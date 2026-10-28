@@ -44,6 +44,17 @@ overrides:
   # 8.3.0–8.3.2 launch-editor range, and moving the measurement chain
   # shifted v8 coverage attribution off inline boolean callbacks.
   'vite@8': '8.1.6'
+  # esbuild 0.28.2 shifted TS transform ranges enough that v8 coverage
+  # stopped crediting inline boolean-chain callbacks (agent-instructions
+  # index.ts, remote-hosts sync.ts) under the vitest chain; hold the line
+  # at the last release whose output the per-file 100% gate was blessed on.
+  'esbuild@0.28': '0.28.1'
+  # ast-v8-to-istanbul 1.0.5+ credits inline boolean-chain callbacks as
+  # their own uncovered functions (agent-instructions index.ts:229,
+  # remote-hosts sync.ts:39) while tests exercise them; hold the coverage
+  # remapper at the release the per-file 100% gate was blessed on and
+  # re-bless when the vitest toolchain is next bumped deliberately.
+  ast-v8-to-istanbul: '1.0.4'
   'brace-expansion@2': '2.1.7'
   'brace-expansion@5': '5.0.12'
   # GHSA-27r3-jxmh-p828: body-parser < 2.4.0 — DoS via trailing bytes after
