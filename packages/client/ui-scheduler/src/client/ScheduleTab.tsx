@@ -2,30 +2,25 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ScheduleRecord, ScheduleRun, SchedulerRule } from '@deepseek-ai/dsh-scheduler/client'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { createScheduleViewStore } from './stores.ts'
+import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-dashboard/client'
 import type { ScheduleEditorVerbs } from './ScheduleEditorDrawer.tsx'
 import { ScheduleEditorDrawer } from './ScheduleEditorDrawer.tsx'
 import { NS } from './locales.ts'
-import css from './ScheduleCenterView.module.css'
+import css from './ScheduleTab.module.css'
 
-/** Remote verbs bound to the management view, plus the frame exit. */
-export interface ScheduleCenterActions extends ScheduleEditorVerbs {
+/** Remote verbs bound to the management tab. */
+export interface ScheduleTabActions extends ScheduleEditorVerbs {
   /** Read every stored schedule, earliest due first. */
   listAll: () => Promise<RemoteResult<readonly ScheduleRecord[]>>
   /** Read one schedule's newest-first run history. */
   runsOf: (id: string) => Promise<RemoteResult<readonly ScheduleRun[]>>
-  /** Return to the conversation in the center column. */
-  closeView: () => void
 }
 
-/** Full props composed by the center.view slot. */
-export type ScheduleCenterViewProps =
-  PropsRuntime<'center.view'>
-  & PropsStore<ReturnType<typeof createScheduleViewStore>>
-  & InjectFace<ScheduleCenterActions>
+/** Full props composed by the dashboard.center.tab slot. */
+export type ScheduleTabProps =
+  PropsRuntime<'dashboard.center.tab'>
+  & InjectFace<ScheduleTabActions>
   & PropsLocale<typeof NS>
 
 /** Drawer target: creation, or one record under edit. */
@@ -61,17 +56,16 @@ function moment(value: number | undefined): string {
 }
 
 /**
- * The schedules management view occupying the center column: every stored
- * schedule in one table (id, prompt, bound session, rule, due moments,
- * status, latest delivery), a create/edit drawer, and the pause/resume and
- * delete verbs over the global Remote surface. Mounting claims the sidebar
- * trigger's pressed affordance through the shared store.
- * @param props - center.view currency, the shared view store, the Remote verbs, and the translator.
- * @returns the full-center management surface.
+ * The schedules management tab of the dashboard: every stored schedule in
+ * one table (id, prompt, bound session, rule, due moments, status, latest
+ * delivery), a create/edit drawer, and the pause/resume and delete verbs
+ * over the global Remote surface.
+ * @param props - dashboard tab currency, the Remote verbs, and the translator.
+ * @returns the management tab surface.
  */
-export function ScheduleCenterView({
-  useSessions, actions, listAll, runsOf, create, update, remove, closeView, t,
-}: ScheduleCenterViewProps) {
+export function ScheduleTab({
+  useSessions, listAll, runsOf, create, update, remove, t,
+}: ScheduleTabProps) {
   const current = useSessions(state => state.current)
   const sessionIds = useSessions(state => state.ids)
   const byId = useSessions(state => state.byId)
@@ -82,13 +76,6 @@ export function ScheduleCenterView({
   const [error, setError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [editor, setEditor] = useState<Editor>(undefined)
-
-  // Occupancy is the frame's fact: claim it while mounted, release on unmount
-  // (including the session-switch dismissal).
-  useEffect(() => {
-    actions.setOpen(true)
-    return () => { actions.setOpen(false) }
-  }, [actions])
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -129,14 +116,10 @@ export function ScheduleCenterView({
   return (
     <section className={css.view} aria-label={t('view.title')}>
       <header className={css.header}>
-        <span className={css.title}>{t('view.title')}</span>
         <span className={css.summary}>{t('view.summary', { count: String(rows.length) })}</span>
         <span className={css.headerActions}>
           <button type="button" disabled={busy || loading} onClick={() => { void refresh() }}>{t('view.refresh')}</button>
           <button type="button" disabled={busy} onClick={() => { setEditor({ kind: 'create' }) }}>{t('view.create')}</button>
-          <button type="button" className={css.close} aria-label={t('view.close')} onClick={closeView}>
-            <IconCloseOutline16 />
-          </button>
         </span>
       </header>
       <div className={css.body}>

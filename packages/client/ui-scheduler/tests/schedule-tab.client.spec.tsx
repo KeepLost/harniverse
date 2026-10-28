@@ -1,16 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { useSyncExternalStore } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ScheduleCreateRemoteInput, ScheduleRecord, ScheduleRun, ScheduleUpdate } from '@deepseek-ai/dsh-scheduler/client'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import { createScheduleViewStore } from '../src/client/stores.ts'
 import {
-  ScheduleCenterView,
-  type ScheduleCenterActions,
-  type ScheduleCenterViewProps,
-} from '../src/client/ScheduleCenterView.tsx'
+  ScheduleTab,
+  type ScheduleTabActions,
+  type ScheduleTabProps,
+} from '../src/client/ScheduleTab.tsx'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(() => {
@@ -18,7 +16,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const t: ScheduleCenterViewProps['t'] = makeTranslate(zh)
+const t: ScheduleTabProps['t'] = makeTranslate(zh)
 
 type RecordOverrides = Partial<Omit<ScheduleRecord, 'nextDue'>> & { nextDue?: number | undefined }
 
@@ -56,12 +54,12 @@ function verbs(rows: readonly ScheduleRecord[], runs: readonly ScheduleRun[] = [
   return {
     listAll: vi.fn(async () => ({ ok: true as const, value: [...table.values()] })),
     runsOf: vi.fn(async (id: string) => ({ ok: true as const, value: runs.filter(item => item.scheduleId === id) })),
-    create: vi.fn(async (owner: SessionId, input: Parameters<ScheduleCenterActions['create']>[1]) => {
+    create: vi.fn(async (owner: SessionId, input: Parameters<ScheduleTabActions['create']>[1]) => {
       const created = record({ ...input, id: 'sched-new', createdBy: { kind: 'user', sessionId: owner } })
       table.set(created.id, created)
       return { ok: true as const, value: created }
     }),
-    update: vi.fn(async (id: string, patch: Parameters<ScheduleCenterActions['update']>[1]) => {
+    update: vi.fn(async (id: string, patch: Parameters<ScheduleTabActions['update']>[1]) => {
       const current = table.get(id)
       if (current === undefined) return { ok: true as const, value: undefined }
       const next = { ...current, ...patch }
@@ -69,7 +67,6 @@ function verbs(rows: readonly ScheduleRecord[], runs: readonly ScheduleRun[] = [
       return { ok: true as const, value: next }
     }),
     remove: vi.fn(async (id: string) => { table.delete(id); return { ok: true as const, value: true } }),
-    closeView: vi.fn(),
   }
 }
 
@@ -89,34 +86,18 @@ function sessionsSeat(state: SessionListState) {
   return ((selector: (snapshot: SessionListState) => unknown) => selector(state)) as never
 }
 
-/** Test-local selector hook over a framework-neutral store instance. */
-function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapshot: () => T }) {
-  return function useSelector<S>(sel: (s: T) => S): S { return sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot)) }
-}
-
 function mount(face: ReturnType<typeof verbs>, sessions = sessionsState()) {
-  const instance = createScheduleViewStore().create()
   const props = {
-    active: true,
     useSessions: sessionsSeat(sessions),
     useWorkspaces: ((selector: (snapshot: unknown) => unknown) => selector({})) as never,
-    useStore: hookOf(instance),
-    actions: instance.actions,
     ...face,
     t,
-  } as unknown as ScheduleCenterViewProps
-  const utils = render(<ScheduleCenterView {...props} />)
-  return { instance, ...utils }
+  } as unknown as ScheduleTabProps
+  const utils = render(<ScheduleTab {...props} />)
+  return utils
 }
 
-describe('ScheduleCenterView', () => {
-  it('claims occupancy while mounted and releases it on unmount', () => {
-    const { instance, unmount } = mount(verbs([]))
-    expect(instance.getSnapshot().open).toBe(true)
-    unmount()
-    expect(instance.getSnapshot().open).toBe(false)
-  })
-
+describe('ScheduleTab', () => {
   it('renders the global table with id, target, rule, and the latest run destination', async () => {
     const rows = [record(), record({
       id: 'sched-2',
@@ -204,14 +185,6 @@ describe('ScheduleCenterView', () => {
     listAll.mockResolvedValue({ ok: true, value: [] })
     fireEvent.click(screen.getByRole('button', { name: zh['view.retry'] }))
     await waitFor(() => { expect(screen.getByText(zh['view.empty'])).toBeTruthy() })
-  })
-
-  it('closes through the injected layout exit', async () => {
-    const face = verbs([])
-    mount(face)
-    await waitFor(() => { expect(screen.getByText(zh['view.empty'])).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: zh['view.close'] }))
-    expect(face.closeView).toHaveBeenCalledTimes(1)
   })
 
   it('refreshes from the header action', async () => {

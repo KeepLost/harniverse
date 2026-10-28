@@ -28,7 +28,7 @@ The host scheduler's human surface lived inside the Settings dialog: it aggregat
 
 ### Occupancy is a shared viewing fact
 
-One `createScheduleViewStore` instance spans the footer trigger and the center view: the view writes `open` on mount/unmount (the frame is the authority) and the trigger mirrors it as `aria-pressed`. No optimistic write from the click, so a failed or cleared view cannot strand a pressed affordance.
+The dashboard shell (`dsh-client-ui-dashboard`) owns the occupancy store today: its center view writes `open` on mount/unmount (the frame is the authority) and the footer trigger mirrors it as `aria-pressed`, and the schedules tab itself carries no viewing store ([dashboard merge note](2026-10-28-dashboard-center-merge.md)). No optimistic write from the click, so a failed or cleared view cannot strand a pressed affordance.
 
 ## Alternatives considered
 
@@ -42,5 +42,5 @@ One `createScheduleViewStore` instance spans the footer trigger and the center v
 - The settings-section registration and its component are gone; goldens for the settings dialogs refresh accordingly.
 - The drawer expresses delays in whole minutes; sub-minute rules stay reachable only through the model tools.
 - Dispatch-driven status changes appear on the next view refresh, not streamed.
-- The `center.view` slot is now a shipped extension point: future full-center surfaces (not just schedules) register candidates beside it, and the conversation seat stays non-replaceable.
+- The `center.view` slot is a shipped extension point: full-center surfaces (the dashboard shell today) register candidates beside it, and the conversation seat stays non-replaceable; the schedules surface itself is a `dashboard.center.tab` entry.
 - Package specs cover the store, trigger, view, and drawer (including the rule-lock and owner-missing arms); the scheduler host specs cover session-target delivery, rule edits, and the global verbs; a keyless web e2e drives the whole surface through the real composition with a one-shot `after` rule so nothing dispatches mid-scenario (an `every` rule anchors at now and fires immediately — a determinism trap the golden initially caught). The table golden normalizes the per-run schedule id and calendar date.

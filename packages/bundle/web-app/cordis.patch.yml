@@ -447,9 +447,14 @@
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
 
-    # Scheduled-task management: the sidebar footer trigger + global center
-    # view over the host-authority scheduler Remote, plus the session-header
-    # list (pause/resume/delete) over the session-owned Remote verbs.
+    # Dashboard center view: one sidebar footer trigger opening the in-page
+    # tab ring over plugin-contributed management surfaces.
+    - id: ui-dashboard
+      name: '@deepseek-ai/dsh-client-ui-dashboard'
+
+    # Scheduled-task management: the dashboard 定时任务 tab over the
+    # host-authority scheduler Remote, plus the session-header list
+    # (pause/resume/delete) over the session-owned Remote verbs.
     - id: ui-scheduler
       name: '@deepseek-ai/dsh-client-ui-scheduler'
 

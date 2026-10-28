@@ -7,7 +7,7 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
-import css from './ScheduleCenterView.module.css'
+import css from './ScheduleTab.module.css'
 
 /** Mutations the drawer can reach; the management view owns the verbs. */
 export interface ScheduleEditorVerbs {

@@ -5,12 +5,8 @@ export const NS = 'governor'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'view.open': '打开会话看板',
-  'view.nav': '会话看板',
-  'tab.resources': '资源',
-  'view.title': '会话看板',
+  'tab.resources': '本机资源',
   'view.refresh': '刷新',
-  'view.close': '返回会话',
   'view.loading': '正在加载资源数据…',
   'view.error': '资源加载失败。',
   'view.retry': '重试',
@@ -61,12 +57,8 @@ export type GovernorKey = keyof typeof zh
 
 /** English dictionary (key-identical to the Chinese source of truth). */
 export const en: Record<GovernorKey, string> = {
-  'view.open': 'Open the panel',
-  'view.nav': 'Panel',
-  'tab.resources': 'Resources',
-  'view.title': 'Panel',
+  'tab.resources': 'Local resources',
   'view.refresh': 'Refresh',
-  'view.close': 'Back to conversation',
   'view.loading': 'Loading resource data…',
   'view.error': 'The resource board failed to load.',
   'view.retry': 'Retry',

@@ -72,6 +72,7 @@
     { "path": "./packages/client/ui-sidebar" },
     { "path": "./packages/client/ui-connection-status" },
     { "path": "./packages/client/ui-conversation" },
+    { "path": "./packages/client/ui-dashboard" },
     { "path": "./packages/client/ui-tool" },
     { "path": "./packages/client/ui-deliverables" },
     { "path": "./packages/client/ui-workflow-run" },

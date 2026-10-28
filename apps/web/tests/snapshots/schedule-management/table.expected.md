@@ -1,9 +1,7 @@
 - region "定时任务":
-  - text: 定时任务 共 1 个任务
+  - text: 共 1 个任务
   - button "刷新"
   - button "新建任务"
-  - button "返回会话":
-    - img
   - table:
     - rowgroup:
       - row "ID 指令 绑定会话 规则 下次执行 最近执行 状态 操作":

@@ -15,7 +15,7 @@
       "path": "../../queue/queue"
     },
     {
-      "path": "../ui-governor"
+      "path": "../ui-dashboard"
     },
     {
       "path": "../ui-slots"

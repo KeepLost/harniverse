@@ -22,15 +22,9 @@
     - img
     - text: workspace
   - treeitem "New Session" [selected]
-- button "Open scheduled tasks":
+- button "Open the dashboard":
   - img
-  - text: Scheduled tasks
-- button "Open remote hosts":
-  - img
-  - text: Remote hosts
-- button "Open the panel":
-  - img
-  - text: Panel
+  - text: Dashboard
 - button "Settings":
   - img
   - text: Settings

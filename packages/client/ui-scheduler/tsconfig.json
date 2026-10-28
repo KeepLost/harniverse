@@ -24,10 +24,7 @@
       "path": "../ui-conversation"
     },
     {
-      "path": "../ui-layout"
-    },
-    {
-      "path": "../ui-sidebar"
+      "path": "../ui-dashboard"
     },
     {
       "path": "../ui-primitives"

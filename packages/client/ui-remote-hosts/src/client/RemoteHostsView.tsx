@@ -4,8 +4,8 @@ import type { AuthSecrets, ConnectivityResult, KeyFileListing, KeyFilePicker, Li
 import {
   IconChevronDownOutline14, IconCloseOutline16, IconFolderOpenOutline16, IconGlobeOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsStore, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { createRemoteHostsViewStore } from './stores.ts'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-dashboard/client'
 import { remoteIssue, resultError } from './issues.ts'
 import { KeyFileBrowser } from './KeyFileBrowser.tsx'
 import { NS } from './locales.ts'
@@ -25,9 +25,8 @@ interface RemoteHostsActions {
 }
 
 export type RemoteHostsViewProps =
-  PropsRuntime<'center.view'>
-  & PropsStore<ReturnType<typeof createRemoteHostsViewStore>>
-  & InjectFace<RemoteHostsActions & { closeView: () => void }>
+  PropsRuntime<'dashboard.center.tab'>
+  & InjectFace<RemoteHostsActions>
   & PropsLocale<typeof NS>
 
 type Draft = {
@@ -87,7 +86,7 @@ function progressLabel(t: RemoteHostsViewProps['t'], phase: RemoteHostProgressPh
 }
 
 export function RemoteHostsView({
-  active, actions, list, upsert, verify, keyFilePicker, pickKeyFile, listKeyFiles, connect, openRemote, disconnect, remove, closeView, t,
+  list, upsert, verify, keyFilePicker, pickKeyFile, listKeyFiles, connect, openRemote, disconnect, remove, t,
 }: RemoteHostsViewProps) {
   const [hosts, setHosts] = useState<RemoteHostView[]>([])
   const [draft, setDraft] = useState(initialDraft)
@@ -117,34 +116,26 @@ export function RemoteHostsView({
   }, [list, t])
 
   useEffect(() => {
-    if (!active) return
     void refresh()
     return () => { refreshGeneration.current++ }
-  }, [active, refresh])
+  }, [refresh])
   const connecting = pendingConnect !== undefined || hosts.some(host => host.state === 'connecting' || host.state === 'deploying')
   useEffect(() => {
-    if (!active || !connecting) return
+    if (!connecting) return
     const timer = setInterval(() => { void refresh() }, 1_000)
     return () => { clearInterval(timer) }
-  }, [active, connecting, refresh])
-  useEffect(() => {
-    if (!active) return
-    actions.setOpen(true)
-    return () => { actions.setOpen(false); setHosts([]) }
-  }, [actions, active])
+  }, [connecting, refresh])
+  useEffect(() => () => { setHosts([]) }, [])
   // The composed interaction decides the affordance; a failed probe or an
   // unresolved one hides it, leaving manual entry.
   useEffect(() => {
-    if (!active) return
     let cancelled = false
     void keyFilePicker().then(
       (result) => { if (!cancelled) setPickerKind(result.ok ? result.value.kind : undefined) },
       () => { if (!cancelled) setPickerKind(undefined) },
     )
     return () => { cancelled = true }
-  }, [active, keyFilePicker])
-
-  if (!active) return null
+  }, [keyFilePicker])
 
   const withBusy = async (id: string, task: () => Promise<RemoteResult<unknown>>): Promise<void> => {
     setBusy(id)
@@ -343,13 +334,10 @@ export function RemoteHostsView({
   return (
     <section className={css.view} aria-label={t('title')}>
       <header className={css.header}>
-        <span className={css.title}>{t('title')}</span>
         <span className={css.summary}>{t('summary', { count: String(connectedCount) })}</span>
         <span className={css.headerActions}>
           <button type="button" disabled={busy !== undefined} onClick={() => { void refresh() }}>{t('refresh')}</button>
           <button type="button" disabled={busy !== undefined} onClick={openEditor}>{t('add')}</button>
-          {/* v8 ignore next -- the shell supplies this callback in product composition. */}
-          <button type="button" className={css.close} aria-label={t('close')} onClick={closeView}><IconCloseOutline16 /></button>
         </span>
       </header>
       <div className={css.body}>

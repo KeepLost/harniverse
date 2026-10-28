@@ -186,7 +186,7 @@ describe('web e2e: phone form factor', () => {
   it('aligns the two sidebar footer triggers on one left edge', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-footer'))
     await sidebar(page, 'drawer')
-    const schedules = page.getByRole('button', { name: '打开定时任务' })
+    const schedules = page.getByRole('button', { name: '打开仪表盘' })
     const settings = page.getByRole('button', { name: '设置', exact: true })
     await schedules.waitFor({ timeout: 10_000 })
     const scheduleBox = (await schedules.boundingBox())!
@@ -259,8 +259,8 @@ describe('web e2e: phone form factor', () => {
   it('renders each schedule table row as a card of labelled values', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-schedules'))
     await sidebar(page, 'drawer')
-    await page.getByRole('button', { name: '打开定时任务' }).click()
-    const view = page.getByRole('region', { name: '定时任务' })
+    await page.getByRole('button', { name: '打开仪表盘' }).click()
+    const view = page.getByRole('region', { name: '仪表盘' })
     await view.waitFor({ timeout: 15_000 })
 
     // Create one schedule so a row exists to inspect. A 30-minute one-shot
@@ -289,7 +289,7 @@ describe('web e2e: phone form factor', () => {
     await row.getByRole('button', { name: '删除' }).click()
     await view.getByText('还没有任何定时任务。').waitFor({ timeout: 10_000 })
     await view.getByRole('button', { name: '返回会话' }).click()
-    await page.getByRole('region', { name: '定时任务' }).waitFor({ state: 'hidden', timeout: 10_000 })
+    await page.getByRole('region', { name: '仪表盘' }).waitFor({ state: 'hidden', timeout: 10_000 })
   })
 })
 

@@ -19,7 +19,7 @@ Sessions needed an event-stream seam with Kafka semantics: durable append-only t
 - **Offsets and bounds**: dense per-topic offsets under a serialized publish chain; payload ≤256 KiB, ≤10 000 live per topic (full topic rejects), ≤10 000 archived per topic (sweeper prunes oldest first).
 - **Session states**: archived subscribers keep their relation dormant — no delivery, no wake, watermark advances (missed stays missed, even after unarchiving); `subscribe` on an archived session rejects. Session deletion dissolves relation rows within one sweeper interval (no host event exists on the deletion path yet).
 - **Tools** (`dsh-queue/tool`, standard-preset row `tool-queue`): `queue-topic` list/inspect/delete (inspect reads the relation by topic or by session, `current` = caller), `queue-history` (cursor-free past-tense read), `queue-subscription` (calling session only), `queue-publish`.
-- **Panel**: `ui-governor` renamed to 会话看板/Panel with an in-page tab ring over the new `governor.center.tab` slot (hidden with a single contribution); `ui-queue` contributes the 消息队列 tab with the topic table, per-topic history, dormant-badged subscriptions, and capability-gated controls, polling the `queue` Remote namespace.
+- **Panel**: the queue tab rides the dashboard shell (`ui-dashboard`, `dashboard.center.tab` slot; the shell was `ui-governor`'s 会话看板 over `governor.center.tab` at shipping time, renamed in the [dashboard merge note](2026-10-28-dashboard-center-merge.md)); `ui-queue` contributes the 消息队列 tab with the topic table, per-topic history, dormant-badged subscriptions, and capability-gated controls, polling the `queue` Remote namespace.
 
 ## Alternatives considered
 
@@ -31,7 +31,7 @@ Sessions needed an event-stream seam with Kafka semantics: durable append-only t
 
 - Delivery is at-most-once: the cursor advances in the same batch as the injection; a crash between the append and the cursor write can duplicate an injection.
 - One broker per host process: distribution means N session/panel consumers over one durable log, not clustering.
-- Any future bottom-anchored panel tab follows the `governor.center.tab` slot seam, not another center view.
+- Any future dashboard management tab follows the `dashboard.center.tab` slot seam, not another center view.
 
 ## Testing
 
