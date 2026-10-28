@@ -196,6 +196,19 @@ describe('containment failure classification', () => {
       .rejects.toMatchObject({ code })
   })
 
+  it.each([
+    ['EACCES', 'workspace-entry-not-readable'],
+    ['ENOENT', 'workspace-entry-not-found'],
+  ])('maps %s while canonicalizing the workspace root itself to %s', async (openCode, code) => {
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'file.txt'), 'hello')
+    faults.realpathCode = openCode
+    faults.realpathSuffix = root
+
+    await expect(readWorkspaceFile(root, 'file.txt', new AbortController().signal))
+      .rejects.toMatchObject({ code })
+  })
+
   it('does not leak the host path in a containment failure message', async () => {
     const root = tempWorkspace()
     writeFileSync(join(root, 'secret.txt'), 'hello')

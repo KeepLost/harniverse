@@ -148,15 +148,20 @@ export class WebSocketDownlinks {
   handleMux(req: IncomingMessage, socket: Duplex, head: Buffer, admission: AcceptedAuthentication): void {
     const url = new URL(req.url ?? '/', 'http://dsh.internal')
     const values = url.searchParams.getAll('since')
+    const pages = url.searchParams.getAll('page')
     let decoded: unknown = undefined
     try {
       if (values.length > 1) throw new Error('duplicate since')
+      if (pages.length > 1) throw new Error('duplicate page')
       if (values[0] !== undefined) decoded = JSON.parse(values[0])
     } catch {
       rejectBadRequest(socket)
       return
     }
-    const parsed = eventsMuxRequestSchema.safeParse(decoded === undefined ? {} : { since: decoded })
+    const parsed = eventsMuxRequestSchema.safeParse({
+      ...(decoded === undefined ? {} : { since: decoded }),
+      ...(pages[0] === undefined ? {} : { page: pages[0] }),
+    })
     if (!parsed.success) {
       rejectBadRequest(socket)
       return

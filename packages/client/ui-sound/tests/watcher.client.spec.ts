@@ -1,26 +1,36 @@
 /**
- * The frame detector: turn settlements by durable reason, requested-frame
- * dedupe and open-burst replay suppression, job terminal edges, goal
- * blocked entries, subagent routing, stream reopen with backoff, and
- * disposal — everything through a controllable stream and manual timers.
+ * The notify consumer: `session/notify` folding (one occurrence per frame,
+ * subagent routing from the sessions list, plan-review refinement through
+ * the list row then the frame shape), non-notify frame immunity, stream
+ * reopen with backoff, the carrier breaker, and disposal — everything
+ * through a controllable stream and manual timers.
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { ApprovalRequestId, HostFrame, MuxFrame, RpcRequest, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ApprovalRequestId, MuxFrame, RpcRequest, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import { SoundWatcher } from '../src/client/watcher.ts'
-import type { SoundEventOccurrence } from '../src/client/watcher.ts'
+import type { SoundEventOccurrence, WatcherStreamOpener } from '../src/client/watcher.ts'
+
+/** One `session/notify` frame's payload view. */
+type NotifyFrame = Extract<MuxFrame, { type: 'session/notify' }>
+
+/** One `session/notify` question item view. */
+type QuestionItem = NonNullable<NotifyFrame['questions']>[number]
 
 /** One controllable async stream the watcher subscribes to. */
 class ControlledStream<F> {
   private readonly queue: Array<RpcRequest<F>> = []
-  private readonly parked: Array<(value: IteratorResult<RpcRequest<F>>) => void> = []
+  private readonly parked: Array<{
+    resolve: (result: IteratorResult<RpcRequest<F>>) => void
+    reject: (error: unknown) => void
+  }> = []
   private done = false
 
   /** The iterable face handed to the watcher. */
   readonly iterable: AsyncIterable<RpcRequest<F>> = {
     [Symbol.asyncIterator]: () => ({
-      next: (): Promise<IteratorResult<RpcRequest<F>>> => new Promise((resolve) => {
+      next: (): Promise<IteratorResult<RpcRequest<F>>> => new Promise((resolve, reject) => {
         const frame = this.queue.shift()
         if (frame !== undefined) {
           resolve({ value: frame, done: false })
@@ -30,7 +40,7 @@ class ControlledStream<F> {
           resolve({ value: undefined, done: true })
           return
         }
-        this.parked.push(resolve)
+        this.parked.push({ resolve, reject })
       }),
       /* for-await calls return() when the loop exits early (dispose). */
       'return': async () => ({ value: undefined, done: true }),
@@ -41,14 +51,20 @@ class ControlledStream<F> {
   push(frame: F, rpcId: number = 1): void {
     const envelope = { rpcId: rpcId as unknown as RpcRequest<F>['rpcId'], payload: frame } as unknown as RpcRequest<F>
     const reader = this.parked.shift()
-    if (reader !== undefined) reader({ value: envelope, done: false })
+    if (reader !== undefined) reader.resolve({ value: envelope, done: false })
     else this.queue.push(envelope)
   }
 
   /** End the stream (wake parked readers with the done result). */
   end(): void {
     this.done = true
-    for (const reader of this.parked.splice(0)) reader({ value: undefined, done: true })
+    for (const reader of this.parked.splice(0)) reader.resolve({ value: undefined, done: true })
+  }
+
+  /** Break the stream with a transport error (wake parked readers with a rejection). */
+  fail(error: unknown): void {
+    this.done = true
+    for (const reader of this.parked.splice(0)) reader.reject(error)
   }
 }
 
@@ -72,15 +88,6 @@ class TimerBank {
   /** Fire every scheduled timer once. */
   flush(): void {
     for (const entry of this.entries.splice(0)) entry.fn()
-  }
-
-  /** Fire only timers of one delay (the burst clear is 0ms). */
-  flushOf(ms: number): void {
-    for (const entry of [...this.entries]) {
-      if (entry.ms !== ms) continue
-      this.api.cancel(entry)
-      entry.fn()
-    }
   }
 }
 
@@ -108,419 +115,323 @@ function row(id: string, extra: Partial<SessionSummary> = {}): SessionSummary {
   return { id: branded, displayTitle: id, running: false, blank: false, updatedAt: 0, ...extra }
 }
 
-/** Register one session in the list so prune keeps its edge state. */
-function listed(kit: ReturnType<typeof bench>, id: string): void {
-  kit.sessions.state.ids.push(sid(id))
-  kit.sessions.state.byId[sid(id)] = row(id)
-}
-
-/** Build a watcher over the given streams with manual timers. */
-function bench(options: { mux?: boolean; host?: boolean } = {}) {
+/** Build a watcher over one controlled mux stream with manual timers. */
+function bench(openMux?: WatcherStreamOpener<MuxFrame>) {
   const sessions = sessionsHarness()
   const mux = new ControlledStream<MuxFrame>()
-  const host = new ControlledStream<HostFrame>()
   const events: SoundEventOccurrence[] = []
   const timers = new TimerBank()
-  const openMux = vi.fn(options.mux === false ? () => undefined : () => mux.iterable)
-  const openHost = vi.fn(options.host === false ? () => undefined : () => host.iterable)
+  const opener = vi.fn(openMux ?? (() => mux.iterable))
   const carrierLost = vi.fn()
   const watcher = new SoundWatcher({
     sessions: sessions.face,
-    openMux,
-    openHost,
+    openMux: opener,
     onEvent: (event) => { events.push(event) },
     schedule: timers.api.schedule,
     cancel: timers.api.cancel,
     onCarrierLost: carrierLost,
   })
   watcher.start()
-  return { watcher, sessions, mux, host, events, timers, openMux, openHost, carrierLost }
+  return { watcher, sessions, mux, events, timers, openMux: opener, carrierLost }
 }
 
-
-/** One turn/end session event literal with an unchecked reason payload. */
-function turnEndFrame(sessionId: string, reason: unknown): MuxFrame {
-  return {
-    type: 'session/event',
-    sessionId: sessionId as SessionId,
-    event: { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason } } as never,
-  }
+/** One `session/notify` frame literal (questions optional). */
+function notify(
+  sessionId: string,
+  kind: NotifyFrame['kind'],
+  sourceKey: string,
+  questions?: NonNullable<NotifyFrame['questions']>,
+): MuxFrame {
+  return questions === undefined
+    ? { type: 'session/notify', sessionId: sid(sessionId), kind, sourceKey }
+    : { type: 'session/notify', sessionId: sid(sessionId), kind, sourceKey, questions }
 }
 
-/** One opaque session event literal the watcher must ignore. */
-function eventFrame(sessionId: string, event: unknown): MuxFrame {
-  return {
-    type: 'session/event',
-    sessionId: sessionId as SessionId,
-    event: event as never,
-  }
+/** One question item literal; `overrides` may cast invalid intents for shape tests. */
+function question(overrides: Partial<QuestionItem> = {}): QuestionItem {
+  return { id: 'q', question: 'Proceed?', ...overrides }
 }
 
-/** One jobs snapshot frame with unchecked job rows. */
-function jobsFrame(sessionId: string, jobs: unknown): MuxFrame {
-  return {
-    type: 'session/jobs',
-    sessionId: sessionId as SessionId,
-    jobs: jobs as never,
-  }
+/** One question list whose frame shape reads as a plan review. */
+function planReviewQuestions(): NonNullable<NotifyFrame['questions']> {
+  return [question({
+    detail: 'The plan',
+    intent: { kind: 'plan-review', approve: 'Approve' },
+    options: [{ label: 'Approve' }, { label: 'Revise' }],
+  })]
 }
 
-/** Drain the watcher's microtasks after a push. */
 /** Drain the watcher's microtask chain after a push. */
 const settle = async (): Promise<void> => {
-  for (let hop = 0; hop < 8; hop += 1) await Promise.resolve()
+  for (let hop = 0; hop < 24; hop += 1) await Promise.resolve()
 }
 
-describe('SoundWatcher turn settlements', () => {
-  it('rings completion for a completed turn and failure for an error turn', async () => {
+describe('SoundWatcher notify folding', () => {
+  it('rings each detected kind with the frame sourceKey and sessionId on the main channel', async () => {
     const kit = bench()
-    kit.mux.push(turnEndFrame('s1', { kind: 'completed' }))
+    kit.mux.push(notify('s1', 'approval', 'approval:s1:a1'))
+    kit.mux.push(notify('s1', 'completion', 'turn:s1:1'))
+    kit.mux.push(notify('s2', 'failure', 'turn:s2:2'))
+    kit.mux.push(notify('s2', 'goal-blocked', 'goal:s2'))
     await settle()
-    kit.mux.push(turnEndFrame('s1', { kind: 'error', error: { message: 'x', code: 'UNKNOWN' } }))
-    await settle()
-    expect(kit.events.map(event => event.kind)).toEqual(['completion', 'failure'])
+    expect(kit.events).toEqual([
+      { kind: 'approval', sourceKey: 'approval:s1:a1', channel: 'main', sessionId: sid('s1') },
+      { kind: 'completion', sourceKey: 'turn:s1:1', channel: 'main', sessionId: sid('s1') },
+      { kind: 'failure', sourceKey: 'turn:s2:2', channel: 'main', sessionId: sid('s2') },
+      { kind: 'goal-blocked', sourceKey: 'goal:s2', channel: 'main', sessionId: sid('s2') },
+    ])
     kit.watcher.dispose()
   })
 
-  it('stays silent for aborted, blocked, max-tokens, and non-turn events', async () => {
+  it('routes rows marked subagent by origin or parentId to the subagent channel', async () => {
     const kit = bench()
-    for (const kind of ['aborted', 'blocked', 'max-tokens'] as const) {
-      kit.mux.push(turnEndFrame('s1', { kind }))
-    }
-    kit.mux.push(eventFrame('s1', { type: 'user/message', seq: 4, time: 4, data: { content: [], source: 'prompt' } }))
-    await settle()
-    expect(kit.events).toEqual([])
-    kit.watcher.dispose()
-  })
-})
-
-describe('SoundWatcher requested frames', () => {
-  it('rings an approval once per rpcId and suppresses the open-burst replay', async () => {
-    const kit = bench()
-    kit.mux.push({ type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 0 })
-    kit.mux.push({ type: 'approval/requested', sessionId: sid('s1'), approvalId: 'a1' as ApprovalRequestId, toolName: 'bash' }, 7)
-    await settle()
-    expect(kit.events).toEqual([])
-    kit.mux.push({ type: 'approval/requested', sessionId: sid('s1'), approvalId: 'a1' as ApprovalRequestId, toolName: 'bash' }, 7)
-    await settle()
-    expect(kit.events).toEqual([])
-    kit.timers.flushOf(0)
-    kit.mux.push({ type: 'approval/requested', sessionId: sid('s1'), approvalId: 'a2' as ApprovalRequestId, toolName: 'bash' }, 8)
-    await settle()
-    expect(kit.events.map(event => event.kind)).toEqual(['approval'])
-    kit.watcher.dispose()
-  })
-
-  it('classifies questions by the list row first and the frame shape second', async () => {
-    const kit = bench()
-    kit.timers.flushOf(0)
-    kit.sessions.state.ids = [sid('s1'), sid('s2'), sid('s3'), sid('s4')]
-    kit.sessions.state.byId[sid('s1')] = row('s1', { pendingInteraction: 'plan-review' })
-    kit.sessions.state.byId[sid('s2')] = row('s2', { pendingInteraction: 'question' })
-    kit.mux.push({ type: 'question/requested', sessionId: sid('s1'), questions: [{ id: 'q', question: '?' }] }, 11)
-    kit.mux.push({ type: 'question/requested', sessionId: sid('s2'), questions: [{ id: 'q', question: '?' }] }, 12)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s3'),
-      questions: [{ id: 'q', question: '?', detail: 'd', intent: { kind: 'plan-review', approve: '好' }, options: [{ label: '好' }, { label: '改' }] }],
-    }, 13)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s4'),
-      questions: [{ id: 'q', question: '?', detail: 'd', multiSelect: true, intent: { kind: 'plan-review', approve: '好' }, options: [{ label: '好' }, { label: '改' }] }],
-    }, 14)
-    await settle()
-    expect(kit.events.map(event => `${event.sessionId}:${event.kind}`)).toEqual(['s1:plan-review', 's2:question', 's3:plan-review', 's4:question'])
-    kit.watcher.dispose()
-  })
-
-  it('re-arms a question rpcId after its resolution', async () => {
-    const kit = bench()
-    kit.timers.flushOf(0)
-    kit.mux.push({ type: 'question/requested', sessionId: sid('s1'), questions: [{ id: 'q', question: '?' }] }, 21)
-    await settle()
-    kit.mux.push({ type: 'question/requested', sessionId: sid('s1'), questions: [{ id: 'q', question: '?' }] }, 21)
-    await settle()
-    kit.mux.push({ type: 'question/resolved', sessionId: sid('s1'), questionRpcId: 21 as unknown as RpcRequest<MuxFrame>['rpcId'], outcome: 'answered' })
-    kit.mux.push({ type: 'question/requested', sessionId: sid('s1'), questions: [{ id: 'q', question: '?' }] }, 21)
-    await settle()
-    expect(kit.events.filter(event => event.kind === 'question')).toHaveLength(2)
-    kit.watcher.dispose()
-  })
-})
-
-describe('SoundWatcher jobs and goals', () => {
-  it('rings terminal job edges and stays silent for killed or mid-flight jobs', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    kit.mux.push(jobsFrame('s1', [
-      { id: 'j1', kind: 'bash', label: 'a', status: 'running', startedAt: 0 },
-      { id: 'j2', kind: 'bash', label: 'b', status: 'running', startedAt: 0 },
-      { id: 'j3', kind: 'bash', label: 'c', status: 'running', startedAt: 0 },
-    ]))
-    await settle()
-    expect(kit.events).toEqual([])
-    kit.mux.push(jobsFrame('s1', [
-      { id: 'j1', kind: 'bash', label: 'a', status: 'completed', startedAt: 0, finishedAt: 1 },
-      { id: 'j2', kind: 'bash', label: 'b', status: 'failed', startedAt: 0, finishedAt: 1, detail: 'exit 1' },
-      { id: 'j3', kind: 'bash', label: 'c', status: 'killed', startedAt: 0, finishedAt: 1 },
-    ]))
-    await settle()
-    expect(kit.events.map(event => `${event.kind}:${event.sourceKey}`)).toEqual(['completion:job:s1:j1', 'failure:job:s1:j2'])
-    kit.mux.push(jobsFrame('s1', [
-      { id: 'j1', kind: 'bash', label: 'a', status: 'completed', startedAt: 0, finishedAt: 1 },
-    ]))
-    await settle()
-    expect(kit.events).toHaveLength(2)
-    kit.watcher.dispose()
-  })
-
-  it('routes subagent jobs to the subagent channel', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    kit.mux.push(jobsFrame('s1', [{ id: 'j1', kind: 'subagent', label: 'delegation', status: 'running', startedAt: 0 }]))
-    await settle()
-    kit.mux.push(jobsFrame('s1', [{ id: 'j1', kind: 'subagent', label: 'delegation', status: 'completed', startedAt: 0, finishedAt: 1 }]))
-    await settle()
-    expect(kit.events[0]?.channel).toBe('subagent')
-    kit.watcher.dispose()
-  })
-
-  it('rings only the entry into a blocked goal', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: { phase: 'active' }, seq: 1 })
-    await settle()
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: { phase: 'blocked' }, seq: 2 })
-    await settle()
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: { phase: 'blocked' }, seq: 3 })
-    await settle()
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'title', value: { text: 'x' }, seq: 4 })
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: null, seq: 5 })
-    await settle()
-    expect(kit.events.filter(event => event.kind === 'goal-blocked')).toHaveLength(1)
-    kit.watcher.dispose()
-  })
-})
-
-describe('SoundWatcher routing and host stream', () => {
-  it('routes sessions marked subagent in the list to the subagent channel', async () => {
-    const kit = bench()
-    kit.sessions.state.ids = [sid('s1'), sid('s2')]
+    kit.sessions.state.ids = [sid('s1'), sid('s2'), sid('s3')]
     kit.sessions.state.byId[sid('s1')] = row('s1', { origin: 'subagent' })
     kit.sessions.state.byId[sid('s2')] = row('s2', { parentId: sid('p') })
-    kit.timers.flushOf(0)
-    kit.mux.push({ type: 'approval/requested', sessionId: sid('s1'), approvalId: 'a1' as ApprovalRequestId, toolName: 'bash' }, 31)
-    kit.mux.push({ type: 'approval/requested', sessionId: sid('s2'), approvalId: 'a2' as ApprovalRequestId, toolName: 'bash' }, 32)
+    kit.sessions.state.byId[sid('s3')] = row('s3')
+    kit.mux.push(notify('s1', 'completion', 'turn:s1:1'))
+    kit.mux.push(notify('s2', 'completion', 'turn:s2:1'))
+    kit.mux.push(notify('s3', 'completion', 'turn:s3:1'))
     await settle()
-    expect(kit.events.every(event => event.channel === 'subagent')).toBe(true)
+    expect(kit.events.map(event => event.channel)).toEqual(['subagent', 'subagent', 'main'])
+    kit.watcher.dispose()
+  })
+})
+
+describe('SoundWatcher question refinement', () => {
+  it('prefers the list row settled interaction over the frame shape', async () => {
+    const kit = bench()
+    kit.sessions.state.ids = [sid('s1'), sid('s2')]
+    kit.sessions.state.byId[sid('s1')] = row('s1', { pendingInteraction: 'plan-review' })
+    kit.sessions.state.byId[sid('s2')] = row('s2', { pendingInteraction: 'question' })
+    // s1's frame shape is not a plan review yet the row's classification wins;
+    // s2's frame shape is a plan review yet the plain-question row wins.
+    kit.mux.push(notify('s1', 'question', 'question:s1:1', [question({ multiSelect: true })]))
+    kit.mux.push(notify('s2', 'question', 'question:s2:1', planReviewQuestions()))
+    await settle()
+    expect(kit.events.map(event => event.kind)).toEqual(['plan-review', 'question'])
     kit.watcher.dispose()
   })
 
-  it('rings host agent errors and ignores every other host frame', async () => {
+  it('classifies plan-review from the frame shape when the row carries no question interaction', async () => {
     const kit = bench()
-    kit.host.push({ type: 'host/agent-error', sessionId: sid('s1'), message: 'boom' })
+    kit.sessions.state.ids = [sid('s1')]
+    // An approval interaction is not a question interaction: the frame decides.
+    kit.sessions.state.byId[sid('s1')] = row('s1', { pendingInteraction: 'approval' })
+    kit.mux.push(notify('s1', 'question', 'question:s1:1', planReviewQuestions()))
+    // An unlisted session decides through the frame shape as well.
+    kit.mux.push(notify('s2', 'question', 'question:s2:1', planReviewQuestions()))
     await settle()
-    kit.host.push({ type: 'host/session-status', sessionId: sid('s1'), running: false })
+    expect(kit.events.map(event => event.kind)).toEqual(['plan-review', 'plan-review'])
+    kit.watcher.dispose()
+  })
+
+  it('classifies plain questions from every non-plan-review frame shape', async () => {
+    const kit = bench()
+    const shapes: Array<NonNullable<NotifyFrame['questions']>> = [
+      [question(), question()],
+      [question()],
+      [question({ intent: { kind: 'other' } as never })],
+      [question({ intent: { kind: 'plan-review', approve: 'Approve' } })],
+      [question({ detail: 'd', multiSelect: true, intent: { kind: 'plan-review', approve: 'Approve' }, options: [{ label: 'Approve' }] })],
+      [question({ detail: 'd', intent: { kind: 'plan-review', approve: 'Approve' }, options: [{ label: 'Approve' }, { label: 'Revise' }, { label: 'Cancel' }] })],
+      [question({ detail: 'd', intent: { kind: 'plan-review', approve: 'Approve' }, options: [{ label: 'Revise' }] })],
+      [question({ detail: 'd', intent: { kind: 'plan-review', approve: 'Approve' } })],
+    ]
+    for (const [index, questions] of shapes.entries()) {
+      kit.mux.push(notify('s1', 'question', `question:s1:${index}`, questions))
+    }
     await settle()
-    expect(kit.events.map(event => event.kind)).toEqual(['failure'])
+    expect(kit.events.map(event => event.kind)).toEqual(shapes.map(() => 'question'))
+    kit.watcher.dispose()
+  })
+
+  it('treats a frame without questions as a plain question regardless of the row', async () => {
+    const kit = bench()
+    kit.sessions.state.ids = [sid('s1')]
+    kit.sessions.state.byId[sid('s1')] = row('s1', { pendingInteraction: 'plan-review' })
+    kit.mux.push(notify('s1', 'question', 'question:s1:1'))
+    await settle()
+    expect(kit.events.map(event => event.kind)).toEqual(['question'])
     kit.watcher.dispose()
   })
 })
 
 describe('SoundWatcher frame zoo', () => {
-  it('ignores control, resolved, queue, and stream-error frames without ringing', async () => {
+  it('ignores every non-notify mux frame without ringing', async () => {
     const kit = bench()
-    listed(kit, 's1')
-    kit.timers.flushOf(0)
+    kit.sessions.state.ids = [sid('s1')]
+    kit.sessions.state.byId[sid('s1')] = row('s1')
     kit.mux.push({ type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 0 })
-    kit.mux.push({ type: 'session/queue', sessionId: sid('s1'), items: [] } as never)
-    kit.mux.push({ type: 'approval/resolved', sessionId: sid('s1'), approvalId: 'a1' as ApprovalRequestId, outcome: 'allow' as never })
-    kit.mux.push({ type: 'question/resolved', sessionId: sid('s1'), questionRpcId: 5 as unknown as RpcRequest<MuxFrame>['rpcId'], outcome: 'answered' })
-    kit.mux.push({ type: 'stream/error', error: { code: 'GONE', message: 'x' } } as never)
+    kit.mux.push({
+      type: 'session/event', sessionId: sid('s1'),
+      event: { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } } as never,
+    })
+    kit.mux.push({ type: 'approval/requested', sessionId: sid('s1'), approvalId: 'a1' as ApprovalRequestId, toolName: 'bash' })
+    kit.mux.push({ type: 'question/requested', sessionId: sid('s1'), questions: [question()] })
+    kit.mux.push({ type: 'session/jobs', sessionId: sid('s1'), jobs: [] })
+    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: { phase: 'blocked' }, seq: 1 })
+    kit.mux.push({ type: 'stream/error', error: { code: 'GONE', message: 'x' } as never })
     await settle()
     expect(kit.events).toEqual([])
-  })
-
-  it('classifies multi-question and wide-option frames as plain questions', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    kit.timers.flushOf(0)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [
-        { id: 'q1', question: 'a' },
-        { id: 'q2', question: 'b' },
-      ],
-    }, 41)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [{
-        id: 'q3', question: 'c', detail: 'd', intent: { kind: 'plan-review', approve: '好' },
-        options: [{ label: '好' }, { label: '改' }, { label: '否' }],
-      }],
-    }, 42)
-    await settle()
-    expect(kit.events.map(event => event.kind)).toEqual(['question', 'question'])
-  })
-
-  it('falls back to the frame shape when the row carries no settled interaction', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    kit.timers.flushOf(0)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [{ id: 'q', question: '?', detail: 'd', intent: { kind: 'plan-review', approve: '好' }, options: [{ label: '好' }, { label: '改' }] }],
-    }, 43)
-    await settle()
-    expect(kit.events.map(event => event.kind)).toEqual(['plan-review'])
-  })
-
-  it('rings a main-channel job from an unmarked session', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    kit.mux.push(jobsFrame('s1', [{ id: 'j1', kind: 'bash', label: 'a', status: 'running', startedAt: 0 }]))
-    await settle()
-    kit.mux.push(jobsFrame('s1', [{ id: 'j1', kind: 'bash', label: 'a', status: 'stopping', startedAt: 0 }]))
-    await settle()
-    kit.mux.push(jobsFrame('s1', [{ id: 'j1', kind: 'bash', label: 'a', status: 'completed', startedAt: 0, finishedAt: 1 }]))
-    await settle()
-    const completion = kit.events.find(event => event.kind === 'completion')
-    expect(completion?.channel).toBe('main')
-  })
-
-  it('ignores malformed goal values and unmappable plan-review frames', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    kit.timers.flushOf(0)
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: { phase: 123 }, seq: 1 })
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [{ id: 'q', question: '?' }],
-    }, 49)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [{ id: 'q', question: '?', intent: { kind: 'other' } as never }],
-    }, 50)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [{ id: 'q', question: '?', intent: { kind: 'plan-review', approve: '好' } }],
-    }, 51)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [{ id: 'q', question: '?', detail: 'd', intent: { kind: 'plan-review', approve: '不在' }, options: [{ label: '好' }, { label: '改' }] }],
-    }, 52)
-    kit.mux.push({
-      type: 'question/requested', sessionId: sid('s1'),
-      questions: [{ id: 'q', question: '?', detail: 'd', intent: { kind: 'plan-review', approve: '好' } }],
-    }, 53)
-    kit.mux.push({ type: 'compaction/progress', sessionId: sid('s1'), compactionId: 'c1', phase: 'reasoning', text: 'x' } as never)
-    await settle()
-    expect(kit.events.filter(event => event.kind === 'question')).toHaveLength(5)
-    expect(kit.events.every(event => event.kind === 'question')).toBe(true)
-  })
-
-  it('stops the host loop when the host opener is unsupported', async () => {
-    const kit = bench({ host: false })
-    kit.mux.push(turnEndFrame('s1', { kind: 'completed' }))
-    await settle()
-    expect(kit.events.map(event => event.kind)).toEqual(['completion'])
     kit.watcher.dispose()
-  })
-
-  it('cancels a still-pending burst timer when the stream reopens inside the window', async () => {
-    const kit = bench()
-    kit.mux.end()
-    await settle()
-    kit.timers.flushOf(800)
-    await settle()
-    expect(kit.openMux).toHaveBeenCalledTimes(2)
-    kit.watcher.dispose()
-  })
-
-  it('prunes the edge state of sessions that left the list', async () => {
-    const kit = bench()
-    listed(kit, 's1')
-    listed(kit, 's2')
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: { phase: 'active' }, seq: 1 })
-    kit.mux.push(jobsFrame('s1', [{ id: 'j1', kind: 'bash', label: 'a', status: 'running', startedAt: 0 }]))
-    await settle()
-    const index = kit.sessions.state.ids.indexOf('s1' as SessionId)
-    if (index >= 0) kit.sessions.state.ids.splice(index, 1)
-    Reflect.deleteProperty(kit.sessions.state.byId, sid('s1'))
-    // A frame for the surviving session runs the prune pass; s1's goal phase
-    // and job edge are dropped, so its later frames start from fresh state.
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s2'), key: 'goal', value: { phase: 'active' }, seq: 2 })
-    await settle()
-    kit.mux.push({ type: 'session/projection', sessionId: sid('s1'), key: 'goal', value: { phase: 'blocked' }, seq: 3 })
-    await settle()
-    expect(kit.events.map(event => event.kind)).toEqual(['goal-blocked'])
   })
 })
 
 describe('SoundWatcher lifecycle', () => {
-  it('does not subscribe when an opener reports an unsupported transport', async () => {
-    const kit = bench({ mux: false })
+  it('does not subscribe when the opener reports an unsupported transport', async () => {
+    const kit = bench(() => undefined)
     expect(kit.openMux).toHaveBeenCalledTimes(1)
-    kit.host.push({ type: 'host/agent-error', sessionId: sid('s1'), message: 'boom' })
     await settle()
-    expect(kit.events).toHaveLength(1)
+    expect(kit.events).toEqual([])
+    expect(kit.timers.entries).toEqual([])
+    kit.watcher.dispose()
+  })
+
+  it('exits the loop when the opener returns a non-stream value', async () => {
+    const kit = bench(() => ({}) as unknown as AsyncIterable<RpcRequest<MuxFrame>>)
+    expect(kit.openMux).toHaveBeenCalledTimes(1)
+    await settle()
+    expect(kit.timers.entries).toEqual([])
     kit.watcher.dispose()
   })
 
   it('reopens a broken stream after the backoff wait', async () => {
     const kit = bench()
-    kit.mux.push({ type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 0 })
+    kit.mux.push(notify('s1', 'completion', 'turn:s1:1'))
     await settle()
     kit.mux.end()
     await settle()
-    expect(kit.timers.entries.length).toBeGreaterThan(0)
+    expect(kit.timers.entries.map(entry => entry.ms)).toEqual([800])
+    kit.timers.flush()
+    await settle()
+    expect(kit.openMux).toHaveBeenCalledTimes(2)
+    expect(kit.carrierLost).not.toHaveBeenCalled()
+    kit.watcher.dispose()
+  })
+
+  it('resets the reopen delay when a reopened stream delivers an envelope', async () => {
+    const sessions = sessionsHarness()
+    const timers = new TimerBank()
+    const events: SoundEventOccurrence[] = []
+    // One fresh stream per generation: the reopened loop parks on the second
+    // stream and can still receive an envelope before its close.
+    const streams = [new ControlledStream<MuxFrame>(), new ControlledStream<MuxFrame>()]
+    let opens = 0
+    const watcher = new SoundWatcher({
+      sessions: sessions.face,
+      openMux: () => {
+        const stream = streams[opens]
+        opens += 1
+        return stream!.iterable
+      },
+      onEvent: (event) => { events.push(event) },
+      schedule: timers.api.schedule,
+      cancel: timers.api.cancel,
+      onCarrierLost: () => {},
+    })
+    watcher.start()
+    await settle()
+    streams[0]!.end()
+    await settle()
+    timers.flush()
+    await settle()
+    streams[1]!.push(notify('s1', 'completion', 'turn:s1:1'))
+    await settle()
+    streams[1]!.end()
+    await settle()
+    expect(events.map(event => event.kind)).toEqual(['completion'])
+    // One delivered envelope drops the next wait back to the base delay.
+    expect(timers.entries.map(entry => entry.ms)).toEqual([800])
+    watcher.dispose()
+  })
+
+  it('treats a stream error as a break and reopens', async () => {
+    const kit = bench()
+    kit.mux.fail(new Error('connection reset'))
+    await settle()
+    expect(kit.timers.entries.map(entry => entry.ms)).toEqual([800])
     kit.timers.flush()
     await settle()
     expect(kit.openMux).toHaveBeenCalledTimes(2)
     kit.watcher.dispose()
   })
 
-  it('reopens a broken host stream after the backoff wait', async () => {
-    const kit = bench()
-    kit.host.push({ type: 'host/agent-error', sessionId: sid('s1'), message: 'boom' })
-    await settle()
-    kit.host.end()
-    await settle()
-    expect(kit.timers.entries.length).toBeGreaterThan(0)
-    kit.timers.flush()
-    await settle()
-    expect(kit.openHost).toHaveBeenCalledTimes(2)
-    kit.watcher.dispose()
+  it('doubles the reopen backoff up to the 30s ceiling', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const sessions = sessionsHarness()
+      const timers = new TimerBank()
+      // Every stream lives past the immediate window (system time jumps 6s
+      // before the close), so the breaker never trips and only the delay grows.
+      const watcher = new SoundWatcher({
+        sessions: sessions.face,
+        openMux: () => {
+          const stream = new ControlledStream<MuxFrame>()
+          queueMicrotask(() => {
+            vi.setSystemTime(Date.now() + 6_000)
+            stream.end()
+          })
+          return stream.iterable
+        },
+        onEvent: () => {},
+        schedule: timers.api.schedule,
+        cancel: timers.api.cancel,
+        onCarrierLost: () => {},
+      })
+      watcher.start()
+      await settle()
+      const delays: number[] = [timers.entries[0]!.ms]
+      for (let round = 0; round < 7; round += 1) {
+        timers.flush()
+        await settle()
+        delays.push(timers.entries[0]!.ms)
+      }
+      expect(delays).toEqual([800, 1_600, 3_200, 6_400, 12_800, 25_600, 30_000, 30_000])
+      watcher.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('stops for good after disposal and cancels pending timers', async () => {
     const kit = bench()
     kit.mux.end()
-    kit.host.end()
     await settle()
     expect(kit.timers.entries.length).toBeGreaterThan(0)
-    // Resolve the reopen wait, then dispose before the loop resumes: both
-    // loops observe the disposed flag after their wait.
+    // Dispose while the reopen wait is pending: the timer is cancelled and
+    // the waiting loop never resumes.
+    kit.watcher.dispose()
+    expect(kit.timers.entries).toEqual([])
+    kit.timers.flush()
+    await settle()
+    expect(kit.openMux).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reopen when disposal lands after the wait resolved', async () => {
+    const kit = bench()
+    kit.mux.end()
+    await settle()
+    // Resolve the reopen wait, then dispose before the loop resumes: the
+    // loop observes the disposed flag right after its wait.
     kit.timers.flush()
     kit.watcher.dispose()
     await settle()
-    const muxOpens = kit.openMux.mock.calls.length
-    const hostOpens = kit.openHost.mock.calls.length
     kit.timers.flush()
     await settle()
-    expect(kit.openMux.mock.calls.length).toBe(muxOpens)
-    expect(kit.openHost.mock.calls.length).toBe(hostOpens)
+    expect(kit.openMux).toHaveBeenCalledTimes(1)
   })
 
   it('drops frames delivered after disposal through parked readers', async () => {
     const kit = bench()
     await settle()
     kit.watcher.dispose()
-    kit.mux.push({ type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 0 })
-    kit.host.push({ type: 'host/session-status', sessionId: sid('s1'), running: true })
+    kit.mux.push(notify('s1', 'completion', 'turn:s1:1'))
     await settle()
     expect(kit.events).toEqual([])
   })
-  it('retires the generation after consecutive immediate zero-event closes', async () => {
+
+  it('retires the generation after two consecutive immediate zero-envelope closes', async () => {
     const kit = bench()
     await settle()
     kit.mux.end()
@@ -528,17 +439,11 @@ describe('SoundWatcher lifecycle', () => {
     // First close strikes; the reopen finds the drained stream and the second strike trips.
     kit.timers.flush()
     await settle()
-    const muxOpensAtTrip = kit.openMux.mock.calls.length
-    expect(muxOpensAtTrip).toBe(2)
+    expect(kit.openMux).toHaveBeenCalledTimes(2)
     expect(kit.carrierLost).toHaveBeenCalledTimes(1)
     kit.timers.flush()
     await settle()
-    expect(kit.openMux.mock.calls.length).toBe(muxOpensAtTrip)
-    // The healthy host loop is disposed with the generation and never reopens either.
-    kit.host.end()
-    kit.timers.flush()
-    await settle()
-    expect(kit.openHost.mock.calls.length).toBe(1)
+    expect(kit.openMux).toHaveBeenCalledTimes(2)
   })
 
   it('resets the strike count when a reopen delivers envelopes', async () => {
@@ -549,7 +454,6 @@ describe('SoundWatcher lifecycle', () => {
       const carrierLost = vi.fn()
       const opens: Array<'mute' | 'immediate'> = ['immediate', 'mute', 'immediate', 'immediate']
       let muxOpens = 0
-      let hostOpens = 0
       const watcher = new SoundWatcher({
         sessions: sessions.face,
         openMux: () => {
@@ -559,10 +463,6 @@ describe('SoundWatcher lifecycle', () => {
           if (kind === 'mute') stream.push({ type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 0 })
           stream.end()
           return stream.iterable
-        },
-        openHost: () => {
-          hostOpens += 1
-          return new ControlledStream<HostFrame>().iterable
         },
         onEvent: () => {},
         schedule: timers.api.schedule,
@@ -581,7 +481,6 @@ describe('SoundWatcher lifecycle', () => {
       timers.flush()
       await settle()
       expect(muxOpens).toBe(4)
-      expect(hostOpens).toBe(1)
       watcher.dispose()
     } finally {
       vi.useRealTimers()
@@ -607,7 +506,6 @@ describe('SoundWatcher lifecycle', () => {
           else stream.end()
           return stream.iterable
         },
-        openHost: () => new ControlledStream<HostFrame>().iterable,
         onEvent: () => {},
         schedule: timers.api.schedule,
         cancel: timers.api.cancel,
@@ -628,23 +526,5 @@ describe('SoundWatcher lifecycle', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-  it('retires from the host loop the same way', async () => {
-    const kit = bench()
-    await settle()
-    kit.host.end()
-    await settle()
-    kit.timers.flush()
-    await settle()
-    const hostOpensAtTrip = kit.openHost.mock.calls.length
-    expect(hostOpensAtTrip).toBe(2)
-    expect(kit.carrierLost).toHaveBeenCalledTimes(1)
-    kit.timers.flush()
-    await settle()
-    expect(kit.openHost.mock.calls.length).toBe(hostOpensAtTrip)
-    kit.mux.end()
-    kit.timers.flush()
-    await settle()
-    expect(kit.openMux.mock.calls.length).toBe(1)
   })
 })

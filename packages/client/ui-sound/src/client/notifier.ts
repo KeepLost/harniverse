@@ -36,8 +36,6 @@ export interface SoundAlertRequest {
   readonly onActivate: () => void
   /** Plays the alert sound once permission is granted. */
   readonly ring: () => void
-  /** Presents the toast through cross-tab arbitration. */
-  readonly arbitrate: (present: () => void) => void
 }
 
 /**
@@ -55,7 +53,7 @@ export class SoundNotifier {
    * Deliver one alert: gate the whole alert on the platform permission,
    * ring, then present the toast unless this tab is being looked at.
    *
-   * @param request - the alert's copy, activation, sound, and arbitration.
+   * @param request - the alert's copy, activation, and sound.
    */
   alert(request: SoundAlertRequest): void {
     const face = this.deps.notifications
@@ -64,7 +62,7 @@ export class SoundNotifier {
       if (state !== 'granted') return
       request.ring()
       if (this.deps.alertable()) return
-      request.arbitrate(() => { face.show(request.title, request.body, request.onActivate) })
+      face.show(request.title, request.body, request.onActivate)
     })
   }
 

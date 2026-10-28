@@ -211,7 +211,7 @@ export function apply(ctx: Context): void {
     return target.kind === 'host' ? 'host' : `remote:${target.id}`
   }
   ctx.get('slots')?.resetTarget(machineKey())
-  const sessions = new SessionRuntime(ctx, connection.captureApi(), ctx.remote, conversation, machineKey())
+  const sessions = new SessionRuntime(ctx, connection.captureApi(), ctx.remote, conversation, machineKey(), connection.pageToken)
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })

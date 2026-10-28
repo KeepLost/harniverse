@@ -7,7 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 import type {} from '@deepseek-ai/dsh-client-authentication'
 import { sameAuthenticationPrincipalIdentity, type HostDescription, type IApiClient } from './api.ts'
-import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
+import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState, PAGE_TOKEN } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
 import { createWebConnectionRpc, resolveBase } from './rpc.ts'
@@ -110,6 +110,8 @@ export interface ConnectionHealthSource {
 export interface ConnectionHandle {
   /** Stable API face for current-machine operations; local management stays on the page authority. */
   readonly api: IApiClient
+  /** Per-page presence token this page's mux streams bind (`events.adopt` routing). */
+  readonly pageToken: string
   /** Current machine; the source and unchanged snapshots retain their identity. */
   readonly target: MachineTargetSource
   /**
@@ -272,6 +274,7 @@ export function apply(ctx: Context): void {
   const handle: ConnectionHandle = {
     api,
     captureApi: () => carrier?.api ?? fixtureClient ?? targetApi,
+    pageToken: PAGE_TOKEN,
     target: {
       getSnapshot: () => generation.target,
       subscribe: (listener) => { targetListeners.add(listener); return () => { targetListeners.delete(listener) } },

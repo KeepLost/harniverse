@@ -23,6 +23,7 @@ import type { JobsApi } from './jobs.ts'
 import type { SpeechApi } from './speech.ts'
 import type { GlobalRulesApi } from './global-rules.ts'
 import type { WorkspaceFilesApi } from './workspace-files.ts'
+import type { EventsApi } from './events.ts'
 import type { WorkspaceGitApi } from './workspace-git.ts'
 
 /**
@@ -111,6 +112,7 @@ export interface RpcMethodMap {
   'llm.models': LlmApi['models']
   'llm.modelProfiles': LlmApi['modelProfiles']
   'llm.discoverModels': LlmApi['discoverModels']
+  'events.adopt': EventsApi['adopt']
 }
 
 /** Required effect capability for every legacy unary endpoint. */
@@ -195,6 +197,7 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'llm.models': 'harniverse.observe',
   'llm.modelProfiles': 'harniverse.observe',
   'llm.discoverModels': 'harniverse.administer',
+  'events.adopt': 'harniverse.observe',
 }
 
 /** Whether each unary method mutates Host or durable application state. */
@@ -279,6 +282,7 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'llm.models': 'read',
   'llm.modelProfiles': 'read',
   'llm.discoverModels': 'mutate',
+  'events.adopt': 'read',
 }
 
 /**

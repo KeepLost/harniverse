@@ -49,6 +49,26 @@ export class DirectoryBrowseError extends Error {
   }
 }
 
+/** Browser-native timeout DOMException name for the bounded unary call window. */
+const CARRIER_TIMEOUT = 'TimeoutError'
+
+/**
+ * Run one workspace filesystem call, translating the carrier's raw timeout
+ * exception into an actionable message. The browser aborts a unary call whose
+ * host never answered at its fixed bound; surfacing the DOMException verbatim
+ * ("signal timed out") hides both the cause and the recovery path.
+ */
+async function fsCall<T>(label: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === CARRIER_TIMEOUT) {
+      throw new Error(`${label} timed out: the host filesystem did not answer within the request window`)
+    }
+    throw error
+  }
+}
+
 /** Real Workspace object layer and Host actions. */
 export class WorkspaceRuntime implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
@@ -307,12 +327,13 @@ export class WorkspaceRuntime implements IWorkspaces {
     }
   }
 
+
   async listFiles(workspaceId: WorkspaceId, path?: string, signal?: AbortSignal): Promise<{
     path: string
     entries: WorkspaceFileEntry[]
     truncated: boolean
   }> {
-    const response = await this.api.workspaceFiles.list({ workspaceId, ...(path === undefined ? {} : { path }) }, signal)
+    const response = await fsCall('workspace file listing', () => this.api.workspaceFiles.list({ workspaceId, ...(path === undefined ? {} : { path }) }, signal))
     if (!response.result.ok) throw new Error(`workspace file listing failed: ${response.result.error.message}`)
     return response.result.value
   }
@@ -347,12 +368,12 @@ export class WorkspaceRuntime implements IWorkspaces {
     // and an empty include list must not look like a deliberate filter.
     const include = filters?.include?.filter(pattern => pattern.trim() !== '') ?? []
     const exclude = filters?.exclude?.filter(pattern => pattern.trim() !== '') ?? []
-    const response = await this.api.workspaceFiles.search({
+    const response = await fsCall('workspace file search', () => this.api.workspaceFiles.search({
       workspaceId,
       query,
       ...(include.length === 0 ? {} : { include }),
       ...(exclude.length === 0 ? {} : { exclude }),
-    }, signal)
+    }, signal))
     if (!response.result.ok) throw new Error(`workspace file search failed: ${response.result.error.message}`)
     return response.result.value
   }
@@ -367,11 +388,11 @@ export class WorkspaceRuntime implements IWorkspaces {
     bom: boolean
     eol: 'LF' | 'CRLF'
   }> {
-    const response = await this.api.workspaceFiles.read({
+    const response = await fsCall('workspace file read', () => this.api.workspaceFiles.read({
       workspaceId,
       path,
       ...opts?.encoding === undefined ? {} : { encoding: opts.encoding },
-    }, signal)
+    }, signal))
     if (!response.result.ok) throw new Error(`workspace file read failed: ${response.result.error.message}`)
     return response.result.value
   }
@@ -382,7 +403,7 @@ export class WorkspaceRuntime implements IWorkspaces {
     mediaType: string
     bytes: number
   }> {
-    const response = await this.api.workspaceFiles.readBinary({ workspaceId, path }, signal)
+    const response = await fsCall('workspace binary file read', () => this.api.workspaceFiles.readBinary({ workspaceId, path }, signal))
     if (!response.result.ok) throw new Error(`workspace binary file read failed: ${response.result.error.message}`)
     return response.result.value
   }

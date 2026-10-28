@@ -3,6 +3,7 @@
  * narrow RpcRequest<P> and echoes request.rpcId on the RpcResponse<T>.
  */
 
+import { NotifyDetector, type NotifyOccurrence } from './notify-detector.ts'
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname, isAbsolute } from 'node:path'
@@ -1489,6 +1490,8 @@ function inspectionError(error: WorkspaceInspectorError, workspaceId: string, pa
     case 'workspace-file-binary':
     case 'workspace-file-preview-unsupported':
     case 'workspace-file-too-large':
+    case 'workspace-entry-stalled':
+    case 'workspace-root-stalled':
       return {
         code: error.code,
         message: error.message,
@@ -1642,6 +1645,64 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     readonly subscribe: (session: Session) => void
   }>()
   const hostQueues = new Set<FrameQueue<RpcRequest<HostFrame>>>()
+
+  // --- Page presence routing ----------------------------------------------
+  // A browser page binds each of its mux streams with a stable `page` token
+  // and declares the sessions it has open through `events.adopt`. Per session
+  // the most recent declarer owns the notifications: occurrences detected
+  // once centrally are pushed as `session/notify` frames to that page's live
+  // streams only (each stream's own session-visibility fence still applies),
+  // and a session no adopting page still serves is not delivered at all.
+  interface PageMuxFace {
+    readonly queue: FrameQueue<RpcRequest<MuxFrame>>
+    readonly visible: (sessionId: SessionId) => boolean
+  }
+  const pageStreams = new Map<string, Set<PageMuxFace>>()
+  const pageAdoptions = new Map<string, Set<SessionId>>()
+  const sessionAdopters = new Map<SessionId, string[]>()
+
+  /** Drop one page's adoption of a session (whole-set replacement or stream teardown). */
+  function unadoptPage(page: string, sessionId: SessionId): void {
+    const adopters = sessionAdopters.get(sessionId)
+    if (adopters === undefined) return
+    const index = adopters.lastIndexOf(page)
+    if (index >= 0) adopters.splice(index, 1)
+    if (adopters.length === 0) sessionAdopters.delete(sessionId)
+  }
+
+  /** Unbind one closed mux stream; the page's last stream takes its adoptions with it. */
+  function releasePageStream(page: string, face: PageMuxFace): void {
+    const faces = pageStreams.get(page)
+    if (faces === undefined) return
+    faces.delete(face)
+    if (faces.size !== 0) return
+    pageStreams.delete(page)
+    const adopted = pageAdoptions.get(page)
+    if (adopted === undefined) return
+    pageAdoptions.delete(page)
+    for (const sessionId of adopted) unadoptPage(page, sessionId)
+  }
+
+  /** Route one detected occurrence to the owning page's live streams. */
+  function deliverNotify(occurrence: NotifyOccurrence): void {
+    const owner = sessionAdopters.get(occurrence.sessionId)?.at(-1)
+    if (owner === undefined) return
+    const faces = pageStreams.get(owner)
+    if (faces === undefined) return
+    const payload: MuxFrame = {
+      type: 'session/notify',
+      sessionId: occurrence.sessionId,
+      kind: occurrence.kind,
+      sourceKey: occurrence.sourceKey,
+      ...occurrence.questions === undefined ? {} : { questions: occurrence.questions },
+    }
+    const envelope = frame(payload)
+    for (const face of faces) {
+      if (face.visible(occurrence.sessionId)) face.queue.push(envelope)
+    }
+  }
+
+  const notifyDetector = new NotifyDetector(deliverNotify)
   let settingsExposureRevision = 0
 
   const principalKey = (request: RpcRequest<unknown>): string | undefined => request.principal === undefined
@@ -2131,6 +2192,34 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   })
 
+  // Central notification detection: one fold over the live sources (never the
+  // per-stream mux replay), routed by page presence at the delivery sink.
+  ctx.on('session/event', (session: Session, event: SessionEvent) => {
+    notifyDetector.sessionEvent(session.id, event)
+  })
+  ctx.on('session/disposed', (session: Session) => {
+    notifyDetector.sessionDisposed(session.id)
+  })
+  ctx.on('agent/error', ({ agent }: { agent: Agent; error: unknown }) => {
+    notifyDetector.agentError(agent.id)
+  })
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.onChanged((session, key, value) => {
+      if (key === 'goal') notifyDetector.goalProjection(session.id, value)
+    })
+  })
+  ctx.inject(['jobs'], (jobsCtx) => {
+    ctx.effect(() => jobsCtx.jobs.onJobsChanged((owner) => {
+      if (owner !== undefined) {
+        notifyDetector.jobsSnapshot(owner.id, jobViews(jobsCtx.jobs.list(owner)))
+        return
+      }
+      for (const session of ctx.sessions.list()) {
+        notifyDetector.jobsSnapshot(session.id, jobViews(jobsCtx.jobs.list(ctx.agents.get(session.id))))
+      }
+    }))
+  })
+
   // The cache supplies recency and a monotonic non-blank hint. A cached
   // `blank: true` remains only a prefix fact and is verified on the cold path.
   ctx.inject(['sessionProjections'], (projectionCtx) => {
@@ -2317,6 +2406,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       type: 'question/resolved', sessionId: pending.sessionId,
       questionRpcId: pending.rpcId, outcome,
     })
+    notifyDetector.pendingResolved('question', String(pending.rpcId))
   }
 
   const disposeProvider = ctx.userQuestions.registerProvider({
@@ -2344,6 +2434,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const envelope = questionRequestedFrame(pending)
           for (const queue of muxQueues) queue.push(envelope)
         }
+        notifyDetector.questionRequested(pending.sessionId, String(pending.rpcId), request.questions)
       })
     },
   })
@@ -2417,6 +2508,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           if (!pendingApprovals.delete(pending.rpcId)) return
           req.signal?.removeEventListener('abort', onAbort)
           broadcast({ type: 'approval/resolved', sessionId: pending.sessionId, approvalId: id, outcome })
+          notifyDetector.pendingResolved('approval', String(pending.rpcId))
           // A cancelled ask was already settled by the service's own signal
           // race, which discards this late resolution; resolving is a no-op
           // there and keeps this promise from dangling forever.
@@ -2438,6 +2530,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const envelope = requestedFrame(pending)
           for (const queue of muxQueues) queue.push(envelope)
         }
+        notifyDetector.approvalRequested(pending.sessionId, String(pending.rpcId))
       })
     })
   }
@@ -5641,6 +5734,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const visibleSession = (session: Session): boolean => session.header.origin !== 'subagent'
           || addressedSessions.has(session.id)
         const visibleSessionId = (sessionId: SessionId): boolean => ordinarySessionId(sessionId)
+        const pageToken = request.payload.page
+        let pageFace: PageMuxFace | undefined
+        if (pageToken !== undefined) {
+          pageFace = { queue, visible: sessionId => visibleSessionId(sessionId) || addressedSessions.has(sessionId) }
+          const faces = pageStreams.get(pageToken) ?? new Set<PageMuxFace>()
+          faces.add(pageFace)
+          pageStreams.set(pageToken, faces)
+        }
 
         const sessionEventFrame = (
           session: Session,
@@ -5807,6 +5908,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return queue.iterate(signal, () => {
           muxQueues.delete(queue)
           addressedMuxSubscribers.delete(queue)
+          if (pageToken !== undefined && pageFace !== undefined) releasePageStream(pageToken, pageFace)
           for (const dispose of disposers) dispose()
         })
       },
@@ -6056,6 +6158,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return queue.iterate(signal, () => {})
       },
       /* jscpd:ignore-end */
+
+      adopt(request) {
+        const { page, sessionIds } = request.payload
+        const previous = pageAdoptions.get(page)
+        if (previous !== undefined) {
+          for (const sessionId of previous) {
+            if (sessionIds.includes(sessionId)) continue
+            unadoptPage(page, sessionId)
+          }
+        }
+        if (sessionIds.length === 0) pageAdoptions.delete(page)
+        else {
+          const next = new Set(sessionIds)
+          for (const sessionId of sessionIds) {
+            unadoptPage(page, sessionId)
+            const adopters = sessionAdopters.get(sessionId) ?? []
+            adopters.push(page)
+            sessionAdopters.set(sessionId, adopters)
+          }
+          pageAdoptions.set(page, next)
+        }
+        return Promise.resolve(ok(request, {}))
+      },
 
     },
 

@@ -3,7 +3,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { AudioLibrary } from '../src/client/audio-library.ts'
-import { CrossTabDedupe } from '../src/client/cross-tab.ts'
 import { SoundEngine } from '../src/client/engine.ts'
 import type { AudioRecordStore, StoredAudioRecord } from '../src/client/audio-library.ts'
 
@@ -37,17 +36,6 @@ class FakeAudioContext {
   }
 }
 
-/** One channel double capturing posts; inbound messages replay through receive. */
-class FakeChannel {
-  readonly posted: unknown[] = []
-  closed = false
-  onmessage: ((event: { data: unknown }) => void) | null = null
-  postMessage(message: unknown): void { this.posted.push(message) }
-  close(): void { this.closed = true }
-  receive(message: unknown): void { this.onmessage?.({ data: message }) }
-}
-
-/** In-memory record store double. */
 /** In-memory record store double. */
 function fakeStore(entries: ReadonlyArray<[string, StoredAudioRecord]> = []): AudioRecordStore {
   const records = new Map(entries)
@@ -69,7 +57,6 @@ function bench() {
       return context as unknown as AudioContext
     },
     library: new AudioLibrary(async () => fakeStore()),
-    dedupe: undefined,
     now: () => clock.now,
   })
   return { engine, context, contexts: () => contextsCreated, clock }
@@ -98,7 +85,6 @@ describe('SoundEngine value resolution', () => {
     const engine = new SoundEngine({
       audio: () => context as unknown as AudioContext,
       library: new AudioLibrary(async () => fakeStore()),
-      dedupe: undefined,
       now: () => 0,
     })
     engine.play('ding', 1)
@@ -111,7 +97,6 @@ describe('SoundEngine value resolution', () => {
     const engine = new SoundEngine({
       audio: () => kit.context as unknown as AudioContext,
       library: new AudioLibrary(async () => store),
-      dedupe: undefined,
       now: () => 0,
     })
     kit.context.decodeAudioData.mockImplementation(() => Promise.resolve({ duration: 1 }))
@@ -125,7 +110,6 @@ describe('SoundEngine value resolution', () => {
     const engine = new SoundEngine({
       audio: () => undefined,
       library: new AudioLibrary(async () => store),
-      dedupe: undefined,
       now: () => 0,
     })
     engine.play('audio:a1', 1)
@@ -138,7 +122,6 @@ describe('SoundEngine value resolution', () => {
     const engine = new SoundEngine({
       audio: () => context as unknown as AudioContext,
       library: new AudioLibrary(async () => fakeStore()),
-      dedupe: undefined,
       now: () => 0,
     })
     engine.play('ding', 1)
@@ -150,7 +133,6 @@ describe('SoundEngine value resolution', () => {
     const engine = new SoundEngine({
       audio: () => context as unknown as AudioContext,
       library: new AudioLibrary(async () => fakeStore()),
-      dedupe: undefined,
     })
     engine.play('ding', 1, 'k')
     engine.play('ding', 1, 'k')
@@ -177,7 +159,6 @@ describe('SoundEngine value resolution', () => {
     const engine = new SoundEngine({
       audio: () => kit.context as unknown as AudioContext,
       library,
-      dedupe: undefined,
       now: () => 0,
     })
     const decoded = { duration: 1 }
@@ -197,7 +178,6 @@ describe('SoundEngine value resolution', () => {
     const engine = new SoundEngine({
       audio: () => kit.context as unknown as AudioContext,
       library,
-      dedupe: undefined,
       now: () => 0,
     })
     kit.context.decodeAudioData.mockImplementation(() => Promise.reject(new Error('no codec')))
@@ -239,33 +219,5 @@ describe('SoundEngine dedupe', () => {
     const before = kit.context.oscillators.length
     kit.engine.play('ding', 1, 'stale')
     expect(kit.context.oscillators.length).toBeGreaterThan(before)
-  })
-})
-
-describe('SoundEngine cross-tab handoff', () => {
-  it('routes keyed plays through the arbitration participant', () => {
-    const context = new FakeAudioContext()
-    const timers: Array<{ fn: () => void; ms: number }> = []
-    const channel = new FakeChannel()
-    const dedupe = new CrossTabDedupe(
-      channel,
-      (fn, ms) => { const entry = { fn, ms }; timers.push(entry); return entry },
-      (timer) => {
-        const index = timers.indexOf(timer as { fn: () => void; ms: number })
-        if (index >= 0) timers.splice(index, 1)
-      },
-    )
-    const engine = new SoundEngine({
-      audio: () => context as unknown as AudioContext,
-      library: new AudioLibrary(async () => fakeStore()),
-      dedupe,
-      now: () => 0,
-    })
-    channel.receive({ t: 'hello-ack' })
-    engine.play('ding', 1, 'k')
-    expect(context.oscillators).toHaveLength(0)
-    expect(channel.posted.some(message => (message as { t?: string }).t === 'intent')).toBe(true)
-    for (const entry of timers.splice(0)) entry.fn()
-    expect(context.oscillators.length).toBeGreaterThan(0)
   })
 })

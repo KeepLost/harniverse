@@ -207,6 +207,12 @@ export class SessionRuntime implements ISessions {
   private watched: SessionId | undefined
   /** Removed-while-staged sessions whose teardown waits for the stage to move away. */
   private readonly deferredRemovals = new Set<SessionId>()
+  /** Wire client shared with the manager; also drives page-presence adoption. */
+  private readonly api: IApiClient
+  /** Per-page presence token; undefined outside a browser connection. */
+  private readonly pageToken: string | undefined
+  /** Last session id this page adopted (whole-set dedupe across list writes). */
+  private adopted: SessionId | undefined
 
   /**
    * @param ctx - client root context (scope fibers mount under it).
@@ -221,7 +227,10 @@ export class SessionRuntime implements ISessions {
     remote: SessionRemotes,
     conversationRuntime?: ConversationRuntime,
     machineKey = 'host',
+    pageToken?: string,
   ) {
+    this.api = api
+    this.pageToken = pageToken
     this.selection = createSnapshotStore<SessionSelection>(
       {},
       { persist: { name: machineKey === 'host' ? 'dsh.sessions.current' : `dsh.sessions.current:${machineKey}` } })
@@ -259,6 +268,7 @@ export class SessionRuntime implements ISessions {
     this.list.subscribe(() => {
       this.followCurrent()
       this.provideChannel.publishCurrent()
+      this.adoptCurrent()
     })
     this.provideChannel = new SessionProvideChannel({
       rebuildBundles: () => {
@@ -294,6 +304,25 @@ export class SessionRuntime implements ISessions {
       this.manager.dispose()
       return this.scopeDisposal
     }, 'sessions: manager lifetime')
+  }
+
+  /**
+   * Declare the page's open session to the host (presence routing for
+   * `session/notify` frames): a whole-set replacement fired on every current
+   * change, best-effort by design — a lost declaration only means this page
+   * stays silent, and the server re-binds the token on each mux reopen.
+   */
+  private adoptCurrent(): void {
+    if (this.pageToken === undefined) return
+    const sessionId = this.list.getSnapshot().current
+    if (sessionId === this.adopted) return
+    this.adopted = sessionId
+    void this.api.events.adopt({
+      page: this.pageToken,
+      sessionIds: sessionId === undefined ? [] : [sessionId],
+    }).catch(() => {
+      /* presence is best-effort: the next current change re-declares */
+    })
   }
 
   /**

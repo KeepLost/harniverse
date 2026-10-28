@@ -65,6 +65,10 @@ export interface RpcErrorDetailsMap {
   'workspace-file-binary': { workspaceId: string; path: string }
   'workspace-file-preview-unsupported': { workspaceId: string; path: string }
   'workspace-file-too-large': { workspaceId: string; path: string }
+  /** One filesystem inspection operation exceeded the watchdog bound and was abandoned. */
+  'workspace-entry-stalled': { workspaceId: string; path: string }
+  /** The workspace root's breaker is open: repeated stalls paused its operations. */
+  'workspace-root-stalled': { workspaceId: string; path: string }
   'workspace-git-not-repository': { workspaceId: string }
   'workspace-git-failed': { workspaceId: string; operation: string }
   /**
@@ -231,6 +235,8 @@ export type RpcErrorCode = keyof RpcErrorDetailsMap
  * and {@link rpcErrorSchema} branch parity at runtime.
  */
 export const RPC_ERROR_CODES = [
+  'workspace-entry-stalled',
+  'workspace-root-stalled',
   'authentication-principal-mismatch',
   'bad-request',
   'cancelled',

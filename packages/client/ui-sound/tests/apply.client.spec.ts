@@ -60,7 +60,7 @@ describe('ui-sound apply', () => {
     expect(inject).toEqual(['slots', 'locale', 'sessions', 'connection', 'settingsScope'])
   })
 
-  it('cancels the watcher open burst when disposed immediately', async () => {
+  it('tears the watcher down when disposed immediately', async () => {
     const { ctx, slots } = await bench()
     declareRoot(slots)
     const fiber = await ctx.plugin({ apply, inject }).await()
@@ -114,12 +114,6 @@ describe('ui-sound apply', () => {
           opens.push('mux')
           throw new Error('transport down')
         },
-        host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => {
-          opens.push('host')
-          return (async function* hostStream(): AsyncIterable<never> {
-            /* one ended stream: the opener failed this attempt */
-          })()
-        },
       },
     }
     ctx.provide('connection', { captureApi: () => api })
@@ -141,12 +135,6 @@ describe('ui-sound apply', () => {
           mux: (_request: object, _signal: AbortSignal): AsyncIterable<never> => {
             opens.push('mux')
             return (async function* muxStream(): AsyncIterable<never> {
-              /* ends immediately: the loop enters its reopen wait */
-            })()
-          },
-          host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => {
-            opens.push('host')
-            return (async function* hostStream(): AsyncIterable<never> {
               /* ends immediately: the loop enters its reopen wait */
             })()
           },
@@ -179,7 +167,6 @@ describe('ui-sound apply', () => {
       expect(opens).toEqual([])
       await vi.advanceTimersByTimeAsync(1)
       expect(opens).toContain('mux')
-      expect(opens).toContain('host')
 
       await fiber.dispose()
     } finally {
@@ -202,14 +189,6 @@ describe('ui-sound apply', () => {
             signals.push(signal)
             signal.addEventListener('abort', () => { aborted += 1 })
             return (async function* muxStream(): AsyncIterable<never> {
-              /* ends immediately */
-            })()
-          },
-          host: (_request: object, signal: AbortSignal): AsyncIterable<never> => {
-            opens.push('host')
-            signals.push(signal)
-            signal.addEventListener('abort', () => { aborted += 1 })
-            return (async function* hostStream(): AsyncIterable<never> {
               /* ends immediately */
             })()
           },
@@ -270,12 +249,6 @@ describe('ui-sound apply', () => {
               /* ends immediately */
             })()
           },
-          host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => {
-            opens.push('host')
-            return (async function* hostStream(): AsyncIterable<never> {
-              /* ends immediately */
-            })()
-          },
         },
       }
       const ctx = new Context()
@@ -305,7 +278,6 @@ describe('ui-sound apply', () => {
 
       await vi.advanceTimersByTimeAsync(1_500)
       expect(opens).toContain('mux')
-      expect(opens).toContain('host')
 
       await fiber.dispose()
     } finally {
@@ -324,12 +296,6 @@ describe('ui-sound apply', () => {
           mux: (_request: object, _signal: AbortSignal): AsyncIterable<never> => {
             opens.push('mux')
             return (async function* muxStream(): AsyncIterable<never> {
-              /* ends immediately */
-            })()
-          },
-          host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => {
-            opens.push('host')
-            return (async function* hostStream(): AsyncIterable<never> {
               /* ends immediately */
             })()
           },
@@ -376,12 +342,10 @@ describe('ui-sound apply', () => {
     await fiber.dispose()
   })
 
-  it('builds the engine without Web Audio and without a broadcast channel when absent', async () => {
-    const carrier = globalThis as { AudioContext?: unknown; BroadcastChannel?: unknown }
+  it('builds the engine without Web Audio when absent', async () => {
+    const carrier = globalThis as { AudioContext?: unknown }
     const restoreAudio = carrier.AudioContext
-    const restoreChannel = carrier.BroadcastChannel
     carrier.AudioContext = undefined
-    carrier.BroadcastChannel = undefined
     try {
       const { ctx, slots } = await bench()
       declareRoot(slots)
@@ -390,33 +354,16 @@ describe('ui-sound apply', () => {
       await fiber.dispose()
     } finally {
       carrier.AudioContext = restoreAudio
-      carrier.BroadcastChannel = restoreChannel
     }
   })
 
-  it('survives a broadcast channel constructor that throws', async () => {
-    const carrier = globalThis as { BroadcastChannel?: unknown }
-    const restore = carrier.BroadcastChannel
-    const throwingChannel = (): unknown => { throw new Error('blocked') }
-    carrier.BroadcastChannel = throwingChannel
-    try {
-      const { ctx, slots } = await bench()
-      declareRoot(slots)
-      const fiber = await ctx.plugin({ apply, inject }).await()
-      expect(slots.entries('settings.section')).toHaveLength(1)
-      await fiber.dispose()
-    } finally {
-      carrier.BroadcastChannel = restore
-    }
-  })
-
-  it('delivers a completed turn through the supplementary stream into the engine', async () => {
+  it('delivers a routed completion occurrence through the supplementary stream into the engine', async () => {
     const frames: Array<() => void> = []
-    const turnEnd = (sessionId: string) => ({
-      rpcId: 1,
-      payload: { type: 'session/event', sessionId, event: { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } } },
+    const completionNotify = (sessionId: string, rpcId: number) => ({
+      rpcId,
+      payload: { type: 'session/notify', sessionId, kind: 'completion', sourceKey: `turn:${sessionId}:1` },
     })
-    let nextEvent = turnEnd('s1')
+    let nextEvent = completionNotify('s1', 1)
     const api = {
       events: {
         mux: (_request: object, _signal: AbortSignal): AsyncIterable<{ rpcId: number; payload: unknown }> => (async function* muxStream() {
@@ -424,9 +371,6 @@ describe('ui-sound apply', () => {
             await new Promise<void>((resolve) => { frames.push(resolve) })
             yield nextEvent
           }
-        })(),
-        host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => (async function* hostStream(): AsyncIterable<never> {
-          /* one ended stream: the loop enters its reopen wait, cancelled at dispose */
         })(),
       },
     }
@@ -443,14 +387,8 @@ describe('ui-sound apply', () => {
       list: { getSnapshot: () => ({ ids: ['s1'], byId: { s1: { displayTitle: 'Session One' } }, current: undefined, phase: 'ready' as const, subagentsByParent: {}, jobsBySession: {}, selectionSeq: 0 }) },
     })
     ctx.provide('connection', { captureApi: () => api })
-    const carrier = globalThis as { AudioContext?: unknown; BroadcastChannel?: unknown; Notification?: unknown }
+    const carrier = globalThis as { AudioContext?: unknown; Notification?: unknown }
     const restoreAudio = carrier.AudioContext
-    const restoreChannel = carrier.BroadcastChannel
-    carrier.BroadcastChannel = class {
-      postMessage(): void { /* isolated tab */ }
-      close(): void { /* nothing to release */ }
-      onmessage = null
-    }
     const played: string[] = []
     const toasts: Array<{ title: string; options: { body: string }; activate: () => void }> = []
     const focusWindow = vi.fn()
@@ -509,7 +447,7 @@ describe('ui-sound apply', () => {
       toasts[0]!.activate()
       expect(focusWindow).toHaveBeenCalledOnce()
       expect(open).toHaveBeenCalledWith('s1')
-      nextEvent = turnEnd('s2')
+      nextEvent = completionNotify('s2', 2)
       for (const release of frames.splice(0)) release()
       await vi.waitFor(() => { expect(toasts.length).toBeGreaterThan(1) })
       expect(toasts[1]!.title).toBe('任务完成')
@@ -519,7 +457,6 @@ describe('ui-sound apply', () => {
       expect(open).toHaveBeenCalledTimes(1)
     } finally {
       carrier.AudioContext = restoreAudio
-      carrier.BroadcastChannel = restoreChannel
       carrier.Notification = undefined
       carrierDocument.document = restoreDocument
       carrierWindow.window = restoreWindow
@@ -527,11 +464,11 @@ describe('ui-sound apply', () => {
     }
   })
 
-  it('prompts for permission once and toasts without cross-tab arbitration when no channel exists', async () => {
+  it('prompts for permission once and keeps toasting later alerts without re-prompting', async () => {
     const frames: Array<() => void> = []
     let nextEvent: { rpcId: number; payload: unknown } = {
       rpcId: 1,
-      payload: { type: 'session/event', sessionId: 's1', event: { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } } },
+      payload: { type: 'session/notify', sessionId: 's1', kind: 'completion', sourceKey: 'turn:s1:1' },
     }
     const api = {
       events: {
@@ -540,9 +477,6 @@ describe('ui-sound apply', () => {
             await new Promise<void>((resolve) => { frames.push(resolve) })
             yield nextEvent
           }
-        })(),
-        host: (_request: object, _signal: AbortSignal): AsyncIterable<never> => (async function* hostStream(): AsyncIterable<never> {
-          /* one ended stream: the loop enters its reopen wait, cancelled at dispose */
         })(),
       },
     }
@@ -558,17 +492,14 @@ describe('ui-sound apply', () => {
     ctx.provide('settingsScope', { bind: () => ({ getSnapshot: () => ({ status: 'ready' as const, value: defaultSoundSettings(), writable: true }), subscribe: () => () => {}, set: vi.fn(() => Promise.resolve()) }) })
     const carrier = globalThis as {
       AudioContext?: unknown
-      BroadcastChannel?: unknown
       Notification?: unknown
       document?: unknown
       window?: unknown
     }
     const restoreAudio = carrier.AudioContext
-    const restoreChannel = carrier.BroadcastChannel
     const restoreNotification = carrier.Notification
     const restoreDocument = carrier.document
     const restoreWindow = carrier.window
-    carrier.BroadcastChannel = undefined
     const played: string[] = []
     carrier.AudioContext = class {
       state = 'running'
@@ -615,14 +546,13 @@ describe('ui-sound apply', () => {
       expect(open).toHaveBeenCalledWith('s1')
       nextEvent = {
         rpcId: 2,
-        payload: { type: 'session/event', sessionId: 's1', event: { type: 'turn/end', seq: 2, time: 2, data: { turn: 2, reason: { kind: 'completed' } } } },
+        payload: { type: 'session/notify', sessionId: 's1', kind: 'completion', sourceKey: 'turn:s1:2' },
       }
       for (const release of frames.splice(0)) release()
       await vi.waitFor(() => { expect(toasts.length).toBeGreaterThan(1) })
       expect(requests).toBe(1)
     } finally {
       carrier.AudioContext = restoreAudio
-      carrier.BroadcastChannel = restoreChannel
       carrier.Notification = restoreNotification
       carrier.document = restoreDocument
       carrier.window = restoreWindow
@@ -692,14 +622,6 @@ describe('ui-sound apply', () => {
               /* the carrier closes fresh streams at once */
             })()
           },
-          host: (_request: object, signal: AbortSignal): AsyncIterable<never> => {
-            opens += 1
-            signals.push(signal)
-            signal.addEventListener('abort', () => { aborted += 1 })
-            return (async function* hostStream(): AsyncIterable<never> {
-              /* the carrier closes fresh streams at once */
-            })()
-          },
         },
       }
       const ctx = new Context()
@@ -751,12 +673,6 @@ describe('ui-sound apply', () => {
               /* closed at once */
             })()
           },
-          host: (): AsyncIterable<never> => {
-            opens += 1
-            return (async function* hostStream(): AsyncIterable<never> {
-              /* closed at once */
-            })()
-          },
         },
       }
       const ctx = new Context()
@@ -805,12 +721,6 @@ describe('ui-sound apply', () => {
           mux: (): AsyncIterable<never> => {
             opens += 1
             return (async function* muxStream(): AsyncIterable<never> {
-              /* closed at once */
-            })()
-          },
-          host: (): AsyncIterable<never> => {
-            opens += 1
-            return (async function* hostStream(): AsyncIterable<never> {
               /* closed at once */
             })()
           },

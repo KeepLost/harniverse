@@ -3290,6 +3290,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       ),
     },
     events: {
+      adopt(request: { rpcId: RpcId; payload: { page: string; sessionIds: SessionId[] } }) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
+      },
       async *mux(_request, signal) {
         const conn = new FxInbox<MuxFrame>()
         muxConns.add(conn)
@@ -3590,6 +3593,7 @@ export class FixtureApiClient extends AbstractApiClient {
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'API contract discovery is unavailable', details: {} } } })
       case 'operation.get': return this.fixtureApi.operations?.get(request)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'operation lookup is unavailable', details: {} } } })
+      case 'events.adopt': return this.fixtureApi.events.adopt(request)
       case 'jobs.follow': return this.fixtureApi.jobs?.follow(request)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'job follow is unavailable', details: {} } } })
       case 'jobs.kill': return this.fixtureApi.jobs?.kill(request)
@@ -3690,7 +3694,7 @@ export class FixtureApiClient extends AbstractApiClient {
   }
 
   protected override openMux(
-    payload: { since?: Record<SessionId, number> },
+    payload: { since?: Record<SessionId, number>; page?: string },
     signal: AbortSignal,
     onOpen?: () => void,
     onAuthenticated?: (identity: { readonly kind: 'bypass' }) => void,

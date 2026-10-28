@@ -190,6 +190,7 @@ function scriptedApi(overrides: {
       ...overrides.llm,
     },
     events: {
+      adopt: r => ok(r, {}),
       mux: () => empty<MuxFrame>(),
       host: () => empty<HostFrame>(),
       terminal: () => empty<TerminalStreamFrame>(),
@@ -554,6 +555,11 @@ describe('unary round trip', () => {
     const goodBrowser = await handler.fetch('http://dsh.internal/api/events.browser?sessionId=s1&id=b1&attachmentId=a1', { method: 'GET' })
     expect(goodBrowser.status).toBe(200)
     await goodBrowser.text()
+    const pagedMux = await handler.fetch('http://dsh.internal/api/events.mux?page=page-1', { method: 'GET' })
+    expect(pagedMux.status).toBe(200)
+    await pagedMux.text()
+    const duplicatePage = await handler.fetch('http://dsh.internal/api/events.mux?page=a&page=b', { method: 'GET' })
+    expect(duplicatePage.status).toBe(400)
   })
 
   it('rejects a method/path mismatch as bad-request', async () => {

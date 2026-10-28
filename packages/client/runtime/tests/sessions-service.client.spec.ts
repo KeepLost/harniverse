@@ -28,6 +28,14 @@ function bench(): Bench {
   return { ctx, api, svc }
 }
 
+/** Bench with a page presence token wired (session/notify adoption). */
+function presenceBench(page: string): Bench {
+  const ctx = new Context()
+  const api = new FakeApiClient()
+  const svc = new SessionRuntime(ctx, api, fakeRemote(), undefined, 'host', page)
+  return { ctx, api, svc }
+}
+
 /** Refresh the manager list from programmable rows and flush the microtask batch. */
 type FeedRow = {
   id: string
@@ -830,4 +838,24 @@ describe('coverage tails (branch duals)', () => {
     expect(b.svc.scope(sid('c'))).toBeUndefined()
   })
 
+})
+
+describe('page presence adoption', () => {
+  it('declares the opened session as the page whole set and moves with the stage', async () => {
+    const b = presenceBench('page-1')
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    b.svc.open(sid('s1'))
+    b.svc.open(sid('s2'))
+    expect(b.api.callsOf('events.adopt')).toEqual([
+      { page: 'page-1', sessionIds: [sid('s1')] },
+      { page: 'page-1', sessionIds: [sid('s2')] },
+    ])
+  })
+
+  it('stays silent without a page token', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.open(sid('s1'))
+    expect(b.api.callsOf('events.adopt')).toEqual([])
+  })
 })
