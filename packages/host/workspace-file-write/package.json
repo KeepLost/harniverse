@@ -65,10 +65,10 @@
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",

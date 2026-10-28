@@ -37,9 +37,10 @@ overrides:
   '@modelcontextprotocol/sdk': '1.32.0'
   # GHSA-698v-4r3x-3vcv / GHSA-587h-7wmj-h5pm / GHSA-r825-w8mm-5pxw
   # (CVE-2026-112943/112942/112944): vite 8.0.0–8.1.5 — dev-server fs
-  # exposure and request-smuggling in proxy mode; only the vitest chain
-  # resolves the 8 line (apps pin vite 6), so scope the pin to it.
-  'vite@8': '8.1.6'
+  # exposure and request-smuggling in proxy mode; the vitest chain and the
+  # web app resolve the 8 line (the website stays on 6 for vitepress), so
+  # pin them to one patched copy.
+  'vite@8': '8.3.5'
   'brace-expansion@2': '2.1.7'
   'brace-expansion@5': '5.0.12'
   # GHSA-27r3-jxmh-p828: body-parser < 2.4.0 — DoS via trailing bytes after
@@ -47,6 +48,7 @@ overrides:
   # force the patched release.
   'body-parser@2': '2.4.0'
   browserslist@4: 4.28.7
+  dayjs: '1.11.23'
   # GHSA-c6gr-qvv4-5v3f / GHSA-cg2g-xh64-v4q7 / GHSA-mrv2-3pqr-j5jr:
   # dompurify <= 3.4.16 — SAFE_FOR_TEMPLATES and IN_PLACE sanitizer bypasses
   # plus an SMIL href guard skip; mermaid and vitepress chains resolve the
@@ -84,7 +86,11 @@ overrides:
   nanoid: '3.3.18'
   postcss: '8.5.26'
   protobufjs: '7.6.5'
-  qs@6: 6.16.0
+  # GHSA-6pq8-jhm2-2vcw (CVE-2026-110816): qs 6.7.0–6.16.0 — qs.stringify
+  # with arrayFormat 'comma' throws an uncaught TypeError on array elements
+  # carrying a non-callable own toString (DoS); transitive under the workspace
+  # mcp-client, ssh, and subagent packages — force the patched release.
+  qs@6: 6.16.1
   # GHSA-xjj6-f33q-929c: undici >= 7.18.0 < 7.30.1 — DoS via an unhandled
   # error on excessive content-encodings; vitest-chain transitive — force
   # the patched release.

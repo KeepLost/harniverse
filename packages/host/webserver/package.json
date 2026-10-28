@@ -38,7 +38,7 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:^",
     "compression": "^1.8.2",
-    "negotiator": "^1.0.0"
+    "negotiator": "^1.1.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
