@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-22-terminal-controller-host.md
-2026-09-22-terminal-controller-host.md: 9fa73a80bb0594c18463dc22f6b1899fa5e88e95
-2026-09-22-terminal-controller-host.zh.md: 108618af3206797337a7fa83ceb9159fd536672a
+2026-09-22-terminal-controller-host.md: a4207b187091ed1d25bb46e4f00373efe2d897d0
+2026-09-22-terminal-controller-host.zh.md: ba7a1fc672dfe4f4a0cf04ed35fb956c5d180bd7

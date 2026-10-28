@@ -29,6 +29,7 @@ import {
   MUX_EVENTS_PATH,
   type ConnectionRpcInvocation,
   type HostConnectionHandle,
+  STREAMS_EVENTS_PATH,
 } from '../src/index.ts'
 import { browserSessionFromCookie } from '../src/inbound-auth.ts'
 
@@ -230,19 +231,36 @@ describe('connection node half', () => {
     const { routes, upgrades, dispose } = await mounted()
     expect(routes).toHaveLength(15)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
-    expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH])
+    expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH, STREAMS_EVENTS_PATH])
     await dispose()
     expect(routes).toHaveLength(0)
     expect(upgrades).toHaveLength(0)
   })
 
-  it('requires WebSocket upgrade for network GETs to either event path', async () => {
+  it('requires WebSocket upgrade for network GETs to every event path', async () => {
     const { routes, dispose } = await mounted()
-    for (const path of [MUX_EVENTS_PATH, HOST_EVENTS_PATH]) {
+    for (const path of [MUX_EVENTS_PATH, HOST_EVENTS_PATH, STREAMS_EVENTS_PATH]) {
       const { response, state } = fakeResponse()
       await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, path), response)
       expect(state.status).toBe(426)
       expect(state.body).toBe('upgrade required')
+    }
+    await dispose()
+  })
+
+  it('answers 410 for browser GETs on the legacy per-entity stream paths, first-party GETs pass through', async () => {
+    const { routes, dispose } = await mounted()
+    for (const path of ['/api/events.terminal', '/api/events.hold', '/api/events.browser', '/api/workspace.files.watch']) {
+      const { response, state } = fakeResponse()
+      await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080', 'sec-fetch-site': 'same-origin' }, path), response)
+      expect(state.status).toBe(410)
+      expect(state.body).toBe('stream family moved to the events.streams downlink')
+      // A first-party client (desktop main process, script) sends no
+      // Sec-Fetch-Site marker: the per-family SSE route stays reachable, so
+      // the pass-through answer is anything but the browser gate's 410.
+      const passthrough = fakeResponse()
+      await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, path), passthrough.response)
+      expect(passthrough.state.status).not.toBe(410)
     }
     await dispose()
   })

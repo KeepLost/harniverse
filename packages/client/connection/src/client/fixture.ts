@@ -37,7 +37,7 @@ import type {
   ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
-import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { RequestPayload, ResponseValue, RpcMethodMap , StreamsFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import {
   compileGlobFilter, WORKSPACE_SEARCH_DEFAULT_EXCLUDES,
@@ -3293,6 +3293,21 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       adopt(request: { rpcId: RpcId; payload: { page: string; sessionIds: SessionId[] } }) {
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
       },
+      // The fixture browser never rides the entity-stream downlink (its entity
+      // stream openers are fixture-local hubs), so the members below only
+      // complete the contract face; open answers the honest channel-absent
+      // refusal should anything ever address them.
+      streamsOpen(request: { rpcId: RpcId }) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: false as const, error: { code: 'stream-channel-absent' as const, message: 'the fixture carrier holds no entity-stream downlink', details: { page: 'fixture' } } } })
+      },
+      streamsClose(request: { rpcId: RpcId }) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
+      },
+      streams(_request: unknown, signal: AbortSignal) {
+        void _request
+        signal.addEventListener('abort', () => {}, { once: true })
+        return (async function *(): AsyncGenerator<RpcRequest<StreamsFrame>> { /* the fixture never rides the downlink */ })()
+      },
       async *mux(_request, signal) {
         const conn = new FxInbox<MuxFrame>()
         muxConns.add(conn)
@@ -3594,6 +3609,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'operation.get': return this.fixtureApi.operations?.get(request)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'operation lookup is unavailable', details: {} } } })
       case 'events.adopt': return this.fixtureApi.events.adopt(request)
+      case 'events.streams.open': return this.fixtureApi.events.streamsOpen(request)
+      case 'events.streams.close': return this.fixtureApi.events.streamsClose(request)
       case 'jobs.follow': return this.fixtureApi.jobs?.follow(request)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'job follow is unavailable', details: {} } } })
       case 'jobs.kill': return this.fixtureApi.jobs?.kill(request)

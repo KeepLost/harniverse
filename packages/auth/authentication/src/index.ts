@@ -98,7 +98,7 @@ export function sameAuthenticationPrincipal(
 }
 
 /** Network carrier whose admission is being authenticated. */
-export type AuthenticationChannel = 'http-api' | 'websocket-mux' | 'websocket-host'
+export type AuthenticationChannel = 'http-api' | 'websocket-mux' | 'websocket-host' | 'websocket-streams'
 
 /**
  * Brand a provider-validated opaque Grant id.

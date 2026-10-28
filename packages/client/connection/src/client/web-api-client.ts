@@ -1,16 +1,20 @@
 /** Browser API carrier: HTTP upstream plus one WebSocket per downstream event stream. */
 
-import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, RpcResponse, RpcReceipt, ClientResponse, ServerRequest } from './api.ts'
+import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, RpcResponse, RpcReceipt, ClientResponse, ServerRequest, EntityStreamOpenPayload } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient } from './api.ts'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 import { CONNECTION_AUTHENTICATED_METHOD } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { authenticationPrincipalIdentitySchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
-import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
-import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
+import { authenticationPrincipalIdentitySchema, serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
+import {
+  browserStreamFrameSchema, holdStreamFrameSchema, hostFrameSchema, muxFrameSchema, terminalStreamFrameSchema,
+} from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
+import { workspaceFilesWatchFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/workspace-files.schema'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
 import type { ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
 import type { TargetGeneration, TransportPathResolver } from './target.ts'
+import { EntityStreamChannel } from './streams-channel.ts'
+import { noteSseClose, noteSseOpen, noteWebSocketClose, noteWebSocketOpen } from './connection-budget.ts'
 
 type IApiEvents = import('./api.ts').IApiClient['events']
 type IApiClient = import('./api.ts').IApiClient
@@ -18,32 +22,33 @@ type IApiClient = import('./api.ts').IApiClient
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
 
 /**
- * Ring-backed delivery queue for one WebSocket reader: amortized O(1) push and
+ * Ring-backed delivery queue for one stream reader: amortized O(1) push and
  * take with immediate slot clearing, where an array's shift would cost O(n)
  * per frame under bursty event streams. Host twin: api-proxy's FrameQueue ring.
- * Exported for the spec that owns its ordering and growth contract.
+ * Exported for the spec that owns its ordering and growth contract, and for
+ * the entity-stream downlink's per-substream delivery queues.
  */
-export class SocketRing<F> {
-  private slots: (SocketItem<F> | undefined)[] = []
+export class SocketRing<T> {
+  private slots: (T | undefined)[] = []
   private head = 0
   private count = 0
 
-  /** Frames currently queued. */
+  /** Items currently queued. */
   get length(): number {
     return this.count
   }
 
-  /** Enqueue one frame at the tail, growing the ring only when capacity is exhausted.
+  /** Enqueue one item at the tail, growing the ring only when capacity is exhausted.
    * @param item - frame or end marker to queue.
    */
-  push(item: SocketItem<F>): void {
+  push(item: T): void {
     if (this.count === this.slots.length) {
       if (this.head === 0) {
         this.slots.push(item)
         this.count += 1
         return
       }
-      const grown = new Array<SocketItem<F> | undefined>(Math.max(this.slots.length * 2, 4))
+      const grown = new Array<T | undefined>(Math.max(this.slots.length * 2, 4))
       for (let index = 0; index < this.count; index += 1) {
         grown[index] = this.slots[(this.head + index) % this.slots.length]
       }
@@ -57,12 +62,12 @@ export class SocketRing<F> {
     this.count += 1
   }
 
-  /** Dequeue the oldest frame, releasing every slot when the ring drains to empty.
-   * @returns the oldest queued frame, or undefined when the ring is empty.
+  /** Dequeue the oldest item, releasing every slot when the ring drains to empty.
+   * @returns the oldest queued item, or undefined when the ring is empty.
    */
-  take(): SocketItem<F> | undefined {
+  take(): T | undefined {
     if (this.count === 0) return undefined
-    const item = this.slots[this.head] as SocketItem<F>
+    const item = this.slots[this.head] as T
     this.slots[this.head] = undefined
     this.head = (this.head + 1) % this.slots.length
     this.count -= 1
@@ -105,6 +110,7 @@ export class WebApiClient extends AbstractApiClient {
     private readonly resolvePath: TransportPathResolver = path => path,
     private readonly generation?: () => TargetGeneration,
     private readonly delegate?: (method?: string) => WebApiClient,
+    private readonly pageToken?: string,
   ) { super(timeoutMs, initiatingPrincipal, authenticationMismatch) }
 
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
@@ -163,34 +169,97 @@ export class WebApiClient extends AbstractApiClient {
 
   protected override openTerminal(...args: Parameters<IApiEvents['terminal']>): ReturnType<IApiEvents['terminal']> {
     if (this.delegate !== undefined) return this.delegate().openTerminal(...args)
+    const channel = this.streamsChannel()
+    if (channel === undefined) {
+      const signal = this.generation?.().signal(args[1]) ?? args[1]
+      return this.fenceStream(super.openTerminal(args[0], signal,
+        () => { if (!signal.aborted) args[2]?.() },
+        (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    }
     const signal = this.generation?.().signal(args[1]) ?? args[1]
-    return this.fenceStream(super.openTerminal(args[0], signal,
-      () => { if (!signal.aborted) args[2]?.() },
-      (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    return this.fenceStream(channel.open('terminal', args[0], signal, terminalStreamFrameSchema, args[2], args[3]), signal)
   }
 
   protected override openHold(...args: Parameters<IApiEvents['hold']>): ReturnType<IApiEvents['hold']> {
     if (this.delegate !== undefined) return this.delegate().openHold(...args)
+    const channel = this.streamsChannel()
+    if (channel === undefined) {
+      const signal = this.generation?.().signal(args[1]) ?? args[1]
+      return this.fenceStream(super.openHold(args[0], signal,
+        () => { if (!signal.aborted) args[2]?.() },
+        (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    }
     const signal = this.generation?.().signal(args[1]) ?? args[1]
-    return this.fenceStream(super.openHold(args[0], signal,
-      () => { if (!signal.aborted) args[2]?.() },
-      (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    return this.fenceStream(channel.open('hold', args[0], signal, holdStreamFrameSchema, args[2], args[3]), signal)
   }
 
   protected override openBrowser(...args: Parameters<IApiEvents['browser']>): ReturnType<IApiEvents['browser']> {
     if (this.delegate !== undefined) return this.delegate().openBrowser(...args)
+    const channel = this.streamsChannel()
+    if (channel === undefined) {
+      const signal = this.generation?.().signal(args[1]) ?? args[1]
+      return this.fenceStream(super.openBrowser(args[0], signal,
+        () => { if (!signal.aborted) args[2]?.() },
+        (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    }
     const signal = this.generation?.().signal(args[1]) ?? args[1]
-    return this.fenceStream(super.openBrowser(args[0], signal,
-      () => { if (!signal.aborted) args[2]?.() },
-      (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    return this.fenceStream(channel.open('browser', args[0], signal, browserStreamFrameSchema, args[2], args[3]), signal)
   }
 
   protected override openWorkspaceFilesWatch(...args: Parameters<IApiClient['workspaceFiles']['watchFiles']>): ReturnType<IApiClient['workspaceFiles']['watchFiles']> {
     if (this.delegate !== undefined) return this.delegate().openWorkspaceFilesWatch(...args)
+    const channel = this.streamsChannel()
+    if (channel === undefined) {
+      const signal = this.generation?.().signal(args[1]) ?? args[1]
+      return this.fenceStream(super.openWorkspaceFilesWatch(args[0], signal,
+        () => { if (!signal.aborted) args[2]?.() },
+        (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    }
     const signal = this.generation?.().signal(args[1]) ?? args[1]
-    return this.fenceStream(super.openWorkspaceFilesWatch(args[0], signal,
-      () => { if (!signal.aborted) args[2]?.() },
-      (identity) => { if (!signal.aborted) args[3]?.(identity) }), signal)
+    return this.fenceStream(channel.open('files-watch', args[0], signal, workspaceFilesWatchFrameSchema, args[2], args[3]), signal)
+  }
+
+  /** The per-generation entity-stream downlink; absent without a page token (in-process hosts keep the SSE carrier). */
+  private entityChannel: EntityStreamChannel | undefined
+
+  private streamsChannel(): EntityStreamChannel | undefined {
+    if (this.pageToken === undefined) return undefined
+    if (this.entityChannel === undefined) {
+      const owner = this.generation?.()
+      this.entityChannel = new EntityStreamChannel({
+        page: this.pageToken,
+        channelSignal: owner?.controller.signal ?? new AbortController().signal,
+        resolvePath: path => (owner?.resolvePath ?? this.resolvePath)(path),
+        resolveBase: () => this.resolveBase(),
+        ...(this.authentication === undefined ? {} : { authentication: this.authentication }),
+        openControl: (payload, signal) => this.streamControl<{ sub: string }>('events.streams.open', payload, signal),
+        closeControl: (payload, signal) => this.streamControl('events.streams.close', payload, signal),
+        onEnvelope: (full) => { this.onEnvelope(full) },
+      })
+    }
+    return this.entityChannel
+  }
+
+  /** One substream control POST through the ordinary unary carrier; a refusal rejects.
+   * @returns the method's settled value.
+   */
+  private async streamControl<T>(
+    method: 'events.streams.open' | 'events.streams.close',
+    payload: EntityStreamOpenPayload & { page: string } | { page: string; sub: string },
+    signal: AbortSignal,
+  ): Promise<T> {
+    const response = await this.callUnary(method, payload, signal)
+    if (!response.result.ok) throw new Error(`${method} refused: ${response.result.error.message}`)
+    return response.result.value as T
+  }
+
+  /** Long-lived SSE counting: the network carrier expects zero (the entity families multiplex onto the downlink). */
+  protected override onLongLivedStreamOpen(): void {
+    noteSseOpen()
+  }
+
+  protected override onLongLivedStreamEnd(): void {
+    noteSseClose()
   }
 
   private async *fenceStream<T>(stream: AsyncIterable<T>, signal: AbortSignal): AsyncGenerator<T> {
@@ -214,7 +283,8 @@ export class WebApiClient extends AbstractApiClient {
     const url = new URL((generation?.resolvePath ?? this.resolvePath)(path), this.resolveBase())
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(url)
-    const inbox = new SocketRing<F>()
+    noteWebSocketOpen()
+    const inbox = new SocketRing<SocketItem<F>>()
     let wake: (() => void) | undefined
     const enqueue = (item: SocketItem<F>): void => {
       inbox.push(item)
@@ -269,6 +339,10 @@ export class WebApiClient extends AbstractApiClient {
       socket.removeEventListener('open', handleOpen)
       socket.removeEventListener('message', handleMessage)
       socket.removeEventListener('close', handleClose)
+      if (socket.readyState === WebSocket.CLOSED) noteWebSocketClose()
+      else {
+        socket.addEventListener('close', () => { noteWebSocketClose() }, { once: true })
+      }
       handleAbort()
     }
   }

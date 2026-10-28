@@ -1,7 +1,9 @@
 import { once } from 'node:events'
+import type { IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
+import { connect, type AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import type {
@@ -18,9 +20,12 @@ import {
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../src/api-path.ts'
 import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks } from '../src/websocket-downlink.ts'
 import type { RemoteWebSocket } from '../src/websocket-downlink.ts'
+import { STREAMS_EVENTS_PATH } from '../src/api-path.ts'
+import type { StreamsFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 
 type MuxSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<MuxFrame>>
 type HostSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<HostFrame>>
+type StreamsSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<StreamsFrame>>
 
 const running: (() => Promise<void>)[] = []
 
@@ -39,18 +44,19 @@ async function * idle<F>(signal: AbortSignal): AsyncGenerator<RpcRequest<F>> {
   await untilAbort(signal)
 }
 
-function api(mux: MuxSource, host: HostSource): ApiProxy {
+function api(mux: MuxSource, host: HostSource, streams?: StreamsSource): ApiProxy {
   return {
     events: {
       mux: (request, signal) => mux(signal, request),
       host: (request, signal) => host(signal, request),
+      ...(streams === undefined ? {} : { streams: (request, signal) => streams(signal, request) }),
     },
   } as ApiProxy
 }
 
 async function serve(
   downlinks: WebSocketDownlinks,
-  principals: { mux?: AuthenticationPrincipal; host?: AuthenticationPrincipal } = {},
+  principals: { mux?: AuthenticationPrincipal; host?: AuthenticationPrincipal; streams?: AuthenticationPrincipal } = {},
 ): Promise<{
   origin: string
   close: () => Promise<void>
@@ -58,13 +64,16 @@ async function serve(
   const server = createServer()
   server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url ?? '/', 'http://dsh.internal').pathname
-    const principal = pathname === MUX_EVENTS_PATH ? principals.mux : principals.host
+    const principal = pathname === MUX_EVENTS_PATH
+      ? principals.mux
+      : pathname === STREAMS_EVENTS_PATH ? principals.streams : principals.host
     const admission: Extract<AuthenticationDecision, { kind: 'accepted' }> = {
       kind: 'accepted',
       principal: principal ?? { kind: 'bypass', capabilities: ALL_AUTHENTICATION_CAPABILITIES },
     }
     if (pathname === MUX_EVENTS_PATH) downlinks.handleMux(request, socket, head, admission)
     else if (pathname === HOST_EVENTS_PATH) downlinks.handleHost(request, socket, head, admission)
+    else if (pathname === STREAMS_EVENTS_PATH) downlinks.handleStreams(request, socket, head, admission)
     else socket.destroy()
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -1186,5 +1195,67 @@ describe('WebSocket downlink compression', () => {
     expect(message.payload).toEqual({ text: 'y'.repeat(3_000) })
     socket.close()
     await once(socket, 'close')
+  })
+})
+
+describe('entity-stream downlink', () => {
+  it('requires exactly one well-formed page query before upgrade', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle, signal => idle(signal)))
+    const server = await serve(downlinks)
+    running.push(server.close)
+    const rawProbe = (path: string): Promise<string> => new Promise<string>((resolve) => {
+      const { hostname, port } = new URL(server.origin)
+      const socket = connect(Number(port), hostname)
+      socket.on('error', () => { /* RST racing the response body */ })
+      socket.on('data', (chunk: Buffer) => { resolve(chunk.toString('utf8')) })
+      socket.write(`GET ${path} HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`)
+    })
+    // Raw socket probes: page-less, duplicate, and malformed page tokens each
+    // answer a plain 400 before negotiation.
+    await expect(rawProbe(STREAMS_EVENTS_PATH)).resolves.toContain('400 Bad Request')
+    await expect(rawProbe(`${STREAMS_EVENTS_PATH}?page=a&page=b`)).resolves.toContain('400 Bad Request')
+    await expect(rawProbe(`${STREAMS_EVENTS_PATH}?page=${encodeURIComponent('bad page!')}`)).resolves.toContain('400 Bad Request')
+    // A request line without any URL at all takes the same 400 arm.
+    const end = vi.fn()
+    const urlless = { end } as unknown as Duplex
+    const handle = (req: IncomingMessage, socket: Duplex, head: Buffer, admission: never): void => {
+      downlinks.handleStreams(req, socket, head, admission)
+    }
+    handle({ url: undefined } as IncomingMessage, urlless, Buffer.alloc(0), { kind: 'accepted' } as never)
+    expect(end).toHaveBeenCalled()
+  })
+
+  it('passes the page token to the producer and frames substream messages verbatim', async () => {
+    let seenPage: string | undefined
+    const downlinks = new WebSocketDownlinks(api(idle, idle, async function *(signal, request) {
+      seenPage = (request.payload as { page: string }).page
+      yield { rpcId: RpcId('sub-1'), payload: { type: 'sub/ready', sub: 'sub-1' } }
+      await untilAbort(signal)
+    }))
+    const server = await serve(downlinks)
+    running.push(server.close)
+    const socket = new WebSocket(`${server.origin}${STREAMS_EVENTS_PATH}?page=page-7`)
+    // Both frames land back-to-back, so a second readRaw would race the queue;
+    // one persistent listener collects the delivery order instead.
+    const received: ServerRequest[] = []
+    socket.on('message', (data) => { received.push(JSON.parse(rawText(data)) as ServerRequest) })
+    await vi.waitFor(() => { expect(received.length).toBeGreaterThanOrEqual(2) })
+    expect(received[0]).toMatchObject({ method: 'connection.authenticated' })
+    expect(received[1]).toMatchObject({ type: 'server-request', method: 'sub/ready', payload: { type: 'sub/ready', sub: 'sub-1' } })
+    expect(seenPage).toBe('page-7')
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('treats client messages as a protocol violation on the streams downlink too', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle, signal => idle(signal)))
+    const server = await serve(downlinks)
+    running.push(server.close)
+    const socket = new WebSocket(`${server.origin}${STREAMS_EVENTS_PATH}?page=page-x`)
+    await once(socket, 'open')
+    const closed = once(socket, 'close')
+    socket.send('uplink')
+    const [code] = await closed as [number, Buffer]
+    expect(code).toBe(1008)
   })
 })

@@ -62,12 +62,14 @@ import type {} from '@deepseek-ai/dsh-api-terminal-controller'
 import type {} from '@deepseek-ai/dsh-api-browser-controller'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {
-  ApiProxy, BrowserStreamFrame, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
+  ApiProxy, BrowserStreamFrame, ConfigurableProviderView, CredentialView, EventsApi, GoalRef,
+  HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, HoldStreamFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, SpeechPrepareView, ToolEventView,
-  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, TerminalStreamFrame,
+  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, StreamsFrame,
+  TerminalStreamFrame,
   WorkspaceFileWatchFrame, WorkspaceId, WorkspaceView,
   ApiContractDescription, OperationView, OperationStatus,
 } from './api/index.ts'
@@ -266,6 +268,8 @@ const COLD_SUMMARY_BATCH_SIZE = 16
 export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 /** Default number of frames retained for one slow stream consumer. */
 export const DEFAULT_STREAM_QUEUE_MAX_FRAMES = 1024
+/** Default cap on concurrent entity-stream subscriptions per page downlink. */
+export const DEFAULT_ENTITY_STREAM_SUBS_MAX_PER_PAGE = 256
 /** Default trailing coalescing window for one workspace file watch burst. */
 export { DEFAULT_FILE_WATCH_DEBOUNCE_MS } from './workspace-watcher.ts'
 /** Default cap on concurrent workspace file watch subscriptions per workspace. */
@@ -1024,6 +1028,8 @@ export interface ApiProxyDefaults {
   coldBlankProbeMaxBytes?: number
   /** Maximum frames retained by one mux or host stream. */
   streamQueueMaxFrames?: number
+  /** Maximum concurrent entity-stream subscriptions bound to one page downlink. */
+  entityStreamSubsMaxPerPage?: number
   /** Trailing coalescing window in milliseconds for one workspace file watch burst. */
   fileWatchDebounceMs?: number
   /** Maximum concurrent workspace file watch subscriptions per workspace. */
@@ -1588,6 +1594,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES
   const streamQueueMaxFrames = defaults.streamQueueMaxFrames
     ?? DEFAULT_STREAM_QUEUE_MAX_FRAMES
+  const entityStreamSubsMaxPerPage = defaults.entityStreamSubsMaxPerPage
+    ?? DEFAULT_ENTITY_STREAM_SUBS_MAX_PER_PAGE
   const fileWatchDebounceMs = defaults.fileWatchDebounceMs
     ?? DEFAULT_FILE_WATCH_DEBOUNCE_MS
   const fileWatchMaxPerWorkspace = defaults.fileWatchMaxPerWorkspace
@@ -1681,6 +1689,49 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (adopted === undefined) return
     pageAdoptions.delete(page)
     for (const sessionId of adopted) unadoptPage(page, sessionId)
+  }
+
+  // --- Entity-stream downlink routing --------------------------------------
+  // The four per-entity stream families (terminal follow, terminal hold,
+  // browser follow, workspace file watch) multiplex onto one page-scoped
+  // downlink as addressable substreams, so a browser page holds a constant
+  // number of long-lived connections no matter how many entities it watches —
+  // the HTTP/1.1 per-origin pool is finite and shared across tabs.
+  interface EntityStreamFace {
+    readonly queue: FrameQueue<RpcRequest<StreamsFrame>>
+  }
+  const entityStreamFaces = new Map<string, Set<EntityStreamFace>>()
+  interface EntitySubEntry {
+    readonly sub: string
+    readonly page: string
+    readonly controller: AbortController
+    readonly deliver: (payload: StreamsFrame) => void
+  }
+  const entitySubs = new Map<string, EntitySubEntry>()
+
+  /** Count the page's open substreams — the `entityStreamSubsMaxPerPage` fence. */
+  function entitySubsOfPage(page: string): number {
+    let open = 0
+    for (const entry of entitySubs.values()) if (entry.page === page) open += 1
+    return open
+  }
+
+  /**
+   * Unbind one closed downlink; the page's last live downlink aborts every
+   * substream it still holds, which is the substream form of stream-abort
+   * detach (terminal/browser attachments detach, holds release, watchers close).
+   */
+  function releaseEntityStreamFace(page: string, face: EntityStreamFace): void {
+    const faces = entityStreamFaces.get(page)
+    if (faces === undefined) return
+    faces.delete(face)
+    if (faces.size !== 0) return
+    entityStreamFaces.delete(page)
+    for (const [sub, entry] of entitySubs) {
+      if (entry.page !== page) continue
+      entitySubs.delete(sub)
+      entry.controller.abort()
+    }
   }
 
   /** Route one detected occurrence to the owning page's live streams. */
@@ -3131,6 +3182,178 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
     return ok(request, namespaceView(descriptor))
   }
+
+  // --- Per-entity stream producers (hoisted) -------------------------------
+  // The entity-stream substream manager composes these by family; the object
+  // literal below wires the same functions as the events/workspaceFiles
+  // members, so the SSE carrier and the substream downlink run identical
+  // producers — one behavior, two carriers.
+  const watchFilesStream: NonNullable<ApiProxy['workspaceFiles']>['watchFiles'] = (request, signal) => {
+    const { workspaceId } = request.payload
+    const path = request.payload.path ?? ''
+    const queue = new FrameQueue<RpcRequest<WorkspaceFileWatchFrame>>(streamQueueMaxFrames)
+    const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+    if (workspace === undefined) {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'workspace-not-found',
+        message: `workspace "${workspaceId}" not found`,
+        details: { workspaceId },
+      } }))
+      queue.end()
+      return queue.iterate(signal, () => {})
+    }
+    const openWatches = fileWatchCounts.get(workspaceId) ?? 0
+    if (openWatches >= fileWatchMaxPerWorkspace) {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'workspace-watch-limit-reached',
+        message: `workspace "${workspaceId}" already holds ${String(openWatches)} open file watches`,
+        details: { workspaceId, limit: fileWatchMaxPerWorkspace },
+      } }))
+      queue.end()
+      return queue.iterate(signal, () => {})
+    }
+    fileWatchCounts.set(workspaceId, openWatches + 1)
+    // The count reservation is released exactly once, whether the feed
+    // ends by itself or the consumer unsubscribes mid-stream.
+    let released = false
+    const release = (): void => {
+      if (released) return
+      released = true
+      const remaining = (fileWatchCounts.get(workspaceId) ?? 1) - 1
+      if (remaining <= 0) fileWatchCounts.delete(workspaceId)
+      else fileWatchCounts.set(workspaceId, remaining)
+    }
+    void (async () => {
+      try {
+        for await (const watchFrame of watchWorkspaceFiles(workspace.path, path, signal, {
+          debounceMs: fileWatchDebounceMs,
+          ...(defaults.watchFileSystem === undefined ? {} : { open: defaults.watchFileSystem }),
+        })) {
+          queue.push(frame(watchFrame))
+        }
+      } catch (error: unknown) {
+        const streamError = watchStreamError(error, workspaceId, path, signal)
+        if (streamError !== undefined) queue.push(frame({ type: 'stream/error', error: streamError }))
+      } finally {
+        release()
+        queue.end()
+      }
+    })()
+    return queue.iterate(signal, release)
+  }
+
+  const terminalStream: EventsApi['terminal'] = (request, signal) => {
+    const queue = new FrameQueue<RpcRequest<TerminalStreamFrame>>(streamQueueMaxFrames)
+    const controller = ctx.get('terminalController')
+    const { sessionId, id, attachmentId } = request.payload
+    if (controller === undefined) {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'terminal-unavailable',
+        message: 'terminal service is absent: the host composition does not mount @deepseek-ai/dsh-api-terminal-controller',
+        details: {},
+      } }))
+      return queue.iterate(signal, () => {})
+    }
+    // Subagent-origin sessions never expose their PTY surface, the same
+    // visibility fence every host handler applies.
+    const agent = ctx.agents.get(sessionId)
+    if (agent === undefined || agent.session.header.origin === 'subagent') {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'terminal-unavailable',
+        message: 'Terminal is closing or unavailable',
+        details: {},
+      } }))
+      return queue.iterate(signal, () => {})
+    }
+    // The stream lifetime IS the attachment: abort detaches, and each
+    // follower frame becomes one queue push (SSE backpressure applies).
+    void (async () => {
+      try {
+        for await (const terminalFrame of controller.follow(agent, id, attachmentId, signal)) {
+          queue.push(frame(terminalFrame))
+        }
+      } catch (error) {
+        queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
+      }
+    })()
+    return queue.iterate(signal, () => {})
+  }
+
+  const holdStream: EventsApi['hold'] = (request, signal) => {
+    const queue = new FrameQueue<RpcRequest<HoldStreamFrame>>(streamQueueMaxFrames)
+    const controller = ctx.get('terminalController')
+    const { sessionId, id } = request.payload
+    if (controller === undefined) {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'terminal-unavailable',
+        message: 'terminal service is absent: the host composition does not mount @deepseek-ai/dsh-api-terminal-controller',
+        details: {},
+      } }))
+      return queue.iterate(signal, () => {})
+    }
+    const agent = ctx.agents.get(sessionId)
+    if (agent === undefined || agent.session.header.origin === 'subagent') {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'terminal-unavailable',
+        message: 'Terminal is closing or unavailable',
+        details: {},
+      } }))
+      return queue.iterate(signal, () => {})
+    }
+    // An open stream holds the terminal against idle reclamation; abort
+    // releases the hold through the retention generator's finally.
+    void (async () => {
+      try {
+        for await (const retained of controller.retain(sessionId, id, signal)) {
+          queue.push(frame(retained))
+        }
+      } catch (error) {
+        queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
+      }
+    })()
+    return queue.iterate(signal, () => {})
+  }
+
+  /* jscpd:ignore-start */
+  // The browser producer parallels the terminal producer: one retention queue
+  // per attachment over a different controller.
+  const browserStream: EventsApi['browser'] = (request, signal) => {
+    const queue = new FrameQueue<RpcRequest<BrowserStreamFrame>>(streamQueueMaxFrames)
+    const controller = ctx.get('browserController')
+    const { sessionId, id, attachmentId } = request.payload
+    if (controller === undefined) {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'browser-unavailable',
+        message: 'browser service is absent: the host composition does not mount @deepseek-ai/dsh-api-browser-controller',
+        details: {},
+      } }))
+      return queue.iterate(signal, () => {})
+    }
+    // Subagent-origin sessions never expose their browser surface, the same
+    // visibility fence every host handler applies.
+    const agent = ctx.agents.get(sessionId)
+    if (agent === undefined || agent.session.header.origin === 'subagent') {
+      queue.push(frame({ type: 'stream/error', error: {
+        code: 'browser-unavailable',
+        message: 'The page no longer exists in this Session',
+        details: {},
+      } }))
+      return queue.iterate(signal, () => {})
+    }
+    // The stream lifetime IS the attachment: abort detaches, and each
+    // follower frame becomes one queue push (SSE backpressure applies).
+    void (async () => {
+      try {
+        for await (const browserFrame of controller.follow(agent, id, attachmentId, signal)) {
+          queue.push(frame(browserFrame))
+        }
+      } catch (error) {
+        queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
+      }
+    })()
+    return queue.iterate(signal, () => {})
+  }
+  /* jscpd:ignore-end */
 
   return {
     api: {
@@ -5069,6 +5292,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     workspaceFiles: {
+      watchFiles: watchFilesStream,
       async list(request, signal) {
         const { workspaceId } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
@@ -5117,59 +5341,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
-      watchFiles(request, signal) {
-        const { workspaceId } = request.payload
-        const path = request.payload.path ?? ''
-        const queue = new FrameQueue<RpcRequest<WorkspaceFileWatchFrame>>(streamQueueMaxFrames)
-        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
-        if (workspace === undefined) {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'workspace-not-found',
-            message: `workspace "${workspaceId}" not found`,
-            details: { workspaceId },
-          } }))
-          queue.end()
-          return queue.iterate(signal, () => {})
-        }
-        const openWatches = fileWatchCounts.get(workspaceId) ?? 0
-        if (openWatches >= fileWatchMaxPerWorkspace) {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'workspace-watch-limit-reached',
-            message: `workspace "${workspaceId}" already holds ${String(openWatches)} open file watches`,
-            details: { workspaceId, limit: fileWatchMaxPerWorkspace },
-          } }))
-          queue.end()
-          return queue.iterate(signal, () => {})
-        }
-        fileWatchCounts.set(workspaceId, openWatches + 1)
-        // The count reservation is released exactly once, whether the feed
-        // ends by itself or the consumer unsubscribes mid-stream.
-        let released = false
-        const release = (): void => {
-          if (released) return
-          released = true
-          const remaining = (fileWatchCounts.get(workspaceId) ?? 1) - 1
-          if (remaining <= 0) fileWatchCounts.delete(workspaceId)
-          else fileWatchCounts.set(workspaceId, remaining)
-        }
-        void (async () => {
-          try {
-            for await (const watchFrame of watchWorkspaceFiles(workspace.path, path, signal, {
-              debounceMs: fileWatchDebounceMs,
-              ...(defaults.watchFileSystem === undefined ? {} : { open: defaults.watchFileSystem }),
-            })) {
-              queue.push(frame(watchFrame))
-            }
-          } catch (error: unknown) {
-            const streamError = watchStreamError(error, workspaceId, path, signal)
-            if (streamError !== undefined) queue.push(frame({ type: 'stream/error', error: streamError }))
-          } finally {
-            release()
-            queue.end()
-          }
-        })()
-        return queue.iterate(signal, release)
-      },
+
     },
 
     workspaceGit: {
@@ -6046,118 +6218,105 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         })
       },
 
-      terminal(request, signal) {
-        const queue = new FrameQueue<RpcRequest<TerminalStreamFrame>>(streamQueueMaxFrames)
-        const controller = ctx.get('terminalController')
-        const { sessionId, id, attachmentId } = request.payload
-        if (controller === undefined) {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'terminal-unavailable',
-            message: 'terminal service is absent: the host composition does not mount @deepseek-ai/dsh-api-terminal-controller',
-            details: {},
-          } }))
-          return queue.iterate(signal, () => {})
-        }
-        // Subagent-origin sessions never expose their PTY surface, the same
-        // visibility fence every host handler applies.
-        const agent = ctx.agents.get(sessionId)
-        if (agent === undefined || agent.session.header.origin === 'subagent') {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'terminal-unavailable',
-            message: 'Terminal is closing or unavailable',
-            details: {},
-          } }))
-          return queue.iterate(signal, () => {})
-        }
-        // The stream lifetime IS the attachment: abort detaches, and each
-        // follower frame becomes one queue push (SSE backpressure applies).
-        void (async () => {
-          try {
-            for await (const terminalFrame of controller.follow(agent, id, attachmentId, signal)) {
-              queue.push(frame(terminalFrame))
-            }
-          } catch (error) {
-            queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
-          }
-        })()
-        return queue.iterate(signal, () => {})
+
+
+
+
+
+
+      terminal: terminalStream,
+
+      hold: holdStream,
+
+      browser: browserStream,
+
+      streams(request, signal) {
+        const page = request.payload.page
+        const queue = new FrameQueue<RpcRequest<StreamsFrame>>(streamQueueMaxFrames)
+        const face: EntityStreamFace = { queue }
+        const faces = entityStreamFaces.get(page) ?? new Set<EntityStreamFace>()
+        faces.add(face)
+        entityStreamFaces.set(page, faces)
+        return queue.iterate(signal, () => { releaseEntityStreamFace(page, face) })
       },
 
-      hold(request, signal) {
-        const queue = new FrameQueue<RpcRequest<HoldStreamFrame>>(streamQueueMaxFrames)
-        const controller = ctx.get('terminalController')
-        const { sessionId, id } = request.payload
-        if (controller === undefined) {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'terminal-unavailable',
-            message: 'terminal service is absent: the host composition does not mount @deepseek-ai/dsh-api-terminal-controller',
-            details: {},
-          } }))
-          return queue.iterate(signal, () => {})
+      streamsOpen(request) {
+        const { page, family } = request.payload
+        const faces = entityStreamFaces.get(page)
+        if (faces === undefined || faces.size === 0) {
+          return Promise.resolve(err(request, {
+            code: 'stream-channel-absent',
+            message: `page "${page}" holds no live entity-stream downlink`,
+            details: { page },
+          }))
         }
-        const agent = ctx.agents.get(sessionId)
-        if (agent === undefined || agent.session.header.origin === 'subagent') {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'terminal-unavailable',
-            message: 'Terminal is closing or unavailable',
-            details: {},
-          } }))
-          return queue.iterate(signal, () => {})
+        if (entitySubsOfPage(page) >= entityStreamSubsMaxPerPage) {
+          return Promise.resolve(err(request, {
+            code: 'stream-sub-limit-reached',
+            message: `page "${page}" already holds ${String(entityStreamSubsMaxPerPage)} open entity-stream subscriptions`,
+            details: { limit: entityStreamSubsMaxPerPage },
+          }))
         }
-        // An open stream holds the terminal against idle reclamation; abort
-        // releases the hold through the retention generator's finally.
+        const sub = `sub-${randomUUID()}`
+        const deliver = (payload: StreamsFrame): void => {
+          const envelope = frame(payload)
+          for (const face of faces) face.queue.push(envelope)
+        }
+        const controller = new AbortController()
+        const entry: EntitySubEntry = { sub, page, controller, deliver }
+        entitySubs.set(sub, entry)
+        deliver({ type: 'sub/ready', sub })
+        const principal = request.principal
+        const withPrincipal = <R extends RpcRequest<unknown>>(request: R): R => ({
+          ...request,
+          ...(principal === undefined ? {} : { principal }),
+        })
+        const producer = family === 'terminal'
+          ? terminalStream(withPrincipal({
+            rpcId: RpcId(randomUUID()),
+            payload: request.payload.payload,
+          }), controller.signal)
+          : family === 'hold'
+            ? holdStream(withPrincipal({
+              rpcId: RpcId(randomUUID()),
+              payload: request.payload.payload,
+            }), controller.signal)
+            : family === 'browser'
+              ? browserStream(withPrincipal({
+                rpcId: RpcId(randomUUID()),
+                payload: request.payload.payload,
+              }), controller.signal)
+              : watchFilesStream(withPrincipal({
+                rpcId: RpcId(randomUUID()),
+                payload: request.payload.payload,
+              }), controller.signal)
         void (async () => {
           try {
-            for await (const retained of controller.retain(sessionId, id, signal)) {
-              queue.push(frame(retained))
+            for await (const envelope of producer) {
+              deliver({ type: 'sub/frame', sub, frame: envelope.payload })
             }
-          } catch (error) {
-            queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
+            deliver({ type: 'sub/end', sub })
+          } catch {
+            // Mid-producer impl failure mirrors the SSE carrier's failure
+            // posture: one family stream/error frame, then the substream end.
+            deliver({ type: 'sub/frame', sub, frame: { type: 'stream/error', error: { code: 'internal', message: 'event stream failed', details: {} } } })
+            deliver({ type: 'sub/end', sub })
+          } finally {
+            if (entitySubs.get(sub) === entry) entitySubs.delete(sub)
           }
         })()
-        return queue.iterate(signal, () => {})
+        return Promise.resolve(ok(request, { sub }))
       },
 
-      /* jscpd:ignore-start */
-      // The browser stream face parallels the terminal stream face above:
-      // one retention queue per attachment over a different controller.
-      browser(request, signal) {
-        const queue = new FrameQueue<RpcRequest<BrowserStreamFrame>>(streamQueueMaxFrames)
-        const controller = ctx.get('browserController')
-        const { sessionId, id, attachmentId } = request.payload
-        if (controller === undefined) {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'browser-unavailable',
-            message: 'browser service is absent: the host composition does not mount @deepseek-ai/dsh-api-browser-controller',
-            details: {},
-          } }))
-          return queue.iterate(signal, () => {})
+      streamsClose(request) {
+        const { page, sub } = request.payload
+        const entry = entitySubs.get(sub)
+        if (entry !== undefined && entry.page === page) {
+          entitySubs.delete(sub)
+          entry.controller.abort()
         }
-        // Subagent-origin sessions never expose their browser surface, the same
-        // visibility fence every host handler applies.
-        const agent = ctx.agents.get(sessionId)
-        if (agent === undefined || agent.session.header.origin === 'subagent') {
-          queue.push(frame({ type: 'stream/error', error: {
-            code: 'browser-unavailable',
-            message: 'The page no longer exists in this Session',
-            details: {},
-          } }))
-          return queue.iterate(signal, () => {})
-        }
-        // The stream lifetime IS the attachment: abort detaches, and each
-        // follower frame becomes one queue push (SSE backpressure applies).
-        void (async () => {
-          try {
-            for await (const browserFrame of controller.follow(agent, id, attachmentId, signal)) {
-              queue.push(frame(browserFrame))
-            }
-          } catch (error) {
-            queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
-          }
-        })()
-        return queue.iterate(signal, () => {})
+        return Promise.resolve(ok(request, {}))
       },
-      /* jscpd:ignore-end */
 
       adopt(request) {
         const { page, sessionIds } = request.payload

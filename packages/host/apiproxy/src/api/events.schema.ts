@@ -6,7 +6,10 @@
 
 import { z } from 'zod'
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
-import type { BrowserStreamFrame, EventsApi, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame } from './events.ts'
+import type {
+  BrowserStreamFrame, EntityStreamOpenPayload, EventsApi, HoldStreamFrame, HostFrame, MuxFrame,
+  StreamsFrame, TerminalStreamFrame,
+} from './events.ts'
 import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
@@ -15,6 +18,7 @@ import {
 } from './sessions.schema.ts'
 import { taskViewSchema } from './jobs.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
+import { workspaceFilesWatchRequestSchema } from './workspace-files.schema.ts'
 
 /** events.mux payload, also used to validate the no-envelope query carrier. */
 export const eventsMuxRequestSchema = z.object({
@@ -202,3 +206,41 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host/remote-event'), event: z.string().min(1), args: z.array(z.unknown()) }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>
+
+/** Substream ids the entity-stream downlink addresses frames by. */
+const streamSubIdSchema = z.string().regex(/^[\w-]{1,128}$/u)
+
+/** Page token every substream binds to; one regex, reused by open/close payloads. */
+const streamPageSchema = z.string().regex(/^[\w-]{1,128}$/u)
+
+/**
+ * Entity-stream downlink frames. The `sub/frame` member leaves its payload
+ * wide on purpose: the receiving side validates each frame against the schema
+ * of the family that opened the substream (it knows the family from its own
+ * open call), exactly like the per-family SSE carrier parses with one schema.
+ */
+export const streamsFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('sub/ready'), sub: streamSubIdSchema }),
+  z.object({ type: z.literal('sub/frame'), sub: streamSubIdSchema, frame: z.unknown() }),
+  z.object({ type: z.literal('sub/end'), sub: streamSubIdSchema, error: rpcErrorSchema.optional() }),
+]) as unknown as z.ZodType<StreamsFrame>
+
+/** Entity-stream downlink open payload: the page token plus one family-tagged binding. */
+export const eventsStreamsOpenRequestSchema = z.discriminatedUnion('family', [
+  z.object({ page: streamPageSchema, family: z.literal('terminal'), payload: eventsTerminalRequestSchema }),
+  z.object({ page: streamPageSchema, family: z.literal('hold'), payload: eventsHoldRequestSchema }),
+  z.object({ page: streamPageSchema, family: z.literal('browser'), payload: eventsBrowserRequestSchema }),
+  z.object({ page: streamPageSchema, family: z.literal('files-watch'), payload: workspaceFilesWatchRequestSchema }),
+]) as z.ZodType<Wire<EntityStreamOpenPayload & { page: string }>>
+
+/** The open response addresses the new substream. */
+export const eventsStreamsOpenValueSchema = z.object({ sub: streamSubIdSchema })
+
+/** Closing is idempotent; the settled value carries nothing. */
+export const eventsStreamsCloseRequestSchema = z.object({
+  page: streamPageSchema,
+  sub: streamSubIdSchema,
+})
+
+/** Closing is fire-and-forget teardown; the settled value carries nothing. */
+export const eventsStreamsCloseValueSchema = z.object({})

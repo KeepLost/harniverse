@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, BrowserStreamFrame, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, TerminalStreamFrame, WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy, BrowserStreamFrame, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, StreamsFrame, TerminalStreamFrame, WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-host-apiproxy'
 import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-host-apiproxy'
 import { ALL_AUTHENTICATION_CAPABILITIES } from '@deepseek-ai/dsh-authentication'
 import type { TerminalAttachmentId, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
@@ -196,6 +196,9 @@ function scriptedApi(overrides: {
       terminal: () => empty<TerminalStreamFrame>(),
       hold: () => empty<HoldStreamFrame>(),
       browser: () => empty<BrowserStreamFrame>(),
+      streams: () => empty<StreamsFrame>(),
+      streamsOpen: r => ok(r, { sub: 'sub-1' }),
+      streamsClose: r => ok(r, {}),
       ...overrides.events,
     },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
@@ -560,6 +563,33 @@ describe('unary round trip', () => {
     await pagedMux.text()
     const duplicatePage = await handler.fetch('http://dsh.internal/api/events.mux?page=a&page=b', { method: 'GET' })
     expect(duplicatePage.status).toBe(400)
+  })
+
+  it('routes entity-stream control POSTs through the unary table', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const api = scriptedApi({
+      events: {
+        streamsOpen: recorderInto(seen)('events.streams.open', r => ok(r, { sub: 'sub-open-1' })),
+        streamsClose: recorderInto(seen)('events.streams.close', r => ok(r, {})),
+      },
+    })
+    const handler = toFetchHandler(api)
+    const post = async (path: string, method: string, payload: unknown): Promise<void> => {
+      const body = JSON.stringify({ type: 'client-request', rpcId: 'r-ctrl', method, payload })
+      const response = await handler.fetch(`http://dsh.internal/api/${path}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body,
+      })
+      expect(response.status).toBe(200)
+      await response.json()
+    }
+    await post('events.streams.open', 'events.streams.open', {
+      page: 'page-ctrl', family: 'hold', payload: { sessionId: sid('s1'), id: 't1' },
+    })
+    await post('events.streams.close', 'events.streams.close', { page: 'page-ctrl', sub: 'sub-open-1' })
+    expect(seen).toEqual([
+      { method: 'events.streams.open', payload: { page: 'page-ctrl', family: 'hold', payload: { sessionId: 's1', id: 't1' } } },
+      { method: 'events.streams.close', payload: { page: 'page-ctrl', sub: 'sub-open-1' } },
+    ])
   })
 
   it('rejects a method/path mismatch as bad-request', async () => {

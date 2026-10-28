@@ -8,7 +8,7 @@ import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { legacyRpcCapability } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
+import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH, STREAMS_EVENTS_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES, type FetchHandler } from './http-bridge.ts'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { assertTrustedAuthority, assertTrustedOrigin, describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'
@@ -33,7 +33,7 @@ export type {
 } from './rpc.ts'
 export { HostConnectionService } from './rpc-host.ts'
 
-export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
+export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH, STREAMS_EVENTS_PATH } from './api-path.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
@@ -122,14 +122,32 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   }
   const connection = new HostConnectionService(ctx, trustedHosts, trustedOrigins)
   registerRemoteHostProxy(ctx, connection)
+  // Per-entity stream GET carriers the entity-stream downlink supersedes for
+  // browsers: one long-lived HTTP connection per watched entity starves the
+  // browser's finite per-origin pool. The gate keys on `Sec-Fetch-Site`
+  // (every browser sends it; first-party non-browser clients — the desktop
+  // main process, scripts — do not), so those clients keep the per-family SSE
+  // routes, as does the in-process toFetchHandler carrier (isomorphism proof,
+  // the same posture as the mux/host SSE codec).
+  const LEGACY_ENTITY_STREAM_GET_PATHS = new Set([
+    '/api/events.terminal',
+    '/api/events.hold',
+    '/api/events.browser',
+    '/api/workspace.files.watch',
+  ])
+  const isBrowserAuthored = (request: Request): boolean => request.headers.get('sec-fetch-site') !== null
   const fallbackFetchHandler = (principal: AuthenticationPrincipal): FetchHandler => ({
     async fetch(request) {
       const pathname = new URL(request.url).pathname
-      if (request.method === 'GET' && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) {
+      if (request.method === 'GET'
+        && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH || pathname === STREAMS_EVENTS_PATH)) {
         return new Response('upgrade required', {
           status: 426,
           headers: { connection: 'Upgrade', upgrade: 'websocket' },
         })
+      }
+      if (request.method === 'GET' && isBrowserAuthored(request) && LEGACY_ENTITY_STREAM_GET_PATHS.has(pathname)) {
+        return new Response('stream family moved to the events.streams downlink', { status: 410 })
       }
       const apiProxy = ctx.get('apiProxy')
       if (apiProxy === undefined) return new Response('not found', { status: 404 })
@@ -191,7 +209,11 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
             rejectWebSocketUpgrade(socket)
             return
           }
-          const channel = path === MUX_EVENTS_PATH ? 'websocket-mux' : 'websocket-host'
+          const channel = path === MUX_EVENTS_PATH
+            ? 'websocket-mux'
+            : path === STREAMS_EVENTS_PATH
+              ? 'websocket-streams'
+              : 'websocket-host'
           const decision = await authenticateIncoming(apiCtx, req, channel)
           if (decision.kind === 'rejected') {
             apiCtx.logger.warn(`client-connection: authentication rejected channel=${JSON.stringify(channel)} reason=${JSON.stringify(decision.reason)} ${requestDetails(req)}`)
@@ -219,6 +241,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
             return
           }
           if (path === MUX_EVENTS_PATH) downlinks.handleMux(req, socket, head, decision)
+          else if (path === STREAMS_EVENTS_PATH) downlinks.handleStreams(req, socket, head, decision)
           else downlinks.handleHost(req, socket, head, decision)
         },
       }), `client-connection: ${path} WebSocket`)
@@ -229,5 +252,6 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     apiCtx.on('authentication/available', () => { downlinks.authenticationRecovered() })
     registerDownlink(MUX_EVENTS_PATH)
     registerDownlink(HOST_EVENTS_PATH)
+    registerDownlink(STREAMS_EVENTS_PATH)
   })
 }

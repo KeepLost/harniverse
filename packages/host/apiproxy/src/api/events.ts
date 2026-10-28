@@ -17,7 +17,8 @@ import type { TerminalAttachmentId, TerminalFrame, TerminalRetentionFrame, WebTe
 import type { BrowserAttachmentId, BrowserFrame, HostBrowserPageId } from '@deepseek-ai/dsh-api-browser-controller/types'
 import type { RpcError, RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { JobView } from './jobs.ts'
-import type { WorkspaceView } from './workspace.ts'
+import type { WorkspaceId, WorkspaceView } from './workspace.ts'
+import type { WorkspaceFileWatchFrame } from './workspace-files.ts'
 
 // Client-side consumers take the render-intent vocabulary from the contract;
 // dsh-tools remains its owner.
@@ -102,7 +103,57 @@ export interface EventsApi {
    * detaches. Stream abort is the detach and never closes the page.
    */
   browser(request: RpcRequest<BrowserStreamBinding>, signal: AbortSignal): AsyncIterable<RpcRequest<BrowserStreamFrame>>
+
+  /**
+   * Entity-stream downlink: one page-scoped carrier every per-entity stream
+   * family (terminal, hold, browser, workspace file watch) multiplexes onto as
+   * addressable substreams, so a page holds a constant number of long-lived
+   * connections regardless of how many directories, terminals, or workspaces
+   * it watches. The `page` token binds the downlink the same way it binds a
+   * mux stream; subscriptions opened by `streamsOpen` arrive only on this
+   * carrier, and the page's last live downlink reaps every substream it still
+   * holds.
+   */
+  streams(request: RpcRequest<{ page: string }>, signal: AbortSignal): AsyncIterable<RpcRequest<StreamsFrame>>
+
+  /**
+   * Open one substream on the page's live entity-stream downlink. The family
+   * selects the per-entity producer (identical semantics to opening that
+   * family's own stream); the minted `sub` addresses its frames on the
+   * downlink. Closing the substream — `streamsClose`, substream end, or the
+   * downlink's death — detaches exactly like aborting the family's own stream.
+   */
+  streamsOpen(request: RpcRequest<EntityStreamOpenPayload & { page: string }>): Promise<RpcResponse<{ sub: string }>>
+
+  /**
+   * Close one substream by id. Idempotent: an unknown or already closed `sub`
+   * still answers ok, so a client racing a reconnect cannot fail the close.
+   */
+  streamsClose(request: RpcRequest<{ page: string; sub: string }>): Promise<RpcResponse<{}>>
 }
+
+/** The per-entity stream families that multiplex onto the entity-stream downlink. */
+export type EntityStreamFamily = 'terminal' | 'hold' | 'browser' | 'files-watch'
+
+/** One family-tagged substream subscription payload. */
+export type EntityStreamOpenPayload =
+  | { family: 'terminal'; payload: TerminalStreamBinding }
+  | { family: 'hold'; payload: TerminalHoldBinding }
+  | { family: 'browser'; payload: BrowserStreamBinding }
+  | { family: 'files-watch'; payload: { workspaceId: WorkspaceId; path?: string } }
+
+/**
+ * Entity-stream downlink frames. `sub/ready` confirms the subscription is
+ * live (the downlink analogue of a family stream's open), `sub/frame` carries
+ * one family frame verbatim, and `sub/end` closes that substream — without
+ * `error` for a natural end, with `error` when the channel-level delivery
+ * failed. Family failures keep riding the family's own `stream/error` frame
+ * inside `sub/frame`, so per-family semantics are unchanged.
+ */
+export type StreamsFrame =
+  | { type: 'sub/ready'; sub: string }
+  | { type: 'sub/frame'; sub: string; frame: TerminalStreamFrame | HoldStreamFrame | BrowserStreamFrame | WorkspaceFileWatchFrame }
+  | { type: 'sub/end'; sub: string; error?: RpcError }
 
 /** Attachment identity for a terminal stream open. */
 export interface TerminalStreamBinding {

@@ -229,7 +229,7 @@ export function apply(ctx: Context): void {
   const createApi = (owner: TargetGeneration): WebApiClient => new WebApiClient(
     undefined, () => owner.controller.signal.aborted ? undefined : authentication,
     () => { if (owner === generation) invalidateAuthentication() }, browserAuthentication,
-    owner.resolvePath, () => owner,
+    owner.resolvePath, () => owner, undefined, PAGE_TOKEN,
   )
   const hostApi = new WebApiClient(
     undefined, () => hostAuthentication,
