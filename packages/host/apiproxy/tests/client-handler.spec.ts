@@ -565,6 +565,33 @@ describe('unary round trip', () => {
     expect(duplicatePage.status).toBe(400)
   })
 
+  it('routes entity-stream control POSTs through the unary table', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const api = scriptedApi({
+      events: {
+        streamsOpen: recorderInto(seen)('events.streams.open', r => ok(r, { sub: 'sub-open-1' })),
+        streamsClose: recorderInto(seen)('events.streams.close', r => ok(r, {})),
+      },
+    })
+    const handler = toFetchHandler(api)
+    const post = async (path: string, method: string, payload: unknown): Promise<void> => {
+      const body = JSON.stringify({ type: 'client-request', rpcId: 'r-ctrl', method, payload })
+      const response = await handler.fetch(`http://dsh.internal/api/${path}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body,
+      })
+      expect(response.status).toBe(200)
+      await response.json()
+    }
+    await post('events.streams.open', 'events.streams.open', {
+      page: 'page-ctrl', family: 'hold', payload: { sessionId: sid('s1'), id: 't1' },
+    })
+    await post('events.streams.close', 'events.streams.close', { page: 'page-ctrl', sub: 'sub-open-1' })
+    expect(seen).toEqual([
+      { method: 'events.streams.open', payload: { page: 'page-ctrl', family: 'hold', payload: { sessionId: 's1', id: 't1' } } },
+      { method: 'events.streams.close', payload: { page: 'page-ctrl', sub: 'sub-open-1' } },
+    ])
+  })
+
   it('rejects a method/path mismatch as bad-request', async () => {
     const handler = toFetchHandler(scriptedApi())
     const body = { type: 'client-request', rpcId: 'r1', method: 'session.create', payload: {} }

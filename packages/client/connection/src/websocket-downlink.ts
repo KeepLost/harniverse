@@ -201,8 +201,8 @@ export class WebSocketDownlinks {
   handleStreams(req: IncomingMessage, socket: Duplex, head: Buffer, admission: AcceptedAuthentication): void {
     const url = new URL(req.url ?? '/', 'http://dsh.internal')
     const pages = url.searchParams.getAll('page')
-    const page = pages[0]
-    if (pages.length !== 1 || page === undefined || !/^[\w-]{1,128}$/u.test(page)) {
+    const page = pages.length === 1 ? pages[0] : undefined
+    if (page === undefined || !/^[\w-]{1,128}$/u.test(page)) {
       rejectBadRequest(socket)
       return
     }

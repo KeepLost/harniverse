@@ -222,11 +222,9 @@ export class EntityStreamChannel {
   /** Track one frame for a substream whose open POST has not resolved yet. */
   private parkUnclaimed(sub: string, item: SubItem): void {
     if (this.unclaimedTotal >= UNCLAIMED_FRAME_LIMIT) {
-      const oldest = this.unclaimed.keys().next().value
-      if (oldest !== undefined) {
-        this.unclaimedTotal -= this.unclaimed.get(oldest)?.length ?? 0
-        this.unclaimed.delete(oldest)
-      }
+      const oldest = this.unclaimed.keys().next().value as string
+      this.unclaimed.delete(oldest)
+      this.unclaimedTotal = [...this.unclaimed.values()].reduce((total, parked) => total + parked.length, 0)
     }
     const parked = this.unclaimed.get(sub) ?? []
     parked.push(item)
@@ -242,8 +240,9 @@ export class EntityStreamChannel {
       if (typeof event.data !== 'string') throw new Error('binary WebSocket frame')
       full = serverRequestSchema.parse(JSON.parse(event.data))
       if (full.method === CONNECTION_AUTHENTICATED_METHOD) {
-        this.identity = authenticationPrincipalIdentitySchema.parse(full.payload)
-        this.deliverIdentity()
+        const identity = authenticationPrincipalIdentitySchema.parse(full.payload)
+        this.identity = identity
+        this.deliverIdentity(identity)
         return
       }
       frame = streamsFrameSchema.parse(full.payload)
@@ -287,9 +286,7 @@ export class EntityStreamChannel {
   }
 
   /** Publish the settled identity to every substream waiting for it, exactly once each. */
-  private deliverIdentity(): void {
-    const identity = this.identity
-    if (identity === undefined) return
+  private deliverIdentity(identity: AuthenticationPrincipalIdentity): void {
     for (const rec of this.subs.values()) {
       if (rec.identityDelivered) continue
       rec.identityDelivered = true

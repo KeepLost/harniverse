@@ -1,4 +1,6 @@
 import { once } from 'node:events'
+import type { IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
 import { connect, type AddressInfo } from 'node:net'
@@ -1201,14 +1203,26 @@ describe('entity-stream downlink', () => {
     const downlinks = new WebSocketDownlinks(api(idle, idle, signal => idle(signal)))
     const server = await serve(downlinks)
     running.push(server.close)
-    // Raw socket probe: a page-less upgrade request answers a plain 400 before negotiation.
-    await expect(new Promise<string>((resolve) => {
+    const rawProbe = (path: string): Promise<string> => new Promise<string>((resolve) => {
       const { hostname, port } = new URL(server.origin)
       const socket = connect(Number(port), hostname)
       socket.on('error', () => { /* RST racing the response body */ })
       socket.on('data', (chunk: Buffer) => { resolve(chunk.toString('utf8')) })
-      socket.write(`GET ${STREAMS_EVENTS_PATH} HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`)
-    })).resolves.toContain('400 Bad Request')
+      socket.write(`GET ${path} HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`)
+    })
+    // Raw socket probes: page-less, duplicate, and malformed page tokens each
+    // answer a plain 400 before negotiation.
+    await expect(rawProbe(STREAMS_EVENTS_PATH)).resolves.toContain('400 Bad Request')
+    await expect(rawProbe(`${STREAMS_EVENTS_PATH}?page=a&page=b`)).resolves.toContain('400 Bad Request')
+    await expect(rawProbe(`${STREAMS_EVENTS_PATH}?page=${encodeURIComponent('bad page!')}`)).resolves.toContain('400 Bad Request')
+    // A request line without any URL at all takes the same 400 arm.
+    const end = vi.fn()
+    const urlless = { end } as unknown as Duplex
+    const handle = (req: IncomingMessage, socket: Duplex, head: Buffer, admission: never): void => {
+      downlinks.handleStreams(req, socket, head, admission)
+    }
+    handle({ url: undefined } as IncomingMessage, urlless, Buffer.alloc(0), { kind: 'accepted' } as never)
+    expect(end).toHaveBeenCalled()
   })
 
   it('passes the page token to the producer and frames substream messages verbatim', async () => {

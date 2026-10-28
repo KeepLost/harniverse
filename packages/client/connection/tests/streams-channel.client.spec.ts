@@ -79,7 +79,11 @@ interface ChannelFixture {
   retire: () => void
 }
 
-async function mount(page = 'page-1'): Promise<ChannelFixture> {
+interface MountOverrides {
+  closeControl?: (payload: { page: string; sub: string }) => Promise<unknown>
+}
+
+async function mount(page = 'page-1', base = 'http://dsh.internal', over: MountOverrides = {}): Promise<ChannelFixture> {
   globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
   const opens: ChannelFixture['opens'] = []
   const closes: ChannelFixture['closes'] = []
@@ -89,11 +93,14 @@ async function mount(page = 'page-1'): Promise<ChannelFixture> {
     page,
     channelSignal: generation.signal,
     resolvePath: path => path,
-    resolveBase: () => 'http://dsh.internal',
+    resolveBase: () => base,
     openControl: payload => new Promise((resolve) => {
       opens.push({ payload, resolve })
     }),
-    closeControl: (payload) => { closes.push({ page: payload.page, sub: payload.sub }); return Promise.resolve({}) },
+    closeControl: over.closeControl ?? ((payload) => {
+      closes.push({ page: payload.page, sub: payload.sub })
+      return Promise.resolve({})
+    }),
     onEnvelope: (message) => { envelopes.push(message) },
   })
   return { channel, opens, closes, envelopes, retire: () => { generation.abort() } }
@@ -240,9 +247,17 @@ describe('entity-stream channel', () => {
     const firstStarted = first[Symbol.asyncIterator]().next()
     await vi.waitFor(() => { expect(opens).toHaveLength(1) })
     const socket = FakeWebSocket.sockets[0]!
-    // 256 + 1 frames for a sub whose open never resolves: the pool evicts the oldest parked sub wholesale.
-    for (let index = 0; index <= 256; index += 1) {
-      socket.receive(downlinkMessage('sub/frame', { type: 'sub/frame', sub: 'sub-parked', frame: { type: 'retained' } }, `p${String(index)}`))
+    // Two subs whose opens never resolve: filling the pool evicts the oldest
+    // parked sub wholesale while the newer one keeps its buffered frames.
+    for (let index = 0; index < 200; index += 1) {
+      socket.receive(downlinkMessage('sub/frame', {
+        type: 'sub/frame', sub: 'sub-old', frame: { type: 'retained' },
+      }, `o${String(index)}`))
+    }
+    for (let index = 0; index <= 56; index += 1) {
+      socket.receive(downlinkMessage('sub/frame', {
+        type: 'sub/frame', sub: 'sub-new', frame: { type: 'retained' },
+      }, `n${String(index)}`))
     }
     opens[0]!.resolve({ sub: 'sub-claimed' })
     socket.receive(downlinkMessage('sub/ready', { type: 'sub/ready', sub: 'sub-claimed' }, 'rc'))
@@ -265,6 +280,207 @@ describe('entity-stream channel', () => {
     await expect(started).resolves.toMatchObject({ value: { payload: { type: 'retained' } } })
     expect(exploding).toHaveBeenCalled()
     void stream.return(undefined)
+  })
+
+  it('ends a stream immediately when the caller signal is already aborted', async () => {
+    const { channel, opens } = await mount()
+    const caller = new AbortController()
+    caller.abort()
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, caller.signal, holdStreamFrameSchema)
+    await expect(stream.next()).resolves.toMatchObject({ done: true })
+    expect(opens).toHaveLength(0)
+  })
+
+  it('ends a stream immediately when the channel is already retired', async () => {
+    const { channel, retire, opens } = await mount()
+    retire()
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    await expect(stream.next()).resolves.toMatchObject({ done: true })
+    expect(opens).toHaveLength(0)
+  })
+
+  it('closes a substream aborted between the open POST and its claim', async () => {
+    const { channel, opens, closes } = await mount()
+    const caller = new AbortController()
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, caller.signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(1) })
+    opens[0]!.resolve({ sub: 'sub-mid' })
+    caller.abort()
+    await expect(started).resolves.toMatchObject({ done: true })
+    await vi.waitFor(() => { expect(closes).toEqual([{ page: 'page-1', sub: 'sub-mid' }]) })
+  })
+
+  it('drops binary and malformed frames while live, then ignores everything after a retire', async () => {
+    const { channel, opens, envelopes, retire } = await mount()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(1) })
+    opens[0]!.resolve({ sub: 'sub-x' })
+    const socket = FakeWebSocket.sockets[0]!
+    socket.receive(downlinkMessage('sub/ready', { type: 'sub/ready', sub: 'sub-x' }, 'rx'))
+    await vi.waitFor(() => { expect(envelopes.length).toBeGreaterThanOrEqual(1) })
+    // Live binary and malformed frames drop through the diagnostics path...
+    socket.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(4) }))
+    socket.dispatchEvent(new MessageEvent('message', { data: 'not-json' }))
+    socket.receive(downlinkMessage('sub/frame', {
+      type: 'sub/frame', sub: 'unknown-sub', frame: { type: 'retained' },
+    }, 'orphan'))
+    // Binary and unparseable frames each log one drop; the orphan parks silently.
+    await vi.waitFor(() => { expect(consoleError).toHaveBeenCalledTimes(2) })
+    // The tap sees the ready frame and the orphan frame alike.
+    expect(envelopes.length).toBe(2)
+    retire()
+    // ...and post-retire frames must not reach consumers or the tap at all.
+    const seen = envelopes.length
+    socket.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(4) }))
+    socket.receive(downlinkMessage('sub/frame', { type: 'sub/frame', sub: 'sub-x', frame: { type: 'retained' } }, 'late'))
+    await expect(started).resolves.toMatchObject({ done: true })
+    expect(envelopes.length).toBe(seen)
+  })
+
+  it('routes frames to a claimed substream through the dispatch wake path', async () => {
+    const { channel, opens } = await mount()
+    const readied: string[] = []
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema,
+      () => { readied.push('wake') })
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(1) })
+    opens[0]!.resolve({ sub: 'sub-wake' })
+    const socket = FakeWebSocket.sockets[0]!
+    socket.receive(downlinkMessage('sub/ready', { type: 'sub/ready', sub: 'sub-wake' }, 'rw'))
+    await vi.waitFor(() => { expect(readied).toEqual(['wake']) })
+    socket.receive(downlinkMessage('sub/frame', { type: 'sub/frame', sub: 'sub-wake', frame: { type: 'retained' } }, 'fw'))
+    await expect(started).resolves.toMatchObject({ value: { payload: { type: 'retained' } } })
+  })
+
+  it('reuses the open socket for a later family and contains throwing identity observers', async () => {
+    const { channel, opens } = await mount()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const first = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const firstStarted = first[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(1) })
+    opens[0]!.resolve({ sub: 'sub-1st' })
+    const socket = FakeWebSocket.sockets[0]!
+    socket.receive(downlinkMessage('sub/ready', { type: 'sub/ready', sub: 'sub-1st' }, 'r1'))
+    // A second open after the socket is established returns through the open-state fast path.
+    const second = channel.open('terminal', { sessionId: 's', id: 't', attachmentId: 'a' },
+      new AbortController().signal, terminalStreamFrameSchema, undefined, () => { throw new Error('observer exploded') })
+    const secondStarted = second[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(2) })
+    opens[1]!.resolve({ sub: 'sub-2nd' })
+    socket.receive(downlinkMessage('sub/ready', { type: 'sub/ready', sub: 'sub-2nd' }, 'r2'))
+    socket.receive(downlinkMessage('sub/frame', { type: 'sub/frame', sub: 'sub-1st', frame: { type: 'retained' } }, 'f1'))
+    await expect(firstStarted).resolves.toMatchObject({ value: { payload: { type: 'retained' } } })
+    // The identity frame arrives with both substreams registered: the first
+    // observes it, the second's throwing observer is contained.
+    socket.receive(downlinkMessage('connection.authenticated', { kind: 'bypass' }, 'identity'))
+    // A second identity broadcast hits the already-delivered guard per substream.
+    socket.receive(downlinkMessage('connection.authenticated', { kind: 'bypass' }, 'identity-2'))
+    socket.receive(downlinkMessage('sub/frame', {
+      type: 'sub/frame', sub: 'sub-2nd', frame: { type: 'output', sequence: 0, data: 'x' },
+    }, 'f2'))
+    await expect(secondStarted).resolves.toMatchObject({ value: { payload: { type: 'output' } } })
+    expect(consoleError).toHaveBeenCalled()
+    void first.return(undefined)
+    void second.return(undefined)
+  })
+
+  it('fails the open when the channel retires while the socket is still connecting', async () => {
+    const { channel, retire } = await mount()
+    FakeWebSocket.setAutoOpen(false)
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(1) })
+    retire()
+    await expect(started).rejects.toThrow('failed to open')
+  })
+
+  it('fails the open when the channel retires right after the socket opened', async () => {
+    const { channel, retire } = await mount()
+    FakeWebSocket.setAutoOpen(false)
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(1) })
+    const socket = FakeWebSocket.sockets[0]!
+    socket.readyState = FakeWebSocket.OPEN
+    socket.dispatchEvent(new Event('open'))
+    retire()
+    await expect(started).rejects.toThrow('retired before opening')
+  })
+
+  it('ends a stream without any control POST when the caller aborts while the socket connects', async () => {
+    const { channel, opens } = await mount()
+    FakeWebSocket.setAutoOpen(false)
+    const caller = new AbortController()
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, caller.signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(1) })
+    caller.abort()
+    const socket = FakeWebSocket.sockets[0]!
+    socket.readyState = FakeWebSocket.OPEN
+    socket.dispatchEvent(new Event('open'))
+    await expect(started).resolves.toMatchObject({ done: true })
+    expect(opens).toHaveLength(0)
+  })
+
+  it('maps an https base to a secure WebSocket URL', async () => {
+    const { channel, opens } = await mount('page-tls', 'https://dsh.internal')
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(1) })
+    opens[0]!.resolve({ sub: 'sub-tls' })
+    await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(1) })
+    expect(FakeWebSocket.sockets[0]!.url).toBe('wss://dsh.internal/api/events.streams?page=page-tls')
+    void started
+    void stream.return(undefined)
+  })
+
+  it('fails the consumer when the server ends the substream with an error', async () => {
+    const { channel, opens } = await mount()
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(1) })
+    opens[0]!.resolve({ sub: 'sub-err' })
+    const socket = FakeWebSocket.sockets[0]!
+    socket.receive(downlinkMessage('sub/ready', { type: 'sub/ready', sub: 'sub-err' }, 're'))
+    socket.receive(downlinkMessage('sub/end', {
+      type: 'sub/end', sub: 'sub-err', error: { code: 'internal', message: 'producer died', details: {} },
+    }, 'ee'))
+    await expect(started).rejects.toThrow('producer died')
+  })
+
+  it('tolerates the close event landing after a failed open already settled the socket', async () => {
+    const { channel } = await mount()
+    const before = connectionBudgetSnapshot().websockets
+    FakeWebSocket.setAutoOpen(false)
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(1) })
+    const socket = FakeWebSocket.sockets[0]!
+    // The error settles the open failure first; the trailing close event then
+    // meets an already-closed channel without double-noting the budget.
+    socket.dispatchEvent(new Event('error'))
+    await expect(started).rejects.toThrow('failed to open')
+    socket.dispatchEvent(new Event('close'))
+    expect(connectionBudgetSnapshot().websockets).toBe(before)
+  })
+
+  it('swallows a failing unsubscribe when the channel already reaped the substream', async () => {
+    const { channel, opens, retire } = await mount('page-close-fail', 'http://dsh.internal', {
+      closeControl: () => Promise.reject(new Error('channel already gone')),
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const stream = channel.open('hold', { sessionId: 's', id: 't' }, new AbortController().signal, holdStreamFrameSchema)
+    const started = stream[Symbol.asyncIterator]().next()
+    await vi.waitFor(() => { expect(opens).toHaveLength(1) })
+    opens[0]!.resolve({ sub: 'sub-swallow' })
+    retire()
+    // The retire races the unsubscribe: its rejection must stay contained.
+    await expect(started).resolves.toMatchObject({ done: true })
+    await vi.waitFor(() => { expect(FakeWebSocket.sockets[0]!.readyState).toBe(FakeWebSocket.CLOSED) })
+    expect(consoleError).not.toHaveBeenCalled()
   })
 
   it('counts its socket in the connection budget', async () => {

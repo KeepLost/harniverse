@@ -705,6 +705,30 @@ describe('connection client apply', () => {
     fetch.mockRestore()
   })
 
+  it('notes the budget close when a consumer breaks before the socket closes', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
+    }
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const client = (await mount()).api as WebApiClient
+    const iterator = client.events.mux({}, new AbortController().signal)[Symbol.asyncIterator]()
+    const started = iterator.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(1) })
+    sockets[0]!.receive(JSON.stringify({
+      type: 'server-request',
+      rpcId: 'mux-break',
+      method: 'session/subscribed',
+      payload: { type: 'session/subscribed', sessionId: 'session-break', lastSeq: 1 },
+    }))
+    await expect(started).resolves.toMatchObject({
+      value: { rpcId: 'mux-break', payload: { type: 'session/subscribed', lastSeq: 1 } },
+    })
+    // Returning while suspended at the yield runs the finally with the socket
+    // still open: the deferred close-listener arm takes over the budget note.
+    await iterator.return?.(undefined)
+    expect(sockets[0]!.readyState).toBe(FakeWebSocket.CLOSED)
+  })
+
   it('maps an HTTPS page origin to a secure WebSocket URL', async () => {
     ;(globalThis as Win).location = {
       hostname: 'harness.example', search: '', origin: 'https://harness.example',
