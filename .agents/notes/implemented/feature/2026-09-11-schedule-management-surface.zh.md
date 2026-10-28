@@ -28,7 +28,7 @@
 
 ### 占用是共享的观看事实
 
-占用 store 如今由仪表盘外壳（`dsh-client-ui-dashboard`）持有：其中心视图在挂载/卸载时写 `open`（框架是权威），底部触发器把它镜像为 `aria-pressed`，定时任务 tab 自身不携带观看 store（见[仪表盘合并笔记](2026-10-28-dashboard-center-merge.md)）。点击不做乐观写入，因此失败或被清除的视图不会留下卡死的按下态。
+占用 store 如今由仪表盘外壳（`dsh-client-ui-dashboard`）持有：其中心视图在挂载/卸载时写 `open`（框架是权威），底部触发器把它镜像为 `aria-pressed`，定时任务 tab 自身不携带观看 store（见[仪表盘合并笔记](../architecture/2026-10-28-dashboard-center-merge.md)）。点击不做乐观写入，因此失败或被清除的视图不会留下卡死的按下态。
 
 ## Alternatives considered
 

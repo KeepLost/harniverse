@@ -28,7 +28,7 @@ The host scheduler's human surface lived inside the Settings dialog: it aggregat
 
 ### Occupancy is a shared viewing fact
 
-The dashboard shell (`dsh-client-ui-dashboard`) owns the occupancy store today: its center view writes `open` on mount/unmount (the frame is the authority) and the footer trigger mirrors it as `aria-pressed`, and the schedules tab itself carries no viewing store ([dashboard merge note](2026-10-28-dashboard-center-merge.md)). No optimistic write from the click, so a failed or cleared view cannot strand a pressed affordance.
+The dashboard shell (`dsh-client-ui-dashboard`) owns the occupancy store today: its center view writes `open` on mount/unmount (the frame is the authority) and the footer trigger mirrors it as `aria-pressed`, and the schedules tab itself carries no viewing store ([dashboard merge note](../architecture/2026-10-28-dashboard-center-merge.md)). No optimistic write from the click, so a failed or cleared view cannot strand a pressed affordance.
 
 ## Alternatives considered
 

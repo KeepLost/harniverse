@@ -33,7 +33,7 @@ The frame publishes; features decide what to do about it. The current answers:
 - **Composer row** ([ui-conversation](../../../../packages/client/ui-conversation/src/client/skeleton/InputBar.module.css)) — the trailing group concedes width before it collides, then the row wraps into two rows at the narrowest end. Container queries, not the frame attribute: the row responds to its column.
 - **Stats line** — wraps and stops clipping, and takes the phone composer's narrower side clearance.
 - **Settings panel** ([ui-settings-general](../../../../packages/client/ui-settings-general/src/client/SettingsRoot.module.css)) — a full-bleed sheet whose nav rail becomes a horizontal tab strip, with the close control anchored to the sheet corner. Contributed rows (appearance, font size, language, permission) take the full content column.
-- **Schedule table** ([ui-scheduler](../../../../packages/client/ui-scheduler/src/client/ScheduleCenterView.module.css)) — each row becomes a card of label/value pairs. The header labels move into the cells through `data-label`, so the DOM stays one table and the desktop grid is untouched.
+- **Schedule table** ([ui-scheduler](../../../../packages/client/ui-scheduler/src/client/ScheduleTab.module.css)) — each row becomes a card of label/value pairs. The header labels move into the cells through `data-label`, so the DOM stays one table and the desktop grid is untouched.
 
 ## Alternatives considered
 
