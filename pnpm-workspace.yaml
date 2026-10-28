@@ -36,10 +36,10 @@ overrides:
   # mcp-client and ssh plus transitive consumers — pin every resolution.
   '@modelcontextprotocol/sdk': '1.32.0'
   # GHSA-698v-4r3x-3vcv / GHSA-587h-7wmj-h5pm / GHSA-r825-w8mm-5pxw
-  # (CVE-2026-112943/112942/112944): vite 8.0.0–8.1.5 — dev-server fs
-  # exposure and request-smuggling in proxy mode; the vitest chain and the
-  # web app resolve the 8 line (the website stays on 6 for vitepress), so
-  # pin them to one patched copy.
+  # (CVE-2026-112943/112942/112944) plus the 8.3.0–8.3.2 launch-editor and
+  # dev-server advisories: only the vitest chain resolves the 8 line (apps
+  # and the website pin vite 6; rolldown's CSS sheet order breaks the
+  # scrollbar-theme e2e cascade assertions), so scope the pin to it.
   'vite@8': '8.3.5'
   'brace-expansion@2': '2.1.7'
   'brace-expansion@5': '5.0.12'
