@@ -117,6 +117,42 @@ describe('connection client apply', () => {
     expect(handle.target.getSnapshot().kind).toBe('remote')
   })
 
+  it('stages an image upload through the connection face with optional hooks', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const staged = await handle.uploadImage({ data: new Uint8Array([1, 2]), mediaType: 'image/png', name: 'a.png' })
+    expect(staged.mediaType).toBe('image/png')
+    const hooks = { onProgress: (_: { loaded: number }) => {} }
+    await handle.uploadImage({ data: new Uint8Array([3]), mediaType: 'image/png' }, hooks)
+  })
+
+  it('routes an image upload to the web transport when no carrier is set', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
+    class ImageXhr {
+      static latest: ImageXhr | undefined
+      constructor() { ImageXhr.latest = this }
+      upload = { onprogress: null as ((event: ProgressEvent) => void) | null }
+      onload: (() => void) | null = null
+      onabort: (() => void) | null = null
+      onerror: (() => void) | null = null
+      responseType = ''
+      status = 200
+      responseText = JSON.stringify({
+        attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 2, mediaType: 'image/png', width: 1, height: 1,
+      })
+      readonly open = vi.fn()
+      setRequestHeader(): void {}
+      send(): void { this.onload?.() }
+      abort(): void { this.onabort?.() }
+    }
+    vi.stubGlobal('XMLHttpRequest', ImageXhr)
+    try {
+      const handle = await mount()
+      const ref = await handle.uploadImage({ data: new Uint8Array([1]), mediaType: 'image/png' })
+      expect(ref).toMatchObject({ bytes: 2, mediaType: 'image/png' })
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('contains a target observer exception and notifies the remaining observers', async () => {
     const handle = await mount()
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})

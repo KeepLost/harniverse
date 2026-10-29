@@ -372,6 +372,31 @@ describe('web image staging transport', () => {
     })
     second.onload?.()
     await expect(noMediaType).rejects.toThrow('connection.upload: malformed receipt')
+    const badJson = createWebImageUploadTransport(() => BASE)(imageRequest())
+    const third = FakeXhr.instances[2]
+    if (third === undefined) throw new Error('third xhr missing')
+    third.status = 200
+    third.responseText = '{not json'
+    third.onload?.()
+    await expect(badJson).rejects.toThrow('connection.upload: malformed receipt')
+    const noHeight = createWebImageUploadTransport(() => BASE)(imageRequest())
+    const fourth = FakeXhr.instances[3]
+    if (fourth === undefined) throw new Error('fourth xhr missing')
+    fourth.status = 200
+    fourth.responseText = JSON.stringify({
+      attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 8, width: 1, mediaType: 'image/png',
+    })
+    fourth.onload?.()
+    await expect(noHeight).rejects.toThrow('connection.upload: malformed receipt')
+    const noBytes = createWebImageUploadTransport(() => BASE)(imageRequest())
+    const fifth = FakeXhr.instances[4]
+    if (fifth === undefined) throw new Error('fifth xhr missing')
+    fifth.status = 200
+    fifth.responseText = JSON.stringify({
+      attachmentId: `sha256:${'a'.repeat(64)}`, mediaType: 'image/png', width: 1, height: 1,
+    })
+    fifth.onload?.()
+    await expect(noBytes).rejects.toThrow('connection.upload: malformed receipt')
   })
 
   it('maps a route refusal body onto a coded FileUploadError and bridges aborts', async () => {

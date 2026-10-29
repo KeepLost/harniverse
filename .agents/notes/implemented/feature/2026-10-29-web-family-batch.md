@@ -8,7 +8,7 @@ English | [中文](2026-10-29-web-family-batch.zh.md)
 
 The owner disposition of 2026-10-29 accepted the remaining wave-5 row-17 product choices as one batch (see `UPSTREAM-ABSORPTION-REVIEW.md`, Wave-5 row 17 disposition): eight web-family increments plus `keep-assistant-replies`, absorbed onto Harniverse's own contracts rather than upstream's newer carrier packages (`ui-chat`, `ui-dockkit`, `file-upload`, and the rich-text editor do not exist downstream).
 
-## Decisions and adaptations
+## Decision
 
 - **Composer image upload staging on add.** Images pasted/dropped/picked now upload when added — background XHR with progress, per-item state `uploading → ready{ref} | error{reason}`, remove cancels, transport failures retry, host refusals are remove-only with their reason on the rail thumbnail, and submit waits for every image draft naming the first failure. New route `POST /api/attachment/upload-image` (same trust fence/auth/`harniverse.operate` as the file route; streamed read bounded at `min(maxImageBytes, maxMessageImageBytes)`; media-type allowlist; `validateImage` → `saveImage`). Adaptation: Harniverse images are content-addressed durable `ImageAttachmentRef`s, so the official per-Session in-memory receipt registry is replaced by the refs themselves (session-agnostic, no rebind needed). The prompt RPC part union gained the additive arm `{ type: 'image'; ref: ImageAttachmentRef }` (host verifies via `readImage`, digest-checked, fail-closed; staged bytes count toward `maxMessageImageBytes`; the count covers both arms). **The session log is unchanged** — `durablePromptContent` still cites the canonical stored-ref block, pinned by the prompt-image-refs fixture test; the session-contract digest baseline is untouched.
 - **Text-derived message quotes.** New package `dsh-client-ui-message-quotes` ports the official recognition/render half: `quote-text.ts` near-verbatim (explicit `>` blockquote spans), a `SentUserTextRule` (`id: 'quote'`) over the `sentUserTextRules` seam created for credential masking, and a literal blockquote render. Sent messages are ordinary Markdown; no quote metadata persists and the session format is unchanged. The selection-insert half rides R33 with the rich-text editor it requires.
@@ -19,6 +19,21 @@ The owner disposition of 2026-10-29 accepted the remaining wave-5 row-17 product
 - **New Session blank reuse.** Investigated against the official hardening: Harniverse already reuses blanks with strict preset matching, preserved drafts, and self-correcting stale-blank mirrors; the divergences are deliberate (the host header is the immutable sole authority). Pinning tests added; no production change.
 - **ui-user-questions iteration.** Answered question batches render as a `question-reply` conversation chat node (right-aligned bubble, collapsible, copy); the composer gains 3-line CSS clamp disclosure with aria-labeled expand/collapse and wrapped option descriptions, reset per step; optionless questions stay answerable and long questions never hide submit. zh/en only; no locale expansion, CUA hooks, or timed-question changes.
 - **keep-assistant-replies — recorded commitment, no code.** Harniverse has no turn-fold model (R33 unscheduled; every assistant reply is permanently visible). `foldedReplies: 'all'` is the required default when the own fold design lands.
+
+## Alternatives considered
+
+- **Porting upstream's carrier packages wholesale** (`ui-chat`, `ui-dockkit`, `file-upload`, the rich-text editor) was rejected: Harniverse deliberately does not carry those architectures; every item lands on existing seams (`sentUserTextRules`, the tab strip in `ui-workspace`, the A5 upload plumbing, the conversation-node registry).
+- **Official's per-Session in-memory receipt registry for staged images** was replaced by the content-addressed durable `ImageAttachmentRef`s Harniverse already mints — session-agnostic, no rebind machinery.
+- **A type-level narrowing of list-row projection values** (upstream's `SessionProjectionSummaryValues`) was judged low-value downstream: list blocks seed the same higher-seq-wins store as open faces, so a type split would guard nothing the runtime does not already enforce.
+- **Host-side blank-reuse re-verification** was not added: the Harniverse host header is the immutable sole authority (deliberate divergence from the official preset-switch recording), so the client-side strict match plus self-correcting mirror is the faithful encoding.
+
+## Consequences
+
+- `session.list` rows shrink by the summary-excluded keys; clients treat absence as capability-absent, exactly as before. Open faces are unchanged.
+- The prompt RPC part union gains the additive `{ type: 'image'; ref }` arm; the session log and the v0 digest baseline are unchanged (pinned by the prompt-image-refs fixture test).
+- Composer images upload at add time; refused uploads keep the Host's reason and never silently drop from a send.
+- Browser goldens for the question composer and the new `question-reply` node were refreshed (`DSH_SNAPSHOT=refresh`); replay is green.
+- `keep-assistant-replies` binds the future R33 fold design to the `foldedReplies: 'all'` default.
 
 ## Verification
 
