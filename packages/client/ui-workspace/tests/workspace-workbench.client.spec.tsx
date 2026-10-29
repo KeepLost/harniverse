@@ -692,6 +692,16 @@ describe('workbench presentation units', () => {
       // The remounted strip restores the 10 under a jump, then glides only the remaining distance.
       render(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} account={account} />)
       expect(writes.slice(1)).toEqual([[10, 'auto'], [448, '']])
+      // A remount whose recorded offset equals the fresh strip's scrollLeft skips
+      // the no-op jump and only glides to the active chip.
+      const other = instance.getSnapshot().byWorkspace['w2'] === undefined
+        ? (instance.actions.ensureWorkspace('w2'), instance.getSnapshot().byWorkspace['w2']!)
+        : instance.getSnapshot().byWorkspace['w2']!
+      const zero = render(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} account={other} />)
+      zero.container.querySelector<HTMLElement>('[role="tablist"]')!.scrollLeft = 0
+      zero.unmount()
+      render(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} account={other} />)
+      expect(writes.slice(4)).toEqual([[448, '']])
     } finally {
       restore()
     }

@@ -153,6 +153,38 @@ describe('connection client apply', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
+  it('gates image upload progress on the generation signal through the face', async () => {
+    const receipt = Promise.withResolvers<import('@deepseek-ai/dsh-attachment').ImageAttachmentRef>()
+    let hooks: import('../src/client/upload.ts').FileUploadHooks | undefined
+    const handle = await mount(authenticationDouble(), {
+      api: new FixtureApiClient(),
+      uploadImage: (_request: unknown, next: import('../src/client/upload.ts').FileUploadHooks) => {
+        hooks = next
+        return receipt.promise
+      },
+    } as never)
+    const progress: number[] = []
+    const pending = handle.uploadImage(
+      { data: new Uint8Array([1]), mediaType: 'image/png' },
+      { onProgress: value => progress.push(value.loaded) },
+    )
+    await vi.waitFor(() => { if (hooks === undefined) throw new Error('carrier hooks not captured') })
+    const captured = hooks
+    if (captured === undefined) throw new Error('carrier hooks not captured')
+    captured.onProgress?.({ loaded: 7 } as ProgressEvent)
+    await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    captured.onProgress?.({ loaded: 9 } as ProgressEvent)
+    receipt.resolve({
+      attachmentId: `sha256:${'a'.repeat(64)}` as never,
+      mediaType: 'image/png',
+      bytes: 1,
+      width: 1,
+      height: 1,
+    })
+    await expect(pending).rejects.toThrow('connection: machine target changed')
+    expect(progress).toEqual([7])
+  })
+
   it('contains a target observer exception and notifies the remaining observers', async () => {
     const handle = await mount()
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
