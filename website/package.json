@@ -1,22 +1,23 @@
 {
-  "name": "@deepseek-ai/website",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "vitepress dev . --host 127.0.0.1 --port 5173",
-    "build": "vitepress build .",
-    "preview": "vitepress preview . --host 127.0.0.1 --port 4173"
-  },
-  "devDependencies": {
-    "@braintree/sanitize-url": "7.1.2",
-    "cytoscape": "3.34.0",
-    "cytoscape-cose-bilkent": "4.1.0",
-    "dayjs": "1.11.23",
-    "debug": "4.4.3",
-    "mermaid": "11.17.2",
-    "vite": "^6.4.4",
-    "vitepress": "^1.6.4",
-    "vitepress-plugin-mermaid": "^2.0.17"
-  }
+ "name": "@deepseek-ai/website",
+ "private": true,
+ "version": "0.0.1",
+ "type": "module",
+ "scripts": {
+  "dev": "vitepress dev . --host 127.0.0.1 --port 5173",
+  "build": "vitepress build .",
+  "preview": "vitepress preview . --host 127.0.0.1 --port 4173"
+ },
+ "devDependencies": {
+  "@braintree/sanitize-url": "7.1.2",
+  "cytoscape": "3.34.0",
+  "cytoscape-cose-bilkent": "4.1.0",
+  "dayjs": "1.11.23",
+  "debug": "4.4.3",
+  "mermaid": "11.17.2",
+  "vite": "^6.4.4",
+  "vitepress": "^1.6.4",
+  "vitepress-plugin-mermaid": "^2.0.17",
+  "vue": "3.5.42"
+ }
 }
