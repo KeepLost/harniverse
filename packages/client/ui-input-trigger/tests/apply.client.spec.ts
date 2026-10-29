@@ -89,7 +89,7 @@ describe('apply', () => {
     const injectEntry = entries[0]!.inject as unknown as (sessionId: SessionId) => MenuViewInjected
     const injected = injectEntry(sid('a'))
     const controller = inputTriggers.sessionOf(
-      (ctx.get('sessions') as { scope(id: SessionId): Context }).scope(sid('a')),
+      (ctx.get('sessions') as unknown as { scope(id: SessionId): Context }).scope(sid('a')),
     )
     expect(injected.menu).toBe(controller.menu)
     // The pick face routes into the controller pipeline (closed menu → no-op).
@@ -113,7 +113,7 @@ describe('apply', () => {
     const injectSeat = entry.inject as unknown as (sessionId: SessionId) => CommandSeatInjected
     const face = injectSeat(sid('a'))
     const controller = inputTriggers.sessionOf(
-      (ctx.get('sessions') as { scope(id: SessionId): Context }).scope(sid('a')),
+      (ctx.get('sessions') as unknown as { scope(id: SessionId): Context }).scope(sid('a')),
     )
     // The launcher hook rides the controller's store (the expanded-state source).
     expect(face.hooks.launcher).toBe(controller.launcher)
