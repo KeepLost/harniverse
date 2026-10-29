@@ -1123,7 +1123,10 @@ describe('workspace entry classification and short reads', () => {
     expect(listed.entries).toEqual([expect.objectContaining({ name: 'pipe', kind: 'other' })])
   })
 
-  it('returns an empty result when the scan budget is already spent', async () => {
+  // The budget fixture writes and scans WORKSPACE_FILE_SEARCH_SCAN_LIMIT + 10
+  // real files (~40k filesystem operations); macOS lanes run the full suite
+  // under load and the default 5s ceiling does not cover that I/O cost.
+  it('returns an empty result when the scan budget is already spent', { timeout: 60_000 }, async () => {
     const root = tempWorkspace()
     mkdirSync(join(root, 'a'))
     for (let index = 0; index < WORKSPACE_FILE_SEARCH_SCAN_LIMIT + 10; index += 1) {
