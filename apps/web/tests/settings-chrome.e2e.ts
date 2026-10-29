@@ -533,6 +533,41 @@ describe('web e2e: settings modal and General preferences', () => {
     }
   }, 90_000)
 
+  it('scrolls the section rail to sections clipped by a display-scaled viewport', async () => {
+    // OS display scaling (or a large system font) shrinks the viewport's CSS
+    // pixels; the panel keeps its min(800, 100vh - 48) height and the
+    // 14-section rail no longer fits beside it. The rail must wheel-scroll to
+    // the clipped sections the way the phone tab strip pages sideways. A
+    // plain click is not the proof here: Chromium silently scrollTop's the
+    // panel's overflow:hidden box on programmatic scrollIntoView, which a
+    // mouse user cannot do — only the wheel gesture is user-real.
+    const shortPage = await browser.newPage({ viewport: { width: 1280, height: 640 }, locale: ZH_BROWSER_LOCALE })
+    const shortTripwire = watchConsole(shortPage)
+    onTestFailed(() => saveFailureShot(shortPage, 'web-e2e-settings-scaled-rail'))
+    try {
+      await shortPage.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      await shortPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await shortPage.getByRole('button', { name: '设置', exact: true }).click()
+      const dialog = shortPage.getByRole('dialog', { name: '设置' })
+      await dialog.waitFor({ timeout: 10_000 })
+      const lastSection = dialog.getByRole('button', { name: '声音通知', exact: true })
+      await lastSection.waitFor({ timeout: 10_000 })
+      // Wheel over the rail's mid column (nav cells bubble to the scroller).
+      await shortPage.mouse.move(334, 300)
+      await shortPage.mouse.wheel(0, 400)
+      await expect.poll(async () => {
+        const box = await lastSection.boundingBox()
+        return box !== null && box.y + box.height <= 640
+      }, { timeout: 5_000 }).toBe(true)
+      await lastSection.click()
+      await expect.poll(() => lastSection.getAttribute('aria-current'), { timeout: 5_000 }).toBe('true')
+      expect(shortTripwire.pageErrors).toEqual([])
+      expect(shortTripwire.warnings).toEqual([])
+    } finally {
+      await shortPage.close()
+    }
+  }, 90_000)
+
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
