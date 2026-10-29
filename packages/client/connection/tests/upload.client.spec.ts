@@ -2,13 +2,14 @@
 // MIME), progress forwarding, the route error-body mapping, abort bridging,
 // and receipt validation — over a fake XMLHttpRequest so every settle path is
 // driven deterministically. The fixture-world half covers receipt minting and
-// prompt admission parity.
+// prompt admission parity for files and staged images.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createWebFileUploadTransport, FileUploadError } from '../src/client/upload.ts'
-import type { FileUploadHooks, FileUploadRequest } from '../src/client/upload.ts'
+import { createWebFileUploadTransport, createWebImageUploadTransport, FileUploadError } from '../src/client/upload.ts'
+import type { FileUploadHooks, FileUploadRequest, ImageUploadRequest } from '../src/client/upload.ts'
 import { createFixtureFaces } from '../src/client/fixture.ts'
 import { RpcId } from '../src/client/api.ts'
 import type { RpcRequest } from '../src/client/api.ts'
+import type { PromptContentPart } from '@deepseek-ai/dsh-host-apiproxy'
 
 /** Test-side rpc request mint (the fixture's module-private helper stays private). */
 function req<P>(payload: P): RpcRequest<P> {
@@ -63,6 +64,10 @@ function transport() {
 
 function request(over: Partial<FileUploadRequest> = {}): FileUploadRequest {
   return { data: new Blob([new Uint8Array(8)]), name: '笔记.txt', mediaType: 'text/plain', ...over }
+}
+
+function imageRequest(over: Partial<ImageUploadRequest> = {}): ImageUploadRequest {
+  return { data: new Blob([new Uint8Array(8)]), name: '图.png', mediaType: 'image/png', ...over }
 }
 
 function hooks(over: Partial<FileUploadHooks> = {}): FileUploadHooks {
@@ -319,6 +324,98 @@ describe('web upload transport', () => {
   })
 })
 
+describe('web image staging transport', () => {
+  it('posts to the image route, declares the media type, and parses the image reference', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const pending = createWebImageUploadTransport(() => BASE)(imageRequest(), hooks())
+    const xhr = FakeXhr.instances[0]
+    if (xhr === undefined) throw new Error('xhr missing')
+    expect(FakeXhr.open).toHaveBeenCalledWith('POST', `${BASE}/api/attachment/upload-image`)
+    expect(xhr.setRequestHeader).toHaveBeenCalledWith('content-type', 'image/png')
+    expect(xhr.setRequestHeader).toHaveBeenCalledWith('x-attachment-name', encodeURIComponent('图.png'))
+    xhr.status = 200
+    xhr.responseText = JSON.stringify({
+      attachmentId: `sha256:${'a'.repeat(64)}`,
+      mediaType: 'image/png',
+      bytes: 8,
+      width: 160,
+      height: 90,
+      name: '图.png',
+    })
+    xhr.onload?.()
+    await expect(pending).resolves.toEqual({
+      attachmentId: `sha256:${'a'.repeat(64)}`,
+      mediaType: 'image/png',
+      bytes: 8,
+      width: 160,
+      height: 90,
+      name: '图.png',
+    })
+  })
+
+  it('rejects an image receipt missing dimensions or a media type', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const noDimensions = createWebImageUploadTransport(() => BASE)(imageRequest())
+    const first = FakeXhr.instances[0]
+    if (first === undefined) throw new Error('xhr missing')
+    first.status = 200
+    first.responseText = JSON.stringify({ attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 8, mediaType: 'image/png' })
+    first.onload?.()
+    await expect(noDimensions).rejects.toThrow('connection.upload: malformed receipt')
+
+    const noMediaType = createWebImageUploadTransport(() => BASE)(imageRequest())
+    const second = FakeXhr.instances[1]
+    if (second === undefined) throw new Error('second xhr missing')
+    second.status = 200
+    second.responseText = JSON.stringify({
+      attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 8, width: 1, height: 1,
+    })
+    second.onload?.()
+    await expect(noMediaType).rejects.toThrow('connection.upload: malformed receipt')
+  })
+
+  it('maps a route refusal body onto a coded FileUploadError and bridges aborts', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const refused = createWebImageUploadTransport(() => BASE)(imageRequest())
+    const xhr = FakeXhr.instances[0]
+    if (xhr === undefined) throw new Error('xhr missing')
+    xhr.status = 413
+    xhr.responseText = JSON.stringify({ code: 'IMAGE_TOO_LARGE', message: 'too big' })
+    xhr.onload?.()
+    await expect(refused).rejects.toSatisfy((error: unknown) =>
+      error instanceof FileUploadError && error.status === 413 && error.code === 'IMAGE_TOO_LARGE')
+
+    const controller = new AbortController()
+    const cancelled = createWebImageUploadTransport(() => BASE)(imageRequest(), hooks({ signal: controller.signal }))
+    const aborting = FakeXhr.instances[1]
+    if (aborting === undefined) throw new Error('abort xhr missing')
+    controller.abort()
+    expect(aborting.aborted).toBe(true)
+    await expect(cancelled).rejects.toThrow('aborted')
+  })
+
+  it('recovers one classified image refusal through the shared authentication replay', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const auth = { ready: vi.fn().mockResolvedValue(undefined), check: vi.fn().mockResolvedValue(undefined), requireRefresh: vi.fn() }
+    const upload = createWebImageUploadTransport(() => BASE, auth)
+    const pending = upload(imageRequest(), {})
+    await Promise.resolve()
+    const first = FakeXhr.instances[0]!
+    first.status = 401
+    first.getResponseHeader.mockReturnValue('required')
+    first.onload!()
+    await vi.waitFor(() => { expect(FakeXhr.instances).toHaveLength(2) })
+    const second = FakeXhr.instances[1]!
+    second.status = 200
+    second.responseText = JSON.stringify({
+      attachmentId: `sha256:${'b'.repeat(64)}`, mediaType: 'image/png', bytes: 8, width: 1, height: 1,
+    })
+    second.onload!()
+    await expect(pending).resolves.toMatchObject({ bytes: 8, width: 1 })
+    expect(auth.check).toHaveBeenCalledOnce()
+  })
+})
+
 describe('fixture upload world', () => {
   it('mints deterministic receipts the prompt path admits with handle text and user/file', async () => {
     const world = createFixtureFaces()
@@ -377,6 +474,59 @@ describe('fixture upload world', () => {
     expect(result.result).toMatchObject({
       ok: false,
       error: { code: 'attachment-error' },
+    })
+  })
+})
+
+describe('fixture image staging world', () => {
+  it('mints a durable reference the prompt path admits by citation, not re-encoding', async () => {
+    const world = createFixtureFaces()
+    const data = new Blob([new Uint8Array(4)])
+    const ref = await world.uploadImage({ data, mediaType: 'image/png', name: 'pic.png' })
+    expect(ref.attachmentId).toMatch(/^sha256:[0-9a-f]{64}$/u)
+    expect(ref.mediaType).toBe('image/png')
+    expect(ref.bytes).toBe(4)
+    expect(ref.name).toBe('pic.png')
+
+    const prompt = world.api.sessions.prompt?.(req({
+      sessionId: 'fx-alpha' as never,
+      mode: 'queue',
+      content: [
+        { type: 'image', ref },
+        { type: 'text', text: '请看图' },
+      ],
+    }))
+    const result = await prompt
+    expect(result.result).toMatchObject({ ok: true })
+
+    const events = await world.api.sessions.history?.(req({
+      sessionId: 'fx-alpha' as never,
+      beforeSeq: 10_000,
+      maxMessages: 20,
+    }))
+    if (!events?.result.ok) throw new Error('history failed')
+    const log = events.result.value.events.map(entry => entry.event)
+    const message = [...log].reverse().find(event => event.type === 'user/message') as {
+      data: { content: { type: string; attachment?: { attachmentId: string } }[] }
+    }
+    const image = message.data.content.find(block => block.type === 'image')
+    expect(image?.attachment?.attachmentId).toBe(String(ref.attachmentId))
+  })
+
+  it('rejects image citations the world never staged', async () => {
+    const world = createFixtureFaces()
+    const prompt = world.api.sessions.prompt?.(req({
+      sessionId: 'fx-alpha' as never,
+      mode: 'queue',
+      content: [
+        { type: 'image', ref: { attachmentId: `sha256:${'d'.repeat(64)}`, mediaType: 'image/png', bytes: 4, width: 1, height: 1 } },
+        { type: 'text', text: 'x' },
+      ] as PromptContentPart[],
+    }))
+    const result = await prompt
+    expect(result.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'ATTACHMENT_READ_FAILED' } },
     })
   })
 })

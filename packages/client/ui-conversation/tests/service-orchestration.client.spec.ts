@@ -83,7 +83,7 @@ describe('ConversationController', () => {
         { attachmentId: AttachmentId(`sha256:${'2'.repeat(64)}`), bytes: 2048 },
       ]
       const session = b.runtime.sessions.binding('s1')!.session
-      await b.root.sendSession(session, '请分析', [attachment.id], refs, 'queue')
+      await b.root.sendSession(session, '请分析', [{ id: attachment.id }], refs, 'queue')
       expect(b.prompt).toHaveBeenCalledTimes(1)
       const [content, mode] = b.prompt.mock.calls[0] as unknown as [{ type: string }[], string]
       expect(mode).toBe('queue')

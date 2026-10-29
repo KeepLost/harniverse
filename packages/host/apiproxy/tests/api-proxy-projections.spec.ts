@@ -336,6 +336,7 @@ describe('session.list projections column', () => {
 
   it('serves cold rows from the persisted projection cache with zero log loads', async () => {
     const { ctx } = await harness(true)
+    ctx.sessionProjections.register(lastUserUnit())
     const coldId = SessionId('session-cold-listing')
     const load = () => { throw new Error('list must not load event logs') }
     ctx.provide('sessionPersistence', {
@@ -371,6 +372,24 @@ describe('session.list projections column', () => {
     const row = response.result.value.items.find(item => item.sessionId === coldId)
     expect(row).toBeDefined()
     expect(row !== undefined && 'projections' in row).toBe(false)
+  })
+
+  it('drops summary-excluded keys from list rows while open faces keep them', async () => {
+    const { ctx, session } = await harness(true)
+    ctx.sessionProjections.register(lastUserUnit())
+    ctx.sessionProjections.register({ ...lastUserUnit(), key: 'test/heavy', summary: false } as never)
+    const gateway = api(ctx)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    session.append('turn/start', { turn: 1 })
+    seedMessages(session, 1)
+    const response = await gateway.sessions.list(request({}))
+    if (!response.result.ok) throw new Error('unreachable')
+    const row = response.result.value.items.find(item => item.sessionId === session.id)
+    expect(row?.projections?.values['test/last-user']).toEqual({ text: 'm0' })
+    expect((row?.projections?.values as Record<string, unknown>)['test/heavy']).toBeUndefined()
+    const history = await gateway.sessions.history(request({ sessionId: session.id }))
+    if (!history.result.ok) throw new Error('unreachable')
+    expect((history.result.value.projections?.values as Record<string, unknown>)['test/heavy']).toEqual({ text: 'm0' })
   })
 
   it('a throwing column read degrades that row, never the listing', async () => {

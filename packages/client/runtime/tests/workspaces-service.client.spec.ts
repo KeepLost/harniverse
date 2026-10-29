@@ -405,6 +405,84 @@ describe('WorkspaceRuntime', () => {
     await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-fresh-2')
   })
 
+  it('connectWorkspace reuses the member blank recording the requested Profile and mints one for blanks recording none', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('alpha', [sid('s-named'), sid('s-plain')])] as never[],
+      pinnedSessionIds: [],
+    }))
+    api.onList = () => Promise.resolve(ok({
+      items: [
+        // Member blank recording its Profile: the reuse hit under the same
+        // request, skipped under any other requested string.
+        { sessionId: sid('s-named'), updatedAt: 1, running: false, blank: true, cwd: '/w/alpha', agentProfile: 'standard' },
+        // Member blank recording no Profile (predates the roster): Profile
+        // identity is immutable per Session and adoption cannot attach one,
+        // so a Profile request mints a distinct Session; a request naming
+        // none still reuses either member blank.
+        { sessionId: sid('s-plain'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' },
+      ] as never[],
+      pinnedSessionIds: [],
+    }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+
+    // Same recorded Profile: reuse without a Host round-trip.
+    await expect(workspaces.connectWorkspace(wid('alpha'), 'standard')).resolves.toBe('s-named')
+    // Another recorded string skips the named blank and the Profile-less
+    // blank is not adoptable: the request mints a distinct Session.
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-minimal') }))
+    await expect(workspaces.connectWorkspace(wid('alpha'), 'minimal')).resolves.toBe('s-minimal')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'alpha', agentProfile: 'minimal' }])
+    // No requested Profile: any member blank is eligible, first in list order.
+    await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-named')
+    // Repeated New Session keeps resolving the same blank: the per-session
+    // composer draft is keyed by session id, so its scope never churns.
+    await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-named')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'alpha', agentProfile: 'minimal' }])
+  })
+
+  it('concurrent connects share one attempt per requested Profiles and mint separately otherwise', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('beta')] as never[], pinnedSessionIds: [] }))
+    api.onList = () => Promise.resolve(ok({ items: [] as never[] }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+    const plainGate = deferred<Awaited<ReturnType<FakeApiClient['onCreate']>>>()
+    const minimalGate = deferred<Awaited<ReturnType<FakeApiClient['onCreate']>>>()
+    const focusedGate = deferred<Awaited<ReturnType<FakeApiClient['onCreate']>>>()
+    api.onCreate = (payload: unknown) => {
+      const { agentProfile, modelProfile } = payload as { agentProfile?: string; modelProfile?: string }
+      if (agentProfile !== undefined) return minimalGate.promise
+      if (modelProfile !== undefined) return focusedGate.promise
+      return plainGate.promise
+    }
+    const first = workspaces.connectWorkspace(wid('beta'))
+    const second = workspaces.connectWorkspace(wid('beta'))
+    const minimal = workspaces.connectWorkspace(wid('beta'), 'minimal')
+    const focused = workspaces.connectWorkspace(wid('beta'), undefined, 'focused')
+    // Same-key callers joined the first attempt: three distinct keys, two
+    // RPCs for the plain pair.
+    expect(api.callsOf('session.create')).toEqual([
+      { workspaceId: 'beta' },
+      { workspaceId: 'beta', agentProfile: 'minimal' },
+      { workspaceId: 'beta', modelProfile: 'focused' },
+    ])
+    plainGate.resolve(ok({ sessionId: sid('s-fresh') }))
+    minimalGate.resolve(ok({ sessionId: sid('s-minimal') }))
+    focusedGate.resolve(ok({ sessionId: sid('s-policy') }))
+    await expect(first).resolves.toBe('s-fresh')
+    await expect(second).resolves.toBe('s-fresh')
+    await expect(minimal).resolves.toBe('s-minimal')
+    await expect(focused).resolves.toBe('s-policy')
+  })
+
   it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

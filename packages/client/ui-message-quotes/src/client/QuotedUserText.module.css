@@ -1,0 +1,11 @@
+/* One quoted excerpt inside the user bubble: a caption-colored rule on the
+   left and secondary label color. The excerpt's own line breaks are kept
+   (pre-wrap); deeper markers and inner Markdown draw literally. */
+.quote {
+  margin: 2px 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--dsw-alias-label-caption);
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

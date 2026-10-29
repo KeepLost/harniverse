@@ -9,13 +9,13 @@
  * drawer. Closed keeps the subtree mounted, so tabs survive a dismiss.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import clsx from 'clsx'
 import {
   CodeBlock, IconCloseOutline16, IconRightUpOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PreviewDocumentOwnerProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
-import type { WorkbenchPreviewMode, WorkbenchTab } from './stores.ts'
+import type { WorkbenchPreviewMode, WorkbenchTab, WorkspaceWorkbenchAccount } from './stores.ts'
 import { parseCsvPreview } from './preview-kind.ts'
 import css from './WorkbenchPreview.module.css'
 
@@ -121,6 +121,73 @@ export function DiffPreview({ content }: { content: string }) {
   )
 }
 
+/** Edge kept around the active chip so it does not sit flush against the strip's clip edge. */
+const STRIP_EDGE_INSET = 8
+
+/** Strip scroll offsets by workspace account: a strip replacing another for the same account continues from where it stood. */
+const stripOffsets = new WeakMap<WorkspaceWorkbenchAccount, number>()
+
+/** Move the strip to `left` at once, overriding the stylesheet's smooth `scroll-behavior` for this one call. */
+function jumpStripTo(element: HTMLElement, left: number): void {
+  element.style.scrollBehavior = 'auto'
+  element.scrollTo({ left })
+  element.style.removeProperty('scroll-behavior')
+}
+
+/**
+ * Left offset that brings `chip` fully into `strip`'s view, clamped to the
+ * scrollable range; the strip's own offset while the chip is already in view.
+ */
+function activeChipScrollTarget(strip: HTMLElement, chip: HTMLElement): number {
+  const visibleStart = strip.scrollLeft + STRIP_EDGE_INSET
+  const visibleEnd = strip.scrollLeft + strip.clientWidth - STRIP_EDGE_INSET
+  let left = strip.scrollLeft
+  if (chip.offsetLeft < visibleStart) left = chip.offsetLeft - STRIP_EDGE_INSET
+  else if (chip.offsetLeft + chip.offsetWidth > visibleEnd) left = chip.offsetLeft + chip.offsetWidth + STRIP_EDGE_INSET - strip.clientWidth
+  return Math.max(0, Math.min(left, strip.scrollWidth - strip.clientWidth))
+}
+
+/**
+ * Bring the active tab's chip into the strip's view whenever the active tab or
+ * the row of tabs changes: a chip past the strip's edge scrolls to it on the
+ * stylesheet's glide; one already in view moves nothing. A strip newly mounted
+ * jumps to its account's recorded offset and glides only the remaining
+ * distance, or jumps to the chip with no record, so a placement switch
+ * continues where the other placement stood and a first placement never glides
+ * from the row's start. The strip records its offset when it unmounts.
+ */
+function useActiveTabInView(
+  strip: RefObject<HTMLDivElement | null>,
+  account: WorkspaceWorkbenchAccount | undefined,
+  tabs: readonly WorkbenchTab[],
+  activeTabId: string | null,
+): void {
+  const placed = useRef(false)
+  useLayoutEffect(() => {
+    if (account === undefined) return undefined
+    const element = strip.current
+    /* v8 ignore next -- the strip div is rendered unconditionally with the preview. */
+    if (element === null) return undefined
+    // Layout cleanup runs before React detaches the strip, so it still reads the live offset.
+    return () => { stripOffsets.set(account, element.scrollLeft) }
+  }, [strip, account])
+  useLayoutEffect(() => {
+    const element = strip.current
+    /* v8 ignore next -- the strip div is rendered unconditionally with the preview. */
+    if (element === null) return
+    const chip = element.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    if (chip === null) return
+    const first = !placed.current
+    placed.current = true
+    const recorded = first && account !== undefined ? stripOffsets.get(account) : undefined
+    if (recorded !== undefined && recorded !== element.scrollLeft) jumpStripTo(element, recorded)
+    const target = activeChipScrollTarget(element, chip)
+    if (target === element.scrollLeft) return
+    if (first && recorded === undefined) jumpStripTo(element, target)
+    else element.scrollTo({ left: target })
+  }, [strip, account, tabs, activeTabId])
+}
+
 /** Package-internal document-tab presentation, exported for direct component accounting. */
 export function TabStrip(props: {
   tabs: WorkbenchTab[]
@@ -128,9 +195,13 @@ export function TabStrip(props: {
   onSelect: (id: string) => void
   onClose: (id: string) => void
   t: WorkbenchTranslate
+  /** Workspace account whose recorded strip offset a remounted strip continues; absent keeps the strip unrecorded. */
+  account?: WorkspaceWorkbenchAccount | undefined
 }) {
+  const strip = useRef<HTMLDivElement | null>(null)
+  useActiveTabInView(strip, props.account, props.tabs, props.activeTabId)
   return (
-    <div className={css.tabStrip} role="tablist" tabIndex={-1} aria-label={props.t('workbench.tabsAria')}>
+    <div ref={strip} className={css.tabStrip} role="tablist" tabIndex={-1} aria-label={props.t('workbench.tabsAria')}>
       {props.tabs.map((tab, index) => (
         <div
           key={tab.id}
@@ -389,6 +460,8 @@ export function WorkbenchPreview(props: {
   open: boolean
   /** Identity of the visible owner, which restarts focus management on a switch. */
   focusScopeKey?: string
+  /** Workspace account whose recorded strip offset the other placement's strip left; absent keeps the strip unrecorded. */
+  account?: WorkspaceWorkbenchAccount | undefined
   /** Workspace-relative path used to hand the opener across placements. */
   focusReturnPath?: string
   /** Open the previewed file with the Host's default application; absent hides the action. */
@@ -521,6 +594,7 @@ export function WorkbenchPreview(props: {
         t={props.t}
         onSelect={props.onSelect}
         onClose={props.onClose}
+        account={props.account}
       />
       <FilePreview
         tab={activeTab}

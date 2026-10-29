@@ -42,12 +42,59 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  --dsh-chat-process-gap: 4px;
+  --dsh-chat-response-gap: 12px;
 }
 
 /* Settled-flow identity boundary. It is neutral today and becomes the natural
    measurement/mount unit for a virtualizer without changing the column gap. */
 .flowItem {
   min-width: 0;
+}
+
+/* Chat flow-gap rhythm (official 2026-10-23 chat-gap, adapted onto the flat
+   16px column): adjacent process rows tighten to 4px and a process run hands
+   off to the assistant reply at 12px, so dense status/tool sequences read as
+   one cluster while text keeps its air. Values override the column gap with
+   negative margins; every other pairing keeps the 16px rhythm. */
+.flowItem:is(
+    [data-chat-flow-kind='tool-call'],
+    [data-chat-flow-kind='command'],
+    [data-chat-flow-kind='command-input'],
+    [data-chat-flow-kind='workflow-run'],
+    [data-chat-flow-kind='model-retry'],
+    [data-chat-flow-kind='turn-error'],
+    [data-chat-flow-kind='turn-max-tokens'],
+    [data-chat-flow-kind='turn-tail'],
+    [data-chat-flow-kind='compaction']
+  )
+  + .flowItem:is(
+    [data-chat-flow-kind='tool-call'],
+    [data-chat-flow-kind='command'],
+    [data-chat-flow-kind='command-input'],
+    [data-chat-flow-kind='workflow-run'],
+    [data-chat-flow-kind='model-retry'],
+    [data-chat-flow-kind='turn-error'],
+    [data-chat-flow-kind='turn-max-tokens'],
+    [data-chat-flow-kind='turn-tail'],
+    [data-chat-flow-kind='compaction']
+  ) {
+  margin-top: calc(var(--dsh-chat-process-gap) - 16px);
+}
+
+.flowItem:is(
+    [data-chat-flow-kind='tool-call'],
+    [data-chat-flow-kind='command'],
+    [data-chat-flow-kind='command-input'],
+    [data-chat-flow-kind='workflow-run'],
+    [data-chat-flow-kind='model-retry'],
+    [data-chat-flow-kind='turn-error'],
+    [data-chat-flow-kind='turn-max-tokens'],
+    [data-chat-flow-kind='turn-tail'],
+    [data-chat-flow-kind='compaction']
+  )
+  + .flowItem[data-chat-flow-kind='assistant-step'] {
+  margin-top: calc(var(--dsh-chat-response-gap) - 16px);
 }
 
 /* A keyed renderer may intentionally decline its row after dispatch (the

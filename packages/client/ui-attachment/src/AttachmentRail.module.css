@@ -33,6 +33,7 @@
 }
 
 .thumbnail {
+  position: relative;
   width: 64px;
   height: 64px;
   padding: 0;
@@ -48,6 +49,64 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* Failed staging states: the thumbnail dims under its recovery glyph; the
+   retry variant keeps an interactive affordance cursor. */
+.thumbnailFailed {
+  cursor: default;
+}
+
+.thumbnailFailed img {
+  opacity: 0.55;
+}
+
+.thumbnailRetry {
+  cursor: pointer;
+}
+
+.failureGlyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--dsw-alias-label-primary);
+  pointer-events: none;
+}
+
+.progressTrack {
+  position: absolute;
+  bottom: 4px;
+  left: 6px;
+  right: 6px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dsw-alias-button-contrast-fill);
+  pointer-events: none;
+}
+
+.progressBar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dsw-specific-input-major);
+}
+
+.progressTrack[data-indeterminate] .progressBar {
+  width: 40%;
+  animation: rail-progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes rail-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressTrack[data-indeterminate] .progressBar {
+    animation: none;
+  }
 }
 
 .remove {

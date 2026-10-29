@@ -28,6 +28,11 @@
   - img
   - img
   - text: Ask question 1/1 answered
+- group "Questions and answers":
+  - button "Questions and answers · Expand": Questions and answers Yes
+  - text: {{clock}}
+  - button "Copy":
+    - img
 - text: "Interjection: include the word BANANA in your final reply. {{clock}}"
 - button "Copy":
   - img

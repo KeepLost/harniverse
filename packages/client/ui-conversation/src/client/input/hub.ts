@@ -11,13 +11,13 @@
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InputTriggerController, SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
-import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { queueReadFaceOf } from '../contract/queue.ts'
-import type { ComposerKeyboard, DraftAttachmentId, SessionInputResolver, SessionInput } from '../contract/input.ts'
+import type { ComposerKeyboard, DraftAttachmentId, DraftedImagePart, SessionInputResolver, SessionInput } from '../contract/input.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
-import { uploadErrorText } from '../image-labels.ts'
+import { imageUploadErrorText, uploadErrorText } from '../image-labels.ts'
 
 /** Structural command face for per-session popup resolution. */
 interface CommandFace {
@@ -29,7 +29,7 @@ interface ConversationAttachmentFace {
   sendSession(
     session: SessionFace,
     text: string,
-    imageIds: readonly DraftAttachmentId[],
+    images: readonly DraftedImagePart[],
     fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal?: AbortSignal,
@@ -50,6 +50,13 @@ interface ConnectionUploadFace {
       signal?: AbortSignal
     },
   ): Promise<FileAttachmentRef>
+  uploadImage(
+    request: { data: Blob | ArrayBuffer | Uint8Array; mediaType: string; name?: string },
+    hooks?: {
+      onProgress?: (progress: { loaded: number; total: number }) => void
+      signal?: AbortSignal
+    },
+  ): Promise<ImageAttachmentRef>
 }
 
 /** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
@@ -94,8 +101,8 @@ export class InputHub implements SessionInputResolver {
       inputTriggers: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, imageIds, fileRefs, mode, signal) =>
-        this.sink(session, text, imageIds, fileRefs, mode, signal),
+      defaultSink: (text, images, fileRefs, mode, signal) =>
+        this.sink(session, text, images, fileRefs, mode, signal),
       steerQueue: () => { void this.steerQueue(session, shell) },
       fileUploads: {
         upload: (file, onProgress, signal) => this.uploadConnection().upload(
@@ -107,6 +114,14 @@ export class InputHub implements SessionInputResolver {
         unsupportedNotice: token => this.t('command.filesUnsupported', {
           command: token.trim().replace(/^\//u, ''),
         }),
+      },
+      imageUploads: {
+        upload: (file, onProgress, signal) => this.uploadConnection().uploadImage(
+          { data: file, mediaType: file.type, ...(file.name === '' ? {} : { name: file.name }) },
+          { onProgress, signal },
+        ),
+        errorText: error => imageUploadErrorText(this.t, error),
+        inFlightNotice: () => this.t('image.uploadInProgress'),
       },
       commandImages: {
         serialize: (ids, signal) => this.conversation().serializeDraftImages(ids, signal),
@@ -185,13 +200,13 @@ export class InputHub implements SessionInputResolver {
   private sink(
     session: SessionFace,
     text: string,
-    imageIds: readonly DraftAttachmentId[],
+    images: readonly DraftedImagePart[],
     fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal: AbortSignal,
   ): Promise<SubmitOutcome> {
-    if (text === '' && imageIds.length === 0 && fileRefs.length === 0) return Promise.resolve({ kind: 'success' })
-    return this.conversation().sendSession(session, text, imageIds, fileRefs, mode, signal).then(
+    if (text === '' && images.length === 0 && fileRefs.length === 0) return Promise.resolve({ kind: 'success' })
+    return this.conversation().sendSession(session, text, images, fileRefs, mode, signal).then(
       () => ({ kind: 'success' as const }),
       (error: unknown) => ({
         kind: 'error' as const,

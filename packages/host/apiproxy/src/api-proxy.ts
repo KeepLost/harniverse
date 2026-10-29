@@ -306,21 +306,38 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
     throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
   }
   const prepared = content.map(part => part.type === 'text'
-    ? part
+    ? { kind: 'text' as const, part }
     : part.type === 'image'
-      ? { part, data: decodeBase64(part.data) }
-      : { part })
-  const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array } & { part: { type: 'image' } }> => 'data' in part)
-  const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
+      ? ('data' in part
+        ? { kind: 'encoded-image' as const, part, data: decodeBase64(part.data) }
+        : { kind: 'staged-image' as const, part })
+      : { kind: 'file' as const, part })
+  const encodedImages = prepared.filter(item => item.kind === 'encoded-image')
+  const stagedImages = prepared.filter(item => item.kind === 'staged-image')
+  const totalBytes = encodedImages.reduce((sum, image) => sum + image.data.byteLength, 0)
+    + stagedImages.reduce((sum, image) => sum + image.part.ref.bytes, 0)
   if (totalBytes > limits.maxMessageImageBytes) {
     throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
   }
-  for (const image of images) {
+  for (const image of encodedImages) {
     await ctx.attachments.validateImage({
       data: image.data,
       mediaType: image.part.mediaType,
       ...image.part.name === undefined ? {} : { name: image.part.name },
     })
+  }
+  // Staged image receipts follow the file-receipt discipline: every referenced
+  // object is read and digest-verified before anything is committed, so one
+  // bad receipt rolls the whole prompt back.
+  const verifiedImages = new Map<string, ImageAttachmentRef>()
+  for (const image of stagedImages) {
+    try {
+      const stored = await ctx.attachments.readImage(image.part.ref)
+      verifiedImages.set(String(image.part.ref.attachmentId), stored.ref)
+    } catch (error) {
+      if (error instanceof AttachmentError) throw error
+      throw new AttachmentError('Referenced image failed storage verification.', 'ATTACHMENT_READ_FAILED', { cause: error })
+    }
   }
   const fileBlocks = new Map<string, ContentBlock>()
   const admittedFiles = new Map<string, FileAttachmentRef>()
@@ -349,7 +366,7 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
   }
   const blocks: ContentBlock[] = []
   for (const item of prepared) {
-    if ('data' in item && item.part.type === 'image') {
+    if (item.kind === 'encoded-image') {
       const attachment = await ctx.attachments.saveImage({
         data: item.data,
         mediaType: item.part.mediaType,
@@ -358,14 +375,17 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
       blocks.push({ type: 'image', attachment })
       continue
     }
-    if ('part' in item) {
-      if (item.part.type === 'file') {
-        const block = fileBlocks.get(item.part.attachmentId)
-        if (block !== undefined) blocks.push(block)
-      }
+    if (item.kind === 'staged-image') {
+      const verified = verifiedImages.get(String(item.part.ref.attachmentId))
+      if (verified !== undefined) blocks.push({ type: 'image', attachment: verified })
       continue
     }
-    blocks.push({ type: 'text', text: item.text })
+    if (item.kind === 'file') {
+      const block = fileBlocks.get(item.part.attachmentId)
+      if (block !== undefined) blocks.push(block)
+      continue
+    }
+    blocks.push({ type: 'text', text: item.part.text })
   }
   return { blocks, files: [...admittedFiles.values()] }
 }
@@ -1269,10 +1289,19 @@ function projectionsFor(ctx: Context, session: Session): SessionProjectionsBlock
  */
 function listProjectionsFor(ctx: Context, meta: SessionHeader, session: Session | undefined): SessionProjectionsBlock | undefined {
   try {
+    // Summary subset: list rows carry only keys whose definition did not opt
+    // out with `summary: false` — heavy list-shaped values stay off the
+    // listing wire while every open face keeps serving them.
+    const summaryKeys = ctx.get('sessionProjections')?.summaryKeys()
     const block = session !== undefined
       ? ctx.get('sessionProjections')?.snapshot(session)
-      : ctx.get('sessionProjectionCache')?.cachedSnapshot(meta)
-    return block !== undefined && Object.keys(block.values).length > 0 ? block : undefined
+      : ctx.get('sessionProjectionCache')?.cachedSnapshot(meta, summaryKeys)
+    const values = block === undefined
+      ? undefined
+      : summaryKeys === undefined
+        ? block.values
+        : Object.fromEntries(Object.entries(block.values).filter(([key]) => summaryKeys.has(key)))
+    return values !== undefined && block !== undefined && Object.keys(values).length > 0 ? { asOfSeq: block.asOfSeq, values } : undefined
   } catch (error) {
     ctx.logger.warn(`session.list: projection column for "${meta.id}" failed (serving the row without it): ${String(error)}`)
     return undefined

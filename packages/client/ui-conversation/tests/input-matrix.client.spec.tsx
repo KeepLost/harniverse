@@ -57,6 +57,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     keyboard: shell,
     addImages: () => null,
     removeImage: () => {},
+    retryImage: () => {},
     addFiles: () => null,
     removeFile: () => {},
     draftImages: () => [],
@@ -68,6 +69,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
     useFileDrafts: bindSnapshotSelector(shell.fileDrafts),
+    useImageDrafts: bindSnapshotSelector(shell.imageDrafts),
     renderSlot: ((key: string, owner: object) => {
       // Lock-semantics stand-in: the real launcher lives in ui-input-trigger.
       if (key === 'conversation.input.commands') {

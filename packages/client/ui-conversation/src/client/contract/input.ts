@@ -7,7 +7,7 @@
  */
 import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
@@ -42,6 +42,35 @@ export interface ComposerFileDraft {
 }
 
 /**
+ * One composer draft image through its staging lifecycle: added → uploading
+ * (progress) → ready (durable reference) or error. The same store discipline
+ * as {@link ComposerFileDraft}; the reference is content-addressed and
+ * session-agnostic, so the prompt cites it instead of re-encoding bytes.
+ */
+export interface ComposerImageDraft {
+  /** Draft-local stable identity. */
+  readonly id: DraftAttachmentId
+  /** Staging lifecycle state. */
+  readonly status: 'uploading' | 'ready' | 'error'
+  /** Uploaded fraction 0..1 while measurable; absent otherwise. */
+  readonly progress?: number
+  /** Durable reference once `status === 'ready'` (the prompt's image part payload). */
+  readonly ref?: ImageAttachmentRef
+  /** Localized failure line while `status === 'error'`. */
+  readonly error?: string
+  /** Host refusal (remove-only; transport failures offer a retry instead). */
+  readonly refused?: boolean
+}
+
+/** One draft image on the send path: its id plus the staged reference when ready. */
+export interface DraftedImagePart {
+  /** Draft-local stable identity. */
+  readonly id: DraftAttachmentId
+  /** Durable staged reference; absent when the draft never staged (inline fallback). */
+  readonly ref?: ImageAttachmentRef
+}
+
+/**
  * The scoped-event application verbs: the hub's bail listeners call these,
  * and the boolean answer IS the event's bail value (true ⟺ the machine
  * accepted after phase and span/bare-token guards).
@@ -59,8 +88,16 @@ export interface SessionInput extends InputTarget {
   setDraft(text: string): void
   /** Append ordered browser-owned image ids; busy admission phases refuse. */
   addImages(ids: readonly DraftAttachmentId[]): boolean
-  /** Remove one browser-owned image id. */
+  /**
+   * Append ordered browser-owned image ids AND begin each one's staging
+   * upload (upload-on-add); busy admission phases refuse the whole batch.
+   * @param drafts - draft ids paired with their browser files.
+   */
+  stageImages(drafts: readonly { id: DraftAttachmentId; file: File }[]): boolean
+  /** Remove one browser-owned image id (aborting its staging upload when in flight). */
   removeImage(id: DraftAttachmentId): void
+  /** Restart one failed image draft's staging upload (transport failures only). */
+  retryImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneImages(ids: readonly DraftAttachmentId[]): void
   /** Begin draft-file uploads and append their chips; busy admission phases refuse. */
@@ -69,6 +106,8 @@ export interface SessionInput extends InputTarget {
   removeFile(id: DraftAttachmentId): void
   /** Live draft-file chips (upload lifecycle state; the composer chip row source). */
   readonly fileDrafts: SnapshotStore<readonly ComposerFileDraft[]>
+  /** Live draft-image staging states (upload lifecycle; the rail overlay source). */
+  readonly imageDrafts: SnapshotStore<readonly ComposerImageDraft[]>
   /**
    * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
    * @param mode - delivery intent retained through asynchronous adjudication and serialization.

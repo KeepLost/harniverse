@@ -823,6 +823,18 @@
         "tests/**/*.tsx"
       ]
     },
+    "packages/client/ui-message-quotes": {
+      "entry": [
+        "tests/**/*.client.spec.ts",
+        "tests/**/*.client.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.ts",
+        "tests/**/*.tsx"
+      ]
+    },
     "packages/client/ui-remote-hosts": {
       "entry": [
         "tests/**/*.spec.tsx"

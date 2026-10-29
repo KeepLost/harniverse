@@ -11,8 +11,8 @@ import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
 import { createWebConnectionRpc, resolveBase } from './rpc.ts'
-import { createWebFileUploadTransport } from './upload.ts'
-import type { FileUploadTransport } from './upload.ts'
+import { createWebFileUploadTransport, createWebImageUploadTransport } from './upload.ts'
+import type { FileUploadTransport, ImageUploadTransport } from './upload.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import { isHostManagement, TargetGeneration, type MachineTarget, type MachineTargetSource } from './target.ts'
@@ -91,6 +91,8 @@ export interface ConnectionCarrierOverride {
   readonly rpc?: ClientConnectionRpc
   /** Optional upload transport; defaults to the web upload transport. */
   readonly upload?: FileUploadTransport
+  /** Optional image-staging transport; defaults to the web image transport. */
+  readonly uploadImage?: ImageUploadTransport
 }
 
 /** Transport/authentication projection consumed by the read-only status seat. */
@@ -142,6 +144,12 @@ export interface ConnectionHandle {
    * same state graph). Progress and cancellation ride the hooks argument.
    */
   readonly upload: FileUploadTransport
+  /**
+   * Stage one image's raw bytes through the Host image route and resolve its
+   * durable reference (fixture mode: an in-memory transport over the same
+   * state graph). Progress and cancellation ride the hooks argument.
+   */
+  readonly uploadImage: ImageUploadTransport
   /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
    * One consumer owns the streams (the runtime object layer); a second call
@@ -259,6 +267,15 @@ export function apply(ctx: Context): void {
       onProgress: (progress) => { if (!owner.controller.signal.aborted) hooks?.onProgress?.(progress) },
     }))
   }
+  const uploadImage: ImageUploadTransport = (request, hooks) => {
+    const owner = generation
+    const send = carrier?.uploadImage ?? fixtureClient?.uploadImage
+      ?? createWebImageUploadTransport(resolveBase, browserAuthentication, owner.resolvePath)
+    return owner.run(() => send(request, {
+      ...hooks, signal: owner.signal(hooks?.signal),
+      onProgress: (progress) => { if (!owner.controller.signal.aborted) hooks?.onProgress?.(progress) },
+    }))
+  }
   let consumer: { sinks: ConnectionSinks; config?: ConnectionConfig } | undefined
   let switching = Promise.resolve()
   let disposed = false
@@ -316,6 +333,7 @@ export function apply(ctx: Context): void {
     health,
     isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
     upload,
+    uploadImage,
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {

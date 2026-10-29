@@ -74,6 +74,13 @@ export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    * into garbage. Non-negative integer.
    */
   stateVersion: number
+  /**
+   * Whether this key belongs in summary rows (`session.list`, `subagent.history`
+   * pages). `false` opts the key out — heavy list-shaped values stay off the
+   * listing wire while every open face (history tail baseline, `session/projection`
+   * push frames, explicit key reads) keeps serving them. Default `true`.
+   */
+  summary?: boolean
 }
 
 /**
@@ -129,6 +136,7 @@ interface ErasedDefinition {
   apply(state: unknown, event: SessionEvent): unknown
   view(state: unknown): unknown
   stateVersion: number
+  summary?: boolean
 }
 
 /** Per-session per-unit watermark and fixed live-drive view buffer. */
@@ -226,6 +234,22 @@ export class SessionProjectionRegistry extends Service {
       }
     }.bind(this), 'sessionProjections.register()')
     return () => void dispose()
+  }
+
+  /**
+   * Keys a summary row may carry: every registered key whose definition does
+   * not opt out with `summary: false` (the heavy list-shaped values stay off
+   * the `session.list` / `subagent.history` wire; every open face keeps
+   * serving them). Rebuilt per call — equivalent to being stable between
+   * registration changes.
+   * @returns the summary key set for the currently registered units.
+   */
+  summaryKeys(): ReadonlySet<string> {
+    const keys = new Set<string>()
+    for (const registration of this.registrations.values()) {
+      if (registration.def.summary !== false) keys.add(registration.def.key)
+    }
+    return keys
   }
 
   /**

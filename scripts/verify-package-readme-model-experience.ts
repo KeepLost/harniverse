@@ -68,6 +68,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/typert/loader': { kind: 'none', reason: 'Loader integration only registers generated artifacts; consumers own any model-visible projection.' },
   'packages/client/hmr': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-secret-mask': { kind: 'none', reason: 'Browser-side display masking of sent user text; the drawn mask changes no durable event, tool schema, or model request.' },
+  'packages/client/ui-message-quotes': { kind: 'none', reason: 'Browser-side blockquote presentation of sent user text; the drawn excerpt changes no durable event, tool schema, or model request.' },
   'packages/web/web-deepseek-api': { kind: 'indirect', reason: 'Provider implementations behind the web seam; dsh-tool-web owns every model-facing name, schema, and result rendering.' },
   'packages/client/modules': { kind: 'none', reason: 'Browser-side module-loading kernel machinery; registers nothing model-facing.' },
   'packages/client/store': { kind: 'none', reason: 'Browser-side state primitives; registers nothing model-facing.' },

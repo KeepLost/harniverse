@@ -49,6 +49,7 @@ async function mount(): Promise<Bench> {
     captureApi: () => currentApi,
     switchTarget: async () => {},
     health: { getSnapshot: () => 'bypass', subscribe: () => () => {} },
+    uploadImage: async () => { throw new Error('unused in this spec') },
     api,
     isLoopback: true,
     upload: () => new Promise<never>(() => {}),
@@ -83,7 +84,7 @@ async function flushMicrotasks(): Promise<void> {
 describe('runtime client apply', () => {
   it('replaces colliding machine data and scopes through stable observable services', async () => {
     const bench = await mount()
-    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const sessions = bench.ctx.get('sessions') as unknown as SessionRuntime
     const workspaces = bench.ctx.get('workspaces') as WorkspaceRuntime
     const list = sessions.list
     const workspaceList = workspaces.list
@@ -115,7 +116,7 @@ describe('runtime client apply', () => {
     const bench = await mount()
     const oldCreate = Promise.withResolvers<ReturnType<typeof ok<{ sessionId: never }>>>()
     bench.api.onCreate = () => oldCreate.promise
-    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const sessions = bench.ctx.get('sessions') as unknown as SessionRuntime
     const create = sessions.create().catch((error: unknown) => error)
     const staleList = Promise.withResolvers<ReturnType<typeof ok<{ items: never[] }>>>()
     bench.api.onList = () => staleList.promise
@@ -151,7 +152,7 @@ describe('runtime client apply', () => {
     const bench = await mount()
     bench.sinks?.onHostEnvelope?.({ rpcId: 'local' as never, payload: { type: 'host/session-added', sessionId: 'same', blank: true } as never })
     await flushMicrotasks()
-    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const sessions = bench.ctx.get('sessions') as unknown as SessionRuntime
     const scope = sessions.scope('same' as never)!
     const disposing = Promise.withResolvers<undefined>()
     const disposed = Promise.withResolvers<undefined>()
@@ -183,7 +184,7 @@ describe('runtime client apply', () => {
     expect(sessions !== undefined).toBe(true)
     expect(workspaces !== undefined).toBe(true)
     // The bound the wire schema enforces, not a per-connection negotiation.
-    expect((sessions as SessionRuntime).searchResultLimit).toBe(SESSION_SEARCH_RESULT_LIMIT)
+    expect((sessions as unknown as SessionRuntime).searchResultLimit).toBe(SESSION_SEARCH_RESULT_LIMIT)
     if (workspaces === undefined) throw new Error('WorkspaceRuntime missing after runtime apply')
     expect(bench.sinks).toBeDefined()
 
@@ -193,7 +194,7 @@ describe('runtime client apply', () => {
       payload: { type: 'host/session-added', blank: true, sessionId: 's-new' } as never,
     })
     await Promise.resolve()
-    expect((sessions as { list: { getSnapshot(): { ids: string[] } } }).list.getSnapshot().ids).toContain('s-new')
+    expect((sessions as unknown as { list: { getSnapshot(): { ids: string[] } } }).list.getSnapshot().ids).toContain('s-new')
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r-workspace' as never,
       payload: {
@@ -225,7 +226,7 @@ describe('runtime client apply', () => {
     bench.sinks?.onConnected?.({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }, { kind: 'bypass' })
     await flushMicrotasks()
 
-    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const sessions = bench.ctx.get('sessions') as unknown as SessionRuntime
     const workspaces = bench.ctx.get('workspaces') as WorkspaceRuntime
     expect(bench.api.callsOf('session.create')).toEqual([{ workspaceId: 'w-recent' }])
     expect(sessions.list.getSnapshot().current).toBe('fk-new')
@@ -239,7 +240,7 @@ describe('runtime client apply', () => {
 
   it('wires registry changes into resident Sessions during the runtime apply pass', async () => {
     const bench = await mount()
-    const sessions = bench.ctx.get('sessions') as SessionRuntime
+    const sessions = bench.ctx.get('sessions') as unknown as SessionRuntime
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r-registry' as never,
       payload: { type: 'host/session-added', blank: true, sessionId: 's-registry' } as never,

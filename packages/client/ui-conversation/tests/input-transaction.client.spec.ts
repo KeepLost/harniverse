@@ -226,14 +226,14 @@ describe('composer submit transaction', () => {
     shell.setDraft('text while image sends')
     shell.submit('steer')
 
-    expect(sink).toHaveBeenNthCalledWith(1, '', ['image-1'], [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenNthCalledWith(1, '', [{ id: 'image-1' as DraftAttachmentId }], [], 'queue', expect.any(AbortSignal))
     expect(sink).toHaveBeenNthCalledWith(2, 'text while image sends', [], [], 'steer', expect.any(AbortSignal))
     text.resolve({ kind: 'error', text: 'retry text' })
     image.resolve({ kind: 'error', text: 'retry image' })
     await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('plain') })
 
     shell.submit('queue')
-    expect(sink).toHaveBeenNthCalledWith(3, 'text while image sends', ['image-1'], [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenNthCalledWith(3, 'text while image sends', [{ id: 'image-1' as DraftAttachmentId }], [], 'queue', expect.any(AbortSignal))
   })
 
   it('settles a synchronous sink throw and permits retry', async () => {

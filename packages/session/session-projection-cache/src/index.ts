@@ -20,6 +20,7 @@ import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-
 // (`ctx.sessionPersistence`), which this service reads on the cold path.
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { ProjectionCheckpoint, ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { projectionCacheDomainSpec } from './spec.ts'
 import type { CheckpointIdentity, CheckpointRecord } from './spec.ts'
@@ -120,17 +121,20 @@ export class SessionProjectionCache extends Service {
    * @returns the cut (`asOfSeq` = lowest served-row watermark), or
    *   `undefined` when no usable row exists for this lifecycle.
    */
-  cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined {
+  cachedSnapshot(meta: SessionHeader, keys?: ReadonlySet<string>): ProjectionSnapshot | undefined {
     const record = this.recordFor(meta.id, identityOf(meta))
     if (record === undefined) return undefined
     const values = this.ctx.sessionProjections.viewCheckpoint(record.rows)
-    const keys = Object.keys(values)
-    if (keys.length === 0) return undefined
+    const served = keys === undefined ? values : Object.fromEntries(
+      Object.entries(values).filter(([key]) => keys.has(key)),
+    ) as Partial<SessionProjectionMap>
+    const servedKeys = Object.keys(served)
+    if (servedKeys.length === 0) return undefined
     // The block carries ONE cut: the lowest served watermark is the seq every
     // value is at least current as of (under-claiming is safe under
     // higher-seq-wins; over-claiming would let a stale value outrank pushes).
-    const asOfSeq = Math.min(...keys.map(key => (record.rows[key] as { seq: number }).seq))
-    return { asOfSeq, values }
+    const asOfSeq = Math.min(...servedKeys.map(key => (record.rows[key] as { seq: number }).seq))
+    return { asOfSeq, values: served }
   }
 
   /**

@@ -15,7 +15,7 @@ import type { HostDescription, MessageId } from '@deepseek-ai/dsh-client-connect
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from './input-blocks.ts'
 import type {
-  ComposerFileDraft, ComposerKeyboard, DraftAttachmentId, InputActions, InputNotice,
+  ComposerFileDraft, ComposerImageDraft, ComposerKeyboard, DraftAttachmentId, InputActions, InputNotice,
   InputState,
 } from './input.ts'
 import type { createChatStore } from '../stores.ts'
@@ -528,6 +528,8 @@ export interface ComposerBarInjected {
   addImages: ((files: readonly File[]) => string | null) | undefined
   /** Release one preview and remove its id from session input. */
   removeImage: ((id: DraftAttachmentId) => void) | undefined
+  /** Restart one failed image draft's upload (transport failures; refusals are remove-only). */
+  retryImage: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve ordered input ids to browser-owned draft images. */
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
   /**
@@ -591,6 +593,8 @@ export interface ComposerBarInjected {
     menuLauncher: ObservableSnapshot<string | null>
     /** Live draft-file chips through their upload lifecycle (the chip row source). */
     fileDrafts: ObservableSnapshot<readonly ComposerFileDraft[]>
+    /** Live draft-image staging states through their upload lifecycle (the rail overlay source). */
+    imageDrafts: ObservableSnapshot<readonly ComposerImageDraft[]>
     /** Current connection generation's Host description (the `canOpenPath` fact). */
     hostDescription: ObservableSnapshot<HostDescription | undefined>
   }

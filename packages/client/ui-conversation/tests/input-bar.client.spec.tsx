@@ -19,7 +19,7 @@ import { SessionInputShell } from '../src/client/input/facade.ts'
 import type { SessionInputDeps } from '../src/client/input/facade.ts'
 import { stubFileUploads } from './input-file-uploads.client.ts'
 import type { ComposerAttachment } from '../src/client/contract/slots.ts'
-import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
@@ -59,6 +59,8 @@ interface BenchOptions {
   plan?: { active: boolean; pending: boolean }
   /** File-upload dep override (default: the never-settling idle stub). */
   fileUploads?: SessionInputDeps['fileUploads']
+  /** Image-staging dep override (default: absent — unstaged browser drafts). */
+  imageUploads?: SessionInputDeps['imageUploads']
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
@@ -93,6 +95,8 @@ interface BenchOptions {
   leftItems?: React.ReactNode
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
+  /** Stage `attachments` through the real upload-on-add path instead of bare id append. */
+  stagedAttachments?: boolean
   addImages?: (files: readonly File[]) => string | null
   /** Composer addFiles inject override (default: accept with no rejection). */
   addFiles?: (files: readonly File[], directories?: ReadonlySet<File>, at?: number) => string | null
@@ -130,6 +134,32 @@ function hostDescriptionSource(canOpenPath: boolean | undefined) {
   return createSnapshotStore<HostDescription | undefined>(description)
 }
 
+/** Pending staging double: uploads advance by hand through `staged`. */
+function holdingImage() {
+  const staged: Array<{
+    onProgress: (progress: { loaded: number; total: number }) => void
+    signal: AbortSignal
+    resolve: (ref: ImageAttachmentRef) => void
+    reject: (reason?: unknown) => void
+  }> = []
+  const imageUploads = {
+    upload: (file: File, onProgress: (progress: { loaded: number; total: number }) => void, signal: AbortSignal) => {
+      void file
+      return new Promise<ImageAttachmentRef>((resolve, reject) => {
+        staged.push({ onProgress, signal, resolve, reject })
+      })
+    },
+    errorText: (error: unknown) => {
+      const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined
+      return typeof code === 'string'
+        ? { text: `被拒绝:${code}`, refused: true }
+        : { text: '图片上传失败', refused: false }
+    },
+    inFlightNotice: () => '图片仍在上传，请等待上传完成后再发送',
+  }
+  return { staged, imageUploads }
+}
+
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
 function bench(over?: BenchOptions) {
   const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
@@ -146,6 +176,7 @@ function bench(over?: BenchOptions) {
     fileUploads: over?.fileUploads ?? stubFileUploads,
     actx: SCTX,
     defaultSink: sink,
+    ...(over?.imageUploads !== undefined ? { imageUploads: over.imageUploads } : {}),
     queue: {
       getSnapshot: () => session.getSnapshot().queue,
       subscribe: fn => session.subscribe(fn),
@@ -165,9 +196,16 @@ function bench(over?: BenchOptions) {
       : {}),
   })
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
-  if (over?.attachments !== undefined) shell.addImages(over.attachments.map(attachment => attachment.id))
+  if (over?.attachments !== undefined) {
+    if (over.stagedAttachments === true) {
+      shell.stageImages(over.attachments.map(attachment => ({ id: attachment.id, file: attachment.file })))
+    } else {
+      shell.addImages(over.attachments.map(attachment => attachment.id))
+    }
+  }
   const stop = vi.fn()
   const removeImage = vi.fn((id: DraftAttachmentId) => { shell.removeImage(id) })
+  const retryImage = vi.fn((id: DraftAttachmentId) => { shell.retryImage(id) })
   const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
   const slotCalls: { key: string; owner: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
@@ -204,6 +242,7 @@ function bench(over?: BenchOptions) {
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
     removeImage,
+    retryImage,
     // Default mirrors the production face's pathless arm: a plain upload.
     addFiles: over?.addFiles ?? ((files) => { shell.addFiles(files); return null }),
     removeFile: (id) => { shell.removeFile(id) },
@@ -223,6 +262,7 @@ function bench(over?: BenchOptions) {
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
     useFileDrafts: bindSnapshotSelector(shell.fileDrafts),
+    useImageDrafts: bindSnapshotSelector(shell.imageDrafts),
     stop,
     command: over?.command ?? (() => Promise.resolve(true)),
     // Mirrors the real lookup chain (conversation namespace, then common).
@@ -419,9 +459,74 @@ describe('image draft rail', () => {
     const { view, textarea, sink, removeImage } = bench({ attachments: [attachment] })
     expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(false)
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('', ['draft-1'], [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('', [{ id: 'draft-1' as DraftAttachmentId }], [], 'queue', expect.any(AbortSignal))
     fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
     expect(removeImage).toHaveBeenCalledWith('draft-1')
+  })
+
+  it('stages on add, locks the primary while uploading, and unlocks on the ready reference', async () => {
+    const { staged, imageUploads } = holdingImage()
+    const file = new File([Uint8Array.of(2)], 'staged.png', { type: 'image/png' })
+    const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
+    const b = bench({ attachments: [attachment], stagedAttachments: true, imageUploads })
+    expect(staged).toHaveLength(1)
+    expect(b.view.container.querySelector('[data-image-item="uploading"]')).not.toBeNull()
+    // Empty draft + uploading image: send stays locked.
+    expect(b.button.disabled).toBe(true)
+
+    const ref: ImageAttachmentRef = {
+      attachmentId: `sha256:${'b'.repeat(64)}` as ImageAttachmentRef['attachmentId'],
+      mediaType: 'image/png',
+      bytes: 1,
+      width: 1,
+      height: 1,
+    }
+    staged[0]!.resolve(ref)
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-image-item="ready"]')).not.toBeNull()
+    })
+    expect(b.button.disabled).toBe(false)
+    fireEvent.click(b.button)
+    await vi.waitFor(() => {
+      expect(b.sink).toHaveBeenCalledWith('', [{ id: 'draft-1' as DraftAttachmentId, ref }], [], 'queue', expect.any(AbortSignal))
+    })
+  })
+
+  it('gates Enter on in-flight staging and on the first refused image', async () => {
+    const { staged, imageUploads } = holdingImage()
+    const file = new File([Uint8Array.of(3)], 'refused.png', { type: 'image/png' })
+    const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
+    const b = bench({ attachments: [attachment], stagedAttachments: true, imageUploads })
+    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    expect(b.sink).not.toHaveBeenCalled()
+    expect(b.view.getByRole('status').textContent).toContain('图片仍在上传，请等待上传完成后再发送')
+
+    staged[0]!.reject(Object.assign(new Error('undecodable'), { code: 'INVALID_IMAGE' }))
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-image-item="error"]')).not.toBeNull()
+    })
+    // The refusal is remove-only: its thumbnail names the reason, no retry control.
+    expect(b.view.getByRole('button', { name: '被拒绝:INVALID_IMAGE' })).toBeTruthy()
+    expect(b.view.queryByRole('button', { name: '重试上传图片 refused.png' })).toBeNull()
+    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    expect(b.sink).not.toHaveBeenCalled()
+    expect(b.view.getByRole('status').textContent).toContain('被拒绝:INVALID_IMAGE')
+  })
+
+  it('offers a retry control for a transport failure and restarts through the inject', async () => {
+    const { staged, imageUploads } = holdingImage()
+    const file = new File([Uint8Array.of(4)], 'flaky.png', { type: 'image/png' })
+    const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
+    const b = bench({ attachments: [attachment], stagedAttachments: true, imageUploads })
+    staged[0]!.reject(new Error('network down'))
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-image-item="error"]')).not.toBeNull()
+    })
+    fireEvent.click(b.view.getByRole('button', { name: '重试上传图片 flaky.png' }))
+    expect(staged).toHaveLength(2)
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-image-item="uploading"]')).not.toBeNull()
+    })
   })
 
   it('opens the original image on a single click and closes it with Escape', () => {
