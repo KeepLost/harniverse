@@ -8,6 +8,7 @@
  * @param value - the impossible value; typed `never` so a new variant fails compilation.
  * @returns never: it always throws, naming the offending value.
  */
+/* v8 ignore next -- the closed-union guard is unreachable by construction; its call sites are ignored at the switch. */
 export function assertNever(value: never): never {
   throw new Error(`subagent-oar: unreachable variant ${JSON.stringify(value)}`)
 }

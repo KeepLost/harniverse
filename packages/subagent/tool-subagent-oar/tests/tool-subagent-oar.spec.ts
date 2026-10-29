@@ -110,6 +110,101 @@ describe('subagent_oar tool', () => {
     expect(text).toContain('partial work')
   })
 
+  it('flattens an aborted child without diagnostic or partial output', async (test) => {
+    const { ctx, parent } = await setup()
+    test.onTestFinished(() => ctx.fiber.dispose())
+    ctx.subagents.registerProvider({
+      name: 'aborting',
+      capabilities: NO_START_CAPABILITIES,
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId(randomUUID()),
+        result: Promise.resolve({ output: [], stopReason: 'aborted' as const }),
+        dispose: () => Promise.resolve(),
+        localAgent: undefined,
+      }),
+    })
+    await ctx.plugin(externalTool, { providers: { abort: 'aborting' } })
+    const result = await callTool(ctx, 'subagent_oar', { runtime: 'abort', description: 'task', prompt: 'task' }, parent)
+    expect(result.isError).toBe(true)
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('stopped early (aborted)')
+    expect(text).not.toContain('Partial output')
+  })
+
+  it('aggregates a failing result with a failing disposal', async (test) => {
+    const { ctx, parent } = await setup()
+    test.onTestFinished(() => ctx.fiber.dispose())
+    ctx.subagents.registerProvider({
+      name: 'double-failure',
+      capabilities: NO_START_CAPABILITIES,
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId(randomUUID()),
+        result: Promise.resolve({
+          output: [],
+          stopReason: 'error' as const,
+          diagnostic: 'native stage failure',
+        }),
+        dispose: () => Promise.reject(new Error('teardown exploded')),
+        localAgent: undefined,
+      }),
+    })
+    await ctx.plugin(externalTool, { providers: { broken: 'double-failure' } })
+    const result = await callTool(ctx, 'subagent_oar', { runtime: 'broken', description: 'task', prompt: 'task' }, parent)
+    expect(result.isError).toBe(true)
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('native stage failure')
+    expect(text).toContain('teardown exploded')
+  })
+
+  it('reports a completed answer when only disposal fails', async (test) => {
+    const { ctx, parent } = await setup()
+    test.onTestFinished(() => ctx.fiber.dispose())
+    ctx.subagents.registerProvider({
+      name: 'late-failure',
+      capabilities: NO_START_CAPABILITIES,
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId(randomUUID()),
+        result: Promise.resolve({ output: [{ type: 'text' as const, text: 'done answer' }], stopReason: 'completed' as const }),
+        dispose: () => Promise.reject(new Error('late teardown exploded')),
+        localAgent: undefined,
+      }),
+    })
+    await ctx.plugin(externalTool, { providers: { late: 'late-failure' } })
+    const result = await callTool(ctx, 'subagent_oar', { runtime: 'late', description: 'task', prompt: 'task' }, parent)
+    expect(result.isError).toBe(true)
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('late teardown exploded')
+    expect(text).not.toContain('done answer')
+  })
+
+  it('renders non-text output blocks without text', async (test) => {
+    const { ctx, parent } = await setup()
+    test.onTestFinished(() => ctx.fiber.dispose())
+    ctx.subagents.registerProvider({
+      name: 'mixed',
+      capabilities: NO_START_CAPABILITIES,
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId(randomUUID()),
+        result: Promise.resolve({
+          output: [{ type: 'text' as const, text: 'answer text' }, { type: 'reasoning' as const, text: 'hidden reasoning' }],
+          stopReason: 'completed' as const,
+        }),
+        dispose: () => Promise.resolve(),
+        localAgent: undefined,
+      }),
+    })
+    await ctx.plugin(externalTool, { providers: { mixed: 'mixed' } })
+    const result = await callTool(ctx, 'subagent_oar', { runtime: 'mixed', description: 'task', prompt: 'task' }, parent)
+    expect(result.isError).toBe(false)
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('answer text')
+    expect(text).not.toContain('hidden reasoning')
+  })
+
   it('rejects unconfigured runtime names before starting any child', async (test) => {
     const { ctx, parent, calls } = await setup()
     test.onTestFinished(() => ctx.fiber.dispose())

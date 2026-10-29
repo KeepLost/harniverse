@@ -20,7 +20,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function fakeParent(id = 'parent-1', cwd: string = process.cwd()): Agent {
+function fakeParent(id = 'parent-1', cwd: string | undefined = process.cwd()): Agent {
   return { id: SessionId(id), session: { header: { cwd } } } as unknown as Agent
 }
 
@@ -417,6 +417,21 @@ describe('OAR one-shot execution', () => {
     const run = await startOarRun(await request(), spec(runtime))
     await expect(run.result).resolves.toMatchObject({ output: [{ type: 'text', text: 'final answer' }] })
     await run.dispose()
+  })
+
+  it('rejects a parent session without a working directory before probing', async () => {
+    const observed = observedRuntime()
+    const probe = vi.fn(observed.runtime.installation)
+    const requested: ResolvedSubagentStartRequest = {
+      parent: { id: SessionId('cwdless-parent'), session: { header: {} } } as unknown as Agent,
+      signal: new AbortController().signal,
+      prompt: [{ type: 'text', text: 'task' }],
+      descriptor: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'oar' }),
+    }
+    await expect(startOarRun(requested, spec({
+      ...observed.runtime, installation: probe,
+    }))).rejects.toThrow('no working directory')
+    expect(probe).not.toHaveBeenCalled()
   })
 
   it('rejects an inaccessible directory before installation probing', async () => {
