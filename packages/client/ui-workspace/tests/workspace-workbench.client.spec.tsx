@@ -707,6 +707,19 @@ describe('workbench presentation units', () => {
     }
   })
 
+  it('moves nothing on a first placement whose chip already sits fully inside the window', () => {
+    const { writes, restore } = stubStripScrollTo()
+    try {
+      stubStripGeometry()
+      const tabs = stripTabs()
+      // Chip 1 (150..290) clears the 8px insets of the 300px window: in view, no write.
+      render(<TabStrip tabs={tabs} activeTabId="1" t={t} onSelect={vi.fn()} onClose={vi.fn()} />)
+      expect(writes).toEqual([])
+    } finally {
+      restore()
+    }
+  })
+
   it('moves nothing while no tab is selected', () => {
     const { writes, restore } = stubStripScrollTo()
     try {

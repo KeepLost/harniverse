@@ -54,6 +54,13 @@ interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    * into garbage. Non-negative integer.
    */
   stateVersion: number
+  /**
+   * Whether this key belongs in summary rows (`session.list`, `subagent.history`
+   * pages). `false` opts the key out — heavy list-shaped values stay off the
+   * listing wire while every open face (history tail baseline, `session/projection`
+   * push frames, explicit key reads) keeps serving them. Default `true`.
+   */
+  summary?: boolean
 }
 ```
 
