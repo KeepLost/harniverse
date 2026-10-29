@@ -129,11 +129,17 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Cell stack (figma 501:29961): gap 4. */
+/* Cell stack (figma 501:29961): gap 4. min-height: 0 + overflow-y: auto
+   turn the rail into a scroller when OS display scaling or a large system
+   font shrinks the viewport's CSS pixels below the panel's fixed-height
+   geometry — the sections that no longer fit stay reachable by wheel, the
+   phone tab strip's horizontal paging for the desktop column. */
 .navList {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* Nav cell (figma .Setting-nav-cell 501:29962): 164x40, r12, pad
