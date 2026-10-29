@@ -94,6 +94,7 @@ import * as ToolCompactionHistory from '@deepseek-ai/dsh-tool-compaction-history
 import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
+import * as ToolSubagentOar from '@deepseek-ai/dsh-tool-subagent-oar'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
@@ -622,6 +623,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-subagent-oar',
+    dir: 'tool-subagent-oar',
+    source: 'packages/subagent/tool-subagent-oar/src/index.ts',
+    requires: ['ctx.tools', 'ctx.subagents'],
+    writes: ['tool/call', 'tool/result', 'child session events through the chosen one-shot provider'],
+    shippedNames: ['subagent_oar'],
+    async mount(ctx) {
+      await ctx.plugin(SubagentRuntime)
+      registerCatalogSubagentProvider(ctx, 'mock')
+      await ctx.plugin(ToolSubagentOar, { providers: { mock: 'mock' } })
+    },
+    note:
+      'The opt-in external-delegation tool: the runtime enum is the deployment-configured alias table over one-shot providers (typically dsh-subagent-oar instances), and the run settles inside the call through the legacy one-shot seam.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',

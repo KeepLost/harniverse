@@ -1,0 +1,60 @@
+diff --git a/dist/cjs/index.cjs b/dist/cjs/index.cjs
+index aab0e59d80c6dac3c926c1c25c6dfbfdf8cce679..1fbfccdbe82942a3d7a3e72f22a681eff03730b1 100644
+--- a/dist/cjs/index.cjs
++++ b/dist/cjs/index.cjs
+@@ -94,11 +94,11 @@ const observeOffset = (instance, cb, readOffset) => {
+   }
+   const registerScrollendEvent = instance.options.useScrollendEvent && supportsScrollend;
+   let offset = 0;
+-  const fallback = registerScrollendEvent ? null : utils.debounce(
+-    targetWindow,
+-    () => cb(offset, false),
+-    instance.options.isScrollingResetDelay
+-  );
++  let fallbackTimeoutId;
++  const fallback = registerScrollendEvent ? null : (...args) => {
++    targetWindow.clearTimeout(fallbackTimeoutId);
++    fallbackTimeoutId = targetWindow.setTimeout(() => cb(offset, false), instance.options.isScrollingResetDelay);
++  };
+   const createHandler = (isScrolling) => () => {
+     offset = readOffset(element);
+     fallback == null ? void 0 : fallback();
+@@ -114,6 +114,8 @@ const observeOffset = (instance, cb, readOffset) => {
+     element.removeEventListener("scroll", handler);
+     if (registerScrollendEvent) {
+       element.removeEventListener("scrollend", endHandler);
++    } else if (fallbackTimeoutId !== void 0) {
++      targetWindow.clearTimeout(fallbackTimeoutId);
+     }
+   };
+ };
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+index 015d77d5f60a174de2ca9a3777e8a842110ee6e8..56e29f90121238863e91517e4897efa267ca2f37 100644
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -92,11 +92,11 @@ const observeOffset = (instance, cb, readOffset) => {
+   }
+   const registerScrollendEvent = instance.options.useScrollendEvent && supportsScrollend;
+   let offset = 0;
+-  const fallback = registerScrollendEvent ? null : debounce(
+-    targetWindow,
+-    () => cb(offset, false),
+-    instance.options.isScrollingResetDelay
+-  );
++  let fallbackTimeoutId;
++  const fallback = registerScrollendEvent ? null : (...args) => {
++    targetWindow.clearTimeout(fallbackTimeoutId);
++    fallbackTimeoutId = targetWindow.setTimeout(() => cb(offset, false), instance.options.isScrollingResetDelay);
++  };
+   const createHandler = (isScrolling) => () => {
+     offset = readOffset(element);
+     fallback == null ? void 0 : fallback();
+@@ -112,6 +112,8 @@ const observeOffset = (instance, cb, readOffset) => {
+     element.removeEventListener("scroll", handler);
+     if (registerScrollendEvent) {
+       element.removeEventListener("scrollend", endHandler);
++    } else if (fallbackTimeoutId !== void 0) {
++      targetWindow.clearTimeout(fallbackTimeoutId);
+     }
+   };
+ };

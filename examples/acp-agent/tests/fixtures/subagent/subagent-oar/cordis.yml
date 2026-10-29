@@ -1,0 +1,58 @@
+# Test-only composition of both OAR-backed providers and the runtime-selection
+# tool. The owning e2e boots this tree but never invokes a model or native agent.
+- id: fixture
+  name: './fixture.ts'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-oar-codex
+  name: '@deepseek-ai/dsh-subagent-oar'
+  config:
+    runtime: codex
+    providerName: oar-codex
+    launchArgs:
+      - -c
+      - sandbox_mode="workspace-write"
+
+- id: subagent-oar-claude
+  name: '@deepseek-ai/dsh-subagent-oar'
+  config:
+    runtime: claude
+    providerName: oar-claude
+    launchArgs:
+      - --permission-mode
+      - dontAsk
+      - --permission-prompts
+      - none
+
+- id: tool-subagent-oar
+  name: '@deepseek-ai/dsh-tool-subagent-oar'
+  config:
+    providers:
+      codex: oar-codex
+      claude: oar-claude
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents:
+      - id: main
+        provider: mock
+        model: mock-delegate
+        cwd: !!js process.cwd()
+    persona: 'This composition test must not start a model turn.'
+    workspaceContext: false
+
+
+# Where the agent works: OS, shell, working machine, and the session-fixed
+# working directory, computed once from process-stable platform facts.
+- id: environment
+  name: '@deepseek-ai/dsh-environment'
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

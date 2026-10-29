@@ -38,6 +38,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`, `session_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
 | `@deepseek-ai/dsh-tool-session-query` | `session_find`, `session_inspect`, `session_search` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
 | `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`, `child_profile_list`, `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent` | This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names. |
+| `@deepseek-ai/dsh-tool-subagent-oar` | `subagent_oar` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen one-shot provider` | `subagent_oar` | The opt-in external-delegation tool: the runtime enum is the deployment-configured alias table over one-shot providers (typically dsh-subagent-oar instances), and the run settles inside the call through the legacy one-shot seam. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message`, `subagent_history` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic shell/terminal background-job controller: background bash commands, PowerShell commands, and PTY sends are read, listed, and killed through the same three tools. Subagent Sessions use the separate Session/Invocation controls and never enter this registry. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
@@ -1883,6 +1884,46 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
 Source: [`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
 
 This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names.
+
+<a id="deepseek-aidsh-tool-subagent-oar"></a>
+
+## `@deepseek-ai/dsh-tool-subagent-oar`
+
+### `subagent_oar`
+
+Delegate a self-contained task to a configured external agent. Choose its runtime for each call. The child works in its own context and does not see this conversation, does not accept follow-up messages, and cannot outlive this call: the tool waits for the child's single turn and returns its final answer. Start independent tasks together in one message and keep working while they run. When only waiting for their results remains, end your turn instead of polling.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runtime": {
+      "type": "string",
+      "description": "Configured external runtime for this task.",
+      "enum": [
+        "mock"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "A short (3-5 word) description of the delegated task, for display."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The complete, self-contained task. Include all context the external agent needs."
+    }
+  },
+  "required": [
+    "runtime",
+    "description",
+    "prompt"
+  ]
+}
+```
+
+Source: [`packages/subagent/tool-subagent-oar/src/index.ts`](../packages/subagent/tool-subagent-oar/src/index.ts)
+
+The opt-in external-delegation tool: the runtime enum is the deployment-configured alias table over one-shot providers (typically dsh-subagent-oar instances), and the run settles inside the call through the legacy one-shot seam.
 
 <a id="deepseek-aidsh-tool-subagent-control"></a>
 

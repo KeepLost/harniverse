@@ -160,6 +160,9 @@ allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
 
 minimumReleaseAgeExclude:
+  # Native Codex and Claude tests qualify this exact release, and the
+  # subagent-oar provider embeds it with the local patch below.
+  - '@botiverse/oar@0.67.0'
   # Fresh pi-ai releases carry the model catalog updates that are the whole
   # point of bumping it; waiting out the release age would defeat that.
   - '@earendil-works/pi-ai@0.87.1'
@@ -181,6 +184,11 @@ minimumReleaseAgeExclude:
   - vite@8.1.6
 
 patchedDependencies:
+  # The OAR runtime is embedded (bundled) inside the subagent-oar provider;
+  # the patch carries the permission-mode passthrough, codex client cleanup,
+  # and env-overlay installation probes the provider depends on.
+  '@botiverse/oar@0.67.0': patches/@botiverse__oar@0.67.0.patch
   '@earendil-works/pi-ai@0.87.1': patches/@earendil-works__pi-ai@0.87.1.patch
+  '@tanstack/virtual-core@3.17.7': patches/@tanstack__virtual-core@3.17.7.patch
   node-pty@1.1.0: patches/node-pty@1.1.0.patch
   openai@6.40.0: patches/openai@6.40.0.patch

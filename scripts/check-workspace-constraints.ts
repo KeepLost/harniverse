@@ -135,6 +135,8 @@ function workspaceManifests(): WorkspaceManifest[] {
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-ptc-runtime-python': ['py/**/*.py'],
+  // The embedded OAR runtime is Apache-2.0; its license ships with the bundle.
+  '@deepseek-ai/dsh-subagent-oar': ['LICENSE-OAR'],
   // Shared read rendering is a public runtime subpath consumed by the
   // string-replace editor without loading the filesystem tool plugin.
   '@deepseek-ai/dsh-tool-fs': ['lib/read-render.js'],

@@ -40,6 +40,7 @@
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`、`session_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
 | `@deepseek-ai/dsh-tool-session-query` | `session_find`、`session_inspect`、`session_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这些只读工具区分标题/时间发现、内容命中、统一会话检查、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。 |
 | `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`、`child_profile_list`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent` | 本次采集对应交付的 continuable spawn-backed `subagent`，以及 Standard、Code 和 Cordis 的 Child Profile 管理工具。Base 不包含 Profile 工具，Minimal 不包含委派；自定义组合可以用不同名称和后台策略加载绑定提供方的实例。 |
+| `@deepseek-ai/dsh-tool-subagent-oar` | `subagent_oar` | `ctx.tools`、`ctx.subagents` | `tool/call`、`tool/result`、`child session events through the chosen one-shot provider` | `subagent_oar` | 可选启用的外部委派工具：`runtime` 枚举是部署配置的一次性 provider 别名表（通常是 `dsh-subagent-oar` 实例），运行经保留的旧有一次性缝隙在调用内结算。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message`、`subagent_history` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的 shell/终端后台 job 控制器：后台 bash 命令、PowerShell 命令和 PTY 发送通过相同的 3 个工具读取、列出和终止。Subagent Session 使用独立的 Session/Invocation 控制，不进入此注册表。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
@@ -1890,6 +1891,46 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 本次采集对应交付的 continuable spawn-backed `subagent`，以及 Standard、Code 和 Cordis 的 Child Profile 管理工具。Base 不包含 Profile 工具，Minimal 不包含委派；自定义组合可以用不同名称和后台策略加载绑定提供方的实例。
 
 <a id="deepseek-aidsh-tool-subagent-control"></a>
+
+<a id="deepseek-aidsh-tool-subagent-oar"></a>
+
+## `@deepseek-ai/dsh-tool-subagent-oar`
+
+### `subagent_oar`
+
+把一个自包含任务委派给已配置的外部代理。每次调用选择其运行时。子代理在自有上下文中工作，看不到本会话，不接受后续消息，也不能超出本次调用存活：工具等待子代理的唯一回合并返回其最终答案。在一条消息中同时启动独立任务并继续有用的工作；当只剩等待结果时，结束回合而不是轮询。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runtime": {
+      "type": "string",
+      "description": "Configured external runtime for this task.",
+      "enum": [
+        "mock"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "A short (3-5 word) description of the delegated task, for display."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The complete, self-contained task. Include all context the external agent needs."
+    }
+  },
+  "required": [
+    "runtime",
+    "description",
+    "prompt"
+  ]
+}
+```
+
+Source: [`packages/subagent/tool-subagent-oar/src/index.ts`](../packages/subagent/tool-subagent-oar/src/index.ts)
+
+可选启用的外部委派工具：`runtime` 枚举是部署配置的一次性 provider 别名表（通常是 `dsh-subagent-oar` 实例），运行经保留的旧有一次性缝隙在调用内结算。
 
 ## `@deepseek-ai/dsh-tool-subagent-control`
 

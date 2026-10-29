@@ -253,6 +253,9 @@ class SingleExeBuild {
       'deploy',
       '--legacy',
       '--prod',
+      // Production deployment omits graph-external patched packages (the
+      // embedded OAR runtime, client-only virtual-core) by design.
+      '--config.allow-unused-patches=true',
       '--config.node-linker=hoisted',
       '--config.auto-install-peers=false',
       '--config.link-workspace-packages=true',

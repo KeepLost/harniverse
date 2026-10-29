@@ -47,6 +47,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@codemirror/state`](https://code.haverbeke.berlin/codemirror/state) | MIT |
 | [`@codemirror/view`](https://code.haverbeke.berlin/codemirror/view) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
+| [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi) | MIT |
 | [`@eslint-community/regexpp`](https://github.com/eslint-community/regexpp) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
@@ -66,6 +67,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`compression`](https://github.com/expressjs/compression) | MIT |
+| [`cross-spawn`](https://github.com/git@github.com:moxystudio/node-cross-spawn) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`fflate`](https://github.com/101arrowz/fflate) | MIT |
@@ -100,7 +102,9 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`tsx`](https://github.com/privatenumber/tsx) | MIT |
 | [`turndown`](https://github.com/mixmark-io/turndown) | MIT |
 | [`typescript`](https://github.com/microsoft/TypeScript) | Apache-2.0 |
+| [`undici`](https://github.com/nodejs/undici) | MIT |
 | [`use-sync-external-store`](https://github.com/facebook/react) | MIT |
+| [`which`](https://github.com/isaacs/node-which) | ISC |
 | [`ws`](https://github.com/websockets/ws) | MIT |
 | [`yaml`](https://github.com/eemeli/yaml) | ISC |
 | [`zod`](https://github.com/colinhacks/zod) | MIT |
@@ -108,7 +112,9 @@ External packages that a workspace package resolves at runtime. The tier covers 
 
 pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
 
+- `@botiverse/oar@0.67.0` — [`patches/@botiverse__oar@0.67.0.patch`](patches/@botiverse__oar@0.67.0.patch)
 - `@earendil-works/pi-ai@0.87.1` — [`patches/@earendil-works__pi-ai@0.87.1.patch`](patches/@earendil-works__pi-ai@0.87.1.patch)
+- `@tanstack/virtual-core@3.17.7` — [`patches/@tanstack__virtual-core@3.17.7.patch`](patches/@tanstack__virtual-core@3.17.7.patch)
 - `node-pty@1.1.0` — [`patches/node-pty@1.1.0.patch`](patches/node-pty@1.1.0.patch)
 - `openai@6.40.0` — [`patches/openai@6.40.0.patch`](patches/openai@6.40.0.patch)
 
@@ -136,6 +142,7 @@ External packages **directly declared** only by repository tooling, test infrast
 
 | Package | License |
 | --- | --- |
+| [`@botiverse/oar`](https://github.com/botiverse/oar) | Apache-2.0 |
 | [`@braintree/sanitize-url`](https://github.com/braintree/sanitize-url) | MIT |
 | [`@modelcontextprotocol/server-everything`](https://github.com/modelcontextprotocol/servers) | MIT / Apache-2.0 |
 | [`@modelcontextprotocol/server-filesystem`](https://github.com/modelcontextprotocol/servers) | MIT / Apache-2.0 |
