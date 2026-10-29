@@ -39,7 +39,8 @@
         "scripts/**/*.cjs"
       ],
       "ignore": [
-        "packages/speech/speech-sensevoice/tests/real-transcribe.e2e.ts"
+        "packages/speech/speech-sensevoice/tests/real-transcribe.e2e.ts",
+        "website/.vitepress/theme/css.d.ts"
       ],
       "ignoreDependencies": [
         "sherpa-onnx-node"
