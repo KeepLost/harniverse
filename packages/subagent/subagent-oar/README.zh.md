@@ -30,7 +30,7 @@
 
 内嵌运行时声明 `engines.node >= 24.0.0`；在更旧的宿主上，provider 会在插件激活期大声拒绝，而不是在原生代码内部失败。凭据形态的环境变量会被共享擦洗移除（`OAR_FIXTURE_API_TOKEN` 一类的密钥绝不进入子进程），而 `PATH`、`HOME` 等普通环境值在被覆盖前保持可用。
 
-显式组合该 provider——发行的 profile 与 preset 不挂载它。两个 provider 实例加选择工具构成文档化的组合形态（见[工作示例](../../../../examples/acp-agent/tests/fixtures/subagent/subagent-oar/cordis.yml)）：
+显式组合该 provider——发行的 profile 与 preset 不挂载它。两个 provider 实例加选择工具构成文档化的组合形态（见[工作示例](../../../examples/acp-agent/tests/fixtures/subagent/subagent-oar/cordis.yml)）：
 
 ```yaml
 - id: subagent-oar-codex

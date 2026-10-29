@@ -31,7 +31,8 @@ it.skipIf(process.env.DSH_OAR_E2E !== '1').for(['codex', 'claude'])(
         : ['-c', 'sandbox_mode="workspace-write"'],
     })
     const provider = ctx.subagents.getProvider('oar-live')
-    const run = await provider!.start!({
+    if (provider?.start === undefined) throw new Error('oar-live provider did not register a start seam')
+    const run = await provider.start({
       parent: { id: 'live-parent', session: { header: { cwd: root } } } as never,
       descriptor: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'oar' }),
       signal: test.signal,

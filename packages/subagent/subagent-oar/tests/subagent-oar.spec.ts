@@ -96,7 +96,9 @@ describe('OAR provider composition', () => {
     const ctx = new Context()
     const versions = vi.spyOn(process, 'versions', 'get')
     versions.mockReturnValue({ ...process.versions, node: '22.19.0' })
-    expect(() => oar.apply(ctx, { runtime: 'codex' })).toThrow('requires Node >= 24.0.0')
+    expect(() => {
+      oar.apply(ctx, { runtime: 'codex' })
+    }).toThrow('requires Node >= 24.0.0')
   })
 
   it('executes a registered provider with configured model and effort and reports cleanup failure', async () => {
@@ -118,7 +120,8 @@ describe('OAR provider composition', () => {
       await ctx.plugin(SubagentRuntime)
       await ctx.plugin(oar, { runtime: 'codex', model: 'native-model', effort: 'high' })
       const provider = ctx.subagents.getProvider('oar')
-      const run = await provider!.start!(await request())
+      if (provider?.start === undefined) throw new Error('oar provider did not register a start seam')
+      const run = await provider.start(await request())
       await expect(run.result).resolves.toMatchObject({ output: [{ type: 'text', text: 'registered answer' }] })
       await expect(run.dispose()).rejects.toThrow('stage: dispose')
       expect(options[0]).toMatchObject({ model: 'native-model', effort: 'high' })
@@ -419,10 +422,10 @@ describe('OAR one-shot execution', () => {
   it('rejects an inaccessible directory before installation probing', async () => {
     const observed = observedRuntime()
     const probe = vi.fn(observed.runtime.installation)
-    const requested = {
+    const requested: ResolvedSubagentStartRequest = {
       parent: fakeParent('missing-cwd-parent', '/missing-oar-unit-directory'),
       signal: new AbortController().signal,
-      prompt: [{ type: 'text', text: 'task' }] as { type: 'text'; text: string }[],
+      prompt: [{ type: 'text', text: 'task' }],
       descriptor: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'oar' }),
     }
     await expect(startOarRun(requested, spec({

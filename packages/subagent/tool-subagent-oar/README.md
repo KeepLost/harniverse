@@ -29,6 +29,22 @@ The child works in its own context, does not see this conversation, does not acc
 
 A child that stops early flattens into an error carrying the stop reason, the safe provider diagnostic, and any partial output; the rendered row names the child Session and notes that one-shot Sessions accept no later turns.
 
+## Model Experience
+
+### Parent tool call
+
+#### What the model sees
+
+`runtime` (an enum of the configured aliases), `description`, and the complete `prompt`; nothing else from the conversation crosses the seam, and the child's native records never enter this Session.
+
+#### Token effect
+
+The delegated task runs entirely inside the external runtime; the parent request carries only this tool's declaration and result, so parent token cost is independent of child size.
+
+#### KV Cache effect
+
+Delegation does not mutate the parent prefix: the tool call and its result append at the conversation tail, leaving every earlier parent KV entry valid.
+
 ## Known Limitations and Deferred Work
 
 - Upstream's tool returns an activation immediately and delivers the final answer through a later parent completion notice; Harniverse's one-shot seam settles the run inside the call instead, because the async activation machinery is reserved for continuable providers (recorded adaptation).

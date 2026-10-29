@@ -30,7 +30,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 
 The embedded runtime declares `engines.node >= 24.0.0`; the provider refuses loudly during plugin activation on an older Host instead of failing inside native code. Credential-shaped ambient variables are removed by the shared scrub (`OAR_FIXTURE_API_TOKEN`-style secrets never reach the child), while ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
 
-Compose the provider explicitly — shipped profiles and presets do not mount it. Two provider instances plus the selection tool form the documented composition (see the [worked example](../../../../examples/acp-agent/tests/fixtures/subagent/subagent-oar/cordis.yml)):
+Compose the provider explicitly — shipped profiles and presets do not mount it. Two provider instances plus the selection tool form the documented composition (see the [worked example](../../../examples/acp-agent/tests/fixtures/subagent/subagent-oar/cordis.yml)):
 
 ```yaml
 - id: subagent-oar-codex

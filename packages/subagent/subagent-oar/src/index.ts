@@ -90,6 +90,8 @@ export function apply(ctx: Context, config: Config): void {
     name: providerName,
     capabilities: NO_START_CAPABILITIES,
     inheritsParentContext: false,
+    // OAR runtimes are one-shot by construction; the retained one-shot provider shape is the correct seam for them.
+    // oxlint-disable-next-line typescript/no-deprecated -- external one-shot runtimes cannot be continuable children.
     start: request => startOarRun(request, spec),
   }
   ctx.subagents.registerProvider(provider)

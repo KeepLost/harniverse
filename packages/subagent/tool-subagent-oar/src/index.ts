@@ -129,7 +129,9 @@ export function apply(ctx: Context, config: Config): void {
         type: 'text',
         text: `Subagent session ${value.sessionId} completed invocation ${value.invocationId}. `
           + `This one-shot Session does not accept later turns.\n\nFinal output:\n${
-            value.output.map(part => (typeof part === 'object' && part !== null && 'text' in part ? String(part.text) : '')).join('')
+            value.output
+              .map(part => typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string' ? part.text : '')
+              .join('')
           }`,
       }],
     },
@@ -144,6 +146,8 @@ export function apply(ctx: Context, config: Config): void {
       if (provider !== undefined && (provider.prepareContinuable !== undefined || provider.inheritsParentContext)) {
         throw new Error('subagent_oar requires a one-shot provider with independent conversation context')
       }
+      // External one-shot providers are exactly the retained legacy callers of the one-shot seam.
+      // oxlint-disable-next-line typescript/no-deprecated -- the continuable invoke path cannot serve one-shot providers.
       const run = await ctx.subagents.start(providerName, {
         label: args.description,
         prompt: [{ type: 'text', text: args.prompt }],

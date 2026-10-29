@@ -1040,15 +1040,17 @@
         "tests/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@botiverse/oar",
         "@earendil-works/pi-ai",
-        "@earendil-works/pi-coding-agent"
+        "@earendil-works/pi-coding-agent",
+        "@agentclientprotocol/sdk",
+        "cross-spawn",
+        "undici",
+        "which"
       ]
     },
     "packages/subagent/tool-subagent-oar": {
       "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
