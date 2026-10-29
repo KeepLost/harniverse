@@ -25,7 +25,7 @@
     "lib/typert.host.js", "lib/typert.host.d.ts", "lib/typert.remote-client.js", "lib/typert.remote-client.d.ts"
   ],
   "license": "MIT",
-  "dependencies": { "zod": "^4.4.3" },
+  "dependencies": { "zod": "^4.6.6" },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-presets": "workspace:^",
