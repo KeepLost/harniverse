@@ -118,6 +118,8 @@ export class SessionProjectionCache extends Service {
    * paths (the history tail baseline, {@link coldSnapshot}) supersede these
    * values whenever a session is actually opened.
    * @param meta - the listed session's header (identity witness; no log read).
+   * @param keys - optional summary subset; when given, only these keys are
+   *   served (the `session.list` summary selection).
    * @returns the cut (`asOfSeq` = lowest served-row watermark), or
    *   `undefined` when no usable row exists for this lifecycle.
    */
