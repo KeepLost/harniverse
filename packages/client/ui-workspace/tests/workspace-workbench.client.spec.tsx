@@ -707,6 +707,18 @@ describe('workbench presentation units', () => {
     }
   })
 
+  it('moves nothing while no tab is selected', () => {
+    const { writes, restore } = stubStripScrollTo()
+    try {
+      stubStripGeometry()
+      const tabs = stripTabs()
+      render(<TabStrip tabs={tabs} activeTabId="none-of-them" t={t} onSelect={vi.fn()} onClose={vi.fn()} />)
+      expect(writes).toEqual([])
+    } finally {
+      restore()
+    }
+  })
+
   it('dispatches every preview renderer and its loading, error, unavailable, and notice chrome', async () => {
     let objectId = 0
     const createObjectURL = vi.fn(() => `blob:${String(++objectId)}`)
