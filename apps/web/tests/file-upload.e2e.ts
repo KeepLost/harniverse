@@ -50,7 +50,10 @@ function replayScript(): ReplayOverrideDoc {
   return [final]
 }
 
-function userText(event: SessionEvent<'user/message'>): string {
+/** `user/message` member of the event union, spelled without instantiating the generic alias. */
+type UserMessageEvent = Extract<SessionEvent, { type: 'user/message' }>
+
+function userText(event: UserMessageEvent): string {
   return event.data.content
     .filter(block => block.type === 'text')
     .map(block => block.text)
