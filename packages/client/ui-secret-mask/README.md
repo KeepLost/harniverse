@@ -38,6 +38,6 @@ Masking never leaves the browser; no request prefix exists to invalidate.
 
 ## Known Limitations and Deferred Work
 
-- **Only sent user text is masked** — assistant output, tool results, and the composer draft render as written. The composer preview is the natural follow-on surface.
+- **Only sent user text is masked** — assistant output, tool results, and the composer draft render as written. The composer draft stays unmasked by design (owner decision 2026-10-30): masking un-sent input would interfere with the user's judgment of what they typed, and the composer is not a secrets channel — agent-relevant secrets belong in a separate file the agent reads.
 - **Recognition is format-only** — an unpublished or custom format stays plain; there is no configured-secret list to match against.
 - **Reveal state is per mount** — navigating away and back re-masks; the state is deliberately not persisted.

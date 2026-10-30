@@ -28,6 +28,6 @@ The recognizer (formats, tables, scanner, masks) is ported near-verbatim: a pref
 
 ## Consequences
 
-- Only sent user text is masked (assistant output, tool results, and the composer draft render as written); the note's owning package records the composer preview as the natural follow-on surface.
+- Only sent user text is masked (assistant output, tool results, and the composer draft render as written); the composer draft stays unmasked by the owner decision of 2026-10-30 — masking un-sent input would interfere with the user's judgment of what they typed, and the composer is not a secrets channel (agent-relevant secrets belong in a separate file the agent reads).
 - The performance character is preserved and now gated: `benchmarks/user-text.bench.ts` holds the per-document budget (measured medians under 1 ms per ~256 KiB document) so a backtracking regression cannot land silently.
 - Verification: 31 recognizer tests (official's format table ported), the component suite (mask/reveal/interactive semantics), the plugin registration suite, the conversation seam suite, and the web-app composition build.
