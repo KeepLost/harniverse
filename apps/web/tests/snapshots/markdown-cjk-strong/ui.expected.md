@@ -40,6 +40,7 @@
   - strong: Warning!
   - text: 继续
 - paragraph: CJK_STRONG_DONE
+- text: fixture · fixture
 - button "Copy":
   - img
 - button "Good response":
