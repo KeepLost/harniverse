@@ -13,7 +13,6 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   launchWebScaffold,
   watchConsole,
@@ -65,6 +64,11 @@ interface TurnEvent {
   seq: number
 }
 
+/** Locally declared `session/event` subscription face over the error-typed host Context. */
+interface SessionEventBus {
+  on(name: 'session/event', listener: (session: unknown, event: unknown) => void): unknown
+}
+
 function userText(event: UserMessageShape): string {
   return event.data.content
     .filter(block => block.type === 'text')
@@ -79,7 +83,7 @@ describe('web e2e: composer file upload through the real host route', () => {
   let scaffold: WebScaffold
   let tripwire: ReturnType<typeof watchConsole>
   const consoleWarnings: string[] = []
-  const sessionEvents: SessionEvent[] = []
+  const sessionEvents: TurnEvent[] = []
   const expectedId = `sha256:${createHash('sha256').update(FILE_BODY, 'utf8').digest('hex')}`
   const sha8 = expectedId.slice('sha256:'.length, 'sha256:'.length + 8)
 
@@ -93,8 +97,8 @@ describe('web e2e: composer file upload through the real host route', () => {
       replayContextWindow: 10_000_000,
       paceMs: 10,
     })
-    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => {
-      sessionEvents.push(event)
+    ;(scaffold.ctx as SessionEventBus).on('session/event', (_session, event) => {
+      sessionEvents.push(event as TurnEvent)
     })
     browser = await chromium.launch()
     page = await newEnglishPage(browser, 900)
@@ -139,7 +143,7 @@ describe('web e2e: composer file upload through the real host route', () => {
     // The chip leaves with the accepted prompt.
     await expect.poll(() => page.locator('[data-file-chip]').count(), { timeout: 15_000 }).toBe(0)
 
-    const turnEvents = (): SessionEvent[] => sessionEvents.slice(eventStart)
+    const turnEvents = (): TurnEvent[] => sessionEvents.slice(eventStart)
     await expect.poll(() => turnEvents().some(event => event.type === 'user/message'), { timeout: 15_000 }).toBe(true)
     // The lint program resolves `dsh-session` types as error-typed inside this
     // e2e file, so the projections below go through local structural shapes.
@@ -183,7 +187,7 @@ describe('web e2e: composer file upload through the real host route', () => {
     expect(handle).toContain('用 read 工具读取该路径获得内容；不要凭名字猜测内容。')
 
     // DOM: the badge row shows the file; the raw handle lines never render.
-    const userRow = page.locator(`[data-chat-anchor-key="${conversationContextKey('input-message', String(message.data.id))}"]`)
+    const userRow = page.locator(`[data-chat-anchor-key="${conversationContextKey('input-message', message.data.id)}"]`)
     await expect.poll(() => userRow.count(), { timeout: 10_000 }).toBe(1)
     await userRow.locator(`[data-file-badge="${FILE_NAME}"]`).waitFor({ timeout: 10_000 })
     expect(await userRow.textContent()).toContain(FILE_NAME)
