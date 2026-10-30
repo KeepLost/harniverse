@@ -92,7 +92,7 @@ describe('registry wiring', () => {
   }
 
   function winnerPriority(slots: SlotRegistry): number | undefined {
-    const entries = slots.entriesOfSlot('conversation.details.tool.images' as never)
+    const entries = slots.entriesOfSlot('conversation.details.tool.images')
     expect(entries.length).toBeGreaterThan(0)
     return (entries[0] as { options: { priority?: number } }).options.priority
   }
@@ -108,6 +108,6 @@ describe('registry wiring', () => {
     dispose()
     expect(winnerPriority(slots)).toBe(100)
     await fiber.dispose()
-    expect(slots.entriesOfSlot('conversation.details.tool.images' as never)).toHaveLength(0)
+    expect(slots.entriesOfSlot('conversation.details.tool.images')).toHaveLength(0)
   })
 })

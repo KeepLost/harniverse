@@ -1187,7 +1187,7 @@ describe('ConversationNodeAssembler', () => {
     const messageEvent = (): SessionEvent => at(7, 'user/message', {
       turn: 1,
       message: { id: 'm1', content: [] },
-    } as never)
+    })
 
     /** A Definition that matches every user/message under one stable id. */
     function everyMessage(kind: string, target: string | undefined): ConversationNodeDefinition<number> {
@@ -1207,7 +1207,7 @@ describe('ConversationNodeAssembler', () => {
         kind: 'claimed',
         target,
         match: event => event.type === 'user/message'
-          ? { id: `claimed:${String((event.data as unknown as { message: { id: string } }).message.id)}`, role: 'start', exclusive: true }
+          ? { id: 'claimed:m1', role: 'start', exclusive: true }
           : null,
         start: () => 'mine',
         update: context => context.state,
