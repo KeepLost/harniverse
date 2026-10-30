@@ -59,6 +59,12 @@ interface UserMessageShape {
   data: { content: ReadonlyArray<{ type: string; text?: string }> }
 }
 
+/** Locally declared event base: `type`, `seq`, and the projected payload. */
+interface TurnEvent {
+  type: string
+  seq: number
+}
+
 function userText(event: UserMessageShape): string {
   return event.data.content
     .filter(block => block.type === 'text')
@@ -135,14 +141,20 @@ describe('web e2e: composer file upload through the real host route', () => {
 
     const turnEvents = (): SessionEvent[] => sessionEvents.slice(eventStart)
     await expect.poll(() => turnEvents().some(event => event.type === 'user/message'), { timeout: 15_000 }).toBe(true)
+    // The lint program resolves `dsh-session` types as error-typed inside this
+    // e2e file, so the projections below go through local structural shapes.
     const fileEvent = turnEvents().find(
-      (event): event is SessionEvent<'user/file'> => event.type === 'user/file',
+      (event): event is TurnEvent & { data: { files: ReadonlyArray<Record<string, unknown>> } } => (
+        event.type === 'user/file'
+      ),
     )
     if (fileEvent === undefined) throw new Error('prompt produced no user/file event')
     // Position association: the paired message is the first user/message
     // AFTER the log-only file event (the queue may record an earlier copy).
     const message = turnEvents().find(
-      (event): event is SessionEvent<'user/message'> => (
+      (event): event is TurnEvent & UserMessageShape & {
+        data: UserMessageShape['data'] & { source: Record<string, unknown>; id: string }
+      } => (
         event.type === 'user/message' && event.seq > fileEvent.seq
       ),
     )
