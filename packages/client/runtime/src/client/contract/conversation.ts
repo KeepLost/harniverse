@@ -15,6 +15,17 @@ export interface ConversationEventInput {
 export interface ConversationMatchResult {
   readonly id: string
   readonly role: 'start' | 'update'
+  /**
+   * Claim this event exclusively for this Definition's sole view target:
+   * other Definitions of the same target build no Context for it and the
+   * target's unmatched-event fallback does not run, while Definitions of
+   * other targets and target-less Definitions still receive it. Requires
+   * `target`; two claims on one target, or a claim from a target-less
+   * Definition, fail at dispatch naming the event. Claims are decided per
+   * event from event data, so dispatch stays independent of registration
+   * order.
+   */
+  readonly exclusive?: true
 }
 
 /** Merge-extensible business values published against one Turn. */

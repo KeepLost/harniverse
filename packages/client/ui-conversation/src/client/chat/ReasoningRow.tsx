@@ -1,7 +1,8 @@
 /** Assistant reasoning disclosure, independent of Tool-call presentation. */
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { DisclosureRow, IconThinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatViewSlotProps, ReasoningBodyOwnerProps } from '../contract/slots.ts'
 import { useThrottledVisualUpdate } from './use-throttled-visual-update.ts'
 import a11yCss from './accessibility.module.css'
 import css from './ReasoningRow.module.css'
@@ -22,9 +23,15 @@ function latestLine(text: string): string {
  * @param props.text - complete or streaming reasoning text.
  * @param props.running - whether this block is the streaming tail.
  * @param props.t - conversation locale seat for the running status.
+ * @param props.renderBody - seat-bound body renderer; omitted renders the plain body.
  * @returns the reasoning disclosure.
  */
-export function ReasoningRow({ text, running, t }: { text: string; running: boolean; t: ChatViewSlotProps['t'] }) {
+export function ReasoningRow({ text, running, renderBody, t }: {
+  text: string
+  running: boolean
+  renderBody?: ((owner: ReasoningBodyOwnerProps) => ReactNode) | undefined
+  t: ChatViewSlotProps['t']
+}) {
   const [expanded, setExpanded] = useState(false)
   const summaryRef = useRef<HTMLSpanElement>(null)
   const summary = running ? latestLine(text) : firstLine(text)
@@ -58,7 +65,7 @@ export function ReasoningRow({ text, running, t }: { text: string; running: bool
           </>
         )}
       >
-        <div className={css.thinkBody}>{text}</div>
+        {renderBody !== undefined ? renderBody({ text, running }) : <div className={css.thinkBody}>{text}</div>}
       </DisclosureRow>
     </div>
   )

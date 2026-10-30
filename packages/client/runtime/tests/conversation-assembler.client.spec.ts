@@ -1182,4 +1182,112 @@ describe('ConversationNodeAssembler', () => {
     expect(nodes.find(candidate => candidate.id === '1')?.data).toEqual([3, 4])
     expect(nodes.find(candidate => candidate.id === '2')?.data).toEqual([21])
   })
+
+  describe('exclusive matches', () => {
+    const messageEvent = (): SessionEvent => at(7, 'user/message', {
+      turn: 1,
+      message: { id: 'm1', content: [] },
+    })
+
+    /** A Definition that matches every user/message under one stable id. */
+    function everyMessage(kind: string, target: string | undefined): ConversationNodeDefinition<number> {
+      return {
+        kind,
+        ...(target === undefined ? {} : { target }),
+        match: event => event.type === 'user/message' ? { id: 'generic', role: 'start' } : null,
+        start: () => 0,
+        update: context => context.state,
+        buildViewNode: context => ({ ...node(context, context.state), target: target ?? 'chat' }),
+      }
+    }
+
+    /** The claiming Definition: presents the reply messages it recognizes. */
+    function claimer(target = 'chat'): ConversationNodeDefinition<string> {
+      return {
+        kind: 'claimed',
+        target,
+        match: event => event.type === 'user/message'
+          ? { id: 'claimed:m1', role: 'start', exclusive: true }
+          : null,
+        start: () => 'mine',
+        update: context => context.state,
+        buildViewNode: context => node(context, context.state),
+      }
+    }
+
+    function viewFor(target: string) {
+      return { ...testView(), target } as ConversationViewDefinition<ConversationViewNode, TestSnapshot>
+    }
+
+    it('withholds a claimed event from other Definitions of the same target in either registration order', () => {
+      for (const order of [false, true]) {
+        const generic = { ...everyMessage('generic', 'chat'), start: vi.fn(() => 0) }
+        const assembler = new ConversationNodeAssembler(
+          new TestEventDefinitions(order ? [generic, claimer()] : [claimer(), generic]),
+          new TestViewDefinitions([testView()]),
+        )
+        assembler.append(input(messageEvent()))
+        assembler.flush()
+        expect(generic.start).not.toHaveBeenCalled()
+        expect([...chatSnapshot(assembler)?.nodes.values() ?? []].map(value => value.id))
+          .toEqual(['claimed:m1'])
+      }
+    })
+
+    it('still delivers a claimed event to other targets and to target-less Definitions', () => {
+      const elsewhere = { ...everyMessage('elsewhere', 'aux'), start: vi.fn(() => 0) }
+      const stateless = { ...everyMessage('stateless', undefined), start: vi.fn(() => 0) }
+      const assembler = new ConversationNodeAssembler(
+        new TestEventDefinitions([claimer(), elsewhere, stateless]),
+        new TestViewDefinitions([testView(), viewFor('aux')]),
+      )
+      assembler.append(input(messageEvent()))
+      assembler.flush()
+      expect(elsewhere.start).toHaveBeenCalledOnce()
+      expect(stateless.start).toHaveBeenCalledOnce()
+      const chat = assembler.snapshot('chat') as TestSnapshot
+      expect([...chat.nodes.values()].map(value => value.id)).toEqual(['claimed:m1'])
+      const aux = assembler.snapshot('aux') as TestSnapshot
+      expect([...aux.nodes.values()].map(value => value.id)).toEqual(['generic'])
+    })
+
+    it('suppresses the claimed target\'s unmatched-event fallback', () => {
+      const fallbackStart = vi.fn(() => 'fallback')
+      const assembler = new ConversationNodeAssembler(
+        new TestEventDefinitions([claimer()], new TestEventDefinitions([], fallbackDefinition(fallbackStart)).fallbackEntry()),
+        new TestViewDefinitions([testView()]),
+      )
+      assembler.append(input(messageEvent()))
+      assembler.flush()
+      expect(fallbackStart).not.toHaveBeenCalled()
+      expect([...chatSnapshot(assembler)?.nodes.values() ?? []].map(value => value.id))
+        .toEqual(['claimed:m1'])
+    })
+
+    it('fails at dispatch when two Definitions claim one target', () => {
+      const assembler = new ConversationNodeAssembler(
+        new TestEventDefinitions([claimer(), { ...claimer(), kind: 'rival' }]),
+        new TestViewDefinitions([testView()]),
+      )
+      expect(() => assembler.append(input(messageEvent())))
+        .toThrowError(/claimed.*rival.*seq 7|rival.*claimed.*seq 7/)
+    })
+
+    it('fails at dispatch when a target-less Definition claims', () => {
+      const stateless: ConversationNodeDefinition<string> = {
+        kind: 'stateless',
+        match: event => event.type === 'user/message'
+          ? { id: 'claimed:m1', role: 'start', exclusive: true }
+          : null,
+        start: () => 'mine',
+        update: context => context.state,
+        buildViewNode: context => node(context, context.state),
+      }
+      const assembler = new ConversationNodeAssembler(
+        new TestEventDefinitions([stateless]),
+        new TestViewDefinitions([testView()]),
+      )
+      expect(() => assembler.append(input(messageEvent()))).toThrowError(/stateless/)
+    })
+  })
 })

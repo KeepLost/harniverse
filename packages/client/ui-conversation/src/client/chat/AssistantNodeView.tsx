@@ -1,11 +1,18 @@
 import { memo, useMemo } from 'react'
+import type { ReactNode } from 'react'
 import type { ChatNodeViewProps, TurnTailOwnerProps } from '../contract/slots.ts'
+import type { ChatImagesOwnerProps, ReasoningBodyOwnerProps } from '../contract/slots.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 
 /** Streaming, settled, and interrupted Assistant states share one keyed renderer instance. */
 export const AssistantNodeView = memo(function AssistantNodeView({
-  node, useTurnData, openFile, loadImage, fileMentions, externalLinks, t,
-}: ChatNodeViewProps<'assistant-step'>) {
+  node, useTurnData, openFile, loadImage, fileMentions, externalLinks, renderImages, renderBody, t,
+}: ChatNodeViewProps<'assistant-step'> & {
+  /** Seat-bound gallery renderer; supplied by the assistant-step seat bridge. */
+  renderImages?: ((owner: ChatImagesOwnerProps) => ReactNode) | undefined
+  /** Seat-bound reasoning-body renderer; supplied by the assistant-step seat bridge. */
+  renderBody?: ((owner: ReasoningBodyOwnerProps) => ReactNode) | undefined
+}) {
   const data = node.data
   const turn = node.location.kind === 'turn' || node.location.kind === 'step'
     ? node.location.turn
@@ -28,6 +35,8 @@ export const AssistantNodeView = memo(function AssistantNodeView({
       loadImage={loadImage}
       mentions={mentions}
       externalLinks={externalLinks}
+      renderImages={renderImages}
+      renderBody={renderBody}
       t={t}
     />
   )

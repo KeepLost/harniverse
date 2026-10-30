@@ -3,6 +3,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ToolCallTree } from './tool/ToolCallTree.tsx'
 import { ToolDetails } from './tool/ToolDetails.tsx'
+import { ToolImagesDefault } from './tool/ToolImagesDefault.tsx'
 import { CONVERSATION_NS as NS } from './locale.ts'
 import { en, NS as TOOL_NS, zh } from './locales.ts'
 import { askQuestionToolview } from './tool/toolviews/ask-question-row.tsx'
@@ -38,7 +39,16 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('conversation.details.tool', () => ctx.slots.register({
     name: 'conversation.details.tool',
     locale: NS,
+    children: { 'conversation.details.tool.images': { kind: 'single', scope: 'session' } },
   }, ToolDetails))
+
+  // Shipped occupant of the details result-image seat: priority 100 leaves
+  // room below for a replacement, and disposal restores the shipped gallery.
+  ctx.slots.inject('conversation.details.tool.images', () => ctx.slots.register({
+    name: 'conversation.details.tool.images',
+    priority: 100,
+    locale: NS,
+  }, ToolImagesDefault))
 
   ctx.plugin(bashToolviewSample)
   ctx.plugin(readToolview)

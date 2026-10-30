@@ -4,10 +4,6 @@
 // file parts, the log-only user/file event pair, the durable handle text the
 // model sees, the badge row's DOM shape, and the route's trust fence denying
 // a forged cross-origin caller. One deterministic replay turn.
-/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-member-access,
- * typescript/no-unsafe-call, typescript/no-unsafe-return
- * -- tsgolint resolves SessionEvent<'user/...'> generic narrowing as error-typed here;
- * tsc -b apps/web verifies these accesses. */
 import { createHash } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -17,7 +13,6 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   launchWebScaffold,
   watchConsole,
@@ -54,10 +49,30 @@ function replayScript(): ReplayOverrideDoc {
   return [final]
 }
 
-function userText(event: SessionEvent<'user/message'>): string {
+/**
+ * Locally declared shape: the lint program cannot resolve the `dsh-session`
+ * types inside this e2e file (generic instantiation turns error-typed), so
+ * the text projection is spelled structurally instead.
+ */
+interface UserMessageShape {
+  data: { content: ReadonlyArray<{ type: string; text?: string }> }
+}
+
+/** Locally declared event base: `type`, `seq`, and the projected payload. */
+interface TurnEvent {
+  type: string
+  seq: number
+}
+
+/** Locally declared `session/event` subscription face over the error-typed host Context. */
+interface SessionEventBus {
+  on(name: 'session/event', listener: (session: unknown, event: unknown) => void): unknown
+}
+
+function userText(event: UserMessageShape): string {
   return event.data.content
     .filter(block => block.type === 'text')
-    .map(block => block.text)
+    .map(block => block.text ?? '')
     .join('')
 }
 
@@ -68,7 +83,7 @@ describe('web e2e: composer file upload through the real host route', () => {
   let scaffold: WebScaffold
   let tripwire: ReturnType<typeof watchConsole>
   const consoleWarnings: string[] = []
-  const sessionEvents: SessionEvent[] = []
+  const sessionEvents: TurnEvent[] = []
   const expectedId = `sha256:${createHash('sha256').update(FILE_BODY, 'utf8').digest('hex')}`
   const sha8 = expectedId.slice('sha256:'.length, 'sha256:'.length + 8)
 
@@ -82,8 +97,8 @@ describe('web e2e: composer file upload through the real host route', () => {
       replayContextWindow: 10_000_000,
       paceMs: 10,
     })
-    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => {
-      sessionEvents.push(event)
+    ;(scaffold.ctx as SessionEventBus).on('session/event', (_session, event) => {
+      sessionEvents.push(event as TurnEvent)
     })
     browser = await chromium.launch()
     page = await newEnglishPage(browser, 900)
@@ -128,16 +143,22 @@ describe('web e2e: composer file upload through the real host route', () => {
     // The chip leaves with the accepted prompt.
     await expect.poll(() => page.locator('[data-file-chip]').count(), { timeout: 15_000 }).toBe(0)
 
-    const turnEvents = (): SessionEvent[] => sessionEvents.slice(eventStart)
+    const turnEvents = (): TurnEvent[] => sessionEvents.slice(eventStart)
     await expect.poll(() => turnEvents().some(event => event.type === 'user/message'), { timeout: 15_000 }).toBe(true)
+    // The lint program resolves `dsh-session` types as error-typed inside this
+    // e2e file, so the projections below go through local structural shapes.
     const fileEvent = turnEvents().find(
-      (event): event is SessionEvent<'user/file'> => event.type === 'user/file',
+      (event): event is TurnEvent & { data: { files: ReadonlyArray<Record<string, unknown>> } } => (
+        event.type === 'user/file'
+      ),
     )
     if (fileEvent === undefined) throw new Error('prompt produced no user/file event')
     // Position association: the paired message is the first user/message
     // AFTER the log-only file event (the queue may record an earlier copy).
     const message = turnEvents().find(
-      (event): event is SessionEvent<'user/message'> => (
+      (event): event is TurnEvent & UserMessageShape & {
+        data: UserMessageShape['data'] & { source: Record<string, unknown>; id: string }
+      } => (
         event.type === 'user/message' && event.seq > fileEvent.seq
       ),
     )
@@ -166,7 +187,7 @@ describe('web e2e: composer file upload through the real host route', () => {
     expect(handle).toContain('用 read 工具读取该路径获得内容；不要凭名字猜测内容。')
 
     // DOM: the badge row shows the file; the raw handle lines never render.
-    const userRow = page.locator(`[data-chat-anchor-key="${conversationContextKey('input-message', String(message.data.id))}"]`)
+    const userRow = page.locator(`[data-chat-anchor-key="${conversationContextKey('input-message', message.data.id)}"]`)
     await expect.poll(() => userRow.count(), { timeout: 10_000 }).toBe(1)
     await userRow.locator(`[data-file-badge="${FILE_NAME}"]`).waitFor({ timeout: 10_000 })
     expect(await userRow.textContent()).toContain(FILE_NAME)

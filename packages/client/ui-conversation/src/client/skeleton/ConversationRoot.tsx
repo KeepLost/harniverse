@@ -141,6 +141,7 @@ export function ConversationRoot({
       })}
       {renderSlot('conversation.hero.agentPreset', {})}
       {renderSlot('conversation.hero.modelProfile', {})}
+      <div className={css.heroOptions}>{renderSlot('conversation.hero.options', {})}</div>
     </div>
   )
 

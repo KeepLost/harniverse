@@ -9,13 +9,13 @@
 // their branch action is enabled only when the node is also the completed
 // turn's transcript tail. Think / tool-head-only nodes stay chrome-free.
 
-import { memo, useMemo } from 'react'
+import { Fragment, memo, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatImagesOwnerProps, ChatViewSlotProps, ReasoningBodyOwnerProps } from '../contract/slots.ts'
 import { messageImageLabels } from '../image-labels.ts'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
@@ -31,13 +31,17 @@ export interface AssistantMarkdownProps {
   mentions?: MarkdownFileMentions | undefined
   /** Where a link in this prose opens (the host browser panel, or a new tab). */
   externalLinks?: MarkdownExternalLinks | undefined
+  /** Seat-bound gallery renderer for the assistant image position; omitted renders the shared gallery directly. */
+  renderImages?: ((owner: ChatImagesOwnerProps) => ReactNode) | undefined
+  /** Seat-bound body renderer for reasoning disclosures; omitted renders the plain Think body. */
+  renderBody?: ((owner: ReasoningBodyOwnerProps) => ReactNode) | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, loadImage, mentions, externalLinks, t,
+  blocks, streaming, interrupted, loadImage, mentions, externalLinks, renderImages, renderBody, t,
 }: AssistantMarkdownProps) {
   const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   // Stable per locale revision (t identity changes on switch): a fresh object
@@ -69,7 +73,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         )
         break
       case 'reasoning':
-        rendered.push(<ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />)
+        rendered.push(<ReasoningRow key={i} text={block.text} running={streaming && i === last} renderBody={renderBody} t={t} />)
         break
       case 'image': {
         // Consecutive image blocks share one gallery so several images tile
@@ -85,7 +89,9 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           group.push(next)
           i += 1
         }
-        rendered.push(<ImageGallery key={start} images={group} load={imageLoader} align="start" labels={messageImageLabels(t)} />)
+        rendered.push(renderImages !== undefined
+          ? <Fragment key={start}>{renderImages({ images: group.map(block => block.attachment), load: imageLoader, align: 'start' })}</Fragment>
+          : <ImageGallery key={start} images={group} load={imageLoader} align="start" labels={messageImageLabels(t)} />)
         break
       }
       // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.

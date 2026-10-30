@@ -553,6 +553,22 @@ describe('ConversationRoot resident composer', () => {
     expect(b.slotCalls).toContain('conversation.hero.agentPreset')
   })
 
+  it('seats the hero options area on the new-session row only while the hero shows', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
+    expect(b.slotCalls).toContain('conversation.hero.options')
+    const area = b.view.container.querySelector('[class*="heroOptions"]')
+    expect(area).not.toBeNull()
+    // The seat's output lands inside the right-aligned options area, and the
+    // area is the row's last element — after the shipped chips, never between.
+    expect(b.view.getByTestId('view-conversation.hero.options').parentElement).toBe(area)
+    expect(area?.parentElement?.lastElementChild).toBe(area)
+
+    // The area mounts with the hero row itself: an active composer phase
+    // renders neither the row nor the options area.
+    const active = mount(conversationSnapshot({ composerPhase: 'active' }))
+    expect(active.view.container.querySelector('[class*="heroOptions"]')).toBeNull()
+  })
+
   it('opens the workbench from the workspace name and leaves the picker on the arrow', () => {
     const openWorkbench = vi.fn()
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }), undefined, undefined, { openWorkbench })

@@ -11,6 +11,7 @@ import type {
   TurnLocation, WorkspaceId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { HostDescription, MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from './input-blocks.ts'
@@ -152,6 +153,40 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * current blank session applies immediately instead of minting a new one.
      */
     'conversation.hero.modelProfile': { kind: 'single'; scope: 'root'; owner: HeroModelProfileOwnerProps }
+    /**
+     * Right-aligned compact options at the end of the New Session row, after
+     * the workspace, agent-preset, and model-profile chips — the additive way
+     * to put a per-session toggle or short control on the new-session screen
+     * without displacing the shipped chips. Root scope, like its sibling hero
+     * seats: no session exists yet, so an option stages its choice for the
+     * next one. The owner passes nothing: everything an option needs comes
+     * from the framework kit and the registrant's own inject face. Empty, the
+     * row renders no options area at all.
+     */
+    'conversation.hero.options': { kind: 'list'; scope: 'root' }
+    /**
+     * The image-gallery position inside a sent user bubble — declared by this
+     * package's `user` keyed chat-node entry, so the seat lives exactly while
+     * user messages render through it (steering bubbles and the pending
+     * projection keep the direct gallery). The shipped occupant renders the
+     * shared `ui-attachment` gallery at priority 100; register at a lower
+     * priority to replace only this domain, dispose to restore it.
+     */
+    'conversation.chat.user.images': { kind: 'single'; scope: 'session'; owner: ChatImagesOwnerProps }
+    /**
+     * The image-gallery position inside assistant output — declared by the
+     * `assistant-step` keyed chat-node entry, separate from the user seat so
+     * a replacement intended for one domain never affects the other. Same
+     * shipped occupant and priority-100/replace-and-restore contract.
+     */
+    'conversation.chat.assistant.images': { kind: 'single'; scope: 'session'; owner: ChatImagesOwnerProps }
+    /**
+     * The expanded body of one assistant reasoning (Think) disclosure —
+     * declared by the `assistant-step` entry. The shipped occupant renders
+     * the plain pre-wrap body at priority 100; a replacement presents the
+     * same text and streaming state without touching the disclosure chrome.
+     */
+    'conversation.chat.reasoning.body': { kind: 'single'; scope: 'session'; owner: ReasoningBodyOwnerProps }
     // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
     // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
@@ -396,6 +431,37 @@ export interface ChatNodeOwnerProps {
 /** Full props of one registered keyed Chat business renderer. */
 export type ChatNodeViewProps<Kind extends ChatNodeKind = ChatNodeKind> =
   PropsRuntime<'conversation.chat.node', Kind> & PropsLocale<'conversation'>
+
+/**
+ * Owner currency of one chat transcript image-gallery seat: the durable
+ * refs to draw, the session-authorized loader, and the row's alignment.
+ * Labels stay the occupant's own (the shipped occupant resolves them from
+ * its locale seat), so a replacement never inherits copy it did not choose.
+ */
+export interface ChatImagesOwnerProps {
+  /** Durable image references in presentation order. */
+  readonly images: readonly ImageAttachmentRef[]
+  /** Session-authorized loader for the durable original bytes. */
+  load: ImageLoader
+  /** Which end of the text column the gallery anchors to. */
+  align: 'start' | 'end'
+}
+
+/** Owner currency of the reasoning body seat: the block's text and stream state. */
+export interface ReasoningBodyOwnerProps {
+  /** Complete or streaming reasoning text. */
+  readonly text: string
+  /** Whether this block is the streaming tail. */
+  readonly running: boolean
+}
+
+/** Full props of the user-key chat renderer that declares the user-images seat. */
+export type ChatUserSeatViewProps = ChatNodeViewProps<'user'>
+  & PropsRenderSlots<'conversation.chat.user.images'>
+
+/** Full props of the assistant-step chat renderer that declares the assistant-images and reasoning-body seats. */
+export type AssistantSeatViewProps = ChatNodeViewProps<'assistant-step'>
+  & PropsRenderSlots<'conversation.chat.assistant.images' | 'conversation.chat.reasoning.body'>
 
 /** Owner currency of the details panel's Tool output renderer. */
 export interface DetailsToolOwnerProps {
@@ -644,6 +710,7 @@ export type ConversationSlotProps =
     | 'conversation.hero.workspace'
     | 'conversation.hero.agentPreset'
     | 'conversation.hero.modelProfile'
+    | 'conversation.hero.options'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>
