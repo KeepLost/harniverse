@@ -90,7 +90,7 @@ describe('user-key seat bridge', () => {
           expect(key).toBe('conversation.chat.user.images')
           owners.push(owner)
           return <span data-testid="seat" />
-        }) as never}
+        }) as never /* one-key share stays generic; the bridge narrows */}
         t={t}
       />,
     )

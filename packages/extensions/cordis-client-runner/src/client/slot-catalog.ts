@@ -320,7 +320,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-conversation UserMessageSeatView key \'user\'',
       'client-ui-conversation UserMessageNodeView key \'steering\'',
       'client-ui-conversation ContextMessageNodeView key \'context\'',
-      'client-ui-conversation AssistantNodeView key \'assistant-step\'',
+      'client-ui-conversation AssistantSeatView key \'assistant-step\'',
       'client-ui-conversation CommandNodeView key \'command\'',
       'client-ui-conversation ManualCompactionNodeView key \'manual-compaction\'',
       'client-ui-conversation CompactionNodeView key \'compaction\'',

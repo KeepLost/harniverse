@@ -9,7 +9,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { ReactNode } from 'react'
 import { AttachmentId, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
@@ -21,7 +20,7 @@ import { apply } from '../src/client/apply.ts'
 import { ToolDetails } from '../src/client/tool/ToolDetails.tsx'
 import { ToolImagesDefault } from '../src/client/tool/ToolImagesDefault.tsx'
 
-const t = makeTranslate(zh, commonZh) as never
+const t = makeTranslate(zh, commonZh)
 
 const image: ImageAttachmentRef = {
   attachmentId: AttachmentId('a'),
@@ -102,8 +101,8 @@ describe('registry wiring', () => {
     const { slots, fiber } = await bench()
     expect(winnerPriority(slots)).toBe(100)
     const dispose = slots.register(
-      { name: 'conversation.details.tool.images', priority: 0 } as never,
-      () => null as unknown as ReactNode,
+      { name: 'conversation.details.tool.images', priority: 0 },
+      () => null,
     )
     expect(winnerPriority(slots)).toBe(0)
     dispose()
