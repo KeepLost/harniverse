@@ -2381,9 +2381,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus two mandatory points — `turn/end` and session disposal (the live-to-cold moment) — and serves the cold-read ladder: cached row, persistence `readFrom` tail, registry `restore`, durable write-back. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write or cold read.',
     methods: [
       {
-        signature: 'cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined',
+        signature: 'cachedSnapshot(meta: SessionHeader, keys?: ReadonlySet<string>): ProjectionSnapshot | undefined',
         description: 'The zero-I/O listing read: whole values viewed straight from the stored rows (version-matching keys only), each cut carried with its watermark so a client value store can seed under its higher-seq-wins rule — as stale as the last durable checkpoint but never wrong, and never from an unrelated log (the caller\'s header is the identity witness). Fresher paths (the history tail baseline, coldSnapshot) supersede these values whenever a session is actually opened.',
-        parameters: [{ name: 'meta', description: 'the listed session\'s header (identity witness; no log read).' }],
+        parameters: [{ name: 'meta', description: 'the listed session\'s header (identity witness; no log read).' }, { name: 'keys', description: 'optional summary subset; when given, only these keys are served (the `session.list` summary selection).' }],
         returns: 'the cut (`asOfSeq` = lowest served-row watermark), or `undefined` when no usable row exists for this lifecycle.',
       },
       {
@@ -2415,6 +2415,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Register one domain\'s unit. The registration is an effect on the calling context\'s fiber: disposing the fiber (or calling the returned disposer) removes the key — and the unit\'s cached cells — from subsequent drives and snapshots.',
         parameters: [{ name: 'definition', description: 'key, state schema, pure unit functions, and stateVersion.' }],
         returns: 'the exact disposer that unregisters this unit.',
+      },
+      {
+        signature: 'summaryKeys(): ReadonlySet<string>',
+        description: 'Keys a summary row may carry: every registered key whose definition does not opt out with `summary: false` (the heavy list-shaped values stay off the `session.list` / `subagent.history` wire; every open face keeps serving them). Rebuilt per call — equivalent to being stable between registration changes.',
+        parameters: [],
+        returns: 'the summary key set for the currently registered units.',
       },
       {
         signature: 'onChanged(listener: ProjectionChangeListener): () => void',
@@ -6288,7 +6294,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ProjectionDefinition',
-    declaration: 'export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {\n    key: K;\n    schema: ZodType<SessionProjectionMap[K]>;\n    init(): S;\n    apply(state: S, event: SessionEvent): S;\n    view(state: S): SessionProjectionMap[K];\n    stateVersion: number;\n}',
+    declaration: 'export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {\n    key: K;\n    schema: ZodType<SessionProjectionMap[K]>;\n    init(): S;\n    apply(state: S, event: SessionEvent): S;\n    view(state: S): SessionProjectionMap[K];\n    stateVersion: number;\n    summary?: boolean;\n}',
   },
   {
     name: 'ProjectionSnapshot',

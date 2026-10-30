@@ -20,7 +20,7 @@ import type {
   ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
   DetailsInjected,
 } from './contract/slots.ts'
-import type { ComposerFileDraft, InputNotice, InputState, SessionInput } from './contract/input.ts'
+import type { ComposerFileDraft, ComposerImageDraft, InputNotice, InputState, SessionInput } from './contract/input.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationController, UnsupportedImageMediaTypeError, isImageMediaType } from './service.ts'
 import type { IConversation } from './service.ts'
@@ -91,6 +91,11 @@ const ABSENT_MENU_LAUNCHER = {
 const EMPTY_FILE_DRAFTS: readonly ComposerFileDraft[] = []
 const ABSENT_FILE_DRAFTS = {
   getSnapshot: () => EMPTY_FILE_DRAFTS,
+  subscribe: () => () => {},
+}
+const EMPTY_IMAGE_DRAFTS: readonly ComposerImageDraft[] = []
+const ABSENT_IMAGE_DRAFTS = {
+  getSnapshot: () => EMPTY_IMAGE_DRAFTS,
   subscribe: () => () => {},
 }
 
@@ -408,6 +413,7 @@ export function apply(ctx: Context): void {
           keyboard: undefined,
           addImages: undefined,
           removeImage: undefined,
+          retryImage: undefined,
           draftImages: undefined,
           addFiles: undefined,
           removeFile: undefined,
@@ -422,6 +428,7 @@ export function apply(ctx: Context): void {
             lexicon: ABSENT_LEXICON,
             menuLauncher: ABSENT_MENU_LAUNCHER,
             fileDrafts: ABSENT_FILE_DRAFTS,
+            imageDrafts: ABSENT_IMAGE_DRAFTS,
             hostDescription: connection.hostDescription,
           },
         }
@@ -434,7 +441,9 @@ export function apply(ctx: Context): void {
         addImages: (files) => {
           try {
             const images = conversation.createDraftImages(files)
-            if (!shell.addImages(images.map(image => image.id))) {
+            // Upload-on-add: staging starts immediately; the busy-phase guard
+            // refuses the whole batch before any upload begins.
+            if (!shell.stageImages(images.map(image => ({ id: image.id, file: image.file })))) {
               conversation.releaseDraftImages(images)
             }
             return null
@@ -451,6 +460,7 @@ export function apply(ctx: Context): void {
           conversation.releaseDraftImage(id)
           shell.removeImage(id)
         },
+        retryImage: (id) => { shell.retryImage(id) },
         draftImages: ids => conversation.draftImages(ids),
         // Desktop drop/paste intake (X13-R31): on a local Host whose shell
         // bridge names each file's Host path, named files and folders become
@@ -508,6 +518,7 @@ export function apply(ctx: Context): void {
           lexicon: shell.lexicon,
           menuLauncher: inputTriggers?.launcher ?? ABSENT_MENU_LAUNCHER,
           fileDrafts: shell.fileDrafts,
+          imageDrafts: shell.imageDrafts,
           hostDescription: connection.hostDescription,
         },
         isLoopback: connection.isLoopback,

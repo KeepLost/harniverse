@@ -225,6 +225,7 @@ function mount(
           keyboard={wiring}
           addImages={() => null}
           removeImage={() => {}}
+          retryImage={() => {}}
           addFiles={() => null}
           removeFile={() => {}}
           draftImages={() => []}
@@ -236,6 +237,7 @@ function mount(
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           useMenuLauncher={bindSnapshotSelector(createSnapshotStore<string | null>(null))}
           useFileDrafts={bindSnapshotSelector(wiring.fileDrafts)}
+          useImageDrafts={bindSnapshotSelector(wiring.imageDrafts)}
           stop={stop}
           command={() => Promise.resolve(true)}
           t={t}

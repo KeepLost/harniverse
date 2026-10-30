@@ -271,6 +271,131 @@ describe('QuestionComposer', () => {
     view.rerender(<QuestionComposer matched={replayed.carrier} interactions={[replayed.carrier]} {...kit} />)
     expect(screen.getByText('2 / 3')).toBeTruthy()
   })
+
+  it('expands long copy in place without choosing an option', () => {
+    const question = 'Should the release graph drop the experimental client from every shipped template before the next minor?'
+    const description = 'Remove the experimental client from every shipped template and require an explicit profile install.'
+    const carrier = new PendingWait('question', RpcId('long-copy'), SID, {
+      questions: [{
+        id: 'release', question,
+        options: [
+          { label: 'Explicit install', description },
+          { label: 'Optional bundle' },
+          { label: 'Empty description', description: '' },
+          { label: 'Whitespace description', description: '   ' },
+        ],
+      }],
+    }, vi.fn())
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    // CSS shows each toggle only while its copy overflows; every candidate is rendered.
+    const heading = screen.getByRole('heading', { name: question })
+    const [questionToggle, descriptionToggle, ...rest] = screen.getAllByRole('button', { name: '展开' })
+    expect(rest).toHaveLength(0)
+    expect(questionToggle?.getAttribute('aria-describedby')).toBe(heading.id)
+    expect(questionToggle?.getAttribute('aria-controls')).toBe(heading.id)
+    const option = screen.getByRole('radio', { name: 'Explicit install' })
+    const text = screen.getByText(description)
+    expect(option.getAttribute('aria-describedby')).toBe(text.id)
+    expect(descriptionToggle?.getAttribute('aria-controls')).toBe(text.id)
+    expect(descriptionToggle?.getAttribute('aria-describedby')).toBe(text.id)
+    expect(descriptionToggle?.getAttribute('aria-expanded')).toBe('false')
+
+    expect(descriptionToggle).not.toBeNull()
+    fireEvent.click(descriptionToggle!)
+    expect(descriptionToggle!.getAttribute('aria-expanded')).toBe('true')
+    expect(descriptionToggle!.getAttribute('aria-label')).toBe('收起')
+    expect(text.closest('[data-option-row]')?.hasAttribute('data-expanded')).toBe(true)
+    expect(screen.getByText(description)).toBe(text)
+    expect(option.getAttribute('aria-checked')).toBe('false')
+    expect(questionToggle?.getAttribute('aria-expanded')).toBe('false')
+
+    expect(questionToggle).not.toBeNull()
+    fireEvent.click(questionToggle!)
+    expect(questionToggle!.getAttribute('aria-expanded')).toBe('true')
+    expect(questionToggle!.getAttribute('aria-label')).toBe('收起')
+    expect(heading.parentElement?.hasAttribute('data-expanded')).toBe(true)
+    fireEvent.click(questionToggle!)
+    fireEvent.click(descriptionToggle!)
+    expect(heading.parentElement?.hasAttribute('data-expanded')).toBe(false)
+    expect(text.closest('[data-option-row]')?.hasAttribute('data-expanded')).toBe(false)
+    expect(screen.getAllByRole('button', { name: '展开' })).toEqual([questionToggle, descriptionToggle])
+  })
+
+  it('resets scrolling and expanded copy when the question changes', () => {
+    const carrier = new PendingWait('question', RpcId('reset-copy'), SID, { questions: [
+      { id: 'first', question: '第一题？', options: [{ label: '继续', description: '第一题的长描述。' }] },
+      { id: 'second', question: '第二题？', options: [{ label: '继续', description: '第二题的长描述。' }] },
+    ] }, vi.fn())
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    const firstScroll = screen.getByText('第一题？').closest('[data-question-scroll]') as HTMLElement
+    firstScroll.scrollTop = 80
+    for (const toggle of screen.getAllByRole('button', { name: '展开' })) fireEvent.click(toggle)
+    expect(screen.getAllByRole('button', { name: '收起' }).map(toggle => toggle.getAttribute('aria-expanded')))
+      .toEqual(['true', 'true'])
+    fireEvent.click(screen.getByRole('radio', { name: '继续' }))
+
+    const secondScroll = screen.getByText('第二题？').closest('[data-question-scroll]') as HTMLElement
+    expect(screen.queryByText('第一题？')).toBeNull()
+    expect(secondScroll).toBe(firstScroll)
+    expect(secondScroll.scrollTop).toBe(0)
+    expect(screen.queryByRole('button', { name: '收起' })).toBeNull()
+    expect(secondScroll.querySelector('[data-expanded]')).toBeNull()
+    expect(screen.queryByText('第一题的长描述。')).toBeNull()
+    const descriptionToggle = screen.getAllByRole('button', { name: '展开' })[1]
+    expect(document.getElementById(descriptionToggle?.getAttribute('aria-controls') ?? '')?.textContent)
+      .toBe('第二题的长描述。')
+  })
+
+  it('answers an optionless question through the free-text field and never hides submit behind long copy', () => {
+    const respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))
+    const carrier = new PendingWait('question', RpcId('optionless'), SID, { questions: [
+      { id: 'goal', question: `非常长的目标描述。${'补充细节。'.repeat(40)}` },
+    ] }, respond)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    const field = screen.getByPlaceholderText('输入你的答案')
+    expect(field.tagName).toBe('TEXTAREA')
+    fireEvent.change(field, { target: { value: '多行\n自定义答案' } })
+    const submit = screen.getByRole('button', { name: '提交' }) as HTMLButtonElement
+    // Long copy cannot take the footer's actions away: the submit stays
+    // inside the card, outside the scrolling question body.
+    const card = screen.getByText('1 / 1').closest('section')
+    expect(card?.contains(submit)).toBe(true)
+    expect(field.closest('[data-question-scroll]')?.contains(submit)).toBe(false)
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+    expect(respond).toHaveBeenCalledWith(answeredEnvelope('optionless', [
+      { id: 'goal', selected: [], custom: '多行\n自定义答案' },
+    ]))
+  })
+
+  it('keeps a request no specialized presentation claims answerable through the generic flow', () => {
+    const respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))
+    const carrier = new PendingWait('question', RpcId('approval-like'), SID, { questions: [
+      {
+        id: 'access', question: '允许这次访问吗？',
+        intent: { kind: 'plan-review', approve: '允许' },
+        detail: '# 计划\n\n- 内容',
+        options: [{ label: '允许', description: '仅此一次。' }, { label: '拒绝' }],
+      },
+      { id: 'extra', question: '还有补充吗？' },
+    ] }, respond)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    // Two questions cannot be one plan review: the generic flow keeps the batch.
+    expect(screen.getByText('1 / 2')).toBeTruthy()
+    fireEvent.click(screen.getByRole('radio', { name: '允许' }))
+    expect(screen.getByText('2 / 2')).toBeTruthy()
+    const custom = screen.getByPlaceholderText('输入你的答案')
+    fireEvent.change(custom, { target: { value: '工作时间内' } })
+    fireEvent.keyDown(custom, { key: 'Enter' })
+    expect(respond).toHaveBeenCalledWith(answeredEnvelope('approval-like', [
+      { id: 'access', selected: ['允许'] },
+      { id: 'extra', selected: [], custom: '工作时间内' },
+    ]))
+  })
 })
 
 describe('PendingQuestion domain face', () => {

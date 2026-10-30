@@ -61,6 +61,7 @@ async function mount(): Promise<Bench> {
     captureApi: () => api,
     switchTarget: async () => {},
     health: { getSnapshot: () => 'bypass', subscribe: () => () => {} },
+    uploadImage: async () => { throw new Error('unused in this spec') },
     api,
     isLoopback: true,
     upload: () => new Promise<never>(() => {}),

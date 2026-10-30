@@ -26,6 +26,7 @@ import type {} from '@deepseek-ai/dsh-goal/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandToggleContext } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
+import type { DraftAttachmentId } from '../contract/input.ts'
 import { deriveDecorations } from './decorations.ts'
 import type { DraftDecorations } from './decorations.ts'
 import {
@@ -72,10 +73,10 @@ function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]):
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
+  useSession, useInput, inputActions, keyboard, addImages, removeImage, retryImage, draftImages,
   addFiles, removeFile,
   resolveSubmitMode, stop, command, t,
-  renderSlot, useNotices, useLexicon, useMenuLauncher, useFileDrafts, useHostDescription,
+  renderSlot, useNotices, useLexicon, useMenuLauncher, useFileDrafts, useImageDrafts, useHostDescription,
   useProjection, sessionId, variant, disabled: inert = false, blocked, isLoopback, shellPathBridge,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory, overlay, leftItems, rightItems, footer,
@@ -85,6 +86,7 @@ export function InputBar({
   const lexicon = useLexicon(s => s)
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const fileChips = useFileDrafts(s => s)
+  const imageDrafts = useImageDrafts(s => s)
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const subagent = useSession(s => s.subagent) ?? null
@@ -105,8 +107,17 @@ export function InputBar({
   // Done files make the send possible with an empty draft; uploading and
   // error chips never do (an in-flight upload also locks the primary below).
   const readyFileChips = fileChips.filter(chip => chip.status === 'done')
+  // Staged images follow the same rule: only a ready reference is sendable,
+  // an in-flight staging upload locks the primary, and drafts the registry
+  // still holds without a staging entry count as ready (unstaged fallback).
+  const imageDraftOf = useMemo(() => {
+    const byId = new Map(imageDrafts.map(draft => [draft.id, draft]))
+    return (id: DraftAttachmentId) => byId.get(id)
+  }, [imageDrafts])
+  const readyImages = attachments.filter(attachment => (imageDraftOf(attachment.id)?.status ?? 'ready') === 'ready')
   const uploadsInFlight = fileChips.some(chip => chip.status === 'uploading')
-  const empty = draft.trim() === '' && attachments.length === 0 && readyFileChips.length === 0
+    || imageDrafts.some(draft => draft.status === 'uploading')
+  const empty = draft.trim() === '' && readyImages.length === 0 && readyFileChips.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   // Transient error banner (image-intake rejections and prompt failures): the
@@ -626,14 +637,25 @@ export function InputBar({
   const closePreview = useCallback(() => { setPreview(null) }, [])
 
   // Rail thumbnails with their strings resolved here: the attachment atoms are
-  // zero-cordis and read no locale.
-  const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
-    id: attachment.id,
-    previewUrl: attachment.previewUrl,
-    alt: attachment.file.name || t('image.pending'),
-    removeLabel: t('image.remove', { name: attachment.file.name }),
-    attachment,
-  })), [attachments, t])
+  // zero-cordis and read no locale. Staging overlays (progress, refusal
+  // reason, retry label) ride the per-item fields the drafts supply.
+  const railItems = useMemo<ComposerRailItem[]>(() => attachments.map((attachment) => {
+    const draft = imageDraftOf(attachment.id)
+    const name = attachment.file.name || t('image.pending')
+    return {
+      id: attachment.id,
+      previewUrl: attachment.previewUrl,
+      alt: name,
+      removeLabel: t('image.remove', { name: attachment.file.name }),
+      attachment,
+      ...(draft?.status === 'uploading' || draft?.status === 'error' ? { status: draft.status } : {}),
+      ...(draft?.status === 'uploading' && draft.progress !== undefined ? { progress: draft.progress } : {}),
+      ...(draft?.status === 'error' && draft.refused === true && draft.error !== undefined
+        ? { refusal: draft.error }
+        : {}),
+      ...(draft?.status === 'error' && draft.refused !== true ? { retryLabel: t('image.retry', { name }) } : {}),
+    }
+  }), [attachments, imageDraftOf, t])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -838,6 +860,7 @@ export function InputBar({
                 labels={attachmentRailLabels(t)}
                 onOpen={(item) => { setPreview(item.attachment) }}
                 onRemove={(item) => { removeImage?.(item.attachment.id) }}
+                onRetry={(item) => { retryImage?.(item.attachment.id) }}
               />
             )}
           </div>

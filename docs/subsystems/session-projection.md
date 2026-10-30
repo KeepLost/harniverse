@@ -54,6 +54,13 @@ interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    * into garbage. Non-negative integer.
    */
   stateVersion: number
+  /**
+   * Whether this key belongs in summary rows (`session.list`, `subagent.history`
+   * pages). `false` opts the key out — heavy list-shaped values stay off the
+   * listing wire while every open face (history tail baseline, `session/projection`
+   * push frames, explicit key reads) keeps serving them. Default `true`.
+   */
+  summary?: boolean
 }
 ```
 
@@ -120,10 +127,12 @@ The persisted projection cache service. Opens the `session_projcache` domain at 
  * paths (the history tail baseline, {@link coldSnapshot}) supersede these
  * values whenever a session is actually opened.
  * @param meta - the listed session's header (identity witness; no log read).
+ * @param keys - optional summary subset; when given, only these keys are
+ *   served (the `session.list` summary selection).
  * @returns the cut (`asOfSeq` = lowest served-row watermark), or
  *   `undefined` when no usable row exists for this lifecycle.
  */
-cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined
+cachedSnapshot(meta: SessionHeader, keys?: ReadonlySet<string>): ProjectionSnapshot | undefined
 
 /**
  * Durably checkpoint one live session NOW (both mandatory points call
@@ -159,7 +168,7 @@ async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnaps
 
 Types: [Session](session.md) · [SessionHeader](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../packages/session/session-projection-cache/src/index.ts)
+Source: [`packages/session/session-projection-cache/src/index.ts:72`](../../packages/session/session-projection-cache/src/index.ts)
 
 <a id="ctxsessionprojections--sessionprojectionregistry"></a>
 
@@ -177,6 +186,16 @@ Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../pack
  * @returns the exact disposer that unregisters this unit.
  */
 register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void
+
+/**
+ * Keys a summary row may carry: every registered key whose definition does
+ * not opt out with `summary: false` (the heavy list-shaped values stay off
+ * the `session.list` / `subagent.history` wire; every open face keeps
+ * serving them). Rebuilt per call — equivalent to being stable between
+ * registration changes.
+ * @returns the summary key set for the currently registered units.
+ */
+summaryKeys(): ReadonlySet<string>
 
 /**
  * Subscribe to the change feed. The registration is an effect on the
@@ -284,5 +303,5 @@ hydrate( session: Session, checkpoint: ProjectionCheckpoint, events: readonly Se
 
 Types: [Session](session.md) · [SessionEvent](session.md)
 
-Source: [`packages/session/session-projection/src/index.ts:178`](../../packages/session/session-projection/src/index.ts)
+Source: [`packages/session/session-projection/src/index.ts:186`](../../packages/session/session-projection/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -245,6 +245,7 @@ export class PlanModeController extends Service {
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.register<'plan', PlanUnitState>({
         key: 'plan',
+        summary: false,
         schema: planProjectionSchema,
         init: () => ({ active: false, wanted: null }),
         apply: (state, event) => {

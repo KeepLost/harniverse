@@ -171,6 +171,11 @@ export interface SessionProjectionsBlock {
 export type PromptContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
+  /**
+   * A prior image staging receipt (`POST /api/attachment/upload-image`); the
+   * host verifies the referenced object instead of re-admitting encoded bytes.
+   */
+  | { type: 'image'; ref: ImageAttachmentRef }
   /** A prior upload receipt (POST /api/attachment/upload) admitted as prompt content. */
   | { type: 'file'; attachmentId: string; bytes: number; name?: string; mediaType?: string }
 
@@ -494,12 +499,15 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId; agentProfile?: string }>>
 
   /**
-   * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.
-   * Browser callers attach their current IANA zone;
-   * the Host validates, canonicalizes, and records it on that exact user message. Omission remains
-   * valid for non-browser callers. Session-backed subagents reject with `agent-busy` and use
-   * `subagent.prompt`. The response identifies the exact admitted inbox message;
-   * slash commands use the separate command API and never enter this method.
+   * Sends text and images to an ordinary session Agent after durable host
+   * admission: image parts carry encoded bytes or a staging receipt from
+   * `POST /api/attachment/upload-image`, which the Host verifies against
+   * storage instead of re-admitting. Browser callers attach their current IANA
+   * zone; the Host validates, canonicalizes, and records it on that exact user
+   * message. Omission remains valid for non-browser callers. Session-backed
+   * subagents reject with `agent-busy` and use `subagent.prompt`. The response
+   * identifies the exact admitted inbox message; slash commands use the
+   * separate command API and never enter this method.
    */
   prompt(request: RpcRequest<{
     sessionId: SessionId

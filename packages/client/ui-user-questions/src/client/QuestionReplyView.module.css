@@ -1,0 +1,145 @@
+/* Right-aligned column over the user-message geometry (ui-conversation
+   MessageItem keeps the canonical rules; these mirror its tokens without
+   importing that package's internals). */
+.row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+  max-width: min(calc(var(--dsh-chat-content-width, 748px) * 0.702), 82%);
+}
+
+/* Same bubble surface as an ordinary user message. */
+.bubble {
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: 22px;
+  background: var(--dsw-surface-bubble);
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsw-content-font-size, 16px);
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.bubble,
+.bubble * {
+  box-sizing: border-box;
+}
+
+/* The collapsed face: caret, label, and the chosen answers in two lines. */
+.toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.caret {
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.label {
+  font-weight: 500;
+}
+
+.summary {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.text,
+.details {
+  margin: 8px 0 0;
+}
+
+.details > div + div {
+  margin-top: 12px;
+}
+
+.question {
+  display: grid;
+  gap: 3px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.header {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.answer {
+  margin: 4px 0 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding-right: 4px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.time {
+  padding-right: 4px;
+  font-size: 13px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.action svg {
+  width: 15px;
+  height: 15px;
+}
+
+@media (hover: hover) {
+  .action:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-secondary);
+  }
+}

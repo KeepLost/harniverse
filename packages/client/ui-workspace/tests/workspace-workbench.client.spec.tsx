@@ -110,6 +110,53 @@ function historyCommit(index: number) {
   }
 }
 
+/**
+ * Record every strip `scrollTo` as [left, inline `scroll-behavior`]: `auto`
+ * marks the one-shot jump, empty the stylesheet's glide. The stub applies the
+ * offset to `scrollLeft` as a browser would, so a later visibility check reads
+ * it back.
+ */
+function stubStripScrollTo(): { writes: (readonly [number | undefined, string])[]; restore: () => void } {
+  const writes: (readonly [number | undefined, string])[] = []
+  Object.defineProperty(Element.prototype, 'scrollTo', {
+    configurable: true,
+    writable: true,
+    value(this: Element, options: ScrollToOptions) {
+      writes.push([options.left, (this as HTMLElement).style.scrollBehavior])
+      this.scrollLeft = options.left ?? 0
+    },
+  })
+  return { writes, restore: () => { Reflect.deleteProperty(Element.prototype, 'scrollTo') } }
+}
+
+/**
+ * Lay the strip out synthetically: the strip window spans 300px over 900px of
+ * chips, each 140 wide at 150px intervals, so the third chip onward sits past
+ * the right edge. `afterEach`'s `vi.restoreAllMocks()` restores the accessors.
+ */
+function stubStripGeometry(): void {
+  const chipIndex = (element: HTMLElement): number => Number(element.id.slice('workspace-workbench-tab-'.length))
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.getAttribute('role') === 'tablist' ? 300 : 0
+  })
+  vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.getAttribute('role') === 'tablist' ? 900 : 0
+  })
+  vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.getAttribute('role') === 'tab' ? chipIndex(this) * 150 : 0
+  })
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.getAttribute('role') === 'tab' ? 140 : 0
+  })
+}
+
+/** Six text tabs whose ids double as their chip positions under the stub above. */
+function stripTabs() {
+  return ['0', '1', '2', '3', '4', '5'].map(id => (
+    { id, path: `f${id}.txt`, title: `F${id}`, kind: 'text' as const, loading: false }
+  ))
+}
+
 type Services = Pick<WorkspaceWorkbenchProps,
   | 'listFiles' | 'searchFiles' | 'readFile' | 'readBinaryFile'
   | 'gitStatus' | 'gitCommits' | 'gitDiff' | 'gitCommitFiles' | 'gitCommitDiff'
@@ -606,6 +653,83 @@ describe('workbench presentation units', () => {
     view.rerender(<TabStrip tabs={[]} activeTabId={null} t={t} onSelect={onSelect} onClose={onClose} />)
     await waitFor(() => { expect(document.activeElement).toBe(screen.getByRole('tablist')) })
     expect(onClose).toHaveBeenCalledWith('b')
+  })
+
+  it('scrolls the strip toward the active chip on selection change', () => {
+    const { writes, restore } = stubStripScrollTo()
+    try {
+      stubStripGeometry()
+      const tabs = stripTabs()
+      const view = render(<TabStrip tabs={tabs} activeTabId="0" t={t} onSelect={vi.fn()} onClose={vi.fn()} />)
+      // The active chip already sits at the strip's start; a first placement moves nothing.
+      expect(writes).toEqual([])
+      view.rerender(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} />)
+      // The chip at 600..740 clears the 8px inset past the 300px window: glide (no inline override).
+      expect(writes).toEqual([[448, '']])
+      view.rerender(<TabStrip tabs={tabs} activeTabId="1" t={t} onSelect={vi.fn()} onClose={vi.fn()} />)
+      // Back to a chip left of the window the glide opened: glide to its left edge.
+      expect(writes.slice(1)).toEqual([[142, '']])
+    } finally {
+      restore()
+    }
+  })
+
+  it('continues a remounted strip from its account\'s recorded offset and jumps a first placement to the chip', () => {
+    const { writes, restore } = stubStripScrollTo()
+    try {
+      stubStripGeometry()
+      const instance = createWorkspaceWorkbenchStore().create()
+      instance.actions.ensureWorkspace('w')
+      const account = instance.getSnapshot().byWorkspace['w']
+      if (account === undefined) throw new Error('expected the ensured account')
+      const tabs = stripTabs()
+      // First placement, no recorded offset: jump (inline auto) straight to the active chip.
+      const first = render(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} account={account} />)
+      expect(writes).toEqual([[448, 'auto']])
+      // The user wheeled back before the placement switched; unmount records that stand.
+      first.container.querySelector<HTMLElement>('[role="tablist"]')!.scrollLeft = 10
+      first.unmount()
+      // The remounted strip restores the 10 under a jump, then glides only the remaining distance.
+      render(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} account={account} />)
+      expect(writes.slice(1)).toEqual([[10, 'auto'], [448, '']])
+      // A remount whose recorded offset equals the fresh strip's scrollLeft skips
+      // the no-op jump and only glides to the active chip.
+      const other = instance.getSnapshot().byWorkspace['w2'] === undefined
+        ? (instance.actions.ensureWorkspace('w2'), instance.getSnapshot().byWorkspace['w2']!)
+        : instance.getSnapshot().byWorkspace['w2']!
+      const zero = render(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} account={other} />)
+      zero.container.querySelector<HTMLElement>('[role="tablist"]')!.scrollLeft = 0
+      zero.unmount()
+      render(<TabStrip tabs={tabs} activeTabId="4" t={t} onSelect={vi.fn()} onClose={vi.fn()} account={other} />)
+      expect(writes.slice(4)).toEqual([[448, '']])
+    } finally {
+      restore()
+    }
+  })
+
+  it('moves nothing on a first placement whose chip already sits fully inside the window', () => {
+    const { writes, restore } = stubStripScrollTo()
+    try {
+      stubStripGeometry()
+      const tabs = stripTabs()
+      // Chip 1 (150..290) clears the 8px insets of the 300px window: in view, no write.
+      render(<TabStrip tabs={tabs} activeTabId="1" t={t} onSelect={vi.fn()} onClose={vi.fn()} />)
+      expect(writes).toEqual([])
+    } finally {
+      restore()
+    }
+  })
+
+  it('moves nothing while no tab is selected', () => {
+    const { writes, restore } = stubStripScrollTo()
+    try {
+      stubStripGeometry()
+      const tabs = stripTabs()
+      render(<TabStrip tabs={tabs} activeTabId="none-of-them" t={t} onSelect={vi.fn()} onClose={vi.fn()} />)
+      expect(writes).toEqual([])
+    } finally {
+      restore()
+    }
   })
 
   it('dispatches every preview renderer and its loading, error, unavailable, and notice chrome', async () => {

@@ -485,6 +485,11 @@
     - id: ui-secret-mask
       name: '@deepseek-ai/dsh-client-ui-secret-mask'
 
+    # Blockquote presentation in sent user text; drawing only, the logged
+    # text, copy actions, and model input keep the original characters.
+    - id: ui-message-quotes
+      name: '@deepseek-ai/dsh-client-ui-message-quotes'
+
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'

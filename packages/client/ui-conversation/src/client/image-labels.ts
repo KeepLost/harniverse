@@ -146,9 +146,45 @@ export function uploadErrorText(t: Translate<ConversationKey>, error: unknown): 
 }
 
 /**
+ * Product copy for one failed image staging upload (the rail overlay's error
+ * line). Route-answered failures are Host refusals (remove-only); transport
+ * failures keep their raw message or a generic network line and offer a retry.
+ * @param t - the conversation-namespace translate.
+ * @param error - the staging transport rejection.
+ * @returns the localized failure line and whether the Host refused the image.
+ */
+export function imageUploadErrorText(t: Translate<ConversationKey>, error: unknown): { text: string; refused: boolean } {
+  if (typeof error !== 'object' || error === null) return { text: t('image.networkError'), refused: false }
+  const wire = error as { code?: unknown; status?: unknown }
+  // A parsed route body is a Host refusal; the transport's own
+  // authentication-recovery code stays a retryable transport failure.
+  if (typeof wire.code === 'string' && wire.code !== 'authentication-required') {
+    switch (wire.code) {
+      case 'IMAGE_TOO_LARGE':
+        return { text: t('image.uploadTooLarge'), refused: true }
+      case 'UNSUPPORTED_IMAGE_TYPE':
+      case 'INVALID_IMAGE':
+      case 'IMAGE_TYPE_MISMATCH':
+      case 'INVALID_IMAGE_BASE64':
+        return { text: t('image.unsupportedType'), refused: true }
+      case 'IMAGE_TOO_MANY_PIXELS':
+        return { text: t('image.tooManyPixels'), refused: true }
+      default:
+        return { text: t('image.uploadRefused', { reason: wire.code }), refused: true }
+    }
+  }
+  if (wire.status === 403) return { text: t('image.forbidden'), refused: false }
+  if (wire.status === 0) return { text: t('image.networkError'), refused: false }
+  return {
+    text: error instanceof Error && error.message !== '' ? error.message : t('image.networkError'),
+    refused: false,
+  }
+}
+
+/**
  * Resolve the composer draft-image rail strings.
  * @param t - the conversation-namespace translate.
- * @returns the rail group, open-tooltip, and paging-arrow labels.
+ * @returns the rail group, open-tooltip, paging-arrow, and uploading labels.
  */
 export function attachmentRailLabels(t: Translate<ConversationKey>): AttachmentRailLabels {
   return {
@@ -156,5 +192,6 @@ export function attachmentRailLabels(t: Translate<ConversationKey>): AttachmentR
     open: t('image.openOriginal'),
     scrollLeft: t('image.scrollLeft'),
     scrollRight: t('image.scrollRight'),
+    uploading: t('image.uploading'),
   }
 }

@@ -233,6 +233,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register<'todos', TodoItem[] | null>({
       key: 'todos',
+      summary: false,
       schema: todosProjectionSchema,
       init: () => null,
       apply: (state, event) => {

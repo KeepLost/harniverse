@@ -10,6 +10,10 @@ A request whose single question declares a presentation intent renders as that i
 
 Selection state is local to a component keyed by the request rpcId. A replay with the same id preserves a still-mounted draft, while `question/resolved` from the host removes the composer. The host remains authoritative: successful HTTP delivery does not remove pending state locally.
 
+Long question text previews under a three-line CSS clamp with an aria-labeled expand/collapse control; option descriptions wrap as their own block with the same per-row disclosure, and every expansion resets when the step pager navigates. A question without options stays answerable through the custom answer, and no question length hides the submission control.
+
+Answered batches stay visible in the transcript: the plugin registers the `question-reply` conversation chat node, which pairs a settled `ask_user_question` call with its complete answer batch and renders a right-aligned user-style bubble — collapsible with a compact answer summary, copy-to-clipboard, and the settle time. The node hides while the call is pending and never renders a partial batch.
+
 Composer chrome copy (pager, buttons, placeholders, validation feedback) is bilingual: the plugin registers zh/en dictionaries under the `question` namespace of `dsh-client-locale` and hands the entry its bound translator plus the locale snapshot source through the inject face, so a locale switch re-renders a mounted composer. Question and option text arrives from the model and renders verbatim; carrier failure messages also display untranslated.
 
 ## Model Experience

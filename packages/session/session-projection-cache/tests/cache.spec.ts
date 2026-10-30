@@ -356,6 +356,15 @@ describe('SessionProjectionCache cold read', () => {
     expect(cache.cachedSnapshot(headerOf(id, 0))).toBeUndefined()
   })
 
+  it('cachedSnapshot serves only the requested summary key subset', async () => {
+    const pool = new MemoryMediaPool()
+    seedRow(pool, 'subset', { ver: 1, seq: 3, val: { marks: ['a'] } })
+    const { cache } = await harness({ pool })
+    const header = headerOf(SessionId('subset'))
+    expect(cache.cachedSnapshot(header, new Set(['cache-test/marks']))?.values).toEqual({ 'cache-test/marks': { marks: ['a'] } })
+    expect(cache.cachedSnapshot(header, new Set(['other/key']))).toBeUndefined()
+  })
+
   it('dates an empty stored log at -1 in the zero-units topology', async () => {
     const pool = new MemoryMediaPool()
     const logs = new Map([['empty', [] as SessionEvent[]]])

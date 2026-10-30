@@ -19,7 +19,7 @@ import type { SubmitImageAttachment } from '@deepseek-ai/dsh-client-ui-input-tri
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './contract/input-blocks.ts'
-import type { DraftAttachmentId, SessionInputResolver } from './contract/input.ts'
+import type { DraftAttachmentId, DraftedImagePart, SessionInputResolver } from './contract/input.ts'
 import { sentUserTextRules } from './sent-user-text.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
@@ -179,10 +179,11 @@ export class ConversationController extends Service implements IConversation {
    * Submit ordered draft images and uploaded files with text through one host
    * admission. File parts precede image parts, which precede the text part —
    * the order the Host's handle-text blocks and image blocks then carry into
-   * the durable message.
+   * the durable message. A staged image cites its durable reference on the
+   * wire (no re-encoding); an unstaged one falls back to inline encoding.
    * @param session - target session.
    * @param text - serialized prompt text.
-   * @param imageIds - ordered draft-local attachment ids.
+   * @param images - ordered draft-local images with their staged references.
    * @param fileRefs - uploaded-file receipts in chip order.
    * @param mode - queue or steer delivery selected by composer policy.
    * @param signal - optional cancellation for image encoding and Host admission.
@@ -191,14 +192,14 @@ export class ConversationController extends Service implements IConversation {
   async sendSession(
     session: SessionFace,
     text: string,
-    imageIds: readonly DraftAttachmentId[],
+    images: readonly DraftedImagePart[],
     fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted()
-    const attachments = this.draftImages(imageIds)
-    if (attachments.length !== imageIds.length) {
+    const attachments = this.draftImages(images.map(image => image.id))
+    if (attachments.length !== images.length) {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
     const files = fileRefs.map(ref => ({
@@ -208,7 +209,13 @@ export class ConversationController extends Service implements IConversation {
       ...ref.name === undefined ? {} : { name: ref.name },
       ...ref.mediaType === undefined ? {} : { mediaType: ref.mediaType },
     }))
-    const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file), signal)
+    const uploaded = await Promise.all(images.map(async (image, index) => {
+      // The length equality above guarantees the registry resolved this id.
+      const attachment = attachments[index] as ComposerAttachment
+      return image.ref !== undefined
+        ? { type: 'image' as const, ref: image.ref }
+        : { type: 'image' as const, ...await this.encodeImage(attachment.file, signal) }
+    }))
     const content = [
       ...files,
       ...uploaded,
@@ -408,17 +415,6 @@ export class ConversationController extends Service implements IConversation {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
     return sessions
-  }
-
-  /** Convert browser files to canonical base64 prompt parts. */
-  private serializeImages(
-    images: readonly File[],
-    signal?: AbortSignal,
-  ): Promise<Parameters<SessionFace['prompt']>[0]> {
-    return Promise.all(images.map(async file => ({
-      type: 'image' as const,
-      ...await this.encodeImage(file, signal),
-    })))
   }
 
   /** Encode one browser File with cancellation checks around its read. */

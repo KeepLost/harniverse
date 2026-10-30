@@ -4,8 +4,8 @@ import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { FileAttachmentRef, SaveFileAttachment } from '@deepseek-ai/dsh-attachment'
-import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef, SaveFileAttachment, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import {
   ALL_AUTHENTICATION_CAPABILITIES,
   type AuthenticationDecision,
@@ -13,7 +13,7 @@ import {
   type InboundAuthentication,
 } from '@deepseek-ai/dsh-authentication'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { registerAttachmentRoutes, UPLOAD_PATH } from '../src/attachment-routes.ts'
+import { registerAttachmentRoutes, UPLOAD_IMAGE_PATH, UPLOAD_PATH } from '../src/attachment-routes.ts'
 
 const OPERATE_PRINCIPAL: AuthenticationPrincipal = { kind: 'bypass', capabilities: ['harniverse.operate'] }
 const OBSERVER_PRINCIPAL: AuthenticationPrincipal = { kind: 'bypass', capabilities: ['harniverse.observe'] }
@@ -91,6 +91,7 @@ function responseRecorder(): { res: ServerResponse; state: { status?: number; bo
 
 interface Mounted {
   route: WebRoute
+  imageRoute: WebRoute
   dispose: () => Promise<void>
 }
 
@@ -113,8 +114,12 @@ async function mounted(principal: AuthenticationPrincipal, failWith?: () => neve
     apply: (pluginCtx: Context) => { registerAttachmentRoutes(pluginCtx, [], []) },
   })
   await fiber.await()
-  expect(routes).toHaveLength(1)
-  return { route: routes[0]!, dispose: () => fiber.dispose() }
+  expect(routes).toHaveLength(2)
+  const route = routes.find(candidate => candidate.path === UPLOAD_PATH)
+  const imageRoute = routes.find(candidate => candidate.path === UPLOAD_IMAGE_PATH)
+  expect(route).toBeDefined()
+  expect(imageRoute).toBeDefined()
+  return { route: route!, imageRoute: imageRoute!, dispose: () => fiber.dispose() }
 }
 
 describe('attachment upload route', () => {
@@ -337,6 +342,246 @@ describe('attachment upload route', () => {
 
   it('is described by the exported upload path under the /api prefix', () => {
     expect(UPLOAD_PATH).toBe('/api/attachment/upload')
+    expect(UPLOAD_IMAGE_PATH).toBe('/api/attachment/upload-image')
     expect(ALL_AUTHENTICATION_CAPABILITIES).toContain('harniverse.operate')
+  })
+})
+
+const IMAGE_REF: ImageAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+  mediaType: 'image/png',
+  bytes: 4,
+  width: 1,
+  height: 1,
+  name: '图.png',
+}
+
+/** Mutable image-store capture the image specs reset between cases. */
+const imageState = {
+  validations: [] as SaveImageAttachment[],
+  saves: [] as SaveImageAttachment[],
+}
+
+function imageLimits(over: Partial<ImageAttachmentLimits> = {}): ImageAttachmentLimits {
+  return {
+    maxImageBytes: 1024,
+    maxImagesPerMessage: 4,
+    maxMessageImageBytes: 512,
+    maxImagePixels: 1_000_000,
+    mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+    ...over,
+  }
+}
+
+type ImageRefusal = (input: SaveImageAttachment) => void
+
+/**
+ * Mount the routes with a controllable image store: `validate`/`save` run in
+ * route order and record every input; either may refuse with AttachmentError.
+ */
+async function mountedImage(options: {
+  limits?: ImageAttachmentLimits
+  validate?: ImageRefusal
+  save?: ImageRefusal
+  store?: boolean
+  principal?: AuthenticationPrincipal
+} = {}): Promise<{ route: WebRoute; dispose: () => Promise<void> }> {
+  const ctx = new Context()
+  const routes: WebRoute[] = []
+  ctx.provide('webServer', {
+    register(route: WebRoute) { routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) } },
+    registerUpgrade: () => () => {},
+    tapIndex: () => () => {},
+    port: 0, host: '127.0.0.1', protocol: 'http:',
+  })
+  provideAuthentication(ctx, options.principal ?? OPERATE_PRINCIPAL)
+  if (options.store !== false) {
+    ctx.provide('attachments', {
+      imageLimits: options.limits ?? imageLimits(),
+      fileLimits: { maxFileBytes: 1024 },
+      validateImage: (input: SaveImageAttachment) => {
+        imageState.validations.push(input)
+        options.validate?.(input)
+        return Promise.resolve()
+      },
+      saveImage: (input: SaveImageAttachment) => {
+        imageState.saves.push(input)
+        options.save?.(input)
+        return Promise.resolve(IMAGE_REF)
+      },
+    })
+  }
+  const fiber = ctx.plugin({
+    name: 'attachment-image-routes-test',
+    // Without a store the plugin must not wait on the missing service before
+    // registering routes (the 501 path is the handler's own refusal).
+    inject: options.store === false ? ['webServer', 'authentication'] : ['webServer', 'authentication', 'attachments'],
+    apply: (pluginCtx: Context) => { registerAttachmentRoutes(pluginCtx, [], []) },
+  })
+  await fiber.await()
+  const route = routes.find(candidate => candidate.path === UPLOAD_IMAGE_PATH)
+  expect(route).toBeDefined()
+  return { route: route!, dispose: () => fiber.dispose() }
+}
+
+function imageUploadRequest(
+  body: string | Buffer[],
+  headers: Record<string, string | string[] | undefined> = {},
+): IncomingMessage {
+  const source = Array.isArray(body)
+    ? Readable.from(body) as unknown as IncomingMessage
+    : Readable.from([Buffer.from(body)]) as unknown as IncomingMessage
+  Object.assign(source, {
+    url: UPLOAD_IMAGE_PATH,
+    method: 'POST',
+    headers: { host: '127.0.0.1:3080', 'content-type': 'image/png', ...headers },
+    socket: { remoteAddress: '127.0.0.1' },
+  })
+  return source
+}
+
+describe('image staging upload route', () => {
+  it('validates then saves the staged image and returns the durable reference', async () => {
+    imageState.validations = []
+    imageState.saves = []
+    const { route, dispose } = await mountedImage()
+    const { res, state } = responseRecorder()
+    await route.handler(imageUploadRequest('data', { 'x-attachment-name': encodeURIComponent('图.png') }), res)
+    expect(state.status).toBe(200)
+    expect(JSON.parse(state.body!)).toEqual(IMAGE_REF)
+    expect(imageState.validations).toHaveLength(1)
+    expect(imageState.saves).toHaveLength(1)
+    expect(imageState.validations[0]).toEqual(imageState.saves[0])
+    expect(imageState.validations[0]!.mediaType).toBe('image/png')
+    expect(imageState.validations[0]!.name).toBe('图.png')
+    expect(Buffer.from(imageState.validations[0]!.data).toString()).toBe('data')
+    await dispose()
+  })
+
+  it('reads at most the smaller of the per-image and per-message byte limits', async () => {
+    imageState.validations = []
+    imageState.saves = []
+    // maxImageBytes 1024 but maxMessageImageBytes 512: the read stops at 512.
+    const { route, dispose } = await mountedImage({ limits: imageLimits({ maxMessageImageBytes: 512 }) })
+    const preflight = responseRecorder()
+    await route.handler(imageUploadRequest('data', { 'content-length': '600' }), preflight.res)
+    expect(preflight.state.status).toBe(413)
+    expect(JSON.parse(preflight.state.body!)).toMatchObject({ code: 'IMAGE_TOO_LARGE' })
+    expect(imageState.validations).toHaveLength(0)
+
+    const midStream = responseRecorder()
+    await route.handler(imageUploadRequest([Buffer.alloc(384, 1), Buffer.alloc(384, 1)]), midStream.res)
+    expect(midStream.state.status).toBe(413)
+    expect(imageState.saves).toHaveLength(0)
+
+    // Raising the per-message budget moves the bound back to the per-image cap.
+    const wider = await mountedImage({ limits: imageLimits({ maxMessageImageBytes: 2048 }) })
+    const accepted = responseRecorder()
+    await wider.route.handler(imageUploadRequest('data', { 'content-length': '600' }), accepted.res)
+    expect(accepted.state.status).toBe(200)
+    expect(imageState.saves).toHaveLength(1)
+    await wider.dispose()
+    await dispose()
+  })
+
+  it('refuses media types outside the deployment list, including a missing declaration', async () => {
+    imageState.validations = []
+    const { route, dispose } = await mountedImage()
+    const unsupported = responseRecorder()
+    await route.handler(imageUploadRequest('data', { 'content-type': 'image/bmp' }), unsupported.res)
+    expect(unsupported.state.status).toBe(400)
+    expect(JSON.parse(unsupported.state.body!)).toMatchObject({ code: 'UNSUPPORTED_IMAGE_TYPE' })
+
+    const undeclared = responseRecorder()
+    await route.handler(imageUploadRequest('data', { 'content-type': undefined }), undeclared.res)
+    expect(undeclared.state.status).toBe(400)
+    expect(JSON.parse(undeclared.state.body!)).toMatchObject({ code: 'UNSUPPORTED_IMAGE_TYPE' })
+    expect(imageState.validations).toHaveLength(0)
+    await dispose()
+  })
+
+  it('maps admission refusals onto stable HTTP statuses with the error code body', async () => {
+    imageState.saves = []
+    const invalid = await mountedImage({
+      validate: () => { throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE') },
+    })
+    const undecodable = responseRecorder()
+    await invalid.route.handler(imageUploadRequest('data'), undecodable.res)
+    expect(undecodable.state.status).toBe(400)
+    expect(JSON.parse(undecodable.state.body!)).toEqual({ code: 'INVALID_IMAGE', message: 'Unsupported or malformed image data.' })
+    expect(imageState.saves).toHaveLength(0)
+    await invalid.dispose()
+
+    const pixels = await mountedImage({
+      validate: () => { throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS') },
+    })
+    const huge = responseRecorder()
+    await pixels.route.handler(imageUploadRequest('data'), huge.res)
+    expect(huge.state.status).toBe(400)
+    expect(JSON.parse(huge.state.body!)).toMatchObject({ code: 'IMAGE_TOO_MANY_PIXELS' })
+    await pixels.dispose()
+
+    const oversized = await mountedImage({
+      validate: () => { throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE') },
+    })
+    const tooLarge = responseRecorder()
+    await oversized.route.handler(imageUploadRequest('data'), tooLarge.res)
+    expect(tooLarge.state.status).toBe(413)
+    expect(JSON.parse(tooLarge.state.body!)).toMatchObject({ code: 'IMAGE_TOO_LARGE' })
+    await oversized.dispose()
+
+    const unclassified = await mountedImage({
+      save: () => { throw new AttachmentError('Storage refused the write.', 'ATTACHMENT_WRITE_FAILED') },
+    })
+    const failed = responseRecorder()
+    await unclassified.route.handler(imageUploadRequest('data'), failed.res)
+    expect(failed.state.status).toBe(500)
+    expect(JSON.parse(failed.state.body!)).toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
+    await unclassified.dispose()
+  })
+
+  it('reports an interrupted request stream without saving anything', async () => {
+    imageState.saves = []
+    const { route, dispose } = await mountedImage()
+    const { res, state } = responseRecorder()
+    const request = new Readable({ read() {} }) as unknown as IncomingMessage
+    Object.assign(request, {
+      url: UPLOAD_IMAGE_PATH,
+      method: 'POST',
+      headers: { host: '127.0.0.1:3080', 'content-type': 'image/png' },
+      socket: { remoteAddress: '127.0.0.1' },
+    })
+    const pending = route.handler(request, res)
+    await new Promise((resolve) => { setImmediate(resolve) })
+    request.emit('error', new Error('connection reset'))
+    await pending
+    expect(state.status).toBe(500)
+    expect(state.body).toBe('upload failed')
+    expect(imageState.saves).toHaveLength(0)
+    await dispose()
+  })
+
+  it('keeps the trust fence, the operate capability, and the store requirement', async () => {
+    imageState.validations = []
+    const { route, dispose } = await mountedImage()
+    const untrusted = responseRecorder()
+    await route.handler(imageUploadRequest('data', { host: '10.0.0.9:8080' }), untrusted.res)
+    expect(untrusted.state.status).toBe(403)
+    expect(untrusted.state.body).toBe('forbidden')
+    expect(imageState.validations).toHaveLength(0)
+    await dispose()
+
+    const observer = await mountedImage({ principal: OBSERVER_PRINCIPAL })
+    const observed = responseRecorder()
+    await observer.route.handler(imageUploadRequest('data'), observed.res)
+    expect(observed.state.status).toBe(403)
+    expect(imageState.validations).toHaveLength(0)
+    await observer.dispose()
+
+    const noStore = await mountedImage({ store: false })
+    const missing = responseRecorder()
+    await noStore.route.handler(imageUploadRequest('data'), missing.res)
+    expect(missing.state.status).toBe(501)
+    await noStore.dispose()
   })
 })

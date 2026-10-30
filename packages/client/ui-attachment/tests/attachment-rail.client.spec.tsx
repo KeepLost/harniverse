@@ -69,6 +69,51 @@ describe('AttachmentRail', () => {
     expect(onRemove).toHaveBeenCalledWith(items[1])
   })
 
+  it('shows an uploading item with a determinate progress bar and busy thumbnail', () => {
+    const onRetry = vi.fn()
+    const uploading = { ...item('a'), status: 'uploading' as const, progress: 0.25 }
+    const view = render(
+      <AttachmentRail
+        items={[uploading]}
+        labels={{ ...labels, uploading: '图片上传中' }}
+        onOpen={vi.fn()}
+        onRemove={vi.fn()}
+        onRetry={onRetry}
+      />,
+    )
+    const bar = view.getByRole('progressbar', { name: '图片上传中' })
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe('25%')
+    expect(view.container.querySelector('[data-image-item="uploading"]')).toBeTruthy()
+    // An uploading thumbnail keeps its open behavior; it is not a retry control.
+    fireEvent.click(view.getAllByTitle('查看原图')[0]!)
+    expect(onRetry).not.toHaveBeenCalled()
+  })
+
+  it('explains a Host refusal through a warning tooltip without a retry control', () => {
+    const onOpen = vi.fn()
+    const onRetry = vi.fn()
+    const refused = { ...item('a'), status: 'error' as const, refusal: '图片无法上传（INVALID_IMAGE）' }
+    const view = render(
+      <AttachmentRail items={[refused]} labels={labels} onOpen={onOpen} onRemove={vi.fn()} onRetry={onRetry} />,
+    )
+    const thumbnail = view.getByRole('button', { name: '图片无法上传（INVALID_IMAGE）' })
+    expect(thumbnail.title).toBe('图片无法上传（INVALID_IMAGE）')
+    fireEvent.click(thumbnail)
+    expect(onRetry).not.toHaveBeenCalled()
+    expect(onOpen).not.toHaveBeenCalledWith(refused)
+  })
+
+  it('turns a transport failure into its retry control', () => {
+    const onRetry = vi.fn()
+    const failed = { ...item('a'), status: 'error' as const, retryLabel: '重试上传图片 a.png' }
+    const view = render(
+      <AttachmentRail items={[failed]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} onRetry={onRetry} />,
+    )
+    const retry = view.getByRole('button', { name: '重试上传图片 a.png' })
+    fireEvent.click(retry)
+    expect(onRetry).toHaveBeenCalledWith(failed)
+  })
+
   it('shows edge arrows from scroll geometry and pages a viewport at a time', () => {
     const view = render(
       <AttachmentRail items={[item('a'), item('b'), item('c')]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} />,

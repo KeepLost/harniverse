@@ -61,7 +61,7 @@
     "doc-typecheck:contracts-ready": "tsx scripts/doc-typecheck.ts",
     "docs:build": "pnpm --filter @deepseek-ai/website run build && pnpm run verify-doc-site-fragments",
     "docs:build:mpa": "pnpm --filter @deepseek-ai/website exec vitepress build . --mpa && pnpm run verify-doc-site-fragments",
-    "docs:check": "pnpm exec vitest run scripts/project-doc-site.spec.ts scripts/verify-doc-site-fragments.spec.ts && pnpm run docs:build",
+    "docs:check": "pnpm exec vitest run scripts/project-doc-site.spec.ts scripts/verify-doc-site-fragments.spec.ts scripts/verify-doc-site-table-filter.spec.ts && pnpm run docs:build",
     "docs:dev": "pnpm --filter @deepseek-ai/website run dev",
     "docs:preview": "pnpm --filter @deepseek-ai/website run preview",
     "dsh": "node --import tsx/esm apps/cli/src/bin.ts",

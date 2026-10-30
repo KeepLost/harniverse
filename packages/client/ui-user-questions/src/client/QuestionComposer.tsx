@@ -1,8 +1,9 @@
-import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCheckOutline14, IconChevronLeftOutline14, IconChevronRightOutline14,
-  IconCloseOutline16, IconEditOutline16, MarkdownText,
+  Button, IconCheckOutline14, IconChevronDownOutline14, IconChevronLeftOutline14,
+  IconChevronRightOutline14, IconChevronUpOutline14, IconCloseOutline16, IconEditOutline16,
+  MarkdownText, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   PendingQuestion, planReviewOf,
@@ -16,6 +17,16 @@ interface DraftAnswer {
   custom: string
   skipped: boolean
 }
+
+/** Long copy the user expanded on one question: the question itself or an option description by index. */
+interface ExpandedCopy {
+  /** Index of the question the expansions belong to. */
+  readonly index: number
+  /** Expanded copy of that question: `'question'` or an option index. */
+  readonly copies: ReadonlySet<'question' | number>
+}
+
+const NOTHING_EXPANDED: ExpandedCopy['copies'] = new Set()
 
 /**
  * Displayed feedback: validation feedback is stored as a dictionary KEY and
@@ -68,6 +79,7 @@ export function QuestionComposer(props: QuestionComposerProps) {
 }
 
 function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't'>) {
+  const descriptionIdPrefix = useId()
   const questions = pending.questions
   const [index, setIndex] = useState(0)
   const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(() => ({
@@ -75,12 +87,34 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
   })))
   const [busy, setBusy] = useState<'answer' | 'cancel' | null>(null)
   const [error, setError] = useState<Feedback | null>(null)
+  const answerSurface = useRef<HTMLDivElement>(null)
   // index stays in bounds (every setIndex site clamps) and drafts mirrors questions 1:1.
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const question = questions[index]!
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const draft = drafts[index]!
   const hasOptions = (question.options?.length ?? 0) > 0
+  // CSS decides which copy is clipped; only the user's expansions are state,
+  // and they apply only while their question is the one shown.
+  const [expandedCopy, setExpandedCopy] = useState<ExpandedCopy>({ index, copies: NOTHING_EXPANDED })
+  const expanded = expandedCopy.index === index ? expandedCopy.copies : NOTHING_EXPANDED
+
+  const questionToggleLabel = t(expanded.has('question') ? 'text.collapse' : 'text.expand')
+
+  const toggleCopy = (copy: 'question' | number): void => {
+    const copies = new Set(expanded)
+    if (!copies.delete(copy)) copies.add(copy)
+    setExpandedCopy({ index, copies })
+  }
+
+  /** Move to another question: its long copy starts collapsed and the scroll sits at its top. */
+  const moveTo = (next: number): void => {
+    if (next !== index) {
+      setIndex(next)
+      setExpandedCopy({ index: next, copies: NOTHING_EXPANDED })
+      if (answerSurface.current !== null) answerSurface.current.scrollTop = 0
+    }
+  }
 
   const cancelFlow = (): void => {
     setBusy('cancel')
@@ -107,7 +141,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
       return { selected: [label], custom: '', skipped: false }
     })
     if (question.multiSelect !== true && index < questions.length - 1) {
-      setIndex(current => current + 1)
+      moveTo(index + 1)
     }
   }
 
@@ -119,7 +153,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
   const submitDrafts = (values: DraftAnswer[]): void => {
     const missing = values.findIndex(item => !completed(item))
     if (missing >= 0) {
-      setIndex(missing)
+      moveTo(missing)
       setError({ key: 'error.incomplete' })
       return
     }
@@ -149,7 +183,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
       return
     }
     if (index < questions.length - 1) {
-      setIndex(current => current + 1)
+      moveTo(index + 1)
       setError(null)
       return
     }
@@ -183,7 +217,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     setDrafts(nextDrafts)
     setError(null)
     if (index < questions.length - 1) {
-      setIndex(current => current + 1)
+      moveTo(index + 1)
       return
     }
     submitDrafts(nextDrafts)
@@ -195,9 +229,6 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
         <header className={css.header}>
           <div className={css.headingBlock}>
             {question.header !== undefined && <div className={css.eyebrow}>{question.header}</div>}
-            <h2 className={css.title} id={`question-${pending.key}-${String(index)}`}>
-              {question.question}
-            </h2>
           </div>
           <button
             type="button" className={css.iconButton} aria-label={t('nav.cancel')}
@@ -208,7 +239,30 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
           </button>
         </header>
 
-        <div className={css.body} data-question-scroll>
+        <div ref={answerSurface} className={css.body} data-question-scroll>
+          <div className={css.questionTitle} data-expanded={expanded.has('question') || undefined}>
+            <h2
+              className={clsx(css.title, css.titlePreview)}
+              id={`question-${pending.key}-${String(index)}`}
+            >
+              {question.question}
+            </h2>
+            <Tooltip label={questionToggleLabel} side="top">
+              <button
+                type="button"
+                className={clsx(css.iconButton, css.copyToggle, css.questionToggle)}
+                aria-label={questionToggleLabel}
+                aria-expanded={expanded.has('question')}
+                aria-controls={`question-${pending.key}-${String(index)}`}
+                aria-describedby={`question-${pending.key}-${String(index)}`}
+                onClick={() => { toggleCopy('question') }}
+              >
+                {expanded.has('question')
+                  ? <IconChevronUpOutline14 />
+                  : <IconChevronDownOutline14 />}
+              </button>
+            </Tooltip>
+          </div>
           {question.detail !== undefined && (
             <div className={css.detail}><MarkdownText text={question.detail} /></div>
           )}
@@ -216,40 +270,71 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
             {(question.options ?? []).map((option, optionIndex) => {
               const selected = draft.selected.includes(option.label)
               const display = parseRecommendedLabel(option.label)
+              const hasDescription = option.description !== undefined && option.description.trim() !== ''
+              const descriptionExpanded = expanded.has(optionIndex)
+              const descriptionToggleLabel = t(descriptionExpanded ? 'text.collapse' : 'text.expand')
+              const descriptionId = `${descriptionIdPrefix}-question-${String(index)}-option-${String(optionIndex)}-description`
               return (
-                <button
-                  type="button" key={`${option.label}-${String(optionIndex)}`}
-                  className={clsx(css.option, selected && question.multiSelect !== true && css.optionSelected)}
-                  role={question.multiSelect === true ? 'checkbox' : 'radio'}
-                  aria-checked={selected}
-                  aria-label={display.label}
-                  disabled={busy !== null}
-                  onClick={() => { choose(option.label) }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' || !drafts.every(completed)) return
-                    event.preventDefault()
-                    submitDrafts(drafts)
-                  }}
+                <div
+                  key={`${option.label}-${String(optionIndex)}`}
+                  className={clsx(css.optionRow, selected && question.multiSelect !== true && css.optionSelected)}
+                  data-option-row
+                  data-expanded={descriptionExpanded || undefined}
                 >
-                  {question.multiSelect === true
-                    ? (
-                      <span className={clsx(css.checkbox, selected && css.checkboxChecked)} aria-hidden="true">
-                        {selected && <IconCheckOutline14 size={12} />}
+                  <button
+                    type="button"
+                    className={css.option}
+                    role={question.multiSelect === true ? 'checkbox' : 'radio'}
+                    aria-checked={selected}
+                    aria-label={display.label}
+                    aria-describedby={hasDescription ? descriptionId : undefined}
+                    disabled={busy !== null}
+                    onClick={() => { choose(option.label) }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' || !drafts.every(completed)) return
+                      event.preventDefault()
+                      submitDrafts(drafts)
+                    }}
+                  >
+                    {question.multiSelect === true
+                      ? (
+                        <span className={clsx(css.checkbox, selected && css.checkboxChecked)} aria-hidden="true">
+                          {selected && <IconCheckOutline14 size={12} />}
+                        </span>
+                      )
+                      : <span className={css.number}>{optionIndex + 1}</span>}
+                    <span className={css.optionCopy}>
+                      <span className={css.optionLine}>
+                        <span className={css.optionLabel}>{display.label}</span>
+                        {display.recommended && (
+                          <span className={css.badge}>{t('option.recommended')}</span>
+                        )}
                       </span>
-                    )
-                    : <span className={css.number}>{optionIndex + 1}</span>}
-                  <span className={css.optionCopy}>
-                    <span className={css.optionLine}>
-                      <span className={css.optionLabel}>{display.label}</span>
-                      {display.recommended && (
-                        <span className={css.badge}>{t('option.recommended')}</span>
-                      )}
-                      {option.description !== undefined && (
-                        <span className={css.description}>{option.description}</span>
+                      {hasDescription && (
+                        <span id={descriptionId} className={css.description} data-option-description>
+                          {option.description}
+                        </span>
                       )}
                     </span>
-                  </span>
-                </button>
+                  </button>
+                  {hasDescription && (
+                    <Tooltip label={descriptionToggleLabel} side="top">
+                      <button
+                        type="button"
+                        className={clsx(css.iconButton, css.copyToggle, css.descriptionToggle)}
+                        aria-label={descriptionToggleLabel}
+                        aria-expanded={descriptionExpanded}
+                        aria-controls={descriptionId}
+                        aria-describedby={descriptionId}
+                        onClick={() => { toggleCopy(optionIndex) }}
+                      >
+                        {descriptionExpanded
+                          ? <IconChevronUpOutline14 />
+                          : <IconChevronDownOutline14 />}
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
               )
             })}
 
@@ -301,7 +386,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
             <button
               type="button" className={css.iconButton} aria-label={t('nav.prev')}
               disabled={index === 0 || busy !== null}
-              onClick={() => { setIndex(index - 1); setError(null) }}
+              onClick={() => { moveTo(index - 1); setError(null) }}
             >
               <IconChevronLeftOutline14 />
             </button>
@@ -309,7 +394,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
             <button
               type="button" className={css.iconButton} aria-label={t('nav.next')}
               disabled={index === questions.length - 1 || busy !== null}
-              onClick={() => { setIndex(index + 1); setError(null) }}
+              onClick={() => { moveTo(index + 1); setError(null) }}
             >
               <IconChevronRightOutline14 />
             </button>

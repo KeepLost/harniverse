@@ -117,6 +117,74 @@ describe('connection client apply', () => {
     expect(handle.target.getSnapshot().kind).toBe('remote')
   })
 
+  it('stages an image upload through the connection face with optional hooks', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const staged = await handle.uploadImage({ data: new Uint8Array([1, 2]), mediaType: 'image/png', name: 'a.png' })
+    expect(staged.mediaType).toBe('image/png')
+    const hooks = { onProgress: (_: { loaded: number }) => {} }
+    await handle.uploadImage({ data: new Uint8Array([3]), mediaType: 'image/png' }, hooks)
+  })
+
+  it('routes an image upload to the web transport when no carrier is set', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
+    class ImageXhr {
+      static latest: ImageXhr | undefined
+      constructor() { ImageXhr.latest = this }
+      upload = { onprogress: null as ((event: ProgressEvent) => void) | null }
+      onload: (() => void) | null = null
+      onabort: (() => void) | null = null
+      onerror: (() => void) | null = null
+      responseType = ''
+      status = 200
+      responseText = JSON.stringify({
+        attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 2, mediaType: 'image/png', width: 1, height: 1,
+      })
+      readonly open = vi.fn()
+      setRequestHeader(): void {}
+      send(): void { this.onload?.() }
+      abort(): void { this.onabort?.() }
+    }
+    vi.stubGlobal('XMLHttpRequest', ImageXhr)
+    try {
+      const handle = await mount()
+      const ref = await handle.uploadImage({ data: new Uint8Array([1]), mediaType: 'image/png' })
+      expect(ref).toMatchObject({ bytes: 2, mediaType: 'image/png' })
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('gates image upload progress on the generation signal through the face', async () => {
+    const receipt = Promise.withResolvers<import('@deepseek-ai/dsh-attachment').ImageAttachmentRef>()
+    let hooks: import('../src/client/upload.ts').FileUploadHooks | undefined
+    const handle = await mount(authenticationDouble(), {
+      api: new FixtureApiClient(),
+      uploadImage: (_request: unknown, next: import('../src/client/upload.ts').FileUploadHooks) => {
+        hooks = next
+        return receipt.promise
+      },
+    } as never)
+    const progress: number[] = []
+    const pending = handle.uploadImage(
+      { data: new Uint8Array([1]), mediaType: 'image/png' },
+      { onProgress: value => progress.push(value.loaded) },
+    )
+    await vi.waitFor(() => { if (hooks === undefined) throw new Error('carrier hooks not captured') })
+    const captured = hooks
+    if (captured === undefined) throw new Error('carrier hooks not captured')
+    captured.onProgress?.({ loaded: 7 } as ProgressEvent)
+    await handle.switchTarget({ kind: 'remote', id: '11111111-1111-4111-8111-111111111111' })
+    captured.onProgress?.({ loaded: 9 } as ProgressEvent)
+    receipt.resolve({
+      attachmentId: `sha256:${'a'.repeat(64)}` as never,
+      mediaType: 'image/png',
+      bytes: 1,
+      width: 1,
+      height: 1,
+    })
+    await expect(pending).rejects.toThrow('connection: machine target changed')
+    expect(progress).toEqual([7])
+  })
+
   it('contains a target observer exception and notifies the remaining observers', async () => {
     const handle = await mount()
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})

@@ -1434,6 +1434,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
           activeTabId={account?.activeTabId ?? null}
           open={account?.previewOpen ?? false}
           focusScopeKey={workspaceId}
+          account={account}
           {...(activeTab?.path === undefined ? {} : { focusReturnPath: activeTab.path })}
           {...(previewOpenExternal === undefined ? {} : { onOpenExternal: previewOpenExternal })}
           placement="in-column"
@@ -1559,6 +1560,7 @@ export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayP
       activeTabId={account?.activeTabId ?? null}
       open={account?.previewOpen === true}
       focusScopeKey={workspaceId}
+      account={account}
       {...(activeTab?.path === undefined ? {} : { focusReturnPath: activeTab.path })}
       {...(previewOpenExternal === undefined ? {} : { onOpenExternal: previewOpenExternal })}
       placement="overlay"

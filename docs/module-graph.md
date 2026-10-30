@@ -183,6 +183,7 @@ flowchart TD
     pkg_client_ui_jobs["client-ui-jobs"]
     pkg_client_ui_layout["client-ui-layout"]
     pkg_client_ui_message_feedback["client-ui-message-feedback"]
+    pkg_client_ui_message_quotes["client-ui-message-quotes"]
     pkg_client_ui_model_selection["client-ui-model-selection"]
     pkg_client_ui_permission_presets["client-ui-permission-presets"]
     pkg_client_ui_plan["client-ui-plan"]
@@ -1969,6 +1970,9 @@ flowchart TD
   pkg_client_ui_message_feedback --> pkg_invariants
   pkg_client_ui_message_feedback --> pkg_message_feedback
   pkg_client_ui_message_feedback --> pkg_typert_protocol
+  pkg_client_ui_message_quotes --> pkg_client_runtime
+  pkg_client_ui_message_quotes --> pkg_client_ui_conversation
+  pkg_client_ui_message_quotes --> pkg_invariants
   pkg_client_ui_plan --> pkg_api_remotes
   pkg_client_ui_plan --> pkg_client_locale
   pkg_client_ui_plan --> pkg_client_runtime
@@ -2459,6 +2463,7 @@ flowchart TD
 | [`client-ui-goal`](../packages/client/ui-goal) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`commands`](../packages/interaction/commands), [`goal`](../packages/goal/goal), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-jobs`](../packages/client/ui-jobs) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-message-feedback`](../packages/client/ui-message-feedback) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`message-feedback`](../packages/feedback/message-feedback), [`typert-protocol`](../packages/typert/protocol) |
+| [`client-ui-message-quotes`](../packages/client/ui-message-quotes) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-plan`](../packages/client/ui-plan) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`plan-mode`](../packages/plan/plan-mode) |
 | [`client-ui-scheduler`](../packages/client/ui-scheduler) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-dashboard`](../packages/client/ui-dashboard), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`scheduler`](../packages/schedule/scheduler) |
 | [`client-ui-secret-mask`](../packages/client/ui-secret-mask) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`invariants`](../packages/runtime-diagnostics/invariants) |

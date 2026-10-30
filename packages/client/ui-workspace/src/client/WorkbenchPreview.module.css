@@ -93,10 +93,16 @@
 }
 
 .tabStrip {
+  /* Makes the strip each chip's offsetParent, so a chip's offsetLeft reads in
+     the strip's scrolling content; no layout change of its own. */
+  position: relative;
   display: flex;
   flex: none;
   min-height: 38px;
   overflow-x: auto;
+  /* The scroll to a newly active chip glides; WorkbenchPreview.tsx overrides
+     this inline for the one-shot placement jump. */
+  scroll-behavior: smooth;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
 }

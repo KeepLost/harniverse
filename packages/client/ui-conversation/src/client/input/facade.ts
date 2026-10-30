@@ -8,14 +8,15 @@
  */
 import type { ClientContext, ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, InputTriggerController, SubmitImageAttachment, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  ComposerFileDraft, DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect,
-  InputNotice, InputState, PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
+  ComposerFileDraft, ComposerImageDraft, DraftAttachmentId, DraftedImagePart, EditRange, EditSelection,
+  InputActions, InputEffect, InputNotice, InputState, PasteComponent, QueuedMessage, SessionInput,
+  SubmitAttempt,
 } from '../contract/input.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import { InputMachine } from './machine.ts'
@@ -48,11 +49,26 @@ export interface SessionInputDeps {
   /** Plain-message sink; the signal owns serialization, upload, and Host admission teardown. */
   defaultSink(
     text: string,
-    imageIds: readonly DraftAttachmentId[],
+    images: readonly DraftedImagePart[],
     fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal: AbortSignal,
   ): Promise<SubmitOutcome>
+  /**
+   * Draft-image staging transport and its localized surfaces; absent shells
+   * keep images browser-only (the send path falls back to inline encoding).
+   */
+  imageUploads?: {
+    upload(
+      file: File,
+      onProgress: (progress: { loaded: number; total: number }) => void,
+      signal: AbortSignal,
+    ): Promise<ImageAttachmentRef>
+    /** Localized failure line; the returned flag marks a Host refusal (remove-only, no retry). */
+    errorText(error: unknown): { text: string; refused: boolean }
+    /** Notice while a submit meets a still-uploading image. */
+    inFlightNotice(): string
+  }
   /** Browser-owned command image serialization and successful-release seam. */
   commandImages?: {
     serialize(
@@ -111,6 +127,8 @@ export class SessionInputShell implements SessionInput {
   readonly notices: SnapshotStore<InputNotice | null> = createSnapshotStore<InputNotice | null>(null)
   /** Live draft-file chips through their upload lifecycle (the composer chip-row source). */
   readonly fileDrafts: SnapshotStore<readonly ComposerFileDraft[]> = createSnapshotStore<readonly ComposerFileDraft[]>([])
+  /** Live draft-image staging states (the composer rail overlay source). */
+  readonly imageDrafts: SnapshotStore<readonly ComposerImageDraft[]> = createSnapshotStore<readonly ComposerImageDraft[]>([])
   /** The public provide-channel action face (one stable identity per session). */
   readonly actions: InputActions = {
     setDraft: (text) => { this.setDraft(text) },
@@ -132,6 +150,10 @@ export class SessionInputShell implements SessionInput {
   private attachmentSend: AttachmentSendAttempt | undefined
   /** In-flight upload aborts keyed by draft-file id (removed with the chip). */
   private readonly uploads = new Map<DraftAttachmentId, AbortController>()
+  /** In-flight staging aborts keyed by draft-image id (removed with the thumbnail). */
+  private readonly imageControllers = new Map<DraftAttachmentId, AbortController>()
+  /** Browser files behind staged drafts (retry restarts from these). */
+  private readonly imageFiles = new Map<DraftAttachmentId, File>()
   /** Transaction completions retained until settlement so teardown can reach quiescence. */
   private readonly completions = new Set<Promise<void>>()
   private disposal: Promise<void> | undefined
@@ -165,13 +187,49 @@ export class SessionInputShell implements SessionInput {
     return true
   }
 
-  /** Remove one image id from this draft. */
+  /**
+   * Append ordered image ids and begin each one's staging upload immediately
+   * (upload-on-add); busy admission phases refuse the whole batch before any
+   * upload starts. A shell without the staging transport degrades to
+   * {@link addImages} (browser-only drafts, inline encoding at send).
+   * @param drafts - draft ids paired with their browser files.
+   * @returns whether the busy-phase guard accepted the batch.
+   */
+  stageImages(drafts: readonly { id: DraftAttachmentId; file: File }[]): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    if (drafts.length === 0) return true
+    if (!this.addImages(drafts.map(draft => draft.id))) return false
+    if (this.deps.imageUploads === undefined) return true
+    const staged: ComposerImageDraft[] = drafts.map(draft => ({ id: draft.id, status: 'uploading' }))
+    this.imageDrafts.set([...this.imageDrafts.getSnapshot(), ...staged])
+    drafts.forEach((draft) => {
+      this.imageFiles.set(draft.id, draft.file)
+      this.startImageUpload(draft.id, draft.file)
+    })
+    return true
+  }
+
+  /** Remove one image id from this draft, aborting its staging upload when in flight. */
   removeImage(id: DraftAttachmentId): void {
     if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return
     const next = this.imageIds.filter(candidate => candidate !== id)
     if (next.length === this.imageIds.length) return
     this.imageIds = next
+    this.dropImageDraft(id)
     this.publish()
+  }
+
+  /** Restart one failed image draft's staging upload; Host refusals are remove-only. */
+  retryImage(id: DraftAttachmentId): void {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return
+    const current = this.imageDrafts.getSnapshot().find(draft => draft.id === id)
+    if (current === undefined || current.status !== 'error' || current.refused === true) return
+    const file = this.imageFiles.get(id)
+    if (file === undefined) return
+    this.imageDrafts.set(this.imageDrafts.getSnapshot().map(draft => draft.id === id
+      ? { id, status: 'uploading' }
+      : draft))
+    this.startImageUpload(id, file)
   }
 
   /**
@@ -182,7 +240,9 @@ export class SessionInputShell implements SessionInput {
     const keep = new Set(available)
     const next = this.imageIds.filter(id => keep.has(id))
     if (next.length === this.imageIds.length) return
+    const dropped = this.imageIds.filter(id => !keep.has(id))
     this.imageIds = next
+    for (const id of dropped) this.dropImageDraft(id)
     this.publish()
   }
 
@@ -272,6 +332,89 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
+   * Drive one image draft's staging upload to its settled state. Settling
+   * ignores drafts the user removed and the whole shell after disposal (the
+   * abort already ran).
+   */
+  private startImageUpload(id: DraftAttachmentId, file: File): void {
+    const uploads = this.deps.imageUploads
+    if (uploads === undefined) return
+    const controller = new AbortController()
+    this.imageControllers.set(id, controller)
+    const completion = uploads.upload(
+      file,
+      (progress) => {
+        this.patchImageDraft(id, current => current.status === 'uploading'
+          ? (progress.total === 0 ? {} : { progress: progress.loaded / progress.total })
+          : {})
+      },
+      controller.signal,
+    ).then(
+      (ref) => {
+        this.imageControllers.delete(id)
+        if (this.disposed) return
+        this.patchImageDraft(id, () => ({ status: 'ready', ref, progress: 1 }))
+      },
+      (error: unknown) => {
+        this.imageControllers.delete(id)
+        // An aborted staging upload is the user's own removeImage (or shell
+        // disposal): the thumbnail is already gone, so the rejection lands nowhere.
+        if (controller.signal.aborted || this.disposed) return
+        const { text, refused } = uploads.errorText(error)
+        this.patchImageDraft(id, () => ({ status: 'error', error: text, ...(refused ? { refused: true } : {}) }))
+      },
+    )
+    const tracked = completion.then(
+      () => { this.completions.delete(tracked) },
+      () => { this.completions.delete(tracked) },
+    )
+    this.completions.add(tracked)
+  }
+
+  /** Immutably patch one image draft by id; a missing draft (removed mid-flight) is a no-op. */
+  private patchImageDraft(id: DraftAttachmentId, patch: (current: ComposerImageDraft) => Partial<ComposerImageDraft>): void {
+    const drafts = this.imageDrafts.getSnapshot()
+    const index = drafts.findIndex(draft => draft.id === id)
+    if (index === -1) return
+    const current = drafts[index] as ComposerImageDraft
+    this.imageDrafts.set([
+      ...drafts.slice(0, index),
+      { ...current, ...patch(current) },
+      ...drafts.slice(index + 1),
+    ])
+  }
+
+  /** Image-draft removal core: store filter + in-flight abort + file drop (idempotent). */
+  private dropImageDraft(id: DraftAttachmentId): void {
+    const drafts = this.imageDrafts.getSnapshot()
+    if (drafts.some(draft => draft.id === id)) {
+      this.imageDrafts.set(drafts.filter(draft => draft.id !== id))
+    }
+    this.imageControllers.get(id)?.abort()
+    this.imageControllers.delete(id)
+    this.imageFiles.delete(id)
+  }
+
+  /** Resolve ordered draft ids to their staged send form (reference when ready, inline otherwise). */
+  private draftedImageParts(ids: readonly DraftAttachmentId[]): DraftedImagePart[] {
+    const drafts = new Map(this.imageDrafts.getSnapshot().map(draft => [draft.id, draft]))
+    return ids.map((id) => {
+      const draft = drafts.get(id)
+      return draft !== undefined && draft.status === 'ready' && draft.ref !== undefined
+        ? { id, ref: draft.ref }
+        : { id }
+    })
+  }
+
+  /** Remove submitted image drafts (their uploads already settled; nothing to abort). */
+  private consumeImageDrafts(ids: readonly DraftAttachmentId[]): void {
+    if (ids.length === 0) return
+    const submitted = new Set(ids)
+    this.imageDrafts.set(this.imageDrafts.getSnapshot().filter(draft => !submitted.has(draft.id)))
+    for (const id of ids) this.imageFiles.delete(id)
+  }
+
+  /**
    * Commit a successful attachments-only send. Captured ids leave regardless
    * of later input ownership; the machine consumes the text snapshot and cuts
    * undo history only while no command or adjudication transaction owns it.
@@ -282,6 +425,7 @@ export class SessionInputShell implements SessionInput {
   commitSend(imageIds: readonly DraftAttachmentId[], fileIds: readonly DraftAttachmentId[], draftSnapshot: string): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+    this.consumeImageDrafts(imageIds)
     this.consumeFiles(fileIds)
     this.run(this.core.dispatch({ type: 'send-committed', draftSnapshot }))
   }
@@ -331,6 +475,19 @@ export class SessionInputShell implements SessionInput {
       this.notify('error', this.deps.fileUploads.inFlightNotice())
       return
     }
+    // Staged images follow the same rule, and a failed one is never silently
+    // dropped: the send waits, and the first failure names its reason.
+    const imageDrafts = this.imageDrafts.getSnapshot()
+    if (imageDrafts.some(draft => draft.status === 'uploading')) {
+      this.notify('error', this.deps.imageUploads?.inFlightNotice() ?? this.deps.fileUploads.inFlightNotice())
+      return
+    }
+    const failedImage = imageDrafts.find((draft): draft is ComposerImageDraft & { status: 'error'; error: string } =>
+      draft.status === 'error' && draft.error !== undefined)
+    if (failedImage !== undefined) {
+      this.notify('error', failedImage.error)
+      return
+    }
     const doneFiles = this.readyFiles()
     if (this.snapshot.draft.trim() === '' && (this.imageIds.length > 0 || doneFiles.ids.length > 0)) {
       if (this.snapshot.phase === 'plain' && this.attachmentSend === undefined) {
@@ -345,7 +502,7 @@ export class SessionInputShell implements SessionInput {
         this.attachmentSend = attempt
         this.settleAttachmentSend(
           attempt,
-          () => this.deps.defaultSink('', imageIds, doneFiles.refs, mode, attempt.controller.signal),
+          () => this.deps.defaultSink('', this.draftedImageParts(imageIds), doneFiles.refs, mode, attempt.controller.signal),
         )
       }
       return
@@ -555,6 +712,9 @@ export class SessionInputShell implements SessionInput {
     attachmentSend?.controller.abort()
     for (const controller of this.uploads.values()) controller.abort()
     this.uploads.clear()
+    for (const controller of this.imageControllers.values()) controller.abort()
+    this.imageControllers.clear()
+    this.imageFiles.clear()
     this.run(this.core.dispatch({ type: 'release' }))
     this.disposal = this.drain()
     return this.disposal
@@ -625,12 +785,13 @@ export class SessionInputShell implements SessionInput {
   /** Reference fan-out and default sink form one retained transaction completion. */
   private async serializeAndSubmit(attempt: SubmitAttempt, draft: string, mode: InputSubmitMode): Promise<void> {
     const imageIds = this.availableImageIds()
+    const images = this.draftedImageParts(imageIds)
     const files = this.readyFiles()
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
       await this.settleSubmit(
         attempt,
-        () => this.deps.defaultSink(draft.trim(), imageIds, files.refs, mode, attempt.signal),
+        () => this.deps.defaultSink(draft.trim(), images, files.refs, mode, attempt.signal),
         imageIds,
         files.ids,
       )
@@ -668,7 +829,7 @@ export class SessionInputShell implements SessionInput {
     out += draft.slice(cursor)
     await this.settleSubmit(
       attempt,
-      () => this.deps.defaultSink(out.trim(), imageIds, files.refs, mode, attempt.signal),
+      () => this.deps.defaultSink(out.trim(), images, files.refs, mode, attempt.signal),
       imageIds,
       files.ids,
     )
@@ -689,6 +850,7 @@ export class SessionInputShell implements SessionInput {
           if (imageIds.length > 0) {
             const submitted = new Set(imageIds)
             this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+            this.consumeImageDrafts(imageIds)
           }
           if (fileIds.length > 0) this.consumeFiles(fileIds)
           onSuccess?.()

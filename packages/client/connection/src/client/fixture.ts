@@ -21,7 +21,7 @@ import type {
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { FileUploadProgress, FileUploadRequest, FileUploadTransport } from './upload.ts'
+import type { FileUploadProgress, FileUploadRequest, FileUploadTransport, ImageUploadTransport } from './upload.ts'
 import type {
   SessionEvent,
   SessionId,
@@ -1542,6 +1542,8 @@ export interface FixtureWorld {
   readonly rpc: ClientConnectionRpc
   /** In-memory upload transport minting receipts the prompt path admits. */
   readonly upload: FileUploadTransport
+  /** In-memory image-staging transport minting references the prompt path admits. */
+  readonly uploadImage: ImageUploadTransport
 }
 
 /**
@@ -1594,6 +1596,39 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       ...(request.mediaType === undefined ? {} : { mediaType: request.mediaType }),
     }
     fileAttachments.set(String(ref.attachmentId), ref)
+    hooks?.onProgress?.({ loaded: bytes, total: bytes } satisfies FileUploadProgress)
+    return ref
+  }
+  /**
+   * Fixture image staging: no network, no real decode — the deterministic id
+   * keys the reference into `attachments` so the prompt path can verify it
+   * exactly as the live one does against the Host store.
+   */
+  const uploadImage: ImageUploadTransport = async (request, hooks) => {
+    const data = request.data instanceof Blob
+      ? new Uint8Array(await request.data.arrayBuffer())
+      : request.data instanceof ArrayBuffer
+        ? new Uint8Array(request.data)
+        : request.data
+    const bytes = data.byteLength
+    hooks?.onProgress?.({ loaded: 0, total: bytes } satisfies FileUploadProgress)
+    await Promise.resolve()
+    if (hooks?.signal?.aborted) throw new Error('fixture image upload: aborted')
+    const name = request.name ?? ''
+    let binary = ''
+    const chunk = 0x8000
+    for (let offset = 0; offset < data.length; offset += chunk) {
+      binary += String.fromCharCode(...data.subarray(offset, offset + chunk))
+    }
+    const ref: ImageAttachmentRef = {
+      attachmentId: `sha256:${fixtureFileAttachmentId(`image:${name}`, bytes)}` as ImageAttachmentRef['attachmentId'],
+      mediaType: request.mediaType as ImageAttachmentRef['mediaType'],
+      bytes,
+      width: 160,
+      height: 90,
+      ...(name === '' ? {} : { name }),
+    }
+    attachments.set(String(ref.attachmentId), { attachment: ref, data: btoa(binary) })
     hooks?.onProgress?.({ loaded: bytes, total: bytes } satisfies FileUploadProgress)
     return ref
   }
@@ -2667,6 +2702,20 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             durable.push({ type: 'text', text: fixtureFileHandleText(stored) })
             continue
           }
+          // A staging receipt cites the exact durable object the upload minted
+          // (host parallel: read-and-verify, fail-closed against the table).
+          if ('ref' in block) {
+            const staged = attachments.get(String(block.ref.attachmentId))
+            if (staged === undefined) {
+              return err(request, {
+                code: 'attachment-error',
+                message: 'fixture: image attachment was not staged',
+                details: { reason: 'ATTACHMENT_READ_FAILED' },
+              })
+            }
+            durable.push({ type: 'image', attachment: staged.attachment })
+            continue
+          }
           const attachment: ImageAttachmentRef = {
             attachmentId: `fixture:${randomUuid()}` as AttachmentIdType,
             mediaType: block.mediaType,
@@ -3545,7 +3594,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       }
     },
   }
-  return { api, rpc, upload }
+  return { api, rpc, upload, uploadImage }
 }
 
 /**
@@ -3561,6 +3610,8 @@ export class FixtureApiClient extends AbstractApiClient {
   readonly rpc: ClientConnectionRpc
   /** In-memory upload transport over the same state graph (receipts the prompt path admits). */
   readonly upload: FileUploadTransport
+  /** In-memory image-staging transport over the same state graph. */
+  readonly uploadImage: ImageUploadTransport
 
   constructor() {
     super()
@@ -3568,6 +3619,7 @@ export class FixtureApiClient extends AbstractApiClient {
     this.fixtureApi = world.api
     this.rpc = world.rpc
     this.upload = world.upload
+    this.uploadImage = world.uploadImage
   }
 
   protected doFetch(): Promise<Response> {

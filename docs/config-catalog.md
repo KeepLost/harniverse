@@ -2790,7 +2790,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session/session-projection-cache/src/index.ts:42`](../packages/session/session-projection-cache/src/index.ts)
+Source: [`packages/session/session-projection-cache/src/index.ts:43`](../packages/session/session-projection-cache/src/index.ts)
 
 <a id="deepseek-aidsh-session-query-sqlite"></a>
 
@@ -4615,6 +4615,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-jobs` ([`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-message-feedback` ([`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-message-quotes` ([`packages/client/ui-message-quotes/src/index.ts`](../packages/client/ui-message-quotes/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model-selection` ([`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-permission-presets` ([`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))

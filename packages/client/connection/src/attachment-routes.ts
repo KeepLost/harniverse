@@ -1,9 +1,9 @@
 /**
- * Authenticated streaming file-upload route. Sits under the `/api` prefix
- * behind the same request-trust fence and authentication as every other
+ * Authenticated streaming attachment-upload routes. Both sit under the `/api`
+ * prefix behind the same request-trust fence and authentication as every other
  * browser-facing entry; an upload additionally requires the
  * `harniverse.operate` capability (an observer cannot inject content into a
- * session). The body is received chunk-by-chunk against the store's byte cap
+ * session). Each body is received chunk-by-chunk against the store's byte cap
  * so an oversized upload is cut off mid-stream, never buffered past the cap.
  * @module @deepseek-ai/dsh-client-connection/attachment-routes
  */
@@ -11,7 +11,7 @@
 import type { ServerResponse } from 'node:http'
 import type { Readable } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
-import { AttachmentError, type FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, type AttachmentStore, type FileAttachmentRef, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'
@@ -19,11 +19,23 @@ import { describeApiTrustRequest, isTrustedApiRequest } from './api-request-trus
 /** The exact upload path this module registers. */
 export const UPLOAD_PATH = '/api/attachment/upload'
 
+/** The exact image-staging upload path this module registers. */
+export const UPLOAD_IMAGE_PATH = '/api/attachment/upload-image'
+
 /** Request header carrying the percent-encoded display name. */
 const NAME_HEADER = 'x-attachment-name'
 
+/** HTTP status for one AttachmentError refusal code; unmapped codes are server failures. */
+function refusalStatus(code: string, image: boolean): number {
+  if (code === 'FILE_TOO_LARGE' || code === 'IMAGE_TOO_LARGE' || code === 'IMAGES_TOO_LARGE') return 413
+  if (code === 'INVALID_FILE') return 400
+  if (image && (code === 'UNSUPPORTED_IMAGE_TYPE' || code === 'INVALID_IMAGE' || code === 'IMAGE_TYPE_MISMATCH'
+    || code === 'INVALID_IMAGE_BASE64' || code === 'IMAGE_TOO_MANY_PIXELS')) return 400
+  return 500
+}
+
 /** Read the whole body chunk-by-chunk, refusing the moment the cap is crossed. */
-function receiveCappedBody(req: Readable, cap: number): Promise<Uint8Array> {
+function receiveCappedBody(req: Readable, cap: number, tooLarge: () => AttachmentError): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let received = 0
@@ -31,7 +43,7 @@ function receiveCappedBody(req: Readable, cap: number): Promise<Uint8Array> {
       received += chunk.length
       if (received > cap) {
         req.destroy()
-        reject(new AttachmentError('File exceeds the configured byte limit.', 'FILE_TOO_LARGE'))
+        reject(tooLarge())
         return
       }
       chunks.push(chunk)
@@ -72,8 +84,35 @@ function declaredMediaType(value: string | string[] | undefined): string | undef
   return bare === undefined || bare === '' ? undefined : bare
 }
 
+/** Refuse an untrusted, unauthenticated, or non-operating request; false means responded. */
+async function refused(ctx: Context, req: Parameters<WebRoute['handler']>[0], res: ServerResponse, trustedHosts: readonly string[], trustedOrigins: readonly string[]): Promise<boolean> {
+  if (!isTrustedApiRequest(req, trustedHosts, trustedOrigins)) {
+    ctx.logger.warn(`client-connection: rejected untrusted upload path=${JSON.stringify(req.url ?? '-')} ${describeApiTrustRequest(req)} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
+    res.writeHead(403)
+    res.end('forbidden')
+    return true
+  }
+  const decision = await authenticateIncoming(ctx, req, 'http-api')
+  if (decision.kind === 'rejected') {
+    ctx.logger.warn(`client-connection: upload authentication rejected reason=${JSON.stringify(decision.reason)} path=${JSON.stringify(req.url ?? '-')}`)
+    rejectUnauthorized(res, decision)
+    return true
+  }
+  if (!decision.principal.capabilities.includes('harniverse.operate')) {
+    res.writeHead(403)
+    res.end('forbidden')
+    return true
+  }
+  return false
+}
+
+/** Complete one refused AttachmentError with its stable HTTP status and JSON body. */
+function refuseAttachmentError(res: ServerResponse, error: AttachmentError, image: boolean): void {
+  reply(res, refusalStatus(error.code, image), JSON.stringify({ code: error.code, message: error.message }))
+}
+
 /**
- * Register the authenticated streaming file-upload route.
+ * Register the authenticated streaming file- and image-upload routes.
  * @param ctx - Connection plugin context.
  * @param trustedHosts - deployment authorities accepted by the trust fence.
  * @param trustedOrigins - exact cross-origin HTTP(S) Origins allowed after Host trust.
@@ -83,34 +122,19 @@ export function registerAttachmentRoutes(
   trustedHosts: readonly string[],
   trustedOrigins: readonly string[] = [],
 ): void {
-  const route: WebRoute = {
+  const store = (): AttachmentStore | undefined => ctx.get('attachments')
+  const fileRoute: WebRoute = {
     kind: 'exact',
     path: UPLOAD_PATH,
     handler: async (req, res) => {
-      if (!isTrustedApiRequest(req, trustedHosts, trustedOrigins)) {
-        ctx.logger.warn(`client-connection: rejected untrusted upload path=${JSON.stringify(req.url ?? '-')} ${describeApiTrustRequest(req)} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
-        res.writeHead(403)
-        res.end('forbidden')
-        return
-      }
-      const decision = await authenticateIncoming(ctx, req, 'http-api')
-      if (decision.kind === 'rejected') {
-        ctx.logger.warn(`client-connection: upload authentication rejected reason=${JSON.stringify(decision.reason)} path=${JSON.stringify(req.url ?? '-')}`)
-        rejectUnauthorized(res, decision)
-        return
-      }
-      if (!decision.principal.capabilities.includes('harniverse.operate')) {
-        res.writeHead(403)
-        res.end('forbidden')
-        return
-      }
-      const store = ctx.get('attachments')
-      if (store === undefined) {
+      if (await refused(ctx, req, res, trustedHosts, trustedOrigins)) return
+      const attachments = store()
+      if (attachments === undefined) {
         res.writeHead(501)
         res.end('attachment storage unavailable')
         return
       }
-      const cap = store.fileLimits?.maxFileBytes ?? Number.MAX_SAFE_INTEGER
+      const cap = attachments.fileLimits?.maxFileBytes ?? Number.MAX_SAFE_INTEGER
       try {
         const length = Number(req.headers['content-length'])
         if (Number.isSafeInteger(length) && length > cap) {
@@ -118,8 +142,8 @@ export function registerAttachmentRoutes(
         }
         const name = decodeNameHeader(headerValue(req.headers[NAME_HEADER]))
         const mediaType = declaredMediaType(headerValue(req.headers['content-type']))
-        const data = await receiveCappedBody(req, cap)
-        const ref: FileAttachmentRef = await store.saveFile({
+        const data = await receiveCappedBody(req, cap, () => new AttachmentError('File exceeds the configured byte limit.', 'FILE_TOO_LARGE'))
+        const ref: FileAttachmentRef = await attachments.saveFile({
           data,
           ...(mediaType !== undefined ? { mediaType } : {}),
           ...(name !== undefined ? { name } : {}),
@@ -129,8 +153,7 @@ export function registerAttachmentRoutes(
         res.end(JSON.stringify(ref))
       } catch (uploadError) {
         if (uploadError instanceof AttachmentError) {
-          const status = uploadError.code === 'FILE_TOO_LARGE' ? 413 : uploadError.code === 'INVALID_FILE' ? 400 : 500
-          reply(res, status, JSON.stringify({ code: uploadError.code, message: uploadError.message }))
+          refuseAttachmentError(res, uploadError, false)
           return
         }
         ctx.logger.warn('client-connection: upload failed')
@@ -139,5 +162,61 @@ export function registerAttachmentRoutes(
       }
     },
   }
-  ctx.effect(() => ctx.webServer.register(route), 'client-connection: attachment upload route')
+  const imageRoute: WebRoute = {
+    kind: 'exact',
+    path: UPLOAD_IMAGE_PATH,
+    handler: async (req, res) => {
+      if (await refused(ctx, req, res, trustedHosts, trustedOrigins)) return
+      const attachments = store()
+      if (attachments === undefined) {
+        res.writeHead(501)
+        res.end('attachment storage unavailable')
+        return
+      }
+      const limits = attachments.imageLimits
+      // One staged image can never exceed the per-message budget either, so
+      // the read stops at the smaller bound.
+      const cap = Math.min(limits.maxImageBytes, limits.maxMessageImageBytes)
+      try {
+        const length = Number(req.headers['content-length'])
+        if (Number.isSafeInteger(length) && length > cap) {
+          throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
+        }
+        const mediaType = declaredMediaType(headerValue(req.headers['content-type']))
+        if (mediaType === undefined || !(limits.mediaTypes as readonly string[]).includes(mediaType)) {
+          throw new AttachmentError(
+            `Image type ${mediaType ?? '(none)'} is not accepted by this deployment.`,
+            'UNSUPPORTED_IMAGE_TYPE',
+          )
+        }
+        const name = decodeNameHeader(headerValue(req.headers[NAME_HEADER]))
+        const data = await receiveCappedBody(req, cap, () => new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE'))
+        const input = {
+          data,
+          mediaType: mediaType as ImageAttachmentRef['mediaType'],
+          ...(name !== undefined ? { name } : {}),
+        }
+        await attachments.validateImage(input)
+        const ref = await attachments.saveImage(input)
+        ctx.logger.info(`client-connection: image upload accepted attachment=${String(ref.attachmentId)} bytes=${ref.bytes}`)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(ref))
+      } catch (uploadError) {
+        if (uploadError instanceof AttachmentError) {
+          refuseAttachmentError(res, uploadError, true)
+          return
+        }
+        ctx.logger.warn('client-connection: image upload failed')
+        ctx.logger.warn(uploadError)
+        reply(res, 500, 'upload failed')
+      }
+    },
+  }
+  ctx.effect(() => {
+    const disposers = [
+      ctx.webServer.register(fileRoute),
+      ctx.webServer.register(imageRoute),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'client-connection: attachment upload route')
 }

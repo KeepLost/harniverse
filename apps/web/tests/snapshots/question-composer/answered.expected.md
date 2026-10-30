@@ -28,6 +28,11 @@
   - img
   - img
   - text: Ask question 1/1 answered
+- group "Questions and answers":
+  - button "Questions and answers · Expand": Questions and answers Blue, Include accessibility notes
+  - text: {{clock}}
+  - button "Copy":
+    - img
 - button "Think The user answered \"Blue\". I should now reply with the single word DONE and stop.":
   - img
   - img

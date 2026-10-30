@@ -37,9 +37,9 @@
   - img
 - region "Ready to continue?":
   - text: Checkpoint
-  - heading "Ready to continue?" [level=2]
   - button "Dismiss all questions":
     - img
+  - heading "Ready to continue?" [level=2]
   - radiogroup:
     - radio "Yes": 1 Yes
     - radio "No": 2 No

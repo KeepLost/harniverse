@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import clsx from 'clsx'
 import {
   IconChevronLeftOutline14, IconChevronRightOutline14, IconCloseFill14,
+  IconRefreshOutline14, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './AttachmentRail.module.css'
 
@@ -18,6 +19,14 @@ export interface AttachmentRailItem {
   alt: string
   /** Accessible label of the item's remove control. */
   removeLabel: string
+  /** Upload lifecycle state; absent items keep the plain open-on-click thumbnail. */
+  status?: 'uploading' | 'error'
+  /** Uploaded fraction in 0..1 while measurable and uploading. */
+  progress?: number
+  /** Localized refusal reason shown as the thumbnail's warning tooltip (remove-only). */
+  refusal?: string
+  /** Accessible label of the retry control while a transport failure is shown. */
+  retryLabel?: string
 }
 
 /** Rail-level strings the owner resolves from its own locale namespace. */
@@ -30,6 +39,8 @@ export interface AttachmentRailLabels {
   scrollLeft: string
   /** Accessible label of the right paging arrow. */
   scrollRight: string
+  /** Progressbar accessible name while an upload is in flight. */
+  uploading?: string
 }
 
 /** Approximate pixels per wheel step for `deltaMode` LINE deltas (Firefox
@@ -55,20 +66,25 @@ function pageBehavior(): ScrollBehavior {
  * newly added item is revealed at the rail's end while a rail that mounts
  * over an existing draft keeps its start position, and each thumbnail opens
  * on a single click while its remove control sits inside the card and
- * reveals on hover or focus. The owner decides mounting; it renders the rail
- * only while items exist.
+ * reveals on hover or focus. An uploading item carries a progress bar; a
+ * failed one becomes its own recovery surface: a Host refusal explains
+ * itself through a warning tooltip and stays remove-only, a transport
+ * failure turns the thumbnail into its retry control. The owner decides
+ * mounting; it renders the rail only while items exist.
  *
  * @param props.items - resolved thumbnails in draft order.
  * @param props.labels - rail-level strings (group name, open tooltip, arrows).
  * @param props.onOpen - single-click open of one item's original image.
  * @param props.onRemove - remove one item from the draft.
+ * @param props.onRetry - retry one item's failed upload (transport failures).
  * @returns the rail group with its paging arrows.
  */
-export function AttachmentRail<T extends AttachmentRailItem>({ items, labels, onOpen, onRemove }: {
+export function AttachmentRail<T extends AttachmentRailItem>({ items, labels, onOpen, onRemove, onRetry }: {
   items: readonly T[]
   labels: AttachmentRailLabels
   onOpen: (item: T) => void
   onRemove: (item: T) => void
+  onRetry?: (item: T) => void
 }) {
   const railRef = useRef<HTMLDivElement | null>(null)
   // null marks the first layout pass: a rail that MOUNTS over an existing
@@ -165,15 +181,56 @@ export function AttachmentRail<T extends AttachmentRailItem>({ items, labels, on
         onScroll={updateEdges}
       >
         {items.map(item => (
-          <div key={item.id} className={css.item}>
-            <button
-              type="button"
-              className={css.thumbnail}
-              title={labels.open}
-              onClick={() => { onOpen(item) }}
-            >
-              <img src={item.previewUrl} alt={item.alt} />
-            </button>
+          <div key={item.id} className={css.item} data-image-item={item.status ?? 'ready'}>
+            {item.status === 'error' && item.refusal !== undefined
+              ? (
+                <button
+                  type="button"
+                  className={clsx(css.thumbnail, css.thumbnailFailed)}
+                  aria-label={item.refusal}
+                  title={item.refusal}
+                >
+                  <img src={item.previewUrl} alt="" />
+                  <span className={css.failureGlyph} aria-hidden><IconWarningOutline16 size={14} /></span>
+                </button>
+              )
+              : item.status === 'error'
+                ? (
+                  <button
+                    type="button"
+                    className={clsx(css.thumbnail, css.thumbnailFailed, css.thumbnailRetry)}
+                    aria-label={item.retryLabel}
+                    title={item.retryLabel}
+                    onClick={() => { onRetry?.(item) }}
+                  >
+                    <img src={item.previewUrl} alt="" />
+                    <span className={css.failureGlyph} aria-hidden><IconRefreshOutline14 size={16} /></span>
+                  </button>
+                )
+                : (
+                  <button
+                    type="button"
+                    className={css.thumbnail}
+                    title={labels.open}
+                    aria-busy={item.status === 'uploading' || undefined}
+                    onClick={() => { onOpen(item) }}
+                  >
+                    <img src={item.previewUrl} alt={item.alt} />
+                  </button>
+                )}
+            {item.status === 'uploading' && (
+              <span
+                className={css.progressTrack}
+                role="progressbar"
+                aria-label={labels.uploading}
+                data-indeterminate={item.progress === undefined || undefined}
+              >
+                <span
+                  className={css.progressBar}
+                  style={item.progress === undefined ? undefined : { width: `${Math.round(Math.min(1, Math.max(0, item.progress)) * 100)}%` }}
+                />
+              </span>
+            )}
             <button
               type="button"
               className={css.remove}
