@@ -31,6 +31,15 @@
   line-height: 18px;
 }
 
+/* Provenance label of one finalized assistant message: quiet attribution
+   line under the body, sized with the stopped marker's small-tag axis. */
+.meta {
+  margin-top: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
 /* Finalized footer offset (figma 43:32997); chrome lives in MessageIconActions. */
 .actions {
   margin-top: 16px;

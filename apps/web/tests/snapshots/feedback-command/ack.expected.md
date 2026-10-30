@@ -25,6 +25,7 @@
   - img
   - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

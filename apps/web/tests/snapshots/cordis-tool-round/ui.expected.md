@@ -28,6 +28,7 @@
   - img
   - img
   - text: Think I will inspect the current Session's dynamic Cordis Plugins before defining the snapshot Package.
+- text: deepseek-official · deepseek-v4-flash
 - 'button "Tool call cordis_inspect_self · {}"':
   - img
   - img
@@ -36,6 +37,7 @@
   - img
   - img
   - text: Think No dynamic Plugins are present, so I will define the requested Host and Client Package.
+- text: deepseek-official · deepseek-v4-flash
 - button "Register Cordis Plugin snapshot noop does nothing, for the snapshot Ready" [expanded]:
   - img
   - text: Register Cordis Plugin snapshot noop does nothing, for the snapshot Ready
@@ -52,6 +54,7 @@
   - img
   - img
   - text: Think The Host returned snap-1/pkg-1, so I will request its first activation.
+- text: deepseek-official · deepseek-v4-flash
 - img
 - text: Run Cordis Plugin snap-1 · pkg-1 Ready
 - button "Inspect"
@@ -61,6 +64,7 @@
   - img
   - text: Think The activation request has been submitted, so I will return the requested readiness marker.
 - paragraph: CORDIS_UI_READY
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":
@@ -75,6 +79,7 @@
   - img
   - text: Context injection cordis-host-runner
 - paragraph: CORDIS_UI_RUNNING
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":
@@ -91,6 +96,7 @@
 - button "Inspect"
 - text: Dynamic Plugin snap-1 is stopped; its definition and versions remain.
 - paragraph: CORDIS_UI_DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

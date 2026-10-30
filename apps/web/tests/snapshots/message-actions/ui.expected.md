@@ -20,6 +20,7 @@
   - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
 - paragraph: I will read both files before answering.
+- text: deepseek-official · deepseek-v4-flash
 - button "Read a.txt":
   - img
   - img
@@ -47,6 +48,7 @@
 - button "Copy":
   - img
 - paragraph: DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

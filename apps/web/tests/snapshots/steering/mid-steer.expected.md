@@ -24,7 +24,7 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- text: Running
+- text: deepseek-official · deepseek-v4-flash Running
 - button "Ask question waiting":
   - img
   - img

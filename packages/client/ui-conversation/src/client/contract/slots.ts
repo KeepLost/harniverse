@@ -6,9 +6,9 @@ import type {
   SlotHookFactory, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  CommandNode, CompactionSummaryNode, ConversationSnapshot, ConversationTurnDataMap,
-  ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock,
-  TurnLocation, WorkspaceId,
+  AssistantProvenanceView, CommandNode, CompactionSummaryNode, ConversationSnapshot,
+  ConversationTurnDataMap, ObservableSnapshot, PendingInteraction, PendingWait, SessionId,
+  ToolCallBlock, TurnLocation, WorkspaceId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
@@ -187,6 +187,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * same text and streaming state without touching the disclosure chrome.
      */
     'conversation.chat.reasoning.body': { kind: 'single'; scope: 'session'; owner: ReasoningBodyOwnerProps }
+    /**
+     * The provenance line of one finalized assistant message — declared by the
+     * `assistant-step` entry. The owner passes the provider/model identity the
+     * `assistant/message` event recorded; the shipped occupant renders the two
+     * ids as a quiet tertiary label at priority 100, a lower-priority
+     * registration presents the same identity its own way, and disposal
+     * restores the shipped label. The render site stays silent while the
+     * identity is unknown (streaming, or an interruption without a finalized
+     * message event).
+     */
+    'conversation.chat.assistant.meta': { kind: 'single'; scope: 'session'; owner: AssistantMetaOwnerProps }
     // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
     // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
@@ -455,13 +466,25 @@ export interface ReasoningBodyOwnerProps {
   readonly running: boolean
 }
 
+/**
+ * Owner currency of the assistant meta seat: the durable provider/model
+ * identity of one finalized assistant message, recorded by its
+ * `assistant/message` event. Copy stays the occupant's own.
+ */
+export interface AssistantMetaOwnerProps {
+  /** Which provider route and model id produced the message. */
+  readonly provenance: AssistantProvenanceView
+}
+
 /** Full props of the user-key chat renderer that declares the user-images seat. */
 export type ChatUserSeatViewProps = ChatNodeViewProps<'user'>
   & PropsRenderSlots<'conversation.chat.user.images'>
 
-/** Full props of the assistant-step chat renderer that declares the assistant-images and reasoning-body seats. */
+/** Full props of the assistant-step chat renderer that declares the assistant-images, reasoning-body, and assistant-meta seats. */
 export type AssistantSeatViewProps = ChatNodeViewProps<'assistant-step'>
-  & PropsRenderSlots<'conversation.chat.assistant.images' | 'conversation.chat.reasoning.body'>
+  & PropsRenderSlots<
+    'conversation.chat.assistant.images' | 'conversation.chat.reasoning.body' | 'conversation.chat.assistant.meta'
+  >
 
 /** Owner currency of the details panel's Tool output renderer. */
 export interface DetailsToolOwnerProps {

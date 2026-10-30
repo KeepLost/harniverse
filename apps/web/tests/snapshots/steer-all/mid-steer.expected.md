@@ -24,7 +24,7 @@
   - img
   - img
   - text: Think The user wants me to ask them a checkpoint question first, then continue with whatever they interject. Let me do exactly that.
-- text: Running
+- text: deepseek-official · deepseek-v4-flash Running
 - button "Ask question waiting":
   - img
   - img

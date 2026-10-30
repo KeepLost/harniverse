@@ -13,11 +13,11 @@ import type { ReactNode } from 'react'
 import { AttachmentId, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import type { ChatImagesOwnerProps } from '../src/client/contract/slots.ts'
+import type { AssistantMetaOwnerProps, ChatImagesOwnerProps } from '../src/client/contract/slots.ts'
 import type { ChatNode } from '../src/client/contract/chat-nodes.ts'
 import { NS, en, zh } from '../src/client/locales.ts'
 import { registerChatNodeRenderers } from '../src/client/chat/register-node-renderers.ts'
-import { ChatImagesDefault, ReasoningBodyDefault, UserMessageSeatView } from '../src/client/chat/seat-occupants.tsx'
+import { AssistantMetaDefault, ChatImagesDefault, ReasoningBodyDefault, UserMessageSeatView } from '../src/client/chat/seat-occupants.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { AssistantSeatView } from '../src/client/chat/seat-occupants.tsx'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -74,6 +74,13 @@ describe('shipped seat occupants', () => {
   it('renders the reasoning body as the plain pre-wrap text', () => {
     const { container } = render(<ReasoningBodyDefault text="step one" running={false} />)
     expect(container.textContent).toBe('step one')
+  })
+
+  it('renders the assistant meta line as the two provenance ids', () => {
+    const { container } = render(
+      <AssistantMetaDefault provenance={{ provider: 'deepseek-official', model: 'deepseek-chat' }} />,
+    )
+    expect(container.textContent).toBe('deepseek-official · deepseek-chat')
   })
 })
 
@@ -152,6 +159,63 @@ describe('assistant node seat threads', () => {
     expect(keys).toContain('conversation.chat.reasoning.body')
     expect(keys).toContain('conversation.chat.assistant.images')
   })
+
+  it('routes the provenance line through the declared meta seat', () => {
+    const owners: AssistantMetaOwnerProps[] = []
+    const node = {
+      kind: 'assistant-step',
+      key: 'assistant:2',
+      anchorSeq: 2,
+      location: { kind: 'step', turn: { turn: 1 }, step: { step: 2 } },
+      visibility: 'visible',
+      data: {
+        status: 'settled',
+        blocks: [{ kind: 'text', text: 'answer' }],
+        finalNode: {
+          kind: 'assistant',
+          seq: 2,
+          provenance: { provider: 'p-seat', model: 'm-seat' },
+        },
+      },
+    } as never
+    render(
+      <AssistantSeatView
+        {...seatStubs}
+        node={node}
+        loadImage={() => Promise.resolve('blob:n')}
+        renderSlot={((key: string, owner: AssistantMetaOwnerProps) => {
+          expect(key).toBe('conversation.chat.assistant.meta')
+          owners.push(owner)
+          return <mark>{`${owner.provenance.provider}:${owner.provenance.model}`}</mark>
+        }) as never}
+        t={t}
+      />,
+    )
+    expect(screen.getByText('p-seat:m-seat')).toBeTruthy()
+    expect(owners[0]?.provenance).toEqual({ provider: 'p-seat', model: 'm-seat' })
+  })
+
+  it('keeps the meta seat silent while the identity is unknown', () => {
+    const renderSlot = vi.fn(() => <span />)
+    const node = {
+      kind: 'assistant-step',
+      key: 'assistant:3',
+      anchorSeq: 3,
+      location: { kind: 'step', turn: { turn: 1 }, step: { step: 3 } },
+      visibility: 'visible',
+      data: { status: 'running', blocks: [{ kind: 'text', text: 'streaming' }] },
+    } as never
+    render(
+      <AssistantSeatView
+        {...seatStubs}
+        node={node}
+        loadImage={() => Promise.resolve('blob:n')}
+        renderSlot={renderSlot as never}
+        t={t}
+      />,
+    )
+    expect(renderSlot).not.toHaveBeenCalled()
+  })
 })
 
 describe('assistant markdown threads', () => {
@@ -201,6 +265,28 @@ describe('assistant markdown threads', () => {
     expect(await screen.findByRole('img', { name: 'out.png' })).toBeTruthy()
     expect(container.textContent).toContain('think it through')
   })
+
+  it('renders the provenance line through the meta thread, plain without it, silent while unknown', () => {
+    const text = [{ kind: 'text', text: 'answer' }] as never as Parameters<typeof AssistantMarkdown>[0]['blocks']
+    const seen: string[] = []
+    const renderMeta = (owner: AssistantMetaOwnerProps): ReactNode => {
+      seen.push(owner.provenance.model)
+      return <mark>meta</mark>
+    }
+    const { container, rerender } = render(
+      <AssistantMarkdown blocks={text} streaming={false} provenance={{ provider: 'p1', model: 'm1' }} renderMeta={renderMeta} t={t} />,
+    )
+    expect(container.querySelector('mark')?.textContent).toBe('meta')
+    expect(seen).toEqual(['m1'])
+    rerender(
+      <AssistantMarkdown blocks={text} streaming={false} provenance={{ provider: 'p2', model: 'm2' }} t={t} />,
+    )
+    expect(container.textContent).toContain('p2 · m2')
+    rerender(
+      <AssistantMarkdown blocks={text} streaming t={t} />,
+    )
+    expect(container.textContent).toBe('answer')
+  })
 })
 
 describe('registry wiring', () => {
@@ -228,7 +314,8 @@ describe('registry wiring', () => {
     return { ctx, slots, fiber }
   }
 
-  type SeatKey = 'conversation.chat.user.images' | 'conversation.chat.assistant.images' | 'conversation.chat.reasoning.body'
+  type SeatKey = 'conversation.chat.user.images' | 'conversation.chat.assistant.images'
+    | 'conversation.chat.reasoning.body' | 'conversation.chat.assistant.meta'
 
   function winnerOf(slots: SlotRegistry, key: SeatKey): { component: unknown; priority: number | undefined } {
     const entries = slots.entriesOfSlot(key)
@@ -243,6 +330,7 @@ describe('registry wiring', () => {
       'conversation.chat.user.images',
       'conversation.chat.assistant.images',
       'conversation.chat.reasoning.body',
+      'conversation.chat.assistant.meta',
     ]
     for (const key of seats) {
       const winner = winnerOf(slots, key)

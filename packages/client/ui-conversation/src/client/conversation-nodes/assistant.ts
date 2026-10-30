@@ -159,6 +159,10 @@ function finalNode(
       blocks: toAssistantBlocks(event.data.message.content),
       usage: event.data.usage,
       ...event.data.interrupted === true ? { interrupted: true as const } : {},
+      provenance: {
+        provider: event.data.message.source.provider,
+        model: event.data.message.source.model,
+      },
       timing: {
         stepStartTime: context.start?.event.time ?? null,
         firstTokenTime: state.firstTokenTime ?? null,
