@@ -25,7 +25,24 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `useToolCallArgumentsPartial` optionally subscribes to its raw prefix.
      */
     'tool.call.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolCallOwnerProps }
+    /**
+     * The result-image gallery position inside the Tool details panel —
+     * declared by this package's details entry. The shipped occupant renders
+     * the shared `ui-attachment` gallery over the model-side view at priority
+     * 100; register at a lower priority to replace, dispose to restore. The
+     * chat-row gallery inside tool rows is not this seat — it renders within
+     * the keyed toolview entries' own layout and keeps the direct gallery.
+     */
+    'conversation.details.tool.images': { kind: 'single'; scope: 'session'; owner: ToolImagesOwnerProps }
   }
+}
+
+/** Owner currency of the details result-image seat: the refs and the model-side loader. */
+export interface ToolImagesOwnerProps {
+  /** Settled result image references in presentation order. */
+  readonly images: readonly ImageAttachmentRef[]
+  /** Resolve each image the way the model route received it. */
+  load: (attachment: ImageAttachmentRef) => Promise<string>
 }
 
 /** Standard owner currency supplied to every atomic Tool view. */
@@ -72,4 +89,6 @@ export type ToolTreeProps = PropsRuntime<'conversation.chat.node', 'tool-call'>
   & InjectFace<ToolTreeInjected>
 
 /** Full props of the selected Tool output renderer in the details panel. */
-export type ToolDetailsProps = PropsRuntime<'conversation.details.tool'> & PropsLocale<'conversation'>
+export type ToolDetailsProps = PropsRuntime<'conversation.details.tool'>
+  & PropsRenderSlots<'conversation.details.tool.images'>
+  & PropsLocale<'conversation'>

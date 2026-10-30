@@ -193,7 +193,7 @@ export function apply(ctx: ClientContext): void {
 }
 ```
 
-`match(event)` 是身份提取器，不是 fold：它只能收到当前事件，并返回 Definition 内部 id 与生命周期角色。命中后，Assembler 通过 `(kind, id)` 定位 Context，再调用一次 `start`，或把当前 State 交给 `update`。两个函数都必须返回引擎随后采用的 State；推荐返回新的 immutable value，但函数原地修改后返回同一对象时，采用语义也相同。
+`match(event)` 是身份提取器，不是 fold：它只能收到当前事件，并返回 Definition 内部 id 与生命周期角色。命中后，Assembler 通过 `(kind, id)` 定位 Context，再调用一次 `start`，或把当前 State 交给 `update`。两个函数都必须返回引擎随后采用的 State；推荐返回新的 immutable value，但函数原地修改后返回同一对象时，采用语义也相同。 命中结果还可以带 `exclusive: true`，为本 Definition 的唯一视图目标独占该事件：同目标的其他 Definition 不再为它建 Context，该目标的未匹配事件 fallback 也不运行；其他目标的 Definition 与无目标的 Definition 照常收到。独占要求声明 `target`；同一目标上两个独占、或无目标 Definition 发起独占，都会在分发时报错并点名事件——分发在接受任何命中前先评估所有 Definition 的 match，因此结果与注册顺序无关。
 
 `buildLocationData(context, scope)` 可以把 Definition 拥有的数据发布到引擎拥有的 Turn 或 Step 上。通过 declaration merging 为每个 key 指定精确 value 类型。同一 Location 内的另一个 Node 可以使用受限 slot hook（例如 `useTurnData(key)`）读取该值，无须取得 Session，也无须扫描 `snapshot.chat.nodes`。
 

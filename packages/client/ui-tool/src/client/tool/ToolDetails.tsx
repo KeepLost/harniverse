@@ -15,6 +15,7 @@ interface ToolDetailsContentProps {
   block: ToolDetailsProps['block']
   cwd?: ToolDetailsProps['cwd']
   loadModelImage: ToolDetailsProps['loadModelImage']
+  renderSlot?: ToolDetailsProps['renderSlot']
   t: ToolDetailsProps['t']
 }
 
@@ -25,9 +26,11 @@ interface ToolDetailsContentProps {
  * @param props - selected call slice, workspace root, model-side image loader, and locale seat.
  * @returns the details output body.
  */
-export function ToolDetails({ block, cwd, loadModelImage, t }: ToolDetailsContentProps) {
+export function ToolDetails({ block, cwd, loadModelImage, renderSlot, t }: ToolDetailsContentProps) {
   const images = 'kind' in block ? resultImages(block) : []
-  const gallery = <ToolResultImages images={images} loadModelImage={loadModelImage} t={t} />
+  const gallery = renderSlot !== undefined && images.length > 0
+    ? renderSlot('conversation.details.tool.images', { images, load: loadModelImage })
+    : <ToolResultImages images={images} loadModelImage={loadModelImage} t={t} />
   const terminal = terminalCardModel(block, cwd)
   if (terminal !== null) {
     return (

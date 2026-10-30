@@ -10,7 +10,7 @@ import type {
   ModelRetryNode, TurnErrorNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText, StateDot, IconTrashOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatImagesOwnerProps, ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import { FileBadgeList, ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { fileBadgeLabels, messageImageLabels } from '../image-labels.ts'
@@ -236,7 +236,7 @@ function projectUserText(text: string, rules: readonly SentUserTextRule[], inter
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, files, imageLoader, actions, pending = false, t,
+  content, files, imageLoader, actions, pending = false, renderImages, t,
 }: {
   content: readonly unknown[]
   /** Admitted file receipts (event association); absent rows fall back to handle-text recovery. */
@@ -246,6 +246,8 @@ function UserStyleBubble({
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
   pending?: boolean
+  /** Seat-bound gallery renderer for the user-images position; omitted renders the shared gallery directly. */
+  renderImages?: ((owner: ChatImagesOwnerProps) => ReactNode) | undefined
   t: ChatViewSlotProps['t']
 }): ReactNode {
   // Handle-text blocks leave the visible text (the badge row is their
@@ -262,11 +264,14 @@ function UserStyleBubble({
   const truncated = (total: number): string => t('json.truncated', { total })
   const rules = useSentUserTextRules()
   const showBubble = text !== '' || rest.length > 0
+  const gallery = renderImages !== undefined && images.length > 0
+    ? renderImages({ images: images.map(block => block.attachment), load: imageLoader, align: 'end' })
+    : <ImageGallery images={images} load={imageLoader} align="end" labels={messageImageLabels(t)} />
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
       <div className={css.userStack}>
         <FileBadgeList files={badges} labels={fileBadgeLabels(t)} />
-        <ImageGallery images={images} load={imageLoader} align="end" labels={messageImageLabels(t)} />
+        {gallery}
         {showBubble && <div className={css.bubble}>
           {projectUserText(text, rules, !pending)}
           {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -331,14 +336,18 @@ export function PendingSteeringBubble({ content, loadImage, onRecall, t }: {
 
 /** User and admitted-steering keyed Chat renderer. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, loadImage, t,
-}: ChatNodeViewProps<'user' | 'steering'>) {
+  node, loadImage, renderImages, t,
+}: ChatNodeViewProps<'user' | 'steering'> & {
+  /** Seat-bound gallery renderer; supplied by the user-key seat bridge. */
+  renderImages?: ((owner: ChatImagesOwnerProps) => ReactNode) | undefined
+}) {
   const data = node.data
   return (
     <UserStyleBubble
       content={data.content}
       {...data.files !== undefined ? { files: data.files } : {}}
       imageLoader={loadImage}
+      renderImages={renderImages}
       t={t}
       actions={text => (
         <MessageIconActions

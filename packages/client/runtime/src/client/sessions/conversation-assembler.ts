@@ -1,5 +1,5 @@
 import type {
-  ConversationContextReader, ConversationEventInput, ConversationLocationData, ConversationMatch,
+  ConversationContextReader, ConversationEventInput, ConversationLocationData, ConversationMatch, ConversationMatchResult,
   ConversationNodeContext, ConversationNodeDefinition, ConversationPreviousContext,
   ConversationLocationDataScope, ConversationPublication, ConversationViewBuilder,
   ConversationViewDefinition, ConversationViewNode, ConversationViewSnapshotMap,
@@ -398,11 +398,33 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       role: ConversationMatch['role'],
     ) => ConversationPublication,
   ): ConversationPublication {
-    const matchedTargets = new Set<string>()
-    let publication: ConversationPublication = 'none'
+    // Evaluate every Definition's match before accepting any, so an
+    // exclusive claim settles independently of registration order.
+    const matched: { definition: ConversationNodeDefinition; result: ConversationMatchResult }[] = []
+    const claims = new Map<string, ConversationNodeDefinition>()
     for (const definition of this.eventDefinitions.entries()) {
       const result = definition.match(input.event)
       if (result === null) continue
+      matched.push({ definition, result })
+      if (result.exclusive !== true) continue
+      if (definition.target === undefined) {
+        throw new Error(
+          `conversation Definition "${definition.kind}" claimed event seq ${input.event.seq} without a target; an exclusive claim requires the sole view target`,
+        )
+      }
+      const rival = claims.get(definition.target)
+      if (rival !== undefined) {
+        throw new Error(
+          `conversation Definitions "${rival.kind}" and "${definition.kind}" both exclusively claimed event seq ${input.event.seq} for target "${definition.target}"`,
+        )
+      }
+      claims.set(definition.target, definition)
+    }
+    const matchedTargets = new Set<string>()
+    let publication: ConversationPublication = 'none'
+    for (const { definition, result } of matched) {
+      const claimer = definition.target === undefined ? undefined : claims.get(definition.target)
+      if (claimer !== undefined && claimer !== definition) continue
       if (definition.target !== undefined) matchedTargets.add(definition.target)
       publication = maximumPublication(publication, accept(definition, result.id, result.role))
     }
