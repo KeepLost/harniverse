@@ -13,7 +13,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
-import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   launchWebScaffold,
   watchConsole,
@@ -51,14 +51,18 @@ function replayScript(): ReplayOverrideDoc {
 }
 
 /**
- * Spelled through `SessionEventMap` instead of instantiating the generic
- * `SessionEvent<'user/message'>` alias: the lint program resolves the map
- * member while the generic instantiation turns error-typed here.
+ * Locally declared shape: the lint program cannot resolve the `dsh-session`
+ * types inside this e2e file (generic instantiation turns error-typed), so
+ * the text projection is spelled structurally instead.
  */
-function userText(event: { data: SessionEventMap['user/message'] }): string {
+interface UserMessageShape {
+  data: { content: ReadonlyArray<{ type: string; text?: string }> }
+}
+
+function userText(event: UserMessageShape): string {
   return event.data.content
     .filter(block => block.type === 'text')
-    .map(block => block.text)
+    .map(block => block.text ?? '')
     .join('')
 }
 
