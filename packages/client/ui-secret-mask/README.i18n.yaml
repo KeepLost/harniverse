@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-secret-mask/README.md
-README.md: bbbfacaf59faf1accbf352172b38d8dd3c5c5d96
-README.zh.md: 4b043c76b3996d2deab9a61ff65d8b606bcebe5a
+README.md: f6edd5bde8521a83d8da8d36238442fb30514f0c
+README.zh.md: 408f9aaec19fff3569af1cc2cb00f4a5ad7d1cb4
