@@ -13,7 +13,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
 import {
   launchWebScaffold,
   watchConsole,
@@ -50,10 +50,12 @@ function replayScript(): ReplayOverrideDoc {
   return [final]
 }
 
-/** `user/message` member of the event union, spelled without instantiating the generic alias. */
-type UserMessageEvent = Extract<SessionEvent, { type: 'user/message' }>
-
-function userText(event: UserMessageEvent): string {
+/**
+ * Spelled through `SessionEventMap` instead of instantiating the generic
+ * `SessionEvent<'user/message'>` alias: the lint program resolves the map
+ * member while the generic instantiation turns error-typed here.
+ */
+function userText(event: { data: SessionEventMap['user/message'] }): string {
   return event.data.content
     .filter(block => block.type === 'text')
     .map(block => block.text)
