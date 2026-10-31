@@ -2,7 +2,8 @@
 import { memo, useCallback } from 'react'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
 import type {
-  AssistantSeatViewProps, ChatImagesOwnerProps, ChatUserSeatViewProps, ReasoningBodyOwnerProps,
+  AssistantMetaOwnerProps, AssistantSeatViewProps, ChatImagesOwnerProps, ChatUserSeatViewProps,
+  ReasoningBodyOwnerProps,
 } from '../contract/slots.ts'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { messageImageLabels } from '../image-labels.ts'
@@ -29,6 +30,11 @@ export function ReasoningBodyDefault({ text }: ReasoningBodyOwnerProps) {
   return <div className={css.thinkBody}>{text}</div>
 }
 
+/** Shipped assistant meta line: the provider and model ids of one finalized message. */
+export function AssistantMetaDefault({ provenance }: AssistantMetaOwnerProps) {
+  return <span>{`${provenance.provider} · ${provenance.model}`}</span>
+}
+
 /**
  * User-key chat renderer bridging the user-images seat into the bubble: the
  * seat is declared here so it lives exactly while user messages render
@@ -45,10 +51,10 @@ export const UserMessageSeatView = memo(function UserMessageSeatView(
 })
 
 /**
- * Assistant-step chat renderer bridging the assistant-images and
- * reasoning-body seats into the shared markdown renderer: both seats live
- * exactly while assistant output renders through this key, and the bound
- * renders survive the inner memo.
+ * Assistant-step chat renderer bridging the assistant-images,
+ * reasoning-body, and assistant-meta seats into the shared markdown
+ * renderer: the seats live exactly while assistant output renders through
+ * this key, and the bound renders survive the inner memo.
  */
 export const AssistantSeatView = memo(function AssistantSeatView(
   { renderSlot, ...rest }: AssistantSeatViewProps,
@@ -61,5 +67,11 @@ export const AssistantSeatView = memo(function AssistantSeatView(
     (owner: ReasoningBodyOwnerProps) => renderSlot('conversation.chat.reasoning.body', owner),
     [renderSlot],
   )
-  return <AssistantNodeView {...rest} renderImages={renderImages} renderBody={renderBody} />
+  const renderMeta = useCallback(
+    (owner: AssistantMetaOwnerProps) => renderSlot('conversation.chat.assistant.meta', owner),
+    [renderSlot],
+  )
+  return (
+    <AssistantNodeView {...rest} renderImages={renderImages} renderBody={renderBody} renderMeta={renderMeta} />
+  )
 })

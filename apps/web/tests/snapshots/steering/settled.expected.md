@@ -24,6 +24,7 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
+- text: deepseek-official · deepseek-v4-flash
 - button "Ask question 1/1 answered":
   - img
   - img
@@ -41,6 +42,7 @@
   - img
   - text: Think The user selected "Yes" and wants me to include the word "BANANA" in my final reply. Let me acknowledge their answer.
 - paragraph: Great, let's move forward. BANANA!
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

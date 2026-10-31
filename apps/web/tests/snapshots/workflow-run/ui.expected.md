@@ -9,6 +9,7 @@
   - img
   - img
   - text: "Think The user wants me to use the workflow tool exactly once with specific parameters. Let me carefully follow the instructions:"
+- text: deepseek-official · deepseek-v4-flash
 - button "Tool call workflow ·":
   - img
   - img
@@ -25,6 +26,7 @@
   - img
   - text: Think The workflow returned successfully with the reply "WF_CHILD_OK". Now I need to reply with exactly "WORKFLOW_DONE" and stop.
 - paragraph: WORKFLOW_DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

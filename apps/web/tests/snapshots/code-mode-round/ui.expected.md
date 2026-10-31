@@ -24,6 +24,7 @@
   - img
   - img
   - text: "Think The user wants me to write a single `run_code` program that:"
+- text: deepseek-official · deepseek-v4-flash
 - button "Code Run bash echo and catch missing file read":
   - img
   - img
@@ -38,6 +39,7 @@
   - img
   - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

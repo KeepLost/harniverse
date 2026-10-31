@@ -136,7 +136,10 @@ describe('built-in conversation node Definitions', () => {
     value.append(at(4, 'assistant/message', {
       turn: 1,
       step: 1,
-      message: assistantMessage('assistant-1', 'settled'),
+      message: {
+        ...assistantMessage('assistant-1', 'settled'),
+        source: { kind: 'model', provider: 'p-settled', model: 'm-settled' },
+      },
     }, { surfaceOp: 'append' }))
     value.flush()
 
@@ -145,6 +148,10 @@ describe('built-in conversation node Definitions', () => {
     expect(settled?.key).toBe(running?.key)
     expect(settledSnapshot.order).toBe(order)
     expect(settled?.data).toMatchObject({ status: 'settled', blocks: [{ kind: 'text', text: 'settled' }] })
+    expect((settled?.data as AssistantChatData).finalNode?.provenance).toEqual({
+      provider: 'p-settled',
+      model: 'm-settled',
+    })
 
     const interruptedValue = assembler([
       at(10, 'turn/start', { turn: 2 }),
@@ -159,6 +166,9 @@ describe('built-in conversation node Definitions', () => {
     const interrupted = node(snapshot(interruptedValue), 'assistant-step')
     expect(interrupted?.data).toMatchObject({ status: 'interrupted' })
     expect((interrupted?.data as AssistantChatData).finalNode?.interrupted).toBe(true)
+    // The synthetic interruption node has no finalized message event, so it
+    // carries no provenance: the meta line stays silent for it.
+    expect((interrupted?.data as AssistantChatData).finalNode?.provenance).toBeUndefined()
 
     const hiddenValue = assembler([
       at(20, 'turn/start', { turn: 3 }),

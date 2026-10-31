@@ -11,11 +11,13 @@
 
 import { Fragment, memo, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { AssistantBlock, AssistantProvenanceView } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
-import type { ChatImagesOwnerProps, ChatViewSlotProps, ReasoningBodyOwnerProps } from '../contract/slots.ts'
+import type {
+  AssistantMetaOwnerProps, ChatImagesOwnerProps, ChatViewSlotProps, ReasoningBodyOwnerProps,
+} from '../contract/slots.ts'
 import { messageImageLabels } from '../image-labels.ts'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
@@ -31,17 +33,22 @@ export interface AssistantMarkdownProps {
   mentions?: MarkdownFileMentions | undefined
   /** Where a link in this prose opens (the host browser panel, or a new tab). */
   externalLinks?: MarkdownExternalLinks | undefined
+  /** Provider/model identity of the finalized message; omitted while unknown (streaming). */
+  provenance?: AssistantProvenanceView | undefined
   /** Seat-bound gallery renderer for the assistant image position; omitted renders the shared gallery directly. */
   renderImages?: ((owner: ChatImagesOwnerProps) => ReactNode) | undefined
   /** Seat-bound body renderer for reasoning disclosures; omitted renders the plain Think body. */
   renderBody?: ((owner: ReasoningBodyOwnerProps) => ReactNode) | undefined
+  /** Seat-bound meta renderer for the provenance line; omitted renders the plain ids. */
+  renderMeta?: ((owner: AssistantMetaOwnerProps) => ReactNode) | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, loadImage, mentions, externalLinks, renderImages, renderBody, t,
+  blocks, streaming, interrupted, loadImage, mentions, externalLinks, provenance, renderImages, renderBody,
+  renderMeta, t,
 }: AssistantMarkdownProps) {
   const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   // Stable per locale revision (t identity changes on switch): a fresh object
@@ -114,6 +121,13 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         {rendered}
         {interrupted && <span className={css.stopped}>{t('message.stopped')}</span>}
       </div>
+      {provenance !== undefined && (
+        <div className={css.meta}>
+          {renderMeta !== undefined
+            ? renderMeta({ provenance })
+            : `${provenance.provider} · ${provenance.model}`}
+        </div>
+      )}
     </div>
   )
 })

@@ -21,7 +21,7 @@
 - button "Copy":
   - img
 - paragraph: partial
-- text: Stopped
+- text: Stopped deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

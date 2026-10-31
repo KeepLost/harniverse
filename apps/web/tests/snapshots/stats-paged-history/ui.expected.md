@@ -15,6 +15,7 @@
 - button "Copy":
   - img
 - paragraph: r1
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -27,6 +28,7 @@
 - button "Copy":
   - img
 - paragraph: r2
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -39,6 +41,7 @@
 - button "Copy":
   - img
 - paragraph: r3
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -51,6 +54,7 @@
 - button "Copy":
   - img
 - paragraph: r4
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -63,6 +67,7 @@
 - button "Copy":
   - img
 - paragraph: r5
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -75,6 +80,7 @@
 - button "Copy":
   - img
 - paragraph: r6
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -87,6 +93,7 @@
 - button "Copy":
   - img
 - paragraph: r7
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -99,6 +106,7 @@
 - button "Copy":
   - img
 - paragraph: r8
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -111,6 +119,7 @@
 - button "Copy":
   - img
 - paragraph: r9
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -123,6 +132,7 @@
 - button "Copy":
   - img
 - paragraph: r10
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -135,6 +145,7 @@
 - button "Copy":
   - img
 - paragraph: r11
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -147,6 +158,7 @@
 - button "Copy":
   - img
 - paragraph: r12
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -159,6 +171,7 @@
 - button "Copy":
   - img
 - paragraph: r13
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -171,6 +184,7 @@
 - button "Copy":
   - img
 - paragraph: r14
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -183,6 +197,7 @@
 - button "Copy":
   - img
 - paragraph: r15
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -195,6 +210,7 @@
 - button "Copy":
   - img
 - paragraph: r16
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -207,6 +223,7 @@
 - button "Copy":
   - img
 - paragraph: r17
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -219,6 +236,7 @@
 - button "Copy":
   - img
 - paragraph: r18
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -231,6 +249,7 @@
 - button "Copy":
   - img
 - paragraph: r19
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -243,6 +262,7 @@
 - button "Copy":
   - img
 - paragraph: r20
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -255,6 +275,7 @@
 - button "Copy":
   - img
 - paragraph: r21
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -267,6 +288,7 @@
 - button "Copy":
   - img
 - paragraph: r22
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -279,6 +301,7 @@
 - button "Copy":
   - img
 - paragraph: r23
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -291,6 +314,7 @@
 - button "Copy":
   - img
 - paragraph: r24
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -303,6 +327,7 @@
 - button "Copy":
   - img
 - paragraph: r25
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -315,6 +340,7 @@
 - button "Copy":
   - img
 - paragraph: r26
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -327,6 +353,7 @@
 - button "Copy":
   - img
 - paragraph: r27
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":
@@ -339,6 +366,7 @@
 - button "Copy":
   - img
 - paragraph: r28
+- text: snapshot · snapshot-replier
 - button "Copy":
   - img
 - button "Good response":

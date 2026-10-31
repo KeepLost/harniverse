@@ -50,6 +50,8 @@ assistant 正文中的链接在哪里打开，由基于 Host 的 `ui-conversatio
 
 已发送的用户气泡与助手输出各自通过两个独立可替换的席位渲染图库——`conversation.chat.user.images`（由 `user` 聊天节点条目声明；steering 气泡与待定投影保持直接图库）与 `conversation.chat.assistant.images`（由 `assistant-step` 条目声明）——每个席位由内置共享图库以优先级 100 占用，更低优先级的注册只替换其中一个域，注销后恢复。
 
+每条定稿的 assistant 消息携带其 `assistant/message` 事件记录的 provider/model 身份（`AssistantMessageNode.provenance`，由会话折叠器按与轨迹折叠器相同的方式填充），并通过可替换席位 `conversation.chat.assistant.meta` 在正文下方渲染为一行安静的三级归属文字——该席位由 `assistant-step` 条目声明，内置占用者以优先级 100 渲染双 id 标签。该行在定稿时出现——含事件支撑的中断——身份未知（流式，或没有定稿消息事件的合成中断）时保持静默；替代注册获得同一身份，文案归其自有（[决策](../../../.agents/notes/implemented/feature/2026-10-31-assistant-provenance-meta-seat.md)）。
+
 图片经粘贴与整页拖放进入：输入栏绑定 document 级拖拽监听（composer-bar slot 为 `kind: 'single'`，同一时刻至多一个 bar 绑定），文件拖拽悬停窗口时显示 `DropOverlay` 原子组件——纯文本拖拽不受影响，锁定或忙碌的 composer 显示禁用遮罩并拒绝 drop。两种手势共用一条对宿主 `imageLimits` 投影的加入预检（数量、单图字节、总字节）：会突破上限的加入整批拒收，立刻弹出点名上限的横幅，完全不进入附件栏。仍然到达的宿主侧拒绝按 `attachment-error` 原因映射为产品文案（`image-labels.ts` 的 `attachmentErrorText`）；用户无法解决的原因折叠为一条带原因码的发送失败文案，非附件错误码保留开发者可读的原文加错误码。
 
 本地 Host 上——页面权限为 loopback 且已连接握手报告 `canOpenPath`（与产出文件行相同的 `connection` 读取缝隙）——同样的两种手势会把批次拆开而不是整体上传：图片仍走上文的图片入口，其余文件与拖入的文件夹只要 Desktop 外壳桥（`harniverseHostPaths.pathFor`）能给出路径，就在手势时的选区末尾以一次粘贴事务插入为 `@path` 引用占位 chip（一次撤销移除整批，Backspace 像所有 occurrence chip 一样移除单个）。提及文本按会话 cwd 相对化，含空白的路径加引号，目录的尾斜杠收在引号内；chip 提交时经 `reference` source codec 序列化，因此把 `ui-reference` 移出组合会让发送显式失败而非静默降级。无路径的文件（服务页没有桥）仍走上传，无法具名的文件夹以本地化文案拒收，一条不可表示的路径会在任何变更前拒绝整批。非本地客户端完全保留仅图片的入口。

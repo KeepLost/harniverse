@@ -19,6 +19,7 @@
   - img "Remote test image"
 - paragraph: Local test image
 - paragraph: REMOTE_IMAGE_DONE
+- text: fixture · fixture
 - button "Copy":
   - img
 - button "Good response":

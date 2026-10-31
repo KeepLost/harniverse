@@ -26,6 +26,7 @@
   - img
   - text: Think The user wants me to begin with "Reading the workspace now." and call bash with "echo alpha" in the same message. Then after the tool result, reply with the single word DONE and stop.
 - paragraph: Reading the workspace now.
+- text: deepseek-official · deepseek-v4-flash
 - button "Bash Print alpha to stdout":
   - img
   - img

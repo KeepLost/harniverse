@@ -6,7 +6,7 @@ import {
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from './MessageItem.tsx'
 import { TurnTailNodeView } from './TurnTailNodeView.tsx'
-import { AssistantSeatView, ChatImagesDefault, ReasoningBodyDefault, UserMessageSeatView } from './seat-occupants.tsx'
+import { AssistantSeatView, AssistantMetaDefault, ChatImagesDefault, ReasoningBodyDefault, UserMessageSeatView } from './seat-occupants.tsx'
 
 /**
  * Register this package's business renderers behind the keyed Chat Node seat.
@@ -30,6 +30,7 @@ export function registerChatNodeRenderers(ctx: Context): void {
     children: {
       'conversation.chat.assistant.images': { kind: 'single', scope: 'session' },
       'conversation.chat.reasoning.body': { kind: 'single', scope: 'session' },
+      'conversation.chat.assistant.meta': { kind: 'single', scope: 'session' },
     },
   }, AssistantSeatView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
@@ -69,4 +70,6 @@ export function registerChatNodeRenderers(ctx: Context): void {
     { name: 'conversation.chat.assistant.images', priority: 100, locale: NS }, ChatImagesDefault))
   ctx.slots.inject('conversation.chat.reasoning.body', () => ctx.slots.register(
     { name: 'conversation.chat.reasoning.body', priority: 100, locale: NS }, ReasoningBodyDefault))
+  ctx.slots.inject('conversation.chat.assistant.meta', () => ctx.slots.register(
+    { name: 'conversation.chat.assistant.meta', priority: 100, locale: NS }, AssistantMetaDefault))
 }

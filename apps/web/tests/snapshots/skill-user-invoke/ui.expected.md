@@ -29,6 +29,7 @@
   - img
   - text: Context injection user-invoke-demo
 - paragraph: USER_INVOKE_REPLY acknowledged; following the injected skill.
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

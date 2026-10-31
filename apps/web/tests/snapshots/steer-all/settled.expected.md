@@ -24,6 +24,7 @@
   - img
   - img
   - text: Think The user wants me to ask them a checkpoint question first, then continue with whatever they interject. Let me do exactly that.
+- text: deepseek-official · deepseek-v4-flash
 - button "Ask question 1/1 answered":
   - img
   - img
@@ -40,6 +41,7 @@
 - button "Copy":
   - img
 - paragraph: "Got it: BANANA and ORANGE."
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

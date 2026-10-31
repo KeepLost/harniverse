@@ -25,6 +25,7 @@
   - img
   - text: "Search {\"queries\":[\"DeepSeek Harness snapshot search\",\"Harniverse plugin snapshot search\"]}"
 - paragraph: SEARCH_DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

@@ -35,6 +35,7 @@
       - cell:
         - math: 1 5
 - paragraph: MATH_RENDERING_DONE
+- text: fixture · fixture
 - button "Copy":
   - img
 - button "Good response":

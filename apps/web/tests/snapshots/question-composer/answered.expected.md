@@ -24,6 +24,7 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.
+- text: deepseek-official · deepseek-v4-flash
 - button "Ask question 1/1 answered":
   - img
   - img
@@ -38,6 +39,7 @@
   - img
   - text: Think The user answered "Blue". I should now reply with the single word DONE and stop.
 - paragraph: DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

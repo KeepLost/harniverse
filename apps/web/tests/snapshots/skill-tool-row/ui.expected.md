@@ -26,6 +26,7 @@
   - img
   - img
   - text: Think Load the requested skill.
+- text: deepseek-official · deepseek-v4-flash
 - button "Skill snapshot-skill" [expanded]:
   - img
   - text: Skill snapshot-skill
@@ -36,6 +37,7 @@
   - img
   - text: Think The skill is loaded.
 - paragraph: DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

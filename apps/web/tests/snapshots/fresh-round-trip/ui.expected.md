@@ -24,6 +24,7 @@
   - img
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
+- text: deepseek-official · deepseek-v4-flash
 - button "Bash Echo the test string":
   - img
   - img
@@ -33,6 +34,7 @@
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
 - paragraph: DONE
+- text: deepseek-official · deepseek-v4-flash
 - button "Copy":
   - img
 - button "Good response":

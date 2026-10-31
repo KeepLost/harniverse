@@ -223,7 +223,11 @@ describe('verifyCreatedEntry failure mapping', () => {
   it('refuses with changed when the canonical stat names a different object', async () => {
     await actual.writeFile(join(root as string, 'a.txt'), '')
     const info = await actual.stat(join(root as string, 'a.txt'))
-    vi.mocked(stat).mockImplementationOnce(async () => ({ dev: info.dev, ino: info.ino + 1 }) as never)
+    // A constant, not `info.ino + 1`: a Windows file id can exceed 2^53 as a
+    // JS number, where the +1 is absorbed by float rounding and the "other"
+    // object compares identical to the created one.
+    const otherIno = info.ino === 42 ? 43 : 42
+    vi.mocked(stat).mockImplementationOnce(async () => ({ dev: info.dev, ino: otherIno }) as never)
     await expect(verifyCreatedEntry(join(root as string, 'a.txt'), 'a.txt', 'file'))
       .rejects.toMatchObject({ code: 'changed' })
   })

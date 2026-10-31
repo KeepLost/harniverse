@@ -31,6 +31,7 @@
   - text: "Unsafe:"
   - code: javascript:alert(1)
 - paragraph: INLINE_CODE_LINK_DONE
+- text: fixture · fixture
 - button "Copy":
   - img
 - button "Good response":
