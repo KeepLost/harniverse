@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCloseFill14, IconPersonalizationOutline16,
-  IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
+  IconProjectAddOutline16, IconSearchOutline16, IconTrashOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
@@ -26,6 +26,7 @@ import { SessionArchiveActiveError } from '@deepseek-ai/dsh-client-runtime/clien
 import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import { ArchiveIcon, ArchivePanel } from './ArchivePanel.tsx'
+import { BatchArchivePanel } from './BatchArchivePanel.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -792,6 +793,15 @@ export function WorkspaceBrowser({
     const item = sessionList.byId[id]
     return item === undefined ? [] : [item]
   }).sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)), [archivedSessionIds, sessionList.byId])
+  // Live account for the batch picker: every session the archive set has not
+  // swallowed yet, newest first.
+  const batchArchiveItems = useMemo(() => {
+    const archived = new Set(archivedSessionIds)
+    return sessionList.ids.flatMap((id) => {
+      const item = sessionList.byId[id]
+      return item === undefined || archived.has(id) ? [] : [item]
+    }).sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
+  }, [sessionList, archivedSessionIds])
   // Live occupancy of this surface's directory-flow hole (the same source the
   // flow reads): a composition without a picking affordance can add nothing.
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
@@ -825,6 +835,9 @@ export function WorkspaceBrowser({
   // states; the menu anchors on this button).
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const [archiveMode, setArchiveMode] = useState(false)
+  // Batch picker mirrors archiveMode: while active it owns the body and the
+  // header, and the two archive surfaces are mutually exclusive.
+  const [batchArchiveMode, setBatchArchiveMode] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const composingRef = useRef(false)
 
@@ -1045,13 +1058,14 @@ export function WorkspaceBrowser({
     <div className={clsx(css.root, !wide && css.rail)}>
       {renderSlot('sidebar.workspaces.machine', { wide })}
       <div className={css.sectionHeader}>
-        {wide && !archiveMode && (
+        {wide && !archiveMode && !batchArchiveMode && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
             {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
         {wide && archiveMode && <span className={css.sectionLabel}>{t('archive.title')}</span>}
-        {wide && !archiveMode && (
+        {wide && batchArchiveMode && <span className={css.sectionLabel}>{t('batchArchive.title')}</span>}
+        {wide && !archiveMode && !batchArchiveMode && (
           <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
             <div
               ref={searchRoot}
@@ -1109,7 +1123,7 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
-          {wide && !archiveMode && (
+          {wide && !archiveMode && !batchArchiveMode && (
             <ViewOptionsMenu
               groupBy={groupBy}
               orderBy={orderBy}
@@ -1121,7 +1135,7 @@ export function WorkspaceBrowser({
           {/* Adding is the button's one action, so a composition with no
               picking affordance has nothing to offer here: the region hides the
               button rather than leaving a dead one in the header. */}
-          {!archiveMode && directoryFlowAvailable && (
+          {!archiveMode && !batchArchiveMode && directoryFlowAvailable && (
             <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
               <button
                 ref={wsPlusRef}
@@ -1136,20 +1150,41 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
-          <Tooltip label={archiveMode ? t('archive.close') : t('archive.open')} side="bottom" delayMs={500}>
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label={archiveMode ? t('archive.close') : t('archive.open')}
-              aria-pressed={archiveMode}
-              onClick={() => {
-                if (!archiveMode && !wide) expandSidebar()
-                setArchiveMode(value => !value)
-              }}
-            >
-              {archiveMode ? <IconCloseFill14 /> : <ArchiveIcon />}
-            </button>
-          </Tooltip>
+          {/* Batch picker: archives checked sessions in place. Hidden inside
+              the archive viewer; the archive-view toggle hides while the
+              picker owns the body. */}
+          {!archiveMode && (
+            <Tooltip label={batchArchiveMode ? t('archive.close') : t('batchArchive.open')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={batchArchiveMode ? t('archive.close') : t('batchArchive.open')}
+                aria-pressed={batchArchiveMode}
+                onClick={() => {
+                  if (!batchArchiveMode && !wide) expandSidebar()
+                  setBatchArchiveMode(value => !value)
+                }}
+              >
+                {batchArchiveMode ? <IconCloseFill14 /> : <ArchiveIcon />}
+              </button>
+            </Tooltip>
+          )}
+          {!batchArchiveMode && (
+            <Tooltip label={archiveMode ? t('archive.close') : t('archive.open')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={archiveMode ? t('archive.close') : t('archive.open')}
+                aria-pressed={archiveMode}
+                onClick={() => {
+                  if (!archiveMode && !wide) expandSidebar()
+                  setArchiveMode(value => !value)
+                }}
+              >
+                {archiveMode ? <IconCloseFill14 /> : <IconTrashOutline16 />}
+              </button>
+            </Tooltip>
+          )}
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
         <WorkspacePickFlow
@@ -1191,7 +1226,7 @@ export function WorkspaceBrowser({
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
       <div className={css.listArea}>
-        {wide && !archiveMode && sessionArchiveError !== null && (
+        {wide && !archiveMode && !batchArchiveMode && sessionArchiveError !== null && (
           <div className={css.renameError} role="alert">{sessionArchiveError}</div>
         )}
         {wide && (archiveMode
@@ -1206,68 +1241,76 @@ export function WorkspaceBrowser({
               t={t}
             />
           )
-          : normalizedQuery !== ''
+          : batchArchiveMode
             ? (
-              <SearchResults
-                useSessions={useSessions}
-                open={open}
-                workspaces={workspaces}
-                archivedSessionIds={archivedSessionIds}
-                query={normalizedQuery}
-                remote={remoteSearch}
-                resultLimit={searchResultLimit}
+              <BatchArchivePanel
+                items={batchArchiveItems}
+                archiveSession={archiveSession}
                 t={t}
               />
             )
-            : groupBy === 'flat'
+            : normalizedQuery !== ''
               ? (
-                <FlatList
-                  useSessions={useSessions} open={open} forkSession={forkSession}
-                  onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
-                  onSessionPinToggle={onSessionPinToggle}
+                <SearchResults
+                  useSessions={useSessions}
+                  open={open}
+                  workspaces={workspaces}
                   archivedSessionIds={archivedSessionIds}
-                  pinnedSessionIds={pinnedSessionIds}
-                  orderBy={orderBy}
-                  sessionOrderByAccount={sessionOrderByAccount}
-                  sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
-                  syncSessionOrderAccount={actions.syncSessionOrderAccount}
-                  setSessionOrder={actions.setSessionOrder}
+                  query={normalizedQuery}
+                  remote={remoteSearch}
+                  resultLimit={searchResultLimit}
                   t={t}
                 />
               )
-              : (
-                <SessionTree
-                  useSessions={useSessions}
-                  onSessionRename={onSessionRename}
-                  onSessionArchive={onSessionArchive}
-                  onSessionPinToggle={onSessionPinToggle}
-                  forkSession={forkSession}
-                  workspaces={workspaces}
-                  pinnedSessionIds={pinnedSessionIds}
-                  groupExpansion={groupExpansion}
-                  setGroupExpanded={actions.setGroupExpanded}
-                  sessionOrderByAccount={sessionOrderByAccount}
-                  sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
-                  syncSessionOrderAccount={actions.syncSessionOrderAccount}
-                  setSessionOrder={actions.setSessionOrder}
-                  archivedSessionIds={archivedSessionIds}
-                  startSession={startSession}
-                  open={open}
-                  insertWorkspaceBefore={insertWorkspaceBefore}
-                  insertSessionBefore={insertSessionBefore}
-                  orderBy={orderBy}
-                  t={t}
-                  onRenameRequest={(workspaceId, currentTitle) => {
-                    setRenameTarget({ workspaceId, currentTitle })
-                    setRenameDraft(currentTitle)
-                    setRenameError(null)
-                  }}
-                  onDeleteRequest={(workspaceId, title) => {
-                    setDeleteTarget({ workspaceId, title })
-                    setDeleteError(null)
-                  }}
-                />
-              ))}
+              : groupBy === 'flat'
+                ? (
+                  <FlatList
+                    useSessions={useSessions} open={open} forkSession={forkSession}
+                    onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                    onSessionPinToggle={onSessionPinToggle}
+                    archivedSessionIds={archivedSessionIds}
+                    pinnedSessionIds={pinnedSessionIds}
+                    orderBy={orderBy}
+                    sessionOrderByAccount={sessionOrderByAccount}
+                    sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
+                    syncSessionOrderAccount={actions.syncSessionOrderAccount}
+                    setSessionOrder={actions.setSessionOrder}
+                    t={t}
+                  />
+                )
+                : (
+                  <SessionTree
+                    useSessions={useSessions}
+                    onSessionRename={onSessionRename}
+                    onSessionArchive={onSessionArchive}
+                    onSessionPinToggle={onSessionPinToggle}
+                    forkSession={forkSession}
+                    workspaces={workspaces}
+                    pinnedSessionIds={pinnedSessionIds}
+                    groupExpansion={groupExpansion}
+                    setGroupExpanded={actions.setGroupExpanded}
+                    sessionOrderByAccount={sessionOrderByAccount}
+                    sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
+                    syncSessionOrderAccount={actions.syncSessionOrderAccount}
+                    setSessionOrder={actions.setSessionOrder}
+                    archivedSessionIds={archivedSessionIds}
+                    startSession={startSession}
+                    open={open}
+                    insertWorkspaceBefore={insertWorkspaceBefore}
+                    insertSessionBefore={insertSessionBefore}
+                    orderBy={orderBy}
+                    t={t}
+                    onRenameRequest={(workspaceId, currentTitle) => {
+                      setRenameTarget({ workspaceId, currentTitle })
+                      setRenameDraft(currentTitle)
+                      setRenameError(null)
+                    }}
+                    onDeleteRequest={(workspaceId, title) => {
+                      setDeleteTarget({ workspaceId, title })
+                      setDeleteError(null)
+                    }}
+                  />
+                ))}
       </div>
 
       <Modal

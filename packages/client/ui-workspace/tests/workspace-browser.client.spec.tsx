@@ -523,6 +523,133 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('busy-s')).toBeTruthy()
   })
 
+  it('batch-archives checked sessions from the sidebar picker', async () => {
+    const archiveSession = vi.fn(async () => {})
+    const sessions = sessionState([
+      summary('one', 3, { cwd: '/projects/one' }),
+      summary('two', 2),
+      summary('kept', 1),
+    ])
+    const b = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two', 'kept'])])),
+      archiveSession,
+    })
+
+    // The picker sits between the add-workspace and archive-view buttons.
+    const addButton = screen.getByRole('button', { name: '添加工作区' })
+    const pickerButton = screen.getByRole('button', { name: '归档会话' })
+    const viewerButton = screen.getByRole('button', { name: '查看归档会话' })
+    expect(addButton.compareDocumentPosition(pickerButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(pickerButton.compareDocumentPosition(viewerButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(pickerButton)
+    expect(screen.getByText('批量归档会话')).toBeTruthy()
+    // Live sessions list newest-first with their folder as the meta line.
+    expect(screen.getByText('one')).toBeTruthy()
+    expect(screen.getByText('/projects/one')).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('全选会话'))
+    expect(screen.getByText('已选择 3 个')).toBeTruthy()
+    // Select-all is itself the deselect-all toggle.
+    fireEvent.click(screen.getByLabelText('全选会话'))
+    expect(screen.getByText('已选择 0 个')).toBeTruthy()
+    // Individual checks rebuild the selection; each box also toggles off.
+    fireEvent.click(screen.getByLabelText('选择会话“one”'))
+    fireEvent.click(screen.getByLabelText('选择会话“one”'))
+    expect(screen.getByText('已选择 0 个')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('选择会话“one”'))
+    fireEvent.click(screen.getByLabelText('选择会话“kept”'))
+    fireEvent.click(screen.getByRole('button', { name: '归档所选' }))
+    await waitFor(() => { expect(archiveSession).toHaveBeenCalledTimes(2) })
+    expect(archiveSession).toHaveBeenCalledWith(sid('one'))
+    expect(archiveSession).toHaveBeenCalledWith(sid('kept'))
+
+    // The archive-set echo drops the archived rows and the selection with them.
+    rerender(b, {
+      useWorkspaces: hook(workspaceState(
+        [workspace('alpha', ['one', 'two', 'kept'])],
+        [sid('one'), sid('kept')],
+      )),
+    })
+    await waitFor(() => { expect(screen.getByText('已选择 0 个')).toBeTruthy() })
+    expect(screen.queryByLabelText('选择会话“one”')).toBeNull()
+    expect(screen.getByLabelText('选择会话“two”')).toBeTruthy()
+
+    // The header toggle returns to the session list.
+    fireEvent.click(screen.getByRole('button', { name: '返回会话列表' }))
+    expect(screen.queryByText('批量归档会话')).toBeNull()
+    expect(screen.getByRole('tree')).toBeTruthy()
+
+    b.view.unmount()
+  })
+
+  it('reports active sessions explicitly during batch archive and archives the rest', async () => {
+    const archiveSession = vi.fn(async (id: SessionId) => {
+      if (id === sid('busy-s')) throw new SessionArchiveActiveError(sid('busy-s'), [{ kind: 'turn' }])
+    })
+    mount({
+      useSessions: hook(sessionState([summary('busy-s', 2, { running: true }), summary('quiet-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['busy-s', 'quiet-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '归档会话' }))
+    // The running row announces why it will refuse.
+    expect(screen.getByText('进行中')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('全选会话'))
+    fireEvent.click(screen.getByRole('button', { name: '归档所选' }))
+    await waitFor(() => { expect(archiveSession).toHaveBeenCalledTimes(2) })
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('“busy-s”仍有进行中的工作，未归档')
+    })
+    // No stop-and-archive dialog from the batch path; the active row stays.
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByLabelText('选择会话“busy-s”')).toBeTruthy()
+  })
+
+  it('lists other batch-archive failures verbatim per session', async () => {
+    const archiveSession = vi.fn(async (id: SessionId) => {
+      if (id === sid('alpha-s')) throw new Error('archive exploded')
+      throw 'raw refusal'
+    })
+    mount({
+      useSessions: hook(sessionState([summary('alpha-s', 2), summary('beta-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s', 'beta-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '归档会话' }))
+    fireEvent.click(screen.getByLabelText('全选会话'))
+    fireEvent.click(screen.getByRole('button', { name: '归档所选' }))
+    await waitFor(() => {
+      // Error rejections keep their message; non-Error rejections stringify.
+      expect(screen.getByRole('alert').textContent).toBe('alpha-s: archive exploded\nbeta-s: raw refusal')
+    })
+  })
+
+  it('keeps the picker and the archive viewer mutually exclusive, both reachable from the rail', () => {
+    const expandSidebar = vi.fn()
+    mount({ wide: false, expandSidebar })
+
+    const picker = screen.getByRole('button', { name: '归档会话' })
+    fireEvent.click(picker)
+    expect(expandSidebar).toHaveBeenCalledTimes(1)
+    expect(picker.getAttribute('aria-pressed')).toBe('true')
+    // The archive viewer hides while the picker is active.
+    expect(screen.queryByRole('button', { name: '查看归档会话' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '返回会话列表' }))
+    fireEvent.click(screen.getByRole('button', { name: '查看归档会话' }))
+    // The picker hides inside the archive viewer.
+    expect(screen.queryByRole('button', { name: '归档会话' })).toBeNull()
+  })
+
+  it('shows the empty state and disables the action when nothing can be archived', () => {
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: '归档会话' }))
+    expect(screen.getByText('暂无可归档的会话')).toBeTruthy()
+    const action = screen.getByRole('button', { name: '归档所选' }) as HTMLButtonElement
+    expect(action.disabled).toBe(true)
+  })
+
   it('pins and unpins from the row menu; the pinned row leads its group', () => {
     const pinSession = vi.fn(async () => {})
     const unpinSession = vi.fn(async () => {})
