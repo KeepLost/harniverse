@@ -2388,7 +2388,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ptc-runtime/ptc-runtime-node/src/index.ts:30`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
+Source: [`packages/ptc-runtime/ptc-runtime-node/src/index.ts:31`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
 
 <a id="deepseek-aidsh-ptc-runtime-python"></a>
 
@@ -2416,7 +2416,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ptc-runtime/ptc-runtime-python/src/index.ts:23`](../packages/ptc-runtime/ptc-runtime-python/src/index.ts)
+Source: [`packages/ptc-runtime/ptc-runtime-python/src/index.ts:24`](../packages/ptc-runtime/ptc-runtime-python/src/index.ts)
 
 <a id="deepseek-aidsh-pwsh-local"></a>
 
@@ -2659,7 +2659,7 @@ export interface Config {
 
 Depends on: [`SandboxMode`](subsystems/sandbox.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:67`](../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 <a id="deepseek-aidsh-sdk-jsonrpc-server"></a>
 
@@ -3167,7 +3167,7 @@ export interface Config {
   leaseMs?: number
 }
 
-/** The Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
+/** The captured Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
 export type CapturedRemoteProfile = z.infer<typeof capturedProfileSchema>
 ```
 

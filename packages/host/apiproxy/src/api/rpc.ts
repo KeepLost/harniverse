@@ -78,6 +78,8 @@ export interface RpcErrorDetailsMap {
   'workspace-watch-unsupported': { workspaceId: string; path: string }
   /** Open workspace file watch streams reached the per-workspace cap. */
   'workspace-watch-limit-reached': { workspaceId: string; limit: number }
+  /** Host-path workspace inspection is refused while the execution world is remote. */
+  'workspace-world-remote': {}
   /** An entity-stream subscription addressed a page with no live downlink. */
   'stream-channel-absent': { page: string }
   /** Open entity-stream subscriptions reached the per-page cap. */
@@ -266,6 +268,7 @@ export const RPC_ERROR_CODES = [
   'workspace-git-failed',
   'workspace-watch-unsupported',
   'workspace-watch-limit-reached',
+  'workspace-world-remote',
   'stream-channel-absent',
   'stream-sub-limit-reached',
   'directory-unreadable',

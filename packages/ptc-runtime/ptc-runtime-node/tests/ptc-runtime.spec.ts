@@ -3,9 +3,28 @@ import { Context } from '@deepseek-ai/cordis'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { childSpawnPlan, NodePtcRuntime } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import type { CodeBindingFunction, CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+
+/** A remote-world provider: only its locality fact is ever observed here. */
+class RemoteWorldRuntime extends SubprocessRuntime {
+  override get locality(): 'local' | 'remote' { return 'remote' }
+
+  override resolveExecutable(command: string): Promise<string> {
+    return Promise.resolve(`/machine/${command}`)
+  }
+
+  override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    throw new Error(`unexpected spawn: ${spec.argv.join(' ')}`)
+  }
+
+  override spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    return Promise.reject(new Error(`unexpected terminal: ${spec.argv.join(' ')}`))
+  }
+}
 
 /**
  * Integration suite over REAL fresh child processes (no mocks — processes are
@@ -57,6 +76,15 @@ describe('NodePtcRuntime — programs and bindings (real children)', () => {
     const { runtime } = await setup()
     expect(runtime.language).toBe('typescript')
     expect(runtime.isolation).toBe('process')
+  })
+
+  it('refuses to run in a remote execution world (host child_process must not execute there)', async () => {
+    const { ctx, runtime } = await setup()
+    await ctx.plugin(RemoteWorldRuntime)
+    // The spawn plan would be decided for another world while the process
+    // runs on this host, so the runtime fails closed before any child exists.
+    await expect(runtime.run({ program: 'return 1', bindings: [] })).rejects.toThrow('remote execution world')
+    await ctx.fiber.dispose()
   })
 
   it('runs TypeScript (erasable syntax), captures output in order, returns the value', async () => {

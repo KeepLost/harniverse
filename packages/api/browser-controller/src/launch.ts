@@ -4,6 +4,7 @@
  * other spawn, so process-tree termination, correlation, and environment
  * scrubbing behave exactly as they do for a shell command.
  */
+import { createServer } from 'node:net'
 import type { SubprocessHandle, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 
 /** Executables probed when no path is configured, in preference order. */
@@ -31,6 +32,9 @@ export const DEFAULT_BROWSER_CANDIDATES = [
  * and the browser refuses the socket.
  */
 const ENDPOINT_PATTERN = /^DevTools listening on (ws:\/\/\S+)\r?\n/mu
+
+/** Loopback host names a pinned endpoint may address. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
 
 /** How many trailing diagnostic characters a failed launch reports. */
 const DIAGNOSTIC_LIMIT = 800
@@ -136,13 +140,15 @@ export async function resolveBrowserExecutable(
  * behaviour that makes no sense for a streamed, user-driven page (first-run
  * dialogs, the default-browser prompt, audio, scrollbar chrome).
  * @param spec - resolved launch parameters.
+ * @param debugPort - loopback port the launcher reserved for the DevTools
+ * listener; the reported endpoint must address it (see {@link launchBrowser}).
  * @returns the complete argv.
  */
-export function browserArgv(spec: BrowserLaunchSpec): string[] {
+export function browserArgv(spec: BrowserLaunchSpec, debugPort: number): string[] {
   return [
     spec.executablePath,
     '--headless=new',
-    '--remote-debugging-port=0',
+    `--remote-debugging-port=${String(debugPort)}`,
     `--user-data-dir=${spec.profileDir}`,
     `--window-size=${spec.width},${spec.height}`,
     '--no-first-run',
@@ -162,14 +168,65 @@ export function browserArgv(spec: BrowserLaunchSpec): string[] {
 }
 
 /**
- * Launch one browser process and wait for its DevTools endpoint. Failure stops
- * and drains the tree; the caller retains its handle for a failed exit wait.
+ * Reserve one ephemeral loopback port for the browser's DevTools listener and
+ * release it for the browser to bind. The launcher — not the child — owns the
+ * port choice, so a spoofed endpoint line cannot steer the local connection at
+ * an arbitrary local service.
+ * @param signal - aborts the reservation before the listener exists.
+ * @returns the reserved port, already released for the browser to bind.
+ */
+export async function allocateLoopbackPort(signal: AbortSignal): Promise<number> {
+  signal.throwIfAborted()
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => { resolve() })
+  })
+  /* v8 ignore next -- an ephemeral loopback listen either binds a port or the
+   * process has no networking at all; the latter has no deterministic fixture. */
+  const address = server.address()
+  /* v8 ignore next -- same window: a successful listen(0) always reports a bound port. */
+  if (address === null || typeof address === 'string') throw new BrowserLaunchFailure('The reserved DevTools listener reported no port', '')
+  const { port } = address
+  await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
+  return port
+}
+
+/**
+ * Accept the browser's reported endpoint only when it addresses the port this
+ * launcher allocated, over loopback WebSocket.
+ * @param endpoint - endpoint line the child printed.
+ * @param port - the port {@link allocateLoopbackPort} reserved for this launch.
+ * @returns the endpoint, unchanged, once it matches.
+ */
+function pinnedEndpoint(endpoint: string, port: number): string {
+  let url: URL
+  try {
+    url = new URL(endpoint)
+  } catch {
+    throw new BrowserLaunchFailure(`The browser reported a malformed DevTools endpoint: ${endpoint}`, '')
+  }
+  if (url.protocol !== 'ws:' || !LOOPBACK_HOSTS.has(url.hostname) || Number(url.port) !== port) {
+    throw new BrowserLaunchFailure(
+      'The browser reported a DevTools endpoint the launcher did not allocate '
+      + `(expected ws://127.0.0.1:${String(port)}): ${endpoint}`, '')
+  }
+  return endpoint
+}
+
+/**
+ * Launch one browser process and wait for its DevTools endpoint. The DevTools
+ * port is reserved by the launcher and the reported endpoint must address
+ * exactly it, so an untrusted child's stderr cannot direct the local
+ * connection elsewhere; every other failure stops and drains the tree, and the
+ * caller retains its handle for a failed exit wait.
  * @param spec - resolved launch parameters.
  * @returns the endpoint and the owning process handle.
  */
 export async function launchBrowser(spec: BrowserLaunchSpec): Promise<LaunchedBrowser> {
+  const debugPort = await allocateLoopbackPort(spec.signal)
   const handle = spec.subprocess.spawn({
-    argv: browserArgv(spec),
+    argv: browserArgv(spec, debugPort),
     cwd: spec.cwd,
     stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
     graceMs: spec.graceMs,
@@ -184,7 +241,8 @@ export async function launchBrowser(spec: BrowserLaunchSpec): Promise<LaunchedBr
   void handle.done.catch(() => undefined)
   try {
     spec.onSpawn(handle)
-    const endpoint = await readEndpoint(handle, spec.launchTimeoutMs, spec.signal)
+    const endpoint = pinnedEndpoint(
+      await readEndpoint(handle, spec.launchTimeoutMs, spec.signal), debugPort)
     return { endpoint, handle }
   } catch (error) {
     handle.terminate()
@@ -253,6 +311,8 @@ function readEndpoint(handle: SubprocessHandle, timeoutMs: number, signal: Abort
     stderr.on('end', onEnd)
     stderr.on('close', onEnd)
     signal.addEventListener('abort', onAbort, { once: true })
+    /* v8 ignore next -- reachable only when the caller's signal aborts inside
+     * the port-reservation await before this attach; no deterministic fixture. */
     if (signal.aborted) onAbort()
   })
 }

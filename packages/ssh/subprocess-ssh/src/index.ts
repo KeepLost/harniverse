@@ -18,6 +18,11 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
   private readonly allocations = new Set<Promise<unknown>>()
   private readonly lifetime = new AbortController()
 
+  /** Children and executables live on the SSH machine, never on this host. */
+  override get locality(): 'local' | 'remote' {
+    return 'remote'
+  }
+
   constructor(ctx: Context) {
     super(ctx)
     ctx.effect(() => async () => {

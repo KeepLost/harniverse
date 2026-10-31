@@ -13,6 +13,7 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../ptc-runtime" },
+    { "path": "../../subprocess/subprocess" },
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../util/timeout" }
   ]

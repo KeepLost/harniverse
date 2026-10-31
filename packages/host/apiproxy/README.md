@@ -114,6 +114,7 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+- **Workspace inspection is host-world-only** — `workspaceFiles.*` and `workspaceGit.*` read host paths through the workspace registry. When the mounted subprocess provider declares `locality: 'remote'`, every inspection surface (including the file watch stream) refuses with `workspace-world-remote` instead of rendering host paths as if they were the remote session's files; a remote-aware workbench needs the future execution-world view work.
 - **Preview decoding follows the host locale** — cross-locale files (a Big5 file on a GB18030-prior host) preview as mojibake until reopened with an explicit `encoding`; BOM-less UTF-16 rejects as binary, and files iconv-lite cannot decode stay `workspace-file-binary` with a viable-encoding message. Git diff/log output remains UTF-8-decoded (legacy bytes render as U+FFFD).
 
 - **Forwarded Remote events are parasitic on this legacy frame union** — `host/remote-event` lives in `HostFrame` so the delivery path could reuse the existing host stream instead of opening a third downlink, which makes it read as if this package owned the Remote event contract. It does not: the allowlist is `dsh-api-remotes`' and the consumer verb is `ctx.remote.$on`. When the host stream moves off this package, the frame moves with it and the consumer contract is unaffected ([rationale](../../../.agents/notes/implemented/architecture/2026-08-10-remote-event-delivery.md)).

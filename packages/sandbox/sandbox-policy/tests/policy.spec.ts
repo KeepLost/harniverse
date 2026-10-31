@@ -11,8 +11,27 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import SandboxPolicyService, { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+
+/** A remote-world provider: only its locality fact is ever observed here. */
+class RemoteWorldRuntime extends SubprocessRuntime {
+  override get locality(): 'local' | 'remote' { return 'remote' }
+
+  override resolveExecutable(command: string): Promise<string> {
+    return Promise.resolve(`/machine/${command}`)
+  }
+
+  override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    throw new Error(`unexpected spawn: ${spec.argv.join(' ')}`)
+  }
+
+  override spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    return Promise.reject(new Error(`unexpected terminal: ${spec.argv.join(' ')}`))
+  }
+}
 
 async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}) {
   const ctx = new Context()
@@ -119,9 +138,24 @@ describe('SandboxPolicyService', () => {
   })
 
   it('uses the configured root when a session has no cwd', async () => {
-    const ctx = await mounted({ workspaceRoot: '/fallback' })
+    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
     expect(ctx.sandboxPolicy.resolve({ session: session('sess-no-cwd') }).workspaceRoot).toBe(resolve('/fallback'))
   })
+
+  it('refuses the host root fallback in a remote execution world', async () => {
+    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+    await ctx.plugin(RemoteWorldRuntime)
+    // No host directory names a workspace in the remote world, so a call
+    // without a session cwd must fail instead of confining the wrong root.
+    expect(() => ctx.sandboxPolicy.resolve()).toThrow('remote execution world')
+    expect(() => ctx.sandboxPolicy.resolve({ session: session('sess-no-cwd') })).toThrow('remote execution world')
+    expect(ctx.sandboxPolicy.resolve({ session: session('sess-machine', '/machine/work') })).toMatchObject({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/machine/work'),
+    })
+    await ctx.fiber.dispose()
+  })
+
 
   it('rejects a mode outside the closed vocabulary at load', async () => {
     const ctx = new Context()

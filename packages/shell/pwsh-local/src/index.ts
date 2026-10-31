@@ -202,8 +202,10 @@ export class PwshLocalExecutor extends ShellExecutor {
 
   /**
    * Resolve a request into a fully-specified spec: fill `workdir` from
-   * `config.cwd` (else `process.cwd()`), and `timeoutMs` from
-   * `config.timeoutMs`, capped at `config.maxTimeoutMs`.
+   * `config.cwd` (else `process.cwd()`) and `timeoutMs` from
+   * `config.timeoutMs`, capped at `config.maxTimeoutMs`. In a remote execution
+   * world no host directory exists, so a request without its own workdir
+   * fails instead of falling back to one.
    */
   resolve(request: ShellExecRequest): ShellExecSpec {
     const timeoutMs = clampTimeout(
@@ -216,7 +218,7 @@ export class PwshLocalExecutor extends ShellExecutor {
     assertPositiveFinite('request.stdoutMaxBytes', stdoutMaxBytes)
     return {
       command: request.command,
-      workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
+      workdir: this.resolveWorkdir(request),
       timeoutMs,
       stdoutMaxBytes,
       ...request.signal ? { signal: request.signal } : {},
@@ -225,6 +227,22 @@ export class PwshLocalExecutor extends ShellExecutor {
       ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
       sandboxPolicy: request.sandboxPolicy,
     }
+  }
+
+  /**
+   * Pick the request's workdir, refusing host-path fallbacks once the
+   * subprocess provider's execution world is remote.
+   * @param request - the shell request being resolved.
+   * @returns an explicit workdir, or the host default in a local world.
+   */
+  private resolveWorkdir(request: ShellExecRequest): string {
+    if (request.workdir !== undefined) return request.workdir
+    if (this.ctx.subprocess.locality === 'remote') {
+      throw new Error(
+        'pwsh-local: the session must provide a workdir in a remote execution world (host directories do not exist there)',
+      )
+    }
+    return this.config.cwd ?? process.cwd()
   }
 
   /**

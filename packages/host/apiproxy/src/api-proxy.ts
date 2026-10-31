@@ -3217,10 +3217,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   // literal below wires the same functions as the events/workspaceFiles
   // members, so the SSE carrier and the substream downlink run identical
   // producers — one behavior, two carriers.
+  /** Host-path workspace inspection refusal while the execution world is remote. */
+  const workspaceWorldError = (): RpcError | undefined => {
+    if (ctx.get('subprocess')?.locality !== 'remote') return undefined
+    return {
+      code: 'workspace-world-remote',
+      message: 'Workspace inspection reads host paths; it is unavailable while the execution world is remote.',
+      details: {},
+    }
+  }
+
   const watchFilesStream: NonNullable<ApiProxy['workspaceFiles']>['watchFiles'] = (request, signal) => {
     const { workspaceId } = request.payload
     const path = request.payload.path ?? ''
     const queue = new FrameQueue<RpcRequest<WorkspaceFileWatchFrame>>(streamQueueMaxFrames)
+    const worldError = workspaceWorldError()
+    if (worldError !== undefined) {
+      queue.push(frame({ type: 'stream/error', error: worldError }))
+      queue.end()
+      return queue.iterate(signal, () => {})
+    }
     const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
     if (workspace === undefined) {
       queue.push(frame({ type: 'stream/error', error: {
@@ -5323,6 +5339,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     workspaceFiles: {
       watchFiles: watchFilesStream,
       async list(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5335,6 +5353,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async search(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId, query, include, exclude } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5349,6 +5369,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async read(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId, path, encoding } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5360,6 +5382,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async readBinary(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId, path } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5375,6 +5399,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     workspaceGit: {
       async status(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5386,6 +5412,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async commits(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId, limit = 50 } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5397,6 +5425,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async diff(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId, path, staged = false } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5408,6 +5438,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async commitFiles(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId, hash } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
@@ -5419,6 +5451,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async commitDiff(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
         const { workspaceId, hash, path } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)

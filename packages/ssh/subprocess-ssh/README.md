@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Provides ordinary managed processes and terminals over the SSH execution world. Output is pulled through bounded chunks, stdin and terminal input are backpressured, terminal resize is remote, and disposal joins the remote process range.
+Provides ordinary managed processes and terminals over the SSH execution world. Output is pulled through bounded chunks, stdin and terminal input are backpressured, terminal resize is remote, and disposal joins the remote process range. The provider declares `locality: 'remote'`, so host-path consumers refuse their host fallbacks while it is mounted.
 
 ## Model Experience
 

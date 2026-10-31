@@ -86,7 +86,7 @@ async function fixture(overrides: Partial<Config> = {}, endpoint: 'ready' | 'abs
   roots.push(ctx)
   const effects = vi.spyOn(ctx.fiber, 'effect')
   ctx.provide('sandboxPolicy', { workspaceRoot: '/workspace' } as never)
-  const subprocess = fakeSubprocess(endpoint === 'ready' ? browser.endpoint : undefined)
+  const subprocess = fakeSubprocess(endpoint === 'ready' ? browser : undefined)
   ctx.provide('subprocess', subprocess.runtime as never)
   const controller = new BrowserController(ctx, { ...config, ...overrides })
   const agent = { id: 'session' as SessionId, ctx, session: { id: 'session' as SessionId, header: {} } } as unknown as Agent
@@ -198,7 +198,10 @@ describe('BrowserController page lifecycle', () => {
     const argv = subprocess.spawns[0]?.argv ?? []
     expect(argv[0]).toBe('/usr/bin/google-chrome')
     expect(argv).toContain('--headless=new')
-    expect(argv).toContain('--remote-debugging-port=0')
+    // The launcher reserves the DevTools port and the browser binds it, so the
+    // reported endpoint cannot steer the local connection elsewhere.
+    expect(browser.endpoint).toBe(`ws://127.0.0.1:${
+      argv.find(entry => entry.startsWith('--remote-debugging-port='))?.split('=')[1] ?? ''}/devtools/browser/fake`)
     expect(argv.some(entry => entry.startsWith('--user-data-dir='))).toBe(true)
     expect(argv).not.toContain('--no-sandbox')
     expect(subprocess.spawns[0]).toMatchObject({ cwd: '/workspace', ambientEnv: 'scrubbed' })
@@ -374,11 +377,11 @@ describe('BrowserController page lifecycle', () => {
 })
 
 describe('BrowserController launch failures', () => {
-  it('waits for tree quiescence and removes the profile after a DevTools handshake failure', async () => {
-    const { controller, agent, browser, subprocess } = await fixture()
-    subprocess.endpoint = browser.endpoint
-    await browser.close()
-    browsers.pop()
+  it('waits for tree quiescence and removes the profile after an unpinned endpoint refusal', async () => {
+    const { controller, agent, subprocess } = await fixture()
+    // The child reports an endpoint addressing a port the launcher never
+    // reserved: the launch must refuse it instead of connecting.
+    subprocess.endpointPortOffset = 9
     subprocess.holdTreeExit = true
     const creating = controller.create(agent, request, signal())
     const settled = vi.fn()
@@ -391,13 +394,29 @@ describe('BrowserController launch failures', () => {
       subprocess.handles[0]?.releaseTree()
       await expect(creating).rejects.toMatchObject({
         code: 'browser-unavailable',
-        message: expect.stringContaining('The browser started but the DevTools connection failed') as unknown as string,
+        message: expect.stringContaining('did not allocate') as unknown as string,
       })
       expect(existsSync(profile)).toBe(false)
     } finally {
       subprocess.handles[0]?.releaseTree()
       await creating.catch(() => undefined)
     }
+  })
+
+  it('refuses an endpoint that leaves loopback even on the reserved port', async () => {
+    const { controller, agent, subprocess } = await fixture()
+    subprocess.endpointHost = '10.0.0.5'
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('did not allocate')
+    expect(subprocess.handles[0]?.terminated).toBe(true)
+    expect(existsSync(profileOf(subprocess.spawns[0]?.argv ?? []))).toBe(false)
+  })
+
+  it('refuses an endpoint line that is not a usable URL', async () => {
+    const { controller, agent, subprocess } = await fixture()
+    subprocess.endpointHost = '['
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('malformed DevTools endpoint')
+    expect(subprocess.handles[0]?.terminated).toBe(true)
+    expect(existsSync(profileOf(subprocess.spawns[0]?.argv ?? []))).toBe(false)
   })
 
   it('waits for tree exit before returning an endpoint-read failure', async () => {
@@ -489,9 +508,11 @@ describe('BrowserController launch failures', () => {
   })
 
   it('times out when the browser never reports its endpoint, and a later create retries the launch', async () => {
-    const { controller, agent, subprocess, browser } = await fixture({ launchTimeoutMs: 20 }, 'absent')
-    await expect(controller.create(agent, request, signal())).rejects.toThrow('did not report a DevTools endpoint within 20ms')
-    subprocess.endpoint = browser.endpoint
+    // The retry budget has to cover the fake browser re-binding onto the
+    // freshly reserved port, which Windows CI schedules slowly.
+    const { controller, agent, subprocess, browser } = await fixture({ launchTimeoutMs: 500 }, 'absent')
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('did not report a DevTools endpoint within 500ms')
+    subprocess.browser = browser
     await expect(controller.create(agent, request, signal())).resolves.toMatchObject({ id: pageId })
     expect(subprocess.spawns).toHaveLength(2)
   })

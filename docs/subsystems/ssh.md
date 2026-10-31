@@ -16,6 +16,8 @@ All helper traffic — administrative RPC, process stdin/stdout/stderr, and term
 
 Deployment authentication, installed artifact verification and the captured-Profile check belong to [`dsh-ssh`](../../packages/ssh/ssh/README.md). The helper executes filesystem and process requests with trusted local providers on the remote machine. SSH is a transport; the selected remote sandbox provider enforces file effects.
 
+Remote integrity facts are self-reported, not authenticated. The helper hash is computed by the helper itself and the execution-descriptor digest is a keyless SHA-256, so against a hostile machine neither value proves what runs there: they detect transport corruption, not a lying endpoint. The family's boundary assumes a trusted machine; hardening for untrusted machines refuses host-side fallbacks instead (no `process.cwd()` workdir fallbacks, PTC runtimes fail closed, workspace inspection returns `workspace-world-remote`), and machine-reported inventory names are constrained to bounded identifier shapes before they register on the Host.
+
 ## Process lifetime and cancellation
 
 A process handle reports its direct outcome through `done`; `waitForExit` observes the remote managed range after it. Terminal operations retain the asynchronous shared API, including remote resize. Administrative deadlines bound individual RPC observations; they do not replace the execution deadline chosen by a Bash or PTC runtime consumer. Remote waits can remain pending while other requests progress. SSH loss invalidates pending operations; helper EOF, signals and lease expiry start remote cleanup. The client reports unconfirmed outcomes honestly and never reconnects to replay a possibly executed action.

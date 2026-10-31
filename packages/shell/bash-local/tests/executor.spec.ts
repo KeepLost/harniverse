@@ -4,12 +4,33 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalBashExecutor, bashOutputDecoding } from '@deepseek-ai/dsh-bash-local'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type {
+  SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec,
+} from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { commandShellArgv, defaultCommandShellPath } from '@deepseek-ai/dsh-shell'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ShellProcess } from '@deepseek-ai/dsh-shell'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
+
+/** A remote-world provider: only its locality fact is ever observed here. */
+class RemoteWorldRuntime extends SubprocessRuntime {
+  override get locality(): 'local' | 'remote' { return 'remote' }
+
+  override resolveExecutable(command: string): Promise<string> {
+    return Promise.resolve(`/machine/${command}`)
+  }
+
+  override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    throw new Error(`unexpected spawn: ${spec.argv.join(' ')}`)
+  }
+
+  override spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    return Promise.reject(new Error(`unexpected terminal: ${spec.argv.join(' ')}`))
+  }
+}
 
 async function setup(config: ConstructorParameters<typeof LocalBashExecutor>[1] = {}) {
   const ctx = new Context()
@@ -48,6 +69,26 @@ describe('bashOutputDecoding (pure)', () => {
     expect(bashOutputDecoding({ LC_ALL: 'en_US.UTF-8' })).toEqual({ kind: 'utf-8' })
     expect(bashOutputDecoding({ LANG: 'C' })).toEqual({ kind: 'utf-8' })
     expect(bashOutputDecoding({})).toEqual({ kind: 'utf-8' })
+  })
+})
+
+describe('LocalBashExecutor.resolve workdir worlds', () => {
+  it('refuses the host workdir fallback in a remote execution world', async () => {
+    const ctx = new Context()
+    await ctx.plugin(RemoteWorldRuntime)
+    await ctx.plugin(LocalBashExecutor, { graceMs: 200, cwd: '/host/workspace' })
+    const bash = ctx.shell as LocalBashExecutor
+    // Neither the configured host cwd nor process.cwd() names a directory in
+    // the remote world, so a missing workdir must fail loudly instead.
+    expect(() => bash.resolve({ command: 'pwd' })).toThrow('remote execution world')
+    expect(bash.resolve({ command: 'pwd', workdir: '/machine/work' }).workdir).toBe('/machine/work')
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps the configured host workdir in a local execution world', async () => {
+    const { bash, ctx } = await setup({ cwd: '/host/workspace' })
+    expect(bash.resolve({ command: 'pwd' }).workdir).toBe('/host/workspace')
+    await ctx.fiber.dispose()
   })
 })
 

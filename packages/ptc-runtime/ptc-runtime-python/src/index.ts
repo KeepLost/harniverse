@@ -15,6 +15,7 @@ import z from '@deepseek-ai/schemastery'
 import { PtcRuntime, DUNDER_MEMBER, PORTABLE_RESERVED_WORDS, RESERVED_BINDING_GLOBALS, RESERVED_ERROR_MEMBERS } from '@deepseek-ai/dsh-ptc-runtime'
 import type { CodeBindingFunction, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { encodeJsonPlain, hasNonLosslessNumber, hasUnsafeIntegerToken, PROTOCOL_FD, validateChildFrame } from './protocol.ts'
 import type { BootMessage, ChildToHost, HostToChild, ReplyMessage } from './protocol.ts'
@@ -414,6 +415,12 @@ export class PythonPtcRuntime extends PtcRuntime {
    */
   async run(request: CodeRunRequest): Promise<CodeRunResult> {
     if (this.disposed) throw new Error('dsh-ptc-runtime-python: run() after disposal')
+    // This runtime spawns through the host child_process; a remote execution
+    // world would decide an argv this host then executes, so it fails closed
+    // before any child exists (in-world execution is future substrate work).
+    if (this.ctx.get('subprocess')?.locality === 'remote') {
+      throw new Error('dsh-ptc-runtime-python: run() requires a local execution world (this substrate spawns on the host; refusing a remote execution world)')
+    }
     const bindings = this.validateBindings(request)
     if (request.signal?.aborted) {
       return this.failureBeforeProcess({ kind: 'abort', message: 'run aborted' })

@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Owns the OpenSSH connection, helper integrity check, bounded RPC transport, execution-world descriptor, and machine-owned MCP/Skill/Hook inventory. The helper lease and process registry are connection-owned and close on transport loss.
 
-The `profile` configuration is an immutable captured permission record. It selects machine inventory members; it cannot select local paths, local credentials, or live Cordis mutation authority.
+The `profile` configuration is an immutable captured permission record. It selects machine inventory members; it cannot select local paths, local credentials, or live Cordis mutation authority. Machine-reported inventory names (MCP servers, tools, Skills) are constrained to bounded identifier shapes — and never the reserved `run_code` — before they can register on the Host, so a machine cannot spoof, flood, or shadow local entries through its inventory.
 
 ## Model Experience
 

@@ -597,6 +597,7 @@
     "workspace-git-failed",
     "workspace-watch-unsupported",
     "workspace-watch-limit-reached",
+    "workspace-world-remote",
     "stream-channel-absent",
     "stream-sub-limit-reached",
     "directory-unreadable",

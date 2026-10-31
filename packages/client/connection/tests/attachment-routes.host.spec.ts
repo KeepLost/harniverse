@@ -1,6 +1,6 @@
 /** Streaming file-upload route: trust fence, authentication, operate capability, byte caps, receipt. */
 
-import { Readable } from 'node:stream'
+import { Readable, Writable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -63,10 +63,11 @@ function provideStore(ctx: Context, failWith?: () => never, noLimits?: boolean):
 function uploadRequest(
   body: string,
   headers: Record<string, string | string[] | undefined> = {},
+  url: string = UPLOAD_PATH,
 ): IncomingMessage {
   const request = Readable.from([Buffer.from(body)]) as unknown as IncomingMessage
   Object.assign(request, {
-    url: UPLOAD_PATH,
+    url,
     method: 'POST',
     headers: { host: '127.0.0.1:3080', 'content-type': 'text/plain', ...headers },
     socket: { remoteAddress: '127.0.0.1' },
@@ -77,13 +78,29 @@ function uploadRequest(
 function responseRecorder(): { res: ServerResponse; state: { status?: number; body?: string } } {
   const state: { status?: number; body?: string } = {}
   const chunks: Buffer[] = []
-  const res = Object.assign(Object.create(null), {
-    writeHead(status: number) { state.status = status; return this },
-    write(chunk: string | Buffer) { chunks.push(Buffer.from(chunk)); return true },
-    end(chunk?: string | Buffer) {
+  // A real Writable destination: a relayed remote response streams through
+  // pipe semantics that a bare method recorder cannot serve.
+  const stream = new Writable({
+    write(chunk: Buffer, _encoding: string, callback: (error?: Error | null) => void): void {
+      chunks.push(Buffer.from(chunk))
+      callback()
+    },
+  })
+  const endStream = stream.end.bind(stream)
+  Object.defineProperty(state, 'body', {
+    configurable: true,
+    enumerable: true,
+    get(): string | undefined { return chunks.length > 0 ? Buffer.concat(chunks).toString() : undefined },
+  })
+  const res = Object.assign(stream, {
+    writeHead(status: number): ServerResponse {
+      state.status = status
+      return res
+    },
+    end(chunk?: string | Buffer): ServerResponse {
       if (typeof chunk === 'string' || chunk instanceof Buffer) chunks.push(Buffer.from(chunk))
-      if (chunks.length > 0) state.body = Buffer.concat(chunks).toString()
-      return this
+      endStream()
+      return res
     },
   }) as unknown as ServerResponse
   return { res, state }
@@ -95,7 +112,12 @@ interface Mounted {
   dispose: () => Promise<void>
 }
 
-async function mounted(principal: AuthenticationPrincipal, failWith?: () => never, noLimits?: boolean): Promise<Mounted> {
+async function mounted(
+  principal: AuthenticationPrincipal,
+  failWith?: () => never,
+  noLimits?: boolean,
+  remoteHosts?: { request: (id: string, path: string, init?: RequestInit) => Promise<Response> },
+): Promise<Mounted> {
   const ctx = new Context()
   const routes: WebRoute[] = []
   ctx.provide('webServer', {
@@ -108,6 +130,7 @@ async function mounted(principal: AuthenticationPrincipal, failWith?: () => neve
   })
   provideAuthentication(ctx, principal)
   provideStore(ctx, failWith, noLimits)
+  if (remoteHosts !== undefined) ctx.provide('remoteHosts', remoteHosts as never)
   const fiber = ctx.plugin({
     name: 'attachment-routes-test',
     inject: ['webServer', 'authentication', 'attachments'],
@@ -139,6 +162,105 @@ describe('attachment upload route', () => {
     expect(saves[0]!.name).toBe('季度 报告.pdf')
     expect(saves[0]!.mediaType).toBe('text/plain')
     expect(Buffer.from(saves[0]!.data).toString()).toBe('data')
+    await dispose()
+  })
+
+  it('forwards an upload to the remote host its query parameter selects', async () => {
+    saves.length = 0
+    const forwarded: { id: string; path: string; method?: string; headers: Headers; body?: string }[] = []
+    const { route, imageRoute, dispose } = await mounted(OPERATE_PRINCIPAL, undefined, undefined, {
+      request: async (id: string, path: string, init?: RequestInit) => {
+        forwarded.push({
+          id,
+          path,
+          ...(init?.method === undefined ? {} : { method: init.method }),
+          headers: new Headers(init?.headers),
+          ...(init?.body === undefined ? {} : { body: await new Response(init.body).text() }),
+        })
+        return new Response(JSON.stringify({ forwarded: true }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        })
+      },
+    })
+    const { res, state } = responseRecorder()
+    await route.handler(
+      uploadRequest('remote-data', {
+        'x-attachment-name': encodeURIComponent('remote.txt'),
+        'x-multi': ['one', 'two'],
+        'x-absent': undefined,
+      }, `${UPLOAD_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`),
+      res,
+    )
+    expect(state.status).toBe(201)
+    expect(JSON.parse(state.body!)).toEqual({ forwarded: true })
+    expect(saves).toHaveLength(0)
+    expect(forwarded).toHaveLength(1)
+    expect(forwarded[0]).toMatchObject({
+      id: '0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d',
+      path: UPLOAD_PATH,
+      method: 'POST',
+      body: 'remote-data',
+    })
+    expect(forwarded[0]!.headers.get('x-attachment-name')).toBe(encodeURIComponent('remote.txt'))
+    // Repeated header values survive the hop as one comma-joined entry.
+    expect(forwarded[0]!.headers.get('x-multi')).toBe('one, two')
+    expect(forwarded[0]!.headers.has('x-absent')).toBe(false)
+    expect(forwarded[0]!.headers.has('authorization')).toBe(false)
+    // The image-staging route forwards under the same parameter.
+    const staged = responseRecorder()
+    await imageRoute.handler(
+      uploadRequest('remote-image', { 'content-type': 'image/png' },
+        `${UPLOAD_IMAGE_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`),
+      staged.res,
+    )
+    expect(staged.state.status).toBe(201)
+    expect(forwarded[1]).toMatchObject({ path: UPLOAD_IMAGE_PATH, body: 'remote-image' })
+    expect(saves).toHaveLength(0)
+    await dispose()
+  })
+
+  it('refuses a malformed remote target instead of storing locally', async () => {
+    saves.length = 0
+    const { route, dispose } = await mounted(OPERATE_PRINCIPAL)
+    const { res, state } = responseRecorder()
+    await route.handler(uploadRequest('data', {}, `${UPLOAD_PATH}?dshRemoteHost=not-a-uuid`), res)
+    expect(state.status).toBe(400)
+    expect(saves).toHaveLength(0)
+    await dispose()
+  })
+
+  it('reports unavailable remote routing instead of storing locally', async () => {
+    saves.length = 0
+    const { route, dispose } = await mounted(OPERATE_PRINCIPAL)
+    const { res, state } = responseRecorder()
+    await route.handler(uploadRequest('data', {}, `${UPLOAD_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`), res)
+    expect(state.status).toBe(503)
+    expect(saves).toHaveLength(0)
+    await dispose()
+  })
+
+  it('reports a failed remote request and relays a body-less remote answer', async () => {
+    saves.length = 0
+    let failFirst = true
+    const { route, dispose } = await mounted(OPERATE_PRINCIPAL, undefined, undefined, {
+      request: async () => {
+        if (failFirst) {
+          failFirst = false
+          throw new Error('ssh transport collapsed')
+        }
+        return new Response(null, { status: 204 })
+      },
+    })
+    const failure = responseRecorder()
+    await route.handler(uploadRequest('data', {}, `${UPLOAD_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`), failure.res)
+    expect(failure.state.status).toBe(502)
+    expect(JSON.parse(failure.state.body!)).toEqual({ error: 'remote host request failed' })
+    const empty = responseRecorder()
+    await route.handler(uploadRequest('data', {}, `${UPLOAD_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`), empty.res)
+    expect(empty.state.status).toBe(204)
+    expect(empty.state.body).toBeUndefined()
+    expect(saves).toHaveLength(0)
     await dispose()
   })
 

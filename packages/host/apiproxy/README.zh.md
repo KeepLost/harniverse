@@ -109,8 +109,9 @@ Host 会把每一种可能改变已授权 Settings namespace 集合的已提交�
 #### KV Cache 影响
 
 无；该包既不组装也不发送提供方请求。
-
 ## 已知限制与暂缓事项
+
+- **工作区检查仅限主机世界** — `workspaceFiles.*` 与 `workspaceGit.*` 经工作区注册表读取主机路径。当挂载的 subprocess 提供方声明 `locality: 'remote'` 时，每个检查面（含文件监听流）都以 `workspace-world-remote` 拒绝，而不是把主机路径当作远端会话的文件渲染；远端感知的工作台需要未来的执行世界视图工作。
 - **预览解码跟随主机 locale**：跨地区文件（GB18030 先验主机上的 Big5 文件）在以显式 `encoding` 重新打开前显示为乱码；无 BOM 的 UTF-16 按二进制拒绝，iconv-lite 不能解码的文件保持 `workspace-file-binary` 并附可行编码提示。Git diff/log 输出仍按 UTF-8 解码（遗留字节显示为 U+FFFD）。
 
 

@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream'
+import { Readable, Writable } from 'node:stream'
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import type { AuthenticationDecision, AuthenticationPrincipal, InboundAuthentication } from '@deepseek-ai/dsh-authentication'
@@ -47,10 +47,45 @@ function response(): { value: ServerResponse; state: { status?: number; body?: s
   }
 }
 
-async function mounted(principal: AuthenticationPrincipal, unavailable?: 'sessionImport' | 'workspaceRegistry') {
+/** A streaming-capable response recorder, for handlers that relay a remote body. */
+function streamingResponse(): { value: ServerResponse; state: { status?: number; body?: string } } {
+  const state: { status?: number; body?: string } = {}
+  const chunks: Buffer[] = []
+  const stream = new Writable({
+    write(chunk: Buffer, _encoding: string, callback: (error?: Error | null) => void): void {
+      chunks.push(Buffer.from(chunk))
+      callback()
+    },
+  })
+  const endStream = stream.end.bind(stream)
+  Object.defineProperty(state, 'body', {
+    configurable: true,
+    enumerable: true,
+    get(): string | undefined { return chunks.length > 0 ? Buffer.concat(chunks).toString() : undefined },
+  })
+  const res = Object.assign(stream, {
+    writeHead(status: number): ServerResponse {
+      state.status = status
+      return res
+    },
+    end(chunk?: string | Buffer): ServerResponse {
+      if (typeof chunk === 'string' || chunk instanceof Buffer) chunks.push(Buffer.from(chunk))
+      endStream()
+      return res
+    },
+  }) as unknown as ServerResponse
+  return { value: res, state }
+}
+
+async function mounted(
+  principal: AuthenticationPrincipal,
+  unavailable?: 'sessionImport' | 'workspaceRegistry',
+  remoteHosts?: { request: (id: string, path: string, init?: RequestInit) => Promise<Response> },
+) {
   const ctx = new Context()
   const routes: WebRoute[] = []
   ctx.provide('webServer', { register: (route: WebRoute) => { routes.push(route); return () => {} } } as never)
+  if (remoteHosts !== undefined) ctx.provide('remoteHosts', remoteHosts as never)
   const authenticate = auth(ctx, principal)
   const importer = vi.fn(() => Promise.resolve({
     sessionId: 'session-imported' as never, artifactName: 'source.jsonl', format: 'official-v3', mappedEvents: 1, skippedEvents: 1,
@@ -71,6 +106,35 @@ async function mounted(principal: AuthenticationPrincipal, unavailable?: 'sessio
 }
 
 describe('authenticated session import route', () => {
+  it('forwards the import to the remote host its query parameter selects', async () => {
+    const forwarded: { id: string; path: string; body?: string }[] = []
+    const mountedRoute = await mounted(operator, undefined, {
+      request: async (id: string, path: string, init?: RequestInit) => {
+        forwarded.push({ id, path, ...(init?.body === undefined ? {} : { body: await new Response(init.body).text() }) })
+        return new Response(JSON.stringify({ sessionId: 'remote-session' }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        })
+      },
+    })
+    const req = request('remote bytes', { 'x-session-workspace': 'workspace-1' })
+    Object.assign(req, { url: '/api/session/import?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d' })
+    const result = streamingResponse()
+    try {
+      await mountedRoute.route.handler(req, result.value)
+      expect(result.state.status).toBe(201)
+      expect(JSON.parse(result.state.body!)).toEqual({ sessionId: 'remote-session' })
+      expect(mountedRoute.importer).not.toHaveBeenCalled()
+      expect(mountedRoute.workspace.attachSession).not.toHaveBeenCalled()
+      expect(forwarded).toEqual([
+        { id: '0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d', path: '/api/session/import', body: 'remote bytes' },
+      ])
+    } finally {
+      req.destroy()
+      await mountedRoute.dispose()
+    }
+  })
+
   it.each([
     { name: 'untrusted host', headers: { host: 'attacker.example:3080' } },
     { name: 'untrusted origin', headers: { origin: 'https://attacker.example' } },

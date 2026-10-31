@@ -5,6 +5,7 @@ import { ForeignLogError, ImportConflictError } from '@deepseek-ai/dsh-session-i
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
+import { forwardExactRoute } from './remote-host-proxy.ts'
 
 /**
  * Register raw JSONL intake using the connection's trust and body limits.
@@ -28,6 +29,9 @@ export function registerSessionImportRoute(
       if (decision.kind === 'rejected') { rejectUnauthorized(res, decision); return }
       if (!decision.principal.capabilities.includes('harniverse.operate')) { reply(403, { error: 'forbidden' }); return }
       if (req.method !== 'POST') { reply(405, { error: 'POST required' }); return }
+      // A browser page attached to a remote host imports sessions there, not
+      // into this Host's registry.
+      if (await forwardExactRoute(ctx, req, res)) return
       const importer = ctx.get('sessionImport')
       const registry = ctx.get('workspaceRegistry')
       if (importer === undefined || registry === undefined) { reply(501, { error: 'session import unavailable' }); return }
