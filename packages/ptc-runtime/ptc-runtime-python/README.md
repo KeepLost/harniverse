@@ -54,6 +54,7 @@ Selecting this provider changes the PTC SDK and `run_code` schema from TypeScrip
 
 ## Known Limitations and Deferred Work
 
+- **Runs only in a local execution world** — this runtime spawns through the host `child_process`, so when the mounted subprocess provider declares `locality: 'remote'` every run fails closed before a child exists: an argv decided for another world must not execute on this host. In-world execution is future substrate work.
 - **Process isolation is not a sandbox** — model code shares the Host filesystem, working directory, network, and operating-system identity. The bootstrap-cleared environment limits accidental credential inheritance but does not create a security boundary; use a container backend for hostile-code confinement.
 - **Plugin load runs one interpreter probe** — resolving and probing `pythonExecutable` spawns one short subprocess at setup; a deployment without a probeable CPython 3.10+ interpreter cannot load this provider, and a wrapper that ignores SIGTERM is force-killed after five seconds.
 - **Binding backlogs are count-bounded, not fairness-scheduled** — at most 1024 in-flight binding calls and 1024 unflushed reply frames coexist per run; a hostile program exceeding either settles the run as a worker-exit instead of queueing unbounded work.

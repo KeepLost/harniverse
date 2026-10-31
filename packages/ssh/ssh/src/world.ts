@@ -13,20 +13,32 @@ export const capturedProfileSchema = z.object({
   skills: z.array(z.string()),
   hooks: z.array(z.string()),
 }).strict()
-/** The Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
+/** The captured Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
 export type CapturedRemoteProfile = z.infer<typeof capturedProfileSchema>
+
+/**
+ * Name shape the Host accepts for machine-reported entries: 1–64 characters
+ * of identifier punctuation starting alphanumeric. These names register into
+ * Host registries and the model's surface, so an untrusted machine cannot
+ * spoof, flood, or shadow local entries through them.
+ */
+const WORLD_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/
+/** Constrained machine-entry name; exported for the consumer's fetched skill definitions. */
+export const worldNameSchema = z.string().regex(WORLD_NAME_PATTERN, 'must be 1-64 characters of [a-zA-Z0-9_.-] starting alphanumeric')
+/** Tool names additionally cannot take the PTC transport's reserved name. */
+const worldToolName = worldNameSchema.refine(value => value !== 'run_code', 'run_code is reserved for the PTC presentation transport')
 
 /** No remote command, header, credential value, or local Host path is in this wire shape. */
 export const machineInventorySchema = z.object({
   mcp: z.array(z.object({
-    serverName: z.string(), selected: z.boolean(), instructions: z.string(),
+    serverName: worldNameSchema, selected: z.boolean(), instructions: z.string(),
     tools: z.array(z.object({
-      name: z.string(), rawName: z.string(), description: z.string(), inputSchema: z.record(z.string(), z.unknown()),
+      name: worldToolName, rawName: z.string(), description: z.string(), inputSchema: z.record(z.string(), z.unknown()),
     }).strict()),
     resources: z.array(z.looseObject({ uri: z.string(), name: z.string() })),
     templates: z.array(z.looseObject({ uriTemplate: z.string(), name: z.string() })),
   }).strict()),
-  skills: z.array(z.object({ name: z.string(), description: z.string(), path: z.string(), selected: z.boolean() }).strict()),
+  skills: z.array(z.object({ name: worldNameSchema, description: z.string(), path: z.string(), selected: z.boolean() }).strict()),
   hooks: z.array(z.object({ id: z.string(), event: z.enum(['pre-tool', 'post-tool']), selected: z.boolean() }).strict()),
 }).strict()
 /** The machine-owned MCP/Skill/Hook inventory discovered at execution time. */

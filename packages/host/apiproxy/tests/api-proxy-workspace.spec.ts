@@ -15,6 +15,8 @@ import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import type { DirectoryPickerCapability } from '@deepseek-ai/dsh-host-directory-picker'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { HostFrame, WorkspaceId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -22,6 +24,23 @@ import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 
 const execFileAsync = promisify(execFile)
+
+/** A remote-world provider: only its locality fact is ever observed here. */
+class RemoteWorldRuntime extends SubprocessRuntime {
+  override get locality(): 'local' | 'remote' { return 'remote' }
+
+  override resolveExecutable(command: string): Promise<string> {
+    return Promise.resolve(`/machine/${command}`)
+  }
+
+  override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    throw new Error(`unexpected spawn: ${spec.argv.join(' ')}`)
+  }
+
+  override spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    return Promise.reject(new Error(`unexpected terminal: ${spec.argv.join(' ')}`))
+  }
+}
 
 let nextRpc = 1
 
@@ -362,6 +381,40 @@ describe('workspace.create', () => {
 })
 
 describe('workspace file inspection', () => {
+  it('refuses host-path inspection while the execution world is remote', async () => {
+    const { api, ctx, root } = await harness()
+    await ctx.plugin(RemoteWorldRuntime)
+    const project = stageDir(root, 'gated')
+    writeFileSync(join(project, 'README.md'), 'gated')
+    const workspace = expectOk(await api.workspace.create(request({ path: project }))).workspace
+    if (api.workspaceFiles === undefined || api.workspaceGit === undefined) {
+      throw new Error('workspace inspection surfaces are unavailable')
+    }
+    // The workbench would otherwise render host paths as if they were the
+    // remote session's files; every inspection surface refuses instead.
+    const gated = await Promise.all([
+      api.workspaceFiles.list(request({ workspaceId: workspace.workspaceId }), new AbortController().signal),
+      api.workspaceFiles.search(request({ workspaceId: workspace.workspaceId, query: 'x' }), new AbortController().signal),
+      api.workspaceFiles.read(request({ workspaceId: workspace.workspaceId, path: 'README.md' }), new AbortController().signal),
+      api.workspaceFiles.readBinary(request({ workspaceId: workspace.workspaceId, path: 'README.md' }), new AbortController().signal),
+      api.workspaceGit.status(request({ workspaceId: workspace.workspaceId }), new AbortController().signal),
+      api.workspaceGit.commits(request({ workspaceId: workspace.workspaceId }), new AbortController().signal),
+      api.workspaceGit.diff(request({ workspaceId: workspace.workspaceId, path: 'README.md' }), new AbortController().signal),
+      api.workspaceGit.commitFiles(request({ workspaceId: workspace.workspaceId, hash: 'abc123' }), new AbortController().signal),
+      api.workspaceGit.commitDiff(request({ workspaceId: workspace.workspaceId, hash: 'abc123', path: 'README.md' }), new AbortController().signal),
+    ])
+    for (const response of gated) {
+      expect(response.result).toMatchObject({ ok: false, error: { code: 'workspace-world-remote' } })
+    }
+    const watchStream = api.workspaceFiles.watchFiles(
+      request({ workspaceId: workspace.workspaceId }), new AbortController().signal,
+    )[Symbol.asyncIterator]()
+    const watched = await watchStream.next()
+    if (watched.done === true) throw new Error('watch stream ended before the world refusal')
+    expect(watched.value.payload).toMatchObject({ type: 'stream/error', error: { code: 'workspace-world-remote' } })
+    await ctx.fiber.dispose()
+  })
+
   it('resolves workspace ids, preserves hidden entries, and returns structured containment errors', async () => {
     const { api, root } = await harness()
     const project = stageDir(root, 'inspected')

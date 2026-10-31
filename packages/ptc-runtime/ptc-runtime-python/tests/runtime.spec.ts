@@ -5,9 +5,28 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
 import type { CodeBindingFunction, CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { describe, expect, it } from 'vitest'
 import { PythonPtcRuntime } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
+
+/** A remote-world provider: only its locality fact is ever observed here. */
+class RemoteWorldRuntime extends SubprocessRuntime {
+  override get locality(): 'local' | 'remote' { return 'remote' }
+
+  override resolveExecutable(command: string): Promise<string> {
+    return Promise.resolve(`/machine/${command}`)
+  }
+
+  override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    throw new Error(`unexpected spawn: ${spec.argv.join(' ')}`)
+  }
+
+  override spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    return Promise.reject(new Error(`unexpected terminal: ${spec.argv.join(' ')}`))
+  }
+}
 
 const execFileAsync = promisify(execFile)
 
@@ -45,6 +64,15 @@ function tools(functions: Record<string, (args: unknown) => Promise<unknown>>): 
 }
 
 describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout: runtimeTestTimeoutMs }, () => {
+  it('refuses to run in a remote execution world (host child_process must not execute there)', async () => {
+    const { ctx, runtime } = await setup()
+    await ctx.plugin(RemoteWorldRuntime)
+    // The interpreter would run on this host under another world's decisions,
+    // so the runtime fails closed before any child exists.
+    await expect(runtime.run({ program: 'return 1', bindings: [] })).rejects.toThrow('remote execution world')
+    await ctx.fiber.dispose()
+  })
+
   it('runs Python with top-level await/return and exposes its descriptors', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({

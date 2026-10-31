@@ -60,6 +60,7 @@ SDK API 是默认/具名的 `NodePtcRuntime` 类加 `Config`。操作性的 `./c
 
 ## Known Limitations and Deferred Work
 
+- **仅在本地执行世界中运行** — 本运行时通过宿主 `child_process` 派生进程，因此当挂载的 subprocess 提供方声明 `locality: 'remote'` 时，每次运行都会在任何子进程出现前失败关闭：为另一个世界决定的 argv 不得在宿主机上执行。世界内执行是未来的 substrate 工作。
 - **程序派生的 OS 进程在终止后存活** — 宽限击杀只针对子进程本身，弱于 bash-local 的进程组击杀；孤儿清理在容器后端出现前是部署侧关注点。
 - **火热同步循环由 `maxWallMs` 而非 `computeMs` 终结** — 忙时采样器在这种循环内被饿死（进程没有跨进程 ELU 探针），墙钟死线才是触发的预算；其消息指名死线而非计算预算。
 - **对帧 fd 的原生写入破坏通道** — JS 层 `process.stdout.write` 已被捕获，但对 fd 1 的原生式写入会与帧字节交错并使运行以 `worker-exit` 失败；读 `process.stdin` 同样会窃取帧字节。文档化的 API 面（console shim、被修补的流、绑定）保持干净。

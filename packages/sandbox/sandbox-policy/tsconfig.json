@@ -27,6 +27,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../subprocess/subprocess"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {

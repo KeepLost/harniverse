@@ -15,6 +15,7 @@ import { AttachmentError, type AttachmentStore, type FileAttachmentRef, type Ima
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'
+import { forwardExactRoute } from './remote-host-proxy.ts'
 
 /** The exact upload path this module registers. */
 export const UPLOAD_PATH = '/api/attachment/upload'
@@ -128,6 +129,9 @@ export function registerAttachmentRoutes(
     path: UPLOAD_PATH,
     handler: async (req, res) => {
       if (await refused(ctx, req, res, trustedHosts, trustedOrigins)) return
+      // A browser page attached to a remote host must land its files there:
+      // this Host's store is invisible to that machine's sessions.
+      if (await forwardExactRoute(ctx, req, res)) return
       const attachments = store()
       if (attachments === undefined) {
         res.writeHead(501)
@@ -167,6 +171,9 @@ export function registerAttachmentRoutes(
     path: UPLOAD_IMAGE_PATH,
     handler: async (req, res) => {
       if (await refused(ctx, req, res, trustedHosts, trustedOrigins)) return
+      // A browser page attached to a remote host must land its files there:
+      // this Host's store is invisible to that machine's sessions.
+      if (await forwardExactRoute(ctx, req, res)) return
       const attachments = store()
       if (attachments === undefined) {
         res.writeHead(501)

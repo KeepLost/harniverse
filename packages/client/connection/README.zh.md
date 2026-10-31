@@ -34,7 +34,7 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 
 `ctx.connection.target` 发布当前选中的机器：`{ kind: 'host' }` 或 `{ kind: 'remote', id }`。`switchTarget(target)` 在同一文档内切换，不导航也不修改浏览器 URL。它取消旧机器的请求、上传和事件流，同步调用流消费方的 `onTargetChange`，并在消费方清理完成后启动新流。返回的 Promise 不等待网络就绪，因此远程机器不可用时仍可返回本机；重复选择同一目标会保留当前 generation。`api` 为根级消费者保留稳定接口；`captureApi()` 把机器所属对象绑定到当前 generation，并在其结束后拒绝继续调用。
 
-认证、远程主机管理、设置和凭据留在原始 Host。普通 `/api` 请求、上传和事件流通过已连接的 SSH 协调器发送，`dshRemoteHost` 仅作为传输路径参数使用。Host 在本地认证浏览器、检查 endpoint capability、移除本地 hop-by-hop 凭据，并把远程响应身份改写为本地身份。协调器持有 SSH Access Token 并负责远程连接清理；切换浏览器目标不会断开 SSH 或停止远程进程。
+认证、远程主机管理、设置和凭据留在原始 Host。普通 `/api` 请求、上传和事件流通过已连接的 SSH 协调器发送，`dshRemoteHost` 仅作为传输路径参数使用。Host 在本地认证浏览器、检查 endpoint capability、移除本地 hop-by-hop 凭据，并把远程响应身份改写为本地身份。附件上传与会话导入两个 exact 路由遵守同一参数：目标格式非法以 400 拒绝、协调器路由不可用以 503 失败，绝不在本地 Host 上落盘。协调器持有 SSH Access Token 并负责远程连接清理；切换浏览器目标不会断开 SSH 或停止远程进程。
 
 ## 模型体验
 

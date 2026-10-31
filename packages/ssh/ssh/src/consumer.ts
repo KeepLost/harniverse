@@ -8,6 +8,7 @@ import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
 import { z } from 'zod'
 import type {} from './index.ts'
+import { worldNameSchema } from './world.ts'
 
 export const name = 'ssh-profile'
 export const inject = ['ssh', 'tools', 'mcpResources', 'skills', 'systemPrompt']
@@ -46,7 +47,7 @@ export async function apply(ctx: Context): Promise<void> {
     for (const skill of world.inventory.skills) {
       if (!skill.selected) continue
       const definition = await ctx.ssh.request('machine.skill', { name: skill.name }, z.looseObject({
-        name: z.string(), description: z.string(), content: z.string(), source: z.string(), provider: z.string(),
+        name: worldNameSchema, description: z.string(), content: z.string(), source: z.string(), provider: z.string(),
       })) as SkillDefinition
       ctx.ssh.signal.throwIfAborted()
       releases.push(ctx.skills.register({ ...definition, provider: 'ssh' }))

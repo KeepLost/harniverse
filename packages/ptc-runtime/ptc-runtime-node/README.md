@@ -60,6 +60,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
+- **Runs only in a local execution world** — this runtime spawns through the host `child_process`, so when the mounted subprocess provider declares `locality: 'remote'` every run fails closed before a child exists: an argv decided for another world must not execute on this host. In-world execution is future substrate work.
 - **OS processes a program spawns survive termination** — the grace kill targets the child only, weaker than bash-local's process-group kill; orphan cleanup is a deployment concern until a container backend exists.
 - **A hot synchronous loop is ended by `maxWallMs`, not `computeMs`** — the busy-time sampler starves inside such a loop (a process offers no cross-process ELU probe), so the wall deadline is the budget that fires; its message names the deadline rather than the compute budget.
 - **Raw writes to the frame fd corrupt the channel** — JS-level `process.stdout.write` is captured, but a native-style write to fd 1 interleaves with frame bytes and fails the run as `worker-exit`; likewise reading `process.stdin` steals frame bytes. The documented API surface (console shim, patched streams, bindings) stays clean.

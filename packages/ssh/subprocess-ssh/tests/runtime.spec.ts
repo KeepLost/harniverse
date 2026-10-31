@@ -141,6 +141,11 @@ const spec = (overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec
 describe('SSH subprocess provider', () => {
   afterEach(async () => { await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose())) })
 
+  it('declares the remote execution world', async () => {
+    const state = await mount()
+    expect(state.runtime.locality).toBe('remote')
+  })
+
   it('resolves executables on the machine', async () => {
     const state = await mount()
     expect(await state.runtime.resolveExecutable('tool', { PATH: '/machine/bin' }, undefined)).toBe('/machine/bin/tool')

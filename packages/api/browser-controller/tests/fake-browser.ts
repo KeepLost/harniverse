@@ -26,8 +26,10 @@ interface RecordedCommand {
 
 /** The fake browser's control surface for tests. */
 export interface FakeBrowser {
-  /** `ws://` endpoint the launcher reports. */
+  /** `ws://` endpoint the launcher reports — tracks the bound port. */
   readonly endpoint: string
+  /** Move the WebSocket server to the port a launch reserved for it. */
+  rebind: (port: number) => Promise<void>
   /** Every command received, in arrival order. */
   readonly commands: RecordedCommand[]
   /** Reply overrides keyed by method name. */
@@ -75,7 +77,6 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
   // session id, and an unknown one is refused rather than served. Matching that
   // is what makes a half-read endpoint observable here instead of silently
   // connecting to a permissive test double.
-  const sockets = new WebSocketServer({ server, path: browserPath })
   const commands: RecordedCommand[] = []
   const replies = new Map<string, (params: Record<string, unknown>) => Record<string, unknown>>()
   const failures = new Map<string, string>()
@@ -87,51 +88,81 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
   let client: WebSocket | undefined
   let targets = 0
 
-  sockets.on('connection', (socket) => {
-    client = socket
-    socket.on('message', (data) => {
-      const message = JSON.parse(rawText(data)) as { id: number; method: string; params: Record<string, unknown>; sessionId?: string }
-      const record: RecordedCommand = {
-        method: message.method,
-        params: message.params,
-        ...(message.sessionId === undefined ? {} : { sessionId: message.sessionId }),
-      }
-      commands.push(record)
-      waiters.get(message.method)?.(record)
-      waiters.delete(message.method)
-      const reply = (payload: string): void => {
-        const delay = delays.get(message.method)
-        if (delay === undefined) {
-          socket.send(payload)
+  const attach = (): WebSocketServer => {
+    const sockets = new WebSocketServer({ server, path: browserPath })
+    sockets.on('connection', (socket) => {
+      client = socket
+      socket.on('message', (data) => {
+        const message = JSON.parse(rawText(data)) as { id: number; method: string; params: Record<string, unknown>; sessionId?: string }
+        const record: RecordedCommand = {
+          method: message.method,
+          params: message.params,
+          ...(message.sessionId === undefined ? {} : { sessionId: message.sessionId }),
+        }
+        commands.push(record)
+        waiters.get(message.method)?.(record)
+        waiters.delete(message.method)
+        const reply = (payload: string): void => {
+          const delay = delays.get(message.method)
+          if (delay === undefined) {
+            socket.send(payload)
+            return
+          }
+          setTimeout(() => { socket.send(payload) }, delay)
+        }
+        if (silent.has(message.method)) return
+        if (bare.has(message.method)) {
+          reply(JSON.stringify({ id: message.id }))
           return
         }
-        setTimeout(() => { socket.send(payload) }, delay)
-      }
-      if (silent.has(message.method)) return
-      if (bare.has(message.method)) {
-        reply(JSON.stringify({ id: message.id }))
-        return
-      }
-      if (vagueFailures.has(message.method)) {
-        reply(JSON.stringify({ id: message.id, error: {} }))
-        return
-      }
-      const failure = failures.get(message.method)
-      if (failure !== undefined) {
-        reply(JSON.stringify({ id: message.id, error: { code: -32000, message: failure } }))
-        return
-      }
-      const override = replies.get(message.method)
-      const result = override !== undefined ? override(message.params) : defaultResult(message.method, () => {
-        targets += 1
-        return `${TARGET_PREFIX}${String(targets)}`
+        if (vagueFailures.has(message.method)) {
+          reply(JSON.stringify({ id: message.id, error: {} }))
+          return
+        }
+        const failure = failures.get(message.method)
+        if (failure !== undefined) {
+          reply(JSON.stringify({ id: message.id, error: { code: -32000, message: failure } }))
+          return
+        }
+        const override = replies.get(message.method)
+        const result = override !== undefined ? override(message.params) : defaultResult(message.method, () => {
+          targets += 1
+          return `${TARGET_PREFIX}${String(targets)}`
+        })
+        reply(JSON.stringify({ id: message.id, result }))
       })
-      reply(JSON.stringify({ id: message.id, result }))
     })
-  })
+    return sockets
+  }
+  let sockets = attach()
+  const boundPort = (): number => {
+    const current = server.address()
+    if (current === null || typeof current === 'string') throw new Error('fake browser is not listening')
+    return current.port
+  }
 
   return {
-    endpoint: `ws://127.0.0.1:${String(address.port)}${browserPath}`,
+    get endpoint(): string {
+      return `ws://127.0.0.1:${String(boundPort())}${browserPath}`
+    },
+    rebind: async (port: number) => {
+      // A relaunched controller may leave its DevTools socket open; both the
+      // socket server and the HTTP server wait for open connections, so the
+      // move tears them down before re-listening.
+      for (const socket of sockets.clients) socket.terminate()
+      await new Promise<void>((resolve) => { sockets.close(() => { resolve() }) })
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error): void => { reject(error) }
+        server.once('error', onError)
+        server.listen(port, '127.0.0.1', () => {
+          server.removeListener('error', onError)
+          resolve()
+        })
+      })
+      sockets = attach()
+    },
     commands,
     replies,
     failures,
@@ -195,8 +226,16 @@ export interface FakeSubprocess {
   readonly handles: FakeBrowserHandle[]
   /** Executables that resolve; every other probe fails. */
   resolvable: Set<string>
-  /** Endpoint line written to the child's stderr; undefined writes nothing. */
-  endpoint: string | undefined
+  /**
+   * Fake browser acting as the launched child; each spawn rebinds it to the
+   * port in its argv and reports the matching endpoint line. Undefined writes
+   * no endpoint line at all.
+   */
+  browser: FakeBrowser | undefined
+  /** Host the endpoint line addresses instead of loopback (spoof material). */
+  endpointHost: string | undefined
+  /** Port delta the endpoint line reports instead of the reserved one (spoof material). */
+  endpointPortOffset: number
   /** When true, awaiting a spawned tree's exit fails. */
   failWaitForExit: boolean
   /** When true, the tree waiter reports cancellation without confirming exit. */
@@ -220,12 +259,16 @@ export interface FakeSubprocess {
   endpointDelayMs: number | undefined
 }
 
+const DEBUG_PORT_FLAG = '--remote-debugging-port='
+
 /**
- * Build a subprocess provider that answers a browser launch.
- * @param endpoint - endpoint line to report, or undefined to report none.
+ * Build a subprocess provider that answers a browser launch: it rebinds the
+ * fake browser onto the reserved debugging port and reports the endpoint a
+ * real browser would, unless a spoof knob redirects the printed line.
+ * @param browser - fake browser to act as the child, or undefined to stay silent.
  * @returns the fake provider and its recordings.
  */
-export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
+export function fakeSubprocess(browser: FakeBrowser | undefined): FakeSubprocess {
   const spawns: SubprocessSpawnSpec[] = []
   const probes: string[] = []
   const handles: FakeSubprocess['handles'][number][] = []
@@ -234,7 +277,9 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
     probes,
     handles,
     resolvable: new Set(['google-chrome']),
-    endpoint,
+    browser,
+    endpointHost: undefined,
+    endpointPortOffset: 0,
     failWaitForExit: false,
     incompleteWaitForExit: false,
     holdTreeExit: false,
@@ -283,17 +328,30 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
           releaseTree: () => { exit.resolve({ exitCode: 0, signal: null }); tree.resolve(true) },
         })
         if (fake.prelude !== undefined) setTimeout(() => { stderr.write(`${String(fake.prelude)}\n`) }, 0)
-        if (fake.endpoint !== undefined) {
-          const line = `DevTools listening on ${fake.endpoint}\n`
-          const withheld = fake.splitEndpointTail
-          setTimeout(() => {
+        if (fake.browser !== undefined) {
+          const browser = fake.browser
+          const flag = spec.argv.find(entry => entry.startsWith(DEBUG_PORT_FLAG))
+          const port = flag === undefined ? 0 : Number(flag.slice(DEBUG_PORT_FLAG.length))
+          const deliver = (): void => {
+            const line = `DevTools listening on ws://${fake.endpointHost ?? '127.0.0.1'}:${String(port + fake.endpointPortOffset)}${new URL(browser.endpoint).pathname}\n`
+            const withheld = fake.splitEndpointTail
             if (withheld === undefined) {
               stderr.write(line)
               return
             }
             stderr.write(line.slice(0, line.length - withheld))
             setTimeout(() => { stderr.write(line.slice(line.length - withheld)) }, 0)
-          }, fake.endpointDelayMs ?? 0)
+          }
+          const spoofing = fake.endpointHost !== undefined || fake.endpointPortOffset !== 0
+          void (spoofing
+            ? new Promise<void>((resolve) => { setTimeout(resolve, fake.endpointDelayMs ?? 0) }).then(deliver)
+            : browser.rebind(port)
+              .then(() => new Promise<void>((resolve) => { setTimeout(resolve, fake.endpointDelayMs ?? 0) }))
+              .then(deliver)
+          ).catch(() => {
+            // Without an endpoint line the launcher reports its own timeout;
+            // the rebinding race a spoofed launch never enters has no story here.
+          })
         }
         return handle
       },

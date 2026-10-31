@@ -200,6 +200,20 @@ describe('spawn construction (pure, every platform)', () => {
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
   })
 
+  it('refuses the host workdir fallback in a remote execution world', async () => {
+    class RemoteWorldRuntime extends CapturingSubprocessRuntime {
+      override get locality(): 'local' | 'remote' { return 'remote' }
+    }
+    const ctx = new Context()
+    await ctx.plugin(RemoteWorldRuntime)
+    await ctx.plugin(PwshLocalExecutor, { cwd: '/host/workspace' })
+    // Neither the configured host cwd nor process.cwd() names a directory in
+    // the remote world, so a missing workdir must fail loudly instead.
+    expect(() => ctx.shell.resolve({ command: 'Get-Location' })).toThrow('remote execution world')
+    expect(ctx.shell.resolve({ command: 'Get-Location', workdir: 'C:/machine/work' }).workdir).toBe('C:/machine/work')
+    await ctx.fiber.dispose()
+  })
+
   it('stamps ambientEnv "full" only for danger-full-access policies', async () => {
     const ctx = new Context()
     const subprocess = new CapturingSubprocessRuntime(ctx)

@@ -171,6 +171,20 @@ export abstract class SubprocessRuntime extends Service {
   }
 
   /**
+   * Whether this provider's execution world is the harness's own host
+   * (`'local'`) or a separate machine (`'remote'`). Host-path consumers —
+   * `process.cwd()` fallbacks, workspace inspection, runtimes that spawn
+   * through Node directly — read this fact and refuse rather than apply a
+   * host path to a remote world. The base class reports `'local'`; a provider
+   * whose children live elsewhere overrides it (mirrors `FileSystem`
+   * capability facts such as `sandboxMode`).
+   * @returns the world every {@link spawn} runs in.
+   */
+  get locality(): 'local' | 'remote' {
+    return 'local'
+  }
+
+  /**
    * Resolve one configured executable in this provider's execution world.
    * Absolute paths are verified; bare names use the provider's scrubbed PATH
    * plus explicit environment overrides. Relative paths containing separators

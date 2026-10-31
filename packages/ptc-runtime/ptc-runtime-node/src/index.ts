@@ -21,6 +21,7 @@ import type { CodeBindingNamespace, CodeJsonValue, CodeRunFailure, CodeRunReques
 import { ControlCallError, ControlChannelTransport, DEFAULT_CONTROL_CHANNEL_LIMITS } from '@deepseek-ai/dsh-control-channel'
 import type { ControlFailure } from '@deepseek-ai/dsh-control-channel'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
+import type {} from '@deepseek-ai/dsh-subprocess'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
@@ -307,6 +308,12 @@ export class NodePtcRuntime extends PtcRuntime {
    */
   async run(request: CodeRunRequest): Promise<CodeRunResult> {
     if (this.disposed) throw new Error('dsh-ptc-runtime-node: run() after disposal')
+    // This runtime spawns through the host child_process; a remote execution
+    // world would decide an argv this host then executes, so it fails closed
+    // before any child exists (in-world execution is future substrate work).
+    if (this.ctx.get('subprocess')?.locality === 'remote') {
+      throw new Error('dsh-ptc-runtime-node: run() requires a local execution world (this substrate spawns on the host; refusing a remote execution world)')
+    }
     const bindings = this.validateBindings(request)
     if (request.signal?.aborted) {
       return this.failureBeforeChild({ kind: 'abort', message: String(request.signal.reason) })

@@ -155,6 +155,12 @@ class FakeSubprocess extends SubprocessRuntime {
   handler: (spec: SubprocessSpawnSpec) => ScriptedRun | { reject: Error } = () => runResult('')
   /** When true, spawned handles drop their collect readers (the defensive branch). */
   dropReaders = false
+  /** When true, the provider claims a remote execution world. */
+  remote = false
+
+  override get locality(): 'local' | 'remote' {
+    return this.remote ? 'remote' : 'local'
+  }
 
   override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     this.spawns.push(spec)
@@ -418,6 +424,21 @@ describe('workdir derivation and signal forwarding', () => {
     // A non-agent caller takes the same default.
     await call(ctx, 'grep', { pattern: 'x' })
     expect(subprocess.spawns[1]?.cwd).toBe(process.cwd())
+  })
+
+  it('refuses the process.cwd() fallback in a remote execution world', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.remote = true
+    subprocess.handler = () => runResult('a.ts\n')
+    const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent() })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
+    expect((result.error as { message?: string }).message).toContain('remote execution world')
+    expect(subprocess.spawns).toHaveLength(0)
+    // An explicit session cwd still names a directory in that world.
+    const located = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/machine/work') })
+    expect(located.isError).toBe(false)
+    expect(subprocess.spawns[0]?.cwd).toBe('/machine/work')
   })
 
   it('spawns the packaged ripgrep binary with --no-config, the fixed argv, and budgeted collect streams', async () => {

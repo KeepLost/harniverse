@@ -221,6 +221,14 @@ export async function runRipgrep(
     throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
   }
   const cwd = exec.agent?.session.header.cwd
+  // The host's process directory does not exist in a remote execution world,
+  // so a session without its own cwd fails instead of searching the wrong one.
+  if (cwd === undefined && ctx.get('subprocess')?.locality === 'remote') {
+    throw new SearchError(
+      `${toolName} requires a session working directory in a remote execution world (host directories do not exist there)`,
+      'SEARCH_FAILED',
+    )
+  }
   const workdir = cwd ?? process.cwd()
   let handle: SubprocessHandle
   try {

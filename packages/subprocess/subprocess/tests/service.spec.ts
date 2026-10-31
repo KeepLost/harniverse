@@ -76,6 +76,18 @@ describe('SubprocessRuntime seam', () => {
     await expect(ctx.plugin(SecondService)).rejects.toThrow(/service "subprocess" has been registered/)
   })
 
+  it('reports the host locality by default and honors a remote override', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubSubprocessRuntime)
+    expect(ctx.subprocess.locality).toBe('local')
+    class RemoteStub extends StubSubprocessRuntime {
+      override get locality(): 'local' | 'remote' { return 'remote' }
+    }
+    const remote = new Context()
+    await remote.plugin(RemoteStub)
+    expect(remote.subprocess.locality).toBe('remote')
+  })
+
   it('scrubbedParentEnv drops credential-shaped and DSH_ names (case-insensitively) but keeps PATH', () => {
     process.env.DSH_SCRUB_PROBE = 'stale'
     process.env.dsh_scrub_probe_lower = 'stale'
