@@ -27,4 +27,4 @@ Status: implemented
 
 - 组装浏览器金样新增头部按钮（*Add workspace* 与 *View archived sessions* 之间的 `button "Archive sessions"`）；两个 lifecycle-chrome 金样已随本变更在 `DSH_SNAPSHOT=refresh` 下刷新。
 - 验证：workspace-browser 套件五个新用例（含全选/取消全选与逐行开关的批量流、活跃显式拒绝与批量同伴成功并存、非 Error 拒绝的逐字渲染、模式互斥与折叠栏可达、空态）；`BatchArchivePanel.tsx` 每文件 100% 覆盖；`pnpm run test:gui`；`pnpm run build`；改动文件 oxlint；金样刷新后的 web e2e 回放。
-- 关系：行菜单归档及其“停止并归档”确认、归档查看器的只读管理与批量删除（[2026-08-24 会话归档生命周期](../../architecture/2026-08-24-session-archive-lifecycle.md)）保有逐会话路径并拥有 `stopActivity` 重试；本 Note 只拥有批量入口手势。
+- 关系：行菜单归档及其“停止并归档”确认、归档查看器的只读管理与批量删除（[2026-08-24 会话归档生命周期](../architecture/2026-08-24-session-archive-lifecycle.md)）保有逐会话路径并拥有 `stopActivity` 重试；本 Note 只拥有批量入口手势。

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-01-sidebar-batch-archive-picker.md
-2026-11-01-sidebar-batch-archive-picker.md: 8e9fd4a63f340f9975cf125902ff11aefe91e10b
-2026-11-01-sidebar-batch-archive-picker.zh.md: 175b2215f6392c2769447c5d505626a496d9b141
+2026-11-01-sidebar-batch-archive-picker.md: 015d5d604e9ca50174be39f6593a9254b2d1f82d
+2026-11-01-sidebar-batch-archive-picker.zh.md: 5d6b8219542774a199cad5ccc31bba3ca5cc235b
