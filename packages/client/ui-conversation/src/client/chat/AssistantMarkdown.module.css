@@ -32,12 +32,13 @@
 }
 
 /* Provenance label of one finalized assistant message: quiet attribution
-   line under the body, sized with the stopped marker's small-tag axis. */
+   line under the body, riding the Settings content font-size axis like the
+   other quiet lines (StatsLine, hint) rather than the stopped tag's badge. */
 .meta {
   margin-top: 8px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 18px;
+  font-size: calc(12px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(18px + var(--dsw-content-font-delta, 0px));
 }
 
 /* Finalized footer offset (figma 43:32997); chrome lives in MessageIconActions. */
