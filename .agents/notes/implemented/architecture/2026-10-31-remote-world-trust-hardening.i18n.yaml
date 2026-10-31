@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-31-remote-world-trust-hardening.md
-2026-10-31-remote-world-trust-hardening.md: 4366b131f1eefc4ccab8d5fc769837f8e98a6535
-2026-10-31-remote-world-trust-hardening.zh.md: 05a7209fdb39d0583a01019355b8a1668209ded4
+2026-10-31-remote-world-trust-hardening.md: ace23b0f6927938a2490f8d251759ea65dddd106
+2026-10-31-remote-world-trust-hardening.zh.md: be6c0c7951ca8681f4af93351e9d439ea0476b91

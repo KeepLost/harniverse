@@ -29,7 +29,7 @@ One world fact on the subprocess seam, and fail-closed consumers.
 
 ## Consequences
 
-Remote-world compositions now fail loudly at every point where they previously did the wrong world's work silently: wrong-directory searches, host-root confinement, host-spawned PTC children, host-path workbench views, and host-stored uploads for remote-targeted pages. Local behavior is unchanged — every guard reads `'local'` and steps aside — and the (B) remote-host product gains the upload/import routing its documentation already claimed. Remote integrity facts (helper hash, descriptor digest) remain self-reported and are now documented as such in [ssh.md](../../../docs/subsystems/ssh.md): they detect transport corruption, not a lying endpoint. Deferred with this note: in-world PTC execution, a remote-aware workbench view, and the per-session world key.
+Remote-world compositions now fail loudly at every point where they previously did the wrong world's work silently: wrong-directory searches, host-root confinement, host-spawned PTC children, host-path workbench views, and host-stored uploads for remote-targeted pages. Local behavior is unchanged — every guard reads `'local'` and steps aside — and the (B) remote-host product gains the upload/import routing its documentation already claimed. Remote integrity facts (helper hash, descriptor digest) remain self-reported and are now documented as such in [ssh.md](../../../../docs/subsystems/ssh.md): they detect transport corruption, not a lying endpoint. Deferred with this note: in-world PTC execution, a remote-aware workbench view, and the per-session world key.
 
 ## Testing
 

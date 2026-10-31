@@ -57,8 +57,7 @@
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-subprocess": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^"
   },
   "version": "1.0.0-rc.3"
 }

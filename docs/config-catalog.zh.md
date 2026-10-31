@@ -2391,7 +2391,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/ptc-runtime/ptc-runtime-node/src/index.ts:30`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
+来源：[`packages/ptc-runtime/ptc-runtime-node/src/index.ts:31`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
 
 <a id="deepseek-aidsh-ptc-runtime-python"></a>
 
@@ -3173,7 +3173,7 @@ export interface Config {
   leaseMs?: number
 }
 
-/** The Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
+/** The captured Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
 export type CapturedRemoteProfile = z.infer<typeof capturedProfileSchema>
 ```
 
