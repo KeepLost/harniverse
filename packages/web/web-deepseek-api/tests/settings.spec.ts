@@ -212,6 +212,27 @@ describe('web-deepseek-api settings section', () => {
     await bench.ctx.fiber.dispose()
   })
 
+  it('omits ori_question when no derived human prompt exists', async () => {
+    const bench = await boot({ sendOriginalQuestion: true })
+    const bodies: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(bodyText(init))
+      return Promise.resolve(jsonResponse(SEARCH_PAYLOAD))
+    })
+    bench.ctx.provide('agents')
+    bench.ctx.set('agents', {
+      currentInitiator: () => ({
+        session: sessionWithMessages([
+          { role: 'assistant', source: { kind: 'user' }, content: [{ type: 'text', text: 'an answer' }] },
+        ]),
+      }),
+    } as never)
+
+    await bench.ctx.web.search({ query: 'q' })
+    expect(JSON.parse(bodies[0] as string)).not.toHaveProperty('ori_question')
+    await bench.ctx.fiber.dispose()
+  })
+
   it('omits ori_question when the latest human prompt carries no text blocks', async () => {
     const bench = await boot({ sendOriginalQuestion: true })
     const bodies: string[] = []

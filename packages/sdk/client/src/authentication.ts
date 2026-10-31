@@ -2,6 +2,7 @@
 
 import { userAgent } from '@deepseek-ai/dsh-identity'
 
+/** Inputs for {@link GrantAccess}: the remote origin, the granted identity, and transport hooks. */
 export interface GrantAccessOptions {
   /** HTTPS Harness origin, or loopback HTTP for local development. */
   origin: string

@@ -24,3 +24,8 @@ import { APP_IDENTITY, attributionHeaders, clientIdentity, userAgent } from '@de
 ## 模型影响
 
 无。身份绝不进入提示词、请求体、token 计量或会话日志；LLM 服务商请求只把它作为 HTTP 元数据携带。
+
+## 已知限制与暂缓事项
+
+- 宿主进程与子进程流量（pnpm、git、Electron/无头 Chrome 外壳）保留各自的客户端指纹；本次集中只覆盖第一方出站 HTTP 与协议自述。
+- 白标部署需要在各消费方以编程方式覆盖身份；目前没有 deployment 级的单一配置开关可以整体替换产品标识。

@@ -11,6 +11,7 @@ Status: implemented
 ## 决策
 
 - **一个身份包。** `@deepseek-ai/dsh-identity`（`packages/util/identity`）拥有产品身份：`APP_IDENTITY`、`userAgent()`、`attributionHeaders()`，以及新增的、面向协议客户端自述的 `clientIdentity()`。`dsh-llm` 的 `attribution.ts` re-export 该契约，适配器的导入和 `dsh-llm/attribution` 子路径都不变。
+- **消费方把身份内联打包；只有 Python 运行时保留真实依赖。** 在自带 lib 构建的库包里，身份放在 `devDependencies`，各包构建时会把这一极小、零依赖的模块内联进自己的 lib，而不是运行期外部导入。运行期外部导入被证实会扰动 vendor loader：在某个 loader 条目的导入链中求值一个额外的非插件模块，会让**下一个**条目的 fiber 跳过 `internal/config` 插值，基础补丁里的 `root: !!js dshHomePath('sessions')` 就以原始表达式对象的形式到达 `JsonlSessionPersistence`，配置校验失败（built-bin 冒烟里的 `dsh web --host 0.0.0.0` 即此）。`python/sdk-runtime` 通过 `node_modules`（而非打包器）解析包，保留 `@deepseek-ai/dsh-identity` 真实依赖，由 runtime-closure 门禁把关。
 - **产品名是 `harniverse`。** 产品标识从上游的 `deepseek-harness` 改为 `harniverse`，渲染为 `harniverse/<version>`，不带 url 注释：下游没有公开的仓库主页，指向上游 URL 会构成错误归属。`AppIdentity.url` 变为可选；白标部署仍可传入。
 - **版本号只有一个授予源。** 身份读取自己包的 manifest，`pnpm run release:dsh` 一步把该版本授予整个 dsh 家族（含工作区根），因此 User-Agent 永远不会标出仓库里不存在的版本。本次变更以 `1.0.0-rc.3` 发布。
 - **所有产品自有的出站 HTTP 出口都携带身份。** 五处手写常量被替换（`web-deepseek-api`、`web-search-exa`、`web-search-perplexity`、`web-fetch-http` 的 `DEFAULT_USER_AGENT`、`notification-http`），MCP 的 `clientInfo` 改由 `clientIdentity()` 提供，上文列出的匿名出口现在显式设置该头部。`web-fetch-http` 保留其 `userAgent` 配置覆盖。通知协议头（`X-Harniverse-Event*`）是去重契约，名称不变。

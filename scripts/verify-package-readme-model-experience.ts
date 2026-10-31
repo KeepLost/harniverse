@@ -34,6 +34,7 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/util/brand': 'The package is a type-only primitive erased at compile time.',
   'packages/util/lazy-require': 'The package is a load-timing utility; it changes when a dependency loads, never anything a model sees.',
   'packages/util/home-paths': 'The package only resolves harness-owned host paths; model-facing consumers own any rendered use.',
+  'packages/util/identity': 'The package only renders the outbound product identity string; provider adapters own every model-facing byte of their requests.',
   'packages/util/launch-environment': 'The package only resolves host environment values; model-facing consumers own any rendered use.',
 }
 

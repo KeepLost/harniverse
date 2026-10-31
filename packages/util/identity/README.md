@@ -24,3 +24,8 @@ import { APP_IDENTITY, attributionHeaders, clientIdentity, userAgent } from '@de
 ## Model effects
 
 None. The identity never enters prompts, request bodies, token accounting, or session logs; LLM provider requests carry it as HTTP metadata only.
+
+## Known Limitations and Deferred Work
+
+- Host-process and subprocess traffic (pnpm, git, Electron/headless-Chrome shells) keeps its own client fingerprint; centralization covers first-party outbound HTTP and protocol introductions only.
+- White-label deployments override the identity programmatically per consumer; there is no single config knob that swaps the product token deployment-wide.

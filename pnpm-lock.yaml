@@ -1908,9 +1908,6 @@ importers:
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:^
         version: link:../../util/home-paths
-      '@deepseek-ai/dsh-identity':
-        specifier: workspace:^
-        version: link:../../util/identity
       '@deepseek-ai/dsh-storage':
         specifier: workspace:^
         version: link:../../storage/storage
@@ -1942,6 +1939,9 @@ importers:
       '@deepseek-ai/dsh-chat-adapter-fake':
         specifier: workspace:^
         version: link:../../test-support/chat-adapter-fake
+      '@deepseek-ai/dsh-identity':
+        specifier: workspace:^
+        version: link:../../util/identity
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -12974,6 +12974,9 @@ importers:
       '@deepseek-ai/dsh-http-proxy':
         specifier: workspace:^
         version: link:../../packages/util/http-proxy
+      '@deepseek-ai/dsh-identity':
+        specifier: workspace:^
+        version: link:../../packages/util/identity
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../packages/runtime-diagnostics/invariants

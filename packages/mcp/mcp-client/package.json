@@ -33,7 +33,6 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-capabilities": "workspace:^",
-    "@deepseek-ai/dsh-identity": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-mcp-resources": "workspace:^",
@@ -54,6 +53,7 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-capabilities": "workspace:^",
     "@deepseek-ai/dsh-identity": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
@@ -66,7 +66,6 @@
     "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@modelcontextprotocol/server-everything": "^2026.7.4",
-    "@modelcontextprotocol/server-filesystem": "^2026.7.4",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@modelcontextprotocol/server-filesystem": "^2026.7.4"
   }
 }

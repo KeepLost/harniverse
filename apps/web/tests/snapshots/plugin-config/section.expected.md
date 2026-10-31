@@ -103,8 +103,8 @@
         - paragraph: Search API 单次搜索返回的结果数,1 到 50;更小的请求上限优先。
         - text: 发送触发问题
         - combobox "发送触发问题":
-          - option "启用" [selected]
-          - option "停用"
+          - option "启用"
+          - option "停用" [selected]
         - paragraph: 把触发本次搜索的用户问题(截断到 128 字符)一并发送,以改进结果排序。
         - button "放弃修改" [disabled]
         - button "保存" [disabled]

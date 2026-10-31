@@ -227,7 +227,6 @@ describe('web e2e: opt-in DeepSeek web search', () => {
           query: QUERIES[index],
           count: WEB_SEARCH_MAX_RESULTS,
           need_content: false,
-          ori_question: Array.from(PROMPT.replace(/\s+/gu, ' ').trim()).slice(0, 128).join(''),
         },
       })
     }

@@ -1663,4 +1663,14 @@ describe('enforceAttributionFetch', () => {
     await wrapped(new Request('https://provider.test/v1', { headers: { 'user-agent': 'OpenAI/JS 6.40.0' } }))
     expect(seen[0]?.get('user-agent')).toBe(userAgent())
   })
+
+  it('pins the attribution User-Agent when the caller passes no init at all', async () => {
+    const seen: Headers[] = []
+    const wrapped = enforceAttributionFetch(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers))
+      return new Response('{}')
+    })
+    await wrapped('https://provider.test/v1')
+    expect(seen[0]?.get('user-agent')).toBe(userAgent())
+  })
 })
