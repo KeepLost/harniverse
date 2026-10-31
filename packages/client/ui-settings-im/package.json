@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings-im",
   "description": "IM bot settings section: platform channels, bot cards, owner pairing, and the connect flow over the chatBots Remote",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

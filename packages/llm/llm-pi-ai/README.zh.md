@@ -178,7 +178,7 @@ profile 的 `models` 列表是*替换*该路由已安装 catalog，而不是扩�
 
 ## 应用归因
 
-每个请求都携带 dsh-llm `attributionHeaders()` 的共享归因标头，并通过 pi-ai `headers` 流选项合并。不会合成提供方特定应用归因标头。详见 [dsh-llm § 应用归因](../llm/README.md#app-attribution-attributionts)。
+每个请求都携带 dsh-llm `attributionHeaders()` 的共享归因标头，并通过 pi-ai `headers` 流选项合并。适配器还包装了传输层 fetch（`enforceAttributionFetch`），因此在提供方栈晚于调用方合并而自行设置或追加 `User-Agent` 的路由上（pi-ai 的 Codex 路由、Google SDK），归因 `User-Agent` 最终生效。不会合成提供方特定应用归因标头。详见 [dsh-llm § 应用归因](../llm/README.md#app-attribution-attributionts)。
 
 ## 依赖体量
 

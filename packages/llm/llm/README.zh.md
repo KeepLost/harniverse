@@ -65,7 +65,7 @@ agent loop 构造的请求会携带仅限运行时使用的 `wireExchangeId` 与
 
 ### 应用归因（`attribution.ts`）
 
-每个产品适配器都会在提供方 HTTP 请求上发送应用身份。`attributionHeaders(identity?)` 构建标准 `User-Agent`，默认为公开 `APP_IDENTITY`；白标部署可以替换它，但不能抑制它。适配器会直接验证 wire 标头，或通过自身库 hook 验证。详见 [归因 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
+每个产品适配器都会在提供方 HTTP 请求上发送应用身份。`attributionHeaders(identity?)` 构建标准 `User-Agent`，默认为公开 `APP_IDENTITY`；白标部署可以替换它，但不能抑制它。适配器会直接验证 wire 标头，或通过自身库 hook 验证。身份本身由 [`@deepseek-ai/dsh-identity`](../../util/identity/README.md) 拥有——`harniverse` 产品标识与 manifest 授予的版本——本模块为适配器 re-export 该契约。详见[归因 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)与 [Harniverse 身份说明](../../../.agents/notes/implemented/architecture/2026-10-31-harniverse-product-identity.md)。
 
 ### API 密钥校验（`api-key.ts`）
 

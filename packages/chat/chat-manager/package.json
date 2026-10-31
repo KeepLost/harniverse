@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-chat-manager",
   "description": "Host-side manager of IM chat bots: the bot registry, write-only secrets, embedded bridge lifecycle, and the Typert Remote the Settings page calls",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

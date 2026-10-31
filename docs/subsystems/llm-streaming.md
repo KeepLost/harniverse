@@ -235,11 +235,11 @@ Provider configuration resolves before route registration into an immutable disc
 
 ## `AppIdentity` — app attribution
 
-The static public application identity every adapter sends to providers ([`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)). `attributionHeaders(identity?)` maps it to the standard `User-Agent` header only; OpenRouter-specific app attribution headers are intentionally not supported by this contract. The default `APP_IDENTITY` sources its version from the package manifest; every field is a public product fact - no secrets, paths, session ids, or per-user identifiers, and nothing per-request may influence the values. Rationale: [Mandatory `User-Agent` attribution](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
+The static public application identity every adapter sends to providers. It is owned by [`packages/util/identity`](../../packages/util/identity/README.md) — the single source shared by every outbound surface — and re-exported through [`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts). `attributionHeaders(identity?)` maps it to the standard `User-Agent` header only; OpenRouter-specific app attribution headers are intentionally not supported by this contract. The default `APP_IDENTITY` is the `harniverse` product with its version sourced from the package manifest (granted to the whole workspace family by the release process) and no url comment; every field is a public product fact - no secrets, paths, session ids, or per-user identifiers, and nothing per-request may influence the values. Rationale: [Mandatory `User-Agent` attribution](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md) and [Harniverse product identity](../../.agents/notes/implemented/architecture/2026-10-31-harniverse-product-identity.md).
 
 ```ts type-equiv
 /**
- * Static public application identity sent to LLM providers.
+ * Static public application identity carried on outbound requests.
  *
  * Every field is a public product fact, safe on every request: no secrets,
  * local paths, session ids, prompt text, or per-user identifiers belong here,
@@ -250,8 +250,8 @@ interface AppIdentity {
   product: string
   /** Product version; sourced from package metadata, never hand-copied. */
   version: string
-  /** Repository home URL of the app, used as the `User-Agent` comment. */
-  url: string
+  /** Repository home URL rendered as the `User-Agent` comment; omit when the product has no public home. */
+  url?: string
 }
 ```
 

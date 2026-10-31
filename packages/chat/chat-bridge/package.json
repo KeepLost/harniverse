@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-chat-bridge",
   "description": "Chat bridge core: pairing, per-member whitelist, closed command table, approval and question routing, and streamed rendering between IM platforms and the Harniverse API",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

@@ -34,7 +34,7 @@
 | `maxBodyChars` | `100_000` | 解码主体最大字符数。 |
 | `timeoutMs` | `30_000` | Node 定时器范围内的抓取超时：直接 `ctx.web.fetch()` 调用方的资源兜底，而非面向模型的工具调用预算（后者属于 `dsh-tool-call-timeout-policy`）。 |
 | `maxRedirects` | `5` | 跟随的最大重定向跳数（`0` 表示一律不跟随）。每一跳都重新执行 URL、DNS 与公共地址验证。 |
-| `userAgent` | `deepseek-harness/…` | `User-Agent` 标头。 |
+| `userAgent` | `harniverse/<version>` | `User-Agent` 标头。 |
 
 数值限制会在插件构造时验证：每个上限都必须是正的有限数；`maxRedirects` 必须是非负整数。无效值会抛出异常，不会静默构造限制荒谬的提供方。
 

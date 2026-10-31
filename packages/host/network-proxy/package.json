@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-network-proxy",
   "description": "Runtime network-proxy settings for the DeepSeek Harness: one global proxy (off / system-detected / manual) applied without a restart through the dsh-http-policy transport seam",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

@@ -9,6 +9,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type {
   SpeechPreparation, SpeechRecognizer, SpeechTranscribeInput, SpeechTranscribeResult,
 } from '@deepseek-ai/dsh-speech'
@@ -89,7 +90,7 @@ export async function transcribeThroughChain(
     try {
       const response = await fetchImpl(`${endpoint}/audio/transcriptions`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${preferences.apiKey}` },
+        headers: { authorization: `Bearer ${preferences.apiKey}`, 'user-agent': userAgent() },
         body: form,
         signal: combined,
       })

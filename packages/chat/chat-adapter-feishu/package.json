@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-chat-adapter-feishu",
   "description": "Feishu/Lark provider for the unified chat adapter registry: long-connection events, lark_md cards, in-place card updates, and file transfer over fetch and ws",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },
@@ -38,6 +38,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-chat-adapter": "workspace:^",
     "@deepseek-ai/dsh-credentials": "workspace:^",
+    "@deepseek-ai/dsh-identity": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
@@ -47,6 +48,7 @@
     "@deepseek-ai/dsh-chat-adapter": "workspace:^",
     "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-credentials-local": "workspace:^",
+    "@deepseek-ai/dsh-identity": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@types/ws": "^8.18.1"

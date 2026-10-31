@@ -147,6 +147,7 @@
     { "path": "./packages/util/native-command" },
     { "path": "./packages/util/home-paths" },
     { "path": "./packages/util/timeout" },
+    { "path": "./packages/util/identity" },
     { "path": "./packages/util/output-retention" },
     { "path": "./packages/util/atomic-write" },
     { "path": "./packages/util/http-proxy" },

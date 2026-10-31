@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-fs-codec",
   "description": "Pure text-encoding library for legacy-encoded files and subprocess output: strict iconv-lite decode/encode, BOM sniffing, host-locale priors, and the ordered decode-candidate walk shared by fs-local, workbench preview, and subprocess output",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

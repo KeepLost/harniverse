@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings-global-rules",
   "description": "Global rules settings section: edit the harness-home AGENTS.md every session loads (user-global instruction scope) over the globalRules Remote, with content-derived conflict detection",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

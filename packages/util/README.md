@@ -7,6 +7,7 @@ These zero-dependency packages provide small primitives shared by multiple capab
 | Package | Role |
 |---|---|
 | [`brand/`](brand/README.md) | Provides nominally branded types |
+| [`identity/`](identity/README.md) | Single source of the product identity outbound requests carry (`User-Agent`, MCP `clientInfo`) |
 | [`paths/`](home-paths/README.md) | Resolves the Harness data root and shared paths |
 | [`timeout/`](timeout/README.md) | Provides deadline and timeout classification primitives |
 | [`http-proxy/`](http-proxy/README.md) | Resolves the process-wide outbound proxy policy and installs it behind global fetch |

@@ -15,6 +15,7 @@ import LlmRuntime, {
 import type { GenerateOptions, LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { enforceAttributionFetch } from '@deepseek-ai/dsh-llm-pi-ai/src/adapter.ts'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { resolveProfiles } from '../src/config.ts'
@@ -1638,5 +1639,28 @@ describe('PiAiAdapter wire and replay boundaries', () => {
 
     expect(degrades.map(detail => detail.reason))
       .toEqual([expect.stringContaining('unsupported version 1') as string])
+  })
+})
+
+describe('enforceAttributionFetch', () => {
+  it('pins the attribution User-Agent over a late header decision on init headers', async () => {
+    const seen: Headers[] = []
+    const wrapped = enforceAttributionFetch(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers))
+      return new Response('{}')
+    })
+    await wrapped('https://provider.test/v1', { headers: { 'user-agent': 'pi (linux 6.8.0; x64)', 'x-other': 'kept' } })
+    expect(seen[0]?.get('user-agent')).toBe(userAgent())
+    expect(seen[0]?.get('x-other')).toBe('kept')
+  })
+
+  it('pins the attribution User-Agent on a Request object', async () => {
+    const seen: Headers[] = []
+    const wrapped = enforceAttributionFetch(async (input: RequestInfo | URL) => {
+      seen.push(input instanceof Request ? input.headers : new Headers())
+      return new Response('{}')
+    })
+    await wrapped(new Request('https://provider.test/v1', { headers: { 'user-agent': 'OpenAI/JS 6.40.0' } }))
+    expect(seen[0]?.get('user-agent')).toBe(userAgent())
   })
 })

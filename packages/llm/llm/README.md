@@ -65,7 +65,7 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 
 ### App attribution (`attribution.ts`)
 
-Every product adapter sends application identity on provider HTTP requests. `attributionHeaders(identity?)` builds the standard `User-Agent`, defaulting to public `APP_IDENTITY`; white-label deployments may replace but not suppress it. Adapters verify the wire header directly or through their library hook. See [the attribution Agent Note](../../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
+Every product adapter sends application identity on provider HTTP requests. `attributionHeaders(identity?)` builds the standard `User-Agent`, defaulting to public `APP_IDENTITY`; white-label deployments may replace but not suppress it. Adapters verify the wire header directly or through their library hook. The identity itself is owned by [`@deepseek-ai/dsh-identity`](../../util/identity/README.md) — the `harniverse` product token with its manifest-granted version — and this module re-exports that contract for adapters. See [the attribution Agent Note](../../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md) and [the Harniverse identity note](../../../.agents/notes/implemented/architecture/2026-10-31-harniverse-product-identity.md).
 
 ### API key validation (`api-key.ts`)
 

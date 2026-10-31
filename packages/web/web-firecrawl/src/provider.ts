@@ -11,6 +11,7 @@ import type {
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type {
   FirecrawlMetadata,
   FirecrawlScrapeResponse,
@@ -163,6 +164,7 @@ export class FirecrawlSearchProvider implements WebSearchProvider {
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
+          'user-agent': userAgent(),
           ...apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` },
         },
         body: JSON.stringify(body),
@@ -203,6 +205,7 @@ export class FirecrawlFetchProvider implements WebFetchProvider {
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
+          'user-agent': userAgent(),
           ...apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` },
         },
         body: JSON.stringify({ url: request.url, formats: ['markdown'] }),

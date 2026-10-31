@@ -698,7 +698,7 @@ export interface Config {
 export type ChatOperation = 'run' | 'init' | 'status' | 'rotate-key'
 ```
 
-Source: [`packages/bundle/chat-app/src/index.ts:38`](../packages/bundle/chat-app/src/index.ts)
+Source: [`packages/bundle/chat-app/src/index.ts:39`](../packages/bundle/chat-app/src/index.ts)
 
 <a id="deepseek-aidsh-chat-bridge"></a>
 
@@ -3030,7 +3030,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/speech/speech-openai/src/index.ts:23`](../packages/speech/speech-openai/src/index.ts)
+Source: [`packages/speech/speech-openai/src/index.ts:24`](../packages/speech/speech-openai/src/index.ts)
 
 <a id="deepseek-aidsh-speech-sensevoice"></a>
 
@@ -4301,7 +4301,7 @@ export interface Config {
   baseURL?: string
   /** Search API results per search, from 1 through 50; a smaller request bound wins. Defaults to 10. */
   count?: number
-  /** Send the triggering user question, bounded to 128 characters, as `ori_question`. Defaults to true. */
+  /** Send the triggering user question, bounded to 128 characters, as `ori_question`. Defaults to false. */
   sendOriginalQuestion?: boolean
 }
 ```
@@ -4332,7 +4332,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-fetch-http/src/index.ts:36`](../packages/web/web-fetch-http/src/index.ts)
+Source: [`packages/web/web-fetch-http/src/index.ts:37`](../packages/web/web-fetch-http/src/index.ts)
 
 <a id="deepseek-aidsh-web-firecrawl"></a>
 
@@ -4755,6 +4755,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-home-paths` ([`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-http-proxy` ([`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts))
+- `@deepseek-ai/dsh-identity` ([`packages/util/identity/src/index.ts`](../packages/util/identity/src/index.ts))
 - `@deepseek-ai/dsh-image-offload-policy` ([`packages/compaction/image-offload-policy/src/index.ts`](../packages/compaction/image-offload-policy/src/index.ts))
 - `@deepseek-ai/dsh-launch-environment` ([`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts))
 - `@deepseek-ai/dsh-lazy-require` ([`packages/util/lazy-require/src/index.ts`](../packages/util/lazy-require/src/index.ts))

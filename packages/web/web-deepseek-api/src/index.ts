@@ -45,7 +45,7 @@ export interface Config {
   baseURL?: string
   /** Search API results per search, from 1 through 50; a smaller request bound wins. Defaults to 10. */
   count?: number
-  /** Send the triggering user question, bounded to 128 characters, as `ori_question`. Defaults to true. */
+  /** Send the triggering user question, bounded to 128 characters, as `ori_question`. Defaults to false. */
   sendOriginalQuestion?: boolean
 }
 
@@ -57,7 +57,7 @@ export const Config: z<Config> = z.object({
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   baseURL: z.string().default(DEEPSEEK_WEB_API_BASE_URL),
   count: z.number().step(1).min(1).max(50).default(DEEPSEEK_DEFAULT_COUNT),
-  sendOriginalQuestion: z.boolean().default(true),
+  sendOriginalQuestion: z.boolean().default(false),
 })
 
 /** Settings namespace carrying this package's endpoint, result-count, and key settings. */

@@ -1,6 +1,7 @@
 /** The DeepSeek Search and Fetch API providers over a fake transport. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import { WebError } from '@deepseek-ai/dsh-web'
 import {
   DEEPSEEK_DEFAULT_COUNT,
@@ -84,6 +85,7 @@ describe('DeepSeekSearchApiProvider', () => {
       redirect: RequestRedirect
       authorization: string | null
       contentType: string | null
+      userAgent: string | null
     }
     const calls: CapturedCall[] = []
     vi.stubGlobal('fetch', vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
@@ -95,6 +97,7 @@ describe('DeepSeekSearchApiProvider', () => {
         redirect: init?.redirect ?? 'follow',
         authorization: headers.get('authorization'),
         contentType: headers.get('content-type'),
+        userAgent: headers.get('user-agent'),
       })
       return Promise.resolve(jsonResponse(SEARCH_PAYLOAD))
     }))
@@ -112,6 +115,7 @@ describe('DeepSeekSearchApiProvider', () => {
       redirect: 'error',
       authorization: 'Bearer ds-key',
       contentType: 'application/json',
+      userAgent: userAgent(),
     }])
   })
 

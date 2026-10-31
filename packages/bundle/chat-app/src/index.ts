@@ -19,6 +19,7 @@ import { DEFAULT_GRANT_ID_REF, DEFAULT_SIGNING_KEY_REF } from '@deepseek-ai/dsh-
 import type {} from '@deepseek-ai/dsh-cmdline'
 import { credentialRef, type CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import type { ChatOperation } from './startup.ts'
 
@@ -232,7 +233,7 @@ async function status(ctx: Context, config: Config): Promise<string[]> {
     : `grant: ${describeGrant(grant)} ${isAuthenticationGrantActive(grant) ? 'active' : 'expired'}`)
   const origin = config.origin ?? 'http://127.0.0.1:3080'
   try {
-    const response = await internals.fetch(new URL('/auth/status', origin), { signal: AbortSignal.timeout(2_000) })
+    const response = await internals.fetch(new URL('/auth/status', origin), { signal: AbortSignal.timeout(2_000), headers: { 'user-agent': userAgent() } })
     const body = await response.json() as { mode?: string }
     lines.push(`harniverse ${origin}: reachable, authentication ${body.mode ?? 'unknown'}`)
   } catch (error) {

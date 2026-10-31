@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-chat-harniverse-client",
   "description": "The only /api client of the chat bridge: Grant authentication, a closed endpoint table, Idempotency-Key, principal capture, respond, upload, and a resumable event mux",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

@@ -16,7 +16,7 @@ A mounted credentials service is authoritative; without one, the launching envir
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential reference resolved for each operation through `ctx.credentials`, or from the launching environment when that seam is absent. A missing value fails the call as `WEB_PROVIDER_CREDENTIAL_MISSING`. |
 | `baseURL` | `https://api.deepseek.com/v1/tools` | API base including its path prefix; `/search` and `/fetch` are appended. An unparseable value makes both providers unavailable. |
 | `count` | `10` | Search API results per search, 1 through 50. A smaller request `maxResults` wins and is sent for a cost/latency optimization; the seam enforces the final bound regardless. |
-| `sendOriginalQuestion` | `true` | Send the triggering user question, collapsed and cut to 128 characters, as the Search API's `ori_question` to improve result ranking. |
+| `sendOriginalQuestion` | `false` | Send the triggering user question, collapsed and cut to 128 characters, as the Search API's `ori_question` to improve result ranking. Off by default: the model-authored query travels alone unless the user opts in. |
 
 ```yaml
 - id: web-deepseek-api

@@ -7,6 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { NotificationEventId, type NotificationEnvelope } from '@deepseek-ai/dsh-notification'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -195,7 +196,7 @@ describe('HTTP notification provider', () => {
       expect(received.map(item => item.body.eventId)).toEqual(['first', 'second'])
       expect(received[0]?.headers).toMatchObject({
         'content-type': 'application/json',
-        'user-agent': 'harniverse-notification/1',
+        'user-agent': userAgent(),
         'x-harniverse-event': 'approval.requested',
       })
       expect(eventIdOf({ headers: received[0]?.headers } as IncomingMessage)).toBe('first')

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings-mcp",
   "description": "MCP management settings section: list, enable, edit, import, restart, and delete the machine's user-configured MCP servers over the settings scope and the mcpManagement Remote",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

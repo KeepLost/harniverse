@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-worktree",
   "description": "Creates retained Git worktrees under the mounted filesystem and sandbox providers and enters them as the session directory",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

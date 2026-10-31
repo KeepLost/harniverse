@@ -8,6 +8,7 @@ import type {
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type { BraveError, BraveResult, BraveSearchResponse } from './types.ts'
 
 /** Stable id registered in `ctx.web`. */
@@ -83,6 +84,7 @@ export class BraveSearchProvider implements WebSearchProvider {
         headers: {
           'x-subscription-token': apiKey,
           accept: 'application/json',
+          'user-agent': userAgent(),
         },
         ...signal === undefined ? {} : { signal },
       })

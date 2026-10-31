@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-host-skin-library",
   "description": "Remote skin library: built-in and imported skin packs, content-addressed wallpapers, the ui-skin settings section, and the pre-plugin skin bootstrap",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

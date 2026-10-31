@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-working-directory",
   "description": "Model-facing working_directory tool over the session working-directory service",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

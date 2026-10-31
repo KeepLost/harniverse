@@ -118,7 +118,7 @@ describe('web-deepseek-api settings section', () => {
     await bench.ctx.fiber.dispose()
   })
 
-  it('sends the initiating session prompt as ori_question by default and stops when disabled', async () => {
+  it('omits ori_question by default and sends the initiating session prompt only when enabled', async () => {
     const bench = await boot()
     const bodies: string[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
@@ -131,11 +131,15 @@ describe('web-deepseek-api settings section', () => {
     } as never)
 
     await bench.ctx.web.search({ query: 'release notes' })
-    expect(JSON.parse(bodies[0] as string)).toMatchObject({ ori_question: 'what changed in the release?' })
+    expect(JSON.parse(bodies[0] as string)).not.toHaveProperty('ori_question')
+
+    await bench.ctx.settings.update(WEB_DEEPSEEK_API_SETTINGS_NAMESPACE, { sendOriginalQuestion: true })
+    await bench.ctx.web.search({ query: 'release notes' })
+    expect(JSON.parse(bodies[1] as string)).toMatchObject({ ori_question: 'what changed in the release?' })
 
     await bench.ctx.settings.update(WEB_DEEPSEEK_API_SETTINGS_NAMESPACE, { sendOriginalQuestion: false })
     await bench.ctx.web.search({ query: 'release notes' })
-    expect(JSON.parse(bodies[1] as string)).not.toHaveProperty('ori_question')
+    expect(JSON.parse(bodies[2] as string)).not.toHaveProperty('ori_question')
     await bench.ctx.fiber.dispose()
   })
 
@@ -186,7 +190,7 @@ describe('web-deepseek-api settings section', () => {
   })
 
   it('sends the latest human prompt, skipping injected user-role context and non-text blocks', async () => {
-    const bench = await boot()
+    const bench = await boot({ sendOriginalQuestion: true })
     const bodies: string[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
       bodies.push(bodyText(init))
@@ -209,7 +213,7 @@ describe('web-deepseek-api settings section', () => {
   })
 
   it('omits ori_question when the latest human prompt carries no text blocks', async () => {
-    const bench = await boot()
+    const bench = await boot({ sendOriginalQuestion: true })
     const bodies: string[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
       bodies.push(bodyText(init))

@@ -7,9 +7,8 @@
  * @module @deepseek-ai/dsh-web-deepseek-api/transport
  */
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import { WebError } from '@deepseek-ai/dsh-web'
-
-const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Authentication values resolved once for an operation. */
 export interface DeepSeekWebAuth {
@@ -98,7 +97,7 @@ export async function dispatchDeepSeekWeb<T>(
         authorization: `Bearer ${apiKey}`,
         'content-type': 'application/json',
         accept: 'application/json',
-        'user-agent': USER_AGENT,
+        'user-agent': userAgent(),
       },
       body: JSON.stringify(body),
       ...signal !== undefined ? { signal } : {},

@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../util/identity" },
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-notification-http",
   "description": "HTTP and HTTPS delivery provider for DeepSeek Harness outbound notifications",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },
@@ -37,6 +37,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-identity": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-notification": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
@@ -47,6 +48,7 @@
     "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-identity": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-notification": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

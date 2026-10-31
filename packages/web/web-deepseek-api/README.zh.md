@@ -16,7 +16,7 @@ DeepSeek Search / Fetch API 在 harness [web 能力缝](../web/README.md)(`ctx.w
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次操作经 `ctx.credentials` 解析的凭证引用;该缝缺席时从启动环境解析。缺失时调用以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败。 |
 | `baseURL` | `https://api.deepseek.com/v1/tools` | API 基址(含路径前缀);自动追加 `/search` 与 `/fetch`。不可解析的值使两个提供方都不可用。 |
 | `count` | `10` | Search API 单次搜索的结果数,1 到 50。更小的请求 `maxResults` 优先,并作为成本/延迟优化下发;最终上限仍由缝强制执行。 |
-| `sendOriginalQuestion` | `true` | 把触发本次搜索的用户问题(空白折叠、截断到 128 字符)作为 Search API 的 `ori_question` 一并发送,以改进结果排序。 |
+| `sendOriginalQuestion` | `false` | 把触发本次搜索的用户问题(空白折叠、截断到 128 字符)作为 Search API 的 `ori_question` 一并发送,以改进结果排序。默认关闭:未经用户开启,只发送模型自己改写的查询词。 |
 
 ```yaml
 - id: web-deepseek-api
