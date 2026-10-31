@@ -151,7 +151,7 @@ describe('SandboxPolicyService', () => {
     expect(() => ctx.sandboxPolicy.resolve({ session: session('sess-no-cwd') })).toThrow('remote execution world')
     expect(ctx.sandboxPolicy.resolve({ session: session('sess-machine', '/machine/work') })).toMatchObject({
       mode: 'workspace-write',
-      workspaceRoot: '/machine/work',
+      workspaceRoot: resolve('/machine/work'),
     })
     await ctx.fiber.dispose()
   })

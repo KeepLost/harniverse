@@ -112,6 +112,8 @@ function targetOfUrl(url: URL): Target {
  * remote target and the registering route's local handler must run.
  */
 export async function forwardExactRoute(ctx: Context, req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  /* v8 ignore next -- `??` arm: node:http always sets url on a server request;
+   * the fallback serves the client-side IncomingMessage type only. */
   const url = new URL(req.url ?? '/', 'http://dsh.internal')
   const target = targetOfUrl(url)
   if (target.kind === 'none') return false
@@ -142,6 +144,8 @@ export async function forwardExactRoute(ctx: Context, req: IncomingMessage, res:
     // spec requires duplex for streaming bodies; lib.dom's RequestInit type
     // lags the spec here, so the field rides on a widened init type.
     const init: RequestInit & { duplex: 'half' } = {
+      /* v8 ignore next -- `??` arm: node:http always sets method on a server
+       * request; the fallback serves the client-side IncomingMessage type only. */
       method: req.method ?? 'GET',
       headers,
       body: Readable.toWeb(req) as ReadableStream<Uint8Array>,

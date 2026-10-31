@@ -168,7 +168,7 @@ describe('attachment upload route', () => {
   it('forwards an upload to the remote host its query parameter selects', async () => {
     saves.length = 0
     const forwarded: { id: string; path: string; method?: string; headers: Headers; body?: string }[] = []
-    const { route, dispose } = await mounted(OPERATE_PRINCIPAL, undefined, undefined, {
+    const { route, imageRoute, dispose } = await mounted(OPERATE_PRINCIPAL, undefined, undefined, {
       request: async (id: string, path: string, init?: RequestInit) => {
         forwarded.push({
           id,
@@ -185,8 +185,11 @@ describe('attachment upload route', () => {
     })
     const { res, state } = responseRecorder()
     await route.handler(
-      uploadRequest('remote-data', { 'x-attachment-name': encodeURIComponent('remote.txt') },
-        `${UPLOAD_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`),
+      uploadRequest('remote-data', {
+        'x-attachment-name': encodeURIComponent('remote.txt'),
+        'x-multi': ['one', 'two'],
+        'x-absent': undefined,
+      }, `${UPLOAD_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`),
       res,
     )
     expect(state.status).toBe(201)
@@ -200,7 +203,20 @@ describe('attachment upload route', () => {
       body: 'remote-data',
     })
     expect(forwarded[0]!.headers.get('x-attachment-name')).toBe(encodeURIComponent('remote.txt'))
+    // Repeated header values survive the hop as one comma-joined entry.
+    expect(forwarded[0]!.headers.get('x-multi')).toBe('one, two')
+    expect(forwarded[0]!.headers.has('x-absent')).toBe(false)
     expect(forwarded[0]!.headers.has('authorization')).toBe(false)
+    // The image-staging route forwards under the same parameter.
+    const staged = responseRecorder()
+    await imageRoute.handler(
+      uploadRequest('remote-image', { 'content-type': 'image/png' },
+        `${UPLOAD_IMAGE_PATH}?dshRemoteHost=0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`),
+      staged.res,
+    )
+    expect(staged.state.status).toBe(201)
+    expect(forwarded[1]).toMatchObject({ path: UPLOAD_IMAGE_PATH, body: 'remote-image' })
+    expect(saves).toHaveLength(0)
     await dispose()
   })
 

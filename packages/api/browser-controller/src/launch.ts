@@ -178,29 +178,18 @@ export function browserArgv(spec: BrowserLaunchSpec, debugPort: number): string[
 export async function allocateLoopbackPort(signal: AbortSignal): Promise<number> {
   signal.throwIfAborted()
   const server = createServer()
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => { resolve() })
-    })
-    /* v8 ignore next 3 -- an ephemeral loopback listen either succeeds with a
-     * bound port or the process has no networking at all; the latter has no
-     * deterministic fixture. */
-    const address = server.address()
-    if (address === null || typeof address === 'string') {
-      throw new BrowserLaunchFailure('The reserved DevTools listener reported no port', '')
-    }
-    const { port } = address
-    await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
-    return port
-  } catch (error) {
-    server.close()
-    if (error instanceof BrowserLaunchFailure) throw error
-    /* v8 ignore next 2 -- listen(0) on loopback cannot be made to fail
-     * deterministically on a supported platform. */
-    throw new BrowserLaunchFailure(
-      `Reserving the DevTools loopback port failed: ${error instanceof Error ? error.message : String(error)}`, '')
-  }
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => { resolve() })
+  })
+  /* v8 ignore next -- an ephemeral loopback listen either binds a port or the
+   * process has no networking at all; the latter has no deterministic fixture. */
+  const address = server.address()
+  /* v8 ignore next -- same window: a successful listen(0) always reports a bound port. */
+  if (address === null || typeof address === 'string') throw new BrowserLaunchFailure('The reserved DevTools listener reported no port', '')
+  const { port } = address
+  await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
+  return port
 }
 
 /**
@@ -322,6 +311,8 @@ function readEndpoint(handle: SubprocessHandle, timeoutMs: number, signal: Abort
     stderr.on('end', onEnd)
     stderr.on('close', onEnd)
     signal.addEventListener('abort', onAbort, { once: true })
+    /* v8 ignore next -- reachable only when the caller's signal aborts inside
+     * the port-reservation await before this attach; no deterministic fixture. */
     if (signal.aborted) onAbort()
   })
 }
