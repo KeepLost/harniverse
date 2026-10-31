@@ -508,8 +508,10 @@ describe('BrowserController launch failures', () => {
   })
 
   it('times out when the browser never reports its endpoint, and a later create retries the launch', async () => {
-    const { controller, agent, subprocess, browser } = await fixture({ launchTimeoutMs: 20 }, 'absent')
-    await expect(controller.create(agent, request, signal())).rejects.toThrow('did not report a DevTools endpoint within 20ms')
+    // The retry budget has to cover the fake browser re-binding onto the
+    // freshly reserved port, which Windows CI schedules slowly.
+    const { controller, agent, subprocess, browser } = await fixture({ launchTimeoutMs: 500 }, 'absent')
+    await expect(controller.create(agent, request, signal())).rejects.toThrow('did not report a DevTools endpoint within 500ms')
     subprocess.browser = browser
     await expect(controller.create(agent, request, signal())).resolves.toMatchObject({ id: pageId })
     expect(subprocess.spawns).toHaveLength(2)
