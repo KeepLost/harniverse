@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-secret-mask",
   "description": "Credential display masking for sent Web user text: recognized keys, tokens, and address passwords draw masked with a per-value reveal control",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

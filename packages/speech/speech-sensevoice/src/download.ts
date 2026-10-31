@@ -5,6 +5,7 @@ import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Transform } from 'node:stream'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import { pipeline } from 'node:stream/promises'
 import type { PinnedAsset } from './assets.ts'
 import type { FetchLike } from './sources.ts'
@@ -83,7 +84,7 @@ export async function downloadAsset(
     if (await verifyAsset(destination, asset, signal)) return destination
     let response: Response
     try {
-      response = await fetchImpl(asset.url, { ...(signal === undefined ? {} : { signal }) })
+      response = await fetchImpl(asset.url, { ...signal === undefined ? {} : { signal }, headers: { 'user-agent': userAgent() } })
     } catch (error) {
       throw new SpeechAssetError(asset.name, 'network', error instanceof Error ? error.message : String(error), { cause: error })
     }

@@ -5,6 +5,7 @@
  * @module @deepseek-ai/dsh-chat-adapter-feishu/api
  */
 
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type { FetchLike } from './runtime.ts'
 
 /** Feishu `app_id` shape. */
@@ -89,7 +90,7 @@ export class FeishuApi {
   private async send(spec: RequestSpec, authenticated: boolean, raw = false): Promise<unknown> {
     const url = new URL(spec.path, this.options.domain)
     for (const [key, value] of Object.entries(spec.query ?? {})) url.searchParams.set(key, value)
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = { 'user-agent': userAgent() }
     if (authenticated) headers.authorization = `Bearer ${await this.tenantToken(spec.signal)}`
     if (spec.json !== undefined) headers['content-type'] = 'application/json'
     const deadline = AbortSignal.timeout(spec.timeoutMs ?? 15_000)

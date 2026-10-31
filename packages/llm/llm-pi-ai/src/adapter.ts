@@ -36,6 +36,7 @@ import {
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
+  userAgent,
 } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
@@ -323,6 +324,24 @@ function requestHeaders(
 }
 
 /**
+ * Wrap the fetch implementation pi-ai uses so the attribution `User-Agent`
+ * wins on the wire even where the provider stack sets its own value after
+ * merging caller headers (pi-ai's Codex route) or appends to it (the Google
+ * SDK). The rewrite happens at request time, after every library header
+ * decision, and keeps all other headers untouched.
+ * @param underlying - the fetch implementation pi-ai would otherwise call.
+ * @returns a fetch implementation pinning the attribution User-Agent.
+ */
+export function enforceAttributionFetch(underlying: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (input, init) => {
+    const headers = new Headers(init?.headers)
+    headers.set('user-agent', userAgent())
+    if (input instanceof Request) return underlying(new Request(input, { headers }), init)
+    return underlying(input, init === undefined ? { headers } : { ...init, headers })
+  }
+}
+
+/**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
  * restart; model descriptors come from the collection those profiles built.
@@ -554,6 +573,7 @@ export class PiAiAdapter extends LlmAdapter {
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers, credential),
+        fetch: enforceAttributionFetch(globalThis.fetch),
       }
       // The two protocols this adapter assembles itself take their options
       // through the protocol's own vocabulary; every other protocol keeps

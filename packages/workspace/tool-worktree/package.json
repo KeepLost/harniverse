@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-worktree",
   "description": "Model tool for creating and entering a new Git worktree through the shared runtime",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

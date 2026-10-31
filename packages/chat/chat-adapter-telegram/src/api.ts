@@ -7,6 +7,8 @@
  * @module @deepseek-ai/dsh-chat-adapter-telegram/api
  */
 
+import { userAgent } from '@deepseek-ai/dsh-identity'
+
 /** Telegram bot token: `<numeric bot id>:<secret>`. */
 export const TOKEN_PATTERN = /^\d{5,20}:[A-Za-z0-9_-]{20,}$/
 
@@ -86,7 +88,7 @@ export class TelegramApi {
     try {
       response = await this.options.fetch(url, {
         method: 'POST',
-        ...payload instanceof FormData ? {} : { headers: { 'content-type': 'application/json' } },
+        ...payload instanceof FormData ? {} : { headers: { 'content-type': 'application/json', 'user-agent': userAgent() } },
         body: payload instanceof FormData ? payload : JSON.stringify(payload),
         signal,
         redirect: 'error',
@@ -146,7 +148,7 @@ export class TelegramApi {
     const url = new URL(`${this.options.baseUrl.replace(/\/$/, '')}/file/bot${token}/${path}`)
     let response: Response
     try {
-      response = await this.options.fetch(url, { method: 'GET', signal, redirect: 'error' })
+      response = await this.options.fetch(url, { method: 'GET', signal, redirect: 'error', headers: { 'user-agent': userAgent() } })
     } catch (error) {
       throw new TelegramApiError('Telegram file download failed', { transport: true, aborted: signal.aborted, cause: error })
     }

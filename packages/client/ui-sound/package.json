@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-sound",
   "description": "Notification sound settings section: per-event completion and attention chimes for the main agent and subagents over the ui-sound settings scope, with Web Audio built-ins and per-browser local audio files",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "type": "module",
   "files": [
     "lib/index.js",

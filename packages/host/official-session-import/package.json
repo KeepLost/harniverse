@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-host-official-session-import",
   "description": "Remote discovery and archival import of official DeepSeek Harness session logs on the serving machine",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

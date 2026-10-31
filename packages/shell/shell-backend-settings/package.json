@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-shell-backend-settings",
   "description": "Root settings namespace for the Windows shell backend: platform-default PowerShell or Git Bash, published as the shellBackend switchboard the shell stacks gate on",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

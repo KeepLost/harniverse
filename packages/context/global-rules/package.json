@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-global-rules",
   "description": "User-global rules editor Service Definition (ctx.globalRules): reads and writes the harness-home AGENTS.md that every session's baseline instructions load",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

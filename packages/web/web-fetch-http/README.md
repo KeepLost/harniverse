@@ -34,7 +34,7 @@ A shipping web-tool deployment sets the provider backstop above the tool budget,
 | `maxBodyChars` | `100_000` | Maximum decoded body length in characters. |
 | `timeoutMs` | `30_000` | Fetch timeout within Node's timer range — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-tool-call-timeout-policy`). |
 | `maxRedirects` | `5` | Maximum redirect hops to follow (`0` follows none). Every hop re-runs URL, DNS, and public-address validation. |
-| `userAgent` | `deepseek-harness/…` | `User-Agent` header. |
+| `userAgent` | `harniverse/<version>` | `User-Agent` header. |
 
 The numeric limits are validated at plugin construction: every cap must be a positive finite number, and `maxRedirects` must be a non-negative integer. An invalid value throws rather than silently constructing a provider with nonsensical limits.
 

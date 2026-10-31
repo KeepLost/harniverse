@@ -1,5 +1,8 @@
 /** Public-key Access Token exchange for remote SDK and automation clients. */
 
+import { userAgent } from '@deepseek-ai/dsh-identity'
+
+/** Inputs for {@link GrantAccess}: the remote origin, the granted identity, and transport hooks. */
 export interface GrantAccessOptions {
   /** HTTPS Harness origin, or loopback HTTP for local development. */
   origin: string
@@ -101,6 +104,7 @@ export class GrantAccess {
       for (const [name, value] of new Headers(init.headers)) headers.set(name, value)
     }
     headers.set('authorization', await this.authorization())
+    headers.set('user-agent', userAgent())
     return this.request(source ?? target, { ...init, headers })
   }
 
@@ -123,7 +127,7 @@ export class GrantAccess {
   private async exchange(): Promise<AccessToken> {
     const challengeResponse = await this.request(`${this.origin}/auth/challenge`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'user-agent': userAgent() },
       body: JSON.stringify({ grantId: this.grantId, purpose: 'access-token' }),
     })
     if (!challengeResponse.ok) throw new Error(`GrantAccess: challenge rejected (${String(challengeResponse.status)})`)
@@ -135,7 +139,7 @@ export class GrantAccess {
     const signature = await this.signChallenge(challenge.payload)
     const tokenResponse = await this.request(`${this.origin}/auth/token`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'user-agent': userAgent() },
       body: JSON.stringify({ challengeId: challenge.id, signature }),
     })
     if (!tokenResponse.ok) throw new Error(`GrantAccess: token exchange rejected (${String(tokenResponse.status)})`)

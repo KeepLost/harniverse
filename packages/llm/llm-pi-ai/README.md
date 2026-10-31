@@ -178,7 +178,7 @@ When the agent loop supplies its runtime wire observer, this adapter reports one
 
 ## App attribution
 
-Every request carries the shared attribution header from dsh-llm's `attributionHeaders()`, merged through pi-ai's `headers` stream option. Provider-specific app-attribution headers are not synthesized. See [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts).
+Every request carries the shared attribution header from dsh-llm's `attributionHeaders()`, merged through pi-ai's `headers` stream option. The adapter also wraps the transport fetch (`enforceAttributionFetch`) so the attribution `User-Agent` wins on routes where the provider stack sets or appends its own value after merging caller headers (pi-ai's Codex route, the Google SDK). Provider-specific app-attribution headers are not synthesized. See [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts).
 
 ## Dependency weight
 

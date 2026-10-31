@@ -8,6 +8,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { ChatAdapterError, type ChatPlatformDescriptor } from '@deepseek-ai/dsh-chat-adapter'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import WebSocket from 'ws'
 import { classify, FeishuAdapter } from './adapter.ts'
 import { APP_ID_PATTERN, FeishuApi } from './api.ts'
@@ -27,7 +28,7 @@ export interface AppConfig {
 export const internals: { fetch: FetchLike; createSocket: (url: string) => SocketLike } = {
   fetch: (input, init) => globalThis.fetch(input, init),
   // `ws` is a structural superset of SocketLike.
-  createSocket: url => new WebSocket(url),
+  createSocket: url => new WebSocket(url, { headers: { 'user-agent': userAgent() } }),
 }
 
 /** Feishu (China) Open Platform origin, used when no site is configured. */

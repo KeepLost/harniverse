@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-speech-sensevoice",
   "description": "Local SenseVoice speech recognizer provider with pinned, sha256-verified model assets and a lazily loaded native binding",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },
@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-identity": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-speech": "workspace:^"
   }

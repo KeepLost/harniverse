@@ -20,6 +20,7 @@ import { UriTemplate } from '@modelcontextprotocol/sdk/shared/uriTemplate.js'
 import { ResourceListChangedNotificationSchema, ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { assertNever } from '@deepseek-ai/dsh-llm'
+import { clientIdentity } from '@deepseek-ai/dsh-identity'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
 import { boundedResourceResult, MAX_RESOURCE_RESULT_BYTES } from '@deepseek-ai/dsh-mcp-resources'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -458,7 +459,7 @@ function supervise(
    */
   async function connectGeneration(startup: boolean): Promise<void> {
     const generation = new Client(
-      { name: 'dsh-mcp-client', version: '0.0.1' },
+      clientIdentity(),
       { capabilities: {} },
     )
     const closed: PromiseWithResolvers<void> = Promise.withResolvers()

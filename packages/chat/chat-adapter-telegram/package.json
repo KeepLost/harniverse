@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-chat-adapter-telegram",
   "description": "Telegram Bot API provider for the unified chat adapter registry: long polling, inline-keyboard interactions, message edits, and file transfer over plain fetch",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },
@@ -41,12 +41,13 @@
     "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-chat-adapter": "workspace:^",
     "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-credentials-local": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/dsh-identity": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^"
   }
 }

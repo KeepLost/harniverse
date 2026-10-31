@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings-network-proxy",
   "description": "Network proxy settings section: the off / system / manual global outbound route over the network-proxy settings namespace, applied live by the host plugin",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

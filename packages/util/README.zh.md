@@ -7,6 +7,7 @@
 | 包 | 职责 |
 |---|---|
 | [`brand/`](brand/README.md) | 提供带名义品牌的类型 |
+| [`identity/`](identity/README.md) | 出站请求携带的产品身份的唯一真相源（`User-Agent`、MCP `clientInfo`） |
 | [`paths/`](home-paths/README.md) | 解析 Harness 数据根目录和共享路径 |
 | [`timeout/`](timeout/README.md) | 提供截止时间和超时分类原语 |
 | [`http-proxy/`](http-proxy/README.md) | 解析进程级出站代理策略并安装到全局 fetch 之后 |

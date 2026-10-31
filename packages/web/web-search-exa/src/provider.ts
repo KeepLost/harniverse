@@ -14,6 +14,7 @@ import type {
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type { ExaError, ExaResult, ExaSearchResponse } from './types.ts'
 
 /** Stable id this provider registers under. */
@@ -27,9 +28,6 @@ export const EXA_DEFAULT_SEARCH_TYPE = 'auto'
 
 /** Default number of highlight sentences requested per result. */
 export const EXA_DEFAULT_HIGHLIGHTS_PER_RESULT = 1
-
-/** Attribution header sent on every request. Bump with the package version. */
-const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Resolved provider options supplied for one operation. */
 export interface ExaSearchProviderOptions {
@@ -117,7 +115,7 @@ export class ExaSearchProvider implements WebSearchProvider {
           'authorization': `Bearer ${apiKey}`,
           'content-type': 'application/json',
           'accept': 'application/json',
-          'user-agent': USER_AGENT,
+          'user-agent': userAgent(),
         },
         body: JSON.stringify({
           query: request.query,

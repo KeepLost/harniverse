@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-chat-adapter",
   "description": "Unified IM chat adapter Service Definition: the platform-neutral ChatAdapter contract and the per-bot registry (ctx.chatAdapters)",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

@@ -1,5 +1,6 @@
 /** Centralized HTTP request construction and response classification. */
 
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type { HttpNotificationEnvelope, ResolvedEndpointConfig } from './config.ts'
 
 /** One logical endpoint delivery whose identifiers survive retries. */
@@ -38,7 +39,7 @@ export async function sendHttpDelivery(
       signal: AbortSignal.any([shutdownSignal, timeout.signal]),
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'harniverse-notification/1',
+        'user-agent': userAgent(),
         'X-Harniverse-Event': delivery.event.type,
         'X-Harniverse-Event-Id': encodeHeaderId(delivery.event.eventId),
         'X-Harniverse-Delivery-Id': delivery.deliveryId,

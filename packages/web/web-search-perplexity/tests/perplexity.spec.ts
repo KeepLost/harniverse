@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { CredentialProvider, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import * as perplexityPlugin from '../src/index.ts'
 import {
@@ -126,6 +127,7 @@ describe('PerplexitySearchProvider request mapping', () => {
     expect(url).toBe('https://api.perplexity.test/chat/completions')
     expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer pplx-key')
+    expect((init.headers as Record<string, string>)['user-agent']).toBe(userAgent())
     expect(JSON.parse(init.body as string)).toEqual({ model: 'sonar', max_tokens: 1024, messages: [{ role: 'user', content: 'hello' }] })
   })
 

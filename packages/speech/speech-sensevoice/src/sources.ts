@@ -1,5 +1,7 @@
 /** Source probing: prefer the first reachable Hugging Face-compatible origin. */
 
+import { userAgent } from '@deepseek-ai/dsh-identity'
+
 /** Minimal fetch face so suites can substitute a scripted implementation. */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -29,7 +31,7 @@ export async function orderSources(
   const finished = new AbortController()
   const timeout = setTimeout(() => { finished.abort() }, timeoutMs)
   const probing = signal === undefined ? finished.signal : AbortSignal.any([signal, finished.signal])
-  const requests = urls.map(async url => ({ url, response: await fetchImpl(url, { method: 'HEAD', signal: probing }) }))
+  const requests = urls.map(async url => ({ url, response: await fetchImpl(url, { method: 'HEAD', signal: probing, headers: { 'user-agent': userAgent() } }) }))
   let preferred: string | undefined
   try {
     preferred = await Promise.any(requests.map(async (request) => {

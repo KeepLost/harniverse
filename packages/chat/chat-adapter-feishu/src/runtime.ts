@@ -11,6 +11,7 @@
  */
 
 import { ChatAdapterError } from '@deepseek-ai/dsh-chat-adapter'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import { decodeFrame, encodeFrame, type Frame } from './frame.ts'
 
 /** Replaceable transport, for tests and proxies. */
@@ -77,7 +78,7 @@ export class FeishuConnection {
     try {
       const response = await this.options.fetch(new URL('/callback/ws/endpoint', this.options.domain), {
         method: 'POST',
-        headers: { 'content-type': 'application/json', locale: 'zh' },
+        headers: { 'content-type': 'application/json', locale: 'zh', 'user-agent': userAgent() },
         body: JSON.stringify({ AppID: this.options.appId, AppSecret: await this.options.secret() }),
         signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
       })

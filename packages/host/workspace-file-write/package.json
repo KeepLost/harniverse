@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-workspace-file-write",
   "description": "Workspace-scoped user file editing surface: full-or-refuse open, version-checked atomic save over ctx.fs, and a non-waking Agent notice",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-chat-adapter-fake",
   "description": "Test-support fake ChatAdapter: a programmable inbound event queue with an outbound transcript, mountable as a Loader row",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

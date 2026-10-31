@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-session-import",
   "description": "Contract and runtime for lossy foreign-session import: foreign format classification, the archival import/record marker and provenance projection, the resume exclusion guard live machinery must honor, the content-addressed importer that retains the source artifact beside the mapped session, and the seed a live continuation of an archive starts from",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

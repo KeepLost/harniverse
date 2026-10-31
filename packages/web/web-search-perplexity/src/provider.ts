@@ -14,6 +14,7 @@ import type {
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 import type { PerplexityError, PerplexityResponse, PerplexitySearchResult } from './types.ts'
 
 /** Stable id this provider registers under. */
@@ -30,9 +31,6 @@ export const PERPLEXITY_DEFAULT_MAX_TOKENS = 1024
 
 /** Recency filter values Perplexity accepts for `search_recency_filter`. */
 export type PerplexityRecency = 'day' | 'week' | 'month' | 'year'
-
-/** Attribution header sent on every request. Bump with the package version. */
-const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Resolved provider options (the plugin's `apply` supplies credential and constant defaults). */
 export interface PerplexitySearchProviderOptions {
@@ -120,7 +118,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
           'authorization': `Bearer ${apiKey}`,
           'content-type': 'application/json',
           'accept': 'application/json',
-          'user-agent': USER_AGENT,
+          'user-agent': userAgent(),
         },
         body: JSON.stringify({
           model: options.model,

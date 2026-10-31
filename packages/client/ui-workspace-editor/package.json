@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-workspace-editor",
   "description": "CodeMirror 6 workbench-preview editor occupant: manual save with version conflict handling over the workspace-file-write Remote",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

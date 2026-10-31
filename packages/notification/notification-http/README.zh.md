@@ -34,7 +34,7 @@ outbox:
 
 ## 投递
 
-各端点并行运行；每个端点保持持久接收顺序，并且一次只发送一个请求。确定性的端点/事件键会在记录存在期间抑制重复项。重试和进程重启期间投递沿用相同的 `eventId` 和 `deliveryId`。请求携带 `Content-Type: application/json`、`User-Agent: harniverse-notification/1`、`X-Harniverse-Event`、`X-Harniverse-Event-Id` 和 `X-Harniverse-Delivery-Id`。正文保留原始 event ID；header 值由 `j64.` 加 event ID JSON 字符串的 base64url 构成，因此任意 JavaScript 字符串都可逆且可安全用于 header。提供方不跟随重定向，响应正文没有权限或协议含义。
+各端点并行运行；每个端点保持持久接收顺序，并且一次只发送一个请求。确定性的端点/事件键会在记录存在期间抑制重复项。重试和进程重启期间投递沿用相同的 `eventId` 和 `deliveryId`。请求携带 `Content-Type: application/json`、`User-Agent: harniverse/<version>`（共享的产品身份）、`X-Harniverse-Event`、`X-Harniverse-Event-Id` 和 `X-Harniverse-Delivery-Id`。正文保留原始 event ID；header 值由 `j64.` 加 event ID JSON 字符串的 base64url 构成，因此任意 JavaScript 字符串都可逆且可安全用于 header。提供方不跟随重定向，响应正文没有权限或协议含义。
 
 任意 2xx 响应会建立 delivered tombstone。网络失败、超时、408、429 和 5xx 响应按有界指数延迟重试；其他 HTTP 响应会建立 dead tombstone。delivered 和 dead 记录按配置的期限保留，并在提供方加载时清理。端点队列已满时拒绝最新事件。诊断只使用转义后的 endpoint ID、不透明 delivery ID 与 outbox key；不记录原始 event ID、正文或 URL 查询。事件生产者从不等待 Storage 或 HTTP。
 

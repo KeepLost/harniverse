@@ -237,11 +237,11 @@ interface LlmFailure {
 
 ## `AppIdentity`：应用归属
 
-每个适配器都会向提供方发送的静态公开应用标识（[`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)）。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该约定有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 从包 manifest（元数据清单）获取版本；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
+每个适配器都会向提供方发送的静态公开应用标识。它由 [`packages/util/identity`](../../packages/util/identity/README.md) 拥有——这是所有出站出口共享的唯一真相源——并经 [`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts) re-export。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该约定有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 是 `harniverse` 产品，版本来自包 manifest（由发布流程授予整个工作区家族），不带 url 注释；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)与 [Harniverse 产品身份](../../.agents/notes/implemented/architecture/2026-10-31-harniverse-product-identity.md)。
 
 ```ts type-equiv
 /**
- * Static public application identity sent to LLM providers.
+ * Static public application identity carried on outbound requests.
  *
  * Every field is a public product fact, safe on every request: no secrets,
  * local paths, session ids, prompt text, or per-user identifiers belong here,
@@ -252,8 +252,8 @@ interface AppIdentity {
   product: string
   /** Product version; sourced from package metadata, never hand-copied. */
   version: string
-  /** Repository home URL of the app, used as the `User-Agent` comment. */
-  url: string
+  /** Repository home URL rendered as the `User-Agent` comment; omit when the product has no public home. */
+  url?: string
 }
 ```
 

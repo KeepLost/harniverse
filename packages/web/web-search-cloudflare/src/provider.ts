@@ -8,6 +8,7 @@ import type {
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { userAgent } from '@deepseek-ai/dsh-identity'
 
 /** Stable id registered in `ctx.web`. */
 export const CLOUDFLARE_PROVIDER_ID = 'cloudflare'
@@ -129,6 +130,7 @@ export class CloudflareSearchProvider implements WebSearchProvider {
           authorization: `Bearer ${apiKey}`,
           accept: 'application/json',
           'content-type': 'application/json',
+          'user-agent': userAgent(),
         },
         body: JSON.stringify({
           query: request.query,

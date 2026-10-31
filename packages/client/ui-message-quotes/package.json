@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-message-quotes",
   "description": "Blockquote presentation for sent Web user text: explicitly quoted lines draw as one excerpt with a single marker level stripped",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },
