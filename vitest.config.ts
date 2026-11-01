@@ -43,7 +43,9 @@ const windowsUnsupportedTests = process.platform === 'win32'
       ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
       // Drives QEMU-style chardev unix sockets through a real socketpair;
       // Windows AF_UNIX in Node cannot host them. The frame/protocol/qemu
-      // units of this package are pure and stay on the Windows lane.
+      // units of this package are pure and stay on the Windows lane, and
+      // vm.ts's coverage moves to the Linux lane
+      // (windowsVmCoverageExclusions below).
       'packages/vm/vm-qemu-local/tests/vm.spec.ts',
       'packages/subprocess/subprocess/tests/**/*.spec.ts',
       'packages/subprocess/subprocess-local/tests/local.spec.ts',
@@ -90,6 +92,15 @@ const governorProcDefaultsWindowsExclusions = process.platform === 'win32'
 
 const windowsRunnerCoverageExclusions = process.platform === 'win32'
   ? ['packages/sandbox/sandbox-windows-acl/src/runner.ts']
+  : []
+
+// vm-qemu-local's lifecycle suite is excluded on win32 (see
+// windowsUnsupportedTests): it drives a real QEMU child over AF_UNIX chardev
+// sockets, which Windows Node cannot host. vm.ts owns that lifecycle, so its
+// coverage lives exclusively on the Linux coverage lane at the full 100% bar;
+// the frame/protocol/qemu units stay covered on both lanes.
+const windowsVmCoverageExclusions = process.platform === 'win32'
+  ? ['packages/vm/vm-qemu-local/src/vm.ts']
   : []
 
 // The encrypted storage module contains one POSIX-only durability protocol:
@@ -322,6 +333,7 @@ export default defineConfig({
         ...windowsUnsupportedCoveragePackages.map(path => `${path}/src/**/*.ts`),
         ...windowsOnlyCoverageExclusions,
         ...windowsRunnerCoverageExclusions,
+        ...windowsVmCoverageExclusions,
         ...governorProcDefaultsWindowsExclusions,
         ...windowsPosixCoverageExclusions,
         ...pwshCoverageExclusions,
