@@ -15,6 +15,8 @@
   - img
 - button "Add workspace":
   - img
+- button "Archive sessions":
+  - img
 - button "View archived sessions":
   - img
 - tree "Sessions":
