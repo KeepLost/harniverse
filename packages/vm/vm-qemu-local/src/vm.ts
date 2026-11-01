@@ -126,7 +126,9 @@ export interface WorldDescriptor {
   pid: number | undefined
   /** Milliseconds from spawn to the accepted `welcome`. */
   readyMs: number
-}/** How the QEMU child terminated. */
+}
+
+/** How the QEMU child terminated. */
 export interface WorldExit {
   code: number | null
   signal: NodeJS.Signals | null

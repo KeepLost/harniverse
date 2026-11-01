@@ -331,6 +331,7 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
   it('ignores unsolicited beacons after the handshake', async () => {
     const { child, emitExit } = fakeChild()
     const socket = fakeSocket()
+    let interval: ReturnType<typeof setInterval> | undefined
     const world = await openWorld(
       { assetsDir: stubAssets() },
       {
@@ -338,7 +339,7 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
         connect: async () => {
           setTimeout(() => {
             socket.emitData(encode({ t: 'announce', v: 1, caps: ['ping'], agent: 'fake' }))
-            setInterval(() => {
+            interval = setInterval(() => {
               if (socket.written.some(entry => entry.includes('"hello"'))) {
                 socket.emitData(encode({ t: 'welcome', v: 1, caps: ['ping'], agent: 'fake' }))
               }
@@ -355,13 +356,17 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     await expect(world.ping(2_000)).resolves.toBeGreaterThanOrEqual(0)
     emitExit(0)
     await expect(world.destroy()).resolves.toBe('clean')
+    if (interval !== undefined) clearInterval(interval)
   })
 
   it('the default spawn seam runs the planned argv under a real child', () => {
     const child = defaultSpawnProcess([process.execPath, '-e', '0'], { stdio: 'ignore' })
+    // Hosts without QEMU in PATH surface the spawn failure as an error event.
+    child.on('error', () => undefined)
     expect(child.pid).toBeGreaterThan(0)
     child.kill('SIGKILL')
     const fallback = defaultSpawnProcess([], { stdio: 'ignore' })
+    fallback.on('error', () => undefined)
     // An empty argv falls back to the default QEMU binary; on hosts without
     // it the child simply errors, which still exercises the branch.
     expect(fallback.pid === undefined || fallback.pid > 0).toBe(true)
