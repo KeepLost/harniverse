@@ -15,12 +15,14 @@ export const PROTOCOL_VERSION = 1
 /** Capability the host announces in `hello`; the M0 host answers ping only. */
 export const HOST_CAPS = ['ping'] as const
 
+/** Host greeting; the guest answers `welcome`, or rejects the version. */
 export interface HelloMessage {
   t: 'hello'
   v: number
   caps: readonly string[]
 }
 
+/** Guest answer to an accepted `hello`. */
 export interface WelcomeMessage {
   t: 'welcome'
   v: number
@@ -36,20 +38,24 @@ export interface AnnounceMessage {
   agent: string
 }
 
+/** Round-trip probe carrying an echo number. */
 export interface PingMessage {
   t: 'ping'
   n: number
 }
 
+/** Guest answer echoing the ping number. */
 export interface PongMessage {
   t: 'pong'
   n: number
 }
 
+/** Host request for the guest to power the world off. */
 export interface ShutdownMessage {
   t: 'shutdown'
 }
 
+/** Guest rejection with a machine-readable code. */
 export interface ErrorMessage {
   t: 'error'
   code: 'version' | 'unknown-message'
@@ -58,7 +64,9 @@ export interface ErrorMessage {
   message?: string
 }
 
+/** Messages the host may send. */
 export type HostMessage = HelloMessage | PingMessage | ShutdownMessage
+/** Messages the guest may send. */
 export type GuestMessage = WelcomeMessage | AnnounceMessage | PongMessage | ErrorMessage
 
 /**

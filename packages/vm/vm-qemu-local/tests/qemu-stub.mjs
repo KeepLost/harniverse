@@ -59,6 +59,22 @@ if (mode === 'no-bind') {
             socket.end()
             return
           }
+          if (mode === 'hello-pong') {
+            send({ t: 'pong', n: 1 })
+            return
+          }
+          if (mode === 'hello-garbage') {
+            const garbage = Buffer.from('this is not json', 'utf8')
+            const frame = Buffer.allocUnsafe(4 + garbage.length)
+            frame.writeUInt32BE(garbage.length, 0)
+            garbage.copy(frame, 4)
+            socket.write(frame)
+            return
+          }
+          if (mode === 'welcome-v2') {
+            send({ t: 'welcome', v: 2, caps: ['ping'], agent: 'qemu-stub' })
+            return
+          }
           send({ t: 'welcome', v: 1, caps: ['ping'], agent: 'qemu-stub' })
         } else if (payload.t === 'ping') {
           send({ t: 'pong', n: payload.n })

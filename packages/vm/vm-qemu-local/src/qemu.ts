@@ -20,6 +20,7 @@ export type QemuAccel = 'kvm' | 'tcg'
 /** Default QEMU binary resolved from PATH. */
 export const DEFAULT_QEMU_BIN = 'qemu-system-x86_64'
 
+/** Fully resolved inputs for one world's QEMU command line. */
 export interface QemuPlanInput {
   /** QEMU binary to execute as argv[0]. */
   qemuBin: string
@@ -44,7 +45,10 @@ export function resolveAccel(kvmWritable: boolean, requested: 'auto' | QemuAccel
   return kvmWritable ? 'kvm' : 'tcg'
 }
 
-/** Whether `/dev/kvm` is open for writing on this host. */
+/**
+ * Whether `/dev/kvm` is open for writing on this host.
+ * @returns true when the device node accepts writes.
+ */
 export function isKvmWritable(): boolean {
   try {
     accessSync('/dev/kvm', constants.W_OK)
@@ -79,6 +83,7 @@ export function buildQemuArgv(input: QemuPlanInput): string[] {
   ]
 }
 
+/** Result of probing one QEMU binary for a version line. */
 export interface QemuVersionProbe {
   /** QEMU binary that was probed. */
   qemuBin: string
@@ -127,6 +132,11 @@ const moduleDir = dirname(fileURLToPath(import.meta.url))
 /**
  * Default assets directory holding `vmlinuz-virt` and `initramfs.cpio.gz`
  * produced by `assets/build-rootfs.sh`.
+ */
+/**
+ * Default assets directory holding `vmlinuz-virt` and `initramfs.cpio.gz`
+ * produced by `assets/build-rootfs.sh`.
+ * @returns the package-local `.cache/assets` path.
  */
 export function defaultAssetsDir(): string {
   return join(findPackageRoot(moduleDir), '.cache', 'assets')

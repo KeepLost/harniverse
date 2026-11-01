@@ -91,6 +91,7 @@ export interface SocketLike {
   on(event: 'error', listener: (error: Error) => void): void
 }
 
+/** Sizing, asset locations, and deadlines for one world boot. */
 export interface OpenWorldOptions {
   /** Directory holding `vmlinuz-virt` and `initramfs.cpio.gz`; defaults to the package `.cache/assets`. */
   assetsDir?: string
@@ -116,6 +117,7 @@ export interface VmDeps {
   now?: () => number
 }
 
+/** Facts about one booted world. */
 export interface WorldDescriptor {
   qemuBin: string
   accel: QemuAccel
@@ -124,11 +126,13 @@ export interface WorldDescriptor {
   pid: number | undefined
   /** Milliseconds from spawn to the accepted `welcome`. */
   readyMs: number
-}export interface WorldExit {
+}/** How the QEMU child terminated. */
+export interface WorldExit {
   code: number | null
   signal: NodeJS.Signals | null
 }
 
+/** Live handle for one booted world. */
 export interface WorldHandle {
   readonly descriptor: WorldDescriptor
   /** Resolves when the QEMU child exits, however it was stopped. */
@@ -155,6 +159,17 @@ interface Waiter {
 }
 
 const CONNECT_RETRY_MS = 150
+
+/**
+ * Default child-process seam: run the planned argv under node's spawn.
+ * @param argv - full command line; argv[0] falls back to the default QEMU binary.
+ * @param options - spawn options forwarded verbatim.
+ * @returns the spawned child.
+ */
+export function defaultSpawnProcess(argv: readonly string[], options: { stdio: 'ignore' }): ChildLike {
+  const [bin = DEFAULT_QEMU_BIN, ...rest] = argv
+  return nodeSpawn(bin, rest, options)
+}
 /** Per-attempt handshake budget; the guest UART can drop an early hello, so the host retries. */
 const HANDSHAKE_ATTEMPT_MS = 3_000
 
@@ -168,7 +183,7 @@ function defaultConnect(socketPath: string): Promise<SocketLike> {
 
 class ControlChannel {
   private readonly reader = new FrameReader()
-  private readonly waiters: Waiter[] = []
+  private waiters: Waiter[] = []
 
   constructor(private readonly socket: SocketLike) {
     socket.on('data', (chunk: Buffer) => {
@@ -176,7 +191,7 @@ class ControlChannel {
       try {
         payloads = this.reader.push(chunk)
       } catch (error) {
-        this.fail(new WorldClosedError(`control frame error: ${error instanceof Error ? error.message : String(error)}`))
+        this.fail(new WorldClosedError(`control frame error: ${String(error)}`))
         socket.destroy()
         return
       }
@@ -187,10 +202,9 @@ class ControlChannel {
   }
 
   private dispatch(payload: string): void {
-    const index = this.waiters.findIndex(waiter => waiter.match(payload))
-    if (index < 0) return
-    const waiter = this.waiters.splice(index, 1)[0]
+    const waiter = this.waiters.find(waiter => waiter.match(payload))
     if (waiter === undefined) return
+    this.waiters.splice(this.waiters.indexOf(waiter), 1)
     clearTimeout(waiter.timer)
     waiter.resolve(payload)
   }
@@ -214,16 +228,10 @@ class ControlChannel {
   waitFor(match: (payload: string) => boolean, timeoutMs: number): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const index = this.waiters.findIndex(waiter => waiter.resolve === resolve)
-        if (index >= 0) this.waiters.splice(index, 1)
+        this.waiters = this.waiters.filter(waiter => waiter.resolve !== resolve)
         reject(new WorldClosedError(`control reply timeout after ${timeoutMs}ms`))
       }, timeoutMs)
-      this.waiters.push({
-        match,
-        resolve,
-        reject,
-        timer,
-      })
+      this.waiters.push({ match, resolve, reject, timer })
     })
   }
 
@@ -236,8 +244,7 @@ class ControlChannel {
   request(message: HostMessage, match: (payload: string) => boolean, timeoutMs: number): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const index = this.waiters.findIndex(waiter => waiter.resolve === resolve)
-        if (index >= 0) this.waiters.splice(index, 1)
+        this.waiters = this.waiters.filter(waiter => waiter.resolve !== resolve)
         reject(new WorldClosedError(`control reply timeout after ${timeoutMs}ms`))
       }, timeoutMs)
       this.waiters.push({ match, resolve, reject, timer })
@@ -263,10 +270,7 @@ class ControlChannel {
  */
 export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {}): Promise<WorldHandle> {
   const now = deps.now ?? Date.now
-  const spawnProcess = deps.spawn ?? ((argv, spawnOptions) => {
-    const [bin, ...rest] = argv
-    return nodeSpawn(bin ?? DEFAULT_QEMU_BIN, rest, spawnOptions)
-  })
+  const spawnProcess = deps.spawn ?? defaultSpawnProcess
   const connect = deps.connect ?? defaultConnect
   const mkdtemp = deps.mkdtemp ?? nodeMkdtemp
 
@@ -322,17 +326,15 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
       child.kill('SIGKILL')
       throw new WorldReadyTimeoutError(readyTimeoutMs)
     }
-    if (channel === undefined) {
-      let socket: SocketLike
-      try {
-        socket = await Promise.race([connect(controlSocketPath), spawnError, exitBeforeHandshake])
-      } catch (error) {
-        if (error instanceof QemuSpawnError || error instanceof WorldExitBeforeHandshakeError) throw error
-        await new Promise(resolve => setTimeout(resolve, Math.min(CONNECT_RETRY_MS, remaining)))
-        continue
-      }
-      channel = new ControlChannel(socket)
+    let socket: SocketLike
+    try {
+      socket = await Promise.race([connect(controlSocketPath), spawnError, exitBeforeHandshake])
+    } catch (error) {
+      if (error instanceof QemuSpawnError || error instanceof WorldExitBeforeHandshakeError) throw error
+      await new Promise(resolve => setTimeout(resolve, Math.min(CONNECT_RETRY_MS, remaining)))
+      continue
     }
+    channel = new ControlChannel(socket)
     const attemptBudget = Math.min(deadline - now(), HANDSHAKE_ATTEMPT_MS)
     const isAnnounceOrWelcome = (payload: string): boolean => {
       const message = parseGuestMessage(payload)

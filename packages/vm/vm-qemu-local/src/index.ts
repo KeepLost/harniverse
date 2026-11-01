@@ -22,6 +22,7 @@ export * from './protocol.ts'
 export * from './qemu.ts'
 export * from './vm.ts'
 
+/** Environment facts `probeWorld` reports without booting a world. */
 export interface WorldProbe {
   /** QEMU binary that was probed. */
   qemuBin: string

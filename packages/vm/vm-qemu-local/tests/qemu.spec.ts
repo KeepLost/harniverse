@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -99,6 +99,12 @@ describe('vm-qemu-local environment probing', () => {
     expect(findPackageRoot(join(expected, 'src'))).toBe(expected)
   })
 
+  it('skips an unreadable manifest and gives up above the filesystem root', () => {
+    const base = mkdtempSync(join(tmpdir(), 'dsh-vm-rootwalk-'))
+    writeFileSync(join(base, 'package.json'), 'this is not json')
+    expect(() => findPackageRoot(base)).toThrow(/no package root found/)
+  })
+
   it('defaults the assets directory under the package cache', () => {
     expect(defaultAssetsDir().endsWith(join('.cache', 'assets'))).toBe(true)
   })
@@ -116,5 +122,23 @@ describe('vm-qemu-local environment probing', () => {
     writeFileSync(join(assetsDir, 'vmlinuz-virt'), 'kernel')
     writeFileSync(join(assetsDir, 'initramfs.cpio.gz'), 'initrd')
     expect(probeWorld({ qemuBin: '/nonexistent-qemu-bin', assetsDir }).assetsReady).toBe(true)
+  })
+
+  it('defaults the binary and assets directory when no options are given', () => {
+    const probe = probeWorld()
+    expect(probe.qemuBin).toBe('qemu-system-x86_64')
+    expect(probe.assetsDir).toBe(defaultAssetsDir())
+    expect(['tcg', 'kvm']).toContain(probe.accel)
+    expect(typeof probe.qemuVersion).toBe(probe.qemuVersion === undefined ? 'undefined' : 'string')
+    expect(typeof probe.assetsReady).toBe('boolean')
+  })
+
+  it('parses a version from a binary that runs and prints one', () => {
+    if (process.platform === 'win32') return
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-vm-fakeqemu-'))
+    const script = join(dir, 'fake-qemu')
+    writeFileSync(script, '#!/bin/sh\necho "QEMU emulator version 9.9.9 (fake)"\n')
+    chmodSync(script, 0o755)
+    expect(probeWorld({ qemuBin: script }).qemuVersion).toBe('9.9.9')
   })
 })
