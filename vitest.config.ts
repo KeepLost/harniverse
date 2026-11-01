@@ -41,6 +41,10 @@ const windowsUnsupportedPackages = process.platform === 'win32'
 const windowsUnsupportedTests = process.platform === 'win32'
   ? [
       ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+      // Drives QEMU-style chardev unix sockets through a real socketpair;
+      // Windows AF_UNIX in Node cannot host them. The frame/protocol/qemu
+      // units of this package are pure and stay on the Windows lane.
+      'packages/vm/vm-qemu-local/tests/vm.spec.ts',
       'packages/subprocess/subprocess/tests/**/*.spec.ts',
       'packages/subprocess/subprocess-local/tests/local.spec.ts',
       'packages/subprocess/subprocess-local/tests/process-inspector.spec.ts',

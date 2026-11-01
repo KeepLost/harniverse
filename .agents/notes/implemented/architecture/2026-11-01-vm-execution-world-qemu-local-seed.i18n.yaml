@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-01-vm-execution-world-qemu-local-seed.md
+2026-11-01-vm-execution-world-qemu-local-seed.md: 6afa4a681f9299a166d2d488661bb1b389bd012e
+2026-11-01-vm-execution-world-qemu-local-seed.zh.md: 19ce994224a1af51d0a65a542b338c80e9071d2f
