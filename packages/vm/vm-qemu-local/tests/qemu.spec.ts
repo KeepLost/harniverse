@@ -138,7 +138,9 @@ describe('vm-qemu-local environment probing', () => {
     const wrap = join(dir, 'qemu-wrap')
     writeFileSync(wrap, '#!/bin/sh\ntrue\n')
     chmodSync(wrap, 0o755)
-    expect(resolveWrapPath(dir, 'linux')).toBe(wrap)
+    // On win32 the X_OK probe is extension-based, so the positive leg cannot
+    // hold for an extensionless script; the negative legs still must.
+    if (process.platform !== 'win32') expect(resolveWrapPath(dir, 'linux')).toBe(wrap)
     expect(resolveWrapPath(dir, 'darwin')).toBeUndefined()
     chmodSync(wrap, 0o644)
     expect(resolveWrapPath(dir, 'linux')).toBeUndefined()
