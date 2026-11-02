@@ -237,6 +237,7 @@ fn main() {
         let _ = std::fs::create_dir_all("/dev/pts");
         mount(c"devpts", c"/dev/pts", c"devpts");
         mount(c"proc", c"/proc", c"proc");
+        mount(c"sysfs", c"/sys", c"sysfs");
         mount(c"tmpfs", c"/tmp", c"tmpfs");
     }
     serve_forever()

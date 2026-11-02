@@ -2,12 +2,15 @@
 # Build the micro-VM world assets into <package>/.cache/assets (or $1):
 #   vmlinuz-virt            — Alpine virt kernel (pinned 3.20.3)
 #   initramfs.cpio.gz       — Alpine minirootfs + the static guest agent as /init
+#   qemu-wrap               — host sandbox wrapper (Landlock + uid drop + rlimits)
 #
 # Requirements: curl, tar, gzip, cpio, find, sha256sum, and a Rust toolchain
 # with the x86_64-unknown-linux-musl target (rustup target add
 # x86_64-unknown-linux-musl). Offline reuse: drop the two pinned upstream
 # files into the download cache named alpine-minirootfs-3.20.3-x86_64.tar.gz
-# and vmlinuz-virt; their digests are still enforced.
+# and vmlinuz-virt; their digests are still enforced. The wrapper needs a C
+# compiler on Linux; without one the assets still build and `openWorld`
+# reports `sandboxed: false`.
 set -euo pipefail
 
 readonly ALPINE_VERSION=3.20.3
@@ -61,6 +64,15 @@ mkdir -p "${rootfs_dir}/dev" "${rootfs_dir}/proc" "${rootfs_dir}/tmp" "${rootfs_
 echo "build-rootfs: packing initramfs"
 (cd "$rootfs_dir" && find . | cpio -o -H newc --quiet | gzip -9) > "${out_dir}/initramfs.cpio.gz"
 cp "${download_dir}/vmlinuz-virt" "${out_dir}/vmlinuz-virt"
+
+if [[ $(uname -s) == Linux ]]; then
+  if command -v cc >/dev/null 2>&1; then
+    echo "build-rootfs: compiling qemu-wrap"
+    cc -O2 -Wall -Wextra -o "${out_dir}/qemu-wrap" "${script_dir}/qemu-wrap.c"
+  else
+    echo "build-rootfs: cc not found; building without qemu-wrap (openWorld reports sandboxed: false)" >&2
+  fi
+fi
 
 echo "build-rootfs: assets ready in ${out_dir}"
 ls -l "${out_dir}"

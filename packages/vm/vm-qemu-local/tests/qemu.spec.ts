@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildQemuArgv, defaultAssetsDir, findPackageRoot, parseQemuVersion, resolveAccel } from '../src/qemu.ts'
+import { buildQemuArgv, buildWrappedArgv, defaultAssetsDir, findPackageRoot, parseQemuVersion, resolveAccel, resolveWrapPath } from '../src/qemu.ts'
 import { probeWorld } from '../src/index.ts'
 
 const plan = buildQemuArgv({
@@ -131,6 +131,23 @@ describe('vm-qemu-local environment probing', () => {
     expect(['tcg', 'kvm']).toContain(probe.accel)
     expect(typeof probe.qemuVersion).toBe(probe.qemuVersion === undefined ? 'undefined' : 'string')
     expect(typeof probe.assetsReady).toBe('boolean')
+  })
+
+  it('reports the sandbox wrapper as staged only on linux with an executable binary', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-vm-wrap-'))
+    const wrap = join(dir, 'qemu-wrap')
+    writeFileSync(wrap, '#!/bin/sh\ntrue\n')
+    chmodSync(wrap, 0o755)
+    expect(resolveWrapPath(dir, 'linux')).toBe(wrap)
+    expect(resolveWrapPath(dir, 'darwin')).toBeUndefined()
+    chmodSync(wrap, 0o644)
+    expect(resolveWrapPath(dir, 'linux')).toBeUndefined()
+    expect(resolveWrapPath(mkdtempSync(join(tmpdir(), 'dsh-vm-wrap-')), 'linux')).toBeUndefined()
+  })
+
+  it('plans a supervised command line around the wrapper and one scratch directory', () => {
+    expect(buildWrappedArgv('/opt/qemu-wrap', '/run/scratch', ['qemu-system-x86_64', '-M', 'pc']))
+      .toEqual(['/opt/qemu-wrap', '--scratch', '/run/scratch', '--', 'qemu-system-x86_64', '-M', 'pc'])
   })
 
   it('parses a version from a binary that runs and prints one', () => {
