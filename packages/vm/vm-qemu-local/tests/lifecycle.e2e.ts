@@ -37,10 +37,10 @@ describe.skipIf(!worldAvailable)('vm-qemu-local: real micro-VM lifecycle', () =>
   })
 
   it('the accepted welcome speaks the current protocol version', async () => {
-    // Indirect: openWorld completed only when the guest welcomed protocol v1.
-    // This pins that constant to observable behavior; bumping the protocol
-    // version without a guest update fails here first.
-    expect(PROTOCOL_VERSION).toBe(1)
+    // Indirect: openWorld completed only when the guest welcomed the current
+    // protocol. This pins that constant to observable behavior; bumping the
+    // protocol version without a guest update fails here first.
+    expect(PROTOCOL_VERSION).toBe(2)
     const world = await openWorld({ readyTimeoutMs: 15_000 })
     await expect(world.destroy()).resolves.toBe('clean')
   })

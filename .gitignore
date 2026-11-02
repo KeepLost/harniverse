@@ -40,3 +40,4 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 .codegraph/
+packages/vm/vm-qemu-local/guest/target/

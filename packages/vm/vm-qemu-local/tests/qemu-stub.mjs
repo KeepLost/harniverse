@@ -11,6 +11,7 @@ import { createServer } from 'node:net'
 import { unlinkSync } from 'node:fs'
 
 const mode = process.env.DSH_STUB_MODE ?? ''
+const VERSION = 2
 if (mode === 'exit-now') process.exit(0)
 
 const serialPaths = []
@@ -43,7 +44,7 @@ if (mode === 'no-bind') {
     }
     // Real agents beacon announce until their first decoded frame; one
     // beacon is enough for the host's handshake to proceed.
-    send({ t: 'announce', v: 1, caps: ['ping'], agent: 'qemu-stub' })
+    send({ t: 'announce', v: VERSION, caps: ['ping', 'exec', 'fs'], agent: 'qemu-stub' })
     socket.on('data', (chunk) => {
       if (mode === 'hang') return
       buffer = Buffer.concat([buffer, chunk])
@@ -54,8 +55,8 @@ if (mode === 'no-bind') {
         const payload = JSON.parse(buffer.subarray(4, 4 + length).toString('utf8'))
         buffer = buffer.subarray(4 + length)
         if (payload.t === 'hello') {
-          if (mode === 'reject-version' || payload.v !== 1) {
-            send({ t: 'error', code: 'version', minV: 1, maxV: 1, message: 'stub rejection' })
+          if (mode === 'reject-version' || payload.v !== VERSION) {
+            send({ t: 'error', code: 'version', minV: VERSION, maxV: VERSION, message: 'stub rejection' })
             socket.end()
             return
           }
@@ -71,11 +72,11 @@ if (mode === 'no-bind') {
             socket.write(frame)
             return
           }
-          if (mode === 'welcome-v2') {
-            send({ t: 'welcome', v: 2, caps: ['ping'], agent: 'qemu-stub' })
+          if (mode === 'welcome-v3') {
+            send({ t: 'welcome', v: 3, caps: ['ping', 'exec', 'fs'], agent: 'qemu-stub' })
             return
           }
-          send({ t: 'welcome', v: 1, caps: ['ping'], agent: 'qemu-stub' })
+          send({ t: 'welcome', v: VERSION, caps: ['ping', 'exec', 'fs'], agent: 'qemu-stub' })
         } else if (payload.t === 'ping') {
           send({ t: 'pong', n: payload.n })
         } else if (payload.t === 'shutdown') {

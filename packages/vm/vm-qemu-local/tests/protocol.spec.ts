@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { PROTOCOL_VERSION, negotiateVersion, parseGuestMessage } from '../src/protocol.ts'
+import { PROTOCOL_VERSION, isOpReplyFor, negotiateVersion, parseGuestMessage } from '../src/protocol.ts'
 
 describe('vm-qemu-local protocol negotiation', () => {
   it('agrees when host and guest versions match exactly', () => {
-    expect(negotiateVersion(PROTOCOL_VERSION, 1)).toEqual({ ok: true, version: 1 })
+    expect(negotiateVersion(PROTOCOL_VERSION, PROTOCOL_VERSION)).toEqual({ ok: true, version: PROTOCOL_VERSION })
   })
 
   it('rejects a mismatch with both versions named', () => {
-    expect(negotiateVersion(PROTOCOL_VERSION, 2)).toEqual({
+    expect(negotiateVersion(PROTOCOL_VERSION, PROTOCOL_VERSION + 1)).toEqual({
       ok: false,
       reason: 'version-mismatch',
-      hostV: 1,
-      guestV: 2,
+      hostV: PROTOCOL_VERSION,
+      guestV: PROTOCOL_VERSION + 1,
     })
   })
 })
@@ -64,5 +64,25 @@ describe('vm-qemu-local guest message parsing', () => {
     expect(parseGuestMessage('{nope')).toBeUndefined()
     expect(parseGuestMessage('7')).toBeUndefined()
     expect(parseGuestMessage('{"t":"goodbye"}')).toBeUndefined()
+  })
+
+
+  it('matches op replies by id and tag', () => {
+    expect(isOpReplyFor('{"t":"fs.ok","id":1}', 1, ['fs.ok', 'fs.err'])).toBe(true)
+    expect(isOpReplyFor('not json', 1, ['fs.ok'])).toBe(false)
+    expect(isOpReplyFor('{"t":"pong","n":1}', 1, ['fs.ok'])).toBe(false)
+    expect(isOpReplyFor('{"t":"fs.ok","id":2}', 1, ['fs.ok'])).toBe(false)
+    expect(isOpReplyFor('{"t":"fs.ok","id":1}', 1, ['fs.err'])).toBe(false)
+  })
+
+  it('rejects op messages with malformed optional payloads', () => {
+    expect(parseGuestMessage('{"t":"exec.acked"}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"fs.ok"}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"fs.ok","id":1,"entries":[5]}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":5}')).toEqual({ t: 'fs.ok', id: 1 })
+    expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"sock","size":1,"mode":1,"mtimeMs":1}}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"file","size":"x","mode":1,"mtimeMs":1}}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"file","size":1,"mode":"x","mtimeMs":1}}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"file","size":1,"mode":1,"mtimeMs":"x"}}')).toBeUndefined()
   })
 })
