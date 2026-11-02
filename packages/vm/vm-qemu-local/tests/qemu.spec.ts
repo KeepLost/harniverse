@@ -136,15 +136,16 @@ describe('vm-qemu-local environment probing', () => {
   it('reports the sandbox wrapper as staged only on linux with an executable binary', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-vm-wrap-'))
     const wrap = join(dir, 'qemu-wrap')
+    expect(resolveWrapPath(dir, 'linux')).toBeUndefined()
     writeFileSync(wrap, '#!/bin/sh\ntrue\n')
-    chmodSync(wrap, 0o755)
-    // On win32 the X_OK probe is extension-based, so the positive leg cannot
-    // hold for an extensionless script; the negative legs still must.
-    if (process.platform !== 'win32') expect(resolveWrapPath(dir, 'linux')).toBe(wrap)
     expect(resolveWrapPath(dir, 'darwin')).toBeUndefined()
+    // win32 maps X_OK to an existence check, so the executable-bit legs need
+    // a POSIX host; the Linux and macOS lanes own them.
+    if (process.platform === 'win32') return
+    chmodSync(wrap, 0o755)
+    expect(resolveWrapPath(dir, 'linux')).toBe(wrap)
     chmodSync(wrap, 0o644)
     expect(resolveWrapPath(dir, 'linux')).toBeUndefined()
-    expect(resolveWrapPath(mkdtempSync(join(tmpdir(), 'dsh-vm-wrap-')), 'linux')).toBeUndefined()
   })
 
   it('plans a supervised command line around the wrapper and one scratch directory', () => {

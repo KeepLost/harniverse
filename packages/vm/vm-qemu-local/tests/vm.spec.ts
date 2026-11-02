@@ -583,7 +583,9 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
   })
 })
 
-describe('vm-qemu-local sandbox supervision', () => {
+// The wrapper only stages on Linux; these legs need a host where
+// resolveWrapPath can succeed, and the Linux coverage lane owns them.
+describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision', () => {
   it('wraps the child under a staged wrapper and hands over the scratch directory on root hosts', async () => {
     const { child, emitExit } = fakeChild()
     const seenArgv: string[][] = []
