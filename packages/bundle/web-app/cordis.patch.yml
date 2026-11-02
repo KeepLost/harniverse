@@ -371,6 +371,12 @@
     - id: ui-settings-network-proxy
       name: '@deepseek-ai/dsh-client-ui-settings-network-proxy'
 
+    # Shell 后端设置页：PowerShell / Git Bash 单选，写入 shell-backend
+    # 设置命名空间（applies: restart），启动桥在下次启动时解析为
+    # $DSH_SHELL_BACKEND 并重新组合 shell 工具行。
+    - id: ui-settings-shell-backend
+      name: '@deepseek-ai/dsh-client-ui-settings-shell-backend'
+
     # Settings section importing official DeepSeek Harness sessions, plus the
     # archive banner that continues an imported session in a new one.
     - id: ui-session-import
