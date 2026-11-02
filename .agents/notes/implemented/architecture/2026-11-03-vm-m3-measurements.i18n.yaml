@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-03-vm-m3-measurements.md
+2026-11-03-vm-m3-measurements.md: 3a476a1d227e078abd685644a98efc406f4935ab
+2026-11-03-vm-m3-measurements.zh.md: 3cd3d1cb518e437df53f7056524b2f194c3d2cc9
