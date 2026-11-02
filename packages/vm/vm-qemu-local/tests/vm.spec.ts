@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { probeWorld } from '../src/index.ts'
+import { PROTOCOL_VERSION } from '../src/protocol.ts'
 import {
   AssetsMissingError,
   GuestVersionMismatchError,
@@ -78,7 +79,7 @@ function fakeSocket(): FakeSocket {
       written.push(String(data))
       return true
     },
-    destroy: () => undefined,
+    destroy: () => { fire('close', false) },
     on: (event: string, listener: (argument: never) => void) => {
       (listeners[event] ??= []).push(listener as (argument: unknown) => void)
     },
@@ -214,9 +215,9 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
   it('rejects a welcome that speaks a different version', async () => {
     const recording: { current?: Recording } = {}
     recordings.push(recording)
-    const promise = openWorld({ assetsDir: stubAssets() }, stubDeps('welcome-v2', recording))
+    const promise = openWorld({ assetsDir: stubAssets() }, stubDeps('welcome-v3', recording))
     await expect(promise).rejects.toSatisfy((error: unknown) =>
-      error instanceof GuestVersionMismatchError && error.guestV === 2)
+      error instanceof GuestVersionMismatchError && error.guestV === 3)
     await expect(recording.current?.exit).resolves.toMatchObject({ signal: 'SIGKILL' })
   })
 
@@ -252,11 +253,11 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
           if (socket === scripted && connections === 2) {
             // The second socket speaks: beacon, then welcome on hello.
             setTimeout(() => {
-              socket?.emitData(encode({ t: 'announce', v: 1, caps: ['ping'], agent: 'fake' }))
+              socket?.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
               const poll = setInterval(() => {
                 if (socket.written.some(entry => entry.includes('"hello"'))) {
                   clearInterval(poll)
-                  socket.emitData(encode({ t: 'welcome', v: 1, caps: ['ping'], agent: 'fake' }))
+                  socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
                 }
               }, 20)
             }, 50)
@@ -279,7 +280,7 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
         spawn: () => child,
         connect: async () => {
           setTimeout(() => {
-            socket.emitData(encode({ t: 'announce', v: 1, caps: ['ping'], agent: 'fake' }))
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
             const poll = setInterval(() => {
               if (socket.written.some(entry => entry.includes('"hello"'))) {
                 clearInterval(poll)
@@ -304,7 +305,7 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
         spawn: () => child,
         connect: async () => {
           setTimeout(() => {
-            socket.emitData(encode({ t: 'announce', v: 1, caps: ['ping'], agent: 'fake' }))
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
             // A zero-length frame prefix is malformed and must fail the channel.
             socket.emitData(Buffer.from([0, 0, 0, 0]))
           }, 50)
@@ -338,13 +339,13 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
         spawn: () => child,
         connect: async () => {
           setTimeout(() => {
-            socket.emitData(encode({ t: 'announce', v: 1, caps: ['ping'], agent: 'fake' }))
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
             interval = setInterval(() => {
               if (socket.written.some(entry => entry.includes('"hello"'))) {
-                socket.emitData(encode({ t: 'welcome', v: 1, caps: ['ping'], agent: 'fake' }))
+                socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
               }
               // Unsolicited duplicate beacons ride along with real replies.
-              socket.emitData(encode({ t: 'announce', v: 1, caps: ['ping'], agent: 'fake' }))
+              socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
               const pingNumber = lastPingNumber(socket.written)
               if (pingNumber > 0) socket.emitData(encode({ t: 'pong', n: pingNumber }))
             }, 20)
@@ -357,6 +358,158 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     emitExit(0)
     await expect(world.destroy()).resolves.toBe('clean')
     if (interval !== undefined) clearInterval(interval)
+  })
+
+  it('drives one exec end to end through the world handle', async () => {
+    const { child, emitExit } = fakeChild()
+    const socket = fakeSocket()
+    let phase = 0
+    let interval: ReturnType<typeof setInterval> | undefined
+    const world = await openWorld(
+      { assetsDir: stubAssets() },
+      {
+        spawn: () => child,
+        connect: async () => {
+          setTimeout(() => {
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+            let helloAnswered = false
+            interval = setInterval(() => {
+              if (!helloAnswered && socket.written.some(entry => entry.includes('"t":"hello"'))) {
+                socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+                helloAnswered = true
+                return
+              }
+              if (phase === 0 && socket.written.some(entry => entry.includes('"t":"exec"'))) {
+                socket.emitData(encode({ t: 'exec.started', id: 1, pid: 9 }))
+                phase = 1
+                return
+              }
+              if (phase === 1) {
+                socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+                socket.emitData(encode({ t: 'exec.out', id: 1, s: 'o', d: Buffer.from('wired-in').toString('base64') }))
+                phase = 2
+                return
+              }
+              if (phase === 2) {
+                socket.emitData(encode({ t: 'exec.exit', id: 1, code: 0 }))
+                phase = 3
+              }
+            }, 10)
+          }, 50)
+          return socket
+        },
+      },
+    )
+    const result = await world.exec(['/bin/cat'], { stdin: 'wired-in' })
+    expect(result.code).toBe(0)
+    expect(result.stdout.toString('utf8')).toBe('wired-in')
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+    if (interval !== undefined) clearInterval(interval)
+  })
+
+  it('round-trips one fs read through the world handle', async () => {
+    const { child, emitExit } = fakeChild()
+    const socket = fakeSocket()
+    let answered = false
+    let interval: ReturnType<typeof setInterval> | undefined
+    const world = await openWorld(
+      { assetsDir: stubAssets() },
+      {
+        spawn: () => child,
+        connect: async () => {
+          setTimeout(() => {
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+            let helloAnswered = false
+            interval = setInterval(() => {
+              if (!helloAnswered && socket.written.some(entry => entry.includes('"t":"hello"'))) {
+                socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+                helloAnswered = true
+                return
+              }
+              if (!answered && socket.written.some(entry => entry.includes('"op":"read"'))) {
+                socket.emitData(encode({ t: 'fs.ok', id: 1, d: Buffer.from('guest-bytes').toString('base64') }))
+                answered = true
+              }
+            }, 10)
+          }, 50)
+          return socket
+        },
+      },
+    )
+    await expect(world.fs.readFile('/tmp/f')).resolves.toEqual(Buffer.from('guest-bytes'))
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+    if (interval !== undefined) clearInterval(interval)
+  })
+
+  it('drops a live exec when the control port closes', async () => {
+    const { child, emitExit } = fakeChild()
+    const socket = fakeSocket()
+    let started = false
+    let interval: ReturnType<typeof setInterval> | undefined
+    const world = await openWorld(
+      { assetsDir: stubAssets() },
+      {
+        spawn: () => child,
+        connect: async () => {
+          setTimeout(() => {
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+            let helloAnswered = false
+            interval = setInterval(() => {
+              if (!helloAnswered && socket.written.some(entry => entry.includes('"t":"hello"'))) {
+                socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+                helloAnswered = true
+                return
+              }
+              if (!started && socket.written.some(entry => entry.includes('"t":"exec"'))) {
+                socket.emitData(encode({ t: 'exec.started', id: 1, pid: 8 }))
+                started = true
+              }
+            }, 10)
+          }, 50)
+          return socket
+        },
+      },
+    )
+    const handle = await world.spawn(['/bin/sleep', '30'])
+    socket.emitClose()
+    await expect(handle.exit).rejects.toSatisfy((error: unknown) =>
+      error instanceof WorldClosedError && error.message.includes('control port closed'))
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+    if (interval !== undefined) clearInterval(interval)
+  })
+
+  it('rejects exec, spawn, and fs calls after the world stopped', async () => {
+    const { child, emitExit } = fakeChild()
+    const socket = fakeSocket()
+    const world = await openWorld(
+      { assetsDir: stubAssets() },
+      {
+        spawn: () => child,
+        connect: async () => {
+          setTimeout(() => {
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+          }, 50)
+          const interval = setInterval(() => {
+            if (socket.written.some(entry => entry.includes('"t":"hello"'))) {
+              socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+              clearInterval(interval)
+            }
+          }, 10)
+          return socket
+        },
+      },
+    )
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+    await expect(world.exec(['/bin/true'])).rejects.toSatisfy((error: unknown) =>
+      error instanceof WorldClosedError && error.message.includes('already stopped'))
+    await expect(world.spawn(['/bin/true'])).rejects.toSatisfy((error: unknown) =>
+      error instanceof WorldClosedError && error.message.includes('already stopped'))
+    await expect(world.fs.readFile('/tmp/f')).rejects.toSatisfy((error: unknown) =>
+      error instanceof WorldClosedError && error.message.includes('already stopped'))
   })
 
   it('the default spawn seam runs the planned argv under a real child', () => {

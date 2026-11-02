@@ -1,13 +1,12 @@
 /**
- * Local micro-VM execution-world seed: boots a QEMU `microvm` guest that
- * owns its kernel, root filesystem, and process space, and has no network
- * device by construction.
+ * Local micro-VM execution-world seed: boots a QEMU `pc` guest that owns its
+ * kernel, root filesystem, and process space, and has no network device by
+ * construction.
  *
- * The host side plans the QEMU command line, meets the guest agent over a
- * virtio-serial control port speaking a versioned length-prefixed JSON
- * protocol, and supervises the child process lifecycle. This seed carries
- * the lifecycle surface (`probeWorld`, `openWorld`, `ping`, `destroy`);
- * exec and filesystem operations arrive with the next milestone.
+ * The host side plans the QEMU command line, meets the guest agent over the
+ * second ISA serial port speaking a versioned length-prefixed JSON protocol,
+ * and supervises the child process lifecycle: `probeWorld`, `openWorld`,
+ * `ping`, `exec`, `spawn`, the `fs` client, and `destroy`.
  * @module @deepseek-ai/dsh-vm-qemu-local
  */
 
@@ -20,6 +19,8 @@ import type { OpenWorldOptions } from './vm.ts'
 export * from './frame.ts'
 export * from './protocol.ts'
 export * from './qemu.ts'
+export * from './exec.ts'
+export * from './fs.ts'
 export * from './vm.ts'
 
 /** Environment facts `probeWorld` reports without booting a world. */

@@ -27,7 +27,7 @@ describe.skipIf(!worldAvailable)('vm-qemu-local: real guest handshake dialect', 
       await world.awaitAnnounce(5_000)
       world.send({ t: 'hello', v: PROTOCOL_VERSION + 1, caps: ['ping'] })
       const reply = await nextNonBeacon(world)
-      expect(reply).toMatchObject({ t: 'error', code: 'version', minV: 1, maxV: 1 })
+      expect(reply).toMatchObject({ t: 'error', code: 'version', minV: PROTOCOL_VERSION, maxV: PROTOCOL_VERSION })
       await expect(world.exit).resolves.toEqual({ code: 0, signal: null })
     } finally {
       await world.close()

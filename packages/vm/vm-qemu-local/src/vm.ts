@@ -19,6 +19,8 @@ import { join } from 'node:path'
 import { FrameReader, encodeFrame } from './frame.ts'
 import { DEFAULT_QEMU_BIN, buildQemuArgv, defaultAssetsDir, isKvmWritable, resolveAccel, type QemuAccel } from './qemu.ts'
 import { HOST_CAPS, PROTOCOL_VERSION, negotiateVersion, parseGuestMessage, type HostMessage } from './protocol.ts'
+import { ExecSession, type CollectExecOptions, type ExecHandle, type ExecOptions, type ExecResult } from './exec.ts'
+import { WorldFs } from './fs.ts'
 
 /** Assets (`vmlinuz-virt`, `initramfs.cpio.gz`) are absent from the assets directory. */
 export class AssetsMissingError extends Error {
@@ -146,6 +148,22 @@ export interface WorldHandle {
    */
   ping(timeoutMs?: number): Promise<number>
   /**
+   * Run one guest exec to completion and collect its output.
+   * @param argv - guest command line.
+   * @param options - env, cwd, pty, stdin, timeout, and output bound.
+   * @returns exit state plus collected stdout and stderr.
+   */
+  exec(argv: string[], options?: CollectExecOptions): Promise<ExecResult>
+  /**
+   * Start one guest exec and stream it.
+   * @param argv - guest command line.
+   * @param options - env, cwd, and pty selection.
+   * @returns the streaming exec handle.
+   */
+  spawn(argv: string[], options?: ExecOptions): Promise<ExecHandle>
+  /** Filesystem client for this world's guest. */
+  readonly fs: WorldFs
+  /**
    * Stop the world: ask the guest to power off, then ensure the child exited.
    * @returns `clean` when the child exited after the guest shutdown (or had
    * already exited), `killed` when SIGKILL was required.
@@ -158,6 +176,11 @@ interface Waiter {
   resolve: (payload: string) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+}
+
+interface EventSubscription {
+  match: (payload: string) => boolean
+  handler: (payload: string) => void
 }
 
 const CONNECT_RETRY_MS = 150
@@ -186,6 +209,8 @@ function defaultConnect(socketPath: string): Promise<SocketLike> {
 class ControlChannel {
   private readonly reader = new FrameReader()
   private waiters: Waiter[] = []
+  private events: EventSubscription[] = []
+  private closeHandlers: ((error: Error) => void)[] = []
 
   constructor(private readonly socket: SocketLike) {
     socket.on('data', (chunk: Buffer) => {
@@ -205,10 +230,15 @@ class ControlChannel {
 
   private dispatch(payload: string): void {
     const waiter = this.waiters.find(waiter => waiter.match(payload))
-    if (waiter === undefined) return
-    this.waiters.splice(this.waiters.indexOf(waiter), 1)
-    clearTimeout(waiter.timer)
-    waiter.resolve(payload)
+    if (waiter !== undefined) {
+      this.waiters.splice(this.waiters.indexOf(waiter), 1)
+      clearTimeout(waiter.timer)
+      waiter.resolve(payload)
+      return
+    }
+    for (const subscription of [...this.events]) {
+      if (subscription.match(payload)) subscription.handler(payload)
+    }
   }
 
   private fail(error: Error): void {
@@ -216,10 +246,38 @@ class ControlChannel {
       clearTimeout(waiter.timer)
       waiter.reject(error)
     }
+    this.events = []
+    for (const handler of this.closeHandlers.splice(0)) handler(error)
   }
 
   send(message: HostMessage): void {
     this.socket.write(encodeFrame(JSON.stringify(message)))
+  }
+
+  /**
+   * Subscribe to unsolicited guest events.
+   * @param match - event predicate; every matching payload reaches `handler`.
+   * @param handler - event callback.
+   * @returns the unsubscribe function.
+   */
+  onEvent(match: (payload: string) => boolean, handler: (payload: string) => void): () => void {
+    const subscription: EventSubscription = { match, handler }
+    this.events.push(subscription)
+    return () => {
+      this.events = this.events.filter(entry => entry !== subscription)
+    }
+  }
+
+  /**
+   * Observe the channel closing or failing.
+   * @param handler - receives the closing error once.
+   * @returns the unsubscribe function.
+   */
+  onClose(handler: (error: Error) => void): () => void {
+    this.closeHandlers.push(handler)
+    return () => {
+      this.closeHandlers = this.closeHandlers.filter(entry => entry !== handler)
+    }
   }
 
   /**
@@ -401,11 +459,35 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     readyMs: now() - startedAt,
   }
 
+  let nextRequestId = 1
+  const allocateId = (): number => {
+    const id = nextRequestId
+    nextRequestId += 1
+    return id
+  }
+  const stoppedCall = (): Error => new WorldClosedError('world already stopped')
+  // One stopped-guard covers every op surface: requests on a stopped world
+  // fail fast instead of waiting out their reply deadline.
+  const guardedTransport = {
+    send: (message: HostMessage): void => {
+      channel.send(message)
+    },
+    request: (message: HostMessage, match: (payload: string) => boolean, timeoutMs: number): Promise<string> => {
+      if (stopped) return Promise.reject(stoppedCall())
+      return channel.request(message, match, timeoutMs)
+    },
+    onEvent: channel.onEvent.bind(channel),
+    onClose: channel.onClose.bind(channel),
+  }
+  const session = new ExecSession(guardedTransport, allocateId)
+  const worldFs = new WorldFs(guardedTransport, allocateId)
+
   return {
     descriptor,
     exit,
+    fs: worldFs,
     ping(timeoutMs = 5_000) {
-      if (stopped) return Promise.reject(new WorldClosedError('world already stopped'))
+      if (stopped) return Promise.reject(stoppedCall())
       const sentAt = now()
       return channel
         .request({ t: 'ping', n: sentAt }, (payload) => {
@@ -413,6 +495,14 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
           return message !== undefined && message.t === 'pong' && message.n === sentAt
         }, timeoutMs)
         .then(() => now() - sentAt)
+    },
+    exec(argv: string[], options: CollectExecOptions = {}) {
+      if (stopped) return Promise.reject(stoppedCall())
+      return session.exec(argv, options)
+    },
+    spawn(argv: string[], options: ExecOptions = {}) {
+      if (stopped) return Promise.reject(stoppedCall())
+      return session.spawn(argv, options)
     },
     async destroy() {
       if (stopped) return 'clean'
