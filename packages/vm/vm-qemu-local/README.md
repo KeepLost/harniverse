@@ -65,10 +65,13 @@ The script downloads the pinned Alpine 3.20.3 minirootfs and virt kernel (digest
 - **Guest isolation (T5):** the guest root is exactly the pinned minirootfs layout plus agent mounts, userland shows only `/init` and the probe itself (kernel threads aside), `/sys/class/net` lists only `lo`, and guest writes never reach the host filesystem.
 - **Egress dual mode (T6):** without a policy every `egress.open` denies; an approving policy dials the target and relays bytes both ways (proven against a local mock TCP server in the unit suite).
 - **Host defense-in-depth (T7):** with the wrapper staged and a root host, the supervised child runs as uid 65534 (`/proc/<pid>/status` asserted), a root-only canary outside the scratch directory reads `EACCES`, and writes outside the scratch directory are denied while the world stays fully operational.
+- **Real workloads (T8):** under TCG, sha256 over 20 MiB runs ≈ 31 MiB/s and tar+gzip over 100 MiB ≈ 14 MiB/s — ≈ 10–12× the host baseline; control-protocol fs throughput sampled at ≈ 0.05 MiB/s write / 0.2 MiB/s read in 64 KiB chunks (the UART ceiling measured from the fs API).
+- **Repeatability (T10):** three consecutive boots spread ≤ 2.5 % of the median ready time (line ±20 %), and 100 fs write+read pairs drift the QEMU RSS by 0.5 % (line <10 %).
+- Full tables, host baselines, and methodology: [MEASUREMENTS.md](MEASUREMENTS.md).
 
 ## Known Limitations and Deferred Work
 
-- **Bulk output over the control UART** — measured ≈ 0.2 MiB/s under TCG (see above); a dedicated data-plane channel for bulk transfers is deferred work.
+- **Bulk transfers over the control UART** — measured ≈ 0.2 MiB/s under TCG for exec output and fs reads (fs writes ≈ 0.05 MiB/s; see [MEASUREMENTS.md](MEASUREMENTS.md)); a dedicated data-plane channel for bulk transfers is deferred work.
 - **`pc` machine, not `microvm`** — the `microvm` machine routes only its first ISA serial, so it cannot host the ttyS1 control channel; revisiting microvm (or virtio-serial, whose port cdev stays ENXIO on the pinned kernel) is deferred work with the measurements in the [seed decision](../../../.agents/notes/implemented/architecture/2026-11-01-vm-execution-world-qemu-local-seed.md).
 - **Assets are built, not vendored** — CI lanes without QEMU or the Rust musl toolchain run no VM tests (suites self-skip); an asset-publishing story is future work.
 - **Single control channel** — exec streams, fs round trips, and lifecycle share one multiplexed connection; ids disambiguate concurrent ops, but bulk data competes with control traffic.

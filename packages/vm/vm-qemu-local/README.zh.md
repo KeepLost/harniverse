@@ -65,10 +65,13 @@ packages/vm/vm-qemu-local/assets/build-rootfs.sh
 - **Guest 隔离（T5）**：guest 根目录恰为固定 minirootfs 布局加 agent 挂载点；用户态进程只有 `/init` 与探针自身（内核线程除外）；`/sys/class/net` 只有 `lo`；guest 写永远不会落到宿主文件系统。
 - **Egress 双档（T6）**：无策略时一切 `egress.open` 拒绝；审批放行后拨号目标并双向中继（单测套件中对本地 mock TCP 服务器证明）。
 - **宿主纵深（T7）**：包装器就绪且宿主为 root 时，受监管子进程以 uid 65534 运行（断言 `/proc/<pid>/status`）、scratch 目录外的 root 专属 canary 读到 `EACCES`、scratch 外写入被拒，而世界全程可用。
+- **真实负载（T8）**：TCG 下 sha256 20 MiB 约 31 MiB/s、tar+gzip 100 MiB 约 14 MiB/s——约为宿主基线的 10–12 倍；控制协议 fs 吞吐按 64 KiB 块采样约 写 0.05 MiB/s / 读 0.2 MiB/s（UART 天花板在 fs API 上的实测）。
+- **可重复性（T10）**：连续三次引导的 ready 时间与中位数偏差 ≤ 2.5 %（通过线 ±20 %）；100 组 fs 写+读使 QEMU RSS 漂移 0.5 %（通过线 <10 %）。
+- 完整表格、宿主基线与方法学见 [MEASUREMENTS.md](MEASUREMENTS.md)。
 
 ## 已知限制与延后工作
 
-- **批量输出走控制 UART**——TCG 实测约 0.2 MiB/s（见上）；面向批量传输的专用数据通道是延后工作。
+- **批量传输走控制 UART**——TCG 实测 exec 输出与 fs 读取约 0.2 MiB/s（fs 写约 0.05 MiB/s，见 [MEASUREMENTS.md](MEASUREMENTS.md)）；面向批量传输的专用数据通道是延后工作。
 - **`pc` 机型而非 `microvm`**——`microvm` 机型只路由第一个 ISA 串口，无法承载 ttyS1 控制通道；回归 microvm（或解决 virtio-serial 端口 cdev 在固定内核上持续 ENXIO 的问题）是延后工作，测量记录见[种子决策](../../../.agents/notes/implemented/architecture/2026-11-01-vm-execution-world-qemu-local-seed.md)。
 - **资产靠构建而非内置**——没有 QEMU 或 Rust musl 工具链的 CI lane 不跑 VM 测试（套件自跳过）；资产分发方案是未来工作。
 - **单一控制通道**——exec 流、fs 往返与生命周期共用一条多路复用连接；id 区分并发操作，但批量数据与控制流量互相竞争。
