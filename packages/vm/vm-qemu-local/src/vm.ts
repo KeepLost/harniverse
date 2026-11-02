@@ -12,15 +12,16 @@
 
 import { spawn as nodeSpawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp as nodeMkdtemp, rm as nodeRm } from 'node:fs/promises'
+import { chown as nodeChown, copyFile as nodeCopyFile, mkdtemp as nodeMkdtemp, rm as nodeRm } from 'node:fs/promises'
 import { connect as nodeConnect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FrameReader, encodeFrame } from './frame.ts'
-import { DEFAULT_QEMU_BIN, buildQemuArgv, defaultAssetsDir, isKvmWritable, resolveAccel, type QemuAccel } from './qemu.ts'
+import { DEFAULT_QEMU_BIN, buildQemuArgv, buildWrappedArgv, defaultAssetsDir, isKvmWritable, resolveAccel, resolveWrapPath, type QemuAccel } from './qemu.ts'
 import { HOST_CAPS, PROTOCOL_VERSION, negotiateVersion, parseGuestMessage, type HostMessage } from './protocol.ts'
 import { ExecSession, type CollectExecOptions, type ExecHandle, type ExecOptions, type ExecResult } from './exec.ts'
 import { WorldFs } from './fs.ts'
+import { WorldEgress, type EgressPolicy } from './egress.ts'
 
 /** Assets (`vmlinuz-virt`, `initramfs.cpio.gz`) are absent from the assets directory. */
 export class AssetsMissingError extends Error {
@@ -109,6 +110,18 @@ export interface OpenWorldOptions {
   readyTimeoutMs?: number
   /** Grace period for a guest-requested shutdown before SIGKILL, in milliseconds. Default 5 000. */
   shutdownTimeoutMs?: number
+  /**
+   * Sandbox hardening for the QEMU child: `auto` (default) supervises QEMU
+   * through the staged `qemu-wrap` when present — Landlock read-only tree
+   * plus one writable scratch directory, rlimits, and a uid drop to 65534 on
+   * root hosts; `off` spawns QEMU directly.
+   */
+  sandbox?: 'auto' | 'off'
+  /**
+   * Approval callback for this world's egress relay; when omitted every
+   * `world.egress.open` denies.
+   */
+  egressPolicy?: EgressPolicy
 }
 
 /** Injectable environment seams; every field has a real default. */
@@ -117,6 +130,12 @@ export interface VmDeps {
   connect?: (socketPath: string) => Promise<SocketLike>
   mkdtemp?: (prefix: string) => Promise<string>
   now?: () => number
+  /** Effective uid of the host process; defaults to `process.geteuid`. */
+  euid?: () => number
+  /** Ownership transfer for the scratch directory under root hosts. */
+  chown?: (path: string, uid: number, gid: number) => Promise<void>
+  /** Boot-asset staging into the scratch directory under root hosts. */
+  copyFile?: (source: string, destination: string) => Promise<void>
 }
 
 /** Facts about one booted world. */
@@ -126,6 +145,8 @@ export interface WorldDescriptor {
   memoryMiB: number
   cpus: number
   pid: number | undefined
+  /** Whether the QEMU child runs under the sandbox wrapper. */
+  sandboxed: boolean
   /** Milliseconds from spawn to the accepted `welcome`. */
   readyMs: number
 }
@@ -163,6 +184,8 @@ export interface WorldHandle {
   spawn(argv: string[], options?: ExecOptions): Promise<ExecHandle>
   /** Filesystem client for this world's guest. */
   readonly fs: WorldFs
+  /** Host-side egress relay; opens deny unless this world's policy approves. */
+  readonly egress: WorldEgress
   /**
    * Stop the world: ask the guest to power off, then ensure the child exited.
    * @returns `clean` when the child exited after the guest shutdown (or had
@@ -333,6 +356,9 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
   const spawnProcess = deps.spawn ?? defaultSpawnProcess
   const connect = deps.connect ?? defaultConnect
   const mkdtemp = deps.mkdtemp ?? nodeMkdtemp
+  const euid = deps.euid ?? (() => process.geteuid?.() ?? -1)
+  const chown = deps.chown ?? nodeChown
+  const copyFile = deps.copyFile ?? nodeCopyFile
 
   const qemuBin = options.qemuBin ?? DEFAULT_QEMU_BIN
   const memoryMiB = options.memoryMiB ?? 256
@@ -345,18 +371,38 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
   if (!existsSync(kernelPath) || !existsSync(initrdPath)) throw new AssetsMissingError(assetsDir)
 
   const accel = resolveAccel(isKvmWritable(), options.accel ?? 'auto')
+  const wrapPath = options.sandbox === 'off' ? undefined : resolveWrapPath(assetsDir)
   const runDir = await mkdtemp(join(tmpdir(), 'dsh-vm-qemu-'))
   const controlSocketPath = join(runDir, 'ctl.sock')
-  const argv = buildQemuArgv({
+  // The wrapper drops to uid 65534 before exec, so on root hosts the scratch
+  // directory moves to that uid and boot assets are copied into it: the
+  // guest-readable originals may sit under directories the dropped uid cannot
+  // traverse, while /tmp always can.
+  let bootKernelPath = kernelPath
+  let bootInitrdPath = initrdPath
+  if (wrapPath !== undefined && euid() === 0) {
+    try {
+      await chown(runDir, 65534, 65534)
+      bootKernelPath = join(runDir, 'vmlinuz-virt')
+      bootInitrdPath = join(runDir, 'initramfs.cpio.gz')
+      await copyFile(kernelPath, bootKernelPath)
+      await copyFile(initrdPath, bootInitrdPath)
+    } catch (error) {
+      await nodeRm(runDir, { recursive: true, force: true })
+      throw error
+    }
+  }
+  const qemuArgv = buildQemuArgv({
     qemuBin,
     accel,
     memoryMiB,
     cpus,
-    kernelPath,
-    initrdPath,
+    kernelPath: bootKernelPath,
+    initrdPath: bootInitrdPath,
     controlSocketPath,
     consoleLogPath: join(runDir, 'console.log'),
   })
+  const argv = wrapPath === undefined ? qemuArgv : buildWrappedArgv(wrapPath, runDir, qemuArgv)
 
   const startedAt = now()
   const child = spawnProcess(argv, { stdio: 'ignore' })
@@ -456,6 +502,7 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     memoryMiB,
     cpus,
     pid: child.pid,
+    sandboxed: wrapPath !== undefined,
     readyMs: now() - startedAt,
   }
 
@@ -481,11 +528,13 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
   }
   const session = new ExecSession(guardedTransport, allocateId)
   const worldFs = new WorldFs(guardedTransport, allocateId)
+  const egress = new WorldEgress(options.egressPolicy)
 
   return {
     descriptor,
     exit,
     fs: worldFs,
+    egress,
     ping(timeoutMs = 5_000) {
       if (stopped) return Promise.reject(stoppedCall())
       const sentAt = now()
@@ -506,6 +555,8 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     },
     async destroy() {
       if (stopped) return 'clean'
+      stopped = true
+      await egress.closeAll()
       channel.send({ t: 'shutdown' })
       const graceful = await Promise.race<boolean>([
         exit.then(() => { return true }),

@@ -1,10 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { probeWorld } from '../src/index.ts'
+import { EgressDeniedError } from '../src/egress.ts'
 import { PROTOCOL_VERSION } from '../src/protocol.ts'
 import {
   AssetsMissingError,
@@ -111,6 +112,31 @@ function stubAssets(): string {
   writeFileSync(join(dir, 'vmlinuz-virt'), 'kernel')
   writeFileSync(join(dir, 'initramfs.cpio.gz'), 'initrd')
   return dir
+}
+
+
+/** Assets plus a staged executable sandbox wrapper. */
+function sandboxAssets(): string {
+  const dir = stubAssets()
+  const wrap = join(dir, 'qemu-wrap')
+  writeFileSync(wrap, '#!/bin/sh\ntrue\n')
+  chmodSync(wrap, 0o755)
+  return dir
+}
+
+/** Fake socket that beacons, then answers hello with a welcome. */
+function welcomeSocket(): FakeSocket {
+  const socket = fakeSocket()
+  setTimeout(() => {
+    socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+    const poll = setInterval(() => {
+      if (socket.written.some(entry => entry.includes('"hello"'))) {
+        clearInterval(poll)
+        socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+      }
+    }, 10)
+  }, 20)
+  return socket
 }
 
 const recordings: { current?: Recording }[] = []
@@ -555,4 +581,175 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     await expect(recording.current?.exit).resolves.toMatchObject({ code: 0, signal: null })
     server.close()
   })
+})
+
+// The wrapper only stages on Linux; these legs need a host where
+// resolveWrapPath can succeed, and the Linux coverage lane owns them.
+describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision', () => {
+  it('wraps the child under a staged wrapper and hands over the scratch directory on root hosts', async () => {
+    const { child, emitExit } = fakeChild()
+    const seenArgv: string[][] = []
+    const chowns: Array<[string, number, number]> = []
+    const world = await openWorld(
+      { assetsDir: sandboxAssets() },
+      {
+        spawn: (argv) => {
+          seenArgv.push([...argv])
+          return child
+        },
+        connect: async () => welcomeSocket(),
+        euid: () => 0,
+        chown: async (path, uid, gid) => { chowns.push([path, uid, gid]) },
+      },
+    )
+    expect(world.descriptor.sandboxed).toBe(true)
+    const wrapped = seenArgv[0] ?? []
+    expect(wrapped[0]).toMatch(/qemu-wrap$/)
+    expect(wrapped[1]).toBe('--scratch')
+    const scratch = wrapped[2] ?? ''
+    expect(wrapped[3]).toBe('--')
+    expect(wrapped[4]).toBe('qemu-system-x86_64')
+    expect(chowns).toEqual([[scratch, 65534, 65534]])
+    const destroyed = world.destroy()
+    setTimeout(() => { emitExit(0) }, 20)
+    await expect(destroyed).resolves.toBe('clean')
+  }, 10_000)
+
+  it('spawns QEMU directly when no wrapper is staged', async () => {
+    const { child, emitExit } = fakeChild()
+    const seenArgv: string[][] = []
+    const chowns: Array<[string, number, number]> = []
+    const world = await openWorld(
+      { assetsDir: stubAssets() },
+      {
+        spawn: (argv) => {
+          seenArgv.push([...argv])
+          return child
+        },
+        connect: async () => welcomeSocket(),
+        euid: () => 0,
+        chown: async (path, uid, gid) => { chowns.push([path, uid, gid]) },
+      },
+    )
+    expect(world.descriptor.sandboxed).toBe(false)
+    expect(seenArgv[0]?.[0]).toBe('qemu-system-x86_64')
+    expect(chowns).toEqual([])
+    const destroyed = world.destroy()
+    setTimeout(() => { emitExit(0) }, 20)
+    await expect(destroyed).resolves.toBe('clean')
+  }, 10_000)
+
+  it('skips the wrapper when sandbox hardening is explicitly disabled', async () => {
+    const { child, emitExit } = fakeChild()
+    const seenArgv: string[][] = []
+    const world = await openWorld(
+      { assetsDir: sandboxAssets(), sandbox: 'off' },
+      {
+        spawn: (argv) => {
+          seenArgv.push([...argv])
+          return child
+        },
+        connect: async () => welcomeSocket(),
+        euid: () => 0,
+        chown: async () => { throw new Error('must not chown') },
+      },
+    )
+    expect(world.descriptor.sandboxed).toBe(false)
+    expect(seenArgv[0]?.[0]).toBe('qemu-system-x86_64')
+    const destroyed = world.destroy()
+    setTimeout(() => { emitExit(0) }, 20)
+    await expect(destroyed).resolves.toBe('clean')
+  }, 10_000)
+
+  it('treats a host without geteuid as unprivileged', async () => {
+    const original = process.geteuid
+    Object.defineProperty(process, 'geteuid', { value: undefined, configurable: true })
+    const { child, emitExit } = fakeChild()
+    try {
+      const world = await openWorld(
+        { assetsDir: sandboxAssets() },
+        {
+          spawn: () => child,
+          connect: async () => welcomeSocket(),
+          chown: async () => { throw new Error('must not chown') },
+        },
+      )
+      expect(world.descriptor.sandboxed).toBe(true)
+      const destroyed = world.destroy()
+      setTimeout(() => { emitExit(0) }, 20)
+      await expect(destroyed).resolves.toBe('clean')
+    } finally {
+      Object.defineProperty(process, 'geteuid', { value: original, configurable: true })
+    }
+  }, 10_000)
+
+  it('removes the run directory when boot-asset staging fails', async () => {
+    const runDirs: string[] = []
+    await expect(openWorld(
+      { assetsDir: sandboxAssets() },
+      {
+        spawn: () => { throw new Error('must not spawn') },
+        connect: async () => welcomeSocket(),
+        euid: () => 0,
+        chown: async () => {},
+        copyFile: async () => { throw new Error('disk full') },
+        mkdtemp: async (prefix) => {
+          const dir = mkdtempSync(prefix)
+          runDirs.push(dir)
+          return dir
+        },
+      },
+    )).rejects.toThrow('disk full')
+    expect(existsSync(runDirs[0] ?? '')).toBe(false)
+  }, 10_000)
+
+  it('keeps the wrapped command line but skips ownership handover when not root', async () => {
+    const { child, emitExit } = fakeChild()
+    const seenArgv: string[][] = []
+    const world = await openWorld(
+      { assetsDir: sandboxAssets() },
+      {
+        spawn: (argv) => {
+          seenArgv.push([...argv])
+          return child
+        },
+        connect: async () => welcomeSocket(),
+        euid: () => 1000,
+        chown: async () => { throw new Error('must not chown') },
+      },
+    )
+    expect(world.descriptor.sandboxed).toBe(true)
+    expect(seenArgv[0]?.[0]).toMatch(/qemu-wrap$/)
+    const destroyed = world.destroy()
+    setTimeout(() => { emitExit(0) }, 20)
+    await expect(destroyed).resolves.toBe('clean')
+  }, 10_000)
+})
+
+describe('vm-qemu-local egress wiring', () => {
+  it('denies egress by default and closes the relay with the world', async () => {
+    const { child, emitExit } = fakeChild()
+    const world = await openWorld(
+      { assetsDir: stubAssets() },
+      { spawn: () => child, connect: async () => welcomeSocket() },
+    )
+    await expect(world.egress.open('example.com', 443)).rejects.toBeInstanceOf(EgressDeniedError)
+    const destroyed = world.destroy()
+    setTimeout(() => { emitExit(0) }, 20)
+    await expect(destroyed).resolves.toBe('clean')
+    await expect(world.egress.open('example.com', 443)).rejects.toBeInstanceOf(EgressDeniedError)
+  }, 10_000)
+
+  it('surfaces a refused approved dial as EgressConnectError', async () => {
+    const { child, emitExit } = fakeChild()
+    const world = await openWorld(
+      { assetsDir: stubAssets(), egressPolicy: () => true },
+      { spawn: () => child, connect: async () => welcomeSocket() },
+    )
+    if (process.platform === 'win32') return
+    await expect(world.egress.open('127.0.0.1', 1)).rejects.toMatchObject({ name: 'EgressConnectError' })
+    const destroyed = world.destroy()
+    setTimeout(() => { emitExit(0) }, 20)
+    await expect(destroyed).resolves.toBe('clean')
+  }, 10_000)
 })

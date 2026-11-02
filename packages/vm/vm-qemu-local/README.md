@@ -6,10 +6,12 @@ Local micro-VM execution-world seed: boots a QEMU `pc`-machine guest that owns i
 
 ## What this package provides
 
-- `probeWorld(options)` — environment facts (QEMU binary version, effective acceleration, staged assets) without booting anything.
+- `probeWorld(options)` — environment facts (QEMU binary version, effective acceleration, staged assets, sandbox availability) without booting anything.
 - `openWorld(options)` — boot one world and complete the protocol handshake; returns a `WorldHandle` with `descriptor`, `exit`, `ping(timeoutMs)`, `exec`, `spawn`, `fs`, and `destroy()`.
 - Exec operations — `exec(argv, options)` runs one guest process to completion and collects bounded stdout/stderr; `spawn(argv, options)` returns a streaming handle with `writeStdin`, `closeStdin`, `signal`, `onOutput`, and `exit`. Options cover `env` (full replacement), `cwd`, `pty` (pipes otherwise), `stdin`, `timeoutMs`, and `maxOutputBytes`.
 - Filesystem operations — `world.fs` exposes the eight-op set (`readFile`, `writeFile`, `stat`, `list`, `mkdir`, `unlink`, `rmdir`, `rename`) with guest errnos mapped to Node-style codes (`GuestFsError`).
+- Egress relay — `world.egress.open(host, port)` dials outbound targets on the world's behalf only after its `egressPolicy` callback approves; with no policy every request denies (`EgressDeniedError`). Handles stream both directions and close with the world.
+- Sandbox hardening — when the assets hold `qemu-wrap` (built on Linux with a C compiler), `openWorld` supervises QEMU through it: a Landlock ruleset that makes the whole filesystem read-only except one scratch directory, rlimits, and a uid drop to 65534 on root hosts (`descriptor.sandboxed`).
 - Frame codec (`encodeFrame`, `FrameReader`), protocol constants (`PROTOCOL_VERSION`), and the QEMU argv planner (`buildQemuArgv`) as public API for reuse by later providers.
 
 ```ts
@@ -22,6 +24,7 @@ const handle = await world.spawn(['/bin/sh'], { pty: true })
 handle.writeStdin('echo pty\n')
 await handle.exit                          // { code, signal }
 await world.fs.writeFile('/tmp/note', 'guest-visible')
+const relay = await world.egress.open('example.com', 443) // only with an approving egressPolicy
 await world.destroy()                      // 'clean' (guest poweroff) or 'killed' (SIGKILL fallback)
 ```
 
@@ -47,7 +50,9 @@ The script downloads the pinned Alpine 3.20.3 minirootfs and virt kernel (digest
 
 ## Security posture
 
-- **No network device by construction:** `buildQemuArgv` never emits `-netdev`, `-nic`, or `-net`; the guest has no NIC to speak of (asserted by unit test).
+- **No network device by construction:** `buildQemuArgv` never emits `-netdev`, `-nic`, or `-net`; the guest has no NIC to speak of (asserted by unit test, and the guest sees only `lo` in `/sys/class/net`).
+- **Host defense-in-depth (`qemu-wrap`):** a small C wrapper stages around QEMU when present: rlimits (CPU 3600 s, 8 GiB address space, 1024 fds, 256 processes, 1 GiB per file), a Landlock ruleset granting read+execute on the whole tree and every write right to exactly one scratch directory (`/dev/kvm` additionally read-write when present), and — on root hosts — a supplementary-group-clearing uid drop to 65534:65534. On root hosts the boot assets are copied into the chowned scratch directory first, because the dropped uid cannot traverse arbitrary host paths (a workspace under `/root`, say). Landlock is mandatory in the wrapper: a kernel that refuses the ruleset fails the boot rather than running an unconfined child.
+- **Egress is a host decision:** the guest has no network device, so outbound access exists only as the host-side relay gated by the world's approval callback; deny is the default, not an opt-in.
 - The QEMU process is an ordinary child of the host process — never a daemon — and dies with it.
 - `destroy()` always ends in an observed child exit and removes the run directory; every `openWorld` failure path kills the child.
 
@@ -56,6 +61,10 @@ The script downloads the pinned Alpine 3.20.3 minirootfs and virt kernel (digest
 - **Exec latency (T2):** 100× `exec /bin/true` on TCG measured p50 ≈ 15 ms, p95 ≈ 21 ms (budgets 50/150 ms).
 - **Exec semantics (T3):** argv/env/cwd/exit codes, separate stdout/stderr streaming, pty echo and interactive exit, and a 10 MiB stdout transfer all hold; output never truncates across the exit frame.
 - **Bulk throughput ceiling:** the emulated control UART moves ≈ 0.2 MiB/s under TCG, so the 10 MiB transfer takes ≈ 50 s — the plan's 5 s pass line is enforced only on accelerated (KVM) lanes and the deviation is recorded here; a dedicated data-plane channel is the planned fix.
+- **Fs semantics matrix (T4):** the eight ops match the host reference on the same tree, error codes included (`ENOENT`, `ENOTEMPTY` parity); a 1000-file write+readback cycle round-trips byte-exact in ≈ 6.8 s (≈ 3.7 s write, ≈ 3.1 s read) under TCG with the sandbox active.
+- **Guest isolation (T5):** the guest root is exactly the pinned minirootfs layout plus agent mounts, userland shows only `/init` and the probe itself (kernel threads aside), `/sys/class/net` lists only `lo`, and guest writes never reach the host filesystem.
+- **Egress dual mode (T6):** without a policy every `egress.open` denies; an approving policy dials the target and relays bytes both ways (proven against a local mock TCP server in the unit suite).
+- **Host defense-in-depth (T7):** with the wrapper staged and a root host, the supervised child runs as uid 65534 (`/proc/<pid>/status` asserted), a root-only canary outside the scratch directory reads `EACCES`, and writes outside the scratch directory are denied while the world stays fully operational.
 
 ## Known Limitations and Deferred Work
 
@@ -67,3 +76,7 @@ The script downloads the pinned Alpine 3.20.3 minirootfs and virt kernel (digest
 - **pty merges stderr into stdout** — a pty owns one stream, so `exec.out` labels all pty output `s: 'o'`.
 - **Env is replaced, not merged** — an explicit `env` fully replaces the guest default (`PATH`, `HOME=/`, `TERM=dumb`); omit it to keep the default.
 - **fs payload caps** — `readFile` and `writeFile` cap at 512 KiB per call (`EFBIG` beyond); larger data belongs on the future data plane.
+- **Egress is host-side only** — the relay lives in the host API; guest workloads have no socket API over the control protocol yet (a guest-visible proxy is future work with the data plane).
+- **Sandboxed worlds prefer TCG** — the dropped uid 65534 usually cannot open `/dev/kvm` (0660 root:kvm), so `auto` acceleration stays on TCG under the wrapper; an explicit `accel: 'kvm'` is honored and fails loudly where DAC denies.
+- **Root hosts pay a boot-asset copy** — sandboxed boots copy kernel+initrd (≈ 14 MiB) into the scratch directory per world; measurable but small next to the ≈ 3 s boot.
+- **Wrapper is Linux-only** — `qemu-wrap` builds and applies only on Linux with a C compiler; other platforms report `sandboxed: false` and spawn QEMU directly.

@@ -98,12 +98,18 @@ const windowsRunnerCoverageExclusions = process.platform === 'win32'
 // windowsUnsupportedTests): it drives a real QEMU child over AF_UNIX chardev
 // sockets, which Windows Node cannot host. vm.ts owns that lifecycle, so its
 // coverage lives exclusively on the Linux coverage lane at the full 100% bar;
-// the frame/protocol/qemu units stay covered on both lanes. index.ts joins
+// the frame/protocol units stay covered on both lanes. index.ts joins
 // vm.ts because its probe success branch needs a POSIX shebang version script
-// (spawnSync cannot execute one on win32); the failure and default branches
-// still run on the Windows lane via qemu.spec.
+// (spawnSync cannot execute one on win32); qemu.ts joins because the staged
+// wrapper resolution needs a POSIX executable-bit probe (win32 X_OK is
+// extension-based, so the success return is unreachable there); the failure
+// and default branches still run on the Windows lane via qemu.spec.
 const windowsVmCoverageExclusions = process.platform === 'win32'
-  ? ['packages/vm/vm-qemu-local/src/vm.ts', 'packages/vm/vm-qemu-local/src/index.ts']
+  ? [
+      'packages/vm/vm-qemu-local/src/vm.ts',
+      'packages/vm/vm-qemu-local/src/index.ts',
+      'packages/vm/vm-qemu-local/src/qemu.ts',
+    ]
   : []
 
 // The encrypted storage module contains one POSIX-only durability protocol:

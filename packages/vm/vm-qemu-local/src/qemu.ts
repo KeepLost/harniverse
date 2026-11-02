@@ -141,3 +141,37 @@ const moduleDir = dirname(fileURLToPath(import.meta.url))
 export function defaultAssetsDir(): string {
   return join(findPackageRoot(moduleDir), '.cache', 'assets')
 }
+
+/** File name of the sandbox wrapper inside the assets directory. */
+export const QEMU_WRAP_NAME = 'qemu-wrap'
+
+/**
+ * Locate the staged sandbox wrapper, if any.
+ * @param assetsDir - directory that may hold a `qemu-wrap` binary.
+ * @param platform - host platform to gate on; defaults to the real platform.
+ * @returns the executable wrapper path, or `undefined` when absent,
+ * non-executable, or off-Linux.
+ */
+export function resolveWrapPath(assetsDir: string, platform: NodeJS.Platform = process.platform): string | undefined {
+  if (platform !== 'linux') return undefined
+  const wrapPath = join(assetsDir, QEMU_WRAP_NAME)
+  try {
+    accessSync(wrapPath, constants.X_OK)
+    return wrapPath
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Plan one supervised command line: the wrapper runs the child with
+ * Landlock (whole tree read-only, the scratch directory writable), rlimits,
+ * and a uid drop to 65534 when the host is root.
+ * @param wrapPath - executable wrapper path.
+ * @param scratchDir - the only directory the child may write.
+ * @param argv - the command line to supervise; argv[0] is the executable.
+ * @returns argv with the wrapper prepended.
+ */
+export function buildWrappedArgv(wrapPath: string, scratchDir: string, argv: readonly string[]): string[] {
+  return [wrapPath, '--scratch', scratchDir, '--', ...argv]
+}

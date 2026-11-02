@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-02-vm-m2-egress-hardening.md
+2026-11-02-vm-m2-egress-hardening.md: c12ce7d8382c3dac00bb43df8e0e31e7bf1618e0
+2026-11-02-vm-m2-egress-hardening.zh.md: 2462a6460ab40e3e44c7dc5488056b46380268c2
