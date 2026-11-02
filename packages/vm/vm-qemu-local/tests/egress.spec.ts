@@ -178,6 +178,13 @@ describe('vm-qemu-local egress relay approval gate', () => {
     await expect(egress.open('odd.example', 80)).rejects.toMatchObject({ name: 'EgressConnectError' })
   })
 
+  it('maps a refused real dial through the default connect error path', async () => {
+    const egress = new WorldEgress(() => true)
+    // Port 1 on loopback is never listening; the errno varies by platform but
+    // the default dialer's error callback is what this leg pins.
+    await expect(egress.open('127.0.0.1', 1)).rejects.toMatchObject({ name: 'EgressConnectError' })
+  })
+
   it('closeAll ends live handles and denies further opens', async () => {
     const socket = recordingSocket()
     const egress = new WorldEgress(() => true, { connect: async () => socket })
