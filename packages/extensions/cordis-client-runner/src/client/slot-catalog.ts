@@ -1866,6 +1866,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-settings-models ModelPolicySection id \'model-policy\'',
       'client-ui-settings-network-proxy NetworkProxySection id \'network-proxy\'',
       'client-ui-settings-plugins PluginsSettingsSection id \'plugins\'',
+      'client-ui-settings-shell-backend ShellBackendSection id \'shell-backend\'',
       'client-ui-sound SoundSection id \'sound\'',
       'client-ui-theme AppearanceSection id \'appearance\'',
       'client-ui-voice-input VoiceSettingsSection id \'voice\'',
