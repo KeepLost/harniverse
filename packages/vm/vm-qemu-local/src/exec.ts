@@ -151,6 +151,7 @@ export class ExecSession {
    * Start one exec and return its streaming handle.
    * @param argv - guest command line; argv[0] resolves over the guest PATH.
    * @param options - env, cwd, and pty selection.
+   * @returns the streaming exec handle.
    * @throws ExecOptionsError on invalid host-side arguments.
    * @throws ExecStartError when the guest rejects the request.
    */
