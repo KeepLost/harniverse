@@ -36,6 +36,7 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/util/home-paths': 'The package only resolves harness-owned host paths; model-facing consumers own any rendered use.',
   'packages/util/identity': 'The package only renders the outbound product identity string; provider adapters own every model-facing byte of their requests.',
   'packages/util/launch-environment': 'The package only resolves host environment values; model-facing consumers own any rendered use.',
+  'packages/vm/vm-qemu-local': 'The package boots and supervises an isolated micro-VM guest over its own wire protocol; it registers no harness model context.',
 }
 
 /**
