@@ -78,12 +78,11 @@ export class ExecSession {
     const listeners = new Set<ExecOutputListener>()
     let offEvent!: () => void
     let offClose!: () => void
-    let failExit!: (error: Error) => void
     // Armed BEFORE the start request: an agent may pipeline the start ack
     // with the first output or exit frame in one transport read, and those
-    // frames must meet a live subscription instead of dropping.
+    // frames must meet a live subscription instead of dropping. A failed
+    // start leaves the exit promise unsettled: no handle escaped.
     const exit = new Promise<ExecExit>((resolve, reject) => {
-      failExit = reject
       offEvent = this.transport.onEvent(
         payload => isOpReplyFor(payload, id, ['exec.out', 'exec.exit']),
         (payload) => {
@@ -115,11 +114,8 @@ export class ExecSession {
     if (started === undefined || started.t !== 'exec.started') {
       offEvent()
       offClose()
-      const failure = started !== undefined && started.t === 'exec.err'
-        ? new ExecStartError(id, started.message)
-        : new ExecStartError(id, 'unexpected start reply')
-      failExit(failure)
-      throw failure
+      if (started !== undefined && started.t === 'exec.err') throw new ExecStartError(id, started.message)
+      throw new ExecStartError(id, 'unexpected start reply')
     }
     const pid = started.pid
 
