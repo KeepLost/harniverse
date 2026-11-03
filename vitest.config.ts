@@ -47,6 +47,9 @@ const windowsUnsupportedTests = process.platform === 'win32'
       // vm.ts's coverage moves to the Linux lane
       // (windowsVmCoverageExclusions below).
       'packages/vm/vm-qemu-local/tests/vm.spec.ts',
+      // Same substrate as vm.spec: the service suite drives the qemu-stub
+      // over real AF_UNIX chardev sockets, which Windows Node cannot host.
+      'packages/vm/vm-qemu-local/tests/service.spec.ts',
       // The world capability providers assert POSIX guest-path semantics and
       // a POSIX-resolving sandbox policy root; the win32 lane would see the
       // policy host-resolver mangle guest paths. The Linux lane owns them.
