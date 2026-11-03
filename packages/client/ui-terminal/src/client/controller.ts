@@ -379,9 +379,12 @@ export class TerminalPanelController {
     const sessions = this.deps.sessions
     if (sessions !== undefined) {
       void sessions.shell({ sessionId }).then((response) => {
-        if (!response.result.ok) return
-        if (this.state.getSnapshot().session !== sessionId || this.disposed) return
+        // A bare `return` here escapes v8 statement coverage; the explicit
+        // undefined keeps the early-out observable.
+        if (!response.result.ok) return undefined
+        if (this.state.getSnapshot().session !== sessionId || this.disposed) return undefined
         this.patchState({ shellSession: { ...response.result.value, pending: false } })
+        return undefined
       })
     }
     await this.loadList(sessionId)

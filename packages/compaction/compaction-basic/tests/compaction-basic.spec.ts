@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { compactSurfaceRegion, selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import { compactSurfaceRegion, selectCompactableRange, UnhelpfulSummaryError } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import type { RegionDependencies } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
@@ -686,6 +686,32 @@ describe('pressure measurement and retention', () => {
 
     await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.not.toBeNull()
     expect(session.surface.nodes.length).toBeLessThan(8)
+  })
+
+  it('keeps the policy retention budget on a fully closed log', async () => {
+    // With no open turn there is nothing to cap: the window-scaled policy
+    // budget stands, and a small surface under it stays uncompactable.
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(2)
+    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
+  })
+
+  it('reports the quiet no-op when the summary is unhelpful on an agent request', async () => {
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(4)
+    compact.error = new UnhelpfulSummaryError(120, 60)
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
+  })
+
+  it('propagates a non-unhelpful summary failure on an agent request', async () => {
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(4)
+    compact.error = new Error('summarizer exploded')
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).rejects.toThrow('summarizer exploded')
   })
 
   it('resolves null when an agent request has no safe prefix', async () => {

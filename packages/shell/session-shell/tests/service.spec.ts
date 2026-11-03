@@ -123,6 +123,9 @@ function syncProjection(ctx: Context, session: Session, before: number): void {
   for (const event of session.events.slice(before)) ctx.emit('session/event', session, event)
 }
 
+/** The platform split this host boots: pwsh on win32, bash elsewhere. */
+const platformDefault = process.platform === 'win32' ? 'pwsh' : 'bash'
+
 describe('family resolution', () => {
   it('answers the router default before any override is recorded', async () => {
     const ctx = await boot({ families: { pwsh: true } , defaultFamily: 'pwsh' })
@@ -136,7 +139,7 @@ describe('family resolution', () => {
   it('answers the platform split when no shell provider exists', async () => {
     const ctx = await boot()
     try {
-      expect(ctx.sessionShell.family(agentOf(ctx).session)).toBe('bash')
+      expect(ctx.sessionShell.family(agentOf(ctx).session)).toBe(platformDefault)
     } finally {
       await ctx.fiber.dispose()
     }
@@ -169,7 +172,10 @@ describe('host capability read', () => {
   it('describes a single-executor host with only its boot default', async () => {
     const ctx = await boot()
     try {
-      expect(ctx.sessionShell.describe()).toEqual({ switchable: false, families: { bash: true, pwsh: false } })
+      expect(ctx.sessionShell.describe()).toEqual({
+        switchable: false,
+        families: { bash: platformDefault === 'bash', pwsh: platformDefault === 'pwsh' },
+      })
     } finally {
       await ctx.fiber.dispose()
     }
@@ -178,17 +184,18 @@ describe('host capability read', () => {
 
 describe('switching', () => {
   it('commits one durable event and swaps the restriction', async () => {
+    const target = platformDefault === 'bash' ? 'pwsh' : 'bash'
     const ctx = await boot({ families: { bash: true, pwsh: true } })
     try {
       const agent = agentOf(ctx)
       const before = agent.session.events.length
-      await expect(ctx.sessionShell.switch(agent, 'pwsh')).resolves.toBe('pwsh')
+      await expect(ctx.sessionShell.switch(agent, target)).resolves.toBe(target)
       const events = agent.session.events.filter(event => event.type === 'session-shell/change')
-      expect(events.map(event => event.data)).toEqual([{ family: 'pwsh' }])
+      expect(events.map(event => event.data)).toEqual([{ family: target }])
       expect(agent.session.events.length).toBe(before + 1)
       const visible = ctx.tools.schemas(scopeOf(agent.ctx)).map(schema => schema.name)
-      expect(visible).toContain('pwsh')
-      expect(visible).not.toContain('bash')
+      expect(visible).toContain(target)
+      expect(visible).not.toContain(target === 'pwsh' ? 'bash' : 'pwsh')
     } finally {
       await ctx.fiber.dispose()
     }

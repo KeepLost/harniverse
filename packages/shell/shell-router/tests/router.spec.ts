@@ -212,7 +212,9 @@ describe('mount degradation', () => {
   })
 
   it('routes a foreign untagged spec to the effective default family', async () => {
-    const { router } = await setupRouter({})
+    // The default family is pinned: this pins ROUTING, not the platform's
+    // default resolution (its own tests own that).
+    const { router } = await setupRouter({}, ['bash', 'pwsh'], { defaultFamily: 'bash' })
     const foreign: ShellExecSpec = { command: 'echo foreign', workdir: '/tmp', timeoutMs: 1000, stdoutMaxBytes: 1024, sandboxPolicy: undefined }
     await expect(router.run(foreign)).resolves.toMatchObject({ stdout: { text: 'bash-ran' } })
   })

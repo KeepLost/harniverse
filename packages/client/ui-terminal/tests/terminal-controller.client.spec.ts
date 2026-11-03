@@ -312,7 +312,8 @@ describe('TerminalPanelController session shell', () => {
       },
       switchShell: async () => ({ rpcId: RpcId('r0'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'unused', details: {} } } }),
     }
-    const { controller } = rig(face)
+    const { rpc, controller } = rig(face)
+    rpc.on('list', () => [])
     controller.bindSession(session)
     await settle()
     expect(controller.state.getSnapshot().shellSession).toEqual({ ...shellValue, pending: false })
@@ -325,11 +326,13 @@ describe('TerminalPanelController session shell', () => {
       switchShell: async () => ({ rpcId: RpcId('r0'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'unused', details: {} } } }),
     }
     const failing = rig(failingFace)
+    failing.rpc.on('list', () => [])
     failing.controller.bindSession(session)
     await settle()
     expect(failing.controller.state.getSnapshot().shellSession).toBeUndefined()
 
     const bare = rig()
+    bare.rpc.on('list', () => [])
     bare.controller.bindSession(session)
     await settle()
     expect(bare.controller.state.getSnapshot().shellSession).toBeUndefined()
@@ -346,7 +349,8 @@ describe('TerminalPanelController session shell', () => {
         return { rpcId: RpcId('r2'), result: { ok: true, value: { current } } }
       },
     }
-    const { controller } = rig(switchFace)
+    const { rpc, controller } = rig(switchFace)
+    rpc.on('list', () => [])
     controller.bindSession(session)
     await settle()
     controller.switchSessionShell('pwsh')
@@ -362,7 +366,8 @@ describe('TerminalPanelController session shell', () => {
       shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: shellValue } }),
       switchShell: async () => ({ rpcId: RpcId('r2'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'family missing', details: {} } } }),
     }
-    const { controller } = rig(refusedFace)
+    const { rpc, controller } = rig(refusedFace)
+    rpc.on('list', () => [])
     controller.bindSession(session)
     await settle()
     controller.switchSessionShell('pwsh')
@@ -370,6 +375,68 @@ describe('TerminalPanelController session shell', () => {
     const snapshot = controller.state.getSnapshot()
     expect(snapshot.shellSession).toEqual({ ...shellValue, pending: false })
     expect(snapshot.error).toBe('family missing')
+  })
+
+  it('a switch resolving after the state reset publishes nothing', async () => {
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const face: SessionsFace = {
+      shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: shellValue } }),
+      switchShell: async () => {
+        await gate
+        return { rpcId: RpcId('r2'), result: { ok: true, value: { current: 'pwsh' } } }
+      },
+    }
+    const { rpc, controller } = rig(face)
+    rpc.on('list', () => [])
+    controller.bindSession(session)
+    await settle()
+    controller.switchSessionShell('pwsh')
+    // The session unbinds (state reset drops shellSession) before the wire
+    // answers: the late resolution must not publish into the reset state.
+    controller.bindSession(undefined)
+    release?.()
+    await settle()
+    expect(controller.state.getSnapshot().shellSession).toBeUndefined()
+    expect(controller.state.getSnapshot().error).toBeUndefined()
+  })
+
+  it('a shell read racing a session switch does not publish into the new session', async () => {
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let served = false
+    const face: SessionsFace = {
+      shell: async () => {
+        if (served) return { rpcId: RpcId('r1'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'gone', details: {} } } }
+        served = true
+        await gate
+        return { rpcId: RpcId('r1'), result: { ok: true, value: { current: 'pwsh', switchable: true, families: { bash: true, pwsh: true } } } }
+      },
+      switchShell: async () => ({ rpcId: RpcId('r0'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'unused', details: {} } } }),
+    }
+    const { rpc, controller } = rig(face)
+    rpc.on('list', () => [])
+    controller.bindSession(session)
+    await settle()
+    controller.bindSession('s2' as SessionId)
+    release?.()
+    await settle()
+    // The stale read's answer never lands; the fresh session's own read
+    // (failing face) keeps the control hidden.
+    expect(controller.state.getSnapshot().shellSession).toBeUndefined()
+  })
+
+  it('an unavailable shell read leaves the control hidden without a banner', async () => {
+    const face: SessionsFace = {
+      shell: async () => ({ rpcId: RpcId('r1'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'no router', details: {} } } }),
+      switchShell: async () => ({ rpcId: RpcId('r0'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'unused', details: {} } } }),
+    }
+    const { rpc, controller } = rig(face)
+    rpc.on('list', () => [])
+    controller.bindSession(session)
+    await settle()
+    expect(controller.state.getSnapshot().shellSession).toBeUndefined()
+    expect(controller.state.getSnapshot().error).toBeUndefined()
   })
 
   it('same-family, face-less, and unloaded requests are no-ops', async () => {
@@ -382,14 +449,17 @@ describe('TerminalPanelController session shell', () => {
       },
     }
     const loaded = rig(face)
+    loaded.rpc.on('list', () => [])
     loaded.controller.bindSession(session)
     await settle()
     loaded.controller.switchSessionShell('bash')
     expect(switches).toEqual([])
 
     const idle = rig(face)
+    idle.rpc.on('list', () => [])
     idle.controller.switchSessionShell('pwsh')
     const faceless = rig()
+    faceless.rpc.on('list', () => [])
     faceless.controller.bindSession(session)
     await settle()
     faceless.controller.switchSessionShell('pwsh')

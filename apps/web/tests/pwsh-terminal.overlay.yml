@@ -1,18 +1,17 @@
-# The pwsh terminal-card lane swaps the shipped bash stack for the PowerShell
-# twin: the bash sandbox is disabled (patches cannot rename a row — `name`
-# is a guard), the pwsh sandbox and tool rows are enabled, and the permission
-# preset service therefore sees a confined executor while creating the fresh
-# Standard Profile navigation Session.
+# The pwsh terminal-card lane addresses the PowerShell family through the
+# shell router: the router owns the executor plane (both families mount in
+# their isolated scopes), so the lane only re-aims the default family and
+# enables the pwsh tool row. The permission preset service therefore sees a
+# confined executor while creating the fresh Standard Profile navigation
+# session.
 # The seeded scenario renders the logged pwsh call/result
 # through the real tools on replay; no command executes, but the composition
-# must boot the pwsh executor, so the lane skips on hosts without a usable
+# must boot the pwsh family, so the lane skips on hosts without a usable
 # `pwsh`.
-- id: bash-sandbox
-  name: '@deepseek-ai/dsh-bash-sandbox'
-  disabled: true
-- id: pwsh-sandbox
-  name: '@deepseek-ai/dsh-pwsh-sandbox'
-  disabled: false
+- id: shell-router
+  name: '@deepseek-ai/dsh-shell-router'
+  config:
+    defaultFamily: pwsh
 - id: tool-pwsh
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: false
