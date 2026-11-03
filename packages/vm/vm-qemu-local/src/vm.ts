@@ -19,9 +19,11 @@ import { join } from 'node:path'
 import { FrameReader, encodeFrame } from './frame.ts'
 import { DEFAULT_QEMU_BIN, buildQemuArgv, buildWrappedArgv, defaultAssetsDir, isKvmWritable, resolveAccel, resolveWrapPath, type QemuAccel } from './qemu.ts'
 import { HOST_CAPS, PROTOCOL_VERSION, negotiateVersion, parseGuestMessage, type HostMessage } from './protocol.ts'
-import { ExecSession, type CollectExecOptions, type ExecHandle, type ExecOptions, type ExecResult } from './exec.ts'
+import { ExecSession } from './exec.ts'
+import type { CollectExecOptions, ExecHandle, ExecOptions, ExecResult, VmWorldDescriptor, VmWorldExit } from '@deepseek-ai/dsh-vm'
 import { WorldFs } from './fs.ts'
-import { WorldEgress, type EgressPolicy } from './egress.ts'
+import { WorldEgress } from './egress.ts'
+import type { EgressPolicy } from '@deepseek-ai/dsh-vm'
 
 /** Assets (`vmlinuz-virt`, `initramfs.cpio.gz`) are absent from the assets directory. */
 export class AssetsMissingError extends Error {
@@ -138,24 +140,17 @@ export interface VmDeps {
   copyFile?: (source: string, destination: string) => Promise<void>
 }
 
-/** Facts about one booted world. */
-export interface WorldDescriptor {
+/** Facts about one booted world: the neutral seam facts plus QEMU specifics. */
+export interface WorldDescriptor extends VmWorldDescriptor {
   qemuBin: string
   accel: QemuAccel
   memoryMiB: number
   cpus: number
   pid: number | undefined
-  /** Whether the QEMU child runs under the sandbox wrapper. */
-  sandboxed: boolean
-  /** Milliseconds from spawn to the accepted `welcome`. */
-  readyMs: number
 }
 
 /** How the QEMU child terminated. */
-export interface WorldExit {
-  code: number | null
-  signal: NodeJS.Signals | null
-}
+export type WorldExit = VmWorldExit
 
 /** Live handle for one booted world. */
 export interface WorldHandle {
@@ -502,7 +497,9 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     memoryMiB,
     cpus,
     pid: child.pid,
-    sandboxed: wrapPath !== undefined,
+    provider: 'qemu-local',
+    isolation: 'full',
+    hostHardened: wrapPath !== undefined,
     readyMs: now() - startedAt,
   }
 

@@ -46,7 +46,7 @@ describe.skipIf(!worldAvailable)('vm-qemu-local: honest measurements over a real
     try {
       console.log(`[bench] environment: qemu=${probe.qemuVersion} accel=${world.descriptor.accel} `
         + `cpus=${world.descriptor.cpus} memoryMiB=${world.descriptor.memoryMiB} `
-        + `sandboxed=${world.descriptor.sandboxed} readyMs=${world.descriptor.readyMs}`)
+        + `sandboxed=${world.descriptor.hostHardened} readyMs=${world.descriptor.readyMs}`)
 
       // sha256 over 20 MiB of urandom: generation is not the measurement.
       // The applet has no /bin symlink in the minirootfs; busybox resolves it.

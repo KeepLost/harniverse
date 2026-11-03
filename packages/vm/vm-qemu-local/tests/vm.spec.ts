@@ -602,7 +602,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async (path, uid, gid) => { chowns.push([path, uid, gid]) },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(true)
+    expect(world.descriptor.hostHardened).toBe(true)
     const wrapped = seenArgv[0] ?? []
     expect(wrapped[0]).toMatch(/qemu-wrap$/)
     expect(wrapped[1]).toBe('--scratch')
@@ -631,7 +631,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async (path, uid, gid) => { chowns.push([path, uid, gid]) },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(false)
+    expect(world.descriptor.hostHardened).toBe(false)
     expect(seenArgv[0]?.[0]).toBe('qemu-system-x86_64')
     expect(chowns).toEqual([])
     const destroyed = world.destroy()
@@ -654,7 +654,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async () => { throw new Error('must not chown') },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(false)
+    expect(world.descriptor.hostHardened).toBe(false)
     expect(seenArgv[0]?.[0]).toBe('qemu-system-x86_64')
     const destroyed = world.destroy()
     setTimeout(() => { emitExit(0) }, 20)
@@ -674,7 +674,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
           chown: async () => { throw new Error('must not chown') },
         },
       )
-      expect(world.descriptor.sandboxed).toBe(true)
+      expect(world.descriptor.hostHardened).toBe(true)
       const destroyed = world.destroy()
       setTimeout(() => { emitExit(0) }, 20)
       await expect(destroyed).resolves.toBe('clean')
@@ -718,7 +718,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async () => { throw new Error('must not chown') },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(true)
+    expect(world.descriptor.hostHardened).toBe(true)
     expect(seenArgv[0]?.[0]).toMatch(/qemu-wrap$/)
     const destroyed = world.destroy()
     setTimeout(() => { emitExit(0) }, 20)

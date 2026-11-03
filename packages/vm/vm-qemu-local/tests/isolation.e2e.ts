@@ -95,7 +95,7 @@ describe.skipIf(!worldAvailable)('vm-qemu-local: guest isolation over a real mic
 
       const world = await openWorld({ readyTimeoutMs: 20_000 })
       try {
-        expect(world.descriptor.sandboxed).toBe(true)
+        expect(world.descriptor.hostHardened).toBe(true)
         expect(await world.ping(5_000)).toBeGreaterThan(0)
         const status = readFileSync(join('/proc', String(world.descriptor.pid), 'status'), 'utf8')
         expect(/^Uid:\t65534\t65534\t65534\t65534$/m.test(status)).toBe(true)

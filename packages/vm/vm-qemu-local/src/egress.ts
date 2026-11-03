@@ -11,21 +11,9 @@
  */
 
 import { connect as nodeConnect } from 'node:net'
+import type { EgressPolicy, EgressRequest } from '@deepseek-ai/dsh-vm'
 
-/** One approved-or-denied outbound connection request. */
-export interface EgressRequest {
-  /** Target hostname; resolved and dialed by the host. */
-  readonly host: string
-  /** Target port. */
-  readonly port: number
-}
-
-/**
- * Approval callback deciding one egress request.
- * @param request - the target the world wants to reach.
- * @returns whether the relay may dial it; asynchronous answers are awaited.
- */
-export type EgressPolicy = (request: EgressRequest) => boolean | Promise<boolean>
+export type { EgressPolicy, EgressRequest } from '@deepseek-ai/dsh-vm'
 
 /** The approval callback declined the request (or no policy was provided). */
 export class EgressDeniedError extends Error {
