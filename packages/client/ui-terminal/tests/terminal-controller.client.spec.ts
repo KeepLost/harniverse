@@ -300,16 +300,19 @@ describe('TerminalPanelController session binding', () => {
 })
 
 describe('TerminalPanelController session shell', () => {
+  type SessionsFace = NonNullable<TerminalPanelDeps['sessions']>
   const shellValue = { current: 'bash' as const, switchable: true, families: { bash: true, pwsh: true } }
 
   it('loads the session shell capability alongside shells and list', async () => {
     const calls: { sessionId: unknown }[] = []
-    const { controller } = rig({
+    const face: SessionsFace = {
       shell: async (payload) => {
         calls.push({ sessionId: payload.sessionId })
         return { rpcId: RpcId('r1'), result: { ok: true, value: shellValue } }
       },
-    })
+      switchShell: async () => ({ rpcId: RpcId('r0'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'unused', details: {} } } }),
+    }
+    const { controller } = rig(face)
     controller.bindSession(session)
     await settle()
     expect(controller.state.getSnapshot().shellSession).toEqual({ ...shellValue, pending: false })
@@ -317,9 +320,11 @@ describe('TerminalPanelController session shell', () => {
   })
 
   it('keeps the control hidden when the read fails or the face is absent', async () => {
-    const failing = rig({
+    const failingFace: SessionsFace = {
       shell: async () => ({ rpcId: RpcId('r1'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'no router', details: {} } } }),
-    })
+      switchShell: async () => ({ rpcId: RpcId('r0'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'unused', details: {} } } }),
+    }
+    const failing = rig(failingFace)
     failing.controller.bindSession(session)
     await settle()
     expect(failing.controller.state.getSnapshot().shellSession).toBeUndefined()
@@ -333,14 +338,15 @@ describe('TerminalPanelController session shell', () => {
   it('switches the family through the sessions face and republishes the current one', async () => {
     const switches: { sessionId: unknown; family: unknown }[] = []
     let current: 'bash' | 'pwsh' = 'bash'
-    const { controller } = rig({
+    const switchFace: SessionsFace = {
       shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: { ...shellValue, families: { bash: true, pwsh: false } } } }),
       switchShell: async (payload) => {
         switches.push({ sessionId: payload.sessionId, family: payload.family })
         current = payload.family === 'pwsh' ? 'pwsh' : 'bash'
         return { rpcId: RpcId('r2'), result: { ok: true, value: { current } } }
       },
-    })
+    }
+    const { controller } = rig(switchFace)
     controller.bindSession(session)
     await settle()
     controller.switchSessionShell('pwsh')
@@ -352,10 +358,11 @@ describe('TerminalPanelController session shell', () => {
   })
 
   it('a refused switch republishes pending false, keeps the family, and raises the banner', async () => {
-    const { controller } = rig({
+    const refusedFace: SessionsFace = {
       shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: shellValue } }),
       switchShell: async () => ({ rpcId: RpcId('r2'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'family missing', details: {} } } }),
-    })
+    }
+    const { controller } = rig(refusedFace)
     controller.bindSession(session)
     await settle()
     controller.switchSessionShell('pwsh')
@@ -367,9 +374,9 @@ describe('TerminalPanelController session shell', () => {
 
   it('same-family, face-less, and unloaded requests are no-ops', async () => {
     const switches: unknown[] = []
-    const face = {
+    const face: SessionsFace = {
       shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: shellValue } }),
-      switchShell: async (payload: { family: 'bash' | 'pwsh' }) => {
+      switchShell: async (payload) => {
         switches.push(payload.family)
         return { rpcId: RpcId('r2'), result: { ok: true, value: { current: payload.family } } }
       },
