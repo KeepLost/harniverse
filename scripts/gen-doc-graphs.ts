@@ -560,6 +560,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
   },
   {
+    key: 'vm',
+    pkg: 'vm',
+    title: 'Execution-world seam',
+    mode: 'seam',
+    implementations: ['vm-qemu-local'],
+    consumers: ['subprocess-vm', 'fs-vm', 'sandbox-vm'],
+    note: 'The world owns its guest kernel, root filesystem, and process space; the QEMU provider boots it with no network device and settles before the service is visible, and the subprocess, filesystem, and sandbox providers run the harness contracts inside on the world-neutral vocabulary.',
+  },
+  {
     key: 'ssh',
     pkg: 'ssh',
     title: 'POSIX SSH connection seam',
