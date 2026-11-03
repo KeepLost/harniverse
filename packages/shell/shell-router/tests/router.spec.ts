@@ -108,7 +108,7 @@ function labeledFake(key: 'bash' | 'pwsh', instances: Map<'bash' | 'pwsh', FakeF
 async function setupRouter(
   families: { bash?: FamilyExecutorPlugin; pwsh?: FamilyExecutorPlugin },
   probe: readonly ('bash' | 'pwsh')[] = ['bash', 'pwsh'],
-  config: { defaultFamily?: 'bash' | 'pwsh' } = {},
+  config: { defaultFamily?: 'bash' | 'pwsh'; families?: { bash?: unknown; pwsh?: unknown } } = {},
 ): Promise<{ ctx: Context; router: ShellRouter; fake: (family: 'bash' | 'pwsh') => FakeFamilyExecutor | undefined }> {
   const ctx = new Context()
   await ctx.plugin(PassthroughSandbox)
@@ -223,13 +223,32 @@ describe('mount degradation', () => {
     expect(router.availability()).toEqual({ default: 'pwsh', families: { bash: false, pwsh: false } })
   })
 
-  it('fails loud when no family could mount', async () => {
+  it('mounts the default family unprobed when the environment probes nothing', async () => {
+    const { router } = await setupRouter({}, [], { defaultFamily: 'bash' })
+    expect(router.availability()).toEqual({ default: 'bash', families: { bash: true, pwsh: false } })
+    const pwshHost = await setupRouter({}, [], { defaultFamily: 'pwsh' })
+    expect(pwshHost.router.availability()).toEqual({ default: 'pwsh', families: { bash: false, pwsh: true } })
+  })
+
+  it('fails loud only when no family could mount', async () => {
     const ctx = new Context()
     await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'read-only' })
     await ctx.plugin(LocalSubprocessRuntime)
     vi.spyOn(ctx.subprocess, 'resolveExecutable').mockRejectedValue(new Error('nothing resolves'))
-    await expect(ctx.plugin(ShellRouter)).rejects.toThrow('no shell family could mount')
+    await expect(ctx.plugin(ShellRouter, { families: { bash: {} } })).resolves.toBeDefined()
+    const failing = new Context()
+    await failing.plugin(PassthroughSandbox)
+    await failing.plugin(SandboxPolicyService, { mode: 'read-only' })
+    await failing.plugin(LocalSubprocessRuntime)
+    vi.spyOn(failing.subprocess, 'resolveExecutable').mockRejectedValue(new Error('nothing resolves'))
+    // Both families' plugin stacks throw in their constructors: even the
+    // unprobed default mount fails, so the routed host cannot boot.
+    class AllBrokenRouter extends ShellRouter {
+      protected override readonly familyPlugins = { bash: BrokenFamilyExecutor, pwsh: BrokenFamilyExecutor } as never
+    }
+    await expect(failing.plugin(AllBrokenRouter)).rejects.toThrow('no shell family could mount')
+    await failing.fiber.dispose()
   })
 })
 
@@ -241,4 +260,12 @@ describe('the real bash family end to end', () => {
     expect(result.stdout.text).toBe('routed')
     expect(result.sandbox?.denied).toBe(false)
   })
+  it('forwards the family composition entry to its mounted executor', async () => {
+    const { router } = await setupRouter({ bash: SandboxBashExecutor }, ['bash'], { defaultFamily: 'bash', families: { bash: { timeoutMs: 45000 } } })
+    const spec = router.resolve({ command: 'printf "%s" routed' })
+    // The composed entry reaches the real executor's resolve: its timeout
+    // overrides the class default (120s), proving the router forwarded it.
+    expect(spec.timeoutMs).toBe(45000)
+  })
+
 })

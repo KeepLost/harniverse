@@ -305,9 +305,15 @@ importers:
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../packages/context/session-reference
+      '@deepseek-ai/dsh-session-shell':
+        specifier: workspace:^
+        version: link:../../packages/shell/session-shell
       '@deepseek-ai/dsh-shell-backend-settings':
         specifier: workspace:^
         version: link:../../packages/shell/shell-backend-settings
+      '@deepseek-ai/dsh-shell-router':
+        specifier: workspace:^
+        version: link:../../packages/shell/shell-router
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../packages/skill/skill

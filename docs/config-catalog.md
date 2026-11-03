@@ -2971,6 +2971,17 @@ Requires: `subprocess` · `sandbox` · `sandboxPolicy`
 export interface Config {
   /** Family unstamped requests address; defaults to the boot-resolved selection. */
   defaultFamily?: ShellBackendSelection
+  /**
+   * Composition entries handed to each mounted family executor verbatim —
+   * the shape each family's own plugin config accepts. The retired bare
+   * executor rows carried these; the router row carries them now.
+   */
+  families?: {
+    /** Composition entry handed verbatim to the bash family executor. */
+    bash?: unknown
+    /** Composition entry handed verbatim to the pwsh family executor. */
+    pwsh?: unknown
+  }
 }
 ```
 

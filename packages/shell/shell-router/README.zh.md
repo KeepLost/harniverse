@@ -8,8 +8,9 @@
 
 ## 行为
 
-- **隔离的家族挂载。** 两个执行器在各自子作用域（`ctx.isolate('shell').isolate('settings')`）里注册 `ctx.shell`。两家族共享 `shell` settings 命名空间，`settings.register` 遇重复即 throw；双重隔离把各家族的 settings 注册引向既定的无 settings 回退（组合项配置），家族之间不冲突，宿主级 `shell` 命名空间保持未注册（见 Known Limitations）。
-- **先探测，后挂载。** 每个家族的二进制经 `ctx.subprocess.resolveExecutable` 探测（pwsh 家族探 `pwsh`，bash 探平台 shell）。探测失败的家族被跳过；探测通过但挂载抛错的家族带警告降级（其子作用域被销毁）；双双挂载失败会让插件加载失败关闭——路由宿主必须能服务*某种* shell。
+- **隔离的家族挂载，单一 settings 属主。** 两个执行器在各自子作用域（`ctx.isolate('shell')`）里注册 `ctx.shell`。家族共享 `shell` settings 命名空间，`settings.register` 遇重复即 throw，因此只有**生效默认**家族保持 settings 服务可见：其执行器在宿主级安装共享的 `shell` 节，设置卡片与热更新表现与单执行器宿主完全一致。其余家族额外隔离 `settings`，按组合项运行（见 Known Limitations）。
+- **探针排序，挂载把关。** 每个家族的二进制经 `ctx.subprocess.resolveExecutable` 探测（pwsh 家族探 `pwsh`，bash 探平台 shell）。探测通过者优先；探测失败只是失去优先——在什么都探不到的环境（空 PATH、最小容器）里默认家族照样未探测挂载并服务，执行失败按命令逐一暴露，与本路由器取代的单执行器宿主一致。真正决定可用性的是挂载：插件栈抛错的家族带警告降级（其子作用域被销毁），双双挂载失败才让插件加载失败关闭——路由宿主必须能服务*某种* shell。
+- **按家族的组合项透传。** 路由器的 `families: { bash?, pwsh? }` 配置把各家族执行器的组合项原样交付——即退役的裸执行器行所携带的形状（`timeoutMs`、输出上限……）。生效默认家族的条目同时成为 settings 节的组合基线。
 - **增量路由字段。** `ShellExecRequest.family` 可选且增量：`dsh-tool-bash` 盖 `'bash'`，`dsh-tool-pwsh` 盖 `'pwsh'`，未打标的外来 spec 路由到生效默认家族。每个解析出的 spec 随行 `ROUTED_FAMILY` symbol 标签，`run`/`start` 分发是一次映射读取，从不重推导。
 - **能力读取。** `availability()` 返回 `{ default, families: { bash, pwsh } }`——启动期解析的默认值与实际挂载的家族。[`dsh-session-shell`](../session-shell/) 以此做切换校验与能力面；别处的探测是结构化的（看 `availability()` 是否存在），绝不 `instanceof`。
 - **默认解析**依次为配置 `defaultFamily` → `$DSH_SHELL_BACKEND` → 平台分裂（win32 为 `pwsh`，其余 `bash`）。
@@ -39,5 +40,5 @@
 
 ## Known Limitations 与遗留工作
 
-- **路由宿主上 `shell` settings 命名空间保持未注册**——两家族都把它隔离走了，执行器配置来自组合项而非运行时 settings。等到有第二个消费者需要运行时执行器配置时，再考虑注册一个调和的宿主级命名空间。
+- **只有生效默认家族跟随运行时 settings**——另一家族按组合项运行；通过 `shell` 卡片的修改触达不到它。
 - **探测只覆盖二进制存在性**——存在但起不动 profile 的 `pwsh`，要等某次 pwsh 路由调用失败才暴露；挂载探测不执行命令。

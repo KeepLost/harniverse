@@ -189,6 +189,10 @@
     # from this composition.
     - id: shell-router
       name: '@deepseek-ai/dsh-shell-router'
+      config:
+        families:
+          bash:
+            timeoutMs: 60000
 
     - id: session-shell
       name: '@deepseek-ai/dsh-session-shell'

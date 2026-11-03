@@ -30,6 +30,17 @@ import SandboxPwshExecutor from '@deepseek-ai/dsh-pwsh-sandbox'
 export interface Config {
   /** Family unstamped requests address; defaults to the boot-resolved selection. */
   defaultFamily?: ShellBackendSelection
+  /**
+   * Composition entries handed to each mounted family executor verbatim —
+   * the shape each family's own plugin config accepts. The retired bare
+   * executor rows carried these; the router row carries them now.
+   */
+  families?: {
+    /** Composition entry handed verbatim to the bash family executor. */
+    bash?: unknown
+    /** Composition entry handed verbatim to the pwsh family executor. */
+    pwsh?: unknown
+  }
 }
 
 /** Constructor of one family executor; tests substitute failing doubles. */
@@ -82,6 +93,10 @@ export class ShellRouter extends ShellExecutor {
 
   static Config: z<Config> = z.object({
     defaultFamily: z.union([z.const('bash'), z.const('pwsh')]),
+    families: z.object({
+      bash: z.any(),
+      pwsh: z.any(),
+    }),
   })
 
   /** The family table; protected so tests substitute failing doubles. */
@@ -95,9 +110,13 @@ export class ShellRouter extends ShellExecutor {
   /** The boot-resolved family untagged requests route to. */
   readonly defaultFamily: ShellBackendSelection
 
+  /** Per-family composition entries forwarded at mount; protected for specialized hosts. */
+  protected readonly executorConfig: Config['families']
+
   constructor(ctx: Context, config: Config = {}) {
     super(ctx)
     this.defaultFamily = resolveDefaultFamily(config)
+    this.executorConfig = config.families
   }
 
   /** The effective default family's advertisement; executors are sandboxed alike. */
@@ -106,32 +125,70 @@ export class ShellRouter extends ShellExecutor {
   }
 
   /**
-   * Probe and mount every family. A family whose shell binary does not
-   * resolve — or whose stack cannot mount — stays unavailable with a warning
-   * while the others serve; a host with none of them cannot boot routed.
+   * Probe every family, then mount what passed. The effective default family
+   * mounts in a settings-visible scope and its executor installs the shared
+   * `shell` settings section at host level — the shell card and hot reload
+   * behave exactly as on a single-executor host. Every OTHER family isolates
+   * `settings` as well: the executors share one namespace, so a second
+   * registration would throw; the non-default family runs its composition
+   * config. A family whose shell binary does not resolve — or whose stack
+   * cannot mount — stays unavailable with a warning while the others serve;
+   * a host with none of them cannot boot routed.
    */
   protected async [Service.init](): Promise<void> {
     const selections: ShellBackendSelection[] = ['bash', 'pwsh']
+    const probed = new Set<ShellBackendSelection>()
     await Promise.all(selections.map(async (family) => {
       const binary = family === 'bash' ? defaultCommandShellPath() : 'pwsh'
       try {
         await this.ctx.subprocess.resolveExecutable(binary)
-        // Each family gets its own labels for both isolated names, so the two
-        // scopes never see each other's `shell` registration.
-        const scope = this.ctx.isolate('shell').isolate('settings')
-        await scope.plugin(this.familyPlugins[family], {} as never)
-        const executor = scope.get('shell')
-        if (executor === undefined) throw new Error('the family executor did not register ctx.shell')
-        this.mounted.set(family, executor)
+        probed.add(family)
       } catch (error: unknown) {
         this.ctx.logger.warn(`shell-router: the ${family} shell family is unavailable on this host: ${String(error)}`)
       }
     }))
+    // The probe RANKS, it does not gate: a stripped environment (empty PATH,
+    // minimal containers) fails every probe while the families would still
+    // mount and serve — exactly like the single-executor hosts this router
+    // replaces, whose exec failures surface per command. Only a family that
+    // probed AND fails to MOUNT stays unavailable.
+    let effective: ShellBackendSelection | undefined = probed.has(this.defaultFamily)
+      ? this.defaultFamily
+      : [...probed][0]
+    if (effective === undefined) {
+      effective = this.defaultFamily
+      this.ctx.logger.warn(`shell-router: no shell binary probed on this host; mounting the "${effective}" family unprobed`)
+    }
+    for (const family of selections) {
+      if (!probed.has(family) || family === effective) continue
+      await this.mountFamily(family, effective)
+    }
+    // The effective default mounts last so `effectiveDefault()` settles
+    // before its executor installs the host-level settings section.
+    await this.mountFamily(effective, effective)
     if (this.mounted.size === 0) {
       throw new Error(`shell-router: no shell family could mount (probed ${selections.join(', ')})`)
     }
     if (this.mounted.get(this.defaultFamily) === undefined) {
       this.ctx.logger.warn(`shell-router: default family "${this.defaultFamily}" is unavailable; unstamped requests address "${this.effectiveDefault()}"`)
+    }
+  }
+
+  /** Mount one family in its own scope; only the non-default isolates settings. */
+  private async mountFamily(family: ShellBackendSelection, effective: ShellBackendSelection): Promise<void> {
+    try {
+      // Each family gets its own labels for both isolated names, so the two
+      // scopes never see each other's `shell` registration.
+      const scope = family === effective
+        ? this.ctx.isolate('shell')
+        : this.ctx.isolate('shell').isolate('settings')
+      const entry = this.executorConfig?.[family]
+      await scope.plugin(this.familyPlugins[family], (entry === undefined ? {} : entry) as never)
+      const executor = scope.get('shell')
+      if (executor === undefined) throw new Error('the family executor did not register ctx.shell')
+      this.mounted.set(family, executor)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`shell-router: the ${family} shell family failed to mount: ${String(error)}`)
     }
   }
 
