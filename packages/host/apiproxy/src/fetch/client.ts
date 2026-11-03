@@ -40,6 +40,8 @@ import {
   sessionSelectModelValueSchema,
   sessionSelectModelTargetValueSchema,
   sessionSelectModelProfileValueSchema,
+  sessionShellValueSchema,
+  sessionSwitchShellValueSchema,
   sessionUpdateQueueValueSchema,
   sessionWorkStatusValueSchema,
 } from '../api/sessions.schema.ts'
@@ -150,6 +152,8 @@ export interface IApiClient {
     selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
     selectModelTarget?(payload: RequestPayload<'session.selectModelTarget'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModelTarget'>>>
     selectModelProfile?(payload: RequestPayload<'session.selectModelProfile'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModelProfile'>>>
+    shell(payload: RequestPayload<'session.shell'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.shell'>>>
+    switchShell(payload: RequestPayload<'session.switchShell'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.switchShell'>>>
     rename(payload: RequestPayload<'session.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.rename'>>>
     fork(payload: RequestPayload<'session.fork'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.fork'>>>
     continueArchive(payload: RequestPayload<'session.continueArchive'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.continueArchive'>>>
@@ -274,6 +278,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.selectModel': sessionSelectModelValueSchema,
   'session.selectModelTarget': sessionSelectModelTargetValueSchema,
   'session.selectModelProfile': sessionSelectModelProfileValueSchema,
+  'session.shell': sessionShellValueSchema,
+  'session.switchShell': sessionSwitchShellValueSchema,
   'session.rename': sessionRenameValueSchema,
   'session.fork': sessionForkValueSchema,
   'session.continueArchive': sessionContinueArchiveValueSchema,
@@ -641,6 +647,8 @@ export abstract class AbstractApiClient implements IApiClient {
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
     selectModelTarget: (payload, signal) => this.callUnary('session.selectModelTarget', payload, signal),
     selectModelProfile: (payload, signal) => this.callUnary('session.selectModelProfile', payload, signal),
+    shell: (payload, signal) => this.callUnary('session.shell', payload, signal),
+    switchShell: (payload, signal) => this.callUnary('session.switchShell', payload, signal),
     rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
     fork: (payload, signal) => this.callUnary('session.fork', payload, signal),
     continueArchive: (payload, signal) => this.callUnary('session.continueArchive', payload, signal),

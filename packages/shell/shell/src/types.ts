@@ -9,6 +9,7 @@
 
 import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { CollectedOutput, DshEnvironment, SubprocessCorrelation, SubprocessLimits } from '@deepseek-ai/dsh-subprocess'
+import type { ShellBackendSelection } from './backend.ts'
 
 export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
 export type { CollectedOutput, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-subprocess'
@@ -84,6 +85,14 @@ export interface ShellExecRequest {
   correlation?: SubprocessCorrelation | undefined
   /** Resource bounds the provider should enforce for this command. */
   limits?: SubprocessLimits | undefined
+  /**
+   * Shell family this call addresses, for hosts whose `ctx.shell` provider
+   * mounts more than one executor family (the router). Single-family hosts
+   * ignore it and run the request on their only executor; a family-addressed
+   * tool (`bash`, `pwsh`) stamps its own family so the visible tool and the
+   * executing family stay aligned by construction.
+   */
+  family?: ShellBackendSelection | undefined
 }
 
 /**

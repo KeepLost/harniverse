@@ -56,6 +56,7 @@
     "@deepseek-ai/dsh-command-reset": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-compaction-basic": "workspace:^",
+    "@deepseek-ai/dsh-compaction-body-limit-recovery": "workspace:^",
     "@deepseek-ai/dsh-compaction-image-offload": "workspace:^",
     "@deepseek-ai/dsh-compaction-lossless": "workspace:^",
     "@deepseek-ai/dsh-compaction-settings": "workspace:^",

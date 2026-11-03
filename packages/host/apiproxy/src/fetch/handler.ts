@@ -37,6 +37,8 @@ import {
   sessionSelectModelRequestSchema,
   sessionSelectModelTargetRequestSchema,
   sessionSelectModelProfileRequestSchema,
+  sessionShellRequestSchema,
+  sessionSwitchShellRequestSchema,
   sessionUpdateQueueRequestSchema,
   sessionWorkStatusRequestSchema,
 } from '../api/sessions.schema.ts'
@@ -153,6 +155,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
   'session.selectModelTarget': { schema: sessionSelectModelTargetRequestSchema, invoke: (api, r) => api.sessions.selectModelTarget?.(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'model target selection is unavailable', details: {} } } }) },
   'session.selectModelProfile': { schema: sessionSelectModelProfileRequestSchema, invoke: (api, r) => api.sessions.selectModelProfile?.(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'model profile selection is unavailable', details: {} } } }) },
+  'session.shell': { schema: sessionShellRequestSchema, invoke: (api, r) => api.sessions.shell?.(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'shell-unavailable', message: 'session shell is unavailable', details: {} } } }) },
+  'session.switchShell': { schema: sessionSwitchShellRequestSchema, invoke: (api, r) => api.sessions.switchShell?.(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'shell-unavailable', message: 'session shell switching is unavailable', details: {} } } }) },
   'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
   'session.fork': { schema: sessionForkRequestSchema, invoke: (api, r) => api.sessions.fork(r) },
   'session.continueArchive': { schema: sessionContinueArchiveRequestSchema, invoke: (api, r) => api.sessions.continueArchive?.(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'archive continuation is unavailable', details: {} } } }) },

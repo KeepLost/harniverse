@@ -20,11 +20,11 @@
 # platform split (pwsh on win32, bash elsewhere).
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
-  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'pwsh'"
+  disabled: !!js "process.env.DSH_SESSION_SHELL !== '1' && (process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'pwsh'"
 
 - id: tool-pwsh
   name: '@deepseek-ai/dsh-tool-pwsh'
-  disabled: !!js "(process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'bash'"
+  disabled: !!js "process.env.DSH_SESSION_SHELL !== '1' && (process.env.DSH_SHELL_BACKEND ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) === 'bash'"
 
 - id: tool-str-replace-editor
   name: '@deepseek-ai/dsh-tool-str-replace-editor'

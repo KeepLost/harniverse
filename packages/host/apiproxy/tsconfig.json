@@ -36,6 +36,9 @@
       "path": "../../compaction/compaction"
     },
     {
+      "path": "../../context/global-rules"
+    },
+    {
       "path": "../../core/agent"
     },
     {
@@ -64,9 +67,6 @@
     },
     {
       "path": "../../goal/goal"
-    },
-    {
-      "path": "../../context/global-rules"
     },
     {
       "path": "../../interaction/commands"
@@ -118,6 +118,9 @@
     },
     {
       "path": "../../settings/settings"
+    },
+    {
+      "path": "../../shell/session-shell"
     },
     {
       "path": "../../skill/skill"

@@ -362,6 +362,32 @@ export const sessionSelectModelProfileValueSchema = z.object({
   selected: modelSelectionSchema.optional(),
 }) as unknown as z.ZodType<Wire<ResponseValue<'session.selectModelProfile'>>>
 
+/** The two shell families a shell-routed host serves. */
+export const shellFamilySchema = z.union([z.literal('bash'), z.literal('pwsh')])
+
+/** session.shell request payload. */
+export const sessionShellRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.shell'>>>
+
+/** session.shell response value. */
+export const sessionShellValueSchema = z.object({
+  current: shellFamilySchema,
+  switchable: z.boolean(),
+  families: z.object({ bash: z.boolean(), pwsh: z.boolean() }),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.shell'>>>
+
+/** session.switchShell request payload. */
+export const sessionSwitchShellRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  family: shellFamilySchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.switchShell'>>>
+
+/** session.switchShell response value. */
+export const sessionSwitchShellValueSchema = z.object({
+  current: shellFamilySchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'session.switchShell'>>>
+
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
 export const contentBlockSchema = z.looseObject({ type: z.string() })
 

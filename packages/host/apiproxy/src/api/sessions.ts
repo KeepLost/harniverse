@@ -451,6 +451,23 @@ export interface SessionsApi {
   Promise<RpcResponse<{ profile: ModelProfileDescriptor; target?: ModelTarget; selected?: ModelSelection }>>
 
   /**
+   * Read the session's effective shell family and every family this host
+   * serves. `switchable` is false on hosts without the shell router, and
+   * `families` reports per-family availability for the switch affordance.
+   */
+  shell?(request: RpcRequest<{ sessionId: SessionId }>):
+  Promise<RpcResponse<{ current: 'bash' | 'pwsh'; switchable: boolean; families: { bash: boolean; pwsh: boolean } }>>
+
+  /**
+   * Switch the session's shell family. Effective at the next model request:
+   * the runtime-context snapshot announces the new family and the retired
+   * family's tools leave that request's catalog. In-flight shell calls and
+   * background terminals are untouched.
+   */
+  switchShell?(request: RpcRequest<{ sessionId: SessionId; family: 'bash' | 'pwsh' }>):
+  Promise<RpcResponse<{ current: 'bash' | 'pwsh' }>>
+
+  /**
    * Renames a session: appends a `session/title` event with the `user`
    * source, which pins the title against automatic regeneration. The
    * normalized accepted title and the title event's seq return so the caller

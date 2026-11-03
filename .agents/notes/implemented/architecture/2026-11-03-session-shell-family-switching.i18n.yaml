@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-03-session-shell-family-switching.md
+2026-11-03-session-shell-family-switching.md: b5d20132a712c3eafebd9174c5227e4f3e9dc6eb
+2026-11-03-session-shell-family-switching.zh.md: 1f91eed78397b63009e63771cd1e6663c2592e8e

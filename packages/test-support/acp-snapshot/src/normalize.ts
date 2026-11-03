@@ -22,7 +22,7 @@ const ENVIRONMENT = '{{environment}}'
  * compares on every platform; the owning package's tests pin each spelling.
  */
 const ENVIRONMENT_CLAUSE_RE
-  = /\((?:Linux, bash shell(?: with a (?:GNU|BusyBox) userland)?|macOS, zsh shell with a BSD userland|Windows, PowerShell shell)\)/g
+  = /\((?:Linux(?: with a (?:GNU|BusyBox) userland)?|macOS with a BSD userland|Windows)\)/g
 
 /** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g

@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
+import type { TerminalShell, WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconCloseFill14,
@@ -46,6 +46,8 @@ export interface TerminalPanelInjected {
   activate: (id: WebTerminalId | undefined) => void
   /** Create a terminal with the chosen shell path (undefined = default). */
   create: (shellPath: string | undefined) => void
+  /** Switch the session's shell family (hosts without the router hide the control). */
+  switchSessionShell: (family: 'bash' | 'pwsh') => void
   /** Close one terminal (idempotent) and stop rendering it. */
   close: (id: WebTerminalId) => void
   /** Rename one terminal (trimmed, 1–120 characters). */
@@ -163,7 +165,7 @@ export function TerminalPanelView(props: TerminalPanelViewProps) {
  * @returns the panel shell.
  */
 function TerminalPanelBody({
-  useSessions, useTerminals, useAppearance, closeView, bindSession, activate, create, close, rename,
+  useSessions, useTerminals, useAppearance, closeView, bindSession, activate, create, switchSessionShell, close, rename,
   write, resize, takeInput, bindSurface, t,
 }: TerminalPanelViewProps) {
   const session = useSessions(state => state.current)
@@ -183,6 +185,18 @@ function TerminalPanelBody({
   const [renaming, setRenaming] = useState(false)
 
   useEffect(() => { bindSession(session) }, [bindSession, session])
+
+  // A session-family switch re-aims the new-terminal picker at a discovered
+  // shell of that family; manual picks stand until the family changes again.
+  const shellFamily = panel.shellSession?.current
+  useEffect(() => {
+    if (shellFamily === undefined || panel.shells.length === 0) return
+    const matches = (shell: TerminalShell) => /pwsh|powershell/i.test(shell.name) || /pwsh|powershell/i.test(shell.path)
+    const found = shellFamily === 'pwsh'
+      ? panel.shells.find(shell => matches(shell))
+      : panel.shells.find(shell => !matches(shell))
+    if (found !== undefined) setShellPath(found.path)
+  }, [shellFamily, panel.shells])
 
   // The surface only mounts with a terminal to render: xterm paints an opaque
   // screen over whatever shares its box, so a placeholder and the surface are
@@ -336,6 +350,24 @@ function TerminalPanelBody({
           )
         ) : null}
         <div className={css.headerActions}>
+          {(() => {
+            const shellSession = panel.shellSession
+            if (shellSession?.switchable !== true) return null
+            return (
+              <div className={css.familyToggle} role="group" aria-label={t('sessionShell.label')} title={t('sessionShell.hint')}>
+                {(['bash', 'pwsh'] as const).map(family => (
+                  <button
+                    key={family}
+                    type="button"
+                    className={family === shellSession.current ? css.familyActive : css.familyButton}
+                    aria-pressed={family === shellSession.current}
+                    disabled={shellSession.pending || !shellSession.families[family]}
+                    onClick={() => { switchSessionShell(family) }}
+                  >{family}</button>
+                ))}
+              </div>
+            )
+          })()}
           <label className={css.shellLabel} htmlFor="terminal-panel-shell">{t('shell.label')}</label>
           <select
             id="terminal-panel-shell"

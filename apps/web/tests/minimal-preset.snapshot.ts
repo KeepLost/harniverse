@@ -84,7 +84,7 @@ describe('minimal agent preset', () => {
     const prompt = (requestHeader.system ?? '')
       .replaceAll(scaffold.workspaceCwd, '{{cwd}}')
       .replaceAll(hostname(), '{{machine}}')
-      .replace(/\((?:Linux, bash shell(?: with a (?:GNU|BusyBox) userland)?|macOS, zsh shell with a BSD userland|Windows, PowerShell shell)\)/g, '({{environment}})')
+      .replace(/\((?:Linux(?: with a (?:GNU|BusyBox) userland)?|macOS with a BSD userland|Windows)\)/g, '({{environment}})')
     expect({
       prompt,
       shell: text(shell).split('\n[stderr]')[0],

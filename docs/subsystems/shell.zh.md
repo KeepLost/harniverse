@@ -70,6 +70,14 @@ interface ShellExecRequest {
   correlation?: SubprocessCorrelation | undefined
   /** Resource bounds the provider should enforce for this command. */
   limits?: SubprocessLimits | undefined
+  /**
+   * Shell family this call addresses, for hosts whose `ctx.shell` provider
+   * mounts more than one executor family (the router). Single-family hosts
+   * ignore it and run the request on their only executor; a family-addressed
+   * tool (`bash`, `pwsh`) stamps its own family so the visible tool and the
+   * executing family stay aligned by construction.
+   */
+  family?: ShellBackendSelection | undefined
 }
 ```
 
@@ -243,6 +251,47 @@ interface ShellProcessRead {
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxsessionshell--sessionshellservice"></a>
+
+### `ctx.sessionShell` — `SessionShellService`
+
+The session-scoped shell family pointer: which family (bash | pwsh) a session's next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.
+
+```ts cordis-catalog
+/**
+ * Read one session's effective family without host I/O.
+ * @param session - session whose selection is requested.
+ * @returns its override, or the host default when none is recorded.
+ */
+family(session: Session): ShellBackendSelection
+
+/**
+ * Switch one agent's session to another shell family. Effective at the next
+ * model request: the runtime-context snapshot announces the new family and
+ * the retired tool leaves that request's catalog. Nothing is torn down —
+ * the other family's executors, persistent shells, and background jobs keep
+ * running underneath.
+ * @param agent - live agent owning the session.
+ * @param family - family to select.
+ * @returns the committed family; a same-family request commits nothing.
+ * @throws when the family is unavailable on this host, the host composes no
+ * router, or the agent is no longer live.
+ */
+async switch(agent: Agent, family: ShellBackendSelection): Promise<ShellBackendSelection>
+
+/**
+ * Host capability read for the switch affordance: whether switching is
+ * possible and which families are usable. A single-executor host reports
+ * only its boot default.
+ * @returns switchability plus per-family availability.
+ */
+describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean } }
+```
+
+Types: [Agent](core.md) · [Session](session.md)
+
+Source: [`packages/shell/session-shell/src/index.ts:102`](../../packages/shell/session-shell/src/index.ts)
 
 <a id="ctxshell--shellexecutor-abstract-seam"></a>
 

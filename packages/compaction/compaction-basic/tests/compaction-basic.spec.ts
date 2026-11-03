@@ -676,9 +676,47 @@ describe('pressure measurement and retention', () => {
     expect(session.surface.nodes.length).toBeLessThan(8)
   })
 
-  it('does not write a compaction bracket when an agent request has no safe prefix', async () => {
+  it('compacts on agent request below a window-scaled retention budget', async () => {
+    // The reported defect: with the default ratio policy on a large context
+    // window, the retained-tail budget exceeded the whole visible surface, so
+    // an explicit model request was a guaranteed no-op. The request now caps
+    // retention at the current open turn and releases the closed turns.
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(4)
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.not.toBeNull()
+    expect(session.surface.nodes.length).toBeLessThan(8)
+  })
+
+  it('resolves null when an agent request has no safe prefix', async () => {
     const compact = service(compactConfig)
     const session = conversation(1)
+
+    // The single closed turn is small enough that its summary frame cannot
+    // shrink it: the attempt rolls back durably and the request reports the
+    // ordinary no-op instead of an error.
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
+  })
+
+  it('writes no compaction bracket when the whole surface is the open turn', async () => {
+    const compact = service(compactConfig)
+    const session = Session.create(SessionId('open-turn-only'))
+    session.append('turn/start', { turn: 1 })
+    session.append('request/header', { header: { config: { provider: MODEL, model: MODEL } }, reason: 'initial' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'fixture '.repeat(40).trim() }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'fixture assistant' }],
+        source: { kind: 'model', provider: MODEL, model: MODEL },
+      }),
+    }, { surfaceOp: 'append' })
 
     await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
     expect(session.events.some(event => event.type === 'compaction/start')).toBe(false)

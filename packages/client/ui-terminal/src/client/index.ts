@@ -50,7 +50,7 @@ export const inject = ['slots', 'locale', 'layout', 'connection', 'theme']
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-terminal: dictionaries')
   const connection = ctx.get('connection') as ConnectionHandle
-  const controller = new TerminalPanelController({ rpc: connection.rpc, events: connection.api.events })
+  const controller = new TerminalPanelController({ rpc: connection.rpc, events: connection.api.events, sessions: connection.api.sessions })
   ctx.effect(() => () => { controller.dispose() }, 'ui-terminal: panel controller')
   // xterm.js renders from JavaScript values, so a palette or content
   // font-size change has to be pushed into it; the revision counter is the
@@ -77,6 +77,7 @@ export function apply(ctx: ClientContext): void {
       },
       activate: controller.activate.bind(controller),
       create: controller.create.bind(controller),
+      switchSessionShell: controller.switchSessionShell.bind(controller),
       close: controller.close.bind(controller),
       rename: controller.rename.bind(controller),
       write: controller.write.bind(controller),

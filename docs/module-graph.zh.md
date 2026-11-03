@@ -230,6 +230,7 @@ flowchart TD
     pkg_command_compact["command-compact"]
     pkg_compaction["compaction"]
     pkg_compaction_basic["compaction-basic"]
+    pkg_compaction_body_limit_recovery["compaction-body-limit-recovery"]
     pkg_compaction_image_offload["compaction-image-offload"]
     pkg_compaction_lossless["compaction-lossless"]
     pkg_compaction_settings["compaction-settings"]
@@ -381,9 +382,11 @@ flowchart TD
     pkg_bash_sandbox["bash-sandbox"]
     pkg_pwsh_local["pwsh-local"]
     pkg_pwsh_sandbox["pwsh-sandbox"]
+    pkg_session_shell["session-shell"]
     pkg_shell["shell"]
     pkg_shell_backend_settings["shell-backend-settings"]
     pkg_shell_env["shell-env"]
+    pkg_shell_router["shell-router"]
     pkg_tool_bash["tool-bash"]
     pkg_tool_bash_persistent["tool-bash-persistent"]
     pkg_tool_pwsh["tool-pwsh"]
@@ -1027,6 +1030,12 @@ flowchart TD
   pkg_command_compact --> pkg_commands
   pkg_command_compact --> pkg_compaction
   pkg_command_compact --> pkg_invariants
+  pkg_compaction_body_limit_recovery --> pkg_agent
+  pkg_compaction_body_limit_recovery --> pkg_compaction
+  pkg_compaction_body_limit_recovery --> pkg_image_offload_policy
+  pkg_compaction_body_limit_recovery --> pkg_invariants
+  pkg_compaction_body_limit_recovery --> pkg_llm
+  pkg_compaction_body_limit_recovery --> pkg_session
   pkg_command_reset --> pkg_commands
   pkg_command_reset --> pkg_context_reset
   pkg_command_reset --> pkg_invariants
@@ -1151,6 +1160,10 @@ flowchart TD
   pkg_permission_presets --> pkg_settings
   pkg_permission_presets --> pkg_shell
   pkg_permission_presets --> pkg_user_approval
+  pkg_shell_router --> pkg_bash_sandbox
+  pkg_shell_router --> pkg_invariants
+  pkg_shell_router --> pkg_pwsh_sandbox
+  pkg_shell_router --> pkg_shell
   pkg_agent_loop --> pkg_agent
   pkg_agent_loop --> pkg_attachment
   pkg_agent_loop --> pkg_invariants
@@ -1369,6 +1382,14 @@ flowchart TD
   pkg_tool_working_directory --> pkg_invariants
   pkg_tool_working_directory --> pkg_tools
   pkg_tool_working_directory --> pkg_working_directory
+  pkg_session_shell --> pkg_agent
+  pkg_session_shell --> pkg_invariants
+  pkg_session_shell --> pkg_session
+  pkg_session_shell --> pkg_session_projection
+  pkg_session_shell --> pkg_shell
+  pkg_session_shell --> pkg_shell_router
+  pkg_session_shell --> pkg_system_prompt
+  pkg_session_shell --> pkg_tools
   pkg_shell_env --> pkg_home_paths
   pkg_shell_env --> pkg_invariants
   pkg_shell_env --> pkg_session_persistence
@@ -2369,6 +2390,7 @@ flowchart TD
 | [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`session-query`](../packages/session-query/session-query) | `session-query` | [`brand`](../packages/util/brand), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-title`](../packages/session/session-title) |
 | [`command-compact`](../packages/compaction/command-compact) | `compaction` | [`agent-presets`](../packages/preset/agent-presets), [`commands`](../packages/interaction/commands), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`compaction-body-limit-recovery`](../packages/compaction/compaction-body-limit-recovery) | `compaction` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`image-offload-policy`](../packages/compaction/image-offload-policy), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`command-reset`](../packages/context/command-reset) | `context` | [`commands`](../packages/interaction/commands), [`context-reset`](../packages/context/context-reset), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`context-snapshot`](../packages/context/context-snapshot) | `context` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`user-approval`](../packages/interaction/user-approval) | `interaction` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`supervision`](../packages/interaction/supervision), [`system-prompt`](../packages/core/system-prompt) |
@@ -2389,6 +2411,7 @@ flowchart TD
 | [`session-reference`](../packages/context/session-reference) | `context` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`session-query`](../packages/session-query/session-query), [`typert-protocol`](../packages/typert/protocol) |
 | [`host-official-session-import`](../packages/host/official-session-import) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session-import`](../packages/session/session-import), [`session-persistence`](../packages/session/session-persistence), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`permission-presets`](../packages/interaction/permission-presets) | `interaction` | [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`user-approval`](../packages/interaction/user-approval) |
+| [`shell-router`](../packages/shell/shell-router) | `shell` | [`bash-sandbox`](../packages/shell/bash-sandbox), [`invariants`](../packages/runtime-diagnostics/invariants), [`pwsh-sandbox`](../packages/shell/pwsh-sandbox), [`shell`](../packages/shell/shell) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-import`](../packages/session/session-import), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`agent-tool-presentation`](../packages/core/agent-tool-presentation) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants), [`tools`](../packages/core/tools) |
 | [`tool-goal`](../packages/goal/tool-goal) | `goal` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -2422,6 +2445,7 @@ flowchart TD
 | [`tool-scheduler`](../packages/schedule/tool-scheduler) | `schedule` | [`invariants`](../packages/runtime-diagnostics/invariants), [`scheduler`](../packages/schedule/scheduler), [`tools`](../packages/core/tools) |
 | [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy) | `session` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`tools`](../packages/core/tools) |
 | [`tool-working-directory`](../packages/session/tool-working-directory) | `session` | [`invariants`](../packages/runtime-diagnostics/invariants), [`tools`](../packages/core/tools), [`working-directory`](../packages/session/working-directory) |
+| [`session-shell`](../packages/shell/session-shell) | `shell` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`shell`](../packages/shell/shell), [`shell-router`](../packages/shell/shell-router), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`shell-env`](../packages/shell/shell-env) | `shell` | [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`session-persistence`](../packages/session/session-persistence), [`shell`](../packages/shell/shell), [`tools`](../packages/core/tools) |
 | [`tool-bash-persistent`](../packages/shell/tool-bash-persistent) | `shell` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`shell`](../packages/shell/shell), [`terminal`](../packages/terminal/terminal), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools), [`working-directory`](../packages/session/working-directory) |
 | [`tool-pwsh-persistent`](../packages/shell/tool-pwsh-persistent) | `shell` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`terminal`](../packages/terminal/terminal), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |

@@ -230,7 +230,10 @@ flowchart LR
   pkg_shell["shell"]
   svc_shell["ctx.shell<br/>Bash executor seam"]
   pkg_pwsh_local["pwsh-local"]
+  pkg_shell_router["shell-router"]
   pkg_tool_pwsh["tool-pwsh"]
+  pkg_session_shell["session-shell"]
+  svc_sessionShell["ctx.sessionShell<br/>Session shell family pointer"]
   pkg_shell_env["shell-env"]
   svc_shellEnv["ctx.shellEnv<br/>Managed bash environment registry"]
   pkg_terminal["terminal"]
@@ -398,6 +401,7 @@ flowchart LR
   pkg_session_query --> svc_sessionQuery
   pkg_session_query_sqlite --> svc_sessionQuery
   pkg_session_reference --> svc_sessionReferenceResolver
+  pkg_session_shell --> svc_sessionShell
   pkg_session_title --> svc_sessionTitle
   pkg_session_title_all_prompts_llm --> svc_sessionTitle
   pkg_session_title_first_prompt_llm --> svc_sessionTitle
@@ -405,6 +409,7 @@ flowchart LR
   pkg_settings_file --> svc_settings
   pkg_shell --> svc_shell
   pkg_shell_env --> svc_shellEnv
+  pkg_shell_router --> svc_shell
   pkg_skill --> svc_skills
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
@@ -538,6 +543,8 @@ flowchart LR
   svc_sessionProjections --> pkg_tool_todo
   svc_sessionQuery --> pkg_session_reference
   svc_sessionQuery --> pkg_tool_session_query
+  svc_sessionShell --> pkg_tool_bash
+  svc_sessionShell --> pkg_tool_pwsh
   svc_sessions --> pkg_agent
   svc_sessions --> pkg_agent_loop
   svc_sessions --> pkg_invariants
@@ -655,7 +662,7 @@ flowchart LR
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
 | `ctx.sessionImport` | `seam` | [`session-import`](../packages/session/session-import) | [`session-import`](../packages/session/session-import) | [`agent-loop`](../packages/core/agent-loop), [`client-connection`](../packages/client/connection), [`host-official-session-import`](../packages/host/official-session-import), [`host-apiproxy`](../packages/host/apiproxy) | - | The runtime maps official v1-v4 logs (plain or Zstandard-framed) lossily into content-addressed archival native sessions with the source artifact retained beside them; the agent loop honors the contract resume guard so imported history never executes, the HTTP route and the official-session Remote import through it, and the API proxy continues an archive into a new session from its continuation seed. |
 | `ctx.mcpResources` | `seam` | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-client`](../packages/mcp/mcp-client) | - | Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list. |
-| `ctx.mcpConnections` | `seam` | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client), [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | 每个已配置服务器由一个 host 全局 owner 插件持有活连接与重连策略；preset 消费者挂载 registrar 子件暴露作用域工具，注册表跟踪世代，任何消费者都不会看到半应用的机群。 |
+| `ctx.mcpConnections` | `seam` | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client), [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | One host-global owner plugin per configured server holds the live connection and reconnect policy; preset consumers mount registrar children that expose scoped tools while the registry tracks generations so no consumer ever sees a half-applied fleet. |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |
@@ -697,7 +704,8 @@ flowchart LR
 | `ctx.terminalController` | `seam` | [`api-terminal-controller`](../packages/api/terminal-controller) | [`api-terminal-controller`](../packages/api/terminal-controller) | - | - | The terminal controller owns per-Session interactive USER shells over the subprocess PTY seam (full harness environment, login startup, never sandbox-confined, never model-visible) and serves snapshot-then-output screen frames to browser panels through the gateway terminal/* Remote endpoints and the apiproxy events.terminal / events.hold SSE streams. |
 | `ctx.browserController` | `seam` | [`api-browser-controller`](../packages/api/browser-controller) | [`api-browser-controller`](../packages/api/browser-controller) | - | - | The browser controller runs a real Chromium process per Session over the subprocess spawn seam and drives it through the Chrome DevTools Protocol, so panel page traffic leaves the HOST network position (scrubbed environment, throwaway profile, operator-owned navigation policy, never model-visible); pages reach browser panels as screencast image frames through the gateway browser/* Remote endpoints and the apiproxy events.browser SSE stream. |
 | `ctx.governor` | `seam` | [`governor`](../packages/monitor/governor) | [`governor`](../packages/monitor/governor) | [`tool-bash`](../packages/shell/tool-bash), [`client-ui-governor`](../packages/client/ui-governor) | - | The governor meters correlated shell/terminal spawns from /proc (plus ss TCP attribution), enforces the global memory budget in tiers (cgroup-v2, prlimit plus watchdog, observe), and arbitrates shared-pool session quotas; the bash tool stamps correlations and merges breach facts into result meta, and the board consumes the governor Remote. |
-| `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
+| `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local), [`shell-router`](../packages/shell/shell-router) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
+| `ctx.sessionShell` | `core` | [`session-shell`](../packages/shell/session-shell) | [`session-shell`](../packages/shell/session-shell) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | The per-session pointer over the routed shell seam: durable family switching effective at the next model request, per-agent tool retirement of the inactive family, and the runtime-context fact that announces the family. |
 | `ctx.shellEnv` | `core` | [`shell-env`](../packages/shell/shell-env) | - | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | Plugins declare effect-scoped DSH_* facts; each shell tool collects one trusted snapshot per execution and its executor rebuilds the namespace. |
 | `ctx.terminals` | `seam` | [`terminal`](../packages/terminal/terminal) | [`terminal-bash`](../packages/terminal/terminal-bash) | [`tool-terminal`](../packages/terminal/tool-terminal) | - | The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-terminal exposes the owner-scoped model tools. |
 | `ctx.sandbox` | `seam` | [`sandbox`](../packages/sandbox/sandbox) | [`sandbox-local`](../packages/sandbox/sandbox-local), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash) | - | Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement. |
