@@ -79,6 +79,22 @@ if (mode === 'no-bind') {
           send({ t: 'welcome', v: VERSION, caps: ['ping', 'exec', 'fs'], agent: 'qemu-stub' })
         } else if (payload.t === 'ping') {
           send({ t: 'pong', n: payload.n })
+        } else if (payload.t === 'exec') {
+          // Minimal echo exec so service-level unit tests can drive the seam.
+          // Output and exit ride a later tick than the start ack, the way a
+          // real agent's child scheduling spaces them from the ack write.
+          send({ t: 'exec.started', id: payload.id, pid: 4242 })
+          setTimeout(() => {
+            send({ t: 'exec.out', id: payload.id, s: 'o', d: Buffer.from(payload.argv.join(' '), 'utf8').toString('base64') })
+            send({ t: 'exec.exit', id: payload.id, code: 0, signal: null })
+          }, 5)
+        } else if (payload.t === 'exec.signal') {
+          send({ t: 'exec.acked', id: payload.id })
+        } else if (payload.t === 'fs') {
+          if (payload.op === 'stat') send({ t: 'fs.ok', id: payload.id, st: { kind: 'file', size: 1, mode: 0o644, mtimeMs: 1 } })
+          else if (payload.op === 'read') send({ t: 'fs.ok', id: payload.id, d: Buffer.from('x', 'utf8').toString('base64') })
+          else if (payload.op === 'list') send({ t: 'fs.ok', id: payload.id, entries: [{ name: 'a', kind: 'file' }] })
+          else send({ t: 'fs.ok', id: payload.id })
         } else if (payload.t === 'shutdown') {
           // ignore-shutdown keeps serving: the host must fall back to SIGKILL.
           if (mode === 'ignore-shutdown') continue

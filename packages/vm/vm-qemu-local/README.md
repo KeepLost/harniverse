@@ -8,10 +8,11 @@ Local micro-VM execution-world seed: boots a QEMU `pc`-machine guest that owns i
 
 - `probeWorld(options)` — environment facts (QEMU binary version, effective acceleration, staged assets, sandbox availability) without booting anything.
 - `openWorld(options)` — boot one world and complete the protocol handshake; returns a `WorldHandle` with `descriptor`, `exit`, `ping(timeoutMs)`, `exec`, `spawn`, `fs`, and `destroy()`.
+- `QemuLocalWorld` — the same world as a Cordis plugin service on `ctx.vm` (`@deepseek-ai/dsh-vm`'s seam): it boots from plugin config, settles before the service is visible, and destroys the world on disposal. The neutral exec/fs/egress vocabulary lives in `@deepseek-ai/dsh-vm`; this package re-exports it.
 - Exec operations — `exec(argv, options)` runs one guest process to completion and collects bounded stdout/stderr; `spawn(argv, options)` returns a streaming handle with `writeStdin`, `closeStdin`, `signal`, `onOutput`, and `exit`. Options cover `env` (full replacement), `cwd`, `pty` (pipes otherwise), `stdin`, `timeoutMs`, and `maxOutputBytes`.
 - Filesystem operations — `world.fs` exposes the eight-op set (`readFile`, `writeFile`, `stat`, `list`, `mkdir`, `unlink`, `rmdir`, `rename`) with guest errnos mapped to Node-style codes (`GuestFsError`).
 - Egress relay — `world.egress.open(host, port)` dials outbound targets on the world's behalf only after its `egressPolicy` callback approves; with no policy every request denies (`EgressDeniedError`). Handles stream both directions and close with the world.
-- Sandbox hardening — when the assets hold `qemu-wrap` (built on Linux with a C compiler), `openWorld` supervises QEMU through it: a Landlock ruleset that makes the whole filesystem read-only except one scratch directory, rlimits, and a uid drop to 65534 on root hosts (`descriptor.sandboxed`).
+- Sandbox hardening — when the assets hold `qemu-wrap` (built on Linux with a C compiler), `openWorld` supervises QEMU through it: a Landlock ruleset that makes the whole filesystem read-only except one scratch directory, rlimits, and a uid drop to 65534 on root hosts (`descriptor.hostHardened`).
 - Frame codec (`encodeFrame`, `FrameReader`), protocol constants (`PROTOCOL_VERSION`), and the QEMU argv planner (`buildQemuArgv`) as public API for reuse by later providers.
 
 ```ts
@@ -82,4 +83,4 @@ The script downloads the pinned Alpine 3.20.3 minirootfs and virt kernel (digest
 - **Egress is host-side only** — the relay lives in the host API; guest workloads have no socket API over the control protocol yet (a guest-visible proxy is future work with the data plane).
 - **Sandboxed worlds prefer TCG** — the dropped uid 65534 usually cannot open `/dev/kvm` (0660 root:kvm), so `auto` acceleration stays on TCG under the wrapper; an explicit `accel: 'kvm'` is honored and fails loudly where DAC denies.
 - **Root hosts pay a boot-asset copy** — sandboxed boots copy kernel+initrd (≈ 14 MiB) into the scratch directory per world; measurable but small next to the ≈ 3 s boot.
-- **Wrapper is Linux-only** — `qemu-wrap` builds and applies only on Linux with a C compiler; other platforms report `sandboxed: false` and spawn QEMU directly.
+- **Wrapper is Linux-only** — `qemu-wrap` builds and applies only on Linux with a C compiler; other platforms report `hostHardened: false` and spawn QEMU directly.

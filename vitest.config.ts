@@ -47,6 +47,13 @@ const windowsUnsupportedTests = process.platform === 'win32'
       // vm.ts's coverage moves to the Linux lane
       // (windowsVmCoverageExclusions below).
       'packages/vm/vm-qemu-local/tests/vm.spec.ts',
+      // Same substrate as vm.spec: the service suite drives the qemu-stub
+      // over real AF_UNIX chardev sockets, which Windows Node cannot host.
+      'packages/vm/vm-qemu-local/tests/service.spec.ts',
+      // The world capability providers assert POSIX guest-path semantics and
+      // a POSIX-resolving sandbox policy root; the win32 lane would see the
+      // policy host-resolver mangle guest paths. The Linux lane owns them.
+      'packages/vm/fs-vm/tests/**/*.spec.ts',
       'packages/subprocess/subprocess/tests/**/*.spec.ts',
       'packages/subprocess/subprocess-local/tests/local.spec.ts',
       'packages/subprocess/subprocess-local/tests/process-inspector.spec.ts',
@@ -109,6 +116,13 @@ const windowsVmCoverageExclusions = process.platform === 'win32'
       'packages/vm/vm-qemu-local/src/vm.ts',
       'packages/vm/vm-qemu-local/src/index.ts',
       'packages/vm/vm-qemu-local/src/qemu.ts',
+      // fs-vm's suite joins windowsUnsupportedTests above (POSIX guest-path
+      // semantics), so the Linux coverage lane owns its files at the full bar.
+      'packages/vm/fs-vm/src/**/*.ts',
+      // The seam base class's disposal effect executes on every lane (the
+      // provider suites assert destroyed worlds), but win32's v8 reporter
+      // misses the nested effect arrow; the Linux lane owns it at full bar.
+      'packages/vm/vm/src/index.ts',
     ]
   : []
 

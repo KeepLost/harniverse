@@ -36,6 +36,7 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/util/home-paths': 'The package only resolves harness-owned host paths; model-facing consumers own any rendered use.',
   'packages/util/identity': 'The package only renders the outbound product identity string; provider adapters own every model-facing byte of their requests.',
   'packages/util/launch-environment': 'The package only resolves host environment values; model-facing consumers own any rendered use.',
+  'packages/vm/vm': 'The execution-world Service Definition registers no model context; capability consumers own every rendered use.',
   'packages/vm/vm-qemu-local': 'The package boots and supervises an isolated micro-VM guest over its own wire protocol; it registers no harness model context.',
 }
 
@@ -86,6 +87,9 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/ssh/fs-ssh': { kind: 'indirect', reason: 'The remote filesystem adapter delegates model rendering to the filesystem tools.' },
   'packages/ssh/subprocess-ssh': { kind: 'indirect', reason: 'The remote subprocess adapter delegates model rendering to the bash, terminal and LSP consumers.' },
   'packages/ssh/sandbox-ssh': { kind: 'indirect', reason: 'The remote confinement adapter delegates mode, denial and enforcement rendering to the sandbox consumers.' },
+  'packages/vm/subprocess-vm': { kind: 'indirect', reason: 'The world subprocess adapter delegates model rendering to the bash, terminal and LSP consumers.' },
+  'packages/vm/fs-vm': { kind: 'indirect', reason: 'The world filesystem adapter delegates model rendering to the filesystem tools.' },
+  'packages/vm/sandbox-vm': { kind: 'indirect', reason: 'The world confinement adapter delegates mode, denial and enforcement rendering to the sandbox consumers.' },
   'packages/test-support/client-runtime': { kind: 'none', reason: 'Browser-side test infrastructure (jsdom bench); registers nothing model-facing.' },
   'packages/client/ui-slots': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-attachment': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },

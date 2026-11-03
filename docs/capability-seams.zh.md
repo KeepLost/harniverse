@@ -189,6 +189,12 @@ flowchart LR
   pkg_agent_spine_demo["agent-spine-demo"]
   pkg_goal["goal"]
   svc_goals["ctx.goals<br/>Same-session goal domain"]
+  pkg_vm["vm"]
+  svc_vm["ctx.vm<br/>Execution-world seam"]
+  pkg_vm_qemu_local["vm-qemu-local"]
+  pkg_subprocess_vm["subprocess-vm"]
+  pkg_fs_vm["fs-vm"]
+  pkg_sandbox_vm["sandbox-vm"]
   pkg_ssh["ssh"]
   svc_ssh["ctx.ssh<br/>POSIX SSH connection seam"]
   pkg_fs_ssh["fs-ssh"]
@@ -430,6 +436,8 @@ flowchart LR
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
   pkg_user_questions --> svc_userQuestions
+  pkg_vm --> svc_vm
+  pkg_vm_qemu_local --> svc_vm
   pkg_web --> svc_web
   pkg_web_deepseek_api --> svc_web
   pkg_web_fetch_http --> svc_web
@@ -599,6 +607,9 @@ flowchart LR
   svc_typert --> pkg_api_gateway
   svc_typert --> pkg_typert_loader
   svc_userQuestions --> pkg_tool_ask_user
+  svc_vm --> pkg_fs_vm
+  svc_vm --> pkg_sandbox_vm
+  svc_vm --> pkg_subprocess_vm
   svc_web --> pkg_tool_web
   svc_webServer --> pkg_connection
   svc_webServer --> pkg_hmr
@@ -676,6 +687,7 @@ flowchart LR
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`headless`](../packages/bundle/headless), [`host-apiproxy`](../packages/host/apiproxy) | - | Layers the default ModelSelection through settings so direct and Host-backed Agent entry points share one state owner. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
+| `ctx.vm` | `seam` | [`vm`](../packages/vm/vm) | [`vm-qemu-local`](../packages/vm/vm-qemu-local) | [`subprocess-vm`](../packages/vm/subprocess-vm), [`fs-vm`](../packages/vm/fs-vm), [`sandbox-vm`](../packages/vm/sandbox-vm) | - | The world owns its guest kernel, root filesystem, and process space; the QEMU provider boots it with no network device and settles before the service is visible, and the subprocess, filesystem, and sandbox providers run the harness contracts inside on the world-neutral vocabulary. |
 | `ctx.ssh` | `seam` | [`ssh`](../packages/ssh/ssh) | [`ssh`](../packages/ssh/ssh) | [`fs-ssh`](../packages/ssh/fs-ssh), [`subprocess-ssh`](../packages/ssh/subprocess-ssh), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | - | The connection owns the OpenSSH process, helper digest verification, the bounded control-channel transport, and helper lease cleanup; the remote filesystem, subprocess, and sandbox providers ride that transport and implement their seams on the SSH host under a captured machine-owned inventory. |
 | `ctx.remoteHostSsh` | `seam` | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts`](../packages/ssh/remote-hosts) | - | The replaceable transport verifies the independently approved host pin before authentication and owns SSH channels, uploads, forwards, reverse mappings, and teardown for one remote Harniverse connection. |
 | `ctx.remoteHosts` | `seam` | [`remote-hosts`](../packages/ssh/remote-hosts) | [`remote-hosts`](../packages/ssh/remote-hosts) | [`client-ui-remote-hosts`](../packages/client/ui-remote-hosts), [`client-connection`](../packages/client/connection) | - | The local coordinator owns secret-free host records, credential references, artifact verification, remote deployment, settings synchronization, browser proxy boundaries, and connection state; the UI and trusted Host proxy consume its capabilities. |

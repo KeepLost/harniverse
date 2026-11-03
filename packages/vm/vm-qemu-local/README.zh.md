@@ -8,6 +8,7 @@
 
 - `probeWorld(options)`——不启动任何东西，返回环境事实（QEMU 二进制版本、生效加速档、资产是否就绪、沙箱可用性）。
 - `openWorld(options)`——启动一个世界并完成协议握手；返回带 `descriptor`、`exit`、`ping(timeoutMs)`、`exec`、`spawn`、`fs`、`destroy()` 的 `WorldHandle`。
+- `QemuLocalWorld` —— 同一世界作为 `ctx.vm`（`@deepseek-ai/dsh-vm` 的缝隙）上的 Cordis 插件服务：从插件配置启动、在服务可见前结算、处置时销毁世界。中立的 exec/fs/egress 词表住在 `@deepseek-ai/dsh-vm`；本包再导出。
 - Exec 操作——`exec(argv, options)` 运行一个 guest 进程至结束并收集有界的 stdout/stderr；`spawn(argv, options)` 返回流式句柄，带 `writeStdin`、`closeStdin`、`signal`、`onOutput`、`exit`。选项覆盖 `env`（整体替换）、`cwd`、`pty`（否则管道）、`stdin`、`timeoutMs`、`maxOutputBytes`。
 - 文件系统操作——`world.fs` 提供八操作集（`readFile`、`writeFile`、`stat`、`list`、`mkdir`、`unlink`、`rmdir`、`rename`），guest errno 映射为 Node 风格代码（`GuestFsError`）。
 - Egress 中继——`world.egress.open(host, port)` 只有在该世界的 `egressPolicy` 审批回调放行后才代表世界拨出站连接；没有策略时一切请求拒绝（`EgressDeniedError`）。句柄双向流式，随世界一起关闭。

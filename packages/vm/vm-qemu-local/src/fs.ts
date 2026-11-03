@@ -5,31 +5,18 @@
  * @module @deepseek-ai/dsh-vm-qemu-local
  */
 
-import { isOpReplyFor, parseGuestMessage, type ControlTransport, type FsOkMessage, type FsStatWire, type FsWireOp, type FsEntryWire } from './protocol.ts'
+import { GuestFsError } from '@deepseek-ai/dsh-vm'
+import type { GuestEntry, GuestStat, VmWorldFs } from '@deepseek-ai/dsh-vm'
+import { isOpReplyFor, parseGuestMessage, type ControlTransport, type FsOkMessage, type FsWireOp } from './protocol.ts'
+
+export { GuestFsError } from '@deepseek-ai/dsh-vm'
+export type { GuestEntry, GuestStat } from '@deepseek-ai/dsh-vm'
 
 /** Largest payload one writeFile call may carry (mirrors the guest cap). */
 export const MAX_FS_PAYLOAD_BYTES = 512 * 1024
 
 /** Reply deadline for one fs round trip. */
 const FS_REPLY_TIMEOUT_MS = 10_000
-
-/** A guest fs operation failed; `code` follows the Node fs naming. */
-export class GuestFsError extends Error {
-  constructor(
-    public readonly code: string,
-    public readonly errno: number,
-    message: string,
-  ) {
-    super(`guest fs error ${code} (errno ${errno}): ${message}`)
-    this.name = 'GuestFsError'
-  }
-}
-
-/** Guest file facts as reported by `stat`. */
-export type GuestStat = FsStatWire
-
-/** One directory entry as reported by `list`. */
-export type GuestEntry = FsEntryWire
 
 const ERRNO_CODES: Record<number, string> = {
   1: 'EPERM',
@@ -53,7 +40,7 @@ function codeFor(errno: number): string {
 /**
  * Filesystem client bound to one world's control channel.
  */
-export class WorldFs {
+export class WorldFs implements VmWorldFs {
   constructor(
     private readonly transport: ControlTransport,
     private readonly allocateId: () => number,

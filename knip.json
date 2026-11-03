@@ -1081,6 +1081,44 @@
         "src/**/*.ts",
         "tests/**/*.ts"
       ]
+    },
+    "packages/vm/vm": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/vm/subprocess-vm": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/vm/fs-vm": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/vm/sandbox-vm": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
     }
   }
 }
