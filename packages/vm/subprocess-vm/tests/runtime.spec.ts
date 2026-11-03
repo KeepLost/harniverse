@@ -700,7 +700,9 @@ describe('VmSubprocessRuntime', () => {
     terminalHandle.settleExit({ code: 137, signal: 'SIGKILL' })
     await terminalDone
 
-    world.spawnQueue.push(new Error('teardown refusal'))
+    world.spawnQueue.push(new Promise<FakeExecHandle>((_, reject) => {
+      setTimeout(() => { reject(new Error('slow refusal')) }, 10)
+    }))
     const failed = ctx.subprocess.spawn({
       argv: ['teardown'],
       cwd: '/',
@@ -708,9 +710,7 @@ describe('VmSubprocessRuntime', () => {
       stdio: { stdin: 'ignore', stdout: { maxBytes: 8 }, stderr: { maxBytes: 8 } },
     })
     failed.terminate()
-    await new Promise((resolve) => { setImmediate(resolve) })
-    failed.terminate()
-    await expect(failed.done).rejects.toThrow('teardown refusal')
+    await expect(failed.done).rejects.toThrow('slow refusal')
     await expect(failed.waitForExit()).resolves.toBe(true)
     await ctx.fiber.dispose()
   })

@@ -55,8 +55,10 @@ class TailBuffer {
     this.chunks.push(chunk)
     this.total += chunk.length
     while (this.total > this.maxBytes && this.chunks.length > 1) {
+      /* v8 ignore start -- the loop guard keeps length above one, so shift never yields undefined. */
       const dropped = this.chunks.shift()
       if (dropped === undefined) break
+      /* v8 ignore stop */
       this.start += dropped.length
       this.total -= dropped.length
     }
@@ -92,11 +94,6 @@ class TailBuffer {
       lossy,
     }
   }
-}
-
-/** An empty pre-settlement read snapshot. */
-function emptyRead(): SubprocessOutputRead {
-  return { text: '', nextOffset: 0, lossy: false }
 }
 
 /** Every ordinary child and terminal belongs to this provider's disposal boundary. */
@@ -274,9 +271,8 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
       })
       : undefined
 
-    const reader = (stream: 'stdout' | 'stderr'): { readFrom: (offset: number) => SubprocessOutputRead } => {
-      const tail = collected.get(stream)
-      return { readFrom: (offset: number) => (tail === undefined ? emptyRead() : tail.readFrom(offset)) }
+    const makeReader = (tail: TailBuffer): { readFrom: (offset: number) => SubprocessOutputRead } => {
+      return { readFrom: (offset: number) => tail.readFrom(offset) }
     }
 
     return {
@@ -285,8 +281,8 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
       stdout: pipes.get('stdout'),
       stderr: pipes.get('stderr'),
       collected: {
-        ...(typeof spec.stdio.stdout === 'object' ? { stdout: reader('stdout') } : {}),
-        ...(typeof spec.stdio.stderr === 'object' ? { stderr: reader('stderr') } : {}),
+        ...(collected.has('stdout') ? { stdout: makeReader(collected.get('stdout') as TailBuffer) } : {}),
+        ...(collected.has('stderr') ? { stderr: makeReader(collected.get('stderr') as TailBuffer) } : {}),
       } satisfies SubprocessCollectedOutputs,
       done,
       terminate,
