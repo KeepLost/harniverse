@@ -37,6 +37,7 @@
 | [terminal.md](terminal.md) | 持久化终端 ID、后端/会话约定、发送就绪状态、有界读取与 owner 可见快照 |
 | [sandbox.md](sandbox.md) | 每会话策略解析与进程约束 seam：文件效果模式、执行/提供方策略、`ConfinedArgv`、强制执行与故障关闭错误 |
 | [ssh.md](ssh.md) | SSH 提供方家族：部署方持有的 OpenSSH 连接、TLS 认证的转发流、远端辅助租约与清理归属 |
+| [vm.md](vm.md) | 执行世界缝隙：世界中立的 `ExecOptions`/`ExecResult`/`ExecHandle` 词表、八项世界文件系统操作、egress 审批与 QEMU 世界 provider |
 | [terminal-controller.md](terminal-controller.md) | 浏览器终端 Remote：身份与屏幕帧、附着控制、窗口持有与 Shell 发现 |
 | [browser-controller.md](browser-controller.md) | 宿主浏览器 Remote：会话级 Chromium 归属、导航策略、屏幕帧与 CDP 输入分发 |
 | [ptc-runtime.md](ptc-runtime.md) | PTC 运行时 seam：`CodeRunRequest`/`Result`、绑定命名空间、捕获日志、`CodeRunFailure` 分类体系 |

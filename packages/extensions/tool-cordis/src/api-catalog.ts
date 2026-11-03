@@ -3614,6 +3614,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'vm',
+    summary: 'One booted execution world.',
+    description: 'One booted execution world. Implementations boot in the constructor, settle in `[Service.init]`, and destroy their world on context disposal — a consumer never sees a half-booted world, and no world outlives its context.\n\nImplementations must honor these semantics:\n\n- Every path argument is a path INSIDE the world; a host path is never valid here, and implementations never read one.\n- The guest cannot reach host files, processes, or the network by construction; egress exists only through the provider\'s approval-gated relay (`EgressPolicy`), which denies when unapproved.\n- `destroy` is idempotent and resolves once the world\'s processes cannot run anymore, however it was stopped.',
+    methods: [
+      {
+        signature: 'abstract ping(timeoutMs?: number): Promise<number>',
+        description: 'Round-trip one ping through the world\'s agent.',
+        parameters: [{ name: 'timeoutMs', description: 'reply deadline; provider default applies when omitted.' }],
+        returns: 'observed round-trip time in milliseconds.',
+      },
+      {
+        signature: 'abstract exec(argv: string[], options?: CollectExecOptions): Promise<ExecResult>',
+        description: 'Run one exec to completion inside the world and collect its output.',
+        parameters: [{ name: 'argv', description: 'world command line.' }, { name: 'options', description: 'env, cwd, pty, stdin, timeout, and output bound.' }],
+        returns: 'exit state plus collected stdout and stderr.',
+      },
+      {
+        signature: 'abstract spawn(argv: string[], options?: ExecOptions): Promise<ExecHandle>',
+        description: 'Start one streaming exec inside the world.',
+        parameters: [{ name: 'argv', description: 'world command line.' }, { name: 'options', description: 'env, cwd, and pty selection.' }],
+        returns: 'the streaming exec handle.',
+      },
+      {
+        signature: 'abstract destroy(): Promise<\'clean\' | \'killed\'>',
+        description: 'Stop the world.',
+        parameters: [],
+        returns: '`clean` when the world exited after its own shutdown path (or had already exited), `killed` when forceful termination was required.',
+      },
+    ],
+  },
+  {
     key: 'web',
     summary: 'The web access service.',
     description: 'The web access service. Registered as `ctx.web` (one instance per context).\n\nSelection semantics (resolved at execution time, never order-dependent):\n\n- A configured id that is registered and `available()` → that provider.\n- A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.\n- A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.\n- No operation or configured id → `WEB_PROVIDER_DEFAULT_MISSING`.',
@@ -5117,6 +5148,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CollectedOutput {\n    text: string;\n    truncated: boolean;\n    spillPath?: string;\n}',
   },
   {
+    name: 'CollectExecOptions',
+    declaration: 'export interface CollectExecOptions extends ExecOptions {\n    stdin?: Uint8Array | string;\n    timeoutMs?: number;\n    maxOutputBytes?: number;\n}',
+  },
+  {
     name: 'CommandDefinition',
     declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly recordInput?: boolean;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
   },
@@ -5475,6 +5510,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
+  },
+  {
+    name: 'ExecExit',
+    declaration: 'export interface ExecExit {\n    code: number | null;\n    signal: NodeJS.Signals | null;\n}',
+  },
+  {
+    name: 'ExecHandle',
+    declaration: 'export interface ExecHandle {\n    readonly id: number;\n    readonly pid: number;\n    writeStdin(chunk: Uint8Array | string): void;\n    closeStdin(): void;\n    signal(sig: NodeJS.Signals): Promise<void>;\n    readonly exit: Promise<ExecExit>;\n    onOutput(listener: ExecOutputListener): () => void;\n}',
+  },
+  {
+    name: 'ExecOptions',
+    declaration: 'export interface ExecOptions {\n    env?: Record<string, string>;\n    cwd?: string;\n    pty?: boolean | {\n        rows: number;\n        cols: number;\n    };\n}',
+  },
+  {
+    name: 'ExecOutputListener',
+    declaration: 'export type ExecOutputListener = (stream: \'stdout\' | \'stderr\', chunk: Buffer) => void;',
+  },
+  {
+    name: 'ExecResult',
+    declaration: 'export interface ExecResult extends ExecExit {\n    stdout: Buffer;\n    stderr: Buffer;\n    timedOut: boolean;\n}',
   },
   {
     name: 'ExecutionTransport',
