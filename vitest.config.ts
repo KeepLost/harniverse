@@ -119,6 +119,10 @@ const windowsVmCoverageExclusions = process.platform === 'win32'
       // fs-vm's suite joins windowsUnsupportedTests above (POSIX guest-path
       // semantics), so the Linux coverage lane owns its files at the full bar.
       'packages/vm/fs-vm/src/**/*.ts',
+      // The seam base class's disposal effect executes on every lane (the
+      // provider suites assert destroyed worlds), but win32's v8 reporter
+      // misses the nested effect arrow; the Linux lane owns it at full bar.
+      'packages/vm/vm/src/index.ts',
     ]
   : []
 
