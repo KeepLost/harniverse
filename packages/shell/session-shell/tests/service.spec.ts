@@ -205,7 +205,7 @@ describe('switching', () => {
     const ctx = await boot({ families: { bash: true, pwsh: true } })
     try {
       const agent = agentOf(ctx)
-      await expect(ctx.sessionShell.switch(agent, 'bash')).resolves.toBe('bash')
+      await expect(ctx.sessionShell.switch(agent, platformDefault)).resolves.toBe(platformDefault)
       expect(agent.session.events.filter(event => event.type === 'session-shell/change')).toHaveLength(0)
     } finally {
       await ctx.fiber.dispose()
@@ -216,15 +216,16 @@ describe('switching', () => {
     const ctx = await boot({ families: { bash: true, pwsh: true } })
     try {
       const agent = agentOf(ctx)
+      const away = platformDefault === 'bash' ? 'pwsh' : 'bash'
       await Promise.all([
-        ctx.sessionShell.switch(agent, 'pwsh'),
-        ctx.sessionShell.switch(agent, 'bash'),
-        ctx.sessionShell.switch(agent, 'pwsh'),
+        ctx.sessionShell.switch(agent, away),
+        ctx.sessionShell.switch(agent, platformDefault),
+        ctx.sessionShell.switch(agent, away),
       ])
       const families = agent.session.events
         .filter((event): event is typeof event & { type: 'session-shell/change' } => event.type === 'session-shell/change')
         .map(event => event.data.family)
-      expect(families).toEqual(['pwsh', 'bash', 'pwsh'])
+      expect(families).toEqual([away, platformDefault, away])
     } finally {
       await ctx.fiber.dispose()
     }
@@ -265,11 +266,12 @@ describe('tool restriction on agent creation', () => {
     const ctx = await boot({ families: { bash: true, pwsh: true } })
     try {
       const agent = agentOf(ctx)
+      const away = platformDefault === 'bash' ? 'pwsh' : 'bash'
       ctx.emit('agent/created', { agent })
-      expect(ctx.tools.schemas(scopeOf(agent.ctx)).map(schema => schema.name)).not.toContain('pwsh')
-      await ctx.sessionShell.switch(agent, 'pwsh')
-      expect(ctx.tools.schemas(scopeOf(agent.ctx)).map(schema => schema.name)).not.toContain('bash')
-      expect(ctx.tools.schemas(scopeOf(agent.ctx)).map(schema => schema.name)).toContain('pwsh')
+      expect(ctx.tools.schemas(scopeOf(agent.ctx)).map(schema => schema.name)).not.toContain(away)
+      await ctx.sessionShell.switch(agent, away)
+      expect(ctx.tools.schemas(scopeOf(agent.ctx)).map(schema => schema.name)).not.toContain(platformDefault)
+      expect(ctx.tools.schemas(scopeOf(agent.ctx)).map(schema => schema.name)).toContain(away)
     } finally {
       await ctx.fiber.dispose()
     }
