@@ -601,27 +601,6 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     expect(staged).toHaveLength(1)
   })
 
-  it('hands workspace owners chown of the staged images on root hosts', async () => {
-    const { child, emitExit } = fakeChild()
-    const chowned: string[] = []
-    const world = await openWorld(
-      { assetsDir: sandboxAssets(), workspace: {} },
-      {
-        spawn: () => child,
-        connect: async () => welcomeSocket(),
-        euid: () => 0,
-        chown: async (path) => { chowned.push(path) },
-        copyFile: async () => undefined,
-        writeFile: async () => undefined,
-        truncate: async () => undefined,
-      },
-    )
-    expect(chowned.filter(path => path.endsWith('ws-import.img'))).toHaveLength(1)
-    expect(chowned.filter(path => path.endsWith('ws-export.img'))).toHaveLength(1)
-    emitExit(0)
-    await expect(world.destroy()).resolves.toBe('clean')
-  })
-
   it('round-trips a workspace export through the world handle and rejects unconfigured worlds', async () => {
     const { child, emitExit } = fakeChild()
     const socket = fakeSocket()
@@ -713,6 +692,28 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
 // The wrapper only stages on Linux; these legs need a host where
 // resolveWrapPath can succeed, and the Linux coverage lane owns them.
 describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision', () => {
+
+  it('hands workspace owners chown of the staged images on root hosts', async () => {
+    const { child, emitExit } = fakeChild()
+    const chowned: string[] = []
+    const world = await openWorld(
+      { assetsDir: sandboxAssets(), workspace: {} },
+      {
+        spawn: () => child,
+        connect: async () => welcomeSocket(),
+        euid: () => 0,
+        chown: async (path) => { chowned.push(path) },
+        copyFile: async () => undefined,
+        writeFile: async () => undefined,
+        truncate: async () => undefined,
+      },
+    )
+    expect(chowned.filter(path => path.endsWith('ws-import.img'))).toHaveLength(1)
+    expect(chowned.filter(path => path.endsWith('ws-export.img'))).toHaveLength(1)
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+  })
+
   it('wraps the child under a staged wrapper and hands over the scratch directory on root hosts', async () => {
     const { child, emitExit } = fakeChild()
     const seenArgv: string[][] = []

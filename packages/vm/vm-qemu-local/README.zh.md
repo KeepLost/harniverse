@@ -20,14 +20,14 @@
 import { openWorld, packWorkspaceTar } from '@deepseek-ai/dsh-vm-qemu-local'
 
 const snapshot = packWorkspaceTar([{ path: 'notes/a.txt', kind: 'file', data: Buffer.from('hello') }])
-const world = await openWorld({ workspace: { import: snapshot } }) // 挂载数据面启动
+const world = await openWorld({ workspace: { import: snapshot } }) // boots with the data plane attached
 await world.ping()                         // round-trips the guest agent
 const result = await world.exec(['/bin/echo', 'hi'], { cwd: '/tmp' })
 const handle = await world.spawn(['/bin/sh'], { pty: true })
 handle.writeStdin('echo pty\n')
 await handle.exit                          // { code, signal }
-await world.workspace.import()             // 把暂存快照解包进 /workspace
-const exported = await world.workspace.export()  // { tar, bytes }：当前 /workspace 全树
+await world.workspace.import()             // unpacks the staged snapshot into /workspace
+const exported = await world.workspace.export()  // { tar, bytes }: the current /workspace tree
 await world.fs.writeFile('/tmp/note', 'guest-visible')
 const relay = await world.egress.open('example.com', 443) // only with an approving egressPolicy
 await world.destroy()                      // 'clean' (guest poweroff) or 'killed' (SIGKILL fallback)

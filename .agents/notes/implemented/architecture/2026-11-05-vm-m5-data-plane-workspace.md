@@ -1,8 +1,10 @@
-# VM M5: virtio-blk workspace data plane with snapshot import and diff export
+# Agent Note: VM M5 — virtio-blk workspace data plane with snapshot import and diff export
 
-- Date: 2026-11-05
-- Status: implemented (feat/vm-m5-data-plane)
-- Scope: `packages/vm/vm-qemu-local` only; the `ctx.vm` seam is untouched.
+Status: implemented
+
+English | [中文](2026-11-05-vm-m5-data-plane-workspace.zh.md)
+
+Date: 2026-11-05. Scope: `packages/vm/vm-qemu-local` only; the `ctx.vm` seam is untouched.
 
 ## Problem
 

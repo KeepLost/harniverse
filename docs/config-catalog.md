@@ -4292,7 +4292,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/vm/vm-qemu-local/src/index.ts:35`](../packages/vm/vm-qemu-local/src/index.ts)
+Source: [`packages/vm/vm-qemu-local/src/index.ts:36`](../packages/vm/vm-qemu-local/src/index.ts)
 
 <a id="deepseek-aidsh-web"></a>
 
