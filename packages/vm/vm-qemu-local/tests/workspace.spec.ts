@@ -192,11 +192,14 @@ function fakeTransport(scripts: Record<string, () => string | Error>): { transpo
     sent,
     transport: {
       send: (message) => { sent.push(JSON.stringify(message)) },
-      request: async (message) => {
+      request: async (message, match) => {
         sent.push(JSON.stringify(message))
         const outcome = scripts[message.t]?.()
         if (outcome === undefined) throw new Error(`unexpected request ${message.t}`)
         if (outcome instanceof Error) throw outcome
+        // Execute the request matcher like the real channel does; the
+        // roundTrip's own parsing stays the validity gate under test.
+        match(outcome)
         return outcome
       },
       onEvent: (): () => void => {
@@ -250,5 +253,13 @@ describe('WorldWorkspace client', () => {
     })
     await expect(new WorldWorkspace(transport, () => 1, () => Promise.reject(new Error('unused'))).import())
       .rejects.toThrow('unparseable workspace reply')
+  })
+
+  it('rejects operations before any guest round trip when the world booted without images', async () => {
+    const { transport, sent } = fakeTransport({})
+    const unconfigured = new WorldWorkspace(transport, () => 1, undefined)
+    await expect(unconfigured.import()).rejects.toThrow('workspace not configured')
+    await expect(unconfigured.export()).rejects.toThrow('workspace not configured')
+    expect(sent).toEqual([])
   })
 })
