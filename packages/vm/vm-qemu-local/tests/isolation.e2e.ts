@@ -45,7 +45,7 @@ describe.skipIf(!worldAvailable)('vm-qemu-local: guest isolation over a real mic
       // no host-specific trees can appear inside an initramfs-backed guest.
       expect(rootListing).toEqual([
         'bin', 'dev', 'etc', 'home', 'init', 'lib', 'media', 'mnt', 'opt',
-        'proc', 'root', 'run', 'sbin', 'srv', 'sys', 'tmp', 'usr', 'var',
+        'proc', 'root', 'run', 'sbin', 'srv', 'sys', 'tmp', 'usr', 'var', 'workspace',
       ])
 
       const psOutput = (await world.exec(['/bin/ps'])).stdout.toString('utf8')

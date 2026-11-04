@@ -68,6 +68,29 @@ describe('vm-qemu-local command-line planning', () => {
     expect(networkArguments).toEqual([])
   })
 
+  it('attaches the workspace pair as virtio-blk drives only when staged', () => {
+    expect(plan.filter(argument => argument.startsWith('if=none'))).toEqual([])
+    const withWorkspace = buildQemuArgv({
+      qemuBin: 'qemu-system-x86_64',
+      accel: 'tcg',
+      memoryMiB: 256,
+      cpus: 2,
+      kernelPath: '/assets/vmlinuz-virt',
+      initrdPath: '/assets/initramfs.cpio.gz',
+      controlSocketPath: '/run/ctl.sock',
+      consoleLogPath: '/run/console.log',
+      importImagePath: '/run/ws-import.img',
+      exportImagePath: '/run/ws-export.img',
+    })
+    expect(withWorkspace.join(' ')).toContain('if=none,id=wsin,file=/run/ws-import.img,format=raw,cache=none,readonly=on')
+    expect(withWorkspace.join(' ')).toContain('if=none,id=wsout,file=/run/ws-export.img,format=raw,cache=none')
+    expect(withWorkspace.filter(argument => argument === '-device')).toEqual(['-device', '-device'])
+    expect(withWorkspace.join(' ')).toContain('virtio-blk-pci,drive=wsin')
+    expect(withWorkspace.join(' ')).toContain('virtio-blk-pci,drive=wsout')
+    // The data plane adds storage, never networking.
+    expect(withWorkspace.filter(argument => argument.startsWith('-net') || argument.startsWith('-nic'))).toEqual([])
+  })
+
   it('picks the guest CPU model per acceleration mode', () => {
     const kvmPlan = buildQemuArgv({
       qemuBin: 'qemu-system-x86_64',
