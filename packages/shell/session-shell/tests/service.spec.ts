@@ -150,10 +150,11 @@ describe('family resolution', () => {
     try {
       const { session } = agentOf(ctx)
       const before = session.events.length
-      await ctx.sessionShell.switch(agentOf(ctx), 'pwsh')
+      const away = platformDefault === 'bash' ? 'pwsh' : 'bash'
+      await ctx.sessionShell.switch(agentOf(ctx), away)
       session.append('turn/start', { turn: 1 })
       syncProjection(ctx, session, before)
-      expect(ctx.sessionShell.family(session)).toBe('pwsh')
+      expect(ctx.sessionShell.family(session)).toBe(away)
     } finally {
       await ctx.fiber.dispose()
     }
