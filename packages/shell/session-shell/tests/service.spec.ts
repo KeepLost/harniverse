@@ -145,6 +145,20 @@ describe('family resolution', () => {
     }
   })
 
+  it('folds a change event while unrelated events leave the family untouched', async () => {
+    const ctx = await boot({ families: { bash: true, pwsh: true } })
+    try {
+      const { session } = agentOf(ctx)
+      const before = session.events.length
+      await ctx.sessionShell.switch(agentOf(ctx), 'pwsh')
+      session.append('turn/start', { turn: 1 })
+      syncProjection(ctx, session, before)
+      expect(ctx.sessionShell.family(session)).toBe('pwsh')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('prefers a recorded durable override over the host default', async () => {
     const ctx = await boot({ families: { bash: true, pwsh: true } })
     try {
