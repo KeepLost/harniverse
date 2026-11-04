@@ -24,6 +24,24 @@ export class HarnessError extends Error {
 /** Canonical provider-neutral code for a model request rejected because its context window was exceeded. */
 export const CONTEXT_WINDOW_EXCEEDED_CODE = 'CONTEXT_WINDOW_EXCEEDED'
 
+/** Canonical provider-neutral code for a request body rejected at a transport size limit (HTTP 413). */
+export const REQUEST_BODY_TOO_LARGE_CODE = 'REQUEST_BODY_TOO_LARGE'
+
+/**
+ * Recognize provider wording that identifies a request-body size rejection:
+ * the DeepSeek gateway's "413 Failed to buffer the request body: length limit
+ * exceeded" and the standard 413 phrasings. Distinct from context overflow —
+ * the envelope itself is over a transport limit, so an identical retry cannot
+ * succeed and recovery must shrink the request first.
+ * @param detail - provider error code/status/message text joined into one string.
+ * @returns true when the detail identifies a request-body size rejection.
+ */
+export function isRequestBodyTooLargeError(detail: string): boolean {
+  return /\bfailed to buffer the request body\b/i.test(detail)
+    || /\b(?:request (?:body|entity)|payload) too large\b/i.test(detail)
+    || /\b413\b/.test(detail)
+}
+
 /** Canonical provider-neutral code for an exhausted account quota or balance. */
 export const QUOTA_EXCEEDED_CODE = 'QUOTA'
 

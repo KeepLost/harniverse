@@ -2682,6 +2682,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionShell',
+    summary: 'The session-scoped shell family pointer: which family (bash | pwsh) a session\'s next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
+    description: 'The session-scoped shell family pointer: which family (bash | pwsh) a session\'s next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
+    methods: [
+      {
+        signature: 'family(session: Session): ShellBackendSelection',
+        description: 'Read one session\'s effective family without host I/O.',
+        parameters: [{ name: 'session', description: 'session whose selection is requested.' }],
+        returns: 'its override, or the host default when none is recorded.',
+      },
+      {
+        signature: 'async switch(agent: Agent, family: ShellBackendSelection): Promise<ShellBackendSelection>',
+        description: 'Switch one agent\'s session to another shell family. Effective at the next model request: the runtime-context snapshot announces the new family and the retired tool leaves that request\'s catalog. Nothing is torn down — the other family\'s executors, persistent shells, and background jobs keep running underneath.',
+        parameters: [{ name: 'agent', description: 'live agent owning the session.' }, { name: 'family', description: 'family to select.' }],
+        returns: 'the committed family; a same-family request commits nothing.',
+        throws: ['when the family is unavailable on this host, the host composes no router, or the agent is no longer live.'],
+      },
+      {
+        signature: 'describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean } }',
+        description: 'Host capability read for the switch affordance: whether switching is possible and which families are usable. A single-executor host reports only its boot default.',
+        parameters: [],
+        returns: 'switchability plus per-family availability.',
+      },
+    ],
+  },
+  {
     key: 'sessionTitle',
     summary: 'Log-backed title fold plus asynchronous fallback generation.',
     description: 'Log-backed title fold plus asynchronous fallback generation.',
@@ -3514,6 +3540,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks.',
         parameters: [{ name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
         returns: 'one deep-cloned schema per visible tool.',
+      },
+      {
+        signature: 'has(name: string, scope?: ScopeKey): boolean',
+        description: 'Whether one tool name is registered anywhere on a scope\'s chain, regardless of restrictions. Capability gating that hides a registered tool per scope (for example the session shell selector) checks this before naming the tool in a restrict filter, which rejects unknown names.',
+        parameters: [{ name: 'name', description: 'tool name to look up.' }, { name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
+        returns: 'whether the name is known to that scope.',
       },
       {
         signature: 'executionMode(exec: ToolExecutionInput): ToolExecutionMode',
@@ -7120,8 +7152,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SharedConnection extends ServerContext {\n    readonly serverName: string;\n    ready: Promise<ConnectionOutcome>;\n    connected(): boolean;\n    status(): McpConnectionStatus;\n    toolDescriptors(): readonly McpToolDescriptor[];\n    toolNames(): string[];\n    resourceUris(): string[];\n    resourceTemplates(): string[];\n    callTool(rawName: string, args: Record<string, unknown>, exec: {\n        signal?: AbortSignal;\n    }): Promise<unknown>;\n    subscribe(listener: () => void): () => void;\n    dispose(): Promise<void>;\n}',
   },
   {
+    name: 'ShellBackendSelection',
+    declaration: 'export type ShellBackendSelection = \'bash\' | \'pwsh\';',
+  },
+  {
     name: 'ShellExecRequest',
-    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
+    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n    family?: ShellBackendSelection | undefined;\n}',
   },
   {
     name: 'ShellExecSpec',
@@ -7697,7 +7733,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    has(name: string, scope?: ScopeKey): boolean;\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',

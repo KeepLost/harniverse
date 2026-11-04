@@ -22,7 +22,7 @@ import Loader, { type Entry, type EntryOptions } from '@deepseek-ai/cordis-plugi
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Group from '@deepseek-ai/cordis-plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { resolveShellBackend, type ShellBackendPreference } from '@deepseek-ai/dsh-shell'
+import { resolveShellBackend, SHELL_BACKEND_ENV, type ShellBackendPreference } from '@deepseek-ai/dsh-shell'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-hmr-coordination'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
@@ -694,8 +694,7 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   }
 }
 
-/** Environment variable carrying the resolved shell backend; the shell rows' `disabled` expressions read it. */
-export const SHELL_BACKEND_ENV = 'DSH_SHELL_BACKEND'
+export { SHELL_BACKEND_ENV } from '@deepseek-ai/dsh-shell'
 
 /** Options steering {@link applyShellBackendBootEnv}; every field defaults to this process. */
 export interface ShellBackendBootEnvOptions {

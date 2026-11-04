@@ -138,6 +138,8 @@ flowchart LR
   cfg --> plugin_dsh_base_compaction_settings
   plugin_dsh_base_compaction_image_offload["compaction-image-offload<br/>@deepseek-ai/dsh-compaction-image-offload"]
   cfg --> plugin_dsh_base_compaction_image_offload
+  plugin_dsh_base_compaction_body_limit_recovery["compaction-body-limit-recovery<br/>@deepseek-ai/dsh-compaction-body-limit-recovery"]
+  cfg --> plugin_dsh_base_compaction_body_limit_recovery
   plugin_dsh_base_compaction_lossless["compaction-lossless<br/>@deepseek-ai/dsh-compaction-lossless"]
   cfg --> plugin_dsh_base_compaction_lossless
   plugin_dsh_base_tool_compaction_history["tool-compaction-history<br/>@deepseek-ai/dsh-tool-compaction-history"]
@@ -301,6 +303,7 @@ flowchart LR
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compaction-settings` | `@deepseek-ai/dsh-compaction-settings` |
 | `compaction-image-offload` | `@deepseek-ai/dsh-compaction-image-offload` |
+| `compaction-body-limit-recovery` | `@deepseek-ai/dsh-compaction-body-limit-recovery` |
 | `compaction-lossless` | `@deepseek-ai/dsh-compaction-lossless` |
 | `tool-compaction-history` | `@deepseek-ai/dsh-tool-compaction-history` |
 | `tool-compaction` | `@deepseek-ai/dsh-tool-compaction` |

@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import LlmRuntime, { createUserMessage,
   CONTEXT_WINDOW_EXCEEDED_CODE,
+  REQUEST_BODY_TOO_LARGE_CODE,
   ProviderRequestId,
   QUOTA_EXCEEDED_CODE,
   ReasoningEffortId,
@@ -524,7 +525,8 @@ describe('DeepSeekAdapter against a mock server', () => {
       .toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
     expect(httpErrorCode(400, { message: 'invalid input: temperature exceeds maximum allowed value' }))
       .toBe('INVALID_REQUEST')
-    expect(httpErrorCode(413, { code: 'context_length_exceeded' })).toBe('HTTP_413')
+    // Transport body caps classify as the body-limit failure so recovery runs.
+    expect(httpErrorCode(413, { code: 'context_length_exceeded' })).toBe(REQUEST_BODY_TOO_LARGE_CODE)
   })
 
   it('distinguishes terminal quota exhaustion from transient HTTP 429 throttling', () => {

@@ -43,7 +43,7 @@ export {
   defaultShellName,
   isZshShell,
 } from './platform.ts'
-export { resolveShellBackend } from './backend.ts'
+export { resolveShellBackend, SHELL_BACKEND_ENV } from './backend.ts'
 export type {
   ShellBackendPreference,
   ShellBackendSelection,

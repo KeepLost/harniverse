@@ -183,6 +183,16 @@ export class FakeApiClient implements IApiClient {
       deleted: true as const,
       attachmentsRetained: true as const,
     }))),
+    shell: (payload: unknown) => this.record('session.shell', payload, Promise.resolve(ok({
+      current: process.platform === 'win32' ? ('pwsh' as const) : ('bash' as const),
+      switchable: false,
+      families: process.platform === 'win32'
+        ? { bash: false, pwsh: true }
+        : { bash: true, pwsh: false },
+    }))),
+    switchShell: (payload: unknown) => this.record('session.switchShell', payload, Promise.resolve(ok({
+      current: (payload as { family: 'bash' | 'pwsh' }).family,
+    }))),
   }
 
   readonly api: NonNullable<IApiClient['api']> = {

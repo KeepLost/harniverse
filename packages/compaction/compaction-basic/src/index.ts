@@ -10,6 +10,7 @@ import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compac
 import type { CompactionProgressPhase, CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
 import type { CompactionId } from '@deepseek-ai/dsh-compaction'
 import type { Session } from '@deepseek-ai/dsh-session'
+import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -352,6 +353,32 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Retention budget for one explicit model request: the routed policy's
+   * budget, capped at the current open turn. The model asking to release
+   * older context is the same judgment a manual `/compact` makes, so a
+   * window-scaled budget must not turn the request into a guaranteed no-op
+   * below it — but the turn the request runs in stays verbatim, and pairing
+   * still holds beyond that.
+   * @param session - session whose open turn delimits the verbatim floor.
+   * @param measurement - the surface measurement this decision prices.
+   * @param policyRetainTokens - the routed target's scaled retention budget.
+   * @returns the retention budget for this agent request.
+   */
+  private agentRequestRetainTokens(
+    session: Session,
+    measurement: TokenMeasurement,
+    policyRetainTokens: number,
+  ): number {
+    const closedEnd = session.events.findLast(event => event.type === 'turn/end')?.seq ?? -1
+    const openTurnStart = session.events.findLast(event => event.type === 'turn/start' && event.seq > closedEnd)?.seq
+    if (openTurnStart === undefined) return policyRetainTokens
+    const openTurnTokens = measurement.nodes
+      .filter(node => node.seq >= openTurnStart)
+      .reduce((sum, node) => sum + node.tokens, 0)
+    return Math.min(policyRetainTokens, openTurnTokens)
+  }
+
+  /**
    * Summarize the replayed conversation region through a direct one-shot
    * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
    * prompt, tools, and messages so the provider's KV cache is not invalidated.
@@ -438,9 +465,21 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     const spec = resolveCompactSpec(policy, context.contextWindow)
     if (trigger === 'agent-request') {
-      const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
+      const range = selectCompactableRange(
+        agent.session,
+        measurement,
+        this.agentRequestRetainTokens(agent.session, measurement, spec.retainTokens),
+      )
       if (range === null) return null
-      return this.compactRegion(range.start, range.end, agent, signal)
+      try {
+        return await this.compactRegion(range.start, range.end, agent, signal)
+      } catch (error) {
+        // A span too small for its summary frame is the model asking too
+        // early; the rolled-back attempt stays durable and the tool reports
+        // its ordinary no-op instead of an error.
+        if (error instanceof UnhelpfulSummaryError) return null
+        throw error
+      }
     }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 

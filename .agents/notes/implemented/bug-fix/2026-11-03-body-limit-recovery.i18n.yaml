@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-11-03-body-limit-recovery.md
+2026-11-03-body-limit-recovery.md: 52e75bac32ec603675cedd0494202984c311c0f3
+2026-11-03-body-limit-recovery.zh.md: 1a74ebce11f762086c613493ccd87d08299b1885

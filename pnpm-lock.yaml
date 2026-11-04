@@ -305,9 +305,15 @@ importers:
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../packages/context/session-reference
+      '@deepseek-ai/dsh-session-shell':
+        specifier: workspace:^
+        version: link:../../packages/shell/session-shell
       '@deepseek-ai/dsh-shell-backend-settings':
         specifier: workspace:^
         version: link:../../packages/shell/shell-backend-settings
+      '@deepseek-ai/dsh-shell-router':
+        specifier: workspace:^
+        version: link:../../packages/shell/shell-router
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../packages/skill/skill
@@ -1556,6 +1562,9 @@ importers:
       '@deepseek-ai/dsh-compaction-basic':
         specifier: workspace:^
         version: link:../../compaction/compaction-basic
+      '@deepseek-ai/dsh-compaction-body-limit-recovery':
+        specifier: workspace:^
+        version: link:../../compaction/compaction-body-limit-recovery
       '@deepseek-ai/dsh-compaction-image-offload':
         specifier: workspace:^
         version: link:../../compaction/compaction-image-offload
@@ -2273,9 +2282,15 @@ importers:
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../context/session-reference
+      '@deepseek-ai/dsh-session-shell':
+        specifier: workspace:^
+        version: link:../../shell/session-shell
       '@deepseek-ai/dsh-session-stats':
         specifier: workspace:^
         version: link:../../session/session-stats
+      '@deepseek-ai/dsh-shell-router':
+        specifier: workspace:^
+        version: link:../../shell/shell-router
       '@deepseek-ai/dsh-storage':
         specifier: workspace:^
         version: link:../../storage/storage
@@ -5355,6 +5370,30 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
+  packages/compaction/compaction-body-limit-recovery:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-compaction':
+        specifier: workspace:^
+        version: link:../compaction
+      '@deepseek-ai/dsh-image-offload-policy':
+        specifier: workspace:^
+        version: link:../image-offload-policy
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+
   packages/compaction/compaction-image-offload:
     dependencies:
       '@deepseek-ai/dsh-attachment':
@@ -7474,6 +7513,9 @@ importers:
       '@deepseek-ai/dsh-permission-presets':
         specifier: workspace:^
         version: link:../../interaction/permission-presets
+      '@deepseek-ai/dsh-session-shell':
+        specifier: workspace:^
+        version: link:../../shell/session-shell
       '@deepseek-ai/dsh-storage':
         specifier: workspace:^
         version: link:../../storage/storage
@@ -10138,6 +10180,43 @@ importers:
         specifier: workspace:^
         version: link:../../subprocess/subprocess-local
 
+  packages/shell/session-shell:
+    dependencies:
+      '@deepseek-ai/dsh-scope':
+        specifier: workspace:^
+        version: link:../../core/scope
+      zod:
+        specifier: ^4.6.6
+        version: 4.6.7
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session/session-projection
+      '@deepseek-ai/dsh-shell':
+        specifier: workspace:^
+        version: link:../shell
+      '@deepseek-ai/dsh-shell-router':
+        specifier: workspace:^
+        version: link:../shell-router
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+
   packages/shell/shell:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -10205,6 +10284,37 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+
+  packages/shell/shell-router:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-bash-sandbox':
+        specifier: workspace:^
+        version: link:../bash-sandbox
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-pwsh-sandbox':
+        specifier: workspace:^
+        version: link:../pwsh-sandbox
+      '@deepseek-ai/dsh-sandbox':
+        specifier: workspace:^
+        version: link:../../sandbox/sandbox
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:^
+        version: link:../../sandbox/sandbox-policy
+      '@deepseek-ai/dsh-shell':
+        specifier: workspace:^
+        version: link:../shell
+      '@deepseek-ai/dsh-subprocess-local':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess-local
 
   packages/shell/tool-bash:
     dependencies:

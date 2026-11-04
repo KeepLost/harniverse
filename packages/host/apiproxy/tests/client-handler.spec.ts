@@ -1299,6 +1299,50 @@ describe('model target and profile selection', () => {
       error: { code: 'internal', message: 'model profile selection is unavailable', details: {} },
     })
   })
+
+  it('round-trips shell and switchShell with their payloads and value shapes', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const record = recorderInto(seen)
+    const api = scriptedApi({
+      sessions: {
+        shell: record('session.shell', r => ok(r, {
+          current: r.payload.sessionId === 's-1' ? 'bash' : 'pwsh',
+          switchable: true,
+          families: { bash: true, pwsh: true },
+        })),
+        switchShell: record('session.switchShell', r => ok(r, { current: r.payload.family })),
+      },
+    })
+    const c = client(api)
+    if (c.sessions.shell === undefined || c.sessions.switchShell === undefined) throw new Error('client must expose the shell methods')
+
+    const shell = await c.sessions.shell({ sessionId: sid('s-1') })
+    expect(shell.result).toEqual({
+      ok: true,
+      value: { current: 'bash', switchable: true, families: { bash: true, pwsh: true } },
+    })
+    const switched = await c.sessions.switchShell({ sessionId: sid('s-1'), family: 'pwsh' })
+    expect(switched.result).toEqual({ ok: true, value: { current: 'pwsh' } })
+
+    expect(seen.map(call => call.method)).toEqual(['session.shell', 'session.switchShell'])
+    expect(seen[0]?.payload).toEqual({ sessionId: 's-1' })
+    expect(seen[1]?.payload).toEqual({ sessionId: 's-1', family: 'pwsh' })
+  })
+
+  it('reports shell faces as shell-unavailable when the host session omits the optional methods', async () => {
+    const c = client(scriptedApi())
+    if (c.sessions.shell === undefined || c.sessions.switchShell === undefined) throw new Error('client must expose the shell methods')
+    const shell = await c.sessions.shell({ sessionId: sid('s-1') })
+    expect(shell.result).toEqual({
+      ok: false,
+      error: { code: 'shell-unavailable', message: 'session shell is unavailable', details: {} },
+    })
+    const switched = await c.sessions.switchShell({ sessionId: sid('s-1'), family: 'pwsh' })
+    expect(switched.result).toEqual({
+      ok: false,
+      error: { code: 'shell-unavailable', message: 'session shell switching is unavailable', details: {} },
+    })
+  })
 })
 
 describe('archive continuation carriage', () => {

@@ -2963,6 +2963,35 @@ export interface Config {
 
 来源：[`packages/shell/shell-env/src/index.ts:29`](../packages/shell/shell-env/src/index.ts)
 
+<a id="deepseek-aidsh-shell-router"></a>
+
+## `@deepseek-ai/dsh-shell-router`
+
+需要：`subprocess` · `sandbox` · `sandboxPolicy`
+
+```ts config-catalog
+/** Router configuration; `defaultFamily` mirrors the boot flag when omitted. */
+export interface Config {
+  /** Family unstamped requests address; defaults to the boot-resolved selection. */
+  defaultFamily?: ShellBackendSelection
+  /**
+   * Composition entries handed to each mounted family executor verbatim —
+   * the shape each family's own plugin config accepts. The retired bare
+   * executor rows carried these; the router row carries them now.
+   */
+  families?: {
+    /** Composition entry handed verbatim to the bash family executor. */
+    bash?: unknown
+    /** Composition entry handed verbatim to the pwsh family executor. */
+    pwsh?: unknown
+  }
+}
+```
+
+依赖：[`ShellBackendSelection`](subsystems/shell.md)
+
+来源：[`packages/shell/shell-router/src/index.ts:30`](../packages/shell/shell-router/src/index.ts)
+
 <a id="deepseek-aidsh-skill"></a>
 
 ## `@deepseek-ai/dsh-skill`
@@ -4689,6 +4718,7 @@ export interface Config {
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-command-reset` — requires `commands` ([`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
+- `@deepseek-ai/dsh-compaction-body-limit-recovery` ([`packages/compaction/compaction-body-limit-recovery/src/index.ts`](../packages/compaction/compaction-body-limit-recovery/src/index.ts))
 - `@deepseek-ai/dsh-compaction-image-offload` — requires `sessions` ([`packages/compaction/compaction-image-offload/src/index.ts`](../packages/compaction/compaction-image-offload/src/index.ts))
 - `@deepseek-ai/dsh-context-inspector` — requires `systemPrompt` · `tokenMeter` ([`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts))
 - `@deepseek-ai/dsh-context-reset` — requires `sessions` ([`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts))
@@ -4717,6 +4747,7 @@ export interface Config {
 - `@deepseek-ai/dsh-session-delivery-local` — requires `agents` · `sessions` ([`packages/session-query/session-delivery-local/src/index.ts`](../packages/session-query/session-delivery-local/src/index.ts))
 - `@deepseek-ai/dsh-session-log-export` — requires `commands` ([`packages/session-query/session-log-export/src/index.ts`](../packages/session-query/session-log-export/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts))
+- `@deepseek-ai/dsh-session-shell` — requires `sessionProjections` · `tools` · `agents` ([`packages/shell/session-shell/src/index.ts`](../packages/shell/session-shell/src/index.ts))
 - `@deepseek-ai/dsh-session-stats` — requires `sessionProjections` ([`packages/session/session-stats/src/index.ts`](../packages/session/session-stats/src/index.ts))
 - `@deepseek-ai/dsh-skill-badge` — requires `skills` ([`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts))
 - `@deepseek-ai/dsh-speech` ([`packages/speech/speech/src/index.ts`](../packages/speech/speech/src/index.ts))

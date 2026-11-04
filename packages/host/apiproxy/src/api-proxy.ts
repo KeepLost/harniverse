@@ -10,6 +10,7 @@ import { dirname, isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { authenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import type SessionShellService from '@deepseek-ai/dsh-session-shell'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import {
@@ -3998,6 +3999,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             message: error instanceof Error ? error.message : String(error),
             details: { provider: profileId, model: '' },
           })
+        }
+      },
+      async shell(request) {
+        const { sessionId } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const service: SessionShellService | undefined = ctx.get('sessionShell')
+        if (service === undefined) {
+          return err(request, { code: 'shell-unavailable', message: 'session shell switching is not configured on this host', details: {} })
+        }
+        return ok(request, { current: service.family(found.agent.session), ...service.describe() })
+      },
+
+      async switchShell(request) {
+        const { sessionId, family } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const service: SessionShellService | undefined = ctx.get('sessionShell')
+        if (service === undefined) {
+          return err(request, { code: 'shell-unavailable', message: 'session shell switching is not configured on this host', details: {} })
+        }
+        try {
+          return ok(request, { current: await service.switch(found.agent, family) })
+        } catch (error: unknown) {
+          return err(request, { code: 'shell-unavailable', message: error instanceof Error ? error.message : String(error), details: {} })
         }
       },
 

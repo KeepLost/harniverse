@@ -261,6 +261,12 @@ async function runOwnedProfile(
   const start = async (): Promise<{ ctx: Context; shutdown: ProcessShutdown }> => {
     const composed = composeProfile(options.profile, options.patchFiles, homeOwnership)
 
+    // Publish the session-shell capability BEFORE the tree mounts: the agent
+    // presets' shell tool rows read this flag in their `disabled` expressions
+    // and stay BOTH enabled on routed hosts, where the per-agent restriction
+    // retires the inactive family instead of the composition.
+    if (composed.rows.has('shell-router')) process.env.DSH_SESSION_SHELL ??= '1'
+
     const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
     // Recomposition for the live user layers: bundle layers below, overlays
     // above, so a user edit can never displace them. Parsed app arguments are

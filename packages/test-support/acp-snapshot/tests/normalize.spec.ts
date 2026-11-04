@@ -217,7 +217,7 @@ describe('normalizeSessionLog', () => {
   it('tokenizes the recorded machine label and its platform clause', () => {
     const ev = JSON.stringify({
       type: 'request/header', seq: 3, time: 5,
-      data: { header: { system: `You are working on the machine ${hostname()} (Linux, bash shell with a GNU userland).` } },
+      data: { header: { system: `You are working on the machine ${hostname()} (Linux with a GNU userland).` } },
     })
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
     expect(out).toContain('the machine {{machine}} ({{environment}}).')

@@ -102,7 +102,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       .split(join(scaffold.workspaceCwd, 'workspace')).join('{{cwd}}')
       .split(scaffold.baseUrl).join('{{webUrl}}')
       .split(hostname()).join('{{machine}}')
-      .replace(/\((?:Linux, bash shell(?: with a (?:GNU|BusyBox) userland)?|macOS, zsh shell with a BSD userland|Windows, PowerShell shell)\)/g, '({{environment}})')
+      .replace(/\((?:Linux(?: with a (?:GNU|BusyBox) userland)?|macOS with a BSD userland|Windows)\)/g, '({{environment}})')
     await compareOrRefreshGolden(SYSTEM_PROMPT_EXPECTED, prefix, MODE)
   })
 

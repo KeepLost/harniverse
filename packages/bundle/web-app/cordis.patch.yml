@@ -179,6 +179,24 @@
     - id: terminal-controller
       name: '@deepseek-ai/dsh-api-terminal-controller'
 
+    # Session-switchable shell families: the router replaces the base's
+    # XOR-gated executor rows for THIS surface (both disables below), probing
+    # and mounting both sandboxed stacks in isolated scopes so one host serves
+    # sessions with different selections. The session pointer above the
+    # executors — durable per-session override, tool restriction, and the
+    # runtime-context shell fact — rides session-shell; presets enable both
+    # shell tool rows behind `$DSH_SESSION_SHELL`, which the launcher publishes
+    # from this composition.
+    - id: shell-router
+      name: '@deepseek-ai/dsh-shell-router'
+      config:
+        families:
+          bash:
+            timeoutMs: 60000
+
+    - id: session-shell
+      name: '@deepseek-ai/dsh-session-shell'
+
     # Workspace-scoped user file editing for the workbench preview: the
     # open/stat/save Remote behind the optional ui-workspace-editor plugin.
     # Composed here so every web Host — local and remote — serves the editing
@@ -558,6 +576,15 @@
   disabled: true
 
 - id: tool-pwsh
+  disabled: true
+
+# The router above mounts BOTH sandboxed executor families itself; the base's
+# XOR-gated rows would double-register ctx.shell. Only the web surface swaps
+# the executor plane — the base keeps the single-stack composition for TUI.
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
   disabled: true
 
 # The background-job REGISTRY stays on the host plane; only the model-facing

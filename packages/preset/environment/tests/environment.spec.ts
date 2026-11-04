@@ -20,27 +20,27 @@ async function sectionText(ctx: Context, scope?: ScopeKey): Promise<string | und
 describe('environment fact detection', () => {
   it('describes a GNU Linux host', () => {
     expect(Environment.detectEnvironmentFacts('linux', 'box', () => false))
-      .toEqual({ os: 'Linux', shell: 'bash', userland: 'GNU', machine: 'box' })
+      .toEqual({ os: 'Linux', userland: 'GNU', machine: 'box' })
   })
 
   it('describes an Alpine Linux host through the BusyBox probe', () => {
     expect(Environment.detectEnvironmentFacts('linux', 'box', () => true))
-      .toEqual({ os: 'Linux', shell: 'bash', userland: 'BusyBox', machine: 'box' })
+      .toEqual({ os: 'Linux', userland: 'BusyBox', machine: 'box' })
   })
 
-  it('describes macOS with zsh and the BSD userland', () => {
+  it('describes macOS with the BSD userland', () => {
     expect(Environment.detectEnvironmentFacts('darwin', 'mac', () => false))
-      .toEqual({ os: 'macOS', shell: 'zsh', userland: 'BSD', machine: 'mac' })
+      .toEqual({ os: 'macOS', userland: 'BSD', machine: 'mac' })
   })
 
-  it('describes Windows with PowerShell and no userland claim', () => {
+  it('describes Windows with no userland claim', () => {
     expect(Environment.detectEnvironmentFacts('win32', 'pc', () => false))
-      .toEqual({ os: 'Windows', shell: 'PowerShell', machine: 'pc' })
+      .toEqual({ os: 'Windows', machine: 'pc' })
   })
 
-  it('passes an unmapped platform through with the POSIX shell default', () => {
+  it('passes an unmapped platform through', () => {
     expect(Environment.detectEnvironmentFacts('freebsd', 'bsd', () => false))
-      .toEqual({ os: 'freebsd', shell: 'bash', machine: 'bsd' })
+      .toEqual({ os: 'freebsd', machine: 'bsd' })
   })
 
   it('detects the current host without explicit inputs', () => {
@@ -58,15 +58,15 @@ describe('environment fact detection', () => {
 })
 
 describe('the environment section text', () => {
-  it('states machine, OS, shell, userland, and the session-fixed working directory', () => {
-    expect(Environment.environmentSectionText({ os: 'Linux', shell: 'bash', userland: 'GNU', machine: 'box' }))
-      .toBe('You are working on the machine box (Linux, bash shell with a GNU userland). '
+  it('states machine, OS, userland, and the session-fixed working directory', () => {
+    expect(Environment.environmentSectionText({ os: 'Linux', userland: 'GNU', machine: 'box' }))
+      .toBe('You are working on the machine box (Linux with a GNU userland). '
         + 'This session started in {{cwd}}; the working directory can change during the session.')
   })
 
   it('omits the userland clause when it does not apply', () => {
-    expect(Environment.environmentSectionText({ os: 'Windows', shell: 'PowerShell', machine: 'pc' }))
-      .toBe('You are working on the machine pc (Windows, PowerShell shell). '
+    expect(Environment.environmentSectionText({ os: 'Windows', machine: 'pc' }))
+      .toBe('You are working on the machine pc (Windows). '
         + 'This session started in {{cwd}}; the working directory can change during the session.')
   })
 })

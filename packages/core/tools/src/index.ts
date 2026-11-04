@@ -1263,6 +1263,20 @@ export class ToolRuntime extends Service {
     return [...this.view(scope).visible.values()].map(definition => this.schemaOf(definition, true))
   }
 
+  /**
+   * Whether one tool name is registered anywhere on a scope's chain,
+   * regardless of restrictions. Capability gating that hides a registered
+   * tool per scope (for example the session shell selector) checks this
+   * before naming the tool in a {@link restrict} filter, which rejects
+   * unknown names.
+   * @param name - tool name to look up.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @returns whether the name is known to that scope.
+   */
+  has(name: string, scope?: ScopeKey): boolean {
+    return this.view(scope).knownNames.has(name)
+  }
+
   /** Project visible callable tools onto the generated PTC SDK contract. */
   private sdkSchemas(scope?: ScopeKey): ToolSdkSchema[] {
     return [...this.view(scope).visible.values()]

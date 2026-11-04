@@ -110,6 +110,18 @@
       "stability": "stable"
     },
     {
+      "method": "session.shell",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.switchShell",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
       "method": "session.rename",
       "requiredCapability": "harniverse.operate",
       "effect": "mutate",
@@ -630,6 +642,7 @@
     "subagent-unauthorized",
     "subagent-delivery-unavailable",
     "terminal-unavailable",
+    "shell-unavailable",
     "terminal-control-unavailable",
     "terminal-limit-reached",
     "browser-unavailable",
