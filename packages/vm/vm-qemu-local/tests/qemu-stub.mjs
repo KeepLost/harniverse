@@ -11,7 +11,7 @@ import { createServer } from 'node:net'
 import { unlinkSync } from 'node:fs'
 
 const mode = process.env.DSH_STUB_MODE ?? ''
-const VERSION = 2
+const VERSION = 3
 if (mode === 'exit-now') process.exit(0)
 
 const serialPaths = []
@@ -44,7 +44,7 @@ if (mode === 'no-bind') {
     }
     // Real agents beacon announce until their first decoded frame; one
     // beacon is enough for the host's handshake to proceed.
-    send({ t: 'announce', v: VERSION, caps: ['ping', 'exec', 'fs'], agent: 'qemu-stub' })
+    send({ t: 'announce', v: VERSION, caps: ['ping', 'exec', 'fs', 'workspace'], agent: 'qemu-stub' })
     socket.on('data', (chunk) => {
       if (mode === 'hang') return
       buffer = Buffer.concat([buffer, chunk])
@@ -72,11 +72,11 @@ if (mode === 'no-bind') {
             socket.write(frame)
             return
           }
-          if (mode === 'welcome-v3') {
-            send({ t: 'welcome', v: 3, caps: ['ping', 'exec', 'fs'], agent: 'qemu-stub' })
+          if (mode === 'welcome-other') {
+            send({ t: 'welcome', v: VERSION + 1, caps: ['ping', 'exec', 'fs', 'workspace'], agent: 'qemu-stub' })
             return
           }
-          send({ t: 'welcome', v: VERSION, caps: ['ping', 'exec', 'fs'], agent: 'qemu-stub' })
+          send({ t: 'welcome', v: VERSION, caps: ['ping', 'exec', 'fs', 'workspace'], agent: 'qemu-stub' })
         } else if (payload.t === 'ping') {
           send({ t: 'pong', n: payload.n })
         } else if (payload.t === 'exec') {

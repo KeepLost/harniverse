@@ -7,18 +7,24 @@
  * Every later `hello` on the same connection is validated the same way, so a
  * mismatched client is rejected at any point in the session.
  *
- * Version 2 adds the exec and fs operations: exec requests are acknowledged
+ * Version 2 added the exec and fs operations: exec requests are acknowledged
  * by `exec.started` and then stream `exec.out` frames until one `exec.exit`;
  * fs requests are one round trip each (`fs.ok` or `fs.err`). Binary payloads
  * (`d` fields) travel base64-encoded so frames stay valid UTF-8.
+ *
+ * Version 3 adds the workspace data-plane operations: `workspace.import`
+ * unpacks the staged import image into the guest's `/workspace` and
+ * `workspace.export` packs that directory into the export image; each is
+ * answered exactly once by `workspace.ok` (with the payload size) or
+ * `workspace.err` (including the `busy` guard while another transfer runs).
  * @module @deepseek-ai/dsh-vm-qemu-local
  */
 
 /** Single protocol version this host speaks; peers must match it exactly. */
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 /** Capabilities the host announces in `hello`; the M1 host answers ping, exec, and fs. */
-export const HOST_CAPS = ['ping', 'exec', 'fs'] as const
+export const HOST_CAPS = ['ping', 'exec', 'fs', 'workspace'] as const
 
 /** Host greeting; the guest answers `welcome`, or rejects the version. */
 export interface HelloMessage {
@@ -114,6 +120,18 @@ export type FsWireOp =
  */
 export type FsMessage = { t: 'fs'; id: number } & FsWireOp
 
+/** Unpack the staged import image into the guest's `/workspace`. */
+export interface WorkspaceImportMessage {
+  t: 'workspace.import'
+  id: number
+}
+
+/** Pack the guest's `/workspace` into the export image. */
+export interface WorkspaceExportMessage {
+  t: 'workspace.export'
+  id: number
+}
+
 /** Messages the host may send. */
 export type HostMessage =
   | HelloMessage
@@ -124,6 +142,8 @@ export type HostMessage =
   | ExecStdinCloseMessage
   | ExecSignalMessage
   | FsMessage
+  | WorkspaceImportMessage
+  | WorkspaceExportMessage
 
 /** Guest ack for an accepted exec; `pid` is the guest-side process id. */
 export interface ExecStartedMessage {
@@ -192,6 +212,20 @@ export interface FsErrMessage {
   message: string
 }
 
+/** Completed workspace transfer; `bytes` is the payload size that moved. */
+export interface WorkspaceOkMessage {
+  t: 'workspace.ok'
+  id: number
+  bytes: number
+}
+
+/** Failed workspace transfer (missing device, tar failure, or `busy`). */
+export interface WorkspaceErrMessage {
+  t: 'workspace.err'
+  id: number
+  message: string
+}
+
 /** Guest rejection with a machine-readable code. */
 export interface ErrorMessage {
   t: 'error'
@@ -214,8 +248,10 @@ export type GuestMessage =
   | ExecErrMessage
   | FsOkMessage
   | FsErrMessage
+  | WorkspaceOkMessage
+  | WorkspaceErrMessage
 
-/** Guest messages that answer or report on one exec or fs id. */
+/** Guest messages that answer or report on one exec, fs, or workspace id. */
 export type GuestOpMessage =
   | ExecStartedMessage
   | ExecOutMessage
@@ -224,6 +260,8 @@ export type GuestOpMessage =
   | ExecErrMessage
   | FsOkMessage
   | FsErrMessage
+  | WorkspaceOkMessage
+  | WorkspaceErrMessage
 
 /**
  * Narrow channel contract the exec and fs surfaces drive; the world's control
@@ -362,6 +400,14 @@ export function parseGuestMessage(payload: string): GuestMessage | undefined {
   if (t === 'fs.err') {
     if (!hasId(message) || typeof message.errno !== 'number' || typeof message.message !== 'string') return undefined
     return { t, id: message.id, errno: message.errno, message: message.message }
+  }
+  if (t === 'workspace.ok') {
+    if (!hasId(message) || typeof message.bytes !== 'number') return undefined
+    return { t, id: message.id, bytes: message.bytes }
+  }
+  if (t === 'workspace.err') {
+    if (!hasId(message) || typeof message.message !== 'string') return undefined
+    return { t, id: message.id, message: message.message }
   }
   return undefined
 }

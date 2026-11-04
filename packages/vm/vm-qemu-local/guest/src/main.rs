@@ -4,6 +4,7 @@
 //! log) until the host shuts the world down. Serial EOF also powers the
 //! machine off: a world without its host does not keep running.
 
+mod dataops;
 mod exec;
 mod fsops;
 mod proto;
@@ -151,6 +152,16 @@ fn handle_frame(
             fsops::handle(sink, id, op);
             true
         }
+        Request::WorkspaceImport { id } => {
+            *serving = true;
+            dataops::handle(sink, id, proto::DataOp::Import);
+            true
+        }
+        Request::WorkspaceExport { id } => {
+            *serving = true;
+            dataops::handle(sink, id, proto::DataOp::Export);
+            true
+        }
     }
 }
 
@@ -239,6 +250,15 @@ fn main() {
         mount(c"proc", c"/proc", c"proc");
         mount(c"sysfs", c"/sys", c"sysfs");
         mount(c"tmpfs", c"/tmp", c"tmpfs");
+        let _ = std::fs::create_dir_all("/workspace");
+        // The workspace data plane rides on virtio-blk, which the virt
+        // kernel ships as a module; load it best-effort (an already-loaded
+        // module answers with a failure status that is safe to ignore — the
+        // workspace ops themselves fail loudly without the device).
+        let status = std::process::Command::new("/sbin/insmod")
+            .arg("/lib/modules/virtio_blk.ko")
+            .status();
+        eprintln!("dsh-vm-guest-agent: insmod virtio_blk -> {:?}", status);
     }
     serve_forever()
 }

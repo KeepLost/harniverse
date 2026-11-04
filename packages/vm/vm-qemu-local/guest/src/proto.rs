@@ -5,14 +5,14 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u64 = 2;
+pub const PROTOCOL_VERSION: u64 = 3;
 pub const AGENT_ID: &str = concat!("dsh-vm-guest-agent ", env!("CARGO_PKG_VERSION"));
 pub const CONTROL_PORT: &str = "/dev/ttyS1";
 pub const MAX_FRAME_BYTES: u32 = 1 << 20;
 /// Largest decoded byte payload one stream chunk or fs transfer carries; the
 /// base64 form stays safely under {@link MAX_FRAME_BYTES}.
 pub const MAX_DATA_BYTES: usize = 512 * 1024;
-pub const CAPS: &[&str] = &["ping", "exec", "fs"];
+pub const CAPS: &[&str] = &["ping", "exec", "fs", "workspace"];
 
 #[derive(Serialize)]
 #[serde(tag = "t")]
@@ -54,6 +54,10 @@ pub enum Reply {
     },
     #[serde(rename = "fs.err")]
     FsErr { id: u64, errno: i32, message: String },
+    #[serde(rename = "workspace.ok")]
+    WorkspaceOk { id: u64, bytes: u64 },
+    #[serde(rename = "workspace.err")]
+    WorkspaceErr { id: u64, message: String },
 }
 
 #[derive(Serialize)]
@@ -103,12 +107,23 @@ pub enum Request {
         #[serde(flatten)]
         op: FsOp,
     },
+    #[serde(rename = "workspace.import")]
+    WorkspaceImport { id: u64 },
+    #[serde(rename = "workspace.export")]
+    WorkspaceExport { id: u64 },
 }
 
 #[derive(Deserialize)]
 pub struct PtySize {
     pub rows: u16,
     pub cols: u16,
+}
+
+/// Which workspace data-plane transfer a request starts.
+#[derive(Clone, Copy)]
+pub enum DataOp {
+    Import,
+    Export,
 }
 
 #[derive(Deserialize)]

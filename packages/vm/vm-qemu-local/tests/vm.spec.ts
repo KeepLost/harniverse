@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { probeWorld } from '../src/index.ts'
 import { EgressDeniedError } from '../src/egress.ts'
 import { PROTOCOL_VERSION } from '../src/protocol.ts'
+import { buildWorkspaceImage, packWorkspaceTar, readWorkspaceImage, readWorkspaceTar } from '../src/workspace.ts'
 import {
   AssetsMissingError,
   GuestVersionMismatchError,
@@ -241,9 +242,9 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
   it('rejects a welcome that speaks a different version', async () => {
     const recording: { current?: Recording } = {}
     recordings.push(recording)
-    const promise = openWorld({ assetsDir: stubAssets() }, stubDeps('welcome-v3', recording))
+    const promise = openWorld({ assetsDir: stubAssets() }, stubDeps('welcome-other', recording))
     await expect(promise).rejects.toSatisfy((error: unknown) =>
-      error instanceof GuestVersionMismatchError && error.guestV === 3)
+      error instanceof GuestVersionMismatchError && error.guestV === PROTOCOL_VERSION + 1)
     await expect(recording.current?.exit).resolves.toMatchObject({ signal: 'SIGKILL' })
   })
 
@@ -536,6 +537,132 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
       error instanceof WorldClosedError && error.message.includes('already stopped'))
     await expect(world.fs.readFile('/tmp/f')).rejects.toSatisfy((error: unknown) =>
       error instanceof WorldClosedError && error.message.includes('already stopped'))
+  })
+
+  it('stages the workspace images before spawn and sizes the export image', async () => {
+    const { child, emitExit } = fakeChild()
+    const staged: { path: string; bytes?: Uint8Array; length?: number }[] = []
+    const spawnArgv: string[][] = []
+    const base = packWorkspaceTar([{ path: 'a.txt', kind: 'file', data: Buffer.from('a') }])
+    const world = await openWorld(
+      { assetsDir: stubAssets(), workspace: { import: base, exportCapacityBytes: 8192 } },
+      {
+        spawn: (argv): ChildLike => {
+          spawnArgv.push([...argv])
+          return child
+        },
+        connect: async () => welcomeSocket(),
+        writeFile: async (path, bytes) => { staged.push({ path, bytes }) },
+        truncate: async (path, length) => { staged.push({ path, length }) },
+        readFile: async () => buildWorkspaceImage(packWorkspaceTar([])),
+      },
+    )
+    const importEntry = staged.find(entry => entry.path.endsWith('ws-import.img'))
+    expect(importEntry?.bytes).toBeDefined()
+    expect(readWorkspaceImage(importEntry?.bytes ?? new Uint8Array(0)).tar.equals(base)).toBe(true)
+    expect(staged.find(entry => entry.path.endsWith('ws-export.img') && entry.length === 8192)).toBeDefined()
+    expect(spawnArgv[0]?.join(' ')).toContain('id=wsin')
+    expect(spawnArgv[0]?.join(' ')).toContain('id=wsout')
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+  })
+
+  it('rejects an undersized export capacity and cleans the run directory', async () => {
+    const runDirs: string[] = []
+    await expect(openWorld(
+      { assetsDir: stubAssets(), workspace: { exportCapacityBytes: 512 } },
+      {
+        spawn: (): ChildLike => fakeChild().child,
+        connect: async () => welcomeSocket(),
+        mkdtemp: async (prefix) => {
+          const dir = `${prefix}capacity-${runDirs.length}`
+          runDirs.push(dir)
+          return dir
+        },
+      },
+    )).rejects.toThrow('export capacity')
+    expect(runDirs).toHaveLength(1)
+  })
+
+  it('fails closed and cleans the run directory when image staging fails', async () => {
+    const staged: string[] = []
+    await expect(openWorld(
+      { assetsDir: stubAssets(), workspace: {} },
+      {
+        spawn: (): ChildLike => fakeChild().child,
+        connect: async () => welcomeSocket(),
+        mkdtemp: async prefix => `${prefix}stage-fail`,
+        writeFile: async (path) => {
+          staged.push(path)
+          throw new Error('disk full')
+        },
+      },
+    )).rejects.toThrow('disk full')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('hands workspace owners chown of the staged images on root hosts', async () => {
+    const { child, emitExit } = fakeChild()
+    const chowned: string[] = []
+    const world = await openWorld(
+      { assetsDir: sandboxAssets(), workspace: {} },
+      {
+        spawn: () => child,
+        connect: async () => welcomeSocket(),
+        euid: () => 0,
+        chown: async (path) => { chowned.push(path) },
+        copyFile: async () => undefined,
+        writeFile: async () => undefined,
+        truncate: async () => undefined,
+      },
+    )
+    expect(chowned.filter(path => path.endsWith('ws-import.img'))).toHaveLength(1)
+    expect(chowned.filter(path => path.endsWith('ws-export.img'))).toHaveLength(1)
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+  })
+
+  it('round-trips a workspace export through the world handle and rejects unconfigured worlds', async () => {
+    const { child, emitExit } = fakeChild()
+    const socket = fakeSocket()
+    const image = buildWorkspaceImage(packWorkspaceTar([{ path: 'a.txt', kind: 'file', data: Buffer.from('a') }]))
+    let answered = false
+    const world = await openWorld(
+      { assetsDir: stubAssets(), workspace: {} },
+      {
+        spawn: () => child,
+        connect: async () => {
+          setTimeout(() => {
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+            let helloAnswered = false
+            const interval = setInterval(() => {
+              if (!helloAnswered && socket.written.some(entry => entry.includes('"t":"hello"'))) {
+                socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+                helloAnswered = true
+                return
+              }
+              if (!answered && socket.written.some(entry => entry.includes('"t":"workspace.export"'))) {
+                socket.emitData(encode({ t: 'workspace.ok', id: 1, bytes: image.length - 4096 }))
+                answered = true
+                clearInterval(interval)
+              }
+            }, 10)
+          }, 50)
+          return socket
+        },
+        readFile: async () => image,
+        writeFile: async () => undefined,
+        truncate: async () => undefined,
+      },
+    )
+    const exported = await world.workspace.export()
+    expect(readWorkspaceTar(exported.tar).some(entry => entry.path === 'a.txt')).toBe(true)
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+
+    const plain = await openWorld({ assetsDir: stubAssets() }, { spawn: () => fakeChild().child, connect: async () => welcomeSocket() })
+    await expect(plain.workspace.export()).rejects.toThrow('workspace not configured')
+    await expect(plain.workspace.import()).rejects.toThrow('workspace not configured')
   })
 
   it('the default spawn seam runs the planned argv under a real child', () => {
