@@ -1,0 +1,19 @@
+# REAL-composition fixture for the QEMU-gated e2e: the world row boots the
+# real provider, so the world service, the subprocess seam, the sandbox
+# provider, and the guest itself (agent, wrapper, kernel) are the shipped
+# ones. The e2e drives the confined argv through the same subprocess shape
+# the bash tool composes.
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: workspace-write
+    workspaceRoot: /workspace
+
+- id: vm
+  name: '@deepseek-ai/dsh-vm-qemu-local'
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-vm'
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-vm'

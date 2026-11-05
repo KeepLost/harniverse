@@ -15,7 +15,9 @@ use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use exec::{Registry, Sink};
-use proto::{Reply, Request, AGENT_ID, CAPS, CONTROL_PORT, MAX_FRAME_BYTES, PROTOCOL_VERSION};
+use proto::{Reply, Request, AGENT_ID, CONTROL_PORT, MAX_FRAME_BYTES, PROTOCOL_VERSION};
+
+use dsh_vm_guest_agent::landlock;
 
 fn mount(source: &std::ffi::CStr, target: &std::ffi::CStr, fs: &std::ffi::CStr) {
     // SAFETY: mount(2) with properly NUL-terminated static literals; a
@@ -105,6 +107,7 @@ fn handle_frame(
     serving: &mut bool,
     sink: &Sink,
     registry: &Arc<Registry>,
+    landlock: bool,
 ) -> bool {
     match request {
         Request::Hello { v } => {
@@ -120,7 +123,7 @@ fn handle_frame(
             *serving = true;
             write_frame(port, &Reply::Welcome {
                 v: PROTOCOL_VERSION,
-                caps: CAPS.to_vec(),
+                caps: proto::caps(landlock),
                 agent: AGENT_ID,
             })
         }
@@ -168,7 +171,7 @@ fn handle_frame(
 /// Serve on one open port. Until the first decoded host frame arrives, keep
 /// beaconing `announce` so the host can learn the port is live before it
 /// risks writing into the UART. Polling interleaves beacon writes with reads.
-fn serve_once(port: &mut File) {
+fn serve_once(port: &mut File, landlock: bool) {
     let writer = match port.try_clone() {
         Ok(writer) => writer,
         Err(_) => return,
@@ -182,7 +185,7 @@ fn serve_once(port: &mut File) {
         if !serving && last_beacon.elapsed() >= std::time::Duration::from_millis(500) {
             if !write_frame(port, &Reply::Announce {
                 v: PROTOCOL_VERSION,
-                caps: CAPS.to_vec(),
+                caps: proto::caps(landlock),
                 agent: AGENT_ID,
             }) {
                 return
@@ -224,7 +227,7 @@ fn serve_once(port: &mut File) {
                 continue
             }
         };
-        if !handle_frame(port, request, &mut serving, &sink, &registry) {
+        if !handle_frame(port, request, &mut serving, &sink, &registry, landlock) {
             return
         }
     }
@@ -233,16 +236,39 @@ fn serve_once(port: &mut File) {
 /// Serve until the host asks for shutdown. A serial hangup (a guest port
 /// reopened after the UART dropped early host bytes) only ends one serving
 /// stint: reopen the port and keep the world alive.
-fn serve_forever() -> ! {
+fn serve_forever(landlock: bool) -> ! {
     loop {
         let Some(mut port) = control_port_wait(std::time::Duration::from_secs(60)) else {
             power_off()
         };
-        serve_once(&mut port);
+        serve_once(&mut port, landlock);
     }
 }
 
+/// Functional Landlock probe: build and enforce a maximal ruleset in a
+/// short-lived process — actually restricting is the only honest signal a
+/// version check cannot give. The agent itself never restricts (PID 1
+/// serves every op), so the probe runs `/proc/self/exe --landlock-probe`.
+fn landlock_available() -> bool {
+    std::process::Command::new("/proc/self/exe")
+        .arg("--landlock-probe")
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 2 && args[1] == "--landlock-probe" {
+        match landlock::restrict(&["/".to_string()], &[]) {
+            Ok(()) => return,
+            Err(message) => {
+                eprintln!("dsh-vm-guest-agent: landlock probe failed: {message}");
+                std::process::exit(3);
+            }
+        }
+    }
+    let mut landlock = false;
     if std::process::id() == 1 {
         mount(c"devtmpfs", c"/dev", c"devtmpfs");
         let _ = std::fs::create_dir_all("/dev/pts");
@@ -259,6 +285,8 @@ fn main() {
             .arg("/lib/modules/virtio_blk.ko")
             .status();
         eprintln!("dsh-vm-guest-agent: insmod virtio_blk -> {:?}", status);
+        landlock = landlock_available();
+        eprintln!("dsh-vm-guest-agent: landlock confinement backend -> {landlock}");
     }
-    serve_forever()
+    serve_forever(landlock)
 }
