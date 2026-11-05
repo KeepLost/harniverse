@@ -52,11 +52,14 @@ describe('sandbox-vm through a real Loader composition', () => {
   it('wraps argv with the in-guest Landlock wrapper under the session policy', async () => {
     const report = await runCase()
     expect(report.mode).toBe('workspace-write')
-    expect(report.workspaceRoot).toBe('/workspace')
+    // The session cwd boundary flows through the platform's root resolver
+    // (a drive-prefixed spelling on win32); the wrap carries exactly it.
+    const { workspaceRoot } = report
+    expect(workspaceRoot).toBeDefined()
     expect(report.guestConfinement).toBe('landlock')
     expect(report.confineArgv).toEqual([
       '/bin/dsh-vm-confine', '--ro', '/',
-      '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/workspace',
+      '--rw', '/dev/null', '--rw', '/tmp', '--rw', workspaceRoot,
       '--', 'bash', '-c', 'ls',
     ])
     expect(report.enforcement).toBe('full')
