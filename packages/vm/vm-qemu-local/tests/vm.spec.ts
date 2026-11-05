@@ -126,14 +126,14 @@ function sandboxAssets(): string {
 }
 
 /** Fake socket that beacons, then answers hello with a welcome. */
-function welcomeSocket(): FakeSocket {
+function welcomeSocket(guestCaps: readonly string[] = ['ping', 'exec', 'fs']): FakeSocket {
   const socket = fakeSocket()
   setTimeout(() => {
-    socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+    socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: [...guestCaps], agent: 'fake' }))
     const poll = setInterval(() => {
       if (socket.written.some(entry => entry.includes('"hello"'))) {
         clearInterval(poll)
-        socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+        socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: [...guestCaps], agent: 'fake' }))
       }
     }, 10)
   }, 20)
@@ -155,6 +155,7 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     recordings.push(recording)
     const world = await openWorld({ assetsDir: stubAssets(), readyTimeoutMs: 10_000 }, stubDeps('', recording))
     expect(world.descriptor.readyMs).toBeGreaterThanOrEqual(0)
+    expect(world.descriptor.guestConfinement).toBe('none')
     await expect(world.ping(2_000)).resolves.toBeGreaterThanOrEqual(0)
     await expect(world.destroy()).resolves.toBe('clean')
     await expect(recording.current?.exit).resolves.toEqual({ code: 0, signal: null })
@@ -563,6 +564,20 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     expect(staged.find(entry => entry.path.endsWith('ws-export.img') && entry.length === 8192)).toBeDefined()
     expect(spawnArgv[0]?.join(' ')).toContain('id=wsin')
     expect(spawnArgv[0]?.join(' ')).toContain('id=wsout')
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+  })
+
+  it('maps the guest-announced confinement capability onto the descriptor', async () => {
+    const { child, emitExit } = fakeChild()
+    const world = await openWorld(
+      { assetsDir: stubAssets() },
+      {
+        spawn: () => child,
+        connect: async () => welcomeSocket(['ping', 'exec', 'fs', 'landlock']),
+      },
+    )
+    expect(world.descriptor.guestConfinement).toBe('landlock')
     emitExit(0)
     await expect(world.destroy()).resolves.toBe('clean')
   })
