@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/vm/vm-qemu-local/README.md
-README.md: bb67c9d3adf9aafe2037ef59b06b1137b3eb40df
-README.zh.md: 95878a80c99784a2c61dd63b6f85273da394c28e
+README.md: e20f9fd0410acc5491a6a9e55bc4a7d56f64de32
+README.zh.md: 56b76520ceaf91472555707c8addf8444e713510

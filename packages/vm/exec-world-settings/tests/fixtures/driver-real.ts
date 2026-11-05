@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+/**
+ * QEMU-gated e2e driver: boot the execWorld composition with the REAL
+ * provider (cordis-real.yml), drive the world's seams with the exact shapes
+ * the bash/fs tools compose, and persist the observed facts to
+ * `./exec-world-e2e-report.json` for the spec's inspect step. The denial run
+ * (DSH_PERMISSION_MODE pinned to a confined mode) asserts the honest
+ * sandbox-vm refusal instead.
+ */
+
+import { writeFile } from 'node:fs/promises'
+import { boot, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
+
+const configPath = process.argv[2]
+if (configPath === undefined) throw new Error('exec-world e2e driver requires a config path')
+
+const ctx = await boot('exec-world-e2e', resolveConfigPath(configPath, undefined))
+try {
+  const report: Record<string, unknown> = {
+    publishedEnv: process.env.DSH_EXEC_WORLD,
+    subprocessLocality: ctx.get('subprocess')?.locality,
+    fsProvider: ctx.get('fs')?.constructor?.name,
+    sandboxProvider: ctx.get('sandbox')?.constructor?.name,
+    vmService: ctx.get('vm')?.constructor?.name,
+    policyMode: ctx.get('sandboxPolicy')?.defaultMode,
+  }
+
+  if (process.env.DSH_PERMISSION_MODE === undefined) {
+    // The world-boundary run: bash resolves and runs inside the guest, and
+    // the fs seam round-trips a file into the world's /workspace.
+    const bashPath = await ctx.subprocess.resolveExecutable('bash')
+    const spawned = ctx.subprocess.spawn({
+      argv: ['bash', '-c', 'printf "kernel=%s\\n" "$(uname -r)"'],
+      cwd: '/workspace',
+      graceMs: 5_000,
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 4096 }, stderr: { maxBytes: 4096 } },
+    })
+    const outcome = await spawned.done
+    report.bashPath = bashPath
+    report.bashExit = outcome.exitCode
+    report.bashKernel = spawned.collected.stdout?.readFrom(0).text.trim()
+    const target = await ctx.fs.resolve('/workspace/m6-e2e.txt')
+    // The world-boundary posture a vm session resolves (the deployment
+    // default under this boot); passing it explicitly mirrors the per-call
+    // policy a session with a guest cwd supplies.
+    await ctx.fs.writeText(target, 'exec-world round trip\n', undefined, undefined, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
+    report.fsRoundTrip = await ctx.fs.readText(await ctx.fs.resolve('/workspace/m6-e2e.txt'))
+  } else {
+    // The confined run: an explicit mode under the vm world must deny
+    // honestly through sandbox-vm rather than compose host confinement. A
+    // guest session cwd supplies the workspace-write boundary the remote
+    // world requires.
+    const policy = ctx.get('sandboxPolicy')!.resolve({ session: { header: { cwd: '/workspace' }, events: [], id: 'exec-world-e2e' } as never })
+    try {
+      await ctx.sandbox.confine(['bash', '-c', 'true'], { mode: 'workspace-write', workspaceRoot: policy.workspaceRoot })
+      report.confine = 'unexpectedly-allowed'
+    } catch (error) {
+      report.confine = error instanceof Error ? error.message : String(error)
+    }
+    report.resolvedMode = policy.mode
+  }
+
+  await writeFile('./exec-world-e2e-report.json', JSON.stringify(report, null, 2))
+} finally {
+  await ctx.fiber.dispose()
+}

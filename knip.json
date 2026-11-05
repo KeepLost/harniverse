@@ -1091,6 +1091,15 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/vm/exec-world-settings": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/vm/subprocess-vm": {
       "entry": [
         "tests/**/*.spec.ts",

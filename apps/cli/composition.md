@@ -74,6 +74,16 @@ flowchart LR
   cfg --> plugin_dsh_base_sandbox
   plugin_dsh_base_sandbox_policy["sandbox-policy<br/>@deepseek-ai/dsh-sandbox-policy"]
   cfg --> plugin_dsh_base_sandbox_policy
+  plugin_dsh_base_exec_world_settings["exec-world-settings<br/>@deepseek-ai/dsh-exec-world-settings"]
+  cfg --> plugin_dsh_base_exec_world_settings
+  plugin_dsh_base_vm["vm<br/>@deepseek-ai/dsh-vm-qemu-local"]
+  cfg --> plugin_dsh_base_vm
+  plugin_dsh_base_subprocess_vm["subprocess-vm<br/>@deepseek-ai/dsh-subprocess-vm"]
+  cfg --> plugin_dsh_base_subprocess_vm
+  plugin_dsh_base_fs_vm["fs-vm<br/>@deepseek-ai/dsh-fs-vm"]
+  cfg --> plugin_dsh_base_fs_vm
+  plugin_dsh_base_sandbox_vm["sandbox-vm<br/>@deepseek-ai/dsh-sandbox-vm"]
+  cfg --> plugin_dsh_base_sandbox_vm
   plugin_dsh_base_shell_backend_settings["shell-backend-settings<br/>@deepseek-ai/dsh-shell-backend-settings"]
   cfg --> plugin_dsh_base_shell_backend_settings
   plugin_dsh_base_bash_sandbox["bash-sandbox<br/>@deepseek-ai/dsh-bash-sandbox"]
@@ -271,6 +281,11 @@ flowchart LR
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
 | `sandbox-policy` | `@deepseek-ai/dsh-sandbox-policy` |
+| `exec-world-settings` | `@deepseek-ai/dsh-exec-world-settings` |
+| `vm` | `@deepseek-ai/dsh-vm-qemu-local` |
+| `subprocess-vm` | `@deepseek-ai/dsh-subprocess-vm` |
+| `fs-vm` | `@deepseek-ai/dsh-fs-vm` |
+| `sandbox-vm` | `@deepseek-ai/dsh-sandbox-vm` |
 | `shell-backend-settings` | `@deepseek-ai/dsh-shell-backend-settings` |
 | `bash-sandbox` | `@deepseek-ai/dsh-bash-sandbox` |
 | `pwsh-sandbox` | `@deepseek-ai/dsh-pwsh-sandbox` |

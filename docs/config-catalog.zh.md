@@ -1047,6 +1047,24 @@ export interface Config {
 
 来源：[`packages/credentials/credentials-local/src/index.ts:55`](../packages/credentials/credentials-local/src/index.ts)
 
+<a id="deepseek-aidsh-exec-world-settings"></a>
+
+## `@deepseek-ai/dsh-exec-world-settings`
+
+Requires: `settings`
+
+```ts config-catalog
+/** Stored exec-world settings; every field is optional over the schema defaults. */
+export interface ExecWorldSettings {
+  /** Capability family the host composes; `vm` degrades to `local` without a healthy provider. */
+  world?: ExecWorldPreference
+}
+```
+
+Depends on: [`ExecWorldPreference`](../packages/vm/vm/src/index.ts)
+
+Source: [`packages/vm/exec-world-settings/src/index.ts:21`](../packages/vm/exec-world-settings/src/index.ts)
+
 <a id="deepseek-aidsh-file-reference-local"></a>
 
 ## `@deepseek-ai/dsh-file-reference-local`
@@ -4690,6 +4708,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-session-import` ([`packages/client/ui-session-import/src/index.ts`](../packages/client/ui-session-import/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-capabilities` ([`packages/client/ui-settings-capabilities/src/index.ts`](../packages/client/ui-settings-capabilities/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-exec-world` ([`packages/client/ui-settings-exec-world/src/index.ts`](../packages/client/ui-settings-exec-world/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-global-rules` ([`packages/client/ui-settings-global-rules/src/index.ts`](../packages/client/ui-settings-global-rules/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-im` ([`packages/client/ui-settings-im/src/index.ts`](../packages/client/ui-settings-im/src/index.ts))
