@@ -14,7 +14,7 @@
 
 Loader 条目并发启动，这正是该链路采用组合期静态求值而非运行时服务门控的原因：由更早行发布的服务会与提供者行的激活发生竞态。本包的 REAL 组合套件通过 Loader 引导整条链（种子文档或显式环境变量 → 引导桥 → 旗标对），QEMU 门控的 e2e 则引导真实提供者组合并在世界内驱动 bash/fs 工具形态。
 
-vm 世界下适用已记录的组合决策：未设置的 `$DSH_PERMISSION_MODE` 解析为 `danger-full-access`（世界边界即沙箱）；显式钉住的受限模式则通过 `dsh-sandbox-vm` 组合成诚实拒绝的会话（见其 README）。
+vm 世界下适用已记录的组合决策：未设置的 `$DSH_PERMISSION_MODE` 解析为 `danger-full-access`（世界边界即沙箱）；显式钉住的受限模式则通过 `dsh-sandbox-vm` 组合出真实的世界内 Landlock 强制，guest 未报告后端时 fail-closed（见其 README）。
 
 Web 客户端通过 `settings.describe` / `settings.update` 访问该命名空间（网关的 `WEB_SETTINGS_NAMESPACES` 允许清单含 `'exec-world'`），Settings 页编辑的是同一份文档。
 

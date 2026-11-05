@@ -4,6 +4,8 @@
 #   initramfs.cpio.gz       — Alpine minirootfs + the static guest agent as /init
 #                             + the virtio_blk kernel module (data plane)
 #                             + bash with its shared-library chain (tool shell)
+#                             + the Landlock confinement wrapper as
+#                             /bin/dsh-vm-confine (in-guest sandbox backend)
 #   qemu-wrap               — host sandbox wrapper (Landlock + uid drop + rlimits)
 #
 # Requirements: curl, tar, gzip, cpio, find, sha256sum, and a Rust toolchain
@@ -79,12 +81,15 @@ cargo build --release --target x86_64-unknown-linux-musl --target-dir "$target_d
   --manifest-path "${package_dir}/guest/Cargo.toml" >&2
 agent_bin="${target_dir}/x86_64-unknown-linux-musl/release/dsh-vm-guest-agent"
 [[ -f $agent_bin ]] || { echo "build-rootfs: agent binary missing after cargo build" >&2; exit 1; }
+confine_bin="${target_dir}/x86_64-unknown-linux-musl/release/dsh-vm-confine"
+[[ -f $confine_bin ]] || { echo "build-rootfs: confinement wrapper missing after cargo build" >&2; exit 1; }
 
 echo "build-rootfs: staging rootfs"
 rm -rf "$rootfs_dir"
 mkdir -p "$rootfs_dir"
 tar -xzf "${download_dir}/${MINIROOTFS}" -C "$rootfs_dir"
 install -m 0755 "$agent_bin" "${rootfs_dir}/init"
+install -m 0755 "$confine_bin" "${rootfs_dir}/bin/dsh-vm-confine"
 mkdir -p "${rootfs_dir}/dev" "${rootfs_dir}/proc" "${rootfs_dir}/tmp" "${rootfs_dir}/sys"
 
 echo "build-rootfs: staging kernel and virtio_blk module from the apk"

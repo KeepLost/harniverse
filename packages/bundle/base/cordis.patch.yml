@@ -179,7 +179,7 @@
       name: '@deepseek-ai/dsh-sandbox-policy'
       config:
         mode: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm' ? (process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') : (process.env.DSH_PERMISSION_MODE ?? 'workspace-write')"
-        workspaceRoot: !!js process.cwd()
+        workspaceRoot: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm' ? '/workspace' : process.cwd()"
 
     # The execution-world stack gates on `$DSH_EXEC_WORLD`, published by app
     # boot from the `exec-world:` user settings section (`applies:

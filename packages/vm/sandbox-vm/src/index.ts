@@ -1,43 +1,69 @@
 /**
  * Confinement provider for one execution world (`ctx.vm`): the world itself
- * is the enforcement. A world's processes cannot reach host files, host
- * processes, or the network by construction — the descriptor's
- * `isolation: 'full'` is a topology fact, not a policy promise — so
- * `danger-full-access` sessions already run under the strongest boundary the
- * harness can name, and callers never route that mode through `confine`.
+ * is the enforcement against the host — a world's processes cannot reach
+ * host files, processes, or the network by construction — while the
+ * confined modes speak about file effects INSIDE the world and ride the
+ * guest's kernel-enforcing backend. When the world's descriptor proves
+ * that backend (`guestConfinement: 'landlock'`, announced by the guest
+ * agent's boot-time functional probe), `confine` wraps argv with the
+ * in-guest Landlock wrapper staged in the world's rootfs; the wrapper
+ * restricts itself and `execvp`s the caller's argv unchanged, so there is
+ * no runner process left between the wrap and the confined command.
  *
- * The confined modes are a different question: `read-only` and
- * `workspace-write` speak about file effects INSIDE the world, and the v0
- * world agent ships no in-guest confinement backend to enforce them. This
- * provider therefore fails closed for both modes rather than passing argv
- * through with a `'full'` stamp it cannot honor — a silent pass-through would
- * advertise a boundary that does not exist.
+ * The grant spelling mirrors the host Landlock dialect
+ * (`@deepseek-ai/dsh-sandbox-local`): read everywhere, write only
+ * `/dev/null` under `read-only`, plus the workspace root and the world's
+ * temp area under `workspace-write`. Denials surface as EACCES
+ * (`permission denied`), and the wrapper's own failures carry the
+ * `dsh-vm-confine:` stderr prefix with exit codes 2/3/127.
  *
- * ponytail: the ceiling is the v0 guest (busybox userspace, no Landlock in
- * guest). The upgrade path is an in-guest backend (Landlock inside a richer
- * rootfs, or op-level enforcement in the world agent); when one exists, this
- * provider gains a real `ConfinedArgv` for the confined modes and the
- * fail-closed throw disappears.
+ * A world whose guest reports no backend still fails closed for both
+ * confined modes rather than passing argv through with an `'full'` stamp
+ * it cannot honor — a silent pass-through would advertise a boundary that
+ * does not exist.
  * @module @deepseek-ai/dsh-sandbox-vm
  */
 
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import type {} from '@deepseek-ai/dsh-vm'
 
-/** World-boundary confinement: full host isolation, fail-closed in-world modes. */
+/** Absolute path of the wrapper inside the world's rootfs. */
+const WRAPPER = '/bin/dsh-vm-confine'
+
+/** In-guest writable roots one mode grants — the world-side spelling of the host Landlock dialect. */
+function readWriteRoots(policy: SandboxPolicy): string[] {
+  return policy.mode === 'read-only' ? ['/dev/null'] : ['/dev/null', '/tmp', policy.workspaceRoot]
+}
+
+/** World-boundary confinement with in-guest Landlock file effects. */
 export class VmSandboxProvider extends SandboxProvider {
   static inject = ['vm']
 
-  // oxlint-disable-next-line typescript/require-await -- the refusal is the whole operation; async keeps it a rejection.
-  override async confine(_argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
+  // oxlint-disable-next-line typescript/require-await -- the seam rejects, it does not throw.
+  override async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
     signal?.throwIfAborted()
-    // The world boundary already separates the world from the host; the
-    // confined modes describe file effects inside the world, which the v0
-    // guest cannot enforce. Refusing keeps the vocabulary honest.
-    throw new SandboxUnavailableError(
-      policy.mode,
-      `the v0 world guest has no in-guest confinement backend for mode "${policy.mode}"; the world boundary itself is the enforcement — run world sessions in danger-full-access`,
-    )
+    const { guestConfinement } = this.ctx.vm.descriptor
+    if (guestConfinement !== 'landlock') {
+      // The world boundary still separates the world from the host; the
+      // confined modes describe file effects inside the world, which this
+      // guest cannot enforce. Refusing keeps the vocabulary honest.
+      throw new SandboxUnavailableError(
+        policy.mode,
+        `the world guest reports no in-guest confinement backend (guest confinement: ${guestConfinement}); `
+          + 'the world boundary itself is the host enforcement — run world sessions in danger-full-access',
+      )
+    }
+    const grants: string[] = ['--ro', '/']
+    for (const root of readWriteRoots(policy)) {
+      grants.push('--rw', root)
+    }
+    return {
+      argv: [WRAPPER, ...grants, '--', ...argv],
+      enforcement: 'full',
+      denialSignatures: ['permission denied'],
+      runnerFailureRules: [{ fatalSignatures: ['dsh-vm-confine:'] }],
+    }
   }
 }
 

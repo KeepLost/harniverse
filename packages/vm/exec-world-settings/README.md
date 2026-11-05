@@ -14,7 +14,7 @@ The namespace registers `applies: 'restart'`: app boot (`@deepseek-ai/dsh-app-bo
 
 Loader entries start concurrently, which is why the chain is composition-time static instead of a runtime service gate: a service published by an earlier row would race the provider rows' activation. The REAL-composition suite in this package boots the whole chain through the Loader (seeded document or explicit env → boot bridge → flag pair), and the QEMU-gated e2e boots the real provider composition and drives the bash/fs tool shapes inside the world.
 
-Under the vm world the recorded composition decision applies: an unset `$DSH_PERMISSION_MODE` resolves to `danger-full-access` (the world boundary is the sandbox), while an explicitly pinned confined mode composes honestly-refused sessions through `dsh-sandbox-vm` (see its README).
+Under the vm world the recorded composition decision applies: an unset `$DSH_PERMISSION_MODE` resolves to `danger-full-access` (the world boundary is the sandbox), while an explicitly pinned confined mode composes real in-guest Landlock enforcement through `dsh-sandbox-vm`, fail-closed when the guest reports no backend (see its README).
 
 The web client reaches this namespace through `settings.describe` / `settings.update` (the gateway's `WEB_SETTINGS_NAMESPACES` allowlist names `'exec-world'`), so the Settings page edits the same document.
 

@@ -166,16 +166,25 @@ export interface EgressRequest {
  */
 export type EgressPolicy = (request: EgressRequest) => boolean | Promise<boolean>
 
-/** Facts about one booted world, in provider-neutral terms. */
+/**
+ * Facts about one booted world, in provider-neutral terms.
+ */
 export interface VmWorldDescriptor {
   /** Provider id, e.g. `qemu-local`; stable within one deployment. */
   readonly provider: string
   /**
    * Host-isolation completeness this world proves: `'full'` means the world's
    * processes cannot reach host files, processes, or network by construction
-   * (a hardware-virtualized world), not by policy denial.
+   * (a hardware-virtualized world), not by policy promise.
    */
   readonly isolation: 'full'
+  /**
+   * The in-world process-confinement backend this world's guest proves at
+   * boot: `'landlock'` means the guest announced a kernel-enforcing backend
+   * the sandbox capability can wrap argv with (file effects inside the
+   * world), `'none'` means confined modes must fail closed.
+   */
+  readonly guestConfinement: 'landlock' | 'none'
   /**
    * True when the provider's own host child runs under its host-side
    * hardening (privilege drop, filesystem confinement), so a provider
