@@ -1394,6 +1394,12 @@ importers:
 
   packages/boot/app-boot:
     dependencies:
+      '@deepseek-ai/dsh-vm':
+        specifier: workspace:^
+        version: link:../../vm/vm
+      '@deepseek-ai/dsh-vm-qemu-local':
+        specifier: workspace:^
+        version: link:../../vm/vm-qemu-local
       '@eslint-community/regexpp':
         specifier: ^4.12.2
         version: 4.12.2
@@ -1592,6 +1598,9 @@ importers:
       '@deepseek-ai/dsh-credentials-local':
         specifier: workspace:^
         version: link:../../credentials/credentials-local
+      '@deepseek-ai/dsh-exec-world-settings':
+        specifier: workspace:^
+        version: link:../../vm/exec-world-settings
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:^
         version: link:../../fs/fs-local
@@ -1601,6 +1610,9 @@ importers:
       '@deepseek-ai/dsh-fs-sandbox':
         specifier: workspace:^
         version: link:../../fs/fs-sandbox
+      '@deepseek-ai/dsh-fs-vm':
+        specifier: workspace:^
+        version: link:../../vm/fs-vm
       '@deepseek-ai/dsh-goal':
         specifier: workspace:^
         version: link:../../goal/goal
@@ -1658,6 +1670,9 @@ importers:
       '@deepseek-ai/dsh-sandbox-policy':
         specifier: workspace:^
         version: link:../../sandbox/sandbox-policy
+      '@deepseek-ai/dsh-sandbox-vm':
+        specifier: workspace:^
+        version: link:../../vm/sandbox-vm
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -1739,6 +1754,9 @@ importers:
       '@deepseek-ai/dsh-subprocess-local':
         specifier: workspace:^
         version: link:../../subprocess/subprocess-local
+      '@deepseek-ai/dsh-subprocess-vm':
+        specifier: workspace:^
+        version: link:../../vm/subprocess-vm
       '@deepseek-ai/dsh-supervision':
         specifier: workspace:^
         version: link:../../interaction/supervision
@@ -1835,6 +1853,12 @@ importers:
       '@deepseek-ai/dsh-user-questions':
         specifier: workspace:^
         version: link:../../interaction/user-questions
+      '@deepseek-ai/dsh-vm':
+        specifier: workspace:^
+        version: link:../../vm/vm
+      '@deepseek-ai/dsh-vm-qemu-local':
+        specifier: workspace:^
+        version: link:../../vm/vm-qemu-local
       '@deepseek-ai/dsh-web':
         specifier: workspace:^
         version: link:../../web/web
@@ -2126,6 +2150,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-settings-capabilities':
         specifier: workspace:^
         version: link:../../client/ui-settings-capabilities
+      '@deepseek-ai/dsh-client-ui-settings-exec-world':
+        specifier: workspace:^
+        version: link:../../client/ui-settings-exec-world
       '@deepseek-ai/dsh-client-ui-settings-general':
         specifier: workspace:^
         version: link:../../client/ui-settings-general
@@ -4076,6 +4103,42 @@ importers:
       react-dom:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
+
+  packages/client/ui-settings-exec-world:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../locale
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-test-runtime':
+        specifier: workspace:^
+        version: link:../../test-support/client-runtime
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../ui-primitives
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: workspace:^
+        version: link:../ui-settings
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../ui-slots
+      '@deepseek-ai/dsh-client-web-react':
+        specifier: workspace:^
+        version: link:../web-react
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
 
   packages/client/ui-settings-general:
     dependencies:
@@ -12430,6 +12493,25 @@ importers:
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
 
+  packages/vm/exec-world-settings:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
+      '@deepseek-ai/dsh-vm':
+        specifier: workspace:^
+        version: link:../vm
+
   packages/vm/fs-vm:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -12502,6 +12584,9 @@ importers:
       '@deepseek-ai/dsh-vm':
         specifier: workspace:^
         version: link:../vm
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
 
   packages/web/tool-web:
     dependencies:
@@ -13430,6 +13515,9 @@ importers:
       '@deepseek-ai/dsh-user-questions':
         specifier: workspace:^
         version: link:../../packages/interaction/user-questions
+      '@deepseek-ai/dsh-vm':
+        specifier: workspace:^
+        version: link:../../packages/vm/vm
       '@deepseek-ai/dsh-web':
         specifier: workspace:^
         version: link:../../packages/web/web

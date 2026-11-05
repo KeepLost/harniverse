@@ -128,5 +128,5 @@ abstract spawn(argv: string[], options?: ExecOptions): Promise<ExecHandle>
 abstract destroy(): Promise<'clean' | 'killed'>
 ```
 
-Source: [`packages/vm/vm/src/index.ts:61`](../../packages/vm/vm/src/index.ts)
+Source: [`packages/vm/vm/src/index.ts:63`](../../packages/vm/vm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

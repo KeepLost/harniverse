@@ -22,6 +22,8 @@ import type {
 } from './types.ts'
 
 export { ExecOptionsError, ExecOutputLimitError, ExecStartError, GuestFsError } from './errors.ts'
+export { EXEC_WORLD_ENV, resolveExecWorld } from './exec-world.ts'
+export type { ExecWorld, ExecWorldAvailability, ExecWorldPreference } from './exec-world.ts'
 export type {
   CollectExecOptions,
   EgressPolicy,

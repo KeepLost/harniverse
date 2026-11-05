@@ -395,6 +395,12 @@
     - id: ui-settings-shell-backend
       name: '@deepseek-ai/dsh-client-ui-settings-shell-backend'
 
+    # 执行世界设置页：宿主本地 / VM 世界单选，写入 exec-world 设置命名空间
+    # （applies: restart），启动桥在下次启动时结合 VM 提供者探查解析为
+    # $DSH_EXEC_WORLD 并重新组合能力家族行（探查不健康则回退本地）。
+    - id: ui-settings-exec-world
+      name: '@deepseek-ai/dsh-client-ui-settings-exec-world'
+
     # Settings section importing official DeepSeek Harness sessions, plus the
     # archive banner that continues an imported session in a new one.
     - id: ui-session-import

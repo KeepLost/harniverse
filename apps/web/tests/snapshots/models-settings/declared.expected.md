@@ -31,6 +31,9 @@
     - button "MCP 管理":
       - img
       - text: MCP 管理
+    - button "执行世界":
+      - img
+      - text: 执行世界
     - button "Agent 预设":
       - img
       - text: Agent 预设

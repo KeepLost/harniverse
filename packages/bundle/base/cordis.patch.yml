@@ -162,18 +162,50 @@
 
     - id: subprocess
       name: '@deepseek-ai/dsh-subprocess-local'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
 
     # Every shipped CLI mode starts with the same file-effect boundary.
     # The environment remains an explicit deployment override; otherwise fresh
     # sessions pin workspace-write + ask through the permission service below.
+    # Under the vm execution world the world boundary is the sandbox, so the
+    # unset default composes danger-full-access there (an explicit
+    # $DSH_PERMISSION_MODE still wins and the confined modes then deny
+    # honestly through sandbox-vm).
     - id: sandbox
       name: '@deepseek-ai/dsh-sandbox-local'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
 
     - id: sandbox-policy
       name: '@deepseek-ai/dsh-sandbox-policy'
       config:
-        mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
+        mode: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm' ? (process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') : (process.env.DSH_PERMISSION_MODE ?? 'workspace-write')"
         workspaceRoot: !!js process.cwd()
+
+    # The execution-world stack gates on `$DSH_EXEC_WORLD`, published by app
+    # boot from the `exec-world:` user settings section (`applies:
+    # 'restart'`); an explicit env value wins, and a `vm` preference on a host
+    # whose VM provider probe is unhealthy degrades to `local` (the bridge
+    # prints one notice line). The settings row registers the namespace the
+    # bridge reads; the local/vm provider rows carry the symmetric flag pair,
+    # so exactly one capability family mounts per start.
+    - id: exec-world-settings
+      name: '@deepseek-ai/dsh-exec-world-settings'
+
+    - id: vm
+      name: '@deepseek-ai/dsh-vm-qemu-local'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+
+    - id: subprocess-vm
+      name: '@deepseek-ai/dsh-subprocess-vm'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+
+    - id: fs-vm
+      name: '@deepseek-ai/dsh-fs-vm'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+
+    - id: sandbox-vm
+      name: '@deepseek-ai/dsh-sandbox-vm'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
 
     # The shell stacks gate on `$DSH_SHELL_BACKEND`, published by app boot from
     # the `shell-backend:` user settings section (`applies: 'restart'`); an
@@ -197,7 +229,7 @@
     - id: approval
       name: '@deepseek-ai/dsh-user-approval'
       config:
-        policy: !!js "(process.env.DSH_PERMISSION_MODE ?? 'workspace-write') === 'danger-full-access' ? 'never' : 'ask'"
+        policy: !!js "((process.env.DSH_EXEC_WORLD ?? 'local') === 'vm' ? (process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') : (process.env.DSH_PERMISSION_MODE ?? 'workspace-write')) === 'danger-full-access' ? 'never' : 'ask'"
 
     - id: permission
       name: '@deepseek-ai/dsh-permission-presets'
@@ -557,9 +589,11 @@
         agents: []
 
     # The sandboxed filesystem provider. `cwd` defaults to `process.cwd()`; an
-    # overlay can pin another workspace.
+    # overlay can pin another workspace. Under the vm execution world the
+    # world's own provider takes the fs seam instead.
     - id: fs-sandbox
       name: '@deepseek-ai/dsh-fs-sandbox'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
 
     # The optional native DeepSeek adapter. A profile can re-enable this row; no
     # key or endpoint is inlined, and both resolve per request from the

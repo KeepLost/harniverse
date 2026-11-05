@@ -1858,6 +1858,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-agent-preset AgentPresetSection id \'agent-presets\'',
       'client-ui-governor GovernorSettingsSection id \'governor\'',
       'client-ui-session-import SessionImportSection id \'session-import\'',
+      'client-ui-settings-exec-world ExecWorldSection id \'exec-world\'',
       'client-ui-settings-general GeneralSection id \'general\'',
       'client-ui-settings-global-rules GlobalRulesSection id \'global-rules\'',
       'client-ui-settings-im ImSection id \'im\'',

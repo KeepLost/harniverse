@@ -279,6 +279,7 @@
     { "path": "./packages/sandbox/sandbox-policy" },
     { "path": "./packages/sandbox/sandbox-windows-acl" },
     { "path": "./packages/vm/vm" },
+    { "path": "./packages/vm/exec-world-settings" },
     { "path": "./packages/vm/subprocess-vm" },
     { "path": "./packages/vm/fs-vm" },
     { "path": "./packages/vm/sandbox-vm" },
