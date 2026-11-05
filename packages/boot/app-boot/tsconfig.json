@@ -33,6 +33,12 @@
       "path": "../../shell/shell"
     },
     {
+      "path": "../../vm/vm"
+    },
+    {
+      "path": "../../vm/vm-qemu-local"
+    },
+    {
       "path": "../../util/launch-environment"
     },
     {

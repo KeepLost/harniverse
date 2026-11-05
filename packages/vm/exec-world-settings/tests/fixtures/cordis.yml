@@ -1,0 +1,64 @@
+# REAL-composition fixture for the exec-world chain: app boot reads the
+# `exec-world:` user section (seeded by the spec) or an explicit
+# `$DSH_EXEC_WORLD` and publishes the settled value; the capability-family
+# rows carry the symmetric flag pair, so exactly one family mounts. The vm
+# side rides a stub world (stub-world.ts) so the suite pins composition on
+# hosts without a VM provider; the QEMU-gated e2e boots the real provider.
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: settings
+  name: '@deepseek-ai/dsh-settings-file'
+
+- id: exec-world-settings
+  name: '@deepseek-ai/dsh-exec-world-settings'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm' ? (process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') : (process.env.DSH_PERMISSION_MODE ?? 'workspace-write')"
+    workspaceRoot: !!js process.cwd()
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+  disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
+
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
+  disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
+
+- id: vm
+  name: './stub-world.ts'
+  disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+
+- id: subprocess-vm
+  name: '@deepseek-ai/dsh-subprocess-vm'
+  disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+
+- id: fs-vm
+  name: '@deepseek-ai/dsh-fs-vm'
+  disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+
+- id: sandbox-vm
+  name: '@deepseek-ai/dsh-sandbox-vm'
+  disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+
+- id: bash-sandbox
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  config:
+    timeoutMs: 60000
+
+- id: shell-env
+  name: '@deepseek-ai/dsh-shell-env'
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  config:
+    enableRunInBackground: false

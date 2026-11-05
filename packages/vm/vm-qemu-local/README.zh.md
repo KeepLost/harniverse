@@ -41,7 +41,7 @@ await world.destroy()                      // 'clean' (guest poweroff) or 'kille
 packages/vm/vm-qemu-local/assets/build-rootfs.sh
 ```
 
-脚本下载固定版本的 Alpine 3.20.3 minirootfs 与 `linux-virt` 内核 apk（强制校验摘要；apk 内核与 `virtio_blk` 模块同源成对——virt 内核的块设备驱动是模块而非内建）、编译静态 musl guest agent（`guest/`），并把 agent 作为 `/init`、模块置于 `/lib/modules` 打进 initramfs。缺少资产或 QEMU 二进制不可用时，`openWorld` 闭合失败（`AssetsMissingError`、`QemuSpawnError`），e2e 套件自跳过。
+脚本下载固定版本的 Alpine 3.20.3 minirootfs 与 `linux-virt` 内核 apk（强制校验摘要；apk 内核与 `virtio_blk` 模块同源成对——virt 内核的块设备驱动是模块而非内建），外加固定版本的 `bash` apk 依赖链（`bash` → `libreadline.so.8` → `libncursesw.so.6`，附 terminfo-base；shell 工具通过世界的 subprocess 缝组合 `bash -c` 与常驻交互 bash，而 busybox 没有 bash applet）、编译静态 musl guest agent（`guest/`），并把 agent 作为 `/init`、模块置于 `/lib/modules`、bash 载荷一并打进 initramfs。缺少资产或 QEMU 二进制不可用时，`openWorld` 闭合失败（`AssetsMissingError`、`QemuSpawnError`），e2e 套件自跳过。
 
 ## 控制协议（v3）
 

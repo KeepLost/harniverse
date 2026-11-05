@@ -105,6 +105,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-settings-global-rules': { kind: 'indirect', reason: 'The browser editor only moves bytes over the globalRules Remote; the agent-instructions baseline chain renders the edited file into model context.' },
   'packages/client/ui-settings-network-proxy': { kind: 'none', reason: 'The browser section only edits the network-proxy settings namespace; the host plugin routes outbound HTTP, and no model request changes shape.' },
   'packages/client/ui-settings-shell-backend': { kind: 'none', reason: 'The browser section only edits the shell-backend settings namespace; the host composition swaps shell tool rows on the next start, and no model request changes shape.' },
+  'packages/client/ui-settings-exec-world': { kind: 'none', reason: 'The browser section only edits the exec-world settings namespace; the host composition swaps capability-family rows on the next start, and no model request changes shape.' },
   'packages/client/ui-governor': { kind: 'none', reason: 'Browser-side governor board over the Remote; quota negotiation by the model rides the host package resource-quota tool.' },
   'packages/api/remotes': { kind: 'none', reason: 'The Remote BFF selects business methods and identity policy; selected services own any model-visible effect.' },
   'packages/client/runtime': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },

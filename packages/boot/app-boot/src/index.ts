@@ -23,6 +23,8 @@ import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '
 import Group from '@deepseek-ai/cordis-plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { resolveShellBackend, SHELL_BACKEND_ENV, type ShellBackendPreference } from '@deepseek-ai/dsh-shell'
+import { EXEC_WORLD_ENV, resolveExecWorld, type ExecWorldAvailability, type ExecWorldPreference } from '@deepseek-ai/dsh-vm'
+import { probeWorld } from '@deepseek-ai/dsh-vm-qemu-local'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-hmr-coordination'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
@@ -746,6 +748,79 @@ export function applyShellBackendBootEnv(options: ShellBackendBootEnvOptions = {
   env[SHELL_BACKEND_ENV] = resolveShellBackend(options.platform ?? process.platform, preference)
 }
 
+export { EXEC_WORLD_ENV }
+
+/** Options steering {@link applyExecWorldBootEnv}; every field defaults to this process. */
+export interface ExecWorldBootEnvOptions {
+  /** Environment mapping read for the explicit override and written with the resolved world. */
+  env?: Record<string, string | undefined>
+  /** Harness home providing `settings.yaml`; defaults to the resolved `$DSH_HOME`/`~/.dsh`. */
+  home?: string
+  /**
+   * VM provider availability probe; defaults to this host's QEMU world probe.
+   * Injected by tests so the degrade path stays verifiable without a provider.
+   */
+  probe?: () => ExecWorldAvailability
+  /** Degrade notice writer; defaults to stderr. */
+  warn?: (line: string) => void
+}
+
+/**
+ * Read the stored `exec-world` preference from the user settings document.
+ * @param home - harness home holding `settings.yaml`.
+ * @returns The stored preference, or `'local'` when absent.
+ */
+function readStoredExecWorld(home: string): ExecWorldPreference {
+  try {
+    const document: unknown = yaml.load(readFileSync(join(home, 'settings.yaml'), 'utf8'))
+    const section = typeof document === 'object' && document !== null
+      ? (document as Record<string, unknown>)['exec-world']
+      : undefined
+    const world = typeof section === 'object' && section !== null
+      ? (section as Record<string, unknown>).world
+      : undefined
+    return world === 'vm' ? 'vm' : 'local'
+  } catch {
+    // Absent, unreadable, or malformed document: the settings provider owns
+    // the loud read/validation error when it loads; composition takes the
+    // default meanwhile.
+    return 'local'
+  }
+}
+
+/** This host's QEMU world probe narrowed to the seam's availability facts. */
+function probeQemuWorld(): ExecWorldAvailability {
+  const probe = probeWorld()
+  return { providerVersion: probe.qemuVersion, assetsReady: probe.assetsReady }
+}
+
+/**
+ * Publish the resolved execution world as `$DSH_EXEC_WORLD` before the config
+ * tree mounts, so the capability-family rows' `disabled` expressions evaluate
+ * against a settled value. An explicit non-blank env value wins over the
+ * document, the same escape-hatch shape as `$DSH_PERMISSION_MODE`; a stored
+ * `vm` preference on a host whose provider probe is unhealthy degrades to
+ * `local` with one notice line, keeping the app startable.
+ * @param options - overrides for testability; defaults act on this process.
+ */
+export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): void {
+  const env = options.env ?? process.env
+  const explicit = env[EXEC_WORLD_ENV]
+  if (explicit !== undefined && explicit.trim().length > 0) return
+  const preference = readStoredExecWorld(options.home ?? resolveDshHome())
+  if (preference !== 'vm') {
+    env[EXEC_WORLD_ENV] = 'local'
+    return
+  }
+  const world = resolveExecWorld('vm', (options.probe ?? probeQemuWorld)())
+  if (world === 'local') {
+    (options.warn ?? (line => void process.stderr.write(line)))(
+      'app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n',
+    )
+  }
+  env[EXEC_WORLD_ENV] = world
+}
+
 /**
  * Value mirrors used because Cordis's const enum has no runtime object to import.
  * Keep aligned with `packages/extensions/tool-cordis/src/fiber-state.ts` and
@@ -854,6 +929,9 @@ export async function boot(
     // Publish the resolved shell backend before the tree mounts; the shell
     // rows' disabled expressions read it (see applyShellBackendBootEnv).
     applyShellBackendBootEnv()
+    // Same shape for the execution world: the capability-family rows' disabled
+    // expressions read the settled `$DSH_EXEC_WORLD` (see applyExecWorldBootEnv).
+    applyExecWorldBootEnv()
     await ctx.plugin(Loader)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'

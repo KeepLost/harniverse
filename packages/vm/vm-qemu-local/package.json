@@ -39,6 +39,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-vm": "workspace:^"
+    "@deepseek-ai/dsh-vm": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^"
   }
 }

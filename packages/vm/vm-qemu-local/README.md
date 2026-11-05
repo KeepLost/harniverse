@@ -41,7 +41,7 @@ await world.destroy()                      // 'clean' (guest poweroff) or 'kille
 packages/vm/vm-qemu-local/assets/build-rootfs.sh
 ```
 
-The script downloads the pinned Alpine 3.20.3 minirootfs and the pinned `linux-virt` kernel apk (digest-enforced; the apk carries the kernel and its `virtio_blk` module as one vermagic-matched pair, because block drivers are modules in the virt kernel), compiles the static musl guest agent (`guest/`), and packs the initramfs with the agent as `/init` plus the module under `/lib/modules`. Without the assets or a working QEMU binary, `openWorld` fails closed (`AssetsMissingError`, `QemuSpawnError`) and the e2e suites self-skip.
+The script downloads the pinned Alpine 3.20.3 minirootfs and the pinned `linux-virt` kernel apk (digest-enforced; the apk carries the kernel and its `virtio_blk` module as one vermagic-matched pair, because block drivers are modules in the virt kernel), plus the pinned `bash` apk chain (`bash` → `libreadline.so.8` → `libncursesw.so.6`, with terminfo-base; the shell tools compose `bash -c` and persistent interactive bash over the world's subprocess seam, and busybox has no bash applet), compiles the static musl guest agent (`guest/`), and packs the initramfs with the agent as `/init`, the module under `/lib/modules`, and the bash payload. Without the assets or a working QEMU binary, `openWorld` fails closed (`AssetsMissingError`, `QemuSpawnError`) and the e2e suites self-skip.
 
 ## Control protocol (v3)
 

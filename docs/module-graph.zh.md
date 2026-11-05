@@ -199,6 +199,7 @@ flowchart TD
     pkg_client_ui_session_import["client-ui-session-import"]
     pkg_client_ui_settings["client-ui-settings"]
     pkg_client_ui_settings_capabilities["client-ui-settings-capabilities"]
+    pkg_client_ui_settings_exec_world["client-ui-settings-exec-world"]
     pkg_client_ui_settings_general["client-ui-settings-general"]
     pkg_client_ui_settings_global_rules["client-ui-settings-global-rules"]
     pkg_client_ui_settings_im["client-ui-settings-im"]
@@ -440,6 +441,7 @@ flowchart TD
     pkg_typert_registry["typert-registry"]
   end
   subgraph group_vm["packages/vm"]
+    pkg_exec_world_settings["exec-world-settings"]
     pkg_fs_vm["fs-vm"]
     pkg_sandbox_vm["sandbox-vm"]
     pkg_subprocess_vm["subprocess-vm"]
@@ -591,6 +593,9 @@ flowchart TD
   pkg_subprocess_local --> pkg_invariants
   pkg_subprocess_local --> pkg_subprocess
   pkg_subprocess_local --> pkg_timeout
+  pkg_exec_world_settings --> pkg_invariants
+  pkg_exec_world_settings --> pkg_settings
+  pkg_exec_world_settings --> pkg_vm
   pkg_subprocess_vm --> pkg_invariants
   pkg_subprocess_vm --> pkg_subprocess
   pkg_subprocess_vm --> pkg_vm
@@ -1825,6 +1830,12 @@ flowchart TD
   pkg_client_ui_input_trigger --> pkg_client_ui_primitives
   pkg_client_ui_input_trigger --> pkg_client_ui_slots
   pkg_client_ui_input_trigger --> pkg_invariants
+  pkg_client_ui_settings_exec_world --> pkg_client_locale
+  pkg_client_ui_settings_exec_world --> pkg_client_runtime
+  pkg_client_ui_settings_exec_world --> pkg_client_ui_primitives
+  pkg_client_ui_settings_exec_world --> pkg_client_ui_settings
+  pkg_client_ui_settings_exec_world --> pkg_client_ui_slots
+  pkg_client_ui_settings_exec_world --> pkg_invariants
   pkg_client_ui_settings_global_rules --> pkg_api_remotes
   pkg_client_ui_settings_global_rules --> pkg_client_locale
   pkg_client_ui_settings_global_rules --> pkg_client_runtime
@@ -2297,6 +2308,7 @@ flowchart TD
 | [`settings-file`](../packages/settings/settings-file) | `settings` | [`atomic-write`](../packages/util/atomic-write), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
 | [`speech-settings`](../packages/speech/speech-settings) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`speech`](../packages/speech/speech) |
 | [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`fs-codec`](../packages/fs/fs-codec), [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`exec-world-settings`](../packages/vm/exec-world-settings) | `vm` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`vm`](../packages/vm/vm) |
 | [`subprocess-vm`](../packages/vm/subprocess-vm) | `vm` | [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess), [`vm`](../packages/vm/vm) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`atomic-write`](../packages/util/atomic-write), [`attachment`](../packages/attachment/attachment), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
 | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`attachment`](../packages/attachment/attachment), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
@@ -2504,6 +2516,7 @@ flowchart TD
 | [`client-locale`](../packages/client/locale) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-governor`](../packages/client/ui-governor) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-dashboard`](../packages/client/ui-dashboard), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`governor`](../packages/monitor/governor), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-input-trigger`](../packages/client/ui-input-trigger) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-ui-settings-exec-world`](../packages/client/ui-settings-exec-world) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-settings-global-rules`](../packages/client/ui-settings-global-rules) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-settings-im`](../packages/client/ui-settings-im) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol) |
 | [`client-ui-settings-mcp`](../packages/client/ui-settings-mcp) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`mcp-user-config`](../packages/mcp/mcp-user-config) |

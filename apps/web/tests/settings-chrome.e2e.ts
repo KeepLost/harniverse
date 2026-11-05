@@ -109,7 +109,7 @@ describe('web e2e: settings modal and General preferences', () => {
     // first: a capture taken while a late module is still loading would pin a
     // partial nav into the golden, and dev-source and prebuilt boots disagree
     // on which module is last.
-    for (const section of ['通用设置', '外观', '模型', '故障恢复', '全局规则', '网络代理', '插件', '资源治理', 'MCP 管理', 'Agent 预设', 'IM 机器人', '会话导入', '语音输入', '声音通知']) {
+    for (const section of ['通用设置', '外观', '模型', '故障恢复', '全局规则', '网络代理', '插件', '资源治理', '执行世界', 'MCP 管理', 'Agent 预设', 'IM 机器人', '会话导入', '语音输入', '声音通知']) {
       await dialog.getByRole('button', { name: section, exact: true }).waitFor({ timeout: 10_000 })
     }
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
@@ -286,6 +286,40 @@ describe('web e2e: settings modal and General preferences', () => {
     await reopened.getByText('已保存，重启后生效。').waitFor({ timeout: 5_000 })
     await expect.poll(() => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
       .toMatch(/shell-backend:\n\s+backend: platform-default/)
+    await page.keyboard.press('Escape')
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('routes execution world section writes into the restart-applied namespace and back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-exec-world'))
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: '执行世界', exact: true }).click()
+    await dialog.getByRole('radio', { name: '宿主本地（默认）', exact: true }).waitFor({ timeout: 10_000 })
+    expect(await dialog.getByRole('radio', { name: '宿主本地（默认）', exact: true }).isChecked()).toBe(true)
+
+    // The switch is durable only: the notice states the restart effect.
+    await dialog.getByRole('radio', { name: 'VM 世界（真沙箱）', exact: true }).click()
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await dialog.getByText('已保存，重启后生效。').waitFor({ timeout: 5_000 })
+    await expect.poll(() => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
+      .toMatch(/exec-world:\n\s+world: vm/)
+    await page.keyboard.press('Escape')
+
+    // The stored preference reloads as the active draft; restoring the local
+    // default leaves the document back on the composed default.
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const reopened = page.getByRole('dialog', { name: '设置' })
+    await reopened.waitFor({ timeout: 10_000 })
+    await reopened.getByRole('button', { name: '执行世界', exact: true }).click()
+    await reopened.getByRole('radio', { name: 'VM 世界（真沙箱）', exact: true }).waitFor({ timeout: 10_000 })
+    expect(await reopened.getByRole('radio', { name: 'VM 世界（真沙箱）', exact: true }).isChecked()).toBe(true)
+    await reopened.getByRole('radio', { name: '宿主本地（默认）', exact: true }).click()
+    await reopened.getByRole('button', { name: '保存', exact: true }).click()
+    await reopened.getByText('已保存，重启后生效。').waitFor({ timeout: 5_000 })
+    await expect.poll(() => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
+      .toMatch(/exec-world:\n\s+world: local/)
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
