@@ -63,8 +63,6 @@
     "@deepseek-ai/dsh-launch-environment": "workspace:^",
     "@deepseek-ai/dsh-shell": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-vm": "workspace:^",
-    "@deepseek-ai/dsh-vm-qemu-local": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "@types/js-yaml": "^4.0.9"
   }

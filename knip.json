@@ -1093,7 +1093,9 @@
     },
     "packages/vm/exec-world-settings": {
       "entry": [
-        "tests/**/*.spec.ts"
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts",
+        "tests/fixtures/stub-world.ts"
       ],
       "project": [
         "src/**/*.ts",

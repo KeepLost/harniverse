@@ -6,6 +6,10 @@
  * start — the form itself holds only the draft.
  */
 
+/* jscpd:ignore-start -- one deliberate mirror of the shipped ShellBackendSection form: the
+ * settings-section skeleton (draft tracking, save/revert, notices, adoption) is the
+ * established product pattern for restart-applied namespace pickers. */
+
 import { useEffect, useState } from 'react'
 import type { SettingsScopeSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -132,3 +136,5 @@ export function ExecWorldSection({ t, useScope, set }: ExecWorldSectionProps) {
     </section>
   )
 }
+
+/* jscpd:ignore-end */

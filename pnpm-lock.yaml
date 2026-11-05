@@ -13515,6 +13515,9 @@ importers:
       '@deepseek-ai/dsh-user-questions':
         specifier: workspace:^
         version: link:../../packages/interaction/user-questions
+      '@deepseek-ai/dsh-vm':
+        specifier: workspace:^
+        version: link:../../packages/vm/vm
       '@deepseek-ai/dsh-web':
         specifier: workspace:^
         version: link:../../packages/web/web
