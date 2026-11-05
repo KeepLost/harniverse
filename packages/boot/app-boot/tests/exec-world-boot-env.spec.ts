@@ -83,4 +83,13 @@ describe('applyExecWorldBootEnv', () => {
     applyExecWorldBootEnv()
     expect(process.env[EXEC_WORLD_ENV]).toBe('local')
   })
+
+  it('probes the real provider when none is injected, degrading deterministically without a resolvable binary', () => {
+    // An empty PATH makes the provider's spawnSync probe fail on every host,
+    // so the default probe path and its degrade notice run unconditionally.
+    vi.stubEnv('PATH', '')
+    const env: Record<string, string | undefined> = { PATH: '' }
+    applyExecWorldBootEnv({ env, home: seededHome('exec-world:\n  world: vm\n') })
+    expect(env[EXEC_WORLD_ENV]).toBe('local')
+  })
 })

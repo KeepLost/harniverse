@@ -24,13 +24,17 @@ M4 之后，VM 能力家族（基于 `dsh-vm-qemu-local` 的 `dsh-subprocess-vm`
 
 **UI。** `dsh-client-ui-settings-exec-world` 镜像 shell-backend 小节并下移一位（order 17；13–16 的组合级分组已满）：同一命名空间上的宿主本地 / VM 世界单选、重启生效文案、标准设置作用域写入路径。网关的 `WEB_SETTINGS_NAMESPACES` 允许清单收录 `'exec-world'`。
 
-## 否决的备选
+## 考虑过的备选
 
 - **独立 `bundle/vm` 作载体** — 把选择推迟到 profile 打包；没有面向用户的开关，且一旦需要开关仍离不开行门控机制。
 - **`ctx.capabilities` 组合体系** — 其种类是 `tool | skill | mcp-server | subagent-provider`；执行世界提供者是服务缝后的能力*家族*，不同维度。在那里注册会重载种类词汇。
 - **在小节表单内探查可用性** — Web 客户端无法探查宿主；启动桥拥有降级（DoD 的"降级/隐藏"由启动时降级加说明要求与回退的文案满足）。
 
-## 证据
+## Consequences（后果）
+
+每个部署的 base 组合现在都携带 vm 家族行（开关之外保持禁用），`dsh-base` 的依赖清单随附提供者代码；资产仍为构建而非内置，故只是代码体积。Python SDK 运行时的部署闭包相应增长（它声明了闭包门经由 app-boot 看到的 `dsh-vm` peer）。vm 世界的默认姿态是 `danger-full-access`——世界边界即隔离——除非运维钉住受限模式，组合的每个消费者都继承这一点；该钉住在 M7 之前组合出的是诚实拒绝而非 confinement。已提交的 `MINIROOTFS_SHA256` 常量修正为上游摘要，因此从未重建的旧检出此前强制的是一行格式错误的校验，而非错误的文件。
+
+## Testing（测试证据）
 
 - 单元：`resolveExecWorld` 矩阵；命名空间注册（默认、存储种子、提交更新、schema 拒绝）；`applyExecWorldBootEnv`（文档解析、显式/空白覆盖、不健康探查降级含提示、畸形文档、local 跳过探查）。
 - REAL 组合（CI 安全，stub world）：种子文档或显式环境变量 → 启动桥 → 恰好一个家族挂载；权限默认随世界翻转；vm 侧乘坐 stub `VmWorld`，无 QEMU 主机也能钉住门控。
@@ -42,6 +46,6 @@ M4 之后，VM 能力家族（基于 `dsh-vm-qemu-local` 的 `dsh-subprocess-vm`
 - M5 提交的 `MINIROOTFS_SHA256` 常量多出一个字符（65 位十六进制）；重建时以"校验行格式错误"暴露，此处修正为上游 64 位摘要——缓存工件始终与上游一致，此前构建从未强制过错误文件。
 - vm 家族的行集搭载 `dsh-base` 的依赖清单，因此每个部署都会随附提供者代码；行在开关之外保持禁用，资产仍为构建而非内置，故只是代码体积。
 
-## 后续
+## Related（相关）
 
 按 `VM-SANDBOX-ROADMAP.md`：M7（guest 内 confinement，让 `read-only`/`workspace-write` 在世界内成真）与 M8（egress 诚实化：审批卡与 guest 可见代理）；均不因本次接线改变。

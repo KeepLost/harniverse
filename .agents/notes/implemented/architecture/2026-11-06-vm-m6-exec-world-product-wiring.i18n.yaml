@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-06-vm-m6-exec-world-product-wiring.md
-2026-11-06-vm-m6-exec-world-product-wiring.md: d9e3ff6e3785c78ee8b7f92e936a7650976040b4
-2026-11-06-vm-m6-exec-world-product-wiring.zh.md: 5d403b2f11377c2fe8598f759532d55c8653fbaa
+2026-11-06-vm-m6-exec-world-product-wiring.md: bca2815176ce68da9c6b78294eb186040204c87d
+2026-11-06-vm-m6-exec-world-product-wiring.zh.md: 89e980d12bc48dd1176a67d411fab47f06377834

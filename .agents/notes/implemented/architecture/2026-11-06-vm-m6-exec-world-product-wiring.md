@@ -24,13 +24,17 @@ After M4 the VM capability family (`dsh-subprocess-vm` / `dsh-fs-vm` / `dsh-sand
 
 **UI.** `dsh-client-ui-settings-exec-world` mirrors the shell-backend section one slot down (order 17; the 13–16 composition-level block is full): the host-local / VM-world radio over the same namespace, restart-applied copy, the standard settings-scope write path. The gateway's `WEB_SETTINGS_NAMESPACES` allowlist names `'exec-world'`.
 
-## Alternatives rejected
+## Alternatives considered
 
 - **Separate `bundle/vm` as the carrier** — defers the selection to profile packaging; no user-facing switch, and the row-gating mechanism would still be needed once a switch exists.
 - **The `ctx.capabilities` composition system** — its kinds are `tool | skill | mcp-server | subagent-provider`; execution-world providers are capability *families* behind service seams, a different axis. Registering them there would overload the kind vocabulary.
 - **Availability probing in the section form** — the web client cannot probe the host; the boot bridge owns degradation (the DoD's "degrade/hide" is satisfied by degrade-at-boot plus copy that states the requirement and fallback).
 
-## Evidence
+## Consequences
+
+Every deployment's base composition now carries the vm family rows (disabled unless the switch selects them) and `dsh-base`'s dependency list ships the provider code; assets remain built-not-vendored, so this is code weight only. The Python SDK runtime's deploy closure grows accordingly (it declares the `dsh-vm` peer the closure gate sees through app-boot). The vm world's default posture is `danger-full-access` — the world boundary is the isolation — which every consumer of the composition inherits unless an operator pins a confined mode; that pin composes honest refusals rather than confinement until M7. The committed `MINIROOTFS_SHA256` constant is corrected to the upstream digest, so older checkouts that never rebuilt keep enforcing a malformed checksum line instead of a wrong file.
+
+## Testing
 
 - Unit: `resolveExecWorld` matrix; namespace registration (default, stored seed, committed update, schema rejection); `applyExecWorldBootEnv` (document resolution, explicit/blank override, unhealthy-probe degrade with notice, malformed document, probe skipped for local).
 - REAL composition (CI-safe, stub world): seeded document or explicit env → boot bridge → exactly one family mounts; the permission default flips with the world; the vm side rides a stub `VmWorld` so hosts without QEMU still pin the gating.
@@ -42,6 +46,6 @@ After M4 the VM capability family (`dsh-subprocess-vm` / `dsh-fs-vm` / `dsh-sand
 - The `MINIROOTFS_SHA256` constant committed in M5 carried one extra character (65 hex); the rebuild surfaced it as a malformed checksum line and it is corrected here to the upstream 64-character digest — the cached artifact always matched upstream, so prior builds never enforced a wrong file.
 - The vm family's row set rides `dsh-base`'s dependency list, so every deployment ships the provider code; rows stay disabled without the switch, and the assets remain built-not-vendored, so this is code weight only.
 
-## Follow-ups
+## Related
 
 M7 (guest-internal confinement making `read-only`/`workspace-write` real inside the world) and M8 (egress honesty: approval card plus guest-visible proxy) per `VM-SANDBOX-ROADMAP.md`; both unchanged by this wiring.
