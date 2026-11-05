@@ -31,6 +31,10 @@ export interface QemuPlanInput {
   initrdPath: string
   controlSocketPath: string
   consoleLogPath: string
+  /** Read-only virtio-blk import image (header + tar) mounted as `/dev/vda`; absent means no workspace. */
+  importImagePath?: string
+  /** Writable virtio-blk export image mounted as `/dev/vdb`; absent means no workspace. */
+  exportImagePath?: string
 }
 
 /**
@@ -62,10 +66,11 @@ export function isKvmWritable(): boolean {
  * Build the full QEMU argv for one micro-VM world.
  * @param input - resolved plan inputs; paths must be absolute.
  * @returns argv starting with `qemuBin`, with ttyS0 as console log, ttyS1 as
- * the control socket, and never a network device.
+ * the control socket, an optional virtio-blk workspace pair, and never a
+ * network device.
  */
 export function buildQemuArgv(input: QemuPlanInput): string[] {
-  return [
+  const argv = [
     input.qemuBin,
     '-M', 'pc',
     '-accel', input.accel,
@@ -81,6 +86,15 @@ export function buildQemuArgv(input: QemuPlanInput): string[] {
     '-serial', `file:${input.consoleLogPath}`,
     '-serial', `unix:${input.controlSocketPath},server=on,wait=off`,
   ]
+  if (input.importImagePath !== undefined) {
+    argv.push('-drive', `if=none,id=wsin,file=${input.importImagePath},format=raw,cache=none,readonly=on`)
+    argv.push('-device', 'virtio-blk-pci,drive=wsin')
+  }
+  if (input.exportImagePath !== undefined) {
+    argv.push('-drive', `if=none,id=wsout,file=${input.exportImagePath},format=raw,cache=none`)
+    argv.push('-device', 'virtio-blk-pci,drive=wsout')
+  }
+  return argv
 }
 
 /** Result of probing one QEMU binary for a version line. */

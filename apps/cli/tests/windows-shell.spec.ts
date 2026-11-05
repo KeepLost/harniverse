@@ -59,22 +59,18 @@ describe('the shipped shell composition (real bundle layers)', () => {
       message => warnings.push(message),
     )
     const byId = new Map(rows.map(row => [row.id, row]))
-    // One shared patch set, two rosters: the shell stacks gate themselves on
-    // the boot-published backend, falling back to the platform split when the
-    // value is unset.
-    for (const id of ['bash-sandbox', 'pwsh-sandbox', 'tool-bash', 'tool-pwsh']) {
+    // The web overlay owns the executor plane through the shell router: both
+    // bare executor rows stay disabled on every platform (the router mounts
+    // both families itself), and the router + session pointer rows compose.
+    for (const id of ['bash-sandbox', 'pwsh-sandbox', 'tool-bash', 'tool-pwsh', 'shell-router', 'session-shell']) {
       expect(byId.has(id), `row ${id}`).toBe(true)
     }
-    expect(disabledOn(byId.get('bash-sandbox')!, 'win32'), 'bash-sandbox on win32').toBe(true)
-    expect(disabledOn(byId.get('bash-sandbox')!, 'linux'), 'bash-sandbox on linux').toBe(false)
-    expect(disabledOn(byId.get('pwsh-sandbox')!, 'win32'), 'pwsh-sandbox on win32').toBe(false)
-    expect(disabledOn(byId.get('pwsh-sandbox')!, 'linux'), 'pwsh-sandbox on linux').toBe(true)
-    // A published selection replaces the platform split: git-bash composes
-    // the confined bash roster on win32, and an explicit pwsh keeps it on POSIX.
-    expect(disabledOn(byId.get('bash-sandbox')!, 'win32', 'bash'), 'bash-sandbox on win32 under git-bash').toBe(false)
-    expect(disabledOn(byId.get('pwsh-sandbox')!, 'win32', 'bash'), 'pwsh-sandbox on win32 under git-bash').toBe(true)
-    expect(disabledOn(byId.get('bash-sandbox')!, 'linux', 'pwsh'), 'bash-sandbox on linux under pwsh').toBe(true)
-    expect(disabledOn(byId.get('pwsh-sandbox')!, 'linux', 'pwsh'), 'pwsh-sandbox on linux under pwsh').toBe(false)
+    expect(byId.get('bash-sandbox')?.disabled, 'bash-sandbox on win32').toBe(true)
+    expect(byId.get('bash-sandbox')?.disabled, 'bash-sandbox on linux').toBe(true)
+    expect(byId.get('pwsh-sandbox')?.disabled, 'pwsh-sandbox on win32').toBe(true)
+    expect(byId.get('pwsh-sandbox')?.disabled, 'pwsh-sandbox on linux').toBe(true)
+    expect(byId.get('shell-router')?.disabled, 'shell-router').not.toBe(true)
+    expect(byId.get('session-shell')?.disabled, 'session-shell').not.toBe(true)
     // Host shell-tool rows are disabled on every platform; sessions mount
     // their own rows instead.
     expect(byId.get('tool-bash')?.disabled).toBe(true)
@@ -93,6 +89,8 @@ describe('the shipped shell composition (real bundle layers)', () => {
       '@deepseek-ai/dsh-pwsh-sandbox',
       '@deepseek-ai/dsh-tool-pwsh',
       '@deepseek-ai/dsh-shell-backend-settings',
+      '@deepseek-ai/dsh-shell-router',
+      '@deepseek-ai/dsh-session-shell',
     ]) {
       expect(cliManifest.dependencies?.[name], `cold-start closure must reach ${name}`).toBeDefined()
     }
@@ -143,13 +141,17 @@ describe('shipped agent presets gate both shell tools by platform', () => {
       // the platform split when the boot value is unset, and the published
       // selection when it carries one.
       const expression = (row.disabled as { __jsExpr: string }).__jsExpr
-      const on = (platform: 'win32' | 'linux', backend?: 'bash' | 'pwsh'): boolean =>
-        Boolean(evaluate({ process: { platform, env: { DSH_SHELL_BACKEND: backend } } }, expression))
+      const on = (platform: 'win32' | 'linux', backend?: 'bash' | 'pwsh', sessionShell?: string): boolean =>
+        Boolean(evaluate({ process: { platform, env: { DSH_SHELL_BACKEND: backend, DSH_SESSION_SHELL: sessionShell } } }, expression))
       expect(on('win32'), `${id} on win32`).toBe(win32)
       expect(on('linux'), `${id} on linux`).toBe(!win32)
       // A published selection replaces the platform split on both sides.
       expect(on('win32', 'bash'), `${id} on win32 under git-bash`).toBe(id === 'tool-bash' ? false : true)
       expect(on('linux', 'pwsh'), `${id} on linux under pwsh`).toBe(id === 'tool-bash' ? true : false)
+      // A routed host publishes DSH_SESSION_SHELL: both family tools mount and
+      // the session pointer retires the inactive one per session.
+      expect(on('win32', undefined, '1'), `${id} on win32 under the router`).toBe(false)
+      expect(on('linux', undefined, '1'), `${id} on linux under the router`).toBe(false)
     }
   })
 

@@ -606,6 +606,18 @@ get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 schemas(scope?: ScopeKey): ToolSchema[]
 
 /**
+ * Whether one tool name is registered anywhere on a scope's chain,
+ * regardless of restrictions. Capability gating that hides a registered
+ * tool per scope (for example the session shell selector) checks this
+ * before naming the tool in a {@link restrict} filter, which rejects
+ * unknown names.
+ * @param name - tool name to look up.
+ * @param scope - the viewing scope (the agent); omitted = the global view.
+ * @returns whether the name is known to that scope.
+ */
+has(name: string, scope?: ScopeKey): boolean
+
+/**
  * Classify a pending call through the caller's visible tool definition. Only
  * an exact `true` is parallel; unknown, hidden, undeclared, invalid, or
  * throwing classifiers are exclusive.

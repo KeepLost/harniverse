@@ -248,7 +248,7 @@ describe('protocol-level exec parsing', () => {
   })
 
   it('keeps the protocol version agreement strict', () => {
-    expect(PROTOCOL_VERSION).toBe(2)
+    expect(PROTOCOL_VERSION).toBe(3)
     expect(parseGuestMessage(`{"t":"welcome","v":${PROTOCOL_VERSION},"caps":["ping","exec","fs"],"agent":"x"}`)?.t).toBe('welcome')
     expect(parseGuestMessage(`{"t":"welcome","v":${PROTOCOL_VERSION + 1},"caps":[],"agent":"x"}`)?.t).toBe('welcome')
   })

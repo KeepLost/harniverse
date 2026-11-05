@@ -67,6 +67,8 @@ export interface TerminalPanelDeps {
   }
   /** Terminal attachment and window-hold event streams (payload-direct). */
   readonly events: Pick<IApiClient['events'], 'terminal' | 'hold'>
+  /** Sessions face for the session-shell switch; omitted hosts hide the control. */
+  readonly sessions?: Pick<IApiClient['sessions'], 'shell' | 'switchShell'>
 }
 
 /** Published panel state; every member is plain data for the render layer. */
@@ -93,6 +95,20 @@ export interface TerminalPanelState {
   readonly reattaching: boolean
   /** Whether the bounded reattach ladder was exhausted. */
   readonly reattachFailed: boolean
+  /** Session shell family capability; undefined until the read settles or on hosts without it. */
+  readonly shellSession: SessionShellState | undefined
+}
+
+/** Session shell family state backing the switch affordance. */
+export interface SessionShellState {
+  /** Family the next model request runs under. */
+  readonly current: 'bash' | 'pwsh'
+  /** Whether this host serves the router and allows switching. */
+  readonly switchable: boolean
+  /** Per-family availability for the toggle's disabled states. */
+  readonly families: { readonly bash: boolean; readonly pwsh: boolean }
+  /** Whether a switch call is in flight. */
+  readonly pending: boolean
 }
 
 /**
@@ -144,6 +160,7 @@ export class TerminalPanelController {
       error: undefined,
       reattaching: false,
       reattachFailed: false,
+      shellSession: undefined,
     })
   }
 
@@ -167,6 +184,7 @@ export class TerminalPanelController {
       error: undefined,
       reattaching: false,
       reattachFailed: false,
+      shellSession: undefined,
     })
     if (sessionId === undefined) return
     void this.loadSession(sessionId)
@@ -191,6 +209,30 @@ export class TerminalPanelController {
     }
     if (target === snapshot.activeId && this.attachment !== undefined && !snapshot.reattachFailed) return
     this.attach(target, true)
+  }
+
+  /**
+   * Switch the session's shell family. Purely a pointer change host-side: the
+   * next model request announces the new family and its tool catalog; running
+   * terminals and background jobs are untouched.
+   * @param family - family to select.
+   */
+  switchSessionShell(family: 'bash' | 'pwsh'): void {
+    const snapshot = this.state.getSnapshot()
+    const sessions = this.deps.sessions
+    if (snapshot.session === undefined || sessions === undefined) return
+    const shellSession = snapshot.shellSession
+    if (shellSession === undefined || shellSession.pending || shellSession.current === family) return
+    this.patchState({ shellSession: { ...shellSession, pending: true } })
+    void sessions.switchShell({ sessionId: snapshot.session, family }).then((response) => {
+      const latest = this.state.getSnapshot().shellSession
+      if (latest === undefined || this.disposed) return
+      if (!response.result.ok) {
+        this.patchState({ shellSession: { ...latest, pending: false }, error: response.result.error.message })
+        return
+      }
+      this.patchState({ shellSession: { ...latest, current: response.result.value.current, pending: false } })
+    })
   }
 
   /** Refresh the terminal list from the host. */
@@ -334,6 +376,17 @@ export class TerminalPanelController {
     void this.call<TerminalShell[]>('shells', { agentId: sessionId }).then((result) => {
       if (result.ok) this.patchState({ shells: result.value })
     })
+    const sessions = this.deps.sessions
+    if (sessions !== undefined) {
+      void sessions.shell({ sessionId }).then((response) => {
+        // A bare `return` here escapes v8 statement coverage; the explicit
+        // undefined keeps the early-out observable.
+        if (!response.result.ok) return undefined
+        if (this.state.getSnapshot().session !== sessionId || this.disposed) return undefined
+        this.patchState({ shellSession: { ...response.result.value, pending: false } })
+        return undefined
+      })
+    }
     await this.loadList(sessionId)
     if (this.state.getSnapshot().session === sessionId) this.patchState({ ready: true })
   }

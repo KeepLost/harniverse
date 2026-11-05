@@ -2682,6 +2682,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionShell',
+    summary: 'The session-scoped shell family pointer: which family (bash | pwsh) a session\'s next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
+    description: 'The session-scoped shell family pointer: which family (bash | pwsh) a session\'s next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
+    methods: [
+      {
+        signature: 'family(session: Session): ShellBackendSelection',
+        description: 'Read one session\'s effective family without host I/O.',
+        parameters: [{ name: 'session', description: 'session whose selection is requested.' }],
+        returns: 'its override, or the host default when none is recorded.',
+      },
+      {
+        signature: 'async switch(agent: Agent, family: ShellBackendSelection): Promise<ShellBackendSelection>',
+        description: 'Switch one agent\'s session to another shell family. Effective at the next model request: the runtime-context snapshot announces the new family and the retired tool leaves that request\'s catalog. Nothing is torn down — the other family\'s executors, persistent shells, and background jobs keep running underneath.',
+        parameters: [{ name: 'agent', description: 'live agent owning the session.' }, { name: 'family', description: 'family to select.' }],
+        returns: 'the committed family; a same-family request commits nothing.',
+        throws: ['when the family is unavailable on this host, the host composes no router, or the agent is no longer live.'],
+      },
+      {
+        signature: 'describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean } }',
+        description: 'Host capability read for the switch affordance: whether switching is possible and which families are usable. A single-executor host reports only its boot default.',
+        parameters: [],
+        returns: 'switchability plus per-family availability.',
+      },
+    ],
+  },
+  {
     key: 'sessionTitle',
     summary: 'Log-backed title fold plus asynchronous fallback generation.',
     description: 'Log-backed title fold plus asynchronous fallback generation.',
@@ -3516,6 +3542,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'one deep-cloned schema per visible tool.',
       },
       {
+        signature: 'has(name: string, scope?: ScopeKey): boolean',
+        description: 'Whether one tool name is registered anywhere on a scope\'s chain, regardless of restrictions. Capability gating that hides a registered tool per scope (for example the session shell selector) checks this before naming the tool in a restrict filter, which rejects unknown names.',
+        parameters: [{ name: 'name', description: 'tool name to look up.' }, { name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
+        returns: 'whether the name is known to that scope.',
+      },
+      {
         signature: 'executionMode(exec: ToolExecutionInput): ToolExecutionMode',
         description: 'Classify a pending call through the caller\'s visible tool definition. Only an exact `true` is parallel; unknown, hidden, undeclared, invalid, or throwing classifiers are exclusive.',
         parameters: [{ name: 'exec', description: 'call name, parsed arguments, and optional agent scope.' }],
@@ -3610,6 +3642,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'Questions, owner agent, and abort signal.' }],
         returns: 'The answer chosen or typed by the human.',
         throws: ['{UserQuestionError} code `CALLER_NOT_LIVE` when a supplied agent is not the registry\'s exact live instance, or `DELEGATED_CALLER` when that live agent is owned by another agent.'],
+      },
+    ],
+  },
+  {
+    key: 'vm',
+    summary: 'One booted execution world.',
+    description: 'One booted execution world. Implementations boot in the constructor, settle in `[Service.init]`, and destroy their world on context disposal — a consumer never sees a half-booted world, and no world outlives its context.\n\nImplementations must honor these semantics:\n\n- Every path argument is a path INSIDE the world; a host path is never valid here, and implementations never read one.\n- The guest cannot reach host files, processes, or the network by construction; egress exists only through the provider\'s approval-gated relay (`EgressPolicy`), which denies when unapproved.\n- `destroy` is idempotent and resolves once the world\'s processes cannot run anymore, however it was stopped.',
+    methods: [
+      {
+        signature: 'abstract ping(timeoutMs?: number): Promise<number>',
+        description: 'Round-trip one ping through the world\'s agent.',
+        parameters: [{ name: 'timeoutMs', description: 'reply deadline; provider default applies when omitted.' }],
+        returns: 'observed round-trip time in milliseconds.',
+      },
+      {
+        signature: 'abstract exec(argv: string[], options?: CollectExecOptions): Promise<ExecResult>',
+        description: 'Run one exec to completion inside the world and collect its output.',
+        parameters: [{ name: 'argv', description: 'world command line.' }, { name: 'options', description: 'env, cwd, pty, stdin, timeout, and output bound.' }],
+        returns: 'exit state plus collected stdout and stderr.',
+      },
+      {
+        signature: 'abstract spawn(argv: string[], options?: ExecOptions): Promise<ExecHandle>',
+        description: 'Start one streaming exec inside the world.',
+        parameters: [{ name: 'argv', description: 'world command line.' }, { name: 'options', description: 'env, cwd, and pty selection.' }],
+        returns: 'the streaming exec handle.',
+      },
+      {
+        signature: 'abstract destroy(): Promise<\'clean\' | \'killed\'>',
+        description: 'Stop the world.',
+        parameters: [],
+        returns: '`clean` when the world exited after its own shutdown path (or had already exited), `killed` when forceful termination was required.',
       },
     ],
   },
@@ -5117,6 +5180,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CollectedOutput {\n    text: string;\n    truncated: boolean;\n    spillPath?: string;\n}',
   },
   {
+    name: 'CollectExecOptions',
+    declaration: 'export interface CollectExecOptions extends ExecOptions {\n    stdin?: Uint8Array | string;\n    timeoutMs?: number;\n    maxOutputBytes?: number;\n}',
+  },
+  {
     name: 'CommandDefinition',
     declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly recordInput?: boolean;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
   },
@@ -5475,6 +5542,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
+  },
+  {
+    name: 'ExecExit',
+    declaration: 'export interface ExecExit {\n    code: number | null;\n    signal: NodeJS.Signals | null;\n}',
+  },
+  {
+    name: 'ExecHandle',
+    declaration: 'export interface ExecHandle {\n    readonly id: number;\n    readonly pid: number;\n    writeStdin(chunk: Uint8Array | string): void;\n    closeStdin(): void;\n    signal(sig: NodeJS.Signals): Promise<void>;\n    readonly exit: Promise<ExecExit>;\n    onOutput(listener: ExecOutputListener): () => void;\n}',
+  },
+  {
+    name: 'ExecOptions',
+    declaration: 'export interface ExecOptions {\n    env?: Record<string, string>;\n    cwd?: string;\n    pty?: boolean | {\n        rows: number;\n        cols: number;\n    };\n}',
+  },
+  {
+    name: 'ExecOutputListener',
+    declaration: 'export type ExecOutputListener = (stream: \'stdout\' | \'stderr\', chunk: Buffer) => void;',
+  },
+  {
+    name: 'ExecResult',
+    declaration: 'export interface ExecResult extends ExecExit {\n    stdout: Buffer;\n    stderr: Buffer;\n    timedOut: boolean;\n}',
   },
   {
     name: 'ExecutionTransport',
@@ -7065,8 +7152,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SharedConnection extends ServerContext {\n    readonly serverName: string;\n    ready: Promise<ConnectionOutcome>;\n    connected(): boolean;\n    status(): McpConnectionStatus;\n    toolDescriptors(): readonly McpToolDescriptor[];\n    toolNames(): string[];\n    resourceUris(): string[];\n    resourceTemplates(): string[];\n    callTool(rawName: string, args: Record<string, unknown>, exec: {\n        signal?: AbortSignal;\n    }): Promise<unknown>;\n    subscribe(listener: () => void): () => void;\n    dispose(): Promise<void>;\n}',
   },
   {
+    name: 'ShellBackendSelection',
+    declaration: 'export type ShellBackendSelection = \'bash\' | \'pwsh\';',
+  },
+  {
     name: 'ShellExecRequest',
-    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
+    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n    family?: ShellBackendSelection | undefined;\n}',
   },
   {
     name: 'ShellExecSpec',
@@ -7642,7 +7733,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    has(name: string, scope?: ScopeKey): boolean;\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',

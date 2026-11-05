@@ -811,6 +811,22 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 
 来源：[`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
 
+### `session-shell/*`
+
+<a id="session-shellchange--log-only"></a>
+
+#### `session-shell/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Effective shell family for the session; whole-value payload — the
+ * complete post-change family, never a bare delta.
+ */
+'session-shell/change': import('./types.ts').SessionShellChange
+```
+
+来源：[`packages/shell/session-shell/src/index.ts:51`](../packages/shell/session-shell/src/index.ts)
+
 ### `step/*`
 
 <a id="stepend--log-only"></a>

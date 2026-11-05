@@ -160,6 +160,7 @@ export interface RpcErrorDetailsMap {
   'subagent-delivery-unavailable': { childSessionId: SessionId }
   /** The terminal identity is missing or has begun process cleanup. */
   'terminal-unavailable': {}
+  'shell-unavailable': {}
   /** Input or resize was refused without invalidating the output attachment. */
   'terminal-control-unavailable': { reason: 'read-only' | 'not-running' }
   /** Retained screens and pending allocations consume the Session's terminal quota. */
@@ -301,6 +302,7 @@ export const RPC_ERROR_CODES = [
   'subagent-unauthorized',
   'subagent-delivery-unavailable',
   'terminal-unavailable',
+  'shell-unavailable',
   'terminal-control-unavailable',
   'terminal-limit-reached',
   'browser-unavailable',

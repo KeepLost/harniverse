@@ -128,7 +128,7 @@ describe('SSE framing and provider failures', () => {
   })
   it.each([
     [401, {}, 'AUTH'], [403, {}, 'AUTH'], [402, {}, 'QUOTA'], [429, {}, 'RATE_LIMIT'],
-    [400, {}, 'INVALID_REQUEST'], [413, {}, 'INVALID_REQUEST'], [503, {}, 'SERVER'], [404, {}, 'HTTP_404'],
+    [400, {}, 'INVALID_REQUEST'], [413, {}, 'REQUEST_BODY_TOO_LARGE'], [503, {}, 'SERVER'], [404, {}, 'HTTP_404'],
     [undefined, { type: 'authentication_error' }, 'AUTH'],
     [undefined, { type: 'rate_limit_error' }, 'RATE_LIMIT'],
     [undefined, { type: 'invalid_request_error' }, 'INVALID_REQUEST'], [undefined, {}, 'SERVER'],

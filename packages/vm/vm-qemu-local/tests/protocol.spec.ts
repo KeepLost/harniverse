@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PROTOCOL_VERSION, isOpReplyFor, negotiateVersion, parseGuestMessage } from '../src/protocol.ts'
+import { HOST_CAPS, PROTOCOL_VERSION, isOpReplyFor, negotiateVersion, parseGuestMessage } from '../src/protocol.ts'
 
 describe('vm-qemu-local protocol negotiation', () => {
   it('agrees when host and guest versions match exactly', () => {
@@ -84,5 +84,18 @@ describe('vm-qemu-local guest message parsing', () => {
     expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"file","size":"x","mode":1,"mtimeMs":1}}')).toBeUndefined()
     expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"file","size":1,"mode":"x","mtimeMs":1}}')).toBeUndefined()
     expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"file","size":1,"mode":1,"mtimeMs":"x"}}')).toBeUndefined()
+  })
+
+  it('parses workspace completions and rejects malformed ones', () => {
+    expect(parseGuestMessage('{"t":"workspace.ok","id":3,"bytes":4096}')).toEqual({ t: 'workspace.ok', id: 3, bytes: 4096 })
+    expect(parseGuestMessage('{"t":"workspace.err","id":4,"message":"busy"}')).toEqual({ t: 'workspace.err', id: 4, message: 'busy' })
+    expect(parseGuestMessage('{"t":"workspace.ok","id":3,"bytes":"4096"}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"workspace.err","id":4}')).toBeUndefined()
+    expect(isOpReplyFor('{"t":"workspace.ok","id":3,"bytes":1}', 3, ['workspace.ok', 'workspace.err'])).toBe(true)
+  })
+
+  it('announces the workspace capability in the host caps', () => {
+    expect(HOST_CAPS).toContain('workspace')
+    expect(PROTOCOL_VERSION).toBe(3)
   })
 })

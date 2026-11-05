@@ -408,6 +408,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       const limits = correlation === undefined ? undefined : governor?.limitsFor(correlation.sessionId)
       const request = {
         command: call.command,
+        // Stamped by the family's own tool: the visible tool and the executor
+        // family stay aligned on routed (multi-family) hosts.
+        family: 'bash' as const,
         ...workdir !== undefined ? { workdir } : {},
         ...call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {},
         dshEnv,

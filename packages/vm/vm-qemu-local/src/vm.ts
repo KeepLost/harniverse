@@ -12,16 +12,19 @@
 
 import { spawn as nodeSpawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { chown as nodeChown, copyFile as nodeCopyFile, mkdtemp as nodeMkdtemp, rm as nodeRm } from 'node:fs/promises'
+import { chown as nodeChown, copyFile as nodeCopyFile, mkdtemp as nodeMkdtemp, readFile as nodeReadFile, rm as nodeRm, truncate as nodeTruncate, writeFile as nodeWriteFile } from 'node:fs/promises'
 import { connect as nodeConnect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FrameReader, encodeFrame } from './frame.ts'
 import { DEFAULT_QEMU_BIN, buildQemuArgv, buildWrappedArgv, defaultAssetsDir, isKvmWritable, resolveAccel, resolveWrapPath, type QemuAccel } from './qemu.ts'
 import { HOST_CAPS, PROTOCOL_VERSION, negotiateVersion, parseGuestMessage, type HostMessage } from './protocol.ts'
-import { ExecSession, type CollectExecOptions, type ExecHandle, type ExecOptions, type ExecResult } from './exec.ts'
+import { ExecSession } from './exec.ts'
+import type { CollectExecOptions, ExecHandle, ExecOptions, ExecResult, VmWorldDescriptor, VmWorldExit } from '@deepseek-ai/dsh-vm'
 import { WorldFs } from './fs.ts'
-import { WorldEgress, type EgressPolicy } from './egress.ts'
+import { WorldEgress } from './egress.ts'
+import { DEFAULT_EXPORT_CAPACITY_BYTES, WORKSPACE_HEADER_BYTES, WorldWorkspace, assertValidWorkspaceTar, buildWorkspaceImage, packWorkspaceTar } from './workspace.ts'
+import type { EgressPolicy } from '@deepseek-ai/dsh-vm'
 
 /** Assets (`vmlinuz-virt`, `initramfs.cpio.gz`) are absent from the assets directory. */
 export class AssetsMissingError extends Error {
@@ -111,17 +114,39 @@ export interface OpenWorldOptions {
   /** Grace period for a guest-requested shutdown before SIGKILL, in milliseconds. Default 5 000. */
   shutdownTimeoutMs?: number
   /**
-   * Sandbox hardening for the QEMU child: `auto` (default) supervises QEMU
-   * through the staged `qemu-wrap` when present — Landlock read-only tree
-   * plus one writable scratch directory, rlimits, and a uid drop to 65534 on
-   * root hosts; `off` spawns QEMU directly.
-   */
+ * Sandbox hardening for the QEMU child: `auto` (default) supervises QEMU
+ * through the staged `qemu-wrap` when present — Landlock read-only tree
+ * plus one writable scratch directory, rlimits, and a uid drop to 65534 on
+ * root hosts; `off` spawns QEMU directly.
+ */
   sandbox?: 'auto' | 'off'
   /**
    * Approval callback for this world's egress relay; when omitted every
    * `world.egress.open` denies.
    */
   egressPolicy?: EgressPolicy
+  /**
+   * Workspace data-plane configuration: attaches the virtio-blk import and
+   * export images and enables `world.workspace`. Absent means the world has
+   * no workspace devices and workspace operations fail.
+   */
+  workspace?: WorkspaceOptions
+}
+
+/** Workspace data-plane configuration for one world boot. */
+export interface WorkspaceOptions {
+  /**
+   * Snapshot tar staged as the world's immutable import image; the guest
+   * unpacks it into `/workspace` on `world.workspace.import()`. Absent stages
+   * an empty snapshot (import then resets the workspace).
+   */
+  import?: Uint8Array
+  /**
+   * Export image capacity in bytes; the guest's export fails when the packed
+   * snapshot outgrows it. Default {@link DEFAULT_EXPORT_CAPACITY_BYTES}
+   * (1 GiB, matching the sandbox wrapper's per-file rlimit).
+   */
+  exportCapacityBytes?: number
 }
 
 /** Injectable environment seams; every field has a real default. */
@@ -136,26 +161,25 @@ export interface VmDeps {
   chown?: (path: string, uid: number, gid: number) => Promise<void>
   /** Boot-asset staging into the scratch directory under root hosts. */
   copyFile?: (source: string, destination: string) => Promise<void>
+  /** Workspace image staging before spawn. */
+  writeFile?: (path: string, data: Uint8Array) => Promise<void>
+  /** Workspace export image sizing before spawn. */
+  truncate?: (path: string, length: number) => Promise<void>
+  /** Workspace export image read-back after the guest reports completion. */
+  readFile?: (path: string) => Promise<Uint8Array>
 }
 
-/** Facts about one booted world. */
-export interface WorldDescriptor {
+/** Facts about one booted world: the neutral seam facts plus QEMU specifics. */
+export interface WorldDescriptor extends VmWorldDescriptor {
   qemuBin: string
   accel: QemuAccel
   memoryMiB: number
   cpus: number
   pid: number | undefined
-  /** Whether the QEMU child runs under the sandbox wrapper. */
-  sandboxed: boolean
-  /** Milliseconds from spawn to the accepted `welcome`. */
-  readyMs: number
 }
 
 /** How the QEMU child terminated. */
-export interface WorldExit {
-  code: number | null
-  signal: NodeJS.Signals | null
-}
+export type WorldExit = VmWorldExit
 
 /** Live handle for one booted world. */
 export interface WorldHandle {
@@ -186,6 +210,11 @@ export interface WorldHandle {
   readonly fs: WorldFs
   /** Host-side egress relay; opens deny unless this world's policy approves. */
   readonly egress: WorldEgress
+  /**
+   * Snapshot import/export over the world's data-plane images; operations
+   * reject when the world booted without {@link WorkspaceOptions}.
+   */
+  readonly workspace: WorldWorkspace
   /**
    * Stop the world: ask the guest to power off, then ensure the child exited.
    * @returns `clean` when the child exited after the guest shutdown (or had
@@ -359,6 +388,9 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
   const euid = deps.euid ?? (() => process.geteuid?.() ?? -1)
   const chown = deps.chown ?? nodeChown
   const copyFile = deps.copyFile ?? nodeCopyFile
+  const writeFile = deps.writeFile ?? nodeWriteFile
+  const truncate = deps.truncate ?? nodeTruncate
+  const readFile = deps.readFile ?? nodeReadFile
 
   const qemuBin = options.qemuBin ?? DEFAULT_QEMU_BIN
   const memoryMiB = options.memoryMiB ?? 256
@@ -374,6 +406,31 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
   const wrapPath = options.sandbox === 'off' ? undefined : resolveWrapPath(assetsDir)
   const runDir = await mkdtemp(join(tmpdir(), 'dsh-vm-qemu-'))
   const controlSocketPath = join(runDir, 'ctl.sock')
+  // The workspace images are staged before spawn: the import payload is
+  // immutable for the boot (the host never rewrites an attached image), and
+  // the export image is pre-sized so guest writes stay inside the wrapper's
+  // 1 GiB per-file rlimit.
+  let importImagePath: string | undefined
+  let exportImagePath: string | undefined
+  if (options.workspace !== undefined) {
+    const capacity = options.workspace.exportCapacityBytes ?? DEFAULT_EXPORT_CAPACITY_BYTES
+    if (!Number.isSafeInteger(capacity) || capacity < WORKSPACE_HEADER_BYTES) {
+      await nodeRm(runDir, { recursive: true, force: true })
+      throw new Error(`workspace export capacity must be at least ${WORKSPACE_HEADER_BYTES} bytes`)
+    }
+    const tar = options.workspace.import ?? packWorkspaceTar([])
+    try {
+      assertValidWorkspaceTar(tar)
+      importImagePath = join(runDir, 'ws-import.img')
+      exportImagePath = join(runDir, 'ws-export.img')
+      await writeFile(importImagePath, buildWorkspaceImage(tar))
+      await writeFile(exportImagePath, new Uint8Array(0))
+      await truncate(exportImagePath, capacity + (512 - (capacity % 512)) % 512)
+    } catch (error) {
+      await nodeRm(runDir, { recursive: true, force: true })
+      throw error
+    }
+  }
   // The wrapper drops to uid 65534 before exec, so on root hosts the scratch
   // directory moves to that uid and boot assets are copied into it: the
   // guest-readable originals may sit under directories the dropped uid cannot
@@ -387,6 +444,8 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
       bootInitrdPath = join(runDir, 'initramfs.cpio.gz')
       await copyFile(kernelPath, bootKernelPath)
       await copyFile(initrdPath, bootInitrdPath)
+      if (importImagePath !== undefined) await chown(importImagePath, 65534, 65534)
+      if (exportImagePath !== undefined) await chown(exportImagePath, 65534, 65534)
     } catch (error) {
       await nodeRm(runDir, { recursive: true, force: true })
       throw error
@@ -401,6 +460,8 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     initrdPath: bootInitrdPath,
     controlSocketPath,
     consoleLogPath: join(runDir, 'console.log'),
+    ...(importImagePath !== undefined ? { importImagePath } : {}),
+    ...(exportImagePath !== undefined ? { exportImagePath } : {}),
   })
   const argv = wrapPath === undefined ? qemuArgv : buildWrappedArgv(wrapPath, runDir, qemuArgv)
 
@@ -502,7 +563,9 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     memoryMiB,
     cpus,
     pid: child.pid,
-    sandboxed: wrapPath !== undefined,
+    provider: 'qemu-local',
+    isolation: 'full',
+    hostHardened: wrapPath !== undefined,
     readyMs: now() - startedAt,
   }
 
@@ -529,12 +592,15 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
   const session = new ExecSession(guardedTransport, allocateId)
   const worldFs = new WorldFs(guardedTransport, allocateId)
   const egress = new WorldEgress(options.egressPolicy)
+  const readExportImage = exportImagePath === undefined ? undefined : () => readFile(exportImagePath)
+  const workspace = new WorldWorkspace(guardedTransport, allocateId, readExportImage)
 
   return {
     descriptor,
     exit,
     fs: worldFs,
     egress,
+    workspace,
     ping(timeoutMs = 5_000) {
       if (stopped) return Promise.reject(stoppedCall())
       const sentAt = now()

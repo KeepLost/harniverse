@@ -6,7 +6,12 @@
  * @module @deepseek-ai/dsh-vm-qemu-local
  */
 
+import { ExecOptionsError, ExecOutputLimitError, ExecStartError } from '@deepseek-ai/dsh-vm'
+import type { CollectExecOptions, ExecExit, ExecHandle, ExecOptions, ExecOutputListener, ExecResult } from '@deepseek-ai/dsh-vm'
 import { isOpReplyFor, parseGuestMessage, type ControlTransport, type ExecMessage, type HostMessage } from './protocol.ts'
+
+export { ExecOptionsError, ExecOutputLimitError, ExecStartError } from '@deepseek-ai/dsh-vm'
+export type { CollectExecOptions, ExecExit, ExecHandle, ExecOptions, ExecOutputListener, ExecResult } from '@deepseek-ai/dsh-vm'
 
 /** Largest decoded stdin chunk one wire message may carry (mirrors the guest cap). */
 export const MAX_STDIN_CHUNK_BYTES = 512 * 1024
@@ -19,100 +24,6 @@ const OP_REPLY_TIMEOUT_MS = 10_000
 
 /** Default pty size when `pty: true` requests no explicit geometry. */
 const DEFAULT_PTY: { rows: number; cols: number } = { rows: 24, cols: 80 }
-
-/** The guest rejected an exec request or a signal delivery. */
-export class ExecStartError extends Error {
-  constructor(
-    public readonly execId: number,
-    public readonly guestMessage: string,
-  ) {
-    super(`guest rejected exec ${execId}: ${guestMessage}`)
-    this.name = 'ExecStartError'
-  }
-}
-
-/** Host-side validation of exec options failed before anything was sent. */
-export class ExecOptionsError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ExecOptionsError'
-  }
-}
-
-/** Collected output exceeded the configured bound; the exec was killed. */
-export class ExecOutputLimitError extends Error {
-  constructor(public readonly limitBytes: number) {
-    super(`exec output exceeded ${limitBytes} bytes`)
-    this.name = 'ExecOutputLimitError'
-  }
-}
-
-/** Options shared by the collecting `exec` and the streaming `spawn`. */
-export interface ExecOptions {
-  /** Environment for the child; replaces the guest default entirely. */
-  env?: Record<string, string>
-  /** Absolute working directory; default `/`. */
-  cwd?: string
-  /** Allocate a pty (stderr then merges into stdout on the wire). */
-  pty?: boolean | { rows: number; cols: number }
-}
-
-/** Options of the collecting `exec` helper. */
-export interface CollectExecOptions extends ExecOptions {
-  /** Full stdin payload, written once and closed before awaiting the exit. */
-  stdin?: Uint8Array | string
-  /** Kill the exec with SIGKILL after this many milliseconds; the result is
-   * still returned, flagged `timedOut`. */
-  timeoutMs?: number
-  /** Bound on the combined collected stdout and stderr; exceeding it kills
-   * the exec and rejects with {@link ExecOutputLimitError}. Default 16 MiB. */
-  maxOutputBytes?: number
-}
-
-/** How one exec ended. */
-export interface ExecExit {
-  code: number | null
-  signal: NodeJS.Signals | null
-}
-
-/** Result of the collecting `exec` helper. */
-export interface ExecResult extends ExecExit {
-  stdout: Buffer
-  stderr: Buffer
-  /** True when the timeout fired and the exec was killed for it. */
-  timedOut: boolean
-}
-
-/** Output listener signature of a streaming exec. */
-export type ExecOutputListener = (stream: 'stdout' | 'stderr', chunk: Buffer) => void
-
-/** Handle for one streaming exec. */
-export interface ExecHandle {
-  /** Id this exec was claimed under. */
-  readonly id: number
-  /** Guest-side process id. */
-  readonly pid: number
-  /**
-   * Write one stdin chunk; chunks above the wire cap are split.
-   * @param chunk - bytes or UTF-8 text to append to the child's stdin.
-   */
-  writeStdin(chunk: Uint8Array | string): void
-  /** Close the child's stdin; it then reads EOF. */
-  closeStdin(): void
-  /**
-   * Deliver a signal to the child.
-   * @param sig - signal name; the guest maps the common POSIX set.
-   */
-  signal(sig: NodeJS.Signals): Promise<void>
-  /** Resolves once with the exit state, or rejects when the world closes. */
-  readonly exit: Promise<ExecExit>
-  /**
-   * Subscribe to output chunks.
-   * @param listener - called per stdout/stderr chunk.
-   * @returns the unsubscribe function.
-   */
-  onOutput(listener: ExecOutputListener): () => void
-}
 
 function validate(argv: string[], options: ExecOptions): void {
   if (argv.length === 0 || argv.some(arg => typeof arg !== 'string' || arg.length === 0 || arg.includes('\0'))) {
@@ -163,21 +74,14 @@ export class ExecSession {
     if (options.env !== undefined) message.env = options.env
     if (options.cwd !== undefined) message.cwd = options.cwd
     if (pty !== undefined) message.pty = pty
-    const startPayload = await this.transport.request(
-      message,
-      payload => isOpReplyFor(payload, id, ['exec.started', 'exec.err']),
-      OP_REPLY_TIMEOUT_MS,
-    )
-    const started = parseGuestMessage(startPayload)
-    if (started === undefined || started.t !== 'exec.started') {
-      if (started !== undefined && started.t === 'exec.err') throw new ExecStartError(id, started.message)
-      throw new ExecStartError(id, 'unexpected start reply')
-    }
-    const pid = started.pid
 
     const listeners = new Set<ExecOutputListener>()
     let offEvent!: () => void
     let offClose!: () => void
+    // Armed BEFORE the start request: an agent may pipeline the start ack
+    // with the first output or exit frame in one transport read, and those
+    // frames must meet a live subscription instead of dropping. A failed
+    // start leaves the exit promise unsettled: no handle escaped.
     const exit = new Promise<ExecExit>((resolve, reject) => {
       offEvent = this.transport.onEvent(
         payload => isOpReplyFor(payload, id, ['exec.out', 'exec.exit']),
@@ -200,6 +104,20 @@ export class ExecSession {
         reject(error)
       })
     })
+
+    const startPayload = await this.transport.request(
+      message,
+      payload => isOpReplyFor(payload, id, ['exec.started', 'exec.err']),
+      OP_REPLY_TIMEOUT_MS,
+    )
+    const started = parseGuestMessage(startPayload)
+    if (started === undefined || started.t !== 'exec.started') {
+      offEvent()
+      offClose()
+      if (started !== undefined && started.t === 'exec.err') throw new ExecStartError(id, started.message)
+      throw new ExecStartError(id, 'unexpected start reply')
+    }
+    const pid = started.pid
 
     const sendStdin = (chunk: Uint8Array | string): void => {
       const bytes = Buffer.concat([typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : new Uint8Array(chunk)])

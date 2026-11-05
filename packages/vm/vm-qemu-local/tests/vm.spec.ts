@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { probeWorld } from '../src/index.ts'
 import { EgressDeniedError } from '../src/egress.ts'
 import { PROTOCOL_VERSION } from '../src/protocol.ts'
+import { buildWorkspaceImage, packWorkspaceTar, readWorkspaceImage, readWorkspaceTar } from '../src/workspace.ts'
 import {
   AssetsMissingError,
   GuestVersionMismatchError,
@@ -241,9 +242,9 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
   it('rejects a welcome that speaks a different version', async () => {
     const recording: { current?: Recording } = {}
     recordings.push(recording)
-    const promise = openWorld({ assetsDir: stubAssets() }, stubDeps('welcome-v3', recording))
+    const promise = openWorld({ assetsDir: stubAssets() }, stubDeps('welcome-other', recording))
     await expect(promise).rejects.toSatisfy((error: unknown) =>
-      error instanceof GuestVersionMismatchError && error.guestV === 3)
+      error instanceof GuestVersionMismatchError && error.guestV === PROTOCOL_VERSION + 1)
     await expect(recording.current?.exit).resolves.toMatchObject({ signal: 'SIGKILL' })
   })
 
@@ -538,6 +539,111 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
       error instanceof WorldClosedError && error.message.includes('already stopped'))
   })
 
+  it('stages the workspace images before spawn and sizes the export image', async () => {
+    const { child, emitExit } = fakeChild()
+    const staged: { path: string; bytes?: Uint8Array; length?: number }[] = []
+    const spawnArgv: string[][] = []
+    const base = packWorkspaceTar([{ path: 'a.txt', kind: 'file', data: Buffer.from('a') }])
+    const world = await openWorld(
+      { assetsDir: stubAssets(), workspace: { import: base, exportCapacityBytes: 8192 } },
+      {
+        spawn: (argv): ChildLike => {
+          spawnArgv.push([...argv])
+          return child
+        },
+        connect: async () => welcomeSocket(),
+        writeFile: async (path, bytes) => { staged.push({ path, bytes }) },
+        truncate: async (path, length) => { staged.push({ path, length }) },
+        readFile: async () => buildWorkspaceImage(packWorkspaceTar([])),
+      },
+    )
+    const importEntry = staged.find(entry => entry.path.endsWith('ws-import.img'))
+    expect(importEntry?.bytes).toBeDefined()
+    expect(readWorkspaceImage(importEntry?.bytes ?? new Uint8Array(0)).tar.equals(base)).toBe(true)
+    expect(staged.find(entry => entry.path.endsWith('ws-export.img') && entry.length === 8192)).toBeDefined()
+    expect(spawnArgv[0]?.join(' ')).toContain('id=wsin')
+    expect(spawnArgv[0]?.join(' ')).toContain('id=wsout')
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+  })
+
+  it('rejects an undersized export capacity and cleans the run directory', async () => {
+    const runDirs: string[] = []
+    await expect(openWorld(
+      { assetsDir: stubAssets(), workspace: { exportCapacityBytes: 512 } },
+      {
+        spawn: (): ChildLike => fakeChild().child,
+        connect: async () => welcomeSocket(),
+        mkdtemp: async (prefix) => {
+          const dir = `${prefix}capacity-${runDirs.length}`
+          runDirs.push(dir)
+          return dir
+        },
+      },
+    )).rejects.toThrow('export capacity')
+    expect(runDirs).toHaveLength(1)
+  })
+
+  it('fails closed and cleans the run directory when image staging fails', async () => {
+    const staged: string[] = []
+    await expect(openWorld(
+      { assetsDir: stubAssets(), workspace: {} },
+      {
+        spawn: (): ChildLike => fakeChild().child,
+        connect: async () => welcomeSocket(),
+        mkdtemp: async prefix => `${prefix}stage-fail`,
+        writeFile: async (path) => {
+          staged.push(path)
+          throw new Error('disk full')
+        },
+      },
+    )).rejects.toThrow('disk full')
+    expect(staged).toHaveLength(1)
+  })
+
+  it('round-trips a workspace export through the world handle and rejects unconfigured worlds', async () => {
+    const { child, emitExit } = fakeChild()
+    const socket = fakeSocket()
+    const image = buildWorkspaceImage(packWorkspaceTar([{ path: 'a.txt', kind: 'file', data: Buffer.from('a') }]))
+    let answered = false
+    const world = await openWorld(
+      { assetsDir: stubAssets(), workspace: {} },
+      {
+        spawn: () => child,
+        connect: async () => {
+          setTimeout(() => {
+            socket.emitData(encode({ t: 'announce', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+            let helloAnswered = false
+            const interval = setInterval(() => {
+              if (!helloAnswered && socket.written.some(entry => entry.includes('"t":"hello"'))) {
+                socket.emitData(encode({ t: 'welcome', v: PROTOCOL_VERSION, caps: ['ping', 'exec', 'fs'], agent: 'fake' }))
+                helloAnswered = true
+                return
+              }
+              if (!answered && socket.written.some(entry => entry.includes('"t":"workspace.export"'))) {
+                socket.emitData(encode({ t: 'workspace.ok', id: 1, bytes: image.length - 4096 }))
+                answered = true
+                clearInterval(interval)
+              }
+            }, 10)
+          }, 50)
+          return socket
+        },
+        readFile: async () => image,
+        writeFile: async () => undefined,
+        truncate: async () => undefined,
+      },
+    )
+    const exported = await world.workspace.export()
+    expect(readWorkspaceTar(exported.tar).some(entry => entry.path === 'a.txt')).toBe(true)
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+
+    const plain = await openWorld({ assetsDir: stubAssets() }, { spawn: () => fakeChild().child, connect: async () => welcomeSocket() })
+    await expect(plain.workspace.export()).rejects.toThrow('workspace not configured')
+    await expect(plain.workspace.import()).rejects.toThrow('workspace not configured')
+  })
+
   it('the default spawn seam runs the planned argv under a real child', () => {
     const child = defaultSpawnProcess([process.execPath, '-e', '0'], { stdio: 'ignore' })
     // Hosts without QEMU in PATH surface the spawn failure as an error event.
@@ -586,6 +692,28 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
 // The wrapper only stages on Linux; these legs need a host where
 // resolveWrapPath can succeed, and the Linux coverage lane owns them.
 describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision', () => {
+
+  it('hands workspace owners chown of the staged images on root hosts', async () => {
+    const { child, emitExit } = fakeChild()
+    const chowned: string[] = []
+    const world = await openWorld(
+      { assetsDir: sandboxAssets(), workspace: {} },
+      {
+        spawn: () => child,
+        connect: async () => welcomeSocket(),
+        euid: () => 0,
+        chown: async (path) => { chowned.push(path) },
+        copyFile: async () => undefined,
+        writeFile: async () => undefined,
+        truncate: async () => undefined,
+      },
+    )
+    expect(chowned.filter(path => path.endsWith('ws-import.img'))).toHaveLength(1)
+    expect(chowned.filter(path => path.endsWith('ws-export.img'))).toHaveLength(1)
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+  })
+
   it('wraps the child under a staged wrapper and hands over the scratch directory on root hosts', async () => {
     const { child, emitExit } = fakeChild()
     const seenArgv: string[][] = []
@@ -602,7 +730,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async (path, uid, gid) => { chowns.push([path, uid, gid]) },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(true)
+    expect(world.descriptor.hostHardened).toBe(true)
     const wrapped = seenArgv[0] ?? []
     expect(wrapped[0]).toMatch(/qemu-wrap$/)
     expect(wrapped[1]).toBe('--scratch')
@@ -631,7 +759,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async (path, uid, gid) => { chowns.push([path, uid, gid]) },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(false)
+    expect(world.descriptor.hostHardened).toBe(false)
     expect(seenArgv[0]?.[0]).toBe('qemu-system-x86_64')
     expect(chowns).toEqual([])
     const destroyed = world.destroy()
@@ -654,7 +782,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async () => { throw new Error('must not chown') },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(false)
+    expect(world.descriptor.hostHardened).toBe(false)
     expect(seenArgv[0]?.[0]).toBe('qemu-system-x86_64')
     const destroyed = world.destroy()
     setTimeout(() => { emitExit(0) }, 20)
@@ -674,7 +802,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
           chown: async () => { throw new Error('must not chown') },
         },
       )
-      expect(world.descriptor.sandboxed).toBe(true)
+      expect(world.descriptor.hostHardened).toBe(true)
       const destroyed = world.destroy()
       setTimeout(() => { emitExit(0) }, 20)
       await expect(destroyed).resolves.toBe('clean')
@@ -718,7 +846,7 @@ describe.skipIf(process.platform !== 'linux')('vm-qemu-local sandbox supervision
         chown: async () => { throw new Error('must not chown') },
       },
     )
-    expect(world.descriptor.sandboxed).toBe(true)
+    expect(world.descriptor.hostHardened).toBe(true)
     expect(seenArgv[0]?.[0]).toMatch(/qemu-wrap$/)
     const destroyed = world.destroy()
     setTimeout(() => { emitExit(0) }, 20)

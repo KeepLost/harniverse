@@ -187,6 +187,12 @@ flowchart LR
   pkg_agent_spine_demo["agent-spine-demo"]
   pkg_goal["goal"]
   svc_goals["ctx.goals<br/>Same-session goal domain"]
+  pkg_vm["vm"]
+  svc_vm["ctx.vm<br/>Execution-world seam"]
+  pkg_vm_qemu_local["vm-qemu-local"]
+  pkg_subprocess_vm["subprocess-vm"]
+  pkg_fs_vm["fs-vm"]
+  pkg_sandbox_vm["sandbox-vm"]
   pkg_ssh["ssh"]
   svc_ssh["ctx.ssh<br/>POSIX SSH connection seam"]
   pkg_fs_ssh["fs-ssh"]
@@ -222,7 +228,10 @@ flowchart LR
   pkg_shell["shell"]
   svc_shell["ctx.shell<br/>Bash executor seam"]
   pkg_pwsh_local["pwsh-local"]
+  pkg_shell_router["shell-router"]
   pkg_tool_pwsh["tool-pwsh"]
+  pkg_session_shell["session-shell"]
+  svc_sessionShell["ctx.sessionShell<br/>Session shell family pointer"]
   pkg_shell_env["shell-env"]
   svc_shellEnv["ctx.shellEnv<br/>Managed bash environment registry"]
   pkg_terminal["terminal"]
@@ -390,6 +399,7 @@ flowchart LR
   pkg_session_query --> svc_sessionQuery
   pkg_session_query_sqlite --> svc_sessionQuery
   pkg_session_reference --> svc_sessionReferenceResolver
+  pkg_session_shell --> svc_sessionShell
   pkg_session_title --> svc_sessionTitle
   pkg_session_title_all_prompts_llm --> svc_sessionTitle
   pkg_session_title_first_prompt_llm --> svc_sessionTitle
@@ -397,6 +407,7 @@ flowchart LR
   pkg_settings_file --> svc_settings
   pkg_shell --> svc_shell
   pkg_shell_env --> svc_shellEnv
+  pkg_shell_router --> svc_shell
   pkg_skill --> svc_skills
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
@@ -428,6 +439,8 @@ flowchart LR
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
   pkg_user_questions --> svc_userQuestions
+  pkg_vm --> svc_vm
+  pkg_vm_qemu_local --> svc_vm
   pkg_web --> svc_web
   pkg_web_deepseek_api --> svc_web
   pkg_web_fetch_http --> svc_web
@@ -528,6 +541,8 @@ flowchart LR
   svc_sessionProjections --> pkg_tool_todo
   svc_sessionQuery --> pkg_session_reference
   svc_sessionQuery --> pkg_tool_session_query
+  svc_sessionShell --> pkg_tool_bash
+  svc_sessionShell --> pkg_tool_pwsh
   svc_sessions --> pkg_agent
   svc_sessions --> pkg_agent_loop
   svc_sessions --> pkg_invariants
@@ -597,6 +612,9 @@ flowchart LR
   svc_typert --> pkg_api_gateway
   svc_typert --> pkg_typert_loader
   svc_userQuestions --> pkg_tool_ask_user
+  svc_vm --> pkg_fs_vm
+  svc_vm --> pkg_sandbox_vm
+  svc_vm --> pkg_subprocess_vm
   svc_web --> pkg_tool_web
   svc_webServer --> pkg_connection
   svc_webServer --> pkg_hmr
@@ -674,6 +692,7 @@ flowchart LR
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`headless`](../packages/bundle/headless), [`host-apiproxy`](../packages/host/apiproxy) | - | Layers the default ModelSelection through settings so direct and Host-backed Agent entry points share one state owner. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
+| `ctx.vm` | `seam` | [`vm`](../packages/vm/vm) | [`vm-qemu-local`](../packages/vm/vm-qemu-local) | [`subprocess-vm`](../packages/vm/subprocess-vm), [`fs-vm`](../packages/vm/fs-vm), [`sandbox-vm`](../packages/vm/sandbox-vm) | - | The world owns its guest kernel, root filesystem, and process space; the QEMU provider boots it with no network device and settles before the service is visible, and the subprocess, filesystem, and sandbox providers run the harness contracts inside on the world-neutral vocabulary. |
 | `ctx.ssh` | `seam` | [`ssh`](../packages/ssh/ssh) | [`ssh`](../packages/ssh/ssh) | [`fs-ssh`](../packages/ssh/fs-ssh), [`subprocess-ssh`](../packages/ssh/subprocess-ssh), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | - | The connection owns the OpenSSH process, helper digest verification, the bounded control-channel transport, and helper lease cleanup; the remote filesystem, subprocess, and sandbox providers ride that transport and implement their seams on the SSH host under a captured machine-owned inventory. |
 | `ctx.remoteHostSsh` | `seam` | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | [`remote-hosts`](../packages/ssh/remote-hosts) | - | The replaceable transport verifies the independently approved host pin before authentication and owns SSH channels, uploads, forwards, reverse mappings, and teardown for one remote Harniverse connection. |
 | `ctx.remoteHosts` | `seam` | [`remote-hosts`](../packages/ssh/remote-hosts) | [`remote-hosts`](../packages/ssh/remote-hosts) | [`client-ui-remote-hosts`](../packages/client/ui-remote-hosts), [`client-connection`](../packages/client/connection) | - | The local coordinator owns secret-free host records, credential references, artifact verification, remote deployment, settings synchronization, browser proxy boundaries, and connection state; the UI and trusted Host proxy consume its capabilities. |
@@ -683,7 +702,8 @@ flowchart LR
 | `ctx.terminalController` | `seam` | [`api-terminal-controller`](../packages/api/terminal-controller) | [`api-terminal-controller`](../packages/api/terminal-controller) | - | - | The terminal controller owns per-Session interactive USER shells over the subprocess PTY seam (full harness environment, login startup, never sandbox-confined, never model-visible) and serves snapshot-then-output screen frames to browser panels through the gateway terminal/* Remote endpoints and the apiproxy events.terminal / events.hold SSE streams. |
 | `ctx.browserController` | `seam` | [`api-browser-controller`](../packages/api/browser-controller) | [`api-browser-controller`](../packages/api/browser-controller) | - | - | The browser controller runs a real Chromium process per Session over the subprocess spawn seam and drives it through the Chrome DevTools Protocol, so panel page traffic leaves the HOST network position (scrubbed environment, throwaway profile, operator-owned navigation policy, never model-visible); pages reach browser panels as screencast image frames through the gateway browser/* Remote endpoints and the apiproxy events.browser SSE stream. |
 | `ctx.governor` | `seam` | [`governor`](../packages/monitor/governor) | [`governor`](../packages/monitor/governor) | [`tool-bash`](../packages/shell/tool-bash), [`client-ui-governor`](../packages/client/ui-governor) | - | The governor meters correlated shell/terminal spawns from /proc (plus ss TCP attribution), enforces the global memory budget in tiers (cgroup-v2, prlimit plus watchdog, observe), and arbitrates shared-pool session quotas; the bash tool stamps correlations and merges breach facts into result meta, and the board consumes the governor Remote. |
-| `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
+| `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local), [`shell-router`](../packages/shell/shell-router) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
+| `ctx.sessionShell` | `core` | [`session-shell`](../packages/shell/session-shell) | [`session-shell`](../packages/shell/session-shell) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | The per-session pointer over the routed shell seam: durable family switching effective at the next model request, per-agent tool retirement of the inactive family, and the runtime-context fact that announces the family. |
 | `ctx.shellEnv` | `core` | [`shell-env`](../packages/shell/shell-env) | - | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | Plugins declare effect-scoped DSH_* facts; each shell tool collects one trusted snapshot per execution and its executor rebuilds the namespace. |
 | `ctx.terminals` | `seam` | [`terminal`](../packages/terminal/terminal) | [`terminal-bash`](../packages/terminal/terminal-bash) | [`tool-terminal`](../packages/terminal/tool-terminal) | - | The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-terminal exposes the owner-scoped model tools. |
 | `ctx.sandbox` | `seam` | [`sandbox`](../packages/sandbox/sandbox) | [`sandbox-local`](../packages/sandbox/sandbox-local), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash) | - | Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement. |

@@ -2960,6 +2960,35 @@ export interface Config {
 
 Source: [`packages/shell/shell-env/src/index.ts:29`](../packages/shell/shell-env/src/index.ts)
 
+<a id="deepseek-aidsh-shell-router"></a>
+
+## `@deepseek-ai/dsh-shell-router`
+
+Requires: `subprocess` · `sandbox` · `sandboxPolicy`
+
+```ts config-catalog
+/** Router configuration; `defaultFamily` mirrors the boot flag when omitted. */
+export interface Config {
+  /** Family unstamped requests address; defaults to the boot-resolved selection. */
+  defaultFamily?: ShellBackendSelection
+  /**
+   * Composition entries handed to each mounted family executor verbatim —
+   * the shape each family's own plugin config accepts. The retired bare
+   * executor rows carried these; the router row carries them now.
+   */
+  families?: {
+    /** Composition entry handed verbatim to the bash family executor. */
+    bash?: unknown
+    /** Composition entry handed verbatim to the pwsh family executor. */
+    pwsh?: unknown
+  }
+}
+```
+
+Depends on: [`ShellBackendSelection`](subsystems/shell.md)
+
+Source: [`packages/shell/shell-router/src/index.ts:30`](../packages/shell/shell-router/src/index.ts)
+
 <a id="deepseek-aidsh-skill"></a>
 
 ## `@deepseek-ai/dsh-skill`
@@ -4237,6 +4266,34 @@ export type ApprovalPolicy = 'ask' | 'never'
 
 Source: [`packages/interaction/user-approval/src/index.ts:178`](../packages/interaction/user-approval/src/index.ts)
 
+<a id="deepseek-aidsh-vm-qemu-local"></a>
+
+## `@deepseek-ai/dsh-vm-qemu-local`
+
+```ts config-catalog
+/** Deployment-owned boot facts for one QEMU world; no model argument selects these. */
+export interface Config {
+  /** Directory holding `vmlinuz-virt` and `initramfs.cpio.gz`; default the package's staged assets. */
+  assetsDir?: string
+  /** QEMU binary; default `qemu-system-x86_64` from PATH. */
+  qemuBin?: string
+  /** Acceleration preference; `auto` (default) picks KVM when `/dev/kvm` is writable, else TCG. */
+  accel?: 'auto' | 'kvm' | 'tcg'
+  /** Guest memory in MiB. Default 256. */
+  memoryMiB?: number
+  /** Guest vCPU count. Default 2. */
+  cpus?: number
+  /** Handshake deadline in milliseconds. Default 15 000. */
+  readyTimeoutMs?: number
+  /** Grace period for a guest-requested shutdown before SIGKILL, in milliseconds. Default 5 000. */
+  shutdownTimeoutMs?: number
+  /** Host-side hardening of the QEMU child: `auto` (default) stages the wrapper when present; `off` spawns directly. */
+  sandbox?: 'auto' | 'off'
+}
+```
+
+Source: [`packages/vm/vm-qemu-local/src/index.ts:36`](../packages/vm/vm-qemu-local/src/index.ts)
+
 <a id="deepseek-aidsh-web"></a>
 
 ## `@deepseek-ai/dsh-web`
@@ -4655,6 +4712,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-command-reset` — requires `commands` ([`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
+- `@deepseek-ai/dsh-compaction-body-limit-recovery` ([`packages/compaction/compaction-body-limit-recovery/src/index.ts`](../packages/compaction/compaction-body-limit-recovery/src/index.ts))
 - `@deepseek-ai/dsh-compaction-image-offload` — requires `sessions` ([`packages/compaction/compaction-image-offload/src/index.ts`](../packages/compaction/compaction-image-offload/src/index.ts))
 - `@deepseek-ai/dsh-context-inspector` — requires `systemPrompt` · `tokenMeter` ([`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts))
 - `@deepseek-ai/dsh-context-reset` — requires `sessions` ([`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts))
@@ -4663,6 +4721,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-environment` — requires `systemPrompt` ([`packages/preset/environment/src/index.ts`](../packages/preset/environment/src/index.ts))
 - `@deepseek-ai/dsh-fs-observation-policy` ([`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts))
 - `@deepseek-ai/dsh-fs-ssh` — requires `ssh` · `sandboxPolicy` ([`packages/ssh/fs-ssh/src/index.ts`](../packages/ssh/fs-ssh/src/index.ts))
+- `@deepseek-ai/dsh-fs-vm` — requires `vm` · `sandboxPolicy` ([`packages/vm/fs-vm/src/index.ts`](../packages/vm/fs-vm/src/index.ts))
 - `@deepseek-ai/dsh-goal-round-driver` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts))
 - `@deepseek-ai/dsh-harness-source` — requires `systemPrompt` ([`packages/context/harness-source/src/index.ts`](../packages/context/harness-source/src/index.ts))
 - `@deepseek-ai/dsh-host-capability-management` — requires `capabilities` · `agentPresets` · `agents` · `subagents` · `skills` ([`packages/host/capability-management/src/index.ts`](../packages/host/capability-management/src/index.ts))
@@ -4675,12 +4734,14 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-plugin-diagnostics` ([`packages/runtime-diagnostics/plugin-diagnostics/src/index.ts`](../packages/runtime-diagnostics/plugin-diagnostics/src/index.ts))
 - `@deepseek-ai/dsh-plugin-diagnostics-cordis` — requires `pluginDiagnostics` · `loader` ([`packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts`](../packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts))
 - `@deepseek-ai/dsh-sandbox-ssh` — requires `ssh` ([`packages/ssh/sandbox-ssh/src/index.ts`](../packages/ssh/sandbox-ssh/src/index.ts))
+- `@deepseek-ai/dsh-sandbox-vm` — requires `vm` ([`packages/vm/sandbox-vm/src/index.ts`](../packages/vm/sandbox-vm/src/index.ts))
 - `@deepseek-ai/dsh-scheduler` — requires `agents` · `sessions` · `storageDomain` ([`packages/schedule/scheduler/src/index.ts`](../packages/schedule/scheduler/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session/session-checkpoint-policy/src/index.ts`](../packages/session/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-session-delivery-local` — requires `agents` · `sessions` ([`packages/session-query/session-delivery-local/src/index.ts`](../packages/session-query/session-delivery-local/src/index.ts))
 - `@deepseek-ai/dsh-session-log-export` — requires `commands` ([`packages/session-query/session-log-export/src/index.ts`](../packages/session-query/session-log-export/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts))
+- `@deepseek-ai/dsh-session-shell` — requires `sessionProjections` · `tools` · `agents` ([`packages/shell/session-shell/src/index.ts`](../packages/shell/session-shell/src/index.ts))
 - `@deepseek-ai/dsh-session-stats` — requires `sessionProjections` ([`packages/session/session-stats/src/index.ts`](../packages/session/session-stats/src/index.ts))
 - `@deepseek-ai/dsh-skill-badge` — requires `skills` ([`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts))
 - `@deepseek-ai/dsh-speech` ([`packages/speech/speech/src/index.ts`](../packages/speech/speech/src/index.ts))
@@ -4688,6 +4749,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-local` ([`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-ssh` — requires `ssh` ([`packages/ssh/subprocess-ssh/src/index.ts`](../packages/ssh/subprocess-ssh/src/index.ts))
+- `@deepseek-ai/dsh-subprocess-vm` — requires `vm` ([`packages/vm/subprocess-vm/src/index.ts`](../packages/vm/subprocess-vm/src/index.ts))
 - `@deepseek-ai/dsh-terminal` ([`packages/terminal/terminal/src/index.ts`](../packages/terminal/terminal/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userQuestions` ([`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-call-timeout-policy` — requires `tools` ([`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts))
@@ -4724,6 +4786,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-shell` — abstract `ShellExecutor` ([`packages/shell/shell/src/index.ts`](../packages/shell/shell/src/index.ts))
 - `@deepseek-ai/dsh-spill` — abstract `SpillStore` ([`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts))
 - `@deepseek-ai/dsh-subprocess` — abstract `SubprocessRuntime` ([`packages/subprocess/subprocess/src/index.ts`](../packages/subprocess/subprocess/src/index.ts))
+- `@deepseek-ai/dsh-vm` — abstract `VmWorld` ([`packages/vm/vm/src/index.ts`](../packages/vm/vm/src/index.ts))
 - `@deepseek-ai/dsh-workflow` — abstract `WorkflowEngine` ([`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts))
 
 ## Library packages (no plugin entry)
@@ -4777,4 +4840,3 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-typert-generator` ([`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts))
 - `@deepseek-ai/dsh-typert-protocol` ([`packages/typert/protocol/src/index.ts`](../packages/typert/protocol/src/index.ts))
 - `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
-- `@deepseek-ai/dsh-vm-qemu-local` ([`packages/vm/vm-qemu-local/src/index.ts`](../packages/vm/vm-qemu-local/src/index.ts))

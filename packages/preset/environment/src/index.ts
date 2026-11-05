@@ -1,11 +1,14 @@
 /**
- * The environment-facts system section: the OS, shell, working machine, and
- * the session-fixed working directory, as static system-prompt prose.
+ * The environment-facts system section: the OS, working machine, and the
+ * session-fixed working directory, as static system-prompt prose.
  *
  * The row contributes one prompt section whose text is computed once at mount
  * from process-stable platform facts. Only the working directory stays a
  * `{{cwd}}` reference, resolved per agent at render time from the session
- * header — fixed for the session's lifetime, never refreshed per turn.
+ * header — fixed for the session's lifetime, never refreshed per turn. The
+ * shell dialect is deliberately absent: it is a session-mutable fact owned by
+ * the runtime-context snapshot plane (`@deepseek-ai/dsh-session-shell` on
+ * switching hosts, the tool's own description elsewhere), never static prose.
  * @module @deepseek-ai/dsh-environment
  */
 
@@ -34,13 +37,10 @@ const busyboxUserland = (): boolean => existsSync('/etc/alpine-release')
 
 /**
  * Detect the process-stable environment facts for one machine.
- *
- * The shell fact follows the harness's own execution selection: `zsh` on
- * macOS, PowerShell on Windows, `bash` elsewhere.
  * @param platform - Node platform identifier; defaults to the current host.
  * @param machine - working-machine label; defaults to the host name.
  * @param busybox - Linux probe for a BusyBox (Alpine) userland.
- * @returns the coarse OS, shell, optional userland, and machine label.
+ * @returns the coarse OS, optional userland, and machine label.
  */
 export function detectEnvironmentFacts(
   platform: NodeJS.Platform = process.platform,
@@ -50,11 +50,10 @@ export function detectEnvironmentFacts(
   const os = platform === 'darwin' ? 'macOS'
     : platform === 'win32' ? 'Windows'
       : platform === 'linux' ? 'Linux' : platform
-  const shell = platform === 'darwin' ? 'zsh' : platform === 'win32' ? 'PowerShell' : 'bash'
   const userland = platform === 'darwin' ? 'BSD'
     : platform === 'linux' ? (busybox() ? 'BusyBox' : 'GNU')
       : undefined
-  return { os, shell, ...userland === undefined ? {} : { userland }, machine }
+  return { os, ...userland === undefined ? {} : { userland }, machine }
 }
 
 /**
@@ -64,7 +63,7 @@ export function detectEnvironmentFacts(
  */
 export function environmentSectionText(facts: EnvironmentFacts): string {
   const userland = facts.userland === undefined ? '' : ` with a ${facts.userland} userland`
-  return `You are working on the machine ${facts.machine} (${facts.os}, ${facts.shell} shell${userland}). `
+  return `You are working on the machine ${facts.machine} (${facts.os}${userland}). `
     + 'This session started in {{cwd}}; the working directory can change during the session.'
 }
 

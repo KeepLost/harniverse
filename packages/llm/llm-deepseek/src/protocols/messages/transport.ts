@@ -1,6 +1,6 @@
 /** Normalize HTTP and in-band Messages errors into provider-neutral failures. */
 
-import { isContextWindowExceededError, isQuotaExceededError, LlmError, ProviderRequestId } from '@deepseek-ai/dsh-llm'
+import { isContextWindowExceededError, isQuotaExceededError, isRequestBodyTooLargeError, LlmError, ProviderRequestId, REQUEST_BODY_TOO_LARGE_CODE } from '@deepseek-ai/dsh-llm'
 
 /** Read only provider error fields used by bounded Files recovery.
  * @param raw - decoded HTTP error response.
@@ -30,7 +30,8 @@ export function providerError(raw: unknown, status: number | undefined, headers?
   else if (isQuotaExceededError(detail) || status === 402) code = 'QUOTA'
   else if (status === 429 || type === 'rate_limit_error') code = 'RATE_LIMIT'
   else if (isContextWindowExceededError(detail)) code = 'CONTEXT_WINDOW_EXCEEDED'
-  else if (status === 400 || status === 413 || type === 'invalid_request_error') code = 'INVALID_REQUEST'
+  else if (status === 413 || isRequestBodyTooLargeError(detail)) code = REQUEST_BODY_TOO_LARGE_CODE
+  else if (status === 400 || type === 'invalid_request_error') code = 'INVALID_REQUEST'
   else if ((status !== undefined && status >= 500) || ['api_error', 'overloaded_error'].includes(type)) code = 'SERVER'
   else code = status === undefined ? 'SERVER' : `HTTP_${status}`
   const retry = headers?.get('retry-after')

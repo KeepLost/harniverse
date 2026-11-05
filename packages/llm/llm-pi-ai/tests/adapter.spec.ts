@@ -550,6 +550,16 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.authorization).toBe('')
   })
 
+  it('maps a transport body-cap rejection to the body-limit failure', async () => {
+    const server = await mockServer([{ status: 413, body: JSON.stringify({ error: { message: 'Failed to buffer the request body: length limit exceeded' } }) }])
+    const ctx = await harness(server.url)
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    expect(result.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: 'REQUEST_BODY_TOO_LARGE', message: expect.stringContaining('length limit exceeded') as unknown },
+    })
+  })
+
   it.each([
     [401, 'AUTH'],
     [400, 'INVALID_REQUEST'],

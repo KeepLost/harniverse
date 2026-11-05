@@ -6,6 +6,9 @@
  * @module @deepseek-ai/dsh-shell
  */
 
+/** Environment variable carrying the resolved shell backend; the shell rows' `disabled` expressions read it. */
+export const SHELL_BACKEND_ENV = 'DSH_SHELL_BACKEND'
+
 /** User-selectable shell backend preference stored under the `shell-backend` settings namespace. */
 export type ShellBackendPreference = 'platform-default' | 'git-bash'
 

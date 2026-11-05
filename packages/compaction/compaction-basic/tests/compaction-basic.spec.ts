@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { compactSurfaceRegion, selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import { compactSurfaceRegion, selectCompactableRange, UnhelpfulSummaryError } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import type { RegionDependencies } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
@@ -676,9 +676,73 @@ describe('pressure measurement and retention', () => {
     expect(session.surface.nodes.length).toBeLessThan(8)
   })
 
-  it('does not write a compaction bracket when an agent request has no safe prefix', async () => {
+  it('compacts on agent request below a window-scaled retention budget', async () => {
+    // The reported defect: with the default ratio policy on a large context
+    // window, the retained-tail budget exceeded the whole visible surface, so
+    // an explicit model request was a guaranteed no-op. The request now caps
+    // retention at the current open turn and releases the closed turns.
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(4)
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.not.toBeNull()
+    expect(session.surface.nodes.length).toBeLessThan(8)
+  })
+
+  it('keeps the policy retention budget on a fully closed log', async () => {
+    // With no open turn there is nothing to cap: the window-scaled policy
+    // budget stands, and a small surface under it stays uncompactable.
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(2)
+    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
+  })
+
+  it('reports the quiet no-op when the summary is unhelpful on an agent request', async () => {
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(4)
+    compact.error = new UnhelpfulSummaryError(120, 60)
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
+  })
+
+  it('propagates a non-unhelpful summary failure on an agent request', async () => {
+    const compact = service({ auto: false }, createContext(1_000_000))
+    const session = conversation(4)
+    compact.error = new Error('summarizer exploded')
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).rejects.toThrow('summarizer exploded')
+  })
+
+  it('resolves null when an agent request has no safe prefix', async () => {
     const compact = service(compactConfig)
     const session = conversation(1)
+
+    // The single closed turn is small enough that its summary frame cannot
+    // shrink it: the attempt rolls back durably and the request reports the
+    // ordinary no-op instead of an error.
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
+  })
+
+  it('writes no compaction bracket when the whole surface is the open turn', async () => {
+    const compact = service(compactConfig)
+    const session = Session.create(SessionId('open-turn-only'))
+    session.append('turn/start', { turn: 1 })
+    session.append('request/header', { header: { config: { provider: MODEL, model: MODEL } }, reason: 'initial' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'fixture '.repeat(40).trim() }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'fixture assistant' }],
+        source: { kind: 'model', provider: MODEL, model: MODEL },
+      }),
+    }, { surfaceOp: 'append' })
 
     await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
     expect(session.events.some(event => event.type === 'compaction/start')).toBe(false)

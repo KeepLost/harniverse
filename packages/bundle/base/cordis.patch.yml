@@ -325,6 +325,11 @@
     - id: compaction-image-offload
       name: '@deepseek-ai/dsh-compaction-image-offload'
 
+    # 413 body-limit recovery: settle every image occurrence plus an immediate
+    # compaction, then retry the rejected request instead of surfacing 413.
+    - id: compaction-body-limit-recovery
+      name: '@deepseek-ai/dsh-compaction-body-limit-recovery'
+
     - id: compaction-lossless
       name: '@deepseek-ai/dsh-compaction-lossless'
 

@@ -51,7 +51,7 @@ const t: TerminalPanelViewProps['t'] = makeTranslate(zh)
 const INITIAL: TerminalPanelState = {
   session: undefined, ready: false, terminals: [], activeId: undefined, attached: false,
   inputOwned: false, shells: [], environment: undefined, error: undefined,
-  reattaching: false, reattachFailed: false,
+  reattaching: false, reattachFailed: false, shellSession: undefined,
 }
 
 /** A minimal notifying stand-in store the useSessions share can read. */
@@ -97,7 +97,7 @@ function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelStat
   const sessions = staticStore({ current: options.session })
   const appearanceStore = staticStore({ revision: 1 })
   const verbs = {
-    closeView: vi.fn(), bindSession: vi.fn(), activate: vi.fn(), create: vi.fn(), close: vi.fn(),
+    closeView: vi.fn(), bindSession: vi.fn(), activate: vi.fn(), create: vi.fn(), switchSessionShell: vi.fn(), close: vi.fn(),
     rename: vi.fn(), write: vi.fn(), resize: vi.fn(), takeInput: vi.fn(),
   }
   const surfaces: TerminalSurface[] = []
@@ -505,6 +505,49 @@ describe('TerminalPanelView', () => {
     if (sink === undefined) throw new Error('surface not registered')
     act(() => { sink.write('after retheme') })
     await waitFor(() => { expect(surface.textContent).toContain('after retheme') })
+  })
+
+  it('hides the session shell toggle when the host reports no switching', () => {
+    mount({ session: 's1' as SessionId, panel: { shellSession: undefined } })
+    expect(screen.queryByRole('group', { name: zh['sessionShell.label'] })).toBeNull()
+    mount({ session: 's1' as SessionId, panel: { shellSession: { current: 'bash', switchable: false, families: { bash: true, pwsh: false }, pending: false } } })
+    expect(screen.queryByRole('group', { name: zh['sessionShell.label'] })).toBeNull()
+  })
+
+  it('renders the toggle with pressed and disabled families and drives the switch verb', () => {
+    const harness = mount({
+      session: 's1' as SessionId,
+      panel: { shellSession: { current: 'bash', switchable: true, families: { bash: true, pwsh: false }, pending: false } },
+    })
+    // The segmented buttons carry literal family names, not locale keys.
+    const pwsh = screen.getByRole('button', { name: 'pwsh' }) as HTMLButtonElement
+    const bashButton = screen.getByRole('button', { name: 'bash' }) as HTMLButtonElement
+    expect(bashButton.getAttribute('aria-pressed')).toBe('true')
+    expect(pwsh.disabled).toBe(true)
+    expect(bashButton.disabled).toBe(false)
+    fireEvent.click(bashButton)
+    expect(harness.switchSessionShell).toHaveBeenCalledWith('bash')
+  })
+
+  it('a family switch re-aims the shell picker at a matching discovered shell', async () => {
+    const harness = mount({
+      session: 's1' as SessionId,
+      panel: {
+        shells: [
+          { path: '/bin/bash', args: [], name: 'bash' },
+          { path: '/usr/bin/pwsh', args: [], name: 'pwsh' },
+        ],
+        shellSession: { current: 'bash', switchable: true, families: { bash: true, pwsh: true }, pending: false },
+      },
+    })
+    const select = document.getElementById('terminal-panel-shell') as HTMLSelectElement
+    // The pwsh entry rides after bash in discovery order; the effect selects
+    // the family match rather than the first entry.
+    await waitFor(() => { expect(select.value).toBe('/bin/bash') })
+    act(() => {
+      harness.setPanel({ shellSession: { current: 'pwsh', switchable: true, families: { bash: true, pwsh: true }, pending: false } })
+    })
+    await waitFor(() => { expect(select.value).toBe('/usr/bin/pwsh') })
   })
 
   it('renders the read-only banner with the takeover verb while another window holds input', () => {
