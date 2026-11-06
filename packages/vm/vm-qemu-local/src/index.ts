@@ -79,7 +79,7 @@ export class QemuLocalWorld extends VmWorld {
   /** Boot settlement: resolves with the world handle or fails the plugin. */
   readonly ready: Promise<WorldHandle>
   private handle: WorldHandle | undefined
-  private readonly pendingOrigins = new Map<string, { approver: EgressPolicy; live: (() => void) | undefined; disposed: boolean }>()
+  private readonly pendingOrigins = new Map<string, PendingEgressOrigin>()
 
   constructor(ctx: Context, config: Config, deps: VmDeps = {}) {
     super(ctx)
@@ -108,7 +108,7 @@ export class QemuLocalWorld extends VmWorld {
   override registerEgressOrigin(origin: string, approver: EgressPolicy): () => void {
     const handle = this.handle
     if (handle !== undefined) return handle.egress.register(origin, approver)
-    const entry = { origin, approver, live: undefined as (() => void) | undefined, disposed: false }
+    const entry: PendingEgressOrigin = { origin, approver, live: undefined, disposed: false }
     this.pendingOrigins.set(origin, entry)
     return () => {
       if (entry.disposed) return

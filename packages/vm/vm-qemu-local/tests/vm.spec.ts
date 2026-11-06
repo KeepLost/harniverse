@@ -581,7 +581,7 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
       },
     )
     world.egress.register('origin-wire', async (request) => {
-      consulted.push({ host: request.host, port: request.port, origin: request.origin })
+      consulted.push({ host: request.host, port: request.port, ...(request.origin === undefined ? {} : { origin: request.origin }) })
       return false
     })
     socket.emitData(encode({ t: 'egress.open', id: 1, host: 'wire.example', port: 443, origin: 'origin-wire' }))
