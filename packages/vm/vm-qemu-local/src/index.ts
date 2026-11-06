@@ -21,6 +21,7 @@ export * from './qemu.ts'
 export * from './exec.ts'
 export * from './fs.ts'
 export * from './egress.ts'
+export * from './egress-bridge.ts'
 export * from './vm.ts'
 export * from './workspace.ts'
 

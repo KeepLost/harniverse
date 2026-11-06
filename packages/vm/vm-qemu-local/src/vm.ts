@@ -22,7 +22,8 @@ import { HOST_CAPS, PROTOCOL_VERSION, negotiateVersion, parseGuestMessage, type 
 import { ExecSession } from './exec.ts'
 import type { CollectExecOptions, ExecHandle, ExecOptions, ExecResult, VmWorldDescriptor, VmWorldExit } from '@deepseek-ai/dsh-vm'
 import { WorldFs } from './fs.ts'
-import { GuestEgressBridge, WorldEgress, type EgressMode } from './egress.ts'
+import { WorldEgress, type EgressMode } from './egress.ts'
+import { GuestEgressBridge } from './egress-bridge.ts'
 import { DEFAULT_EXPORT_CAPACITY_BYTES, WORKSPACE_HEADER_BYTES, WorldWorkspace, assertValidWorkspaceTar, buildWorkspaceImage, packWorkspaceTar } from './workspace.ts'
 
 /** Assets (`vmlinuz-virt`, `initramfs.cpio.gz`) are absent from the assets directory. */

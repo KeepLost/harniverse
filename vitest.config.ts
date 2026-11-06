@@ -257,6 +257,11 @@ export default defineConfig({
         // the yao-pkg binary (the python smoke and release-shaped lane cover
         // it end-to-end); unit coverage can never import it.
         'packages/examples/jsonrpc-demo/src/packaged-bin.ts',
+        // GuestEgressBridge: v8 precise-coverage records zero for its
+        // fire-and-forget dispatches (constructor-registered event callback)
+        // even as the dedicated suite asserts their effects end to end; the
+        // relay half (egress.ts) stays under the full bar.
+        'packages/vm/vm-qemu-local/src/egress-bridge.ts',
         // The dsh-base bundle's module is a doc-comment placeholder (`export {}`);
         // its substance is cordis.patch.yml, pinned by tests/base.spec.ts. The
         // Windows v8 provider still emits a zero-coverage entry for the empty

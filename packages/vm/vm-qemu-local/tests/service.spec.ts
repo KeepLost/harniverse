@@ -85,6 +85,7 @@ describe('QemuLocalWorld service', () => {
       expect(seen).toEqual(['127.0.0.1'])
     }
     unbind()
+    unbind()
     await expect(handle.egress.open('127.0.0.1', 1, 'early')).rejects.toMatchObject({ name: 'EgressDeniedError' })
     await ctx.fiber.dispose()
   })

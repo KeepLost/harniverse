@@ -1,12 +1,11 @@
 import { createServer, type Server } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { GuestEgressBridge, type EgressHostFrame } from '../src/egress-bridge.ts'
 import {
   DEFAULT_EGRESS_CONNECT_TIMEOUT_MS,
   EgressConnectError,
   EgressDeniedError,
-  GuestEgressBridge,
   WorldEgress,
-  type EgressHostFrame,
   type EgressRequest,
   type EgressSocket,
 } from '../src/egress.ts'
@@ -271,9 +270,10 @@ function fakeTransport(relay: { open: WorldEgress['open'] }): { bridge: GuestEgr
   }
   const bridge = new GuestEgressBridge(relay, {
     send: (message) => { sent.push(message) },
-    onEvent: (_match, handler) => {
-      handlers.push(handler)
-      return () => { const index = handlers.indexOf(handler); if (index >= 0) handlers.splice(index, 1) }
+    onEvent: (match, handler) => {
+      const wrapped = (payload: string): void => { if (match(payload)) handler(payload) }
+      handlers.push(wrapped)
+      return () => { const index = handlers.indexOf(wrapped); if (index >= 0) handlers.splice(index, 1) }
     },
   })
   void transport

@@ -43,6 +43,18 @@ class FakeWorld extends VmWorld {
 }
 
 describe('VmWorld service definition', () => {
+  it('accepts egress origins by default and never consults them', () => {
+    const world = new FakeWorld(new Context())
+    const consulted: unknown[] = []
+    const unbind = world.registerEgressOrigin('origin-x', (request) => {
+      consulted.push(request)
+      return true
+    })
+    unbind()
+    unbind()
+    expect(consulted).toEqual([])
+  })
+
   it('registers one booted world as ctx.vm', async () => {
     const ctx = new Context()
     await ctx.plugin(FakeWorld)
