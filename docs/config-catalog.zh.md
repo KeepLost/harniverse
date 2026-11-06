@@ -1885,7 +1885,7 @@ export interface ReplayModelConfig {
 
 依赖：[`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/test-support/llm-replay/src/index.ts:776`](../packages/test-support/llm-replay/src/index.ts)
+来源：[`packages/test-support/llm-replay/src/index.ts:790`](../packages/test-support/llm-replay/src/index.ts)
 
 <a id="deepseek-aidsh-llm-retry"></a>
 
@@ -4313,6 +4313,11 @@ export interface Config {
   shutdownTimeoutMs?: number
   /** Host-side hardening of the QEMU child: `auto` (default) stages the wrapper when present; `off` spawns directly. */
   sandbox?: 'auto' | 'off'
+  /**
+   * Guest egress surface: `ask` consults origin-registered approval sources,
+   * `deny` (the default) refuses every guest egress dial outright.
+   */
+  egress?: 'ask' | 'deny'
 }
 ```
 

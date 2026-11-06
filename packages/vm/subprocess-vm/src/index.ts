@@ -15,6 +15,7 @@
 import { Readable, Writable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {
   SubprocessCollectedOutputs,
   SubprocessHandle,
@@ -24,7 +25,8 @@ import type {
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
-import type { ExecHandle, ExecOptions, VmWorld } from '@deepseek-ai/dsh-vm'
+import type { EgressRequest, ExecHandle, ExecOptions, VmWorld } from '@deepseek-ai/dsh-vm'
+import type { UserQuestionService } from '@deepseek-ai/dsh-user-questions'
 
 const POSIX_QUOTE_ESCAPE = '\'\\\'\''
 
@@ -101,6 +103,9 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
   static inject = ['vm']
   private readonly cleanups = new Set<() => Promise<void>>()
   private readonly lifetime = new AbortController()
+  /** Egress destinations one initiating agent's session already approved. */
+  private readonly approvedEgress = new WeakMap<Agent, Set<string>>()
+  private egressCounter = 0
 
   /** Children and executables live inside the world, never on this host. */
   override get locality(): 'local' | 'remote' {
@@ -117,6 +122,56 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
 
   private get world(): VmWorld {
     return this.ctx.vm
+  }
+
+  /**
+   * Mint an egress-origin token for one spawn and bind it to the live
+   * initiating agent: every dial the spawn's process tree makes comes back
+   * attributed, so its approval card reaches the same session. A spawn with
+   * no live initiator stays unattributed — the world denies such dials.
+   */
+  private bindEgressOrigin(signal: AbortSignal | undefined): { origin: string; dispose: () => void } | undefined {
+    const agent = this.ctx.get('agents')?.currentInitiator()
+    if (agent === undefined) return undefined
+    this.egressCounter += 1
+    const origin = `vm-exec-${this.egressCounter}`
+    const dispose = this.world.registerEgressOrigin(origin, request => this.approveEgress(agent, request, signal))
+    return { origin, dispose }
+  }
+
+  /**
+   * One approval decision: a cached destination answers immediately, a new
+   * destination asks the initiator's session, and any refusal or unavailable
+   * channel denies — deny stays the default, never the exception.
+   */
+  private async approveEgress(agent: Agent, request: EgressRequest, signal: AbortSignal | undefined): Promise<boolean> {
+    const destination = `${request.host}:${String(request.port)}`
+    let granted = this.approvedEgress.get(agent)
+    if (granted === undefined) {
+      granted = new Set()
+      this.approvedEgress.set(agent, granted)
+    }
+    if (granted.has(destination)) return true
+    const interaction: UserQuestionService | undefined = this.ctx.get('userQuestions')
+    if (interaction === undefined) return false
+    const answer = await interaction.ask({
+      questions: [{
+        id: 'egress',
+        header: 'Egress request',
+        question: `Allow the execution world to connect to ${destination}?`,
+        options: [
+          { label: 'Allow', description: 'Approve this destination for this session.' },
+          { label: 'Deny', description: 'Refuse; the connection inside the world fails.' },
+        ],
+      }],
+      agent,
+      ...(signal === undefined ? {} : { signal }),
+    }).then(
+      reply => reply.answers.some(entry => entry.id === 'egress' && entry.selected.includes('Allow')),
+      () => false,
+    )
+    if (answer) granted.add(destination)
+    return answer
   }
 
   override async resolveExecutable(command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal): Promise<string> {
@@ -141,12 +196,14 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
 
   override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     this.lifetime.signal.throwIfAborted()
+    const egress = this.bindEgressOrigin(spec.signal)
     let pid = -1
     let termination: Promise<void> | undefined
     const env = worldEnv(spec.env)
     const started = this.world.spawn([...spec.argv], {
       cwd: spec.cwd,
       ...(env === undefined ? {} : { env }),
+      ...(egress === undefined ? {} : { origin: egress.origin }),
     })
     const settle = started.then((handle) => {
       pid = handle.pid
@@ -187,6 +244,7 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
       })
     }, (error: unknown) => {
       startError = error instanceof Error ? error : new Error(String(error))
+      egress?.dispose()
       queuedStdin.length = 0
       for (const pipe of pipes.values()) pipe.destroy(startError)
     })
@@ -238,10 +296,12 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
       aborted()
     }
     void done.finally(() => {
+      egress?.dispose()
       signal.removeEventListener('abort', aborted)
     }).catch(() => {})
 
     const cleanup = async (): Promise<void> => {
+      egress?.dispose()
       terminate()
       await done.catch(() => {})
       this.cleanups.delete(cleanup)
@@ -310,12 +370,18 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
   override async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
     this.lifetime.signal.throwIfAborted()
     spec.signal?.throwIfAborted()
+    const egress = this.bindEgressOrigin(spec.signal)
     const env = worldEnv(spec.env) ?? {}
     env.TERM = spec.term ?? 'dumb'
-    const handle = await this.world.spawn([...spec.argv], {
+    const spawnStarted = this.world.spawn([...spec.argv], {
       cwd: spec.cwd,
       env,
       pty: { rows: spec.rows, cols: spec.cols },
+      ...(egress === undefined ? {} : { origin: egress.origin }),
+    })
+    const handle = await spawnStarted.catch((error: unknown) => {
+      egress?.dispose()
+      throw error
     })
     let termination: Promise<void> | undefined
     const output = new Readable({ read() {} })
@@ -349,9 +415,11 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
       aborted()
     }
     void done.finally(() => {
+      egress?.dispose()
       signal.removeEventListener('abort', aborted)
     }).catch(() => {})
     const cleanup = async (): Promise<void> => {
+      egress?.dispose()
       await terminate()
       this.cleanups.delete(cleanup)
     }

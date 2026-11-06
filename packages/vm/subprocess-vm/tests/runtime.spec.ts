@@ -6,10 +6,40 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { VmWorld } from '@deepseek-ai/dsh-vm'
-import type { CollectExecOptions, ExecExit, ExecHandle, ExecOptions, ExecOutputListener, ExecResult, VmWorldDescriptor, VmWorldExit, VmWorldFs } from '@deepseek-ai/dsh-vm'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
+import type { CollectExecOptions, EgressPolicy, EgressRequest, ExecExit, ExecHandle, ExecOptions, ExecOutputListener, ExecResult, VmWorldDescriptor, VmWorldExit, VmWorldFs } from '@deepseek-ai/dsh-vm'
 import VmSubprocessRuntime from '../src/index.ts'
+
+/** Minimal agents stand-in: one scripted live initiator. */
+class FakeAgents extends Service {
+  constructor(ctx: Context, private readonly live: Agent | undefined) {
+    super(ctx, 'agents')
+  }
+
+  currentInitiator(): Agent | undefined {
+    return this.live
+  }
+}
+
+/** Scripted user-questions stand-in recording asks and answering from a queue. */
+class FakeQuestions extends Service {
+  readonly asks: AskUserQuestionRequest[] = []
+
+  constructor(ctx: Context, private readonly answers: Array<boolean | Error>) {
+    super(ctx, 'userQuestions')
+  }
+
+  async ask(request: AskUserQuestionRequest): Promise<{ answers: Array<{ id: string; selected: string[] }> }> {
+    this.asks.push(request)
+    const next = this.answers.shift()
+    if (next === undefined) throw new Error('scripted user-questions: answer queue empty')
+    if (next instanceof Error) throw next
+    return { answers: [{ id: request.questions[0]!.id, selected: [next ? 'Allow' : 'Deny'] }] }
+  }
+}
 
 interface ScriptedExec {
   argv: readonly string[]
@@ -66,6 +96,19 @@ class ScriptedWorld extends VmWorld {
   readonly spawnCalls: { argv: string[]; options: ExecOptions | undefined }[] = []
   spawnQueue: Array<Promise<FakeExecHandle> | Error> = []
   destroyed = 0
+  readonly egressOrigins = new Map<string, EgressPolicy>()
+
+  override registerEgressOrigin(origin: string, approver: EgressPolicy): () => void {
+    this.egressOrigins.set(origin, approver)
+    return () => { this.egressOrigins.delete(origin) }
+  }
+
+  /** Simulate one guest egress dial attributed to a bound origin. */
+  dial(origin: string | undefined, request: Omit<EgressRequest, 'origin'>): Promise<boolean> {
+    const approver = origin === undefined ? undefined : this.egressOrigins.get(origin)
+    if (approver === undefined) return Promise.resolve(false)
+    return Promise.resolve(approver({ ...request, ...(origin === undefined ? {} : { origin }) }))
+  }
 
   override get descriptor(): VmWorldDescriptor {
     return { provider: 'fake', isolation: 'full', guestConfinement: 'landlock', hostHardened: true, readyMs: 0 }
@@ -760,5 +803,186 @@ describe('VmSubprocessRuntime', () => {
     expect(handle.signals).toEqual(['SIGTERM'])
     handle.settleExit({ code: null, signal: 'SIGTERM' })
     await spawned.done
+  })
+})
+
+describe('VmSubprocessRuntime egress approval', () => {
+  const spawnOptions = {
+    argv: ['bash', '-c', 'true'],
+    cwd: '/',
+    graceMs: 2_000,
+    stdio: { stdin: 'ignore' as const, stdout: { maxBytes: 100 }, stderr: { maxBytes: 100 } },
+  }
+
+  it('binds an origin to the live initiator and releases it when the spawn exits', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-1' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(1)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const spawned = ctx.subprocess.spawn(spawnOptions)
+    const origin = world.spawnCalls[0]?.options?.origin
+    expect(origin).toMatch(/^vm-exec-1$/)
+    expect(world.egressOrigins.has(origin!)).toBe(true)
+    handle.settleExit({ code: 0, signal: null })
+    await spawned.done
+    expect(world.egressOrigins.has(origin!)).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('leaves a spawn unattributed when no initiator is live', async () => {
+    const ctx = new Context()
+    const world = new ScriptedWorld(ctx)
+    await ctx.plugin(FakeAgents, undefined)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(2)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const spawned = ctx.subprocess.spawn(spawnOptions)
+    expect(world.spawnCalls[0]?.options?.origin).toBeUndefined()
+    handle.settleExit({ code: 0, signal: null })
+    await spawned.done
+    await expect(world.dial(undefined, { host: 'x.example', port: 80 })).resolves.toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('asks once per destination, caches approvals per initiator, and denies refusals', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-2' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    const questions = new FakeQuestions(ctx, [true, false])
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(3)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const controller = new AbortController()
+    const spawned = ctx.subprocess.spawn({ ...spawnOptions, signal: controller.signal })
+    const origin = world.spawnCalls[0]?.options?.origin
+    await expect(world.dial(origin, { host: 'api.example', port: 443 })).resolves.toBe(true)
+    await expect(world.dial(origin, { host: 'api.example', port: 443 })).resolves.toBe(true)
+    await expect(world.dial(origin, { host: 'api.example', port: 8443 })).resolves.toBe(false)
+    expect(questions.asks).toHaveLength(2)
+    expect(questions.asks[0]!.questions[0]!.question).toContain('api.example:443')
+    handle.settleExit({ code: 0, signal: null })
+    await spawned.done
+    await ctx.fiber.dispose()
+  })
+
+  it('does not share approvals across initiators', async () => {
+    const ctx = new Context()
+    const first = { id: 'agent-a' } as unknown as Agent
+    const second = { id: 'agent-b' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    const questions = new FakeQuestions(ctx, [true, true])
+    let live: Agent | undefined = first
+    await ctx.plugin(class SwitchableAgents extends Service {
+      constructor(context: Context) { super(context, 'agents') }
+      currentInitiator(): Agent | undefined { return live }
+    })
+    await ctx.plugin(VmSubprocessRuntime)
+    const firstHandle = new FakeExecHandle(4)
+    world.spawnQueue.push(Promise.resolve(firstHandle))
+    const firstSpawn = ctx.subprocess.spawn(spawnOptions)
+    const firstOrigin = world.spawnCalls[0]?.options?.origin
+    await expect(world.dial(firstOrigin, { host: 'shared.example', port: 80 })).resolves.toBe(true)
+    live = second
+    const secondHandle = new FakeExecHandle(5)
+    world.spawnQueue.push(Promise.resolve(secondHandle))
+    const secondSpawn = ctx.subprocess.spawn(spawnOptions)
+    const secondOrigin = world.spawnCalls[1]?.options?.origin
+    await expect(world.dial(secondOrigin, { host: 'shared.example', port: 80 })).resolves.toBe(true)
+    expect(secondOrigin).not.toBe(firstOrigin)
+    expect(questions.asks).toHaveLength(2)
+    firstHandle.settleExit({ code: 0, signal: null })
+    secondHandle.settleExit({ code: 0, signal: null })
+    await firstSpawn.done
+    await secondSpawn.done
+    await ctx.fiber.dispose()
+  })
+
+  it('denies when no user-questions channel exists or the ask fails', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-3' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(6)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const spawned = ctx.subprocess.spawn(spawnOptions)
+    const origin = world.spawnCalls[0]?.options?.origin
+    await expect(world.dial(origin, { host: 'quiet.example', port: 80 })).resolves.toBe(false)
+    handle.settleExit({ code: 0, signal: null })
+    await spawned.done
+    await ctx.fiber.dispose()
+  })
+
+  it('denies when the approval ask throws', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-4' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    new FakeQuestions(ctx, [new Error('channel gone')])
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(7)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const spawned = ctx.subprocess.spawn(spawnOptions)
+    const origin = world.spawnCalls[0]?.options?.origin
+    await expect(world.dial(origin, { host: 'broken.example', port: 80 })).resolves.toBe(false)
+    handle.settleExit({ code: 0, signal: null })
+    await spawned.done
+    await ctx.fiber.dispose()
+  })
+
+  it('binds a terminal spawn origin the same way', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-5' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(8)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const terminal = await ctx.subprocess.spawnTerminal({
+      argv: ['sh'], cwd: '/', rows: 24, cols: 80, graceMs: 300,
+    })
+    const origin = world.spawnCalls[0]?.options?.origin
+    expect(origin).toMatch(/^vm-exec-\d+$/)
+    expect(world.egressOrigins.has(origin!)).toBe(true)
+    handle.settleExit({ code: 0, signal: null })
+    await terminal.done
+    expect(world.egressOrigins.has(origin!)).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('releases a terminal spawn origin when the start itself fails', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-7' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    world.spawnQueue.push(new Error('world refused the terminal'))
+    await expect(ctx.subprocess.spawnTerminal({
+      argv: ['sh'], cwd: '/', rows: 24, cols: 80, graceMs: 300,
+    })).rejects.toThrow('world refused the terminal')
+    expect(world.egressOrigins.size).toBe(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('asks the card without a signal when the spawn carries none', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-6' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    const questions = new FakeQuestions(ctx, [true])
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(9)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const spawned = ctx.subprocess.spawn({ ...spawnOptions, signal: undefined })
+    const origin = world.spawnCalls[0]?.options?.origin
+    await expect(world.dial(origin, { host: 'quiet.example', port: 80 })).resolves.toBe(true)
+    expect(questions.asks).toHaveLength(1)
+    handle.settleExit({ code: 0, signal: null })
+    await spawned.done
+    await ctx.fiber.dispose()
   })
 })

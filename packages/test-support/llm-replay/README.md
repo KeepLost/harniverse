@@ -31,6 +31,7 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES` (path-delimited) | Recorded subagent child-session logs for a nested scenario; empty for a single-session scenario. |
 | `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Each provider may set `retryPolicy`, and each model may publish `contextWindow` and an `inputModalities` array containing only `text` and `image`; invalid modalities fail during plugin loading. Configured routes dispatch through the replay adapter and never perform provider I/O. |
 | `paceMs` | number | — (burst) | Optional per-chunk delay in ms so downstream transports (e.g. the web SSE mux observed by a real browser) see genuinely incremental delivery. A realism knob only — tests must not depend on it for correctness. Non-negative integer; abort during a pace wait cancels the stream promptly. |
+| `childPaceMs` | number | `paceMs` | Optional pacing override for child-session scripts (`childFiles`): each child chunk waits this long instead of `paceMs`. A nested scenario's live-child window is exactly the child replay's paced wall clock, so a browser e2e that must observe the child mid-flight stretches only the child while the parent's own pacing stays untouched. Same validation and abort semantics as `paceMs`. |
 
 ```yaml
 - id: llm-replay

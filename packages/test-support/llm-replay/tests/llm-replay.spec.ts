@@ -838,6 +838,34 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
     expect(() => installLlmReplay(ctx, { file, paceMs: 1.5 })).toThrow(/paceMs/)
   })
 
+  it('rejects a childPaceMs that is not a non-negative integer', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    expect(() => installLlmReplay(ctx, { file, childPaceMs: -1 })).toThrow(/childPaceMs/)
+    expect(() => installLlmReplay(ctx, { file, childPaceMs: 1.5 })).toThrow(/childPaceMs/)
+  })
+
+  it('paces child-session scripts with childPaceMs while the parent keeps paceMs', async () => {
+    const childFile = writeSession('session.1.jsonl', { id: 'child', createdAt: 10 }, [TEXT_CHUNKS])
+    writeSession('session.jsonl', { id: 'parent', createdAt: 5 }, [TEXT_CHUNKS])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file, childFiles: [childFile], paceMs: 5, childPaceMs: 40 })
+    let started = performance.now()
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], sessionId: 'p' as NonNullable<GenerateOptions['sessionId']> }))
+    const parentElapsed = performance.now() - started
+    started = performance.now()
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], sessionId: 'c' as NonNullable<GenerateOptions['sessionId']> }))
+    const childElapsed = performance.now() - started
+    // The parent paces at 5ms/chunk and must NOT inherit the child's 40ms;
+    // the child paces at 40ms/chunk. Floors allow scheduling slack; the
+    // parent ceiling separates the two paces beyond jitter.
+    expect(parentElapsed).toBeGreaterThanOrEqual(TEXT_CHUNKS.length * 5 - 5)
+    expect(parentElapsed).toBeLessThan(TEXT_CHUNKS.length * 40 - 5)
+    expect(childElapsed).toBeGreaterThanOrEqual(TEXT_CHUNKS.length * 40 - 5)
+  })
+
   it('paces chunk yields when paceMs is set (each chunk waits at least the pace)', async () => {
     writeLog(TEXT_CHUNKS)
     const ctx = new Context()

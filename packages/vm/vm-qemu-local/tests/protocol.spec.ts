@@ -86,6 +86,19 @@ describe('vm-qemu-local guest message parsing', () => {
     expect(parseGuestMessage('{"t":"fs.ok","id":1,"st":{"kind":"file","size":1,"mode":1,"mtimeMs":"x"}}')).toBeUndefined()
   })
 
+  it('parses guest egress frames and rejects malformed ones', () => {
+    expect(parseGuestMessage('{"t":"egress.open","id":1,"host":"api.example","port":443,"origin":"vm-exec-1"}'))
+      .toEqual({ t: 'egress.open', id: 1, host: 'api.example', port: 443, origin: 'vm-exec-1' })
+    expect(parseGuestMessage('{"t":"egress.open","id":2,"host":"bare.example","port":80}'))
+      .toEqual({ t: 'egress.open', id: 2, host: 'bare.example', port: 80 })
+    expect(parseGuestMessage('{"t":"egress.open","id":3,"host":"x","port":"443"}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"egress.write","id":1,"d":"cGluZw=="}')).toEqual({ t: 'egress.write', id: 1, d: 'cGluZw==' })
+    expect(parseGuestMessage('{"t":"egress.write","id":1}')).toBeUndefined()
+    expect(parseGuestMessage('{"t":"egress.close","id":1}')).toEqual({ t: 'egress.close', id: 1 })
+    expect(parseGuestMessage('{"t":"egress.close"}')).toBeUndefined()
+    expect(isOpReplyFor('{"t":"egress.close","id":1}', 1, ['egress.close'])).toBe(true)
+  })
+
   it('parses workspace completions and rejects malformed ones', () => {
     expect(parseGuestMessage('{"t":"workspace.ok","id":3,"bytes":4096}')).toEqual({ t: 'workspace.ok', id: 3, bytes: 4096 })
     expect(parseGuestMessage('{"t":"workspace.err","id":4,"message":"busy"}')).toEqual({ t: 'workspace.err', id: 4, message: 'busy' })

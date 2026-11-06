@@ -234,6 +234,8 @@ export interface LaunchOptions {
   replayOverride?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
   paceMs?: number
+  /** Per-chunk pacing override (ms) for child-session replays, stretching a live child's observable window; replay/refresh only. */
+  childPaceMs?: number
   /** Synthetic model capacity for UI scenarios whose seeded history must remain uncompacted. */
   replayContextWindow?: number
   /**
@@ -542,6 +544,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
         ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
+        ...(options.childPaceMs === undefined ? {} : { childPaceMs: options.childPaceMs }),
       })
     } else if (mode !== 'record') {
       // No fixture and no shipped adapter would leave the tree with ZERO

@@ -65,7 +65,7 @@ fn signal_name(number: i32) -> Option<&'static str> {
     }
 }
 
-fn reply(sink: &Sink, message: &Reply) {
+pub(crate) fn reply(sink: &Sink, message: &Reply) {
     let payload = serde_json::to_vec(message).unwrap_or_default();
     let mut frame = Vec::with_capacity(4 + payload.len());
     frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
@@ -234,11 +234,13 @@ fn spawn_pty(
 pub fn start(
     sink: &Sink,
     registry: &Arc<Registry>,
+    egress: &Arc<crate::egress::Manager>,
     id: u64,
     argv: Vec<String>,
     env: Option<HashMap<String, String>>,
     cwd: Option<String>,
     pty: Option<PtySize>,
+    origin: Option<String>,
 ) {
     if argv.is_empty() || argv.iter().any(|arg| arg.is_empty() || contains_nul(arg)) {
         reply(sink, &Reply::ExecErr { id, message: "argv must be non-empty strings".to_string() });
@@ -259,7 +261,25 @@ pub fn start(
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]);
     command.env_clear();
-    command.envs(env.unwrap_or_else(default_env));
+    let mut child_env = env.unwrap_or_else(default_env);
+    if let Some(origin) = origin.as_deref() {
+        if contains_nul(origin) {
+            reply(sink, &Reply::ExecErr { id, message: "origin must be NUL-free".to_string() });
+            return;
+        }
+        // An origin-tagged exec gets its own SOCKS5 loopback listener; the
+        // child reaches it through ALL_PROXY, and every dial it makes comes
+        // back attributed for approval on the host.
+        match crate::egress::prepare(origin, egress, sink) {
+            Some(port) => {
+                for (key, value) in crate::egress::proxy_env(port) {
+                    child_env.insert(key.to_string(), value);
+                }
+            }
+            None => reply(sink, &Reply::ExecErr { id, message: "egress listener unavailable for origin".to_string() }),
+        }
+    }
+    command.envs(child_env);
     command.current_dir(cwd.as_deref().unwrap_or("/"));
     let outcome = match pty.as_ref() {
         Some(size) => spawn_pty(command, size, sink, id, registry),

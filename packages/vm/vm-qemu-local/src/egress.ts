@@ -1,12 +1,15 @@
 /**
- * Host-side egress relay with approval gate for one micro-VM world.
+ * Host-side egress relay with an origin-bound approval gate for one micro-VM
+ * world.
  *
  * The guest has no network device by construction, so every outbound
- * connection a world's orchestration makes on its behalf is a host decision:
- * `open` consults the world's {@link EgressPolicy} and only then dials the
- * target, piping bytes through a tracked handle. With no policy, or a policy
- * that declines, the request fails `EGRESS_DENIED` — deny is the default,
- * not an opt-in. Handles close with the world.
+ * connection a world's guest asks for is a host decision: a dial consults the
+ * approval source registered under the requesting exec's egress-origin token
+ * and only then connects to the target, piping bytes through a tracked
+ * handle. With no registered approver — or one that declines — the dial
+ * denies `EGRESS_DENIED`: deny is the default, not an opt-in. `egress:
+ * 'deny'` keeps the whole surface closed regardless of registrations.
+ * Handles close with the world.
  * @module @deepseek-ai/dsh-vm-qemu-local
  */
 
@@ -15,7 +18,7 @@ import type { EgressPolicy, EgressRequest } from '@deepseek-ai/dsh-vm'
 
 export type { EgressPolicy, EgressRequest } from '@deepseek-ai/dsh-vm'
 
-/** The approval callback declined the request (or no policy was provided). */
+/** The approval callback declined the request (or no approver was registered). */
 export class EgressDeniedError extends Error {
   constructor(public readonly request: EgressRequest) {
     super(`egress denied: ${request.host}:${String(request.port)}`)
@@ -75,7 +78,7 @@ export const DEFAULT_EGRESS_CONNECT_TIMEOUT_MS = 5_000
 
 interface RelayState {
   chunks: Buffer[]
-  waiters: ((result: IteratorResult<Buffer, undefined>) => void)[]
+  waiters: { resolve: (result: IteratorResult<Buffer, undefined>) => void; reject: (error: Error) => void }[]
   terminal: { error?: Error } | undefined
 }
 
@@ -87,29 +90,56 @@ function defaultConnect(request: EgressRequest): Promise<EgressSocket> {
   })
 }
 
-/** Egress relay for one world: approval gate, tracked handles, bulk close. */
+/** Whether this world consults registered approvers at all. */
+export type EgressMode = 'ask' | 'deny'
+
+/** Egress relay for one world: origin-bound approvals, tracked handles, bulk close. */
 export class WorldEgress {
+  private readonly approvers = new Map<string, EgressPolicy>()
   private readonly handles = new Set<{ close(): Promise<void> }>()
   private closed = false
 
   constructor(
-    private readonly policy: EgressPolicy | undefined,
+    private readonly mode: EgressMode = 'deny',
     private readonly deps: EgressDeps = {},
     private readonly connectTimeoutMs: number = DEFAULT_EGRESS_CONNECT_TIMEOUT_MS,
   ) {}
 
   /**
-   * Ask the policy and, when approved, dial the target.
+   * Bind one egress-origin token to an approval callback.
+   * @param origin - token execs carry and egress dials echo back.
+   * @param approver - callback consulted before any dial with this origin.
+   * @returns disposer that unbinds the token.
+   */
+  register(origin: string, approver: EgressPolicy): () => void {
+    this.approvers.set(origin, approver)
+    return () => {
+      if (this.approvers.get(origin) === approver) this.approvers.delete(origin)
+    }
+  }
+
+  /**
+   * Ask the origin's approver and, when approved, dial the target.
    * @param host - target hostname.
    * @param port - target port.
+   * @param origin - egress-origin token the dialing exec carried.
    * @returns the live relay handle.
-   * @throws EgressDeniedError when no policy is set or it declines.
+   * @throws EgressDeniedError when the surface is closed or in `deny` mode,
+   *   the origin has no registered approver, or the approver declines.
    * @throws EgressConnectError when the dial fails or times out.
    */
-  async open(host: string, port: number): Promise<EgressHandle> {
-    if (this.closed) throw new EgressDeniedError({ host, port })
+  async open(host: string, port: number, origin?: string): Promise<EgressHandle> {
     const request: EgressRequest = { host, port }
-    const allowed = this.policy === undefined ? false : await this.policy(request)
+    if (origin !== undefined) request.origin = origin
+    if (this.closed || this.mode !== 'ask') throw new EgressDeniedError(request)
+    const approver = origin === undefined ? undefined : this.approvers.get(origin)
+    if (approver === undefined) throw new EgressDeniedError(request)
+    let allowed: boolean
+    try {
+      allowed = await approver(request)
+    } catch {
+      throw new EgressDeniedError(request)
+    }
     if (!allowed) throw new EgressDeniedError(request)
 
     const connect = this.deps.connect ?? defaultConnect
@@ -128,15 +158,22 @@ export class WorldEgress {
     }
 
     const state: RelayState = { chunks: [], waiters: [], terminal: undefined }
+    const settleWaiters = (): void => {
+      for (const waiter of state.waiters.splice(0)) {
+        if (state.terminal?.error !== undefined) waiter.reject(state.terminal.error)
+        else waiter.resolve({ value: undefined, done: true })
+      }
+    }
     const whenClosed = new Promise<void>((resolve) => {
       socket.on('close', () => {
         state.terminal ??= {}
+        settleWaiters()
         resolve()
       })
     })
     socket.on('data', (chunk: Buffer) => {
       const waiter = state.waiters.shift()
-      if (waiter !== undefined) waiter({ value: chunk, done: false })
+      if (waiter !== undefined) waiter.resolve({ value: chunk, done: false })
       else state.chunks.push(chunk)
     })
     socket.on('error', (error: Error) => {
@@ -168,7 +205,9 @@ export class WorldEgress {
               if (state.terminal.error !== undefined) return Promise.reject(state.terminal.error)
               return Promise.resolve({ value: undefined, done: true })
             }
-            return new Promise((resolve) => { state.waiters.push(resolve) })
+            return new Promise<IteratorResult<Buffer, undefined>>((resolve, reject) => {
+              state.waiters.push({ resolve, reject })
+            })
           },
         }
       },
