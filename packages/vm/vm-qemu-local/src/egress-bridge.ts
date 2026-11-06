@@ -79,6 +79,7 @@ export class GuestEgressBridge {
       this.send({ t: 'egress.denied', id: message.id, code: 'denied' })
       return
     }
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- dispose can race the awaited approval and dial.
     if (this.disposed) {
       void handle.close()
       return

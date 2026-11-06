@@ -62,8 +62,7 @@ Boots are back-to-back on one host; consecutive-boot spread is single-digit perc
 
 ## M8 guest egress relay (2026-11-06)
 
-The SOCKS5 guest proxy over the control UART (writer-thread build, TCG, one
-world, local echo server):
+The SOCKS5 guest proxy over the control UART (writer-thread build, TCG, one world, local echo server):
 
 | Metric | Measured | Read |
 | --- | --- | --- |
@@ -71,10 +70,7 @@ world, local echo server):
 | Bidirectional bulk (64 KiB each way) | ≈ 3.5 s, ≈ 0.02 MiB/s | not bulk-grade |
 | Approval verdict after card answer | immediate (cache hit: no second card) | — |
 
-The relay is ~10× under the raw UART ceiling (≈ 0.2 MiB/s) after double
-base64 framing, per-frame JSON, and thread handoffs; verdicts and small
-request/response traffic are the target profile, bulk downloads belong on
-the workspace data plane. Evidence: `packages/vm/subprocess-vm/tests/egress.e2e.ts`.
+The relay is ~10× under the raw UART ceiling (≈ 0.2 MiB/s) after double base64 framing, per-frame JSON, and thread handoffs; verdicts and small request/response traffic are the target profile, bulk downloads belong on the workspace data plane. Evidence: `packages/vm/subprocess-vm/tests/egress.e2e.ts`.
 
 ## Cross-reference
 

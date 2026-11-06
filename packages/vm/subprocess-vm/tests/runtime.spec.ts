@@ -856,7 +856,8 @@ describe('VmSubprocessRuntime egress approval', () => {
     await ctx.plugin(VmSubprocessRuntime)
     const handle = new FakeExecHandle(3)
     world.spawnQueue.push(Promise.resolve(handle))
-    const spawned = ctx.subprocess.spawn(spawnOptions)
+    const controller = new AbortController()
+    const spawned = ctx.subprocess.spawn({ ...spawnOptions, signal: controller.signal })
     const origin = world.spawnCalls[0]?.options?.origin
     await expect(world.dial(origin, { host: 'api.example', port: 443 })).resolves.toBe(true)
     await expect(world.dial(origin, { host: 'api.example', port: 443 })).resolves.toBe(true)
@@ -941,12 +942,47 @@ describe('VmSubprocessRuntime egress approval', () => {
     await ctx.plugin(VmSubprocessRuntime)
     const handle = new FakeExecHandle(8)
     world.spawnQueue.push(Promise.resolve(handle))
-    const terminal = ctx.subprocess.spawnTerminal({
+    const terminal = await ctx.subprocess.spawnTerminal({
       argv: ['sh'], cwd: '/', rows: 24, cols: 80, graceMs: 300,
     })
-    await terminal
-    expect(world.spawnCalls[0]?.options?.origin).toMatch(/^vm-exec-\d+$/)
+    const origin = world.spawnCalls[0]?.options?.origin
+    expect(origin).toMatch(/^vm-exec-\d+$/)
+    expect(world.egressOrigins.has(origin!)).toBe(true)
     handle.settleExit({ code: 0, signal: null })
+    await terminal.done
+    expect(world.egressOrigins.has(origin!)).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('releases a terminal spawn origin when the start itself fails', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-7' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    world.spawnQueue.push(new Error('world refused the terminal'))
+    await expect(ctx.subprocess.spawnTerminal({
+      argv: ['sh'], cwd: '/', rows: 24, cols: 80, graceMs: 300,
+    })).rejects.toThrow('world refused the terminal')
+    expect(world.egressOrigins.size).toBe(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('asks the card without a signal when the spawn carries none', async () => {
+    const ctx = new Context()
+    const agent = { id: 'agent-6' } as unknown as Agent
+    const world = new ScriptedWorld(ctx)
+    const questions = new FakeQuestions(ctx, [true])
+    await ctx.plugin(FakeAgents, agent)
+    await ctx.plugin(VmSubprocessRuntime)
+    const handle = new FakeExecHandle(9)
+    world.spawnQueue.push(Promise.resolve(handle))
+    const spawned = ctx.subprocess.spawn({ ...spawnOptions, signal: undefined })
+    const origin = world.spawnCalls[0]?.options?.origin
+    await expect(world.dial(origin, { host: 'quiet.example', port: 80 })).resolves.toBe(true)
+    expect(questions.asks).toHaveLength(1)
+    handle.settleExit({ code: 0, signal: null })
+    await spawned.done
     await ctx.fiber.dispose()
   })
 })
