@@ -53,6 +53,14 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
       replayFixture: PARENT_FIXTURE,
       replayChildFixtures: [CHILD_FIXTURE],
       paceMs: 200,
+      // The live member button lives exactly as long as the child replay's
+      // paced wall clock (agent-start → the child's last chunk): at the shared
+      // 200ms pace that is ~6s, which a trailing CI browser can outlast and
+      // thereby miss the button forever (settlement then removes it). Pacing
+      // only the child at 1s stretches that window past any replay lag CI has
+      // shown while the parent's own pacing — and the waits anchored before
+      // the child starts — stay untouched.
+      childPaceMs: 1000,
     })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)

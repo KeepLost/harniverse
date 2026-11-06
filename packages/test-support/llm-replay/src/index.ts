@@ -118,6 +118,16 @@ export interface ReplayConfig {
    * aborting mid-wait cancels the stream like any other abort.
    */
   paceMs?: number
+  /**
+   * Optional pacing override for child-session scripts ({@link childFiles}):
+   * each chunk of a child replay waits this long instead of {@link paceMs}.
+   * A nested scenario's live-child window (from `agent-start` to the child's
+   * last chunk) is exactly the child replay's paced wall clock, so a browser
+   * e2e that must observe the child mid-flight stretches only the child —
+   * the parent's own pacing, and the waits anchored before the child starts,
+   * stay untouched. Same validation and abort semantics as {@link paceMs}.
+   */
+  childPaceMs?: number
 }
 
 /**
@@ -699,11 +709,15 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
   if (!Number.isInteger(paceMs) || paceMs < 0) {
     throw new Error(`llm-replay: paceMs must be a non-negative integer, got ${String(config.paceMs)}`)
   }
+  const childPaceMs = config.childPaceMs ?? paceMs
+  if (!Number.isInteger(childPaceMs) || childPaceMs < 0) {
+    throw new Error(`llm-replay: childPaceMs must be a non-negative integer, got ${String(config.childPaceMs)}`)
+  }
   const scripts = loadSessionScripts(config)
   // Live-session → its bound script + cursor. A new live session id claims the
   // next not-yet-bound script (scripts are in bind order); `nextScript` is the
   // index of the next unclaimed one.
-  const bound = new Map<string, { entries: ReplayEntry[]; cursor: number }>()
+  const bound = new Map<string, { entries: ReplayEntry[]; cursor: number; paceMs: number }>()
   let nextScript = 0
   const ANON = '\0anon\0' // the key for a call that carries no sessionId
   const replay = (options: GenerateOptions): AsyncIterable<StreamChunk> => {
@@ -717,10 +731,10 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
         // an unrecorded subagent appeared. Defer the throw into the returned
         // generator (the listener must return an AsyncIterable, not throw).
         unrecorded = true
-        state = { entries: [], cursor: 0 }
+        state = { entries: [], cursor: 0, paceMs }
       } else {
         nextScript++
-        state = { entries: script.entries, cursor: 0 }
+        state = { entries: script.entries, cursor: 0, paceMs: script.primary ? paceMs : childPaceMs }
         bound.set(key, state)
       }
     }
@@ -742,7 +756,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      yield* replayEntry(resolveScriptedEntry(entry, options.messages), options.signal, paceMs)
+      yield* replayEntry(resolveScriptedEntry(entry, options.messages), options.signal, boundState.paceMs)
     })()
   }
   const providers = config.providers ?? []
