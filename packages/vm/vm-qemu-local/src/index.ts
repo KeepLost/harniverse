@@ -57,6 +57,14 @@ export interface Config {
   egress?: 'ask' | 'deny'
 }
 
+/** An egress origin registered before the world settled, awaiting its live binding. */
+interface PendingEgressOrigin {
+  origin: string
+  approver: EgressPolicy
+  live: (() => void) | undefined
+  disposed: boolean
+}
+
 
 
 /**
