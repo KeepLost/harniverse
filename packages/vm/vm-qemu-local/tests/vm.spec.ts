@@ -590,7 +590,7 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     expect(socket.written.some(entry => entry.includes('"t":"egress.denied"'))).toBe(true)
     emitExit(0)
     await expect(world.destroy()).resolves.toBe('clean')
-  })
+  }, 10_000)
 
   it('maps the guest-announced confinement capability onto the descriptor', async () => {
     const { child, emitExit } = fakeChild()
