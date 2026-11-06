@@ -129,8 +129,9 @@ export class WorldEgress {
    * @throws EgressConnectError when the dial fails or times out.
    */
   async open(host: string, port: number, origin?: string): Promise<EgressHandle> {
-    if (this.closed || this.mode !== 'ask') throw new EgressDeniedError({ host, port, ...(origin === undefined ? {} : { origin }) })
-    const request: EgressRequest = { host, port, ...(origin === undefined ? {} : { origin }) }
+    const request: EgressRequest = { host, port }
+    if (origin !== undefined) request.origin = origin
+    if (this.closed || this.mode !== 'ask') throw new EgressDeniedError(request)
     const approver = origin === undefined ? undefined : this.approvers.get(origin)
     if (approver === undefined) throw new EgressDeniedError(request)
     let allowed: boolean

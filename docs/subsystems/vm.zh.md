@@ -19,6 +19,12 @@ interface ExecOptions {
   cwd?: string
   /** Allocate a pty (stderr then merges into stdout on the wire). */
   pty?: boolean | { rows: number; cols: number }
+  /**
+   * Egress-origin token: an opaque string the provider may bind to an
+   * approval source (see `registerEgressOrigin`); execs without one leave
+   * the world's guest egress unattributed, so such dials deny.
+   */
+  origin?: string
 }
 ```
 
