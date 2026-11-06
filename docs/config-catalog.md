@@ -4307,6 +4307,11 @@ export interface Config {
   shutdownTimeoutMs?: number
   /** Host-side hardening of the QEMU child: `auto` (default) stages the wrapper when present; `off` spawns directly. */
   sandbox?: 'auto' | 'off'
+  /**
+   * Guest egress surface: `ask` consults origin-registered approval sources,
+   * `deny` (the default) refuses every guest egress dial outright.
+   */
+  egress?: 'ask' | 'deny'
 }
 ```
 

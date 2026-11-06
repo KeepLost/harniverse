@@ -5,6 +5,7 @@
 //! machine off: a world without its host does not keep running.
 
 mod dataops;
+mod egress;
 mod exec;
 mod fsops;
 mod proto;
@@ -40,6 +41,29 @@ fn power_off() -> ! {
     // reboot(2) as PID 1 must succeed; loop forever if it somehow did not.
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+/// Bring the loopback interface up: the world has no network device, but the
+/// guest egress proxy listens on 127.0.0.1 and needs `lo` running.
+fn bring_up_loopback() {
+    // SAFETY: a plain AF_INET socket, one SIOCSIFFLAGS ioctl on "lo", then
+    // close — no state outlives the call.
+    unsafe {
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+        if fd < 0 {
+            eprintln!("dsh-vm-guest-agent: loopback socket errno {}", *libc::__errno_location());
+            return;
+        }
+        let mut request: libc::ifreq = std::mem::zeroed();
+        let name = b"lo\0";
+        request.ifr_name[..name.len()].copy_from_slice(&name.map(|byte| byte as libc::c_char));
+        request.ifr_ifru.ifru_flags = (libc::IFF_UP | libc::IFF_RUNNING) as libc::c_short;
+        let rc = libc::ioctl(fd, libc::SIOCSIFFLAGS as i32, &mut request);
+        if rc != 0 {
+            eprintln!("dsh-vm-guest-agent: loopback up rc={rc} errno={}", *libc::__errno_location());
+        }
+        libc::close(fd);
     }
 }
 
@@ -107,6 +131,7 @@ fn handle_frame(
     serving: &mut bool,
     sink: &Sink,
     registry: &Arc<Registry>,
+    egress: &Arc<egress::Manager>,
     landlock: bool,
 ) -> bool {
     match request {
@@ -132,9 +157,9 @@ fn handle_frame(
             write_frame(port, &Reply::Pong { n })
         }
         Request::Shutdown => power_off(),
-        Request::Exec { id, argv, env, cwd, pty } => {
+        Request::Exec { id, argv, env, cwd, pty, origin } => {
             *serving = true;
-            exec::start(sink, registry, id, argv, env, cwd, pty);
+            exec::start(sink, registry, egress, id, argv, env, cwd, pty, origin);
             true
         }
         Request::ExecStdin { id, d } => {
@@ -165,6 +190,26 @@ fn handle_frame(
             dataops::handle(sink, id, proto::DataOp::Export);
             true
         }
+        Request::EgressOpened { id } => {
+            egress::on_opened(egress, id);
+            true
+        }
+        Request::EgressDenied { id, .. } => {
+            egress::on_denied(egress, id);
+            true
+        }
+        Request::EgressData { id, d } => {
+            egress::on_data(egress, id, &d);
+            true
+        }
+        Request::EgressEnd { id } => {
+            egress::on_end(egress, id);
+            true
+        }
+        Request::EgressClose { id } => {
+            egress::on_close(egress, id);
+            true
+        }
     }
 }
 
@@ -178,6 +223,7 @@ fn serve_once(port: &mut File, landlock: bool) {
     };
     let sink: Sink = Arc::new(Mutex::new(writer));
     let registry = Arc::new(Registry::default());
+    let egress = Arc::new(egress::Manager::default());
     let mut serving = false;
     let mut last_beacon = std::time::Instant::now()
         - std::time::Duration::from_secs(1);
@@ -227,7 +273,7 @@ fn serve_once(port: &mut File, landlock: bool) {
                 continue
             }
         };
-        if !handle_frame(port, request, &mut serving, &sink, &registry, landlock) {
+        if !handle_frame(port, request, &mut serving, &sink, &registry, &egress, landlock) {
             return
         }
     }
@@ -277,6 +323,7 @@ fn main() {
         mount(c"sysfs", c"/sys", c"sysfs");
         mount(c"tmpfs", c"/tmp", c"tmpfs");
         let _ = std::fs::create_dir_all("/workspace");
+        bring_up_loopback();
         // The workspace data plane rides on virtio-blk, which the virt
         // kernel ships as a module; load it best-effort (an already-loaded
         // module answers with a failure status that is safe to ignore — the

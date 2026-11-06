@@ -13,6 +13,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {
   CollectExecOptions,
+  EgressPolicy,
   ExecHandle,
   ExecOptions,
   ExecResult,
@@ -104,6 +105,22 @@ export abstract class VmWorld extends Service {
 
   /** Filesystem operations for this world's interior. */
   abstract get fs(): VmWorldFs
+
+  /**
+   * Bind one egress-origin token to an approval callback. The token travels
+   * on execs (`ExecOptions.origin`) and returns on every egress dial that
+   * exec's process tree initiates; a dial whose origin has no registered
+   * approver denies. Worlds without a guest egress surface accept the
+   * registration and never consult it.
+   * @param origin - opaque token unique within this world.
+   * @param approver - approval callback receiving the attributed dial.
+   * @returns disposer that unbinds the token.
+   */
+  registerEgressOrigin(origin: string, approver: EgressPolicy): () => void {
+    void origin
+    void approver
+    return () => {}
+  }
 
   /**
    * Stop the world.

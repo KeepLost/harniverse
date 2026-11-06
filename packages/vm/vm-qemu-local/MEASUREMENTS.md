@@ -60,6 +60,22 @@ The honest multiple over the control UART is ≈ 100–200× for import and ≈ 
 
 Boots are back-to-back on one host; consecutive-boot spread is single-digit percent, so the ±20 % line has real headroom. RSS drift is noise-level — no per-op host leak in the qemu process (the wrapper execs in place, so `descriptor.pid` is the QEMU pid).
 
+## M8 guest egress relay (2026-11-06)
+
+The SOCKS5 guest proxy over the control UART (writer-thread build, TCG, one
+world, local echo server):
+
+| Metric | Measured | Read |
+| --- | --- | --- |
+| Small round trip (4 B out / 9 B back, 20 rounds) | ≈ 21–25 ms per round | API-call scale |
+| Bidirectional bulk (64 KiB each way) | ≈ 3.5 s, ≈ 0.02 MiB/s | not bulk-grade |
+| Approval verdict after card answer | immediate (cache hit: no second card) | — |
+
+The relay is ~10× under the raw UART ceiling (≈ 0.2 MiB/s) after double
+base64 framing, per-frame JSON, and thread handoffs; verdicts and small
+request/response traffic are the target profile, bulk downloads belong on
+the workspace data plane. Evidence: `packages/vm/subprocess-vm/tests/egress.e2e.ts`.
+
 ## Cross-reference
 
 - T1/T2/T3 (lifecycle, exec latency/semantics): [README § Measured behavior](README.md)

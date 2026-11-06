@@ -194,6 +194,10 @@
     - id: vm
       name: '@deepseek-ai/dsh-vm-qemu-local'
       disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') !== 'vm'"
+      # Guest egress dials consult origin-bound approval cards (`deny` would
+      # seal the surface outright); unattributed or refused dials deny either way.
+      config:
+        egress: ask
 
     - id: subprocess-vm
       name: '@deepseek-ai/dsh-subprocess-vm'

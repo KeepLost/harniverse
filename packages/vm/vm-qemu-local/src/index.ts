@@ -27,7 +27,7 @@ export * from './workspace.ts'
 import { Context, Service } from '@deepseek-ai/cordis'
 import schema from '@deepseek-ai/schemastery'
 import { VmWorld } from '@deepseek-ai/dsh-vm'
-import type { CollectExecOptions, ExecHandle, ExecOptions, ExecResult } from '@deepseek-ai/dsh-vm'
+import type { CollectExecOptions, EgressPolicy, ExecHandle, ExecOptions, ExecResult } from '@deepseek-ai/dsh-vm'
 import { openWorld } from './vm.ts'
 import type { OpenWorldOptions, VmDeps, WorldDescriptor, WorldExit, WorldHandle } from './vm.ts'
 import type { VmWorldFs } from '@deepseek-ai/dsh-vm'
@@ -50,6 +50,11 @@ export interface Config {
   shutdownTimeoutMs?: number
   /** Host-side hardening of the QEMU child: `auto` (default) stages the wrapper when present; `off` spawns directly. */
   sandbox?: 'auto' | 'off'
+  /**
+   * Guest egress surface: `ask` consults origin-registered approval sources,
+   * `deny` (the default) refuses every guest egress dial outright.
+   */
+  egress?: 'ask' | 'deny'
 }
 
 
@@ -69,10 +74,12 @@ export class QemuLocalWorld extends VmWorld {
     readyTimeoutMs: schema.number().default(15_000),
     shutdownTimeoutMs: schema.number().default(5_000),
     sandbox: schema.union(['auto', 'off']).default('auto'),
+    egress: schema.union(['ask', 'deny']).default('deny'),
   })
   /** Boot settlement: resolves with the world handle or fails the plugin. */
   readonly ready: Promise<WorldHandle>
   private handle: WorldHandle | undefined
+  private readonly pendingOrigins = new Map<string, EgressPolicy>()
 
   constructor(ctx: Context, config: Config, deps: VmDeps = {}) {
     super(ctx)
@@ -85,8 +92,26 @@ export class QemuLocalWorld extends VmWorld {
     if (config.readyTimeoutMs !== undefined) options.readyTimeoutMs = config.readyTimeoutMs
     if (config.shutdownTimeoutMs !== undefined) options.shutdownTimeoutMs = config.shutdownTimeoutMs
     if (config.sandbox !== undefined) options.sandbox = config.sandbox
+    if (config.egress !== undefined) options.egress = config.egress
     this.ready = openWorld(options, deps)
-    void this.ready.then((handle) => { this.handle = handle }, () => {})
+    void this.ready.then((handle) => {
+      this.handle = handle
+      for (const [origin, approver] of this.pendingOrigins) handle.egress.register(origin, approver)
+      this.pendingOrigins.clear()
+    }, () => {})
+  }
+
+  /** Bind one egress-origin token to an approval callback on this world. */
+  override registerEgressOrigin(origin: string, approver: EgressPolicy): () => void {
+    const handle = this.handle
+    if (handle !== undefined) return handle.egress.register(origin, approver)
+    this.pendingOrigins.set(origin, approver)
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      this.pendingOrigins.delete(origin)
+    }
   }
 
   protected async [Service.init](): Promise<void> {

@@ -68,6 +68,18 @@ pub enum Reply {
     WorkspaceOk { id: u64, bytes: u64 },
     #[serde(rename = "workspace.err")]
     WorkspaceErr { id: u64, message: String },
+    #[serde(rename = "egress.open")]
+    EgressOpen {
+        id: u64,
+        host: String,
+        port: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+    },
+    #[serde(rename = "egress.write")]
+    EgressWrite { id: u64, d: String },
+    #[serde(rename = "egress.close")]
+    EgressClose { id: u64 },
 }
 
 #[derive(Serialize)]
@@ -104,6 +116,8 @@ pub enum Request {
         cwd: Option<String>,
         #[serde(default)]
         pty: Option<PtySize>,
+        #[serde(default)]
+        origin: Option<String>,
     },
     #[serde(rename = "exec.stdin")]
     ExecStdin { id: u64, d: String },
@@ -121,6 +135,21 @@ pub enum Request {
     WorkspaceImport { id: u64 },
     #[serde(rename = "workspace.export")]
     WorkspaceExport { id: u64 },
+    #[serde(rename = "egress.opened")]
+    EgressOpened { id: u64 },
+    #[serde(rename = "egress.denied")]
+    EgressDenied {
+        id: u64,
+        /// Refusal code; recorded for diagnostics, the verdict is what acts.
+        #[allow(dead_code)]
+        code: String,
+    },
+    #[serde(rename = "egress.data")]
+    EgressData { id: u64, d: String },
+    #[serde(rename = "egress.end")]
+    EgressEnd { id: u64 },
+    #[serde(rename = "egress.close")]
+    EgressClose { id: u64 },
 }
 
 #[derive(Deserialize)]

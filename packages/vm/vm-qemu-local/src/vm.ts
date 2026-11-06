@@ -22,9 +22,8 @@ import { HOST_CAPS, PROTOCOL_VERSION, negotiateVersion, parseGuestMessage, type 
 import { ExecSession } from './exec.ts'
 import type { CollectExecOptions, ExecHandle, ExecOptions, ExecResult, VmWorldDescriptor, VmWorldExit } from '@deepseek-ai/dsh-vm'
 import { WorldFs } from './fs.ts'
-import { WorldEgress } from './egress.ts'
+import { GuestEgressBridge, WorldEgress, type EgressMode } from './egress.ts'
 import { DEFAULT_EXPORT_CAPACITY_BYTES, WORKSPACE_HEADER_BYTES, WorldWorkspace, assertValidWorkspaceTar, buildWorkspaceImage, packWorkspaceTar } from './workspace.ts'
-import type { EgressPolicy } from '@deepseek-ai/dsh-vm'
 
 /** Assets (`vmlinuz-virt`, `initramfs.cpio.gz`) are absent from the assets directory. */
 export class AssetsMissingError extends Error {
@@ -121,10 +120,11 @@ export interface OpenWorldOptions {
  */
   sandbox?: 'auto' | 'off'
   /**
-   * Approval callback for this world's egress relay; when omitted every
-   * `world.egress.open` denies.
+   * Guest egress surface: `ask` consults the approval sources registered
+   * under egress-origin tokens (see `world.egress.register`); `deny`
+   * (the default) keeps every guest egress dial refused.
    */
-  egressPolicy?: EgressPolicy
+  egress?: EgressMode
   /**
    * Workspace data-plane configuration: attaches the virtio-blk import and
    * export images and enables `world.workspace`. Absent means the world has
@@ -592,7 +592,8 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
   }
   const session = new ExecSession(guardedTransport, allocateId)
   const worldFs = new WorldFs(guardedTransport, allocateId)
-  const egress = new WorldEgress(options.egressPolicy)
+  const egress = new WorldEgress(options.egress ?? 'deny')
+  const egressBridge = new GuestEgressBridge(egress, guardedTransport)
   const readExportImage = exportImagePath === undefined ? undefined : () => readFile(exportImagePath)
   const workspace = new WorldWorkspace(guardedTransport, allocateId, readExportImage)
 
@@ -623,6 +624,7 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     async destroy() {
       if (stopped) return 'clean'
       stopped = true
+      await egressBridge.dispose()
       await egress.closeAll()
       channel.send({ t: 'shutdown' })
       const graceful = await Promise.race<boolean>([

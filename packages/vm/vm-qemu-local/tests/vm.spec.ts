@@ -886,11 +886,12 @@ describe('vm-qemu-local egress wiring', () => {
   it('surfaces a refused approved dial as EgressConnectError', async () => {
     const { child, emitExit } = fakeChild()
     const world = await openWorld(
-      { assetsDir: stubAssets(), egressPolicy: () => true },
+      { assetsDir: stubAssets(), egress: 'ask' },
       { spawn: () => child, connect: async () => welcomeSocket() },
     )
+    world.egress.register('origin-x', () => true)
     if (process.platform === 'win32') return
-    await expect(world.egress.open('127.0.0.1', 1)).rejects.toMatchObject({ name: 'EgressConnectError' })
+    await expect(world.egress.open('127.0.0.1', 1, 'origin-x')).rejects.toMatchObject({ name: 'EgressConnectError' })
     const destroyed = world.destroy()
     setTimeout(() => { emitExit(0) }, 20)
     await expect(destroyed).resolves.toBe('clean')
