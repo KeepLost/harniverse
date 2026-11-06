@@ -79,7 +79,7 @@ export class QemuLocalWorld extends VmWorld {
   /** Boot settlement: resolves with the world handle or fails the plugin. */
   readonly ready: Promise<WorldHandle>
   private handle: WorldHandle | undefined
-  private readonly pendingOrigins = new Map<string, EgressPolicy>()
+  private readonly pendingOrigins = new Map<string, { approver: EgressPolicy; live: (() => void) | undefined; disposed: boolean }>()
 
   constructor(ctx: Context, config: Config, deps: VmDeps = {}) {
     super(ctx)
@@ -96,7 +96,10 @@ export class QemuLocalWorld extends VmWorld {
     this.ready = openWorld(options, deps)
     void this.ready.then((handle) => {
       this.handle = handle
-      for (const [origin, approver] of this.pendingOrigins) handle.egress.register(origin, approver)
+      for (const entry of this.pendingOrigins.values()) {
+        entry.live = handle.egress.register(entry.origin, entry.approver)
+        if (entry.disposed) entry.live()
+      }
       this.pendingOrigins.clear()
     }, () => {})
   }
@@ -105,12 +108,12 @@ export class QemuLocalWorld extends VmWorld {
   override registerEgressOrigin(origin: string, approver: EgressPolicy): () => void {
     const handle = this.handle
     if (handle !== undefined) return handle.egress.register(origin, approver)
-    this.pendingOrigins.set(origin, approver)
-    let disposed = false
+    const entry = { origin, approver, live: undefined as (() => void) | undefined, disposed: false }
+    this.pendingOrigins.set(origin, entry)
     return () => {
-      if (disposed) return
-      disposed = true
-      this.pendingOrigins.delete(origin)
+      if (entry.disposed) return
+      entry.disposed = true
+      entry.live?.()
     }
   }
 

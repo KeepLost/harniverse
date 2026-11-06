@@ -95,6 +95,7 @@ describe('vm-qemu-local guest message parsing', () => {
     expect(parseGuestMessage('{"t":"egress.write","id":1,"d":"cGluZw=="}')).toEqual({ t: 'egress.write', id: 1, d: 'cGluZw==' })
     expect(parseGuestMessage('{"t":"egress.write","id":1}')).toBeUndefined()
     expect(parseGuestMessage('{"t":"egress.close","id":1}')).toEqual({ t: 'egress.close', id: 1 })
+    expect(parseGuestMessage('{"t":"egress.close"}')).toBeUndefined()
     expect(isOpReplyFor('{"t":"egress.close","id":1}', 1, ['egress.close'])).toBe(true)
   })
 

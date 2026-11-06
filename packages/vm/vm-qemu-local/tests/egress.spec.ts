@@ -325,6 +325,64 @@ describe('vm-qemu-local guest egress bridge', () => {
     await bridge.dispose()
   })
 
+  it('closes the relayed handle without answering when disposal races the dial', async () => {
+    let release: ((socket: FakeEgressSocket) => void) | undefined
+    const egress = new WorldEgress('ask', {
+      connect: () => new Promise<EgressSocket>((resolve) => { release = (socket) => { resolve(socket) } }),
+    })
+    egress.register('origin-e', () => true)
+    const { bridge, transport } = fakeTransport(egress)
+    transport.emit(egressOpenFrame(11, 'raced.example', 80, 'origin-e'))
+    await bridge.dispose()
+    const socket = recordingSocket()
+    release?.(socket)
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    expect(socket.destroyed).toBe(true)
+    expect(transport.sent.some(message => message.t === 'egress.opened' && message.id === 11)).toBe(false)
+  })
+
+  it('answers egress.close when the inbound pump hits a transport error', async () => {
+    const socket = recordingSocket()
+    const egress = new WorldEgress('ask', { connect: async () => socket })
+    egress.register('origin-f', () => true)
+    const { bridge, transport } = fakeTransport(egress)
+    transport.emit(egressOpenFrame(12, 'broken.example', 80, 'origin-f'))
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    socket.emitError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
+    socket.emitClose()
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    expect(transport.sent.some(message => message.t === 'egress.close' && message.id === 12)).toBe(true)
+    await bridge.dispose()
+  })
+
+  it('closes the stream when a guest write lands on a dead relay handle', async () => {
+    const socket = recordingSocket()
+    const egress = new WorldEgress('ask', { connect: async () => socket })
+    egress.register('origin-g', () => true)
+    const { bridge, transport } = fakeTransport(egress)
+    transport.emit(egressOpenFrame(13, 'dead.example', 80, 'origin-g'))
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    // Error without close: the handle refuses writes while the pump still waits.
+    socket.emitError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
+    transport.emit(JSON.stringify({ t: 'egress.write', id: 13, d: Buffer.from('late').toString('base64') }))
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    socket.emitClose()
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    expect(socket.written).toEqual([])
+    await bridge.dispose()
+  })
+
+  it('ignores payloads the bridge cannot parse and non-egress events', async () => {
+    const egress = new WorldEgress('ask')
+    const { bridge, transport } = fakeTransport(egress)
+    transport.emit('not json at all')
+    transport.emit(JSON.stringify({ t: 'pong', n: 1 }))
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    expect(transport.sent).toEqual([])
+    await bridge.dispose()
+  })
+
   it('closes the relay handle on a guest close and stops routing after dispose', async () => {
     const socket = recordingSocket()
     const egress = new WorldEgress('ask', { connect: async () => socket })

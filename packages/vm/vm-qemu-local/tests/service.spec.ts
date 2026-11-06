@@ -68,6 +68,55 @@ describe('QemuLocalWorld service', () => {
     await expect(recording.current?.exit).resolves.toEqual({ code: 0, signal: null })
   })
 
+  it('queues egress origins registered before settlement and binds them after', async () => {
+    const recording: { current?: Recording } = {}
+    recordings.push(recording)
+    const ctx = new Context()
+    const world = new QemuLocalWorld(ctx, { assetsDir: stubAssets(), egress: 'ask' }, stubDeps('', recording))
+    const seen: string[] = []
+    const unbind = world.registerEgressOrigin('early', async (request) => {
+      seen.push(request.host)
+      return true
+    })
+    const handle = await world.ready
+    if (process.platform !== 'win32') {
+      // The approver ran and the dial was attempted; loopback port 1 refuses instantly.
+      await expect(handle.egress.open('127.0.0.1', 1, 'early')).rejects.toMatchObject({ name: 'EgressConnectError' })
+      expect(seen).toEqual(['127.0.0.1'])
+    }
+    unbind()
+    await expect(handle.egress.open('127.0.0.1', 1, 'early')).rejects.toMatchObject({ name: 'EgressDeniedError' })
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards an egress origin registered after settlement and honors its disposer', async () => {
+    const recording: { current?: Recording } = {}
+    recordings.push(recording)
+    const ctx = new Context()
+    const world = new QemuLocalWorld(ctx, { assetsDir: stubAssets(), egress: 'ask' }, stubDeps('', recording))
+    const handle = await world.ready
+    const unbind = world.registerEgressOrigin('late', () => true)
+    if (process.platform !== 'win32') {
+      await expect(handle.egress.open('127.0.0.1', 1, 'late')).rejects.toMatchObject({ name: 'EgressConnectError' })
+    }
+    unbind()
+    unbind()
+    await expect(handle.egress.open('127.0.0.1', 1, 'late')).rejects.toMatchObject({ name: 'EgressDeniedError' })
+    await ctx.fiber.dispose()
+  })
+
+  it('drops a pending egress origin whose disposer ran before settlement', async () => {
+    const recording: { current?: Recording } = {}
+    recordings.push(recording)
+    const ctx = new Context()
+    const world = new QemuLocalWorld(ctx, { assetsDir: stubAssets(), egress: 'ask' }, stubDeps('', recording))
+    const unbind = world.registerEgressOrigin('revoked', () => true)
+    unbind()
+    const handle = await world.ready
+    await expect(handle.egress.open('127.0.0.1', 1, 'revoked')).rejects.toMatchObject({ name: 'EgressDeniedError' })
+    await ctx.fiber.dispose()
+  })
+
   it('refuses seam access before the world settles', async () => {
     const recording: { current?: Recording } = {}
     recordings.push(recording)

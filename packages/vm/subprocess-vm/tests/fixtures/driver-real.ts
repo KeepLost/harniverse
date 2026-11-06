@@ -17,7 +17,7 @@ if (configPath === undefined) throw new Error('egress e2e driver requires a conf
 
 /** bash dials the injected SOCKS proxy n times through /dev/tcp. */
 const DIALS = `
-port=${'${ALL_PROXY##*:}'}
+port=\${ALL_PROXY##*:}
 dial() {
   exec 3<>/dev/tcp/127.0.0.1/$port || return 9
   printf '\\x05\\x01\\x00' >&3
@@ -38,7 +38,7 @@ echo all-ok
 `
 
 const SINGLE_DIAL = `
-port=${'${ALL_PROXY##*:}'}
+port=\${ALL_PROXY##*:}
 exec 3<>/dev/tcp/127.0.0.1/$port || exit 9
 printf '\\x05\\x01\\x00' >&3
 head -c 2 <&3 >/dev/null
@@ -72,7 +72,7 @@ const ctx = await boot('subprocess-vm-egress-e2e', resolveConfigPath(configPath,
 const report: Record<string, unknown> = { verdict: process.env.DSH_STUB_APPROVAL ?? 'no-provider' }
 try {
   if (process.env.DSH_STUB_APPROVAL === 'deny') {
-    const denied = await ctx.subprocess.spawn({
+    const denied = ctx.subprocess.spawn({
       argv: ['bash', '-c', SINGLE_DIAL],
       cwd: '/',
       env,
