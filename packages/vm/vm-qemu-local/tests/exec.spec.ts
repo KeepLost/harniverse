@@ -79,6 +79,23 @@ async function startedSession(): Promise<{ transport: FakeTransport; exec: ExecS
 }
 
 describe('ExecSession', () => {
+  it('carries the egress-origin token on the start request and rejects malformed ones', async () => {
+    const base = session()
+    base.transport.enqueue({ t: 'exec.started', id: 1, pid: 5 })
+    await base.exec.spawn(['/bin/true'], { origin: 'vm-exec-9' })
+    expect(base.transport.sent[0]).toMatchObject({ t: 'exec', id: 1, origin: 'vm-exec-9' })
+
+    const clean = session()
+    clean.transport.enqueue({ t: 'exec.started', id: 1, pid: 6 })
+    await clean.exec.spawn(['/bin/true'])
+    expect(clean.transport.sent[0]).not.toHaveProperty('origin')
+
+    const empty = session()
+    await expect(empty.exec.spawn(['/bin/true'], { origin: '' })).rejects.toThrow('origin must be a non-empty NUL-free string')
+    const nul = session()
+    await expect(nul.exec.spawn(['/bin/true'], { origin: 'a\0b' })).rejects.toThrow('origin must be a non-empty NUL-free string')
+  })
+
   it('streams output and settles the exit for one exec id', async () => {
     const { transport, handle } = await startedSession()
     const seen: Array<[string, string]> = []

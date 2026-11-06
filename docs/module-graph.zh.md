@@ -596,9 +596,6 @@ flowchart TD
   pkg_exec_world_settings --> pkg_invariants
   pkg_exec_world_settings --> pkg_settings
   pkg_exec_world_settings --> pkg_vm
-  pkg_subprocess_vm --> pkg_invariants
-  pkg_subprocess_vm --> pkg_subprocess
-  pkg_subprocess_vm --> pkg_vm
   pkg_llm_deepseek --> pkg_atomic_write
   pkg_llm_deepseek --> pkg_attachment
   pkg_llm_deepseek --> pkg_credentials
@@ -1169,6 +1166,11 @@ flowchart TD
   pkg_shell_router --> pkg_invariants
   pkg_shell_router --> pkg_pwsh_sandbox
   pkg_shell_router --> pkg_shell
+  pkg_subprocess_vm --> pkg_agent
+  pkg_subprocess_vm --> pkg_invariants
+  pkg_subprocess_vm --> pkg_subprocess
+  pkg_subprocess_vm --> pkg_user_questions
+  pkg_subprocess_vm --> pkg_vm
   pkg_agent_loop --> pkg_agent
   pkg_agent_loop --> pkg_attachment
   pkg_agent_loop --> pkg_invariants
@@ -2309,7 +2311,6 @@ flowchart TD
 | [`speech-settings`](../packages/speech/speech-settings) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`speech`](../packages/speech/speech) |
 | [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`fs-codec`](../packages/fs/fs-codec), [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`exec-world-settings`](../packages/vm/exec-world-settings) | `vm` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`vm`](../packages/vm/vm) |
-| [`subprocess-vm`](../packages/vm/subprocess-vm) | `vm` | [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess), [`vm`](../packages/vm/vm) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`atomic-write`](../packages/util/atomic-write), [`attachment`](../packages/attachment/attachment), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
 | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`attachment`](../packages/attachment/attachment), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`typert-protocol`](../packages/typert/protocol) |
@@ -2424,6 +2425,7 @@ flowchart TD
 | [`host-official-session-import`](../packages/host/official-session-import) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session-import`](../packages/session/session-import), [`session-persistence`](../packages/session/session-persistence), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`permission-presets`](../packages/interaction/permission-presets) | `interaction` | [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`user-approval`](../packages/interaction/user-approval) |
 | [`shell-router`](../packages/shell/shell-router) | `shell` | [`bash-sandbox`](../packages/shell/bash-sandbox), [`invariants`](../packages/runtime-diagnostics/invariants), [`pwsh-sandbox`](../packages/shell/pwsh-sandbox), [`shell`](../packages/shell/shell) |
+| [`subprocess-vm`](../packages/vm/subprocess-vm) | `vm` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`subprocess`](../packages/subprocess/subprocess), [`user-questions`](../packages/interaction/user-questions), [`vm`](../packages/vm/vm) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-import`](../packages/session/session-import), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`agent-tool-presentation`](../packages/core/agent-tool-presentation) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants), [`tools`](../packages/core/tools) |
 | [`tool-goal`](../packages/goal/tool-goal) | `goal` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |

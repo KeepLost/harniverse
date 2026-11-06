@@ -17,6 +17,14 @@
  * `workspace.export` packs that directory into the export image; each is
  * answered exactly once by `workspace.ok` (with the payload size) or
  * `workspace.err` (including the `busy` guard while another transfer runs).
+ *
+ * Version 3 also carries the guest egress surface: an `exec` may carry an
+ * `origin` token, which binds a per-exec SOCKS5 loopback listener inside the
+ * guest (advertised to the child through `ALL_PROXY`); a client connection
+ * asks the host with `egress.open`, the host answers `egress.opened` or
+ * `egress.denied`, and both directions stream as base64 `egress.write` /
+ * `egress.data` chunks until `egress.end` (orderly EOF) or `egress.close`
+ * (teardown) settles the stream in each direction.
  * @module @deepseek-ai/dsh-vm-qemu-local
  */
 
@@ -80,6 +88,8 @@ export interface ExecMessage {
   env?: Record<string, string>
   cwd?: string
   pty?: PtySize
+  /** Egress-origin token; when present the child gets a per-exec SOCKS5 loopback listener. */
+  origin?: string
 }
 
 /** One base64 stdin chunk for a live exec. */
@@ -132,6 +142,38 @@ export interface WorkspaceExportMessage {
   id: number
 }
 
+/** Host approval of one guest egress stream; data may then flow both ways. */
+export interface EgressOpenedMessage {
+  t: 'egress.opened'
+  id: number
+}
+
+/** Host refusal of one guest egress stream; `code` names why. */
+export interface EgressDeniedMessage {
+  t: 'egress.denied'
+  id: number
+  code: string
+}
+
+/** One base64 inbound chunk (remote → guest client) of a live egress stream. */
+export interface EgressDataMessage {
+  t: 'egress.data'
+  id: number
+  d: string
+}
+
+/** Remote EOF on a live egress stream; the guest client then reads EOF. */
+export interface EgressEndMessage {
+  t: 'egress.end'
+  id: number
+}
+
+/** Host-side teardown of a live egress stream; the guest client socket closes. */
+export interface EgressCloseMessage {
+  t: 'egress.close'
+  id: number
+}
+
 /** Messages the host may send. */
 export type HostMessage =
   | HelloMessage
@@ -144,6 +186,11 @@ export type HostMessage =
   | FsMessage
   | WorkspaceImportMessage
   | WorkspaceExportMessage
+  | EgressOpenedMessage
+  | EgressDeniedMessage
+  | EgressDataMessage
+  | EgressEndMessage
+  | EgressCloseMessage
 
 /** Guest ack for an accepted exec; `pid` is the guest-side process id. */
 export interface ExecStartedMessage {
@@ -235,6 +282,29 @@ export interface ErrorMessage {
   message?: string
 }
 
+/** Guest request to open one egress stream through the host relay. */
+export interface EgressOpenMessage {
+  t: 'egress.open'
+  id: number
+  host: string
+  port: number
+  /** Egress-origin token of the exec whose listener accepted the client. */
+  origin?: string
+}
+
+/** One base64 outbound chunk (guest client → remote) of a live egress stream. */
+export interface EgressWriteMessage {
+  t: 'egress.write'
+  id: number
+  d: string
+}
+
+/** Guest-side teardown of one egress stream (client EOF or error). */
+export interface EgressClosedMessage {
+  t: 'egress.close'
+  id: number
+}
+
 /** Messages the guest may send. */
 export type GuestMessage =
   | WelcomeMessage
@@ -250,6 +320,9 @@ export type GuestMessage =
   | FsErrMessage
   | WorkspaceOkMessage
   | WorkspaceErrMessage
+  | EgressOpenMessage
+  | EgressWriteMessage
+  | EgressClosedMessage
 
 /** Guest messages that answer or report on one exec, fs, or workspace id. */
 export type GuestOpMessage =
@@ -262,6 +335,9 @@ export type GuestOpMessage =
   | FsErrMessage
   | WorkspaceOkMessage
   | WorkspaceErrMessage
+  | EgressOpenMessage
+  | EgressWriteMessage
+  | EgressClosedMessage
 
 /**
  * Narrow channel contract the exec and fs surfaces drive; the world's control
@@ -408,6 +484,20 @@ export function parseGuestMessage(payload: string): GuestMessage | undefined {
   if (t === 'workspace.err') {
     if (!hasId(message) || typeof message.message !== 'string') return undefined
     return { t, id: message.id, message: message.message }
+  }
+  if (t === 'egress.open') {
+    if (!hasId(message) || typeof message.host !== 'string' || typeof message.port !== 'number') return undefined
+    const open: EgressOpenMessage = { t, id: message.id, host: message.host, port: message.port }
+    if (typeof message.origin === 'string') open.origin = message.origin
+    return open
+  }
+  if (t === 'egress.write') {
+    if (!hasId(message) || typeof message.d !== 'string') return undefined
+    return { t, id: message.id, d: message.d }
+  }
+  if (t === 'egress.close') {
+    if (!hasId(message)) return undefined
+    return { t, id: message.id }
   }
   return undefined
 }

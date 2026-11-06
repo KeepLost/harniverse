@@ -360,6 +360,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ShellRunResult: 'shell.md',
   DshEnvironment: 'subprocess.md',
   SubprocessHandle: 'subprocess.md',
+  EgressPolicy: 'vm.md',
+  EgressRequest: 'vm.md',
   ExecOptions: 'vm.md',
   CollectExecOptions: 'vm.md',
   ExecResult: 'vm.md',

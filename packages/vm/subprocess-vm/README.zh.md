@@ -4,6 +4,8 @@
 
 在一个执行世界（`ctx.vm`）内提供受管进程与终端。输出以世界事件流进管道或带偏移读的有界内存尾窗，stdin 经 exec 结算排队，终止经世界代理升级 SIGTERM → 宽限 → SIGKILL，处置汇合每个存活子进程。Provider 声明 `locality: 'remote'`，挂载期间宿主路径消费方拒绝其宿主回退。
 
+在活发起 Agent（`ctx.agents.currentInitiator()`）之下铸造的每次 spawn 还绑定一个 **egress origin**：世界给子进程一个 per-exec 的 SOCKS5 回环监听（以 `ALL_PROXY` 通告），该子进程的每个拨号经真实的 `ctx.userQuestions` 服务询问发起者的会话——一张点名目的地的审批卡（`Allow` / `Deny`）。放行按会话按目的地缓存；拒绝、通道缺失、发起者已死与无归属 exec 一律拒绝——默认即拒绝，从来不是例外。绑定随 spawn 退出而释放。
+
 ## Model Experience
 
 Indirectly, through `dsh-tool-bash` 与终端消费方，它们渲染本世界 provider 的进程结局、有界输出尾窗与终端流，与本地 spawn 的渲染完全一致。
@@ -19,3 +21,6 @@ Indirectly, through `dsh-tool-bash` 与终端消费方，它们渲染本世界 p
 - **信号送达世界代理跟踪的那个子进程，而非进程组** —— 宿主侧没有可信号的树；整树终止等待世界内后端。
 - **终端不能调整尺寸或检查前台组** —— v0 世界代理没有 pty resize 或前台操作；对应方法以明确的不支持错误失败。
 - **无计量事件** —— 世界的进程对宿主侧 `/proc` 不可见，`subprocess/*` 计量族永不发出；计量消费方把沉默当作未计量。
+- **Egress 走控制 UART** —— guest SOCKS5 中继实测小往返 ≈ 23 ms、双向 ≈ 0.02 MiB/s（`dsh-vm-qemu-local` MEASUREMENTS）；API 调用级流量可用，bulk 下载不属于它。
+- **拒绝不被记忆** —— 只有放行进缓存；被拒的目的地在下次拨号时再次询问，这是设计。
+- **审批卡等待其会话** —— 一次询问只活到世界或 provider 处置；无 user-questions provider 的 headless 组合不阻塞地拒绝每个拨号。

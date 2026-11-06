@@ -1,0 +1,19 @@
+# REAL-composition fixture for the subprocess-vm egress chain: the real
+# user-questions service with a scripted provider, one stub agents service
+# holding a single live initiator, one stub world recording egress origins,
+# and the provider under test. `$DSH_STUB_APPROVAL` selects the provider's
+# verdict; unset means no provider at all (the default-deny deployment).
+- id: user-questions
+  name: '@deepseek-ai/dsh-user-questions'
+
+- id: stub-questions
+  name: './stub-questions.ts'
+
+- id: agents
+  name: './stub-agents.ts'
+
+- id: vm
+  name: './stub-world.ts'
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-vm'

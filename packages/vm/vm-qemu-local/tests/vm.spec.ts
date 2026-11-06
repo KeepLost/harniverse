@@ -568,6 +568,30 @@ describe('vm-qemu-local world lifecycle over a real control socket', () => {
     await expect(world.destroy()).resolves.toBe('clean')
   })
 
+  it('relays a guest egress dial through the origin registry over the real channel', async () => {
+    const { child, emitExit } = fakeChild()
+    const socket = welcomeSocket()
+    const consulted: Array<{ host: string; port: number; origin?: string }> = []
+    const world = await openWorld(
+      { assetsDir: stubAssets(), egress: 'ask' },
+      {
+        spawn: () => child,
+        connect: async () => socket,
+        ...(process.platform === 'win32' ? { egressDeps: undefined } : {}),
+      },
+    )
+    world.egress.register('origin-wire', async (request) => {
+      consulted.push({ host: request.host, port: request.port, ...(request.origin === undefined ? {} : { origin: request.origin }) })
+      return false
+    })
+    socket.emitData(encode({ t: 'egress.open', id: 1, host: 'wire.example', port: 443, origin: 'origin-wire' }))
+    await new Promise((resolve) => { setTimeout(resolve, 20) })
+    expect(consulted).toEqual([{ host: 'wire.example', port: 443, origin: 'origin-wire' }])
+    expect(socket.written.some(entry => entry.includes('"t":"egress.denied"'))).toBe(true)
+    emitExit(0)
+    await expect(world.destroy()).resolves.toBe('clean')
+  })
+
   it('maps the guest-announced confinement capability onto the descriptor', async () => {
     const { child, emitExit } = fakeChild()
     const world = await openWorld(
@@ -886,11 +910,12 @@ describe('vm-qemu-local egress wiring', () => {
   it('surfaces a refused approved dial as EgressConnectError', async () => {
     const { child, emitExit } = fakeChild()
     const world = await openWorld(
-      { assetsDir: stubAssets(), egressPolicy: () => true },
+      { assetsDir: stubAssets(), egress: 'ask' },
       { spawn: () => child, connect: async () => welcomeSocket() },
     )
+    world.egress.register('origin-x', () => true)
     if (process.platform === 'win32') return
-    await expect(world.egress.open('127.0.0.1', 1)).rejects.toMatchObject({ name: 'EgressConnectError' })
+    await expect(world.egress.open('127.0.0.1', 1, 'origin-x')).rejects.toMatchObject({ name: 'EgressConnectError' })
     const destroyed = world.destroy()
     setTimeout(() => { emitExit(0) }, 20)
     await expect(destroyed).resolves.toBe('clean')

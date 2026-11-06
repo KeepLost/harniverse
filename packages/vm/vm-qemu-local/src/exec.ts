@@ -43,6 +43,9 @@ function validate(argv: string[], options: ExecOptions): void {
     && (!Number.isInteger(options.pty.rows) || !Number.isInteger(options.pty.cols) || options.pty.rows < 1 || options.pty.cols < 1)) {
     throw new ExecOptionsError('pty rows and cols must be positive integers')
   }
+  if (options.origin !== undefined && (options.origin.length === 0 || options.origin.includes('\0'))) {
+    throw new ExecOptionsError('origin must be a non-empty NUL-free string')
+  }
 }
 
 function concat(chunks: Buffer[]): Buffer {
@@ -74,6 +77,7 @@ export class ExecSession {
     if (options.env !== undefined) message.env = options.env
     if (options.cwd !== undefined) message.cwd = options.cwd
     if (pty !== undefined) message.pty = pty
+    if (options.origin !== undefined) message.origin = options.origin
 
     const listeners = new Set<ExecOutputListener>()
     let offEvent!: () => void

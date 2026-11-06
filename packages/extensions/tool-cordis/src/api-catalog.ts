@@ -3669,6 +3669,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the streaming exec handle.',
       },
       {
+        signature: 'registerEgressOrigin(origin: string, approver: EgressPolicy): () => void',
+        description: 'Bind one egress-origin token to an approval callback. The token travels on execs (`ExecOptions.origin`) and returns on every egress dial that exec\'s process tree initiates; a dial whose origin has no registered approver denies. Worlds without a guest egress surface accept the registration and never consult it.',
+        parameters: [{ name: 'origin', description: 'opaque token unique within this world.' }, { name: 'approver', description: 'approval callback receiving the attributed dial.' }],
+        returns: 'disposer that unbinds the token.',
+      },
+      {
         signature: 'abstract destroy(): Promise<\'clean\' | \'killed\'>',
         description: 'Stop the world.',
         parameters: [],
@@ -5540,6 +5546,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
+    name: 'EgressPolicy',
+    declaration: 'export type EgressPolicy = (request: EgressRequest) => boolean | Promise<boolean>;',
+  },
+  {
+    name: 'EgressRequest',
+    declaration: 'export interface EgressRequest {\n    host: string;\n    port: number;\n    origin?: string;\n}',
+  },
+  {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
   },
@@ -5553,7 +5567,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ExecOptions',
-    declaration: 'export interface ExecOptions {\n    env?: Record<string, string>;\n    cwd?: string;\n    pty?: boolean | {\n        rows: number;\n        cols: number;\n    };\n}',
+    declaration: 'export interface ExecOptions {\n    env?: Record<string, string>;\n    cwd?: string;\n    pty?: boolean | {\n        rows: number;\n        cols: number;\n    };\n    origin?: string;\n}',
   },
   {
     name: 'ExecOutputListener',

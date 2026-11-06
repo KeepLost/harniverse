@@ -1,0 +1,22 @@
+# Real-composition fixture for the subprocess-vm egress chain: the real
+# QEMU world provider with the guest egress surface open (`ask`), the real
+# user-questions service with a scripted provider, one stub agents service
+# holding a single live initiator, and the provider under test. The QEMU
+# gate keeps this fixture out of CI; the stub-based loader suite owns CI
+# coverage.
+- id: user-questions
+  name: '@deepseek-ai/dsh-user-questions'
+
+- id: stub-questions
+  name: './stub-questions.ts'
+
+- id: agents
+  name: './stub-agents.ts'
+
+- id: vm
+  name: '@deepseek-ai/dsh-vm-qemu-local'
+  config:
+    egress: ask
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-vm'

@@ -19,6 +19,12 @@ interface ExecOptions {
   cwd?: string
   /** Allocate a pty (stderr then merges into stdout on the wire). */
   pty?: boolean | { rows: number; cols: number }
+  /**
+   * Egress-origin token: an opaque string the provider may bind to an
+   * approval source (see `registerEgressOrigin`); execs without one leave
+   * the world's guest egress unattributed, so such dials deny.
+   */
+  origin?: string
 }
 ```
 
@@ -121,6 +127,18 @@ abstract exec(argv: string[], options?: CollectExecOptions): Promise<ExecResult>
 abstract spawn(argv: string[], options?: ExecOptions): Promise<ExecHandle>
 
 /**
+ * Bind one egress-origin token to an approval callback. The token travels
+ * on execs (`ExecOptions.origin`) and returns on every egress dial that
+ * exec's process tree initiates; a dial whose origin has no registered
+ * approver denies. Worlds without a guest egress surface accept the
+ * registration and never consult it.
+ * @param origin - opaque token unique within this world.
+ * @param approver - approval callback receiving the attributed dial.
+ * @returns disposer that unbinds the token.
+ */
+registerEgressOrigin(origin: string, approver: EgressPolicy): () => void
+
+/**
  * Stop the world.
  * @returns `clean` when the world exited after its own shutdown path (or
  * had already exited), `killed` when forceful termination was required.
@@ -128,5 +146,5 @@ abstract spawn(argv: string[], options?: ExecOptions): Promise<ExecHandle>
 abstract destroy(): Promise<'clean' | 'killed'>
 ```
 
-Source: [`packages/vm/vm/src/index.ts:63`](../../packages/vm/vm/src/index.ts)
+Source: [`packages/vm/vm/src/index.ts:64`](../../packages/vm/vm/src/index.ts)
 <!-- END GENERATED cordis-surface -->
