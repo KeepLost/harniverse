@@ -68,7 +68,7 @@ class ScriptedWorld extends VmWorld {
   destroyed = 0
 
   override get descriptor(): VmWorldDescriptor {
-    return { provider: 'fake', isolation: 'full', hostHardened: true, readyMs: 0 }
+    return { provider: 'fake', isolation: 'full', guestConfinement: 'landlock', hostHardened: true, readyMs: 0 }
   }
 
   override get exit(): Promise<VmWorldExit> {

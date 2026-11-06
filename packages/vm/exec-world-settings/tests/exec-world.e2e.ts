@@ -5,8 +5,9 @@
  * inside the guest with the argv the bash tool composes, the fs seam
  * round-trips a file through the world's `/workspace`, and the unset
  * permission default composes the recorded world-boundary posture. The
- * second boot pins an explicit confined mode and asserts sandbox-vm's honest
- * refusal. Skips without a usable binary or staged assets (CI lanes
+ * second boot pins an explicit confined mode and asserts the in-guest
+ * Landlock enforcement both sides of the boundary. Skips without a usable
+ * binary or staged assets (CI lanes
  * provision neither); the stub-based loader suite owns CI coverage.
  */
 
@@ -35,7 +36,9 @@ interface ExecWorldE2EReport {
   bashExit?: number | null
   bashKernel?: string
   fsRoundTrip?: string
-  confine?: string
+  confineArgv?: string[]
+  confineInside?: { code: number | null; stderr: string }
+  confineOutside?: { code: number | null; stderr: string }
   resolvedMode?: string
 }
 
@@ -74,10 +77,17 @@ describe.skipIf(!worldAvailable)('exec-world against a real QEMU composition', (
     expect(report.bashKernel).toMatch(/^kernel=\d+\.\d+\.\d+.*-virt/)
   })
 
-  it('denies honestly under an explicitly pinned confined mode', { timeout: 120_000 }, async () => {
+  it('enforces an explicitly pinned confined mode inside the world', { timeout: 120_000 }, async () => {
     const report = await runE2E({ DSH_EXEC_WORLD: 'vm', DSH_PERMISSION_MODE: 'workspace-write' })
     expect(report.resolvedMode).toBe('workspace-write')
-    expect(report.confine).toContain('no in-guest confinement backend for mode "workspace-write"')
+    expect(report.confineArgv).toEqual([
+      '/bin/dsh-vm-confine', '--ro', '/',
+      '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/workspace',
+      '--', 'bash', '-c', 'true',
+    ])
+    expect(report.confineInside?.code).toBe(0)
+    expect(report.confineOutside?.code).not.toBe(0)
+    expect(report.confineOutside?.stderr).toMatch(/permission denied/i)
   })
 })
 

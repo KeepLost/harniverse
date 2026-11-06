@@ -13,7 +13,7 @@ class FakeWorld extends VmWorld {
   destroyed = 0
 
   override get descriptor(): VmWorldDescriptor {
-    return { provider: 'fake', isolation: 'full', hostHardened: true, readyMs: 1 }
+    return { provider: 'fake', isolation: 'full', guestConfinement: 'landlock', hostHardened: true, readyMs: 1 }
   }
 
   override get exit(): Promise<VmWorldExit> {
@@ -47,7 +47,7 @@ describe('VmWorld service definition', () => {
     const ctx = new Context()
     await ctx.plugin(FakeWorld)
     expect(ctx.vm).toBeInstanceOf(FakeWorld)
-    expect(ctx.vm.descriptor).toEqual({ provider: 'fake', isolation: 'full', hostHardened: true, readyMs: 1 })
+    expect(ctx.vm.descriptor).toEqual({ provider: 'fake', isolation: 'full', guestConfinement: 'landlock', hostHardened: true, readyMs: 1 })
   })
 
   it('keeps world destruction observable through context disposal', async () => {

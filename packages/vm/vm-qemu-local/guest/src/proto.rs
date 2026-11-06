@@ -12,7 +12,17 @@ pub const MAX_FRAME_BYTES: u32 = 1 << 20;
 /// Largest decoded byte payload one stream chunk or fs transfer carries; the
 /// base64 form stays safely under {@link MAX_FRAME_BYTES}.
 pub const MAX_DATA_BYTES: usize = 512 * 1024;
-pub const CAPS: &[&str] = &["ping", "exec", "fs", "workspace"];
+
+/// Capability ids this agent announces; `landlock` rides the boot-time
+/// functional probe, so its absence stays honest on a world whose kernel
+/// or binary lost the confinement backend.
+pub fn caps(landlock: bool) -> Vec<&'static str> {
+    let mut caps = vec!["ping", "exec", "fs", "workspace"];
+    if landlock {
+        caps.push("landlock");
+    }
+    caps
+}
 
 #[derive(Serialize)]
 #[serde(tag = "t")]

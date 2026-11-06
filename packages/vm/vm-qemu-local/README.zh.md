@@ -41,7 +41,11 @@ await world.destroy()                      // 'clean' (guest poweroff) or 'kille
 packages/vm/vm-qemu-local/assets/build-rootfs.sh
 ```
 
-脚本下载固定版本的 Alpine 3.20.3 minirootfs 与 `linux-virt` 内核 apk（强制校验摘要；apk 内核与 `virtio_blk` 模块同源成对——virt 内核的块设备驱动是模块而非内建），外加固定版本的 `bash` apk 依赖链（`bash` → `libreadline.so.8` → `libncursesw.so.6`，附 terminfo-base；shell 工具通过世界的 subprocess 缝组合 `bash -c` 与常驻交互 bash，而 busybox 没有 bash applet）、编译静态 musl guest agent（`guest/`），并把 agent 作为 `/init`、模块置于 `/lib/modules`、bash 载荷一并打进 initramfs。缺少资产或 QEMU 二进制不可用时，`openWorld` 闭合失败（`AssetsMissingError`、`QemuSpawnError`），e2e 套件自跳过。
+脚本下载固定版本的 Alpine 3.20.3 minirootfs 与 `linux-virt` 内核 apk（强制校验摘要；apk 内核与 `virtio_blk` 模块同源成对——virt 内核的块设备驱动是模块而非内建），外加固定版本的 `bash` apk 依赖链（`bash` → `libreadline.so.8` → `libncursesw.so.6`，附 terminfo-base；shell 工具通过世界的 subprocess 缝组合 `bash -c` 与常驻交互 bash，而 busybox 没有 bash applet）、编译静态 musl guest agent（`guest/`）与世界内 Landlock 限制包装器，并把 agent 作为 `/init`、包装器作为 `/bin/dsh-vm-confine`、模块置于 `/lib/modules`、bash 载荷一并打进 initramfs。缺少资产或 QEMU 二进制不可用时，`openWorld` 闭合失败（`AssetsMissingError`、`QemuSpawnError`），e2e 套件自跳过。
+
+## 世界内限制后端
+
+启动时 agent 运行一次功能性 Landlock 探测——spawn `/proc/self/exe --landlock-probe`，在那个短命进程里构建并施加一个最大规则集，因为真正施加限制才是唯一诚实的信号——通过后在 `welcome`/`announce` 里宣告 `landlock` 能力；世界描述符把该事实呈现为 `guestConfinement: 'landlock'`（否则 `'none'`，sandbox 能力对受限模式 fail-closed）。包装器二进制按同一语义逐次生效：只读根授予执行/读，读写根授予 guest 内核 ABI 可治理的全部访问（固定的 6.6 `virt` 内核启用 `CONFIG_SECURITY_LANDLOCK=y`，ABI 上限为 3），非目录授权只保留文件兼容位（`/dev/null` 授权即如此），无法打开的授权根闭合失败。`@deepseek-ai/dsh-sandbox-vm` 把它组合为 `ctx.sandbox` 的受限模式。
 
 ## 控制协议（v3）
 

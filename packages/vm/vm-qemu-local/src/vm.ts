@@ -565,6 +565,7 @@ export async function openWorld(options: OpenWorldOptions = {}, deps: VmDeps = {
     pid: child.pid,
     provider: 'qemu-local',
     isolation: 'full',
+    guestConfinement: reply.caps.includes('landlock') ? 'landlock' : 'none',
     hostHardened: wrapPath !== undefined,
     readyMs: now() - startedAt,
   }

@@ -1,0 +1,16 @@
+# REAL-composition fixture for the sandbox-vm chain: one world (the stub
+# below), the shared policy service, and the provider under test. The stub
+# world's `$DSH_STUB_GUEST_CONFINEMENT` selects whether it proves the
+# in-guest Landlock backend, so one fixture pins both the wrap and the
+# honest refusal; the QEMU-gated e2e boots the real provider instead.
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: workspace-write
+    workspaceRoot: /workspace
+
+- id: vm
+  name: './stub-world.ts'
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-vm'

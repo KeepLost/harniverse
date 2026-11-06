@@ -3,9 +3,9 @@
  * QEMU-gated e2e driver: boot the execWorld composition with the REAL
  * provider (cordis-real.yml), drive the world's seams with the exact shapes
  * the bash/fs tools compose, and persist the observed facts to
- * `./exec-world-e2e-report.json` for the spec's inspect step. The denial run
- * (DSH_PERMISSION_MODE pinned to a confined mode) asserts the honest
- * sandbox-vm refusal instead.
+ * `./exec-world-e2e-report.json` for the spec's inspect step. The confined
+ * run (DSH_PERMISSION_MODE pinned to a confined mode) composes the in-guest
+ * Landlock backend and asserts both sides of the boundary.
  */
 
 import { writeFile } from 'node:fs/promises'
@@ -46,17 +46,30 @@ try {
     await ctx.fs.writeText(target, 'exec-world round trip\n', undefined, undefined, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     report.fsRoundTrip = await ctx.fs.readText(await ctx.fs.resolve('/workspace/m6-e2e.txt'))
   } else {
-    // The confined run: an explicit mode under the vm world must deny
-    // honestly through sandbox-vm rather than compose host confinement. A
-    // guest session cwd supplies the workspace-write boundary the remote
-    // world requires.
+    // The confined run: an explicit mode under the vm world composes the
+    // in-guest Landlock backend — the wrap carries the guest wrapper, the
+    // write inside the boundary passes, and the write outside it denies
+    // with the EACCES dialect. A guest session cwd supplies the
+    // workspace-write boundary the remote world requires.
     const policy = ctx.get('sandboxPolicy')!.resolve({ session: { header: { cwd: '/workspace' }, events: [], id: 'exec-world-e2e' } as never })
-    try {
-      await ctx.sandbox.confine(['bash', '-c', 'true'], { mode: 'workspace-write', workspaceRoot: policy.workspaceRoot })
-      report.confine = 'unexpectedly-allowed'
-    } catch (error) {
-      report.confine = error instanceof Error ? error.message : String(error)
+    const confined = await ctx.sandbox.confine(['bash', '-c', 'true'], { mode: 'workspace-write', workspaceRoot: policy.workspaceRoot })
+    report.confineArgv = confined.argv
+    const wrap = async (command: string): Promise<string[]> => {
+      const wrapped = await ctx.sandbox.confine(['bash', '-c', command], { mode: 'workspace-write', workspaceRoot: policy.workspaceRoot })
+      return wrapped.argv
     }
+    const run = async (command: string) => {
+      const spawned = ctx.subprocess.spawn({
+        argv: await wrap(command),
+        cwd: '/workspace',
+        graceMs: 10_000,
+        stdio: { stdin: 'ignore', stdout: { maxBytes: 4096 }, stderr: { maxBytes: 4096 } },
+      })
+      const outcome = await spawned.done
+      return { code: outcome.exitCode, stderr: spawned.collected.stderr?.readFrom(0).text ?? '' }
+    }
+    report.confineInside = await run('echo x > /workspace/m6-confined-ok.txt')
+    report.confineOutside = await run('echo x > /etc/m6-confined-deny')
     report.resolvedMode = policy.mode
   }
 
