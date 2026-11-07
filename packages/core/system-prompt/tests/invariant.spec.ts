@@ -19,10 +19,12 @@ const valid = (): PromptAssembly => ({
 })
 
 async function assemble(ctx: Context, result: PromptAssembly): Promise<PromptAssembly> {
+  // The event name is not declared on the test context, so the rc.11
+  // waterfall overload resolves to any; the callback pins the real result.
   return ctx.waterfall(
     ctx as never, 'system-prompt/assemble', valid(), {},
     () => Promise.resolve(result),
-  )
+  ) as PromptAssembly
 }
 
 describe('system-prompt invariants', () => {
