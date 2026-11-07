@@ -25,6 +25,7 @@ import type {
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
+import { hostWorkspaceRootFromEnv, mapSessionCwdToWorld } from '@deepseek-ai/dsh-vm'
 import type { EgressRequest, ExecHandle, ExecOptions, VmWorld } from '@deepseek-ai/dsh-vm'
 import type { UserQuestionService } from '@deepseek-ai/dsh-user-questions'
 
@@ -194,14 +195,33 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
     return path
   }
 
+  /**
+   * Translate a session cwd into a world path: under the anchored host
+   * workspace root it maps into `/workspace`, world-absolute cwds pass
+   * through, and any other host path fails closed with the mapping
+   * diagnosis. Without an anchor the cwd passes through unchanged.
+   * @param cwd - the spawn's requested working directory, when one applies.
+   * @returns the in-world cwd, or undefined when none was given.
+   */
+  private mapWorldCwd(cwd: string | undefined): string | undefined {
+    if (cwd === undefined) return undefined
+    const result = mapSessionCwdToWorld(cwd, hostWorkspaceRootFromEnv(process.env))
+    if (result.kind === 'world') return result.path
+    throw new Error(
+      `subprocess-vm: session cwd "${result.cwd}" is outside the host workspace root "${result.hostRoot}"; `
+        + 'the vm world can only honor sessions inside it (in-world root /workspace)',
+    )
+  }
+
   override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     this.lifetime.signal.throwIfAborted()
     const egress = this.bindEgressOrigin(spec.signal)
     let pid = -1
     let termination: Promise<void> | undefined
     const env = worldEnv(spec.env)
+    const cwd = this.mapWorldCwd(spec.cwd)
     const started = this.world.spawn([...spec.argv], {
-      cwd: spec.cwd,
+      ...cwd === undefined ? {} : { cwd },
       ...(env === undefined ? {} : { env }),
       ...(egress === undefined ? {} : { origin: egress.origin }),
     })
@@ -373,8 +393,9 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
     const egress = this.bindEgressOrigin(spec.signal)
     const env = worldEnv(spec.env) ?? {}
     env.TERM = spec.term ?? 'dumb'
+    const spawnCwd = this.mapWorldCwd(spec.cwd)
     const spawnStarted = this.world.spawn([...spec.argv], {
-      cwd: spec.cwd,
+      ...(spawnCwd === undefined ? {} : { cwd: spawnCwd }),
       env,
       pty: { rows: spec.rows, cols: spec.cols },
       ...(egress === undefined ? {} : { origin: egress.origin }),

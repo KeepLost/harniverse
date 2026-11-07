@@ -45,6 +45,46 @@ try {
     // policy a session with a guest cwd supplies.
     await ctx.fs.writeText(target, 'exec-world round trip\n', undefined, undefined, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     report.fsRoundTrip = await ctx.fs.readText(await ctx.fs.resolve('/workspace/m6-e2e.txt'))
+
+    // The session-cwd mapping: a host cwd under the boot anchor (this
+    // driver's launch directory) runs in-world at /workspace/<rel>, and a
+    // host cwd outside the anchor fails closed with the mapping diagnosis.
+    const anchor = process.env.DSH_VM_HOST_WORKSPACE_ROOT
+    if (anchor !== undefined) {
+      const prep = await (async () => {
+        const spawned = ctx.subprocess.spawn({
+          argv: ['bash', '-c', 'mkdir -p /workspace/nested'],
+          cwd: '/workspace',
+          graceMs: 5_000,
+          stdio: { stdin: 'ignore', stdout: { maxBytes: 4096 }, stderr: { maxBytes: 4096 } },
+        })
+        return (await spawned.done).exitCode
+      })().catch(() => -1)
+      const mapped = prep === 0
+        ? await (async () => {
+          const spawned = ctx.subprocess.spawn({
+            argv: ['bash', '-c', 'printf "%s" "$PWD"'],
+            cwd: `${anchor}/nested`,
+            graceMs: 5_000,
+            stdio: { stdin: 'ignore', stdout: { maxBytes: 4096 }, stderr: { maxBytes: 4096 } },
+          })
+          const outcome = await spawned.done
+          return { code: outcome.exitCode, pwd: spawned.collected.stdout?.readFrom(0).text }
+        })().catch((error: unknown) => ({ code: -1, pwd: `error: ${error instanceof Error ? error.message : String(error)}` }))
+        : { code: prep, pwd: 'prep failed' }
+      report.cwdMappedPwd = mapped
+      const foreign = await (async () => {
+        const spawned = ctx.subprocess.spawn({
+          argv: ['bash', '-c', 'true'],
+          cwd: '/definitely-outside-the-anchor',
+          graceMs: 5_000,
+          stdio: { stdin: 'ignore', stdout: { maxBytes: 4096 }, stderr: { maxBytes: 4096 } },
+        })
+        await spawned.done
+        return 'spawned'
+      })().catch((error: unknown) => `error: ${error instanceof Error ? error.message : String(error)}`.split('\n')[0])
+      report.cwdForeign = foreign
+    }
   } else {
     // The confined run: an explicit mode under the vm world composes the
     // in-guest Landlock backend — the wrap carries the guest wrapper, the

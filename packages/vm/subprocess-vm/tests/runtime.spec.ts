@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
-import { VmWorld } from '@deepseek-ai/dsh-vm'
+import { HOST_WORKSPACE_ROOT_ENV, VmWorld } from '@deepseek-ai/dsh-vm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import type { CollectExecOptions, EgressPolicy, EgressRequest, ExecExit, ExecHandle, ExecOptions, ExecOutputListener, ExecResult, VmWorldDescriptor, VmWorldExit, VmWorldFs } from '@deepseek-ai/dsh-vm'
@@ -210,6 +210,26 @@ describe('VmSubprocessRuntime', () => {
     expect(spawned.collected.stderr!.readFrom(0)).toMatchObject({ text: 'warn', lossy: false })
     handle.settleExit({ code: 0, signal: null })
     await expect(spawned.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await ctx.fiber.dispose()
+  })
+
+  it('maps an anchored session cwd into the world and fails closed outside it', async () => {
+    const { ctx, world } = await setup()
+    vi.stubEnv(HOST_WORKSPACE_ROOT_ENV, '/host/ws')
+    try {
+      const handle = new FakeExecHandle(312)
+      world.spawnQueue.push(Promise.resolve(handle))
+      const spawned = ctx.subprocess.spawn({ argv: ['pwd'], cwd: '/host/ws/nested', graceMs: 1_000, stdio: { stdin: 'ignore', stdout: { maxBytes: 64 }, stderr: { maxBytes: 64 } } })
+      await new Promise((resolve) => { setImmediate(resolve) })
+      expect(spawned.pid).toBe(312)
+      expect(world.spawnCalls[0]?.options?.cwd).toBe('/workspace/nested')
+      handle.settleExit({ code: 0, signal: null })
+      await expect(spawned.done).resolves.toEqual({ exitCode: 0, signal: null })
+      expect(() => ctx.subprocess.spawn({ argv: ['pwd'], cwd: '/tmp/build', graceMs: 1_000, stdio: { stdin: 'ignore', stdout: { maxBytes: 64 }, stderr: { maxBytes: 64 } } }))
+        .toThrow(/outside the host workspace root "\/host\/ws"/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
     await ctx.fiber.dispose()
   })
 

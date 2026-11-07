@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyExecWorldBootEnv, EXEC_WORLD_ENV } from '../src/index.ts'
+import { HOST_WORKSPACE_ROOT_ENV } from '@deepseek-ai/dsh-vm'
 import type { ExecWorldAvailability } from '@deepseek-ai/dsh-vm'
 
 const homes: string[] = []
@@ -35,6 +36,7 @@ describe('applyExecWorldBootEnv', () => {
     const notices: string[] = []
     applyExecWorldBootEnv({ env, home: seededHome('exec-world:\n  world: vm\n'), probe: () => healthy, warn: line => notices.push(line) })
     expect(env[EXEC_WORLD_ENV]).toBe('vm')
+    expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe(process.cwd())
     expect(notices).toEqual([])
   })
 
@@ -51,6 +53,11 @@ describe('applyExecWorldBootEnv', () => {
     const explicit: Record<string, string | undefined> = { [EXEC_WORLD_ENV]: 'local' }
     applyExecWorldBootEnv({ env: explicit, home, probe: () => healthy })
     expect(explicit[EXEC_WORLD_ENV]).toBe('local')
+    expect(explicit[HOST_WORKSPACE_ROOT_ENV]).toBeUndefined()
+    const explicitVm: Record<string, string | undefined> = { [EXEC_WORLD_ENV]: 'vm' }
+    applyExecWorldBootEnv({ env: explicitVm, home, probe: () => healthy })
+    expect(explicitVm[EXEC_WORLD_ENV]).toBe('vm')
+    expect(explicitVm[HOST_WORKSPACE_ROOT_ENV]).toBe(process.cwd())
     const blank: Record<string, string | undefined> = { [EXEC_WORLD_ENV]: '  ' }
     applyExecWorldBootEnv({ env: blank, home, probe: () => healthy })
     expect(blank[EXEC_WORLD_ENV]).toBe('vm')

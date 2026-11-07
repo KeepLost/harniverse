@@ -23,7 +23,7 @@ import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '
 import Group from '@deepseek-ai/cordis-plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { resolveShellBackend, SHELL_BACKEND_ENV, type ShellBackendPreference } from '@deepseek-ai/dsh-shell'
-import { EXEC_WORLD_ENV, resolveExecWorld, type ExecWorldAvailability, type ExecWorldPreference } from '@deepseek-ai/dsh-vm'
+import { EXEC_WORLD_ENV, HOST_WORKSPACE_ROOT_ENV, resolveExecWorld, type ExecWorldAvailability, type ExecWorldPreference } from '@deepseek-ai/dsh-vm'
 import { probeWorld } from '@deepseek-ai/dsh-vm-qemu-local'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-hmr-coordination'
@@ -806,7 +806,10 @@ function probeQemuWorld(): ExecWorldAvailability {
 export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): void {
   const env = options.env ?? process.env
   const explicit = env[EXEC_WORLD_ENV]
-  if (explicit !== undefined && explicit.trim().length > 0) return
+  if (explicit !== undefined && explicit.trim().length > 0) {
+    if (explicit === 'vm') anchorHostWorkspaceRoot(env)
+    return
+  }
   const preference = readStoredExecWorld(options.home ?? resolveDshHome())
   if (preference !== 'vm') {
     env[EXEC_WORLD_ENV] = 'local'
@@ -819,6 +822,17 @@ export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): vo
     )
   }
   env[EXEC_WORLD_ENV] = world
+  if (world === 'vm') anchorHostWorkspaceRoot(env)
+}
+
+/**
+ * Record the host workspace root (the launch directory) for the vm world's
+ * session-cwd mapping: vm providers translate session cwds under this anchor
+ * into the in-world `/workspace` and fail closed on host paths outside it.
+ * @param env - the environment mapping receiving the anchor.
+ */
+function anchorHostWorkspaceRoot(env: Record<string, string | undefined>): void {
+  env[HOST_WORKSPACE_ROOT_ENV] = process.cwd()
 }
 
 /**

@@ -17,6 +17,7 @@ Indirectly, through `dsh-tool-bash` 与终端消费方，它们渲染本世界 p
 ## Known Limitations and Deferred Work
 
 - **宿主环境不继承入世界** —— `ambientEnv` 在此不选择任何东西（`env` 省略时，世界自身的环境就是 guest 子进程的基础）；显式 env 整体替换，墓碑以省略体现。
+- **位于引导锚定宿主工作区根**（`DSH_VM_HOST_WORKSPACE_ROOT`，由 app boot 在 vm 世界下设置）**之下的 spawn `cwd` 一一映射到 `/workspace`**；世界绝对路径的 `cwd` 原样通过；其余宿主路径在请求 guest 之前就按映射诊断显式失败。
 - **收集输出不留 spill 文件** —— collect 模式是带损失偏移的内存尾窗；需要全流恢复的消费方留在本地 provider。
 - **信号送达世界代理跟踪的那个子进程，而非进程组** —— 宿主侧没有可信号的树；整树终止等待世界内后端。
 - **终端不能调整尺寸或检查前台组** —— v0 世界代理没有 pty resize 或前台操作；对应方法以明确的不支持错误失败。

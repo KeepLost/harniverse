@@ -19,4 +19,4 @@ No direct invalidation; the named consumers own any request-prefix changes.
 - **Writes are UTF-8 only and preserve no legacy encoding or mode** — a decodable prior file yields its text as the diff basis; an undecodable one yields `before: null`, and the replaced file's mode is the world's default.
 - **`lstat` cannot distinguish a symlink** — the world exposes one stat; path-level trust rules that need `symlink` typing stay on the local provider.
 - **World wire caps bound single operations** — reads and write payloads above the world's cap fail `FS_TOO_LARGE`; large-file support is the data-plane milestone's question.
-- **No world default working directory exists** — relative paths require a caller `cwd`; there is no host `process.cwd()` fallback in a world.
+- **No world default working directory exists** — relative paths require a caller `cwd`; there is no host `process.cwd()` fallback in a world. A caller cwd under the boot-anchored host workspace root (`DSH_VM_HOST_WORKSPACE_ROOT`, set by app boot for the vm world) maps one-to-one into `/workspace`; world-absolute cwds pass through, and any other host path fails closed with the mapping diagnosis.
