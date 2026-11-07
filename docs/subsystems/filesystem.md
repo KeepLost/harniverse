@@ -573,3 +573,71 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 
 Source: [`packages/fs/fs/src/index.ts:60`](../../packages/fs/fs/src/index.ts)
 <!-- END GENERATED cordis-surface -->
+
+<a id="patch-syntax-records"></a>
+## Patch syntax records
+
+[dsh-fs-patch](../../packages/fs/fs-patch/README.md) parses complete patch text into serializable operations whose paths are unresolved strings, and `applyHunks` applies hunks to caller-supplied LF-normalized text, returning complete new text or a structured match failure. The package README owns the pinned parsing and matching rules.
+
+```ts type-equiv
+/** One contiguous update. */
+interface PatchHunk {
+  /** One-based input line containing the marker or first implicit hunk line. */
+  lineNumber: number
+  /** Text following `@@ `, used as a search anchor by the text matcher. */
+  context?: string
+  /** Context and removed lines, without patch prefixes or line endings. */
+  oldLines: string[]
+  /** Context and added lines, without patch prefixes or line endings. */
+  newLines: string[]
+  /** Whether `*** End of File` follows this hunk. */
+  isEndOfFile: boolean
+}
+
+```
+
+```ts type-equiv
+/** Ordered file operation; a move is an update with a destination path. */
+type PatchOperation =
+  | {
+    kind: 'add'
+    path: string
+    lineNumber: number
+    /** Added lines joined with LF, including a final LF for every added line. */
+    content: string
+  }
+  | {
+    kind: 'delete'
+    path: string
+    lineNumber: number
+  }
+  | {
+    kind: 'update'
+    path: string
+    lineNumber: number
+    moveTo?: string
+    hunks: PatchHunk[]
+  }
+```
+
+```ts type-equiv
+/** The first hunk whose anchor or old lines could not be located in the original text. */
+interface HunkApplyFailure {
+  /** One-based line of the failing hunk in the patch input. */
+  hunkLineNumber: number
+  /** The failed anchor or old-content search. */
+  stage: 'context' | 'oldLines'
+  /** Zero-based sequential search cursor; EOF searches override it with the tail candidate. */
+  searchStart: number
+  /** Original anchor or old lines, including any trailing empty line retried without its sentinel. */
+  pattern: string[]
+}
+
+```
+
+```ts type-equiv
+/** Complete new text or a match failure; failures contain no partially updated text. */
+type ApplyHunksResult =
+  | { ok: true; after: string }
+  | { ok: false; failure: HunkApplyFailure }
+```

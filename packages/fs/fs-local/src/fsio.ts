@@ -96,6 +96,9 @@ export interface FsIoInternals {
   tempName?: (writePath: string) => string
   /** Override the Win32 DACL copy boundary. */
   copyFileDacl?: (source: string, destination: string) => Promise<void>
+  /** Whether the published destination already exists; false skips the Win32
+   * DACL copy (a move's source mode is not an existing destination). */
+  existingDestination?: boolean
   /** Override the Win32 security-preserving replacement boundary. */
   replaceFile?: (replaced: string, replacement: string) => Promise<void>
   /** Override the hard-link no-replace publication boundary. */
@@ -108,6 +111,26 @@ export interface FsIoInternals {
   inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
   /** Test hook after raw-read stat preflight and before bounded content I/O. */
   inspectReadBytesAfterStat?: (target: LocalTarget) => void | Promise<void>
+  /** Override source removal for fault-injection coverage of delete and move tails. */
+  removeFile?: (absolutePath: string) => Promise<void>
+  /** Observation hook at the last pre-commit checkpoint of a delete or move. */
+  inspectBeforeMutation?: (target: { targetKey: string; displayPath: string }) => void | Promise<void>
+}
+
+/**
+ * Remove one regular file, mapping permission and I/O failures to typed codes.
+ * @param absolutePath - the resolved file to remove.
+ * @param displayPath - the user-facing path quoted in errors.
+ * @param internals - optional source-removal fault injection; omission uses non-recursive rm.
+ * @returns once removal completes; permission and other failures use filesystem error codes.
+ */
+export async function removeFile(absolutePath: string, displayPath: string, internals: FsIoInternals = {}): Promise<void> {
+  try {
+    await (internals.removeFile ?? rm)(absolutePath)
+  } catch (error: unknown) {
+    throw new FsError(`cannot delete "${displayPath}": ${errorMessage(error)}`,
+      isPermissionError(error) ? 'FS_PERMISSION_DENIED' : 'FS_IO_ERROR', { cause: error })
+  }
 }
 
 /** A resolved local path: the absolute path shown to callers and its realpath identity. */
@@ -781,7 +804,7 @@ export async function writeFileAtomicBytes(
 
     handle = await open(tempPath, 'wx', 0o600)
     await handle.chmod(0o600)
-    if (platform === 'win32' && mode !== undefined) {
+    if (platform === 'win32' && mode !== undefined && (internals.existingDestination ?? true)) {
       await copyFileDacl(absolutePath, tempPath)
     }
     await handle.writeFile(bytes, { ...signal ? { signal } : {} })
@@ -798,7 +821,7 @@ export async function writeFileAtomicBytes(
       } catch (error: unknown) {
         await throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget)
       }
-    } else if (platform === 'win32' && mode !== undefined) {
+    } else if (platform === 'win32' && mode !== undefined && (internals.existingDestination ?? true)) {
       try {
         await replaceFile(absolutePath, tempPath)
       } catch (error: unknown) {

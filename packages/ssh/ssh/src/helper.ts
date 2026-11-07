@@ -17,7 +17,7 @@ import { SshRpcPeer, SSH_MAX_TEXT_STREAMS } from './protocol.ts'
 import { RemoteProcesses } from './helper-processes.ts'
 import { capturedProfileSchema, describeExecutionWorld } from './world.ts'
 import { loadMachineConfig, MachineRuntime } from './machine.ts'
-import { editSchema, intentSchema, policySchema, remotePath, targetSchema } from './schemas.ts'
+import { editSchema, hunkSchema, intentSchema, moveOptionsSchema, policySchema, remotePath, targetSchema, versionGuardSchema } from './schemas.ts'
 
 /** The helper's stdin/stdout pair plus its entry path and lifetime signal. */
 export interface HelperTransport {
@@ -154,6 +154,32 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
     }
     if (method === 'fs.write') return ctx.fs.writeText(target, z.string().parse(args.content), args.expected as FsWriteIntent | undefined, signal, await policy(args.policy))
     if (method === 'fs.edit') return ctx.fs.editText(target, editSchema.parse(args.edit), args.expected as { version: FsVersion } | undefined, signal, await policy(args.policy))
+    if (method === 'fs.patch') {
+      const input = z.object({
+        target: targetSchema, hunks: z.array(hunkSchema), expected: versionGuardSchema.optional(), policy: policySchema.optional(),
+      }).strict().parse(raw)
+      return ctx.fs.patchText(input.target as FsTarget, input.hunks,
+        input.expected as { version: FsVersion } | undefined, signal, await policy(input.policy))
+    }
+    if (method === 'fs.delete') {
+      const input = z.object({
+        target: targetSchema, expected: versionGuardSchema.optional(), policy: policySchema.optional(),
+      }).strict().parse(raw)
+      return ctx.fs.deleteFile(
+        input.target as FsTarget, input.expected as { version: FsVersion } | undefined, signal, await policy(input.policy),
+      )
+    }
+    if (method === 'fs.move') {
+      const input = z.object({
+        source: targetSchema, destination: targetSchema, options: moveOptionsSchema, policy: policySchema.optional(),
+      }).strict().parse(raw)
+      const { hunks, expectedSource, expectedDestination } = input.options
+      return ctx.fs.moveFile(input.source as FsTarget, input.destination as FsTarget, {
+        ...(hunks === undefined ? {} : { hunks }),
+        ...(expectedSource === undefined ? {} : { expectedSource: { version: expectedSource.version as FsVersion } }),
+        ...(expectedDestination === undefined ? {} : { expectedDestination: expectedDestination as FsWriteIntent }),
+      }, signal, await policy(input.policy))
+    }
     throw new Error(`Unknown SSH helper operation: ${method}`)
   })
   const closed = Promise.withResolvers<void>()

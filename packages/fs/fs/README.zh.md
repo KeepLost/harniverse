@@ -33,6 +33,9 @@
 | `listDir(target, signal?)` | 按稳定名称顺序列出直接子项。返回条目名称、条目类型、解析后的子目标和低成本元数据（若可用则包括 `version`/文件 `size`）；绝不读取文件内容。缺失目标抛出 `FS_NOT_FOUND`，非目录抛出 `FS_NOT_DIRECTORY`，权限失败抛出 `FS_PERMISSION_DENIED`，其他后端 I/O 失败抛出 `FS_IO_ERROR`。损坏/消失的子项可以作为无元数据的 `other` 返回；子项权限/I/O 失败会使用相同结构化代码使整个列表失败。 |
 | `writeText(target, content, expected?, signal?)` | 原子创建/替换。`expected` 是可选的：省略 ⇒ 无条件创建或覆盖；提供 `FsWriteIntent`（`createIfAbsent`/`replaceIfVersion`）⇒ 添加防护。`createIfAbsent` 必须以不替换的方式发布，使初始探测后抢先创建的文件得到保留。 |
 | `editText(target, edit, expected?, signal?)` | 字面量编辑。`expected` 是可选的：省略 ⇒ 无条件编辑当前内容；提供 `{ version }` ⇒ 添加防护，并在匹配之前校验。无论哪种情况，目标缺失都报告 `FS_STALE_VERSION`。应用和写入以原子方式完成，使用同一个变更临界区。 |
+| `patchText(target, hunks, expected?, signal?)` | 原子应用解析后的补丁 hunk（来自 `@deepseek-ai/dsh-fs-patch`）；不匹配的 hunk 报告 `FS_PATCH_MISMATCH`。 |
+| `deleteFile(target, expected?, signal?)` | 删除一个常规文件；返回有界的 LF 基准或 `null`。 |
+| `moveFile(source, destination, options?, signal?)` | 在目标发布（可选打补丁）后删除源；相同目标报告 `FS_SAME_TARGET`，发布后源删除失败以 `sourceDeleted: false` 报告。 |
 
 无论是否有版本防护，变更都在后端的每目标锁内运行，因此无条件写入/编辑仍是原子的；「无条件」只移除*版本*前置条件，不移除原子性。
 

@@ -16,11 +16,15 @@
  */
 
 import { posix } from 'node:path'
+import { applyHunks } from '@deepseek-ai/dsh-fs-patch'
+import type { PatchHunk } from '@deepseek-ai/dsh-fs-patch'
 import { pathToFileURL } from 'node:url'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
+  FsDeleteOutcome,
   FsEditOutcome,
+  FsMoveOutcome,
   FsEditRequest,
   FsErrorCode,
   FsInfo,
@@ -90,6 +94,8 @@ export class VmFileSystem extends FileSystem {
   static inject = ['vm', 'sandboxPolicy']
   private readonly locks = new Map<string, Promise<unknown>>()
   private tempCounter = 0
+  /** Bound for the move/delete contextual-diff basis, matching the local backend's default. */
+  private static readonly DIFF_BASIS_MAX_BYTES = 1024 * 1024
 
   override get sandboxMode(): SandboxMode {
     return this.ctx.sandboxPolicy.defaultMode
@@ -324,6 +330,188 @@ export class VmFileSystem extends FileSystem {
       const version = after === undefined ? FsVersion(`missing:${String(target.targetKey)}`) : versionOf(after)
       return { version, before: original, after: edited }
     }))
+  }
+
+  /**
+   * Apply parsed hunks inside the world under the host-checked policy.
+   * @param target - resolved world target.
+   * @param hunks - ordered hunks from `parsePatch`.
+   * @param expected - the version guard for the patch; omit for unconditional.
+   * @param signal - aborts before the world write; a completed patch is not rolled back.
+   * @param policy - the per-call sandbox policy; omit to resolve the deployment default.
+   * @returns the edit outcome with LF-normalized before/after text.
+   */
+  override async patchText(
+    target: FsTarget,
+    hunks: readonly PatchHunk[],
+    expected?: { version: FsVersion },
+    signal?: AbortSignal,
+    policy?: SandboxExecutionPolicy,
+  ): Promise<FsEditOutcome> {
+    return this.withLock(this.processPath(target), () => this.wrap(target.displayPath, async () => {
+      await this.requireFile(target, expected, 'patch', policy)
+      if (signal?.aborted) throw new FsError('patch aborted', 'FS_ABORTED')
+      const bytes = await this.fs.readFile(this.processPath(target))
+      const original = lf(decodeUtf8(bytes, target.displayPath).text)
+      const after = this.patchContent(target, original, hunks)
+      await this.writeAtomic(target, Buffer.from(after, 'utf8'), signal)
+      const probed = await this.statInside(target)
+      /* v8 ignore next 2 -- same concurrent-unlink window as the write path. */
+      const version = probed === undefined ? FsVersion(`missing:${String(target.targetKey)}`) : versionOf(probed)
+      return { version, before: original, after }
+    }))
+  }
+
+  /**
+   * Remove one file inside the world under the host-checked policy.
+   * @param target - resolved world target.
+   * @param expected - the version guard for the removal; omit for unconditional.
+   * @param signal - aborts before the world unlink.
+   * @param policy - the per-call sandbox policy; omit to resolve the deployment default.
+   * @returns the bounded LF-normalized removed text, or null when no basis is available.
+   */
+  override async deleteFile(
+    target: FsTarget,
+    expected?: { version: FsVersion },
+    signal?: AbortSignal,
+    policy?: SandboxExecutionPolicy,
+  ): Promise<FsDeleteOutcome> {
+    return this.withLock(this.processPath(target), () => this.wrap(target.displayPath, async () => {
+      await this.requireFile(target, expected, 'delete', policy)
+      if (signal?.aborted) throw new FsError('delete aborted', 'FS_ABORTED')
+      const before = await this.diffBasis(target)
+      /* v8 ignore next 1 -- the pre-read checkpoint already observed this signal's state. */
+      if (signal?.aborted) throw new FsError('delete aborted', 'FS_ABORTED')
+      await this.fs.unlink(this.processPath(target))
+      return { before }
+    }))
+  }
+
+  /**
+   * Publish, optionally patched, at a world destination, then remove the source.
+   * Both paths are fenced; identical paths report `FS_SAME_TARGET`.
+   * @param source - resolved world source.
+   * @param destination - resolved world destination.
+   * @param options - optional hunks and the source/destination guards.
+   * @param signal - checked before destination staging; the commit then completes both effects.
+   * @param policy - the per-call sandbox policy; omit to resolve the deployment default.
+   * @returns the source basis, the destination outcome, and the source-removal status.
+   */
+  override async moveFile(
+    source: FsTarget,
+    destination: FsTarget,
+    options: {
+      hunks?: readonly PatchHunk[]
+      expectedSource?: { version: FsVersion }
+      expectedDestination?: FsWriteIntent
+    },
+    signal?: AbortSignal,
+    policy?: SandboxExecutionPolicy,
+  ): Promise<FsMoveOutcome> {
+    if (source.targetKey === destination.targetKey) {
+      throw new FsError(`cannot move "${source.displayPath}" to itself`, 'FS_SAME_TARGET')
+    }
+    const keys = [...new Set([this.processPath(source), this.processPath(destination)])].sort()
+    const run = (index: number): Promise<FsMoveOutcome> => {
+      const key = keys[index]
+      return key === undefined
+        ? this.moveFileLocked(source, destination, options, signal, policy)
+        : this.withLock(key, () => run(index + 1))
+    }
+    return run(0)
+  }
+
+  private async moveFileLocked(
+    source: FsTarget,
+    destination: FsTarget,
+    options: {
+      hunks?: readonly PatchHunk[]
+      expectedSource?: { version: FsVersion }
+      expectedDestination?: FsWriteIntent
+    },
+    signal?: AbortSignal,
+    policy?: SandboxExecutionPolicy,
+  ): Promise<FsMoveOutcome> {
+    return this.wrap(source.displayPath, async () => {
+      await this.requireFile(source, options.expectedSource, 'move', policy)
+      const existing = await this.statInside(destination)
+      if (existing !== undefined && existing.kind !== 'file') {
+        throw new FsError(`cannot write "${destination.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+      }
+      if (options.expectedDestination?.kind === 'replaceIfVersion') {
+        if (existing === undefined) {
+          throw new FsError(`cannot write "${destination.displayPath}": file no longer exists`, 'FS_STALE_VERSION')
+        }
+        if (versionOf(existing) !== options.expectedDestination.version) {
+          throw new FsError(`cannot write "${destination.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
+        }
+      } else if (options.expectedDestination?.kind === 'createIfAbsent' && existing !== undefined) {
+        throw new FsError(`cannot overwrite existing "${destination.displayPath}" without reading it first`, 'FS_NOT_OBSERVED')
+      }
+      if (signal?.aborted) throw new FsError('move aborted', 'FS_ABORTED')
+      const bytes = await this.fs.readFile(this.processPath(source))
+      const original = lf(decodeUtf8(bytes, source.displayPath).text)
+      const after = options.hunks === undefined ? original : this.patchContent(source, original, options.hunks)
+      // The destination basis only matters when the published text itself fits
+      // the diff budget; an over-limit move cannot pair with a bounded before.
+      const before = existing !== undefined && Buffer.byteLength(after, 'utf8') < VmFileSystem.DIFF_BASIS_MAX_BYTES
+        ? await this.diffBasis(destination)
+        : null
+      /* v8 ignore next 1 -- the pre-read checkpoint already observed this signal's state. */
+      if (signal?.aborted) throw new FsError('move aborted', 'FS_ABORTED')
+      // After this checkpoint, complete both effects and report them even if cancellation arrives.
+      await this.writeAtomic(destination, Buffer.from(after, 'utf8'), undefined)
+      const probed = await this.statInside(destination)
+      /* v8 ignore next 2 -- same concurrent-unlink window as the write path. */
+      const version = probed === undefined ? FsVersion(`missing:${String(destination.targetKey)}`) : versionOf(probed)
+      const outcome: FsWriteOutcome = {
+        operation: existing !== undefined ? 'update' : 'create',
+        version,
+        before,
+        after: lf(after),
+      }
+      /* v8 ignore next 1 -- the world's 16 KiB write cap sits far below the 1 MiB basis bound. */
+      const sourceBefore = Buffer.byteLength(original, 'utf8') < VmFileSystem.DIFF_BASIS_MAX_BYTES ? original : null
+      try {
+        await this.fs.unlink(this.processPath(source))
+      } catch (error) {
+        // Map the raw guest failure exactly as wrap would, so a typed removal
+        // failure becomes a reported partial move; anything else still rejects.
+        /* v8 ignore next 2 -- an FsError-class or non-object unlink throw cannot arise from the world seam. */
+        const failure = error instanceof FsError ? error
+          : error instanceof GuestFsError
+            ? new FsError(`"${source.displayPath}": ${error.message}`, ERROR_CODES[error.code] ?? 'FS_IO_ERROR', { cause: error })
+            : undefined
+        /* v8 ignore next 1 -- non-object unlink throws cannot arise from the world seam. */
+        if (failure === undefined) throw error
+        return { sourceBefore, destination: outcome, sourceDeleted: false, sourceFailure: { code: failure.code, message: failure.message } }
+      }
+      return { sourceBefore, destination: outcome, sourceDeleted: true }
+    })
+  }
+
+  private patchContent(target: FsTarget, before: string, hunks: readonly PatchHunk[]): string {
+    const result = applyHunks(before, hunks)
+    if (!result.ok) {
+      throw new FsError(`cannot patch "${target.displayPath}": hunk at patch line ${result.failure.hunkLineNumber} (${result.failure.stage}) does not match`, 'FS_PATCH_MISMATCH')
+    }
+    return result.after
+  }
+
+  private async requireFile(
+    target: FsTarget,
+    expected: { version: FsVersion } | undefined,
+    verb: string,
+    policy?: SandboxExecutionPolicy,
+  ): Promise<GuestStat> {
+    this.enforcePolicy(target, policy ?? this.ctx.sandboxPolicy.resolve())
+    const existing = await this.statInside(target)
+    if (existing === undefined) throw new FsError(`cannot ${verb} "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
+    if (existing.kind !== 'file') throw new FsError(`cannot ${verb} "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+    if (expected !== undefined && versionOf(existing) !== expected.version) {
+      throw new FsError(`cannot ${verb} "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
+    }
+    return existing
   }
 
   /** Policy is host-checked: the world's agent has no enforcement of its own. */

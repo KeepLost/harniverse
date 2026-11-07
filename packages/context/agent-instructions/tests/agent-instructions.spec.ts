@@ -10,10 +10,13 @@ import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionE
 import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
+import type { PatchHunk } from '@deepseek-ai/dsh-fs-patch'
 import type {
+  FsDeleteOutcome,
   FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
+  FsMoveOutcome,
   FsInfo,
   FsPathInfo,
   FsTarget,
@@ -157,6 +160,18 @@ class RecordingFileSystem extends FileSystem {
 
   override async editText(_target: FsTarget, _edit: FsEditRequest): Promise<FsEditOutcome> {
     return { version: FsVersion('unused'), before: '', after: '' }
+  }
+
+  override async patchText(_target: FsTarget, _hunks: readonly PatchHunk[]): Promise<FsEditOutcome> {
+    return { version: FsVersion('unused'), before: '', after: '' }
+  }
+
+  override async deleteFile(_target: FsTarget): Promise<FsDeleteOutcome> {
+    return { before: null }
+  }
+
+  override async moveFile(_source: FsTarget, _destination: FsTarget): Promise<FsMoveOutcome> {
+    throw new Error('unused')
   }
 }
 

@@ -10,6 +10,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { applyReadTool, READ_LIMIT } from './read.ts'
 import { applyWriteTool } from './write.ts'
+import { applyApplyPatchTool } from './apply-patch.ts'
 import { applyEditTool } from './edit.ts'
 import { applyReadImageTool } from './read-image.ts'
 import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
@@ -29,12 +30,15 @@ export interface Config {
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number
+  /** Register `apply_patch` and its guidance beside `edit`. Defaults to false; shipped compositions set it on their `tool-fs` rows. */
+  applyPatch?: boolean
 }
 
 export const Config: z<Config> = z.object({
   readLimit: z.number().default(READ_LIMIT),
   readMaxLineLength: z.number().default(READ_MAX_LINE_LENGTH),
   readMaxBytes: z.number().default(READ_MAX_BYTES),
+  applyPatch: z.boolean().default(false),
 })
 
 /** The shape after schemastery applied the defaults. */
@@ -71,4 +75,5 @@ export function apply(ctx: Context, config: Config): void {
   const sandbox = new FsSandboxController(ctx)
   applyWriteTool(ctx, sandbox)
   applyEditTool(ctx, sandbox)
+  if (resolved.applyPatch) applyApplyPatchTool(ctx, sandbox)
 }

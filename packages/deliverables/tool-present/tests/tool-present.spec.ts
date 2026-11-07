@@ -334,6 +334,9 @@ describe('dsh-tool-present', () => {
       override async listDir(): Promise<never[]> { throw new Error('unused') }
       override async writeText(): Promise<never> { throw new Error('unused') }
       override async editText(): Promise<never> { throw new Error('unused') }
+      override async patchText(): Promise<never> { throw new Error('unused') }
+      override async deleteFile(): Promise<never> { throw new Error('unused') }
+      override async moveFile(): Promise<never> { throw new Error('unused') }
     }
     const ctx = await setup({ config: { maxFiles: 1 }, fs: probe })
 
