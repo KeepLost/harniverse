@@ -1061,15 +1061,15 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
     },
     "objective": {
       "type": "string",
-      "description": "Replacement objective; valid only with action edit."
+      "description": "Replacement objective; applied only by action edit."
     },
     "max_goal_rounds": {
       "type": "number",
-      "description": "Replacement cap; valid only with action edit."
+      "description": "Replacement cap; applied only by action edit."
     },
     "blocked_reason": {
       "type": "string",
-      "description": "Concrete blocking condition; required only with action blocked."
+      "description": "Concrete blocking condition; required with action blocked and ignored by other actions."
     }
   },
   "required": [

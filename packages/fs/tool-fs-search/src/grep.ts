@@ -81,20 +81,23 @@ function validateInclude(include: string): void {
 /**
  * Validate value constraints the schema DSL can't express: a non-EMPTY
  * `pattern` (whitespace is a legitimate regex), a non-blank `path` when given,
- * and a single positive `include` glob ({@link GrepInput}). Throws a plain
+ * and a single positive `include` glob ({@link GrepInput}). An exactly empty
+ * `include` counts as omitted — models echo optional fields they did not
+ * mean — while a whitespace-only filter stays invalid. Throws a plain
  * `Error` (an ordinary tool argument error) otherwise.
  *
  * @param args - the schema-validated `grep` arguments.
- * @returns the accepted input, unchanged.
+ * @returns the accepted input; an empty `include` becomes `undefined`.
  */
 export function parseGrepArgs(args: { pattern: string; path?: string; include?: string }): GrepInput {
   if (args.pattern.length === 0) throw new Error('pattern must be a non-empty string')
   if (args.path !== undefined && args.path.trim().length === 0) throw new Error('path must be a non-empty string when given')
-  if (args.include !== undefined) validateInclude(args.include)
+  const include = args.include === '' ? undefined : args.include
+  if (include !== undefined) validateInclude(include)
   return {
     pattern: args.pattern,
     ...args.path !== undefined ? { path: args.path } : {},
-    ...args.include !== undefined ? { include: args.include } : {},
+    ...include !== undefined ? { include } : {},
   }
 }
 

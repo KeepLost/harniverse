@@ -8,7 +8,7 @@
 
 - `get_goal()` 返回当前 goal 或 `null`，包括比较并设置 id／revision、持久 phase、Goal Round 的已准入数／上限、任何 blocker reason，以及当前进程本地续行启用状态。
 - `create_goal(objective, max_goal_rounds?)` 根据人类直接发起的顶层轮次创建一个 goal。模型可以推断长期运行的 goal 意图，而无需精确命令短语；非人类轮次和 subagent 会在执行时被拒绝。
-- `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` 支持 `edit`、`pause`、`resume`、`complete` 和 `blocked`。替换值只属于 `edit`；`blocked_reason` 只有在 action 为 `blocked` 时才必填，并以稳定代码 `model-reported` 持久化。严格 schema 下的空字符串和零填充值视为省略，而有意义的值仍限定到各自 action。
+- `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` 支持 `edit`、`pause`、`resume`、`complete` 和 `blocked`。替换值只属于 `edit`；`blocked_reason` 只有在 action 为 `blocked` 时才必填，并以稳定代码 `model-reported` 持久化。未被所选 action 使用的字段无论取值一律忽略，因此回显的填充值不会导致调用失败。
 
 所有调用都互斥，因此模型排序的批次能观察到更早变更及其新 revision。UI 客户端会收到纯通用卡片：`get_goal` 使用 read，变更使用 other。变更卡片选择第一个有意义的 action 值，否则显示 goal id，因此已接受的填充值绝不会产生空输入。
 

@@ -201,7 +201,14 @@ export class HttpFetchProvider implements WebFetchProvider {
       throw error
     }
     const { bytes, truncatedByBytes } = await this.readCapped(response, signal)
-    const decoded = decoder.decode(bytes)
+    let decoded: string
+    try {
+      decoded = decoder.decode(bytes)
+    } catch (error: unknown) {
+      // Only the fatal UTF-8-recovery decoder throws; keep the structured
+      // content-type failure surface and the underlying decoding error.
+      throw new WebError(`invalid ${decoder.encoding} bytes in the response body`, 'WEB_UNSUPPORTED_CONTENT_TYPE', { cause: error })
+    }
     const truncatedByChars = decoded.length > this.limits.maxBodyChars
     const content = truncatedByChars ? decoded.slice(0, this.limits.maxBodyChars) : decoded
     const body: WebFetchBody = kind === 'html' ? { kind: 'html', content } : { kind: 'text', content }

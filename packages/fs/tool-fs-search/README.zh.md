@@ -38,7 +38,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 | 工具 | 参数 | 行为 |
 |---|---|---|
 | `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录**搜索根；省略时使用解析后的工作目录。每行返回一个**文件**路径；`rg --files` 从不输出目录条目。pattern 保留 ripgrep 语义：不含 `/` 时匹配任意深度的基名，因此 `*` 匹配整棵树。完整结果保持按修改时间排序；超过上限时的呈现方式遵循 `sampleOverCapGlobResults`。 |
-| `grep` | `pattern`、`path?`、`include?` | 使用以 NUL 分隔路径和行号字段的逐行 ripgrep 输出（不会产生冒号或换行歧义），并通过 `--max-columns` / `--max-columns-preview` 在生产端限制匹配行。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录**目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
+| `grep` | `pattern`、`path?`、`include?` | 使用以 NUL 分隔路径和行号字段的逐行 ripgrep 输出（不会产生冒号或换行歧义），并通过 `--max-columns` / `--max-columns-preview` 在生产端限制匹配行。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录**目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替；恰好为空的值视为省略。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
 
 常规预算不进入面向模型的 schema（没有 `head_limit`/`offset`/`case_insensitive`/输出模式）：模型需要周边上下文时，用 `read` 读取匹配文件。对于截断行，以报告的行号作为 `offset`，再沿同一行的 `line_byte_offset` 游标继续读取；需要后续结果时，遵循返回的 spill locator 检索提示。
 

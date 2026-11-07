@@ -17,6 +17,7 @@ No direct invalidation; the named consumers own any request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **No host environment inherits into the world** — `ambientEnv` selects nothing here (the world's own ambient environment is the base a guest child sees when `env` is omitted); explicit env replaces it entirely, tombstones included by omission.
+- **A spawn `cwd` under the boot-anchored host workspace root** (`DSH_VM_HOST_WORKSPACE_ROOT`, set by app boot for the vm world) maps one-to-one into `/workspace`; world-absolute cwds pass through, and any other host path fails closed with the mapping diagnosis before the guest is asked.
 - **Collected output keeps no spill file** — collect mode is an in-memory tail with lossy offsets; consumers needing whole-stream recovery stay on the local provider.
 - **Signals reach the child the world agent tracks, not a process group** — there is no host-side tree to signal; whole-tree termination waits for an in-guest backend.
 - **Terminals cannot resize or inspect foreground groups** — the v0 world agent exposes no pty resize or foreground operation; those handle methods fail with explicit unsupported errors.

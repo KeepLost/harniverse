@@ -33,7 +33,7 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import { GuestFsError } from '@deepseek-ai/dsh-vm'
+import { GuestFsError, hostWorkspaceRootFromEnv, mapSessionCwdToWorld } from '@deepseek-ai/dsh-vm'
 import type { GuestEntry, GuestStat, VmWorldFs } from '@deepseek-ai/dsh-vm'
 
 /** Guest errno code to the stable filesystem failure code. */
@@ -127,7 +127,7 @@ export class VmFileSystem extends FileSystem {
   override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
     if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     if (!path.startsWith('/')) {
-      const base = opts?.cwd
+      const base = this.mapSessionCwd(opts?.cwd)
       if (base === undefined) {
         throw new FsError('world paths must be absolute (no world default working directory exists); pass a cwd', 'FS_NOT_FOUND')
       }
@@ -135,6 +135,26 @@ export class VmFileSystem extends FileSystem {
     }
     const normalized = posix.normalize(path)
     return { targetKey: FsTargetKey(normalized), displayPath: normalized }
+  }
+
+  /**
+   * Translate a session cwd into a world path: under the anchored host
+   * workspace root it maps into `/workspace`; world-absolute cwds pass
+   * through; a host path outside the anchor fails closed with the mapping
+   * diagnosis instead of an opaque in-world miss. Without an anchor the cwd
+   * passes through unchanged (pre-bridge behavior).
+   * @param cwd - the session's effective directory, when one applies.
+   * @returns the in-world cwd, or undefined when none was given.
+   */
+  private mapSessionCwd(cwd: string | undefined): string | undefined {
+    if (cwd === undefined) return undefined
+    const result = mapSessionCwdToWorld(cwd, hostWorkspaceRootFromEnv(process.env))
+    if (result.kind === 'world') return result.path
+    throw new FsError(
+      `session cwd "${result.cwd}" is outside the host workspace root "${result.hostRoot}"; `
+        + 'the vm world can only honor sessions inside it (in-world root /workspace)',
+      'FS_NOT_FOUND',
+    )
   }
 
   override processPath(target: FsTarget): string {

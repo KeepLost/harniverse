@@ -50,4 +50,4 @@
 
 - **公共地址策略有意保持严格**：主机名只有在每个 DNS 答案都是有效公共地址时才可用，直接请求会把 socket 固定到其中一个已验证答案。唯一的豁免属于运营者：被当前 `no_proxy` 名单显式点名（主机、IP 或 IPv4 CIDR 条目）的目的地保持钉死直连路径，同时放行其私有范围。不会跟随重定向；调用方必须在目标 URL 独立通过 URL 与 DNS 策略后重新抓取。
 - **只解码文本内容**：包括 html/xhtml 与 `text/*` 加 JSON/XML 家族；缺少 `Content-Type` 或任何二进制类型都会抛出 `WEB_UNSUPPORTED_CONTENT_TYPE`，可提取文本的 PDF 解码属于明确的暂缓工作。
-- **charset 只来自 `Content-Type` 标头**（默认为 UTF-8）：HTML `<meta charset>` 声明会被忽略；声明但无法识别的 charset 标签会抛出异常，而非回退。
+- **charset 只来自 `Content-Type` 标头**（默认为 UTF-8）：HTML `<meta charset>` 声明会被忽略；声明但无法识别的 charset 标签会抛出异常，而非回退。畸形的多标签声明只有在其中一个标签表示 UTF-8 时才恢复（fatal 解码器：非法字节以 `WEB_UNSUPPORTED_CONTENT_TYPE` 拒绝而不是产生乱码）；不含 UTF-8 标签的声明仍然不支持。

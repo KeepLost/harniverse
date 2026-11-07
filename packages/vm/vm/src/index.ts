@@ -25,6 +25,8 @@ import type {
 export { ExecOptionsError, ExecOutputLimitError, ExecStartError, GuestFsError } from './errors.ts'
 export { EXEC_WORLD_ENV, resolveExecWorld } from './exec-world.ts'
 export type { ExecWorld, ExecWorldAvailability, ExecWorldPreference } from './exec-world.ts'
+export { HOST_WORKSPACE_ROOT_ENV, WORLD_WORKSPACE_ROOT, hostWorkspaceRootFromEnv, mapSessionCwdToWorld } from './cwd-map.ts'
+export type { WorldCwdResult } from './cwd-map.ts'
 export type {
   CollectExecOptions,
   EgressPolicy,

@@ -16,9 +16,16 @@ const ctx = await boot('exec-world-loader-smoke', resolveConfigPath(configPath, 
 try {
   const described = ctx.settings.describe().find(entry => entry.ns === 'exec-world')
   const toolNames = ctx.tools.schemas().map(tool => tool.name)
+  const fs = ctx.get('fs')
+  const anchor = process.env.DSH_VM_HOST_WORKSPACE_ROOT ?? process.cwd()
+  const cwdMapped = await fs?.resolve('a.ts', { cwd: anchor }).then(target => target.displayPath, (error: unknown) => `error: ${error instanceof Error ? error.message : String(error)}`)
+  const cwdForeign = await fs?.resolve('a.ts', { cwd: '/definitely-outside-the-anchor' }).then(target => target.displayPath, (error: unknown) => `error: ${error instanceof Error ? error.message : String(error)}`)
   await writeFile('./exec-world-loader-report.json', JSON.stringify({
     nsApplies: described?.applies,
     publishedEnv: process.env.DSH_EXEC_WORLD,
+    anchor,
+    cwdMapped,
+    cwdForeign,
     subprocessLocality: ctx.get('subprocess')?.locality,
     fsProvider: ctx.get('fs')?.constructor?.name,
     sandboxProvider: ctx.get('sandbox')?.constructor?.name,

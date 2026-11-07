@@ -161,6 +161,9 @@ describe('policy helpers', () => {
     expect(decoderForCharset(undefined).encoding).toBe('utf-8')
     expect(decoderForCharset('iso-8859-1').encoding).toBe('windows-1252')
     expect(() => decoderForCharset('not-a-charset')).toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
+    expect(decoderForCharset('utf-8,gbk').encoding).toBe('utf-8')
+    expect(decoderForCharset('UTF_8, windows-1252').encoding).toBe('utf-8')
+    expect(() => decoderForCharset('gbk,big5')).toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
   })
 })
 
@@ -365,6 +368,19 @@ describe('HttpFetchProvider caps', () => {
 
   it('rejects an unsupported declared charset', async () => {
     handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain; charset=not-a-charset' }); res.end('x') }
+    await expect(provider().fetch({ url: base }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
+  })
+
+  it('recovers a malformed multi-label declaration that contains UTF-8', async () => {
+    handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8,gbk' }); res.end('ok ©') }
+    const result = await provider().fetch({ url: base })
+    expect(result.body.content).toBe('ok ©')
+  })
+
+  it('rejects invalid UTF-8 bytes under a recovered declaration', async () => {
+    // 0xC2 alone is an incomplete UTF-8 sequence; the recovered decoder is fatal.
+    handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8,gbk' }); res.end(Buffer.from([0x63, 0x61, 0xC2])) }
     await expect(provider().fetch({ url: base }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
   })

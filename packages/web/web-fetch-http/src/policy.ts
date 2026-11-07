@@ -164,11 +164,20 @@ export function parseCharset(contentType: string | null): string | undefined {
   return match?.[1]?.trim().toLowerCase()
 }
 
+/** The WHATWG-encoding-standard labels that all mean UTF-8. */
+const UTF8_LABELS: ReadonlySet<string> = new Set([
+  'unicode-1-1-utf-8', 'unicode11utf8', 'unicode20utf8', 'unicode-2-0-utf-8',
+  'x-unicode20utf8', 'utf-8', 'utf8',
+])
+
 /**
  * Build a `TextDecoder` for the declared charset, falling back to UTF-8 when
- * none is declared. Throws {@link WebError} `WEB_UNSUPPORTED_CONTENT_TYPE` when
- * the label is present but not a charset `TextDecoder` recognizes — better to
- * fail loudly than return mojibake.
+ * none is declared. A label `TextDecoder` rejects as a whole — a malformed
+ * declaration such as `utf-8,gbk` — recovers only when one of its comma- or
+ * whitespace-separated labels means UTF-8 (a fatal decoder, so invalid bytes
+ * surface instead of corrupting the text); any other label throws
+ * {@link WebError} `WEB_UNSUPPORTED_CONTENT_TYPE` — better to fail loudly than
+ * return mojibake.
  *
  * @param charset - the declared charset label (from {@link parseCharset}), or
  *   `undefined` to default to UTF-8.
@@ -179,6 +188,10 @@ export function decoderForCharset(charset: string | undefined): TextDecoder {
   try {
     return new TextDecoder(charset)
   } catch (error: unknown) {
+    const hasUtf8Label = charset
+      .split(/[,\s]+/)
+      .some(label => UTF8_LABELS.has(label.trim().toLowerCase().replaceAll('_', '-')))
+    if (hasUtf8Label) return new TextDecoder('utf-8', { fatal: true })
     throw new WebError(`unsupported charset "${charset}"`, 'WEB_UNSUPPORTED_CONTENT_TYPE', { cause: error })
   }
 }

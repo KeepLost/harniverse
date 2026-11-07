@@ -65,9 +65,10 @@ export function normalizeRedundantEscalation<T extends { sandbox_permissions?: s
 
 /**
  * Validate the escalation argument pairing a tool schema cannot express:
- * `sandbox_permissions` and `justification` travel together — an approval
- * prompt without a reason, or a reason driving nothing, is a malformed ask —
- * and the justification must be a non-empty sentence.
+ * an approval prompt (`sandbox_permissions`) requires its reason, and a
+ * genuine widening request must carry a non-empty sentence. A `justification`
+ * without an escalation drives nothing and is ignored — models echo optional
+ * fields the call does not use.
  * @param sandboxPermissions - the raw `sandbox_permissions` argument, if given.
  * @param justification - the raw `justification` argument, if given.
  */
@@ -75,10 +76,7 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
   if (sandboxPermissions !== undefined && justification === undefined) {
     throw new Error('invalid escalation: sandbox_permissions requires a justification')
   }
-  if (justification !== undefined && sandboxPermissions === undefined) {
-    throw new Error('invalid escalation: justification is only valid together with sandbox_permissions')
-  }
-  if (justification !== undefined && justification.trim().length === 0) {
+  if (sandboxPermissions !== undefined && justification !== undefined && justification.trim().length === 0) {
     throw new Error('invalid justification: expected a non-empty sentence')
   }
 }
