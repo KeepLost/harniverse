@@ -1115,6 +1115,13 @@ describe('grep results', () => {
     expect(text(await call(ctx, 'grep', { pattern: 'x', include: '*.ts,*.js' }))).toContain('comma-separated list')
   })
 
+  it('treats an exact empty include as omitted', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('', { exitCode: 1 })
+    const result = await call(ctx, 'grep', { pattern: 'x', include: '' })
+    expect(result.isError).toBe(false)
+  })
+
   it('accepts a whitespace-only pattern (a legitimate regex) and brace alternation in include', async () => {
     const { ctx, subprocess } = await setup()
     subprocess.handler = () => runResult('', { exitCode: 1 })

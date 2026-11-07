@@ -246,52 +246,37 @@ export function apply(ctx: Context, config: Config): void {
         enum: UPDATE_ACTIONS,
         description: 'edit | pause | resume | complete | blocked',
       },
-      objective: { type: 'string', description: 'Replacement objective; valid only with action edit.' },
-      max_goal_rounds: { type: 'number', description: 'Replacement cap; valid only with action edit.' },
+      objective: { type: 'string', description: 'Replacement objective; applied only by action edit.' },
+      max_goal_rounds: { type: 'number', description: 'Replacement cap; applied only by action edit.' },
       blocked_reason: {
         type: 'string',
-        description: 'Concrete blocking condition; required only with action blocked.',
+        description: 'Concrete blocking condition; required with action blocked and ignored by other actions.',
       },
     },
     output: GOAL_OUTPUT,
     execute(args, exec) {
       const execution = goalToolExecution(ctx, exec)
       const ref = goalRef(args.goal_id, args.revision)
+      // Known fields unused by the selected action are ignored, not rejected:
+      // models echo optional fields, and the unused value cannot alter the
+      // goal operation the action names.
       const replacements = {
         ...hasText(args.objective) ? { objective: args.objective } : {},
         ...hasRoundCap(args.max_goal_rounds) ? { maxGoalRounds: args.max_goal_rounds } : {},
       }
       if (args.action === 'edit') {
         requireDirectHuman(ctx, execution)
-        if (hasText(args.blocked_reason)) {
-          throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
-        }
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
         return Promise.resolve(goalValue(goal))
       }
       if (args.action === 'pause' || args.action === 'resume') {
         requireDirectHuman(ctx, execution)
-        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasText(args.blocked_reason)) {
-          throw new HarnessError(
-            'objective and max_goal_rounds are valid only with action edit; blocked_reason is valid only with action blocked',
-            'GOAL_TOOL_INVALID_UPDATE',
-          )
-        }
         const goal = args.action === 'pause'
           ? ctx.goals.pause(execution.agent, ref)
           : ctx.goals.resume(execution.agent, ref)
         return Promise.resolve(goalValue(goal))
       }
       const authority = completionAuthority(ctx, execution)
-      if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds)) {
-        throw new HarnessError(
-          'objective and max_goal_rounds are valid only with action edit',
-          'GOAL_TOOL_INVALID_UPDATE',
-        )
-      }
-      if (args.action === 'complete' && hasText(args.blocked_reason)) {
-        throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
-      }
       if (args.action === 'blocked'
         && (args.blocked_reason === undefined || args.blocked_reason.trim().length === 0)) {
         throw new HarnessError('blocked_reason is required with action blocked', 'GOAL_TOOL_INVALID_UPDATE')

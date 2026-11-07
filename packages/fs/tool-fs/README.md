@@ -73,7 +73,7 @@ Every request in this plugin's registration scope receives the independently reg
 ##### Read guidance
 
 ```markdown
-Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines. Legacy-encoded files decode automatically; an FS_NOT_TEXT result lists encodings you can pass as encoding to re-read the file.
+Use the read tool — not shell commands like cat, sed, head, or tail — to inspect text files. Use offset and limit to read a line range or continue a large file. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines. Legacy-encoded files decode automatically; an FS_NOT_TEXT result lists encodings you can pass as encoding to re-read the file.
 ```
 
 ##### Write guidance

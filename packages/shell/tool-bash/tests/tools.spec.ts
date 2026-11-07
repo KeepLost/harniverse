@@ -650,11 +650,12 @@ describe('sandbox escalation through the generic task producer', () => {
 
     for (const args of [
       { command: 'true', description: 'd', sandbox_permissions: 'workspace-write' },
-      { command: 'true', description: 'd', justification: 'why' },
       { command: 'true', description: 'd', sandbox_permissions: 'danger-full-access', justification: ' ' },
     ]) {
       expect((await call(ctx, 'bash', args)).isError).toBe(true)
     }
+    // An orphan justification drives nothing and is ignored.
+    expect((await call(ctx, 'bash', { command: 'true', description: 'd', justification: 'why' })).isError).toBe(false)
   })
 
   it('rejects injected escalation without a sandbox and narrower escalation without prompting', async () => {
