@@ -72,25 +72,31 @@ export async function apply(ctx: Context): Promise<void> {
     // backend lands first: the surface's browser half drives the capability
     // the backend registers.
     const ids: string[] = []
-    const unmount = async () => {
+    const unmount = () => {
       for (const id of [...ids].reverse()) {
         // Tree teardown (group.stop) can have removed the entry already;
-        // nothing is left to unmount or await then.
+        // nothing is left to unmount then.
         if (ctx.loader.store[id] === undefined) continue
-        // remove() disposes the entry transactionally, so the chooser's unload
-        // signals completion only after that face quiesced.
-        await ctx.loader.remove(id)
+        // remove() disposes the entry and journals the row removal; the
+        // chooser's own teardown follows from the entry disposal.
+        ctx.loader.remove(id)
       }
     }
     try {
       for (const name of [BACKEND_PACKAGES[backend], SURFACE_PACKAGES[backend]]) {
-        ids.push(await ctx.loader.create({ name }))
+        const id = await ctx.loader.create({ name })
+        ids.push(id)
+        // rc.8 contains import failures inside the group update (logged, no
+        // fiber); detect the fiber-less row here so setup still fails loud.
+        const entry = ctx.loader.resolve(id)
+        if (entry.fiber === undefined) throw new Error(`directory-picker-auto: failed to load ${name}`)
+        await entry.fiber.await()
       }
     } catch (cause) {
       // Setup owns the entries it created until it returns the disposer: leaving
       // the backend mounted would make a retry collide with its own
       // directoryPicker registration.
-      await unmount()
+      unmount()
       throw cause
     }
     return unmount

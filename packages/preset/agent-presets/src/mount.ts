@@ -18,7 +18,7 @@ import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { Include, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import type { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
+import type { EntryChange, EntryTree } from '@deepseek-ai/cordis-plugin-loader'
 import type { CapabilityRuntimeEntry } from '@deepseek-ai/dsh-capabilities'
 import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { PresetMountError, type AgentPreset } from './preset.ts'
@@ -95,21 +95,20 @@ class PresetTree extends Include {
   /**
    * A preset is an input, never a persistence target.
    *
-   * The Loader writes a tree back through this method whenever it decides the
-   * config changed — a plugin self-disposing is enough, and tearing an agent
-   * down disposes its whole subtree. Inherited, that rewrites the preset file
-   * with whatever the dying tree held, which in practice means truncating a
-   * shipped composition to `[]` the first time a session ends. Persisting a
-   * preset is also meaningless: nothing here is user state, and the same file
-   * backs every session that names it.
+   * The Loader journals tree changes through this method whenever it decides
+   * the config changed — a plugin self-disposing is enough, and tearing an
+   * agent down disposes its whole subtree. Inherited, that persists the
+   * change into the preset file with whatever the dying tree held, which in
+   * practice means truncating a shipped composition to `[]` the first time a
+   * session ends. Persisting a preset is also meaningless: nothing here is
+   * user state, and the same file backs every session that names it.
    *
-   * Dropping the write drops the `loader/config-update` the inherited method
-   * emits with it. Nothing observes one for a preset subtree today, and a
-   * future "edit your preset while it runs" flow needs a deliberate
-   * persistence path rather than this method's return.
+   * Dropping the commit drops the journal write and its `loader/config-update`
+   * emission. Nothing observes one for a preset subtree today, and a future
+   * "edit your preset while it runs" flow needs a deliberate persistence path
+   * rather than this method's return.
    */
-  override write(): void {
-  }
+  override commit(_change: EntryChange): void {}
 }
 
 /** One preset composition currently installed under some agent. */
@@ -201,7 +200,7 @@ export function leakedServices(ctx: Context, mount: Fiber): string[] {
        clearing it, so an own symbol always resolves; the guard exists only
        because the store's index signature is optional. */
     if (impl === undefined) continue
-    if (!withinFiber(impl.fiber, mount)) continue
+    if (!withinFiber(impl.ctx.fiber, mount)) continue
     if (rootIsolate[impl.name] === key) leaked.push(impl.name)
   }
   return leaked.sort((left, right) => left.localeCompare(right))
@@ -271,7 +270,7 @@ export function serviceForAgent<K extends string & keyof Context>(
     /* v8 ignore next -- cordis deletes a store slot on disposal rather than clearing it */
     if (impl === undefined) continue
     if (impl.name !== name) continue
-    if (withinFiber(impl.fiber, mount.fiber)) return impl.value as Context[K]
+    if (withinFiber(impl.ctx.fiber, mount.fiber)) return impl.value as Context[K]
   }
   return undefined
 }

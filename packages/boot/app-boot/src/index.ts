@@ -265,7 +265,7 @@ export function watchUserPatches(
     // Re-read the include's non-patch options per refresh: a writer that
     // updates the root Include's other options between refreshes (none exists
     // today) must not have them silently reverted by a user-layer reload.
-    const { patches: _previousPatches, ...includeConfig } = entry.options.config as Include.Config
+    const { patches: previousPatches = [], ...includeConfig } = entry.options.config as Include.Config
     const userPatches = loadOptionalPatches(binName, filename) ?? []
     const patches = compose(userPatches)
     await entry.update({
@@ -274,7 +274,58 @@ export function watchUserPatches(
         patches,
       },
     })
+    // rc.11 contains row failures inside the group update (logged, fiber left
+    // failed) instead of rejecting the update. Surface an introduced failure,
+    // restore the last good generation, and let the coordination layer
+    // broadcast the rejection.
+    const failures = await subtreeActivationFailures(entry)
+    if (failures.length === 0) return
+    await entry.update({
+      config: {
+        ...includeConfig,
+        patches: previousPatches,
+      },
+    })
+    throw new Error(`${binName}: user patch candidate failed to activate\n${failures.join('\n')}`)
   })
+}
+
+/**
+ * Collect activation diagnostics for every enabled row of one entry's mounted
+ * subtree. Pending rows settle through `loader.await()` first; a failed fiber
+ * reports its private rejection reason with the original stack.
+ * @param entry - the owning entry whose subtree rows to audit.
+ * @returns one diagnostic line per enabled row that is not active.
+ */
+async function subtreeActivationFailures(entry: Entry): Promise<string[]> {
+  if (entry.subtree === undefined) return []
+  await entry.ctx.loader.await()
+  const failures: string[] = []
+  for (const row of entry.subtree.entries()) {
+    if (row.disabled) continue
+    const fiber = row.fiber
+    if (fiber === undefined) {
+      failures.push(`${row.options.name}: failed to import`)
+      continue
+    }
+    if (fiber.state === FIBER_ACTIVE) continue
+    if (fiber.state === FIBER_FAILED) {
+      try {
+        await fiber.await()
+      } catch (error) {
+        failures.push(`${row.options.name}: ${formatActivationError(error)}`)
+      }
+      continue
+    }
+    if (fiber.state === FIBER_PENDING) {
+      const missing = Object.keys(fiber.inject).filter(service => fiber.ctx.get(service) === undefined)
+      const subject = missing.length === 1 ? 'service' : 'services'
+      failures.push(`${row.options.name}: pending (waiting for ${subject}: ${missing.join(', ') || 'unknown'})`)
+    } else {
+      failures.push(`${row.options.name}: fiber state ${String(fiber.state)}`)
+    }
+  }
+  return failures
 }
 
 /**

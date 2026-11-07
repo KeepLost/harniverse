@@ -182,13 +182,20 @@ describe('Loader config interpolation', () => {
       await provider?.update({ disabled: true })
       await provider?.update({ config: { fail: true } })
       await provider?.update({ disabled: false })
-      await expect(ctx.loader.await()).rejects.toThrow('rejected provider')
+      await ctx.loader.await()
+      const reader = [...ctx.loader.entries()].find(entry => entry.options.id === 'reader')
+      await expect(reader?.fiber?.await()).rejects.toThrow('rejected provider')
       expect(ctx.get('readerResult')).toBeUndefined()
 
       await provider?.update({ disabled: true })
       await provider?.update({ config: { value: 'recovered' } })
       await provider?.update({ disabled: false })
       await ctx.loader.await()
+      // rc.11 keeps a failed fiber failed after its dependency recovers; recovery requires an explicit update.
+      const failed = reader?.fiber
+      if (failed === undefined) throw new Error('reader entry has no fiber')
+      await expect(failed.await()).rejects.toThrow('rejected provider')
+      await failed.update(failed.rawConfig, true)
       expect(ctx.get('readerResult')).toEqual({ value: 'recovered' })
     } finally {
       await ctx.fiber.dispose()
@@ -254,7 +261,9 @@ describe('Loader entry disabled interpolation', () => {
       const disabledFalse = { __jsExpr: 'process.version.length === 0' } as unknown as boolean
       await entry?.update({ disabled: disabledTrue })
       expect(entry?.disabled).toBe(true)
-      expect(entry?.fiber).toBeUndefined()
+      await ctx.loader.await()
+      // rc.11 keeps the registry wrapper after disposal; a disposed fiber loses its uid.
+      expect(entry?.fiber?.uid).toBeNull()
       await entry?.update({ disabled: disabledFalse })
       expect(entry?.disabled).toBe(false)
       expect(entry?.fiber).toBeDefined()
@@ -283,7 +292,7 @@ describe('boot with user patches', () => {
     try {
       const noop = [...ctx.loader.entries()].find(entry => entry.options.id === 'noop')
       // The mounted plugin received the interpolated environment value.
-      expect(noop?.fiber?.config).toEqual({ value: 'user-value' })
+      expect(noop?.fiber?.effectiveConfig).toEqual({ value: 'user-value' })
       expect([...ctx.loader.entries()].some(entry => entry.options.id === 'user-extra')).toBe(true)
     } finally {
       await ctx.fiber.dispose()
