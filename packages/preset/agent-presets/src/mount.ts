@@ -18,7 +18,7 @@ import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { Include, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import type { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
+import type { EntryChange, EntryTree } from '@deepseek-ai/cordis-plugin-loader'
 import type { CapabilityRuntimeEntry } from '@deepseek-ai/dsh-capabilities'
 import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { PresetMountError, type AgentPreset } from './preset.ts'
@@ -95,21 +95,20 @@ class PresetTree extends Include {
   /**
    * A preset is an input, never a persistence target.
    *
-   * The Loader writes a tree back through this method whenever it decides the
-   * config changed — a plugin self-disposing is enough, and tearing an agent
-   * down disposes its whole subtree. Inherited, that rewrites the preset file
-   * with whatever the dying tree held, which in practice means truncating a
-   * shipped composition to `[]` the first time a session ends. Persisting a
-   * preset is also meaningless: nothing here is user state, and the same file
-   * backs every session that names it.
+   * The Loader journals tree changes through this method whenever it decides
+   * the config changed — a plugin self-disposing is enough, and tearing an
+   * agent down disposes its whole subtree. Inherited, that persists the
+   * change into the preset file with whatever the dying tree held, which in
+   * practice means truncating a shipped composition to `[]` the first time a
+   * session ends. Persisting a preset is also meaningless: nothing here is
+   * user state, and the same file backs every session that names it.
    *
-   * Dropping the write drops the `loader/config-update` the inherited method
-   * emits with it. Nothing observes one for a preset subtree today, and a
-   * future "edit your preset while it runs" flow needs a deliberate
-   * persistence path rather than this method's return.
+   * Dropping the commit drops the journal write and its `loader/config-update`
+   * emission. Nothing observes one for a preset subtree today, and a future
+   * "edit your preset while it runs" flow needs a deliberate persistence path
+   * rather than this method's return.
    */
-  override write(): void {
-  }
+  override commit(_change: EntryChange): void {}
 }
 
 /** One preset composition currently installed under some agent. */
@@ -201,7 +200,7 @@ export function leakedServices(ctx: Context, mount: Fiber): string[] {
        clearing it, so an own symbol always resolves; the guard exists only
        because the store's index signature is optional. */
     if (impl === undefined) continue
-    if (!withinFiber(impl.fiber, mount)) continue
+    if (!withinFiber(impl.ctx.fiber, mount)) continue
     if (rootIsolate[impl.name] === key) leaked.push(impl.name)
   }
   return leaked.sort((left, right) => left.localeCompare(right))
@@ -271,7 +270,7 @@ export function serviceForAgent<K extends string & keyof Context>(
     /* v8 ignore next -- cordis deletes a store slot on disposal rather than clearing it */
     if (impl === undefined) continue
     if (impl.name !== name) continue
-    if (withinFiber(impl.fiber, mount.fiber)) return impl.value as Context[K]
+    if (withinFiber(impl.ctx.fiber, mount.fiber)) return impl.value as Context[K]
   }
   return undefined
 }
@@ -283,26 +282,49 @@ export function serviceForAgent<K extends string & keyof Context>(
  * mount through the loader; what remains observable here is a row still waiting
  * for a service the composition never supplies.
  * @param tree - the mounted subtree.
- * @returns one line per unusable row, empty when every enabled row is usable.
+/**
+ * Row audit outcome: failures reject a mount; pending rows stay mounted and
+ * activate by themselves once the absent provider finishes.
  */
-export function inactiveRows(tree: EntryTree): string[] {
-  const lines: string[] = []
+export interface RowAudit {
+  /** One diagnostic line per row that started and rejected. */
+  failed: string[]
+  /** One diagnostic line per activated row still waiting for an injection. */
+  pending: string[]
+}
+
+/**
+ * Audit the rows of a mounted subtree. Failed rows and fiber-less rows are
+ * failures; a row whose fiber activated but whose injections resolve nothing
+ * stays pending — under rc.11 a row waiting for a Host-provided service
+ * activates once that provider lands, so it is not a mount failure.
+ * @param tree - the mounted subtree to audit.
+ * @returns the failed and pending diagnostic lines.
+ */
+export async function auditRows(tree: EntryTree): Promise<RowAudit> {
+  const failed: string[] = []
+  const pending: string[] = []
   for (const entry of tree.entries()) {
     if (entry.disabled) continue
     const fiber = entry.fiber
-    /* v8 ignore next 4 -- the loader rejects an entry whose module or plugin failed,
-       so a settled tree never holds an enabled fiber-less entry; the branch exists
-       only because `Entry.fiber` is declared optional. */
+    /* v8 ignore next 4 -- the loader contains import failures as fiber-less
+       rows (logged), so the branch names the row that never started. */
     if (fiber === undefined) {
-      lines.push(`${entry.options.id} (${entry.options.name}): never started`)
+      failed.push(`${entry.options.id} (${entry.options.name}): never started`)
+      continue
+    }
+    try {
+      await fiber.await()
+    } catch (error) {
+      failed.push(`${entry.options.id} (${entry.options.name}): ${mountDetail(error)}`)
       continue
     }
     const missing = Object.keys(fiber.inject).filter(name => fiber.ctx.get(name) === undefined)
     if (missing.length > 0) {
-      lines.push(`${entry.options.id} (${entry.options.name}): waiting for ${missing.join(', ')}`)
+      pending.push(`${entry.options.id} (${entry.options.name}): waiting for ${missing.join(', ')}`)
     }
   }
-  return lines
+  return { failed, pending }
 }
 
 /**
@@ -370,9 +392,13 @@ export async function mountPreset(
     /* v8 ignore next -- the subclass constructor runs before `await()` settles for every mounted tree */
     if (subtree === undefined) throw new Error('mounted subtree did not publish its entry tree')
     const { tree, fiber } = subtree
-    const unusable = inactiveRows(tree)
-    if (unusable.length > 0) {
-      throw new Error(`${String(unusable.length)} row(s) did not activate:\n${unusable.join('\n')}`)
+    // rc.11 defers service-gated rows until the loader drains; let settlement
+    // run so intra-tree providers resolve before the audit. The tree's own
+    // context injects the loader even where the calling scope does not.
+    await tree.ctx.loader.await()
+    const { failed } = await auditRows(tree)
+    if (failed.length > 0) {
+      throw new Error(`${String(failed.length)} row(s) did not activate:\n${failed.join('\n')}`)
     }
     const leaked = leakedServices(agentCtx, fiber)
     if (leaked.length > 0) {

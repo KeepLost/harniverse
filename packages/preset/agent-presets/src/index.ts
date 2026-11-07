@@ -61,7 +61,7 @@ export {
   METADATA_FILE, readPresetMetadata, renderPresetMetadata, type PresetMetadata,
 } from './metadata.ts'
 export {
-  inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent, standingMountFor,
+  auditRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent, standingMountFor,
   type JoinedPresetMount, type PresetMount,
 } from './mount.ts'
 export {

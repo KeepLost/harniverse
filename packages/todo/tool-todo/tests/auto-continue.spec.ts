@@ -4,6 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { TodoItem } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -225,5 +226,26 @@ describe('tool-todo automatic continuation edges', () => {
     expect(working).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       content: [{ type: 'text', text: DEFAULT_MESSAGE }],
     }))
+  })
+
+  it('drops and reinitializes continuation state across agent disposal', async () => {
+    const adapter = new MockAdapter([])
+    const ctx = await harness(adapter, { autoContinueIncomplete: true, maxAutoContinueTurns: 1 })
+    const session = Session.create(SessionId('dispose-resets-state'))
+    const queued: number[] = []
+    const agent = fakeAgent(session, [], () => { queued.push(1) })
+    ctx.agents.register(agent)
+
+    emitTodoWrite(ctx, session, [{ content: 'a', status: 'pending' }])
+    emitTurnStopping(ctx, agent)
+    expect(queued).toHaveLength(1)
+
+    // Disposal drops the tracked state; a later session start reinitializes
+    // it, so the per-streak cap counts a fresh streak instead of the old one.
+    agentEvents(ctx, agent).emit('agent/disposed', {})
+    agentEvents(ctx, agent).emit('agent/session-start', { source: 'resume' })
+    emitTodoWrite(ctx, session, [{ content: 'a', status: 'in_progress' }])
+    emitTurnStopping(ctx, agent)
+    expect(queued).toHaveLength(2)
   })
 })

@@ -71,10 +71,12 @@ describe('tool-pipeline invariants', () => {
 
     const noPre = execution({ callId: CallId('call-2') })
     await expect(stage(ctx, 'tools/execute', noPre)).rejects.toThrow(/must follow tools\/pre-execute/)
-    expect(() => ctx.waterfall(
-      ctx as never, 'tools/post-execute', noPre, outcome(),
-      () => Promise.resolve({ kind: 'accept' as const }),
-    )).toThrow(/must follow tools\/pre-execute or tools\/execute/)
+    expect(() => {
+      ctx.waterfall(
+        ctx as never, 'tools/post-execute', noPre, outcome(),
+        () => Promise.resolve({ kind: 'accept' as const }),
+      )
+    }).toThrow(/must follow tools\/pre-execute or tools\/execute/)
   })
 
   it('rejects mutable or anonymous final snapshots', async () => {

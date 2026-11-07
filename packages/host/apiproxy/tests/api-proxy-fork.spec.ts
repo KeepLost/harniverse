@@ -337,7 +337,11 @@ describe('sessions.fork', () => {
     if (!response.result.ok) return
     const child = ctx.agents.get(response.result.value.sessionId)
     if (child === undefined) throw new Error('fork did not publish the child agent')
-    const assembly = await child.ctx.systemPrompt.assemble()
+    // rc.11: property access needs the inject declaration; the reflective
+    // `get` resolves the scoped provider without one.
+    const systemPrompt = child.ctx.get('systemPrompt')
+    if (systemPrompt === undefined) throw new Error('fork child has no system prompt service')
+    const assembly = await systemPrompt.assemble()
     expect(assembly.variables).toMatchObject({
       provider: 'inherited-provider',
       model: 'inherited-model',

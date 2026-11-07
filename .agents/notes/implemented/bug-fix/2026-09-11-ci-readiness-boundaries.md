@@ -40,7 +40,7 @@ Exact-path polling trades native event dependence for one asynchronous stat per 
 
 ## Testing
 
-The [exact-config regressions](../../../../packages/boot/app-boot/tests/hmr-config.spec.ts) pin a single creation across delayed native startup, missing-parent creation, canonical alias exclusion, stat-field/error recovery, non-overlapping polls, and registration/owner disposal with no late work. [User-patch composition coverage](../../../../packages/boot/app-boot/tests/user-patches.spec.ts) exercises addition, invalid-edit retention, recovery, and removal without Chokidar settling sleeps.
+The [exact-config regressions](../../../../packages/boot/hmr-coordination/tests/hmr-coordination.spec.ts) pin creation under missing parents, canonical-alias dedup, refresh serialization with consecutive-write merging, and watcher/owner disposal with drained in-flight work. [User-patch composition coverage](../../../../packages/boot/app-boot/tests/user-patches.spec.ts) exercises addition, invalid-edit retention, recovery, and removal without Chokidar settling sleeps.
 
 The diagnostic browser experiment with temporary one-second HTTP delays reproduced six test failures plus two teardown errors; the same delays with the data-ready waits passed 10/10 tests. Those diagnostic delays are removed. This evidence distinguishes missing readiness conditions from intended UI changes; it is not a new timing threshold or a cross-platform browser guarantee.
 

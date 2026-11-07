@@ -344,7 +344,7 @@ describe('observation and disposal', () => {
   it('unloads every live package on disposal', async () => {
     const bench = await boot()
     await bench.runner.load(half())
-    await bench.runner.dispose()
+    bench.runner.dispose()
     expect(bench.removed).toEqual(['entry-1'])
     expect(bench.runner.getSnapshot()).toEqual([])
     expect(bench.slots.entries('root')).toHaveLength(0)
@@ -445,7 +445,7 @@ describe('render failures', () => {
     const bench = await boot()
     await bench.runner.load(half({ code: CONTRIBUTOR }))
     expect(bench.watching()).toBe(true)
-    await bench.runner.dispose()
+    bench.runner.dispose()
     expect(bench.watching()).toBe(false)
   })
 

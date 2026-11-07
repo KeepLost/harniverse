@@ -182,13 +182,20 @@ describe('Loader config interpolation', () => {
       await provider?.update({ disabled: true })
       await provider?.update({ config: { fail: true } })
       await provider?.update({ disabled: false })
-      await expect(ctx.loader.await()).rejects.toThrow('rejected provider')
+      await ctx.loader.await()
+      const reader = [...ctx.loader.entries()].find(entry => entry.options.id === 'reader')
+      await expect(reader?.fiber?.await()).rejects.toThrow('rejected provider')
       expect(ctx.get('readerResult')).toBeUndefined()
 
       await provider?.update({ disabled: true })
       await provider?.update({ config: { value: 'recovered' } })
       await provider?.update({ disabled: false })
       await ctx.loader.await()
+      // rc.11 keeps a failed fiber failed after its dependency recovers; recovery requires an explicit update.
+      const failed = reader?.fiber
+      if (failed === undefined) throw new Error('reader entry has no fiber')
+      await expect(failed.await()).rejects.toThrow('rejected provider')
+      await failed.update(failed.rawConfig, true)
       expect(ctx.get('readerResult')).toEqual({ value: 'recovered' })
     } finally {
       await ctx.fiber.dispose()
@@ -254,7 +261,9 @@ describe('Loader entry disabled interpolation', () => {
       const disabledFalse = { __jsExpr: 'process.version.length === 0' } as unknown as boolean
       await entry?.update({ disabled: disabledTrue })
       expect(entry?.disabled).toBe(true)
-      expect(entry?.fiber).toBeUndefined()
+      await ctx.loader.await()
+      // rc.11 keeps the registry wrapper after disposal; a disposed fiber loses its uid.
+      expect(entry?.fiber?.uid).toBeNull()
       await entry?.update({ disabled: disabledFalse })
       expect(entry?.disabled).toBe(false)
       expect(entry?.fiber).toBeDefined()
@@ -283,7 +292,7 @@ describe('boot with user patches', () => {
     try {
       const noop = [...ctx.loader.entries()].find(entry => entry.options.id === 'noop')
       // The mounted plugin received the interpolated environment value.
-      expect(noop?.fiber?.config).toEqual({ value: 'user-value' })
+      expect(noop?.fiber?.effectiveConfig).toEqual({ value: 'user-value' })
       expect([...ctx.loader.entries()].some(entry => entry.options.id === 'user-extra')).toBe(true)
     } finally {
       await ctx.fiber.dispose()
@@ -306,6 +315,71 @@ describe('boot with user patches', () => {
       expect(entryConfig(ctxEmpty, 'noop')).toEqual({ value: 'base' })
     } finally {
       await ctxEmpty.fiber.dispose()
+    }
+  })
+
+  it('broadcasts and rolls back an insert that fails to import or never activates', { timeout: 120_000 }, async () => {
+    const dir = tmp()
+    const userDir = tmp()
+    const filename = join(userDir, PROFILE_PATCH_FILENAME)
+    writeFileSync(join(dir, 'waiter.mjs'), [
+      'export const name = "waiter"',
+      'export const inject = ["neverProvided"]',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'waiter2.mjs'), [
+      'export const name = "waiter2"',
+      'export const inject = ["neverProvided", "alsoMissing"]',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'waiter3.mjs'), [
+      'export const name = "waiter3"',
+      'export const inject = ["neverProvided", "loader"]',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    const basePatches = [{ id: 'noop', config: { value: 'generated' } }]
+    const ctx = await boot(NAME, writeTree(dir), basePatches)
+    await ctx.plugin({ name: hmrCoordinationName, apply: applyHmrCoordination })
+    const failures: Array<{ filename: string; error: Error }> = []
+    ctx.on('hmr-coordination/config-update-failed', (failedFilename, error) => {
+      failures.push({ filename: failedFilename, error })
+    })
+    const dispose = watchUserPatches(ctx, {
+      binName: NAME,
+      filename,
+      compose: userPatches => [...basePatches, ...userPatches],
+    })
+    try {
+      writeFileSync(filename, [
+        '- insert:',
+        '    - id: ghost',
+        '      name: ./missing.mjs',
+        '    - id: waiter',
+        '      name: ./waiter.mjs',
+        '    - id: waiter2',
+        '      name: ./waiter2.mjs',
+        '    - id: waiter3',
+        '      name: ./waiter3.mjs',
+        '    - id: off',
+        '      name: ./noop.mjs',
+        '      disabled: true',
+        '',
+      ].join('\n'))
+      await eventually(() => failures.length === 1, 'mixed-failure candidate was not broadcast')
+      const message = failures[0]!.error.message
+      expect(message).toContain('user patch candidate failed to activate')
+      expect(message).toContain('./missing.mjs: failed to import')
+      expect(message).toContain('./waiter.mjs: pending (waiting for service: neverProvided)')
+      expect(message).toContain('./waiter2.mjs: pending (waiting for services: neverProvided, alsoMissing)')
+      expect(message).toContain('./waiter3.mjs: pending (waiting for service: neverProvided)')
+      // The failed generation rolled back, so the app-owned patch still holds.
+      expect((entryConfig(ctx, 'noop') as { value?: string }).value).toBe('generated')
+    } finally {
+      await dispose()
+      await ctx.fiber.dispose()
     }
   })
 
