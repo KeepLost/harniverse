@@ -249,6 +249,20 @@ describe('rejecting a composition that cannot be used', () => {
       .rejects.toThrow(/first-missing[\s\S]*second-missing/)
   })
 
+  it('names activation rejections and flattens aggregate causes per row', async () => {
+    // rc.8 leaves a row that throws during activation as a failed fiber; the
+    // mount audit awaits each fiber and reports its private rejection reason.
+    const pattern = [
+      /throws \(.*throwing\.js\): row activation failure/,
+      /aggregates \(.*aggregate\.js\): wrapped failure/,
+      /- member one/,
+      /- member two/,
+    ]
+    await expect(agentOn(ctx, 'sess-throwing', 'throwing')).rejects.toThrow(
+      new RegExp(pattern.map(regex => regex.source).join('[\\s\\S]*')),
+    )
+  })
+
   it('keeps a row mounted while it waits for a service the tree does not supply', async () => {
     // rc.11 semantics: a pending row is not a mount failure; it activates by
     // itself once an absent provider lands, so the mount resolves.
@@ -334,7 +348,7 @@ describe('the preset roster', () => {
 
     // `not-a-preset` is the fixture ghost: no composition file, listed broken.
     expect(listed.map(preset => preset.id).sort())
-      .toEqual(['broken', 'conflict', 'isolated', 'late', 'leaky', 'minimal', 'not-a-preset', 'pending', 'standard', 'two-broken'])
+      .toEqual(['broken', 'conflict', 'isolated', 'late', 'leaky', 'minimal', 'not-a-preset', 'pending', 'standard', 'throwing', 'two-broken'])
     expect(listed.find(preset => preset.id === 'standard')?.trust).toBe('system')
     expect(listed.find(preset => preset.id === 'not-a-preset')?.broken).toMatch(/is missing/)
   })

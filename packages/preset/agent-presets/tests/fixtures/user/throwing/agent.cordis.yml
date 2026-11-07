@@ -1,0 +1,7 @@
+# Rows that load but reject during activation: one throws plainly, one wraps
+# member failures in an AggregateError, so the mount diagnostic must name both
+# rows and flatten the aggregate causes beneath the wrapper.
+- id: throws
+  name: ../../plugins/throwing.js
+- id: aggregates
+  name: ../../plugins/aggregate.js

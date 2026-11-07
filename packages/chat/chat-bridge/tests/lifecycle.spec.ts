@@ -254,6 +254,20 @@ describe('event streams', () => {
     await vi.waitFor(() => { expect(warn).toHaveBeenCalled() })
   })
 
+  it('stays quiet when the state reports the closed domain error', async () => {
+    vi.useFakeTimers(FAKE_TIMERS)
+    const h = await boot({ config: { members: [member()] } })
+    const put = vi.spyOn(h.state().table('cursors'), 'put')
+      .mockRejectedValueOnce(new DomainError('closed', 'state is closed'))
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockReturnValue()
+    await begin(h)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.waitFor(() => { expect(put).toHaveBeenCalled() })
+    // The closed case is shutdown racing the last write; it never warns.
+    await vi.advanceTimersByTimeAsync(50)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('resumes from stored cursors: replays by history, skips applied events, and reads remote streams', async () => {
     const root = await seedState(async (state) => {
       const base = { ownerKey: 'fake:200', botId: 'fake-bot', platform: 'fake', route: { kind: 'direct' as const, chatId: '200' }, cwd: '/x', createdAt: 1 }
