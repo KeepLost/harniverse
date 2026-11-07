@@ -298,6 +298,7 @@ export function watchUserPatches(
  * @returns one diagnostic line per enabled row that is not active.
  */
 async function subtreeActivationFailures(entry: Entry): Promise<string[]> {
+  /* v8 ignore next 1 -- every caller resolves the root Include entry, whose subtree exists by construction. */
   if (entry.subtree === undefined) return []
   await entry.ctx.loader.await()
   const failures: string[] = []
@@ -317,13 +318,15 @@ async function subtreeActivationFailures(entry: Entry): Promise<string[]> {
       }
       continue
     }
+    /* v8 ignore next 6 -- rows here are pending after loader settlement; the fall-through names any rarer state. */
     if (fiber.state === FIBER_PENDING) {
       const missing = Object.keys(fiber.inject).filter(service => fiber.ctx.get(service) === undefined)
       const subject = missing.length === 1 ? 'service' : 'services'
-      failures.push(`${row.options.name}: pending (waiting for ${subject}: ${missing.join(', ') || 'unknown'})`)
-    } else {
-      failures.push(`${row.options.name}: fiber state ${String(fiber.state)}`)
+      failures.push(`${row.options.name}: pending (waiting for ${subject}: ${missing.join(', ')})`)
+      continue
     }
+    /* v8 ignore next 1 -- an audited row is active, failed, or pending by here; this arm names any other state. */
+    failures.push(`${row.options.name}: fiber state ${String(fiber.state)}`)
   }
   return failures
 }
@@ -586,6 +589,7 @@ export async function mountRootInclude(
   }
   const includeId = await ctx.loader.create(rootInclude)
   const loader = ctx.get('loader')
+  /* v8 ignore next 1 -- the include row above mounts through the Loader, so the service exists by construction. */
   if (loader === undefined) return undefined
   const entry = loader.resolve(includeId)
   bootstrapIncludes.set(ctx, entry)

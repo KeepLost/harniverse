@@ -318,6 +318,71 @@ describe('boot with user patches', () => {
     }
   })
 
+  it('broadcasts and rolls back an insert that fails to import or never activates', { timeout: 120_000 }, async () => {
+    const dir = tmp()
+    const userDir = tmp()
+    const filename = join(userDir, PROFILE_PATCH_FILENAME)
+    writeFileSync(join(dir, 'waiter.mjs'), [
+      'export const name = "waiter"',
+      'export const inject = ["neverProvided"]',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'waiter2.mjs'), [
+      'export const name = "waiter2"',
+      'export const inject = ["neverProvided", "alsoMissing"]',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'waiter3.mjs'), [
+      'export const name = "waiter3"',
+      'export const inject = ["neverProvided", "loader"]',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    const basePatches = [{ id: 'noop', config: { value: 'generated' } }]
+    const ctx = await boot(NAME, writeTree(dir), basePatches)
+    await ctx.plugin({ name: hmrCoordinationName, apply: applyHmrCoordination })
+    const failures: Array<{ filename: string; error: Error }> = []
+    ctx.on('hmr-coordination/config-update-failed', (failedFilename, error) => {
+      failures.push({ filename: failedFilename, error })
+    })
+    const dispose = watchUserPatches(ctx, {
+      binName: NAME,
+      filename,
+      compose: userPatches => [...basePatches, ...userPatches],
+    })
+    try {
+      writeFileSync(filename, [
+        '- insert:',
+        '    - id: ghost',
+        '      name: ./missing.mjs',
+        '    - id: waiter',
+        '      name: ./waiter.mjs',
+        '    - id: waiter2',
+        '      name: ./waiter2.mjs',
+        '    - id: waiter3',
+        '      name: ./waiter3.mjs',
+        '    - id: off',
+        '      name: ./noop.mjs',
+        '      disabled: true',
+        '',
+      ].join('\n'))
+      await eventually(() => failures.length === 1, 'mixed-failure candidate was not broadcast')
+      const message = failures[0]!.error.message
+      expect(message).toContain('user patch candidate failed to activate')
+      expect(message).toContain('./missing.mjs: failed to import')
+      expect(message).toContain('./waiter.mjs: pending (waiting for service: neverProvided)')
+      expect(message).toContain('./waiter2.mjs: pending (waiting for services: neverProvided, alsoMissing)')
+      expect(message).toContain('./waiter3.mjs: pending (waiting for service: neverProvided)')
+      // The failed generation rolled back, so the app-owned patch still holds.
+      expect((entryConfig(ctx, 'noop') as { value?: string }).value).toBe('generated')
+    } finally {
+      await dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('watches add, failure, recovery, and removal through transactional HMR', { timeout: 120_000 }, async () => {
     const dir = tmp()
     const userDir = tmp()

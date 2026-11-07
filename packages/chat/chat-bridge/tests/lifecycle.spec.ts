@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatAdapterError } from '@deepseek-ai/dsh-chat-adapter'
 import { FakeChatAdapter } from '@deepseek-ai/dsh-chat-adapter-fake'
+import { DomainError } from '@deepseek-ai/dsh-storage-domain'
 import { TurnRenderer } from '../src/turns.ts'
 import { boot, cleanup, member, readState, REMOTE, seedState } from './helpers.ts'
 import { begin, delta, finish } from './turn.ts'
@@ -239,6 +240,18 @@ describe('event streams', () => {
     await vi.advanceTimersByTimeAsync(1_000)
     await vi.waitFor(() => { expect(put).toHaveBeenCalled() })
     expect(h.state().table('cursors').size).toBe(0)
+  })
+
+  it('warns when a cursor write fails with a non-closed domain error', async () => {
+    vi.useFakeTimers(FAKE_TIMERS)
+    const h = await boot({ config: { members: [member()] } })
+    const put = vi.spyOn(h.state().table('cursors'), 'put')
+      .mockRejectedValueOnce(new DomainError('invalid-record', 'cursor write failed'))
+    const warn = vi.spyOn(h.ctx.logger, 'warn').mockReturnValue()
+    await begin(h)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.waitFor(() => { expect(put).toHaveBeenCalled() })
+    await vi.waitFor(() => { expect(warn).toHaveBeenCalled() })
   })
 
   it('resumes from stored cursors: replays by history, skips applied events, and reads remote streams', async () => {
