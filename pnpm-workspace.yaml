@@ -28,6 +28,16 @@ overrides:
   # CVE-2026-93748 (GHSA-ch52-4w7c-c8xp): cacheable-request chain under
   # @electron/get (desktop packaging, dev-only) — force the patched release.
   'http-cache-semantics': '4.3.0'
+  # GHSA-g3hv-75wg-m249: minimatch 7.0.0–11.0.0 denial of service via
+  # globparts amplification; reachable transitively through the
+  # electron-builder chain and test tooling — pin every resolution inside
+  # the vulnerable range to the fix.
+  'minimatch@>=7.0.0 <11.0.1': '11.0.1'
+  # GHSA-3g3m-2fjr-6pw4: glob 9.0.0–14.0.1 AbortSignal cancellation bypass
+  # allows post-timeout filesystem traversal; declared via
+  # @modelcontextprotocol/server-filesystem (mcp-client tests) — pin every
+  # resolution inside the vulnerable range to the fix.
+  'glob@>=9.0.0 <=14.0.1': '14.0.2'
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
   # GHSA-22jm-h49p-29qw / GHSA-6prh-2h8m-c8cw / GHSA-rvq5-wwqv-78pq
@@ -84,6 +94,9 @@ overrides:
   # crafted multipart boundary — transitive under @modelcontextprotocol/sdk
   # and @hono/node-server; force the patched release.
   'hono@4': '4.13.11'
+  # Hold every js-yaml resolution on the v4 line: v5 removes the `Type`
+  # class that vendored cordis-plugin-include needs for `!!js` tags; the
+  # major jump belongs to the vendor cordis sync, not a routine bump.
   js-yaml: '4.3.2'
   # CVE-2026-103923 (GHSA-238p-pmpm-9mq7): every katex before 0.18.2 is
   # affected, and the 0.16 line pulled in by mermaid and
@@ -169,6 +182,10 @@ minimumReleaseAgeExclude:
   # The only release fixing CVE-2026-93748 (GHSA-ch52-4w7c-c8xp) in the
   # desktop-packaging-only cacheable-request chain; pinned by the override above.
   - 'http-cache-semantics@4.3.0'
+  # The only releases fixing GHSA-g3hv-75wg-m249 (minimatch) and
+  # GHSA-3g3m-2fjr-6pw4 (glob); pinned by the overrides above.
+  - 'minimatch@11.0.1'
+  - 'glob@14.0.2'
   - node-addon-native-custom-loader@0.1.4
   - node-addon-require-builtin-darwin-arm64@0.1.4
   - node-addon-require-builtin-darwin-x64@0.1.4
