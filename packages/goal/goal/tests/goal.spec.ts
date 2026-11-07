@@ -223,8 +223,11 @@ describe('GoalService creation and replay', () => {
 
     await fiber.dispose()
     expect(ctx.get('goals')).toBeUndefined()
+    // rc.11: the disposed instance's context is inactive, so its reads cannot
+    // even reach the agent registry — the service and its listener left with
+    // the fiber, and only the remounted service may observe the agent again.
     agentEvents(ctx, stub.agent).emit('agent/session-start', { source: 'resume' })
-    expect(first.get(stub.agent)).toMatchObject({ id: goal.id, activation: 'armed' })
+    expect(() => first.get(stub.agent)).toThrow('cannot get required service "agents" in inactive context')
 
     await ctx.plugin(GoalService)
     expect(ctx.goals).not.toBe(first)

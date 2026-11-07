@@ -76,7 +76,7 @@ const install: InvariantInstaller = (ctx, fail) => {
       stagedStarts.add(info)
       return
     }
-    if (!eventName.startsWith('workflow/')) return
+    if (typeof eventName !== 'string' || !eventName.startsWith('workflow/')) return
     const info = args[0] as WorkflowRunInfo
     const trace = traceFor(traces, info, fail)
     if (eventName === 'workflow/agent-start') {

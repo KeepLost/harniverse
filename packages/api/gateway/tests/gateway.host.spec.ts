@@ -68,14 +68,14 @@ class GoalService extends Service {
     return {
       agentId: agent.id,
       title: request.title,
-      scope: (this.ctx as MarkedContext).fixtureScope ?? 'root',
+      scope: 'fixtureScope' in this.ctx ? (this.ctx as MarkedContext).fixtureScope : 'root',
     }
   }
 
   @RemoteScope('gatewayFixture', { requiredCapability: 'harniverse.operate' })
   rename(request: { readonly title: string }): unknown {
     this.calls.push('rename')
-    return { title: request.title, scope: (this.ctx as MarkedContext).fixtureScope ?? 'root' }
+    return { title: request.title, scope: 'fixtureScope' in this.ctx ? (this.ctx as MarkedContext).fixtureScope : 'root' }
   }
 
   @Remote({ requiredCapability: 'harniverse.operate' })

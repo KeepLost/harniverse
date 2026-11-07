@@ -249,9 +249,11 @@ describe('rejecting a composition that cannot be used', () => {
       .rejects.toThrow(/first-missing[\s\S]*second-missing/)
   })
 
-  it('names the unresolved service when a row never activates', async () => {
-    await expect(agentOn(ctx, 'sess-pending', 'pending'))
-      .rejects.toThrow(/waiting for serviceThatDoesNotExist/)
+  it('keeps a row mounted while it waits for a service the tree does not supply', async () => {
+    // rc.11 semantics: a pending row is not a mount failure; it activates by
+    // itself once an absent provider lands, so the mount resolves.
+    const agent = await agentOn(ctx, 'sess-pending', 'pending')
+    expect(agent.id).toBe(SessionId('sess-pending'))
   })
 
   it('rejects a row that publishes a process-global service', async () => {
