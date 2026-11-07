@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-vm/cwd-map
  */
 
-import { normalize, resolve as posixResolve } from 'node:path/posix'
+import { normalize } from 'node:path/posix'
 
 /** Boot-fact env var carrying the host workspace root for the vm world. */
 export const HOST_WORKSPACE_ROOT_ENV = 'DSH_VM_HOST_WORKSPACE_ROOT'
@@ -23,6 +23,15 @@ export type WorldCwdResult =
   | { kind: 'foreign'; cwd: string; hostRoot: string }
 
 /**
+ * Lexically normalize a path for comparison: POSIX separators only, no
+ * re-resolution against any process directory (a session cwd is absolute by
+ * contract, and a Windows drive-absolute input must stay exactly what it is).
+ */
+function lexicalPosix(path: string): string {
+  return normalize(path.replaceAll('\\', '/'))
+}
+
+/**
  * Read the anchored host workspace root from an environment mapping.
  * @param env - the environment mapping the boot bridge wrote; blank values
  *   count as unset.
@@ -31,7 +40,7 @@ export type WorldCwdResult =
 export function hostWorkspaceRootFromEnv(env: Record<string, string | undefined>): string | undefined {
   const root = env[HOST_WORKSPACE_ROOT_ENV]?.trim()
   if (root === undefined || root.length === 0) return undefined
-  return normalize(root)
+  return lexicalPosix(root)
 }
 
 /**
@@ -44,9 +53,9 @@ export function hostWorkspaceRootFromEnv(env: Record<string, string | undefined>
  *   `foreign` when an anchored composition cannot honor the host path.
  */
 export function mapSessionCwdToWorld(cwd: string, hostRoot: string | undefined, worldRoot = WORLD_WORKSPACE_ROOT): WorldCwdResult {
-  if (hostRoot === undefined) return { kind: 'world', path: normalize(cwd) }
-  const absolute = posixResolve(normalize(cwd))
-  const root = normalize(hostRoot)
+  if (hostRoot === undefined) return { kind: 'world', path: lexicalPosix(cwd) }
+  const absolute = lexicalPosix(cwd)
+  const root = lexicalPosix(hostRoot)
   if (absolute === root) return { kind: 'world', path: worldRoot }
   if (absolute.startsWith(`${root}/`)) return { kind: 'world', path: normalize(`${worldRoot}/${absolute.slice(root.length + 1)}`) }
   const mount = normalize(worldRoot)

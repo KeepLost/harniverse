@@ -200,11 +200,10 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
    * workspace root it maps into `/workspace`, world-absolute cwds pass
    * through, and any other host path fails closed with the mapping
    * diagnosis. Without an anchor the cwd passes through unchanged.
-   * @param cwd - the spawn's requested working directory, when one applies.
-   * @returns the in-world cwd, or undefined when none was given.
+   * @param cwd - the spawn's requested working directory.
+   * @returns the in-world cwd.
    */
-  private mapWorldCwd(cwd: string | undefined): string | undefined {
-    if (cwd === undefined) return undefined
+  private worldCwd(cwd: string): string {
     const result = mapSessionCwdToWorld(cwd, hostWorkspaceRootFromEnv(process.env))
     if (result.kind === 'world') return result.path
     throw new Error(
@@ -219,9 +218,8 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
     let pid = -1
     let termination: Promise<void> | undefined
     const env = worldEnv(spec.env)
-    const cwd = this.mapWorldCwd(spec.cwd)
     const started = this.world.spawn([...spec.argv], {
-      ...cwd === undefined ? {} : { cwd },
+      cwd: this.worldCwd(spec.cwd),
       ...(env === undefined ? {} : { env }),
       ...(egress === undefined ? {} : { origin: egress.origin }),
     })
@@ -393,9 +391,8 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
     const egress = this.bindEgressOrigin(spec.signal)
     const env = worldEnv(spec.env) ?? {}
     env.TERM = spec.term ?? 'dumb'
-    const spawnCwd = this.mapWorldCwd(spec.cwd)
     const spawnStarted = this.world.spawn([...spec.argv], {
-      ...(spawnCwd === undefined ? {} : { cwd: spawnCwd }),
+      cwd: this.worldCwd(spec.cwd),
       env,
       pty: { rows: spec.rows, cols: spec.cols },
       ...(egress === undefined ? {} : { origin: egress.origin }),

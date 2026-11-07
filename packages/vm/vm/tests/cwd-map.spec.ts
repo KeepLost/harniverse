@@ -15,6 +15,12 @@ describe('mapSessionCwdToWorld', () => {
     expect(mapSessionCwdToWorld('/host/ws/sub/../a', '/host/ws')).toEqual({ kind: 'world', path: '/workspace/a' })
   })
 
+  it('compares Windows drive paths lexically without re-resolution', () => {
+    expect(mapSessionCwdToWorld('C:\\Users\\owner\\proj', 'C:\\Users\\owner\\proj')).toEqual({ kind: 'world', path: WORLD_WORKSPACE_ROOT })
+    expect(mapSessionCwdToWorld('C:\\Users\\owner\\proj\\nested', 'C:\\Users\\owner\\proj')).toEqual({ kind: 'world', path: '/workspace/nested' })
+    expect(mapSessionCwdToWorld('C:\\Windows\\Temp', 'C:\\Users\\owner\\proj')).toEqual({ kind: 'foreign', cwd: 'C:/Windows/Temp', hostRoot: 'C:/Users/owner/proj' })
+  })
+
   it('does not match a sibling sharing the anchor spelling', () => {
     expect(mapSessionCwdToWorld('/host/ws-other', '/host/ws')).toEqual({ kind: 'foreign', cwd: '/host/ws-other', hostRoot: '/host/ws' })
   })
