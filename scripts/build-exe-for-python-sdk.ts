@@ -251,17 +251,30 @@ class SingleExeBuild {
       '--filter',
       DEPLOY_ROOT_PACKAGE,
       'deploy',
-      '--legacy',
       '--prod',
+      // pnpm's default deployment derives a dedicated production lockfile
+      // from the workspace lockfile and installs it frozen — the staged tree
+      // stays traceable to the locked versions and peer selections. Legacy
+      // hoisted deployment re-resolved registry versions against the ranges
+      // (a manifest allowing tslib@^2.8.1 could stage 2.9.1 while the
+      // lockfile recorded 2.8.1), and forcing auto-install-peers=false
+      // conflicts with the derived lockfile settings and fails the frozen
+      // install.
       // Production deployment omits graph-external patched packages (the
       // embedded OAR runtime, client-only virtual-core) by design.
       '--config.allow-unused-patches=true',
+      // Default deploy requires injected workspace dependencies: the staged
+      // payload carries hard-linked copies rather than workspace symlinks.
+      '--config.inject-workspace-packages=true',
+      // The deploy-scoped pnpmfile normalizes injected file: URLs to the
+      // reviewed name-keyed form so allowBuilds still approves the runtime's
+      // postinstall under strictDepBuilds.
+      '--config.pnpmfile=scripts/python-runtime-deploy.pnpmfile.mjs',
       '--config.node-linker=hoisted',
-      '--config.auto-install-peers=false',
       '--config.link-workspace-packages=true',
       this.staging,
     ])
-    await this.restoreLegacyHoists()
+    await this.verifyStagedDependencies()
     await this.materializeStagedLinks()
     if (this.cli.dryRun) {
       for (const name of DEPLOY_ONLY_DOCS) console.log(`build-exe-for-python-sdk: [dry-run] rm -f ${join(this.staging, name)}`)
@@ -271,14 +284,16 @@ class SingleExeBuild {
   }
 
   /**
-   * Restore direct packages that pnpm's legacy hoister places beside the deploy
-   * source instead of in the target. The runtime manifest supplies every peer,
-   * so package-local node_modules trees are omitted to preserve one flat Cordis
+   * Verify the staged dependency tree is complete: default deploy materializes
+   * every direct dependency into the target, and any package found in neither
+   * the staging tree nor the deploy source's node_modules is a deployment
+   * failure, not a silent gap. The runtime manifest supplies every peer, so
+   * package-local node_modules trees are omitted to preserve one flat Cordis
    * instance and a symlink-free packaged payload.
    */
-  private async restoreLegacyHoists(): Promise<void> {
+  private async verifyStagedDependencies(): Promise<void> {
     if (this.cli.dryRun) {
-      console.log('build-exe-for-python-sdk: [dry-run] restore direct dependencies omitted by legacy deploy')
+      console.log('build-exe-for-python-sdk: [dry-run] verify staged dependencies and restore any omitted direct dependencies')
       return
     }
     const manifestPath = join(this.staging, 'package.json')
@@ -311,7 +326,7 @@ class SingleExeBuild {
       throw new Error(`build-exe-for-python-sdk: staged dependencies remain missing: ${stillMissing.join(', ')}.`)
     }
     if (restored.length > 0) {
-      console.log(`build-exe-for-python-sdk: restored legacy deploy hoists: ${restored.join(', ')}`)
+      console.log(`build-exe-for-python-sdk: restored staged dependencies absent from the deploy target: ${restored.join(', ')}`)
     }
   }
 

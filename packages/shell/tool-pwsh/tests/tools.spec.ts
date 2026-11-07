@@ -571,11 +571,12 @@ describe('sandbox escalation through ctx.approval', () => {
 
     for (const args of [
       { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'workspace-write' },
-      { command: 'Write-Output ok', description: 'd', justification: 'why' },
       { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'danger-full-access', justification: ' ' },
     ]) {
       expect((await call(ctx, 'pwsh', args)).isError).toBe(true)
     }
+    // An orphan justification drives nothing and is ignored.
+    expect((await call(ctx, 'pwsh', { command: 'Write-Output ok', description: 'd', justification: 'why' })).isError).toBe(false)
   })
 
   it('the escalation fields and the confined-mode clauses stay out of sandbox-less compositions', async () => {

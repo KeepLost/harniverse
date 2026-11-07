@@ -38,7 +38,8 @@ describe('validateEscalationArgs', () => {
 
   it('rejects one field without the other, and a blank justification', () => {
     expect(() => { validateEscalationArgs('workspace-write', undefined) }).toThrow(/requires a justification/)
-    expect(() => { validateEscalationArgs(undefined, 'orphan reason') }).toThrow(/only valid together with sandbox_permissions/)
+    expect(() => { validateEscalationArgs(undefined, 'orphan reason') }).not.toThrow()
+    expect(() => { validateEscalationArgs(undefined, '   ') }).not.toThrow()
     expect(() => { validateEscalationArgs('workspace-write', '   ') }).toThrow(/non-empty sentence/)
   })
 })
