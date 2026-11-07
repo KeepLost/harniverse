@@ -40,6 +40,8 @@ interface ExecWorldE2EReport {
   confineInside?: { code: number | null; stderr: string }
   confineOutside?: { code: number | null; stderr: string }
   resolvedMode?: string
+  cwdMappedPwd?: { code: number | null; pwd: string }
+  cwdForeign?: string
 }
 
 async function runE2E(env: Record<string, string>): Promise<ExecWorldE2EReport> {
@@ -75,6 +77,8 @@ describe.skipIf(!worldAvailable)('exec-world against a real QEMU composition', (
       fsRoundTrip: 'exec-world round trip\n',
     })
     expect(report.bashKernel).toMatch(/^kernel=\d+\.\d+\.\d+.*-virt/)
+    expect(report.cwdMappedPwd).toEqual({ code: 0, pwd: '/workspace/nested' })
+    expect(report.cwdForeign).toContain('outside the host workspace root')
   })
 
   it('enforces an explicitly pinned confined mode inside the world', { timeout: 120_000 }, async () => {

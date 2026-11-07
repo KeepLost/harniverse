@@ -5,13 +5,13 @@
  * literal edits, and the typed error taxonomy.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { GuestFsError } from '@deepseek-ai/dsh-vm'
+import { GuestFsError, HOST_WORKSPACE_ROOT_ENV } from '@deepseek-ai/dsh-vm'
 import type { GuestEntry, GuestStat, VmWorldDescriptor, VmWorldExit } from '@deepseek-ai/dsh-vm'
 import { VmWorld } from '@deepseek-ai/dsh-vm'
 import VmFileSystem from '../src/index.ts'
@@ -167,6 +167,19 @@ describe('VmFileSystem', () => {
     await expect(ctx.fs.resolve('/a//b/')).resolves.toMatchObject({ displayPath: '/a/b/' })
     expect(memory.ops).toEqual([])
     expect(String((await ctx.fs.resolve('/x')).targetKey)).toBe('/x')
+  })
+
+  it('maps an anchored session cwd into the world and fails closed outside it', async () => {
+    const { ctx } = await setup()
+    vi.stubEnv(HOST_WORKSPACE_ROOT_ENV, '/host/ws')
+    try {
+      await expect(ctx.fs.resolve('src/a.ts', { cwd: '/host/ws' })).resolves.toMatchObject({ displayPath: '/workspace/src/a.ts' })
+      await expect(ctx.fs.resolve('a.ts', { cwd: '/host/ws/nested' })).resolves.toMatchObject({ displayPath: '/workspace/nested/a.ts' })
+      await expect(ctx.fs.resolve('a.txt', { cwd: '/workspace' })).resolves.toMatchObject({ displayPath: '/workspace/a.txt' })
+      await expect(ctx.fs.resolve('a.txt', { cwd: '/tmp/build' })).rejects.toThrow(/outside the host workspace root "\/host\/ws"/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('maps stat and lstat through the contract vocabulary', async () => {

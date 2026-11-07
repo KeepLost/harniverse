@@ -22,6 +22,9 @@ const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.m
 interface ExecWorldLoaderReport {
   nsApplies: 'live' | 'restart' | undefined
   publishedEnv: string | undefined
+  anchor: string | undefined
+  cwdMapped: string | undefined
+  cwdForeign: string | undefined
   subprocessLocality: 'local' | 'remote' | undefined
   fsProvider: string | undefined
   sandboxProvider: string | undefined
@@ -86,6 +89,9 @@ describe('exec-world through a real Loader composition', () => {
       hasBashTool: true,
       policyMode: 'danger-full-access',
     })
+    expect(report?.anchor).toBeDefined()
+    expect(report?.cwdMapped).toBe('/workspace/a.ts')
+    expect(report?.cwdForeign).toContain('outside the host workspace root')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps an explicit local override over a seeded vm document', async () => {
