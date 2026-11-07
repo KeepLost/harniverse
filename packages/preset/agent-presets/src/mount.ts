@@ -282,26 +282,49 @@ export function serviceForAgent<K extends string & keyof Context>(
  * mount through the loader; what remains observable here is a row still waiting
  * for a service the composition never supplies.
  * @param tree - the mounted subtree.
- * @returns one line per unusable row, empty when every enabled row is usable.
+/**
+ * Row audit outcome: failures reject a mount; pending rows stay mounted and
+ * activate by themselves once the absent provider finishes.
  */
-export function inactiveRows(tree: EntryTree): string[] {
-  const lines: string[] = []
+export interface RowAudit {
+  /** One diagnostic line per row that started and rejected. */
+  failed: string[]
+  /** One diagnostic line per activated row still waiting for an injection. */
+  pending: string[]
+}
+
+/**
+ * Audit the rows of a mounted subtree. Failed rows and fiber-less rows are
+ * failures; a row whose fiber activated but whose injections resolve nothing
+ * stays pending — under rc.11 a row waiting for a Host-provided service
+ * activates once that provider lands, so it is not a mount failure.
+ * @param tree - the mounted subtree to audit.
+ * @returns the failed and pending diagnostic lines.
+ */
+export async function auditRows(tree: EntryTree): Promise<RowAudit> {
+  const failed: string[] = []
+  const pending: string[] = []
   for (const entry of tree.entries()) {
     if (entry.disabled) continue
     const fiber = entry.fiber
-    /* v8 ignore next 4 -- the loader rejects an entry whose module or plugin failed,
-       so a settled tree never holds an enabled fiber-less entry; the branch exists
-       only because `Entry.fiber` is declared optional. */
+    /* v8 ignore next 4 -- the loader contains import failures as fiber-less
+       rows (logged), so the branch names the row that never started. */
     if (fiber === undefined) {
-      lines.push(`${entry.options.id} (${entry.options.name}): never started`)
+      failed.push(`${entry.options.id} (${entry.options.name}): never started`)
+      continue
+    }
+    try {
+      await fiber.await()
+    } catch (error) {
+      failed.push(`${entry.options.id} (${entry.options.name}): ${mountDetail(error)}`)
       continue
     }
     const missing = Object.keys(fiber.inject).filter(name => fiber.ctx.get(name) === undefined)
     if (missing.length > 0) {
-      lines.push(`${entry.options.id} (${entry.options.name}): waiting for ${missing.join(', ')}`)
+      pending.push(`${entry.options.id} (${entry.options.name}): waiting for ${missing.join(', ')}`)
     }
   }
-  return lines
+  return { failed, pending }
 }
 
 /**
@@ -369,9 +392,13 @@ export async function mountPreset(
     /* v8 ignore next -- the subclass constructor runs before `await()` settles for every mounted tree */
     if (subtree === undefined) throw new Error('mounted subtree did not publish its entry tree')
     const { tree, fiber } = subtree
-    const unusable = inactiveRows(tree)
-    if (unusable.length > 0) {
-      throw new Error(`${String(unusable.length)} row(s) did not activate:\n${unusable.join('\n')}`)
+    // rc.11 defers service-gated rows until the loader drains; let settlement
+    // run so intra-tree providers resolve before the audit. The tree's own
+    // context injects the loader even where the calling scope does not.
+    await tree.ctx.loader.await()
+    const { failed } = await auditRows(tree)
+    if (failed.length > 0) {
+      throw new Error(`${String(failed.length)} row(s) did not activate:\n${failed.join('\n')}`)
     }
     const leaked = leakedServices(agentCtx, fiber)
     if (leaked.length > 0) {
