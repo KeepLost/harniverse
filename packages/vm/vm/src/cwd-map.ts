@@ -22,7 +22,12 @@ export type WorldCwdResult =
   | { kind: 'world'; path: string }
   | { kind: 'foreign'; cwd: string; hostRoot: string }
 
-/** @returns the anchored host workspace root, or undefined when the boot bridge did not set one. */
+/**
+ * Read the anchored host workspace root from an environment mapping.
+ * @param env - the environment mapping the boot bridge wrote; blank values
+ *   count as unset.
+ * @returns the trimmed, normalized root, or undefined when no anchor applies.
+ */
 export function hostWorkspaceRootFromEnv(env: Record<string, string | undefined>): string | undefined {
   const root = env[HOST_WORKSPACE_ROOT_ENV]?.trim()
   if (root === undefined || root.length === 0) return undefined
