@@ -146,5 +146,5 @@ registerEgressOrigin(origin: string, approver: EgressPolicy): () => void
 abstract destroy(): Promise<'clean' | 'killed'>
 ```
 
-Source: [`packages/vm/vm/src/index.ts:64`](../../packages/vm/vm/src/index.ts)
+Source: [`packages/vm/vm/src/index.ts:66`](../../packages/vm/vm/src/index.ts)
 <!-- END GENERATED cordis-surface -->
