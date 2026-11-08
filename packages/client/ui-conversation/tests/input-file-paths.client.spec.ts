@@ -1,9 +1,8 @@
 // Pure helpers of the desktop drop/paste intake: the shell bridge read, the
 // cwd relativization, the workspace title, and the @path mention grammar.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  formatFileMention, hostPathBridge, relativizeToCwd, workspaceTitleOf,
-} from '../src/client/input/file-paths.ts'
+import { formatFileMention, hostPathBridge } from '../src/client/input/file-paths.ts'
+import { relativizeToCwd, workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
