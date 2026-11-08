@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-pwsh-sandbox/helpers
  */
 
+/* jscpd:ignore-start -- deliberate call-for-call mirror of the bash twin (shared classification dialect). */
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
 import { matchesSignature } from '@deepseek-ai/dsh-sandbox'
 
@@ -21,3 +22,4 @@ export type { RunnerFailureMatch } from '@deepseek-ai/dsh-sandbox'
 export function classifyDenial(result: ShellRunResult, signatures: readonly string[]): boolean {
   return matchesSignature(result.exitCode, result.stderr.text, signatures)
 }
+/* jscpd:ignore-end */

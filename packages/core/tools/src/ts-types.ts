@@ -247,31 +247,30 @@ export function jsonSchemaToTs(schema: unknown, indent = 0): string {
   }
 }
 
-/** Render the fixed model-facing usage contract for the selected evaluation syntax. */
-function renderSdkHeader(programFormat: PtcProgramFormat): string {
-  const programDescription = programFormat === 'function-body'
-    ? 'the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped)'
-    : 'the program to execute, following the execution instructions for this runtime'
-  return `## Writing code for run_code
+function renderSdkInstructions(programFormat: PtcProgramFormat): string {
+  if (programFormat === 'function-body') return `## Writing code for run_code
 
-\`run_code\` takes two required arguments: \`code\`, ${programDescription}, and \`description\`, a short summary of what the program does.`
-}
-
-/** Render the in-program call and output rules for the selected evaluation syntax. */
-function renderSdkBody(programFormat: PtcProgramFormat): string {
-  const outputRule = programFormat === 'function-body'
-    ? '- Emit results with `return` and/or `console.log(...)`. ONLY what you print or return comes back to you — intermediate tool results never enter the conversation, so extract just what you need.'
-    : '- Emit results with `console.log(...)`. ONLY emitted program output comes back to you — intermediate tool results never enter the conversation, so extract just what you need.'
-  return `Inside the program:
+\`run_code\` takes two required arguments: \`code\` — the body of an async TypeScript function (erasable syntax only — no \`enum\` or namespaces; type annotations are advisory, the code runs type-stripped) — and \`description\`, a short summary of what the program does. Inside the program:
 
 - Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
 - A FAILED tool call rejects with \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose \`message\` is human-readable — \`try/catch\` it to handle and continue.
 - Independent read-only calls MAY overlap under \`Promise.all\` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with \`await\`.
-${outputRule}
+- Emit results with \`return\` and/or \`console.log(...)\`. ONLY what you print or return comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
+
+The available tools:`
+  return `## Writing code for run_code
+
+\`run_code\` takes two required arguments: \`code\`, the program to execute, and \`description\`, a short summary of what the program does.
+
+Inside the program:
+
+- Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
+- A FAILED tool call rejects with \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose \`message\` is human-readable — \`try/catch\` it to handle and continue.
+- Independent read-only calls MAY overlap under \`Promise.all\` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with \`await\`.
+- Emit results with \`console.log(...)\`. ONLY emitted program output comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
 
 The available tools:`
 }
-
 
 /**
  * Render the full `tools:sdk` prompt section: the fixed usage instructions
@@ -305,5 +304,5 @@ export function renderToolsSdk(schemas: ToolSdkSchema[], programFormat: PtcProgr
     ['declare const tools: {', '  [K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;', '}'].join('\n'),
   ].join('\n\n')
   const jsonValue = 'type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }'
-  return `${renderSdkHeader(programFormat)}\n\n${renderSdkBody(programFormat)}\n\n\`\`\`ts\n${jsonValue}\n\n${declaration}\n\`\`\``
+  return `${renderSdkInstructions(programFormat)}\n\n\`\`\`ts\n${jsonValue}\n\n${declaration}\n\`\`\``
 }

@@ -196,8 +196,11 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     errMode === 'inherit' ? 'inherit' : 'pipe',
   ]
   if (spec.stdio.control === 'pipe') {
+    // 'pipe' (not 'overlapped'): a plain named pipe keeps the child-side fd a
+    // recognizable NAMED_PIPE handle on Windows, so the child can wrap fd 7 in
+    // net.Socket; 'overlapped' would arrive as an UNKNOWN fd type there.
     while (stdio.length < SUBPROCESS_CONTROL_FD) stdio.push('ignore')
-    stdio.push('overlapped')
+    stdio.push('pipe')
   }
   const child = spawnProcess(program, args, {
     cwd: spec.cwd,

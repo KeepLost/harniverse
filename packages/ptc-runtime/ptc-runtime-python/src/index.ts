@@ -232,7 +232,9 @@ function jsonValueBytesUpTo(value: PtcJsonValue, maxBytes: number): number | und
   return bytes
 }
 
-class OutputLedger {
+/* jscpd:ignore-start -- deliberate mirror of dsh-ptc-runtime-node/src/output-ledger.ts:
+ * the same bounded-ledger contract, kept local to avoid a cross-backend dependency. */
+class OutputLedger{
   private bytes = 2
   private entries = 0
 
@@ -286,7 +288,7 @@ class OutputLedger {
     const message = truncateJsonString(fullMessage, this.maxBytes - retainedBytes)
     return { logs: retained, error: { kind: 'output-limit', message } }
   }
-}
+}/* jscpd:ignore-end */
 
 class JsonLineReader {
   private readonly parts: Buffer[] = []

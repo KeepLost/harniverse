@@ -62,6 +62,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     ctx.provide('ptcRuntime', {
       language: 'typescript',
       isolation: 'test',
+      resolve: (request: { program: string; bindings: unknown[]; signal?: AbortSignal }) => ({ ...request, cwd: '/test', timeoutMs: null }),
       run: options.codeRun ?? (() => Promise.resolve({ logs: [] })),
     } as never)
   }
