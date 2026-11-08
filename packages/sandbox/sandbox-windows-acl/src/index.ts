@@ -124,6 +124,12 @@ export interface AclSandboxSpawnOptions {
    * child dies with the caller; stdout/stderr in the result are empty.
    */
   stdio?: 'pipe' | 'inherit'
+  /**
+   * The caller-owned descriptor whose OS handle is forwarded into the
+   * restricted child's CRT (the control channel's fd 7); omit when the
+   * caller carries no extra inherited pipe.
+   */
+  controlFileDescriptor?: 7
 }
 
 /** A settled confined child: captured stdio and the exit code. */
@@ -373,7 +379,12 @@ export class AclSandbox {
     const cwd = options.cwd ?? process.cwd()
 
     if (options.stdio === 'inherit') {
-      const native = spawnSandboxedInherited(api, token, { command: options.command, args, cwd })
+      const native = spawnSandboxedInherited(api, token, {
+        command: options.command,
+        args,
+        cwd,
+        ...options.controlFileDescriptor === undefined ? {} : { controlFileDescriptor: options.controlFileDescriptor },
+      })
       let settlement: Promise<AclSandboxChildResult> | undefined
       return {
         pid: native.pid,

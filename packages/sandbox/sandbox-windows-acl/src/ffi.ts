@@ -12,7 +12,7 @@ import type koffi from 'koffi'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 
 /** Lazy koffi loader: the addon loads only when Win32 state is first needed. */
-const requireKoffi = createLazyRequire<typeof koffi>('koffi', import.meta.url)
+export const requireKoffi = createLazyRequire<typeof koffi>('koffi', import.meta.url)
 import { Win32Error } from './errors.ts'
 import * as abi from './win32-abi.ts'
 
@@ -50,6 +50,10 @@ export interface StartupInfoInput {
   hStdInput: NativePtr
   hStdOutput: NativePtr
   hStdError: NativePtr
+  /** CRT descriptor table length written into the reserved2 pair. */
+  cbReserved2?: number
+  /** CRT descriptor table backing the child's inherited extra descriptors. */
+  lpReserved2?: NativePtr
 }
 
 /** Decoded PROCESS_INFORMATION (layout verified: size 24). */
@@ -103,6 +107,10 @@ export interface Win32Bindings {
   ): number
   // ---- environment / io ----------------------------------------------------
   getTempPathW(length: number, buffer: Buffer): number
+  /** Map a CRT descriptor to its OS handle (uv_get_osfhandle; null on failure). */
+  uvGetOsfhandle(fileDescriptor: number): NativePtr | null
+  /** Classify a handle (GetFileType: 2 char, 3 pipe, 1 disk other). */
+  getFileType(handle: NativePtr): number
   createFileW(
     fileName: string, desiredAccess: number, shareMode: number, attributes: null,
     creationDisposition: number, flagsAndAttributes: number, templateFile: null,
@@ -462,6 +470,9 @@ function bindings(): Win32Bindings {
     terminateProcess: bind(kernel32, 'TerminateProcess', 'int', [PVOID, 'uint32']),
     setConsoleCtrlHandler: bind(kernel32, 'SetConsoleCtrlHandler', 'int', [PVOID, 'int']),
     getStdHandle: bind(kernel32, 'GetStdHandle', PVOID, ['int']),
+    getFileType: bind(kernel32, 'GetFileType', 'uint32', [PVOID]),
+    // uv_get_osfhandle is exported by the host executable (node.exe) itself.
+    uvGetOsfhandle: koffi.load(null).func('uv_get_osfhandle', PVOID, ['int']),
   } as unknown as Win32Bindings
   return cached
 }

@@ -9,9 +9,10 @@
  * @module @deepseek-ai/dsh-sandbox-windows-acl/spawn
  */
 
-import { allocPtrSlot, allocProcessInfo, allocStartupInfo, allocUint32, decodePtr, decodeProcessInfo, decodeUint32, encodeStartupInfo, isNullPtr, throwLastError, throwWin32 } from './ffi.ts'
+import { allocPtrSlot, allocProcessInfo, allocStartupInfo, allocUint32, decodePtr, decodeProcessInfo, decodeUint32, encodeStartupInfo, isNullPtr, requireKoffi, throwLastError, throwWin32 } from './ffi.ts'
 import type { NativePtr, Win32Bindings } from './ffi.ts'
 import * as abi from './win32-abi.ts'
+import { inheritedControlStdio } from './control-stdio.ts'
 
 /**
  * Quote one argument per the CommandLineToArgvW parsing rules: backslashes
@@ -267,6 +268,21 @@ export interface SpawnedInherited {
 }
 
 /**
+ * Resolve the OS handle behind one runner-owned CRT descriptor.
+ * @param api - the binding table.
+ * @param fileDescriptor - the runner's descriptor naming the control pipe.
+ * @returns the OS handle for the descriptor.
+ * @throws when the descriptor has no live OS handle.
+ */
+function descriptorHandle(api: Win32Bindings, fileDescriptor: 7): NativePtr {
+  const handle = api.uvGetOsfhandle(fileDescriptor)
+  if (handle === null || isNullPtr(handle) || (handle as bigint) === 0xffff_ffff_ffff_ffffn) {
+    throw new Error(`uv_get_osfhandle returned an invalid handle for control fd ${String(fileDescriptor)}`)
+  }
+  return handle
+}
+
+/**
  * Create a process under the restricted token whose stdio passes straight
  * through to the caller's pipes. This is the runner shape: the harness spawns
  * the runner with piped stdio, and the runner's confined child writes to
@@ -281,13 +297,13 @@ export interface SpawnedInherited {
  * suspended so it can be assigned to a kill-on-close job before it runs.
  * @param api - the binding table.
  * @param token - the restricted token the child runs under.
- * @param options - command, args, and working directory.
+ * @param options - command, args, working directory, and the optional control descriptor.
  * @returns the spawned child's handles and job.
  */
 export function spawnSandboxedInherited(
   api: Win32Bindings,
   token: NativePtr,
-  options: { command: string; args: readonly string[]; cwd: string },
+  options: { command: string; args: readonly string[]; cwd: string; controlFileDescriptor?: 7 },
 ): SpawnedInherited {
   const job = createKillOnCloseJob(api)
   const stdIn = api.getStdHandle(abi.STD_INPUT_HANDLE)
@@ -311,6 +327,24 @@ export function spawnSandboxedInherited(
   makeInheritable(stdIn, 'stdin')
   makeInheritable(stdOut, 'stdout')
   makeInheritable(stdErr, 'stderr')
+  // The control channel rides an inherited fd: resolve its OS handle, then
+  // pre-seed the child CRT's descriptor table so the same fd names the pipe.
+  let controlBlock: { pointer: NativePtr; length: number } | undefined
+  let controlHandle: NativePtr | undefined
+  if (options.controlFileDescriptor !== undefined) {
+    controlHandle = descriptorHandle(api, options.controlFileDescriptor)
+    makeInheritable(controlHandle, 'control')
+    const controlBytes = inheritedControlStdio(api, {
+      stdin: stdIn,
+      stdout: stdOut,
+      stderr: stdErr,
+      control: { fileDescriptor: options.controlFileDescriptor, handle: controlHandle },
+    })
+    const koffi = requireKoffi()
+    const pointer = koffi.alloc('uint8', controlBytes.length) as NativePtr
+    koffi.encode(pointer, 'uint8', controlBytes, controlBytes.length)
+    controlBlock = { pointer, length: controlBytes.length }
+  }
 
   const startupInfo = allocStartupInfo()
   encodeStartupInfo(startupInfo, {
@@ -319,6 +353,7 @@ export function spawnSandboxedInherited(
     hStdInput: stdIn,
     hStdOutput: stdOut,
     hStdError: stdErr,
+    ...controlBlock === undefined ? {} : { cbReserved2: controlBlock.length, lpReserved2: controlBlock.pointer },
   })
 
   const processInfo = allocProcessInfo()
@@ -334,6 +369,7 @@ export function spawnSandboxedInherited(
   restoreInherit(stdIn)
   restoreInherit(stdOut)
   restoreInherit(stdErr)
+  if (controlHandle !== undefined) restoreInherit(controlHandle)
   if (created === 0) {
     const win32Code = api.getLastError()
     api.closeHandle(job)

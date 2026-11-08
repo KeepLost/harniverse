@@ -9235,6 +9235,9 @@ importers:
       '@deepseek-ai/dsh-lazy-require':
         specifier: workspace:^
         version: link:../../util/lazy-require
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess
       koffi:
         specifier: 3.1.1
         version: 3.1.1

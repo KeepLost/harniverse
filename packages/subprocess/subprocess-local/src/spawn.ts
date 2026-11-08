@@ -23,7 +23,7 @@ import { OutputCollector, privateSpillDir, reportSpillFailureToStderr } from './
 import type { SpillFailureReporter } from './output.ts'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
 import { taskkillTree } from './windows-inspector.ts'
-import { controlEnvironment, controlPipe, createControlCarrier } from './control-spawn.ts'
+import { controlEnvironment, controlPipe } from './control-spawn.ts'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 
 type SpawnProcess = (
@@ -195,18 +195,13 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     outMode === 'inherit' ? 'inherit' : 'pipe',
     errMode === 'inherit' ? 'inherit' : 'pipe',
   ]
-  const controlCarrier = platform === 'win32' && spec.stdio.control === 'pipe'
-  if (spec.stdio.control === 'pipe' && !controlCarrier) {
+  if (spec.stdio.control === 'pipe') {
     while (stdio.length < SUBPROCESS_CONTROL_FD) stdio.push('ignore')
-    stdio.push('pipe')
+    stdio.push('overlapped')
   }
-  const pendingCarrier = controlCarrier ? createControlCarrier() : undefined
   const child = spawnProcess(program, args, {
     cwd: spec.cwd,
-    // On win32 the control channel rides a loopback endpoint named in the
-    // marker: Windows children cannot inherit arbitrary descriptors, so the
-    // fd-7 carrier is POSIX-only.
-    env: controlEnvironment(env, spec.stdio.control, pendingCarrier),
+    env: controlEnvironment(env, spec.stdio.control),
     stdio,
     // `detached` gives teardown a tree root on POSIX (its own process group);
     // Windows terminates by root pid through taskkill /T instead.
@@ -389,7 +384,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     stdin: stdinMode === 'pipe' ? child.stdin ?? undefined : undefined,
     stdout: outMode === 'pipe' ? child.stdout ?? undefined : undefined,
     stderr: errMode === 'pipe' ? child.stderr ?? undefined : undefined,
-    control: pendingCarrier === undefined ? controlPipe(child, spec.stdio.control) : pendingCarrier.control,
+    control: controlPipe(child, spec.stdio.control),
     /* v8 ignore stop */
     collected: {
       ...stdoutCollector !== undefined ? { stdout: stdoutCollector } : {},
