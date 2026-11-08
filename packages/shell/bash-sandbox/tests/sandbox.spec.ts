@@ -594,6 +594,7 @@ describe('background sandbox facts', () => {
     }
     vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue({
       pid: -1,
+      control: undefined,
       stdin: undefined,
       stdout: undefined,
       stderr: undefined,

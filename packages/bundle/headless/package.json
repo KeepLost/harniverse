@@ -46,6 +46,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-ptc-runtime-node": "workspace:^",
+    "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "commander": "^15.0.0"
   },

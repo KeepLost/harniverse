@@ -188,6 +188,10 @@ export class LocalFileSystem extends FileSystem {
     return String(target.targetKey)
   }
 
+  override processPathFromHostPath(hostPath: string): string | undefined {
+    return isAbsolute(hostPath) ? resolve(hostPath) : undefined
+  }
+
   override fileUrl(target: FsTarget): string {
     return pathToFileURL(this.processPath(target)).href
   }

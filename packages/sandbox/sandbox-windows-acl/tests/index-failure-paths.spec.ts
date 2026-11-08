@@ -27,6 +27,8 @@ type MockFn = ReturnType<typeof vi.fn>
 /** The stub binding table plus the mocks the assertions inspect directly. */
 interface HappyStubs {
   api: Win32Bindings
+  setHandleInformation: MockFn
+  uvGetOsfhandle: MockFn
   setNamedSecurityInfoW: MockFn
   convertStringSidToSidW: MockFn
   closeHandle: MockFn
@@ -155,6 +157,8 @@ function happyStubs(): HappyStubs {
   const assignProcessToJobObject = vi.fn(() => 1)
   const resumeThread = vi.fn(() => 0)
   const getStdHandle = vi.fn(() => fresh())
+  const getFileType = vi.fn(() => 3)
+  const uvGetOsfhandle = vi.fn(() => fresh())
   const localAlloc = vi.fn(() => fresh())
   const initializeAcl = vi.fn(() => 1)
   const addMandatoryAce = vi.fn(() => 1)
@@ -171,11 +175,13 @@ function happyStubs(): HappyStubs {
     setTokenInformation, createPipe, setHandleInformation, createProcessAsUserW,
     peekNamedPipe, readFile, waitForSingleObject, terminateProcess, getExitCodeProcess, createJobObjectW,
     setInformationJobObject, assignProcessToJobObject, resumeThread, getStdHandle,
+    getFileType, uvGetOsfhandle,
     localAlloc, initializeAcl, addMandatoryAce,
     localFree, closeHandle, getLastError, formatMessageW,
   } as unknown as Win32Bindings
   return {
-    api, setNamedSecurityInfoW, convertStringSidToSidW, closeHandle, localFree,
+    api, setHandleInformation, uvGetOsfhandle,
+    setNamedSecurityInfoW, convertStringSidToSidW, closeHandle, localFree,
     createRestrictedToken, createJobObjectW, getNamedSecurityInfoW,
     createWellKnownSid, setTokenInformation, localAlloc, initializeAcl, addMandatoryAce,
   }
@@ -439,6 +445,22 @@ describe('AclSandbox spawn', () => {
     const child = sandbox.spawn({ command: 'probe.exe', stdio: 'inherit' })
     await expect(child.wait()).resolves.toEqual({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 42 })
     expect(closeHandle).toHaveBeenCalled()
+  })
+
+  it('inherit spawn forwards the control descriptor into the restricted child', async () => {
+    const { setHandleInformation, uvGetOsfhandle } = state.stubs as unknown as {
+      setHandleInformation: MockFn
+      uvGetOsfhandle: MockFn
+    }
+    const workspace = scratch()
+    const sandbox = new AclSandbox({ writableDirs: [workspace], tempDir: null, writeSid: 'S-1-4-9000-12-1', mode: 'workspace-write' })
+    await sandbox.init()
+    const child = sandbox.spawn({ command: 'node.exe', stdio: 'inherit', controlFileDescriptor: 7 })
+    await expect(child.wait()).resolves.toEqual({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 42 })
+    expect(uvGetOsfhandle).toHaveBeenCalledWith(7)
+    // The inherit flag is restored for the control handle after the spawn.
+    const control = uvGetOsfhandle.mock.results[0]?.value as bigint
+    expect(setHandleInformation).toHaveBeenCalledWith(control, 1, 0)
   })
 
   it('inherit spawn reports a failed close of the kill-on-close job', async () => {

@@ -27,6 +27,7 @@ class StubSubprocessRuntime extends SubprocessRuntime {
       : {}
     return {
       pid: spec.argv.length,
+      control: undefined,
       stdin: undefined,
       stdout: undefined,
       stderr: undefined,

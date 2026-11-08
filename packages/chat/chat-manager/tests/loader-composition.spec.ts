@@ -107,6 +107,11 @@ async function load(options: { seedOwner?: boolean; reuseRoot?: boolean } = {}):
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
+  // Parallel sibling activation means a present fiber is not yet a started
+  // plugin; await each fiber so registry visibility is deterministic.
+  for (const row of ctx.loader.entries()) {
+    if (row.fiber !== undefined) await row.fiber.await()
+  }
   return { ctx, home }
 }
 

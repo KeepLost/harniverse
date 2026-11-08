@@ -5,7 +5,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -24,17 +24,20 @@ const testToolSignal = new AbortController().signal
 
 /** A scriptable in-repo PtcRuntime: each test sets `behavior` to drive the bindings however it needs. */
 class FakeRuntime extends PtcRuntime {
+  override resolve(request: PtcRunRequest): PtcRunSpec {
+    return { ...request, cwd: '/fake', timeoutMs: null }
+  }
   readonly language: string
   readonly isolation = 'fake'
-  behavior: (request: CodeRunRequest) => Promise<CodeRunResult> = () => Promise.resolve({ logs: [] })
-  lastRequest?: CodeRunRequest
+  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ logs: [] })
+  lastRequest?: PtcRunRequest
 
   constructor(ctx: Context, config: { language?: string } = {}) {
     super(ctx)
     this.language = config.language ?? 'typescript'
   }
 
-  run(request: CodeRunRequest): Promise<CodeRunResult> {
+  run(request: PtcRunRequest): Promise<PtcRunResult> {
     this.lastRequest = request
     return this.behavior(request)
   }
@@ -97,6 +100,17 @@ function fakeAgent(): { agent: Agent; events: { type: string; data: unknown }[] 
     },
   } as unknown as Agent
   return { agent, events }
+}
+
+/** A state-owning fake agent: records the effect disposers a real agent scope would run. */
+function retainedAgent(): { agent: Agent; releases: (() => void)[] } {
+  const releases: (() => void)[] = []
+  const { agent } = fakeAgent()
+  ;(agent as unknown as { ctx: { effect: CallableFunction } }).ctx = {
+    // Cordis effects run the body immediately; the returned callback is the disposer.
+    effect: (execute: () => (() => void)) => { releases.push(execute()); return () => {} },
+  }
+  return { agent, releases }
 }
 
 /** Dispatch run_code through the registry pipeline, as the loop would. */
@@ -1252,7 +1266,7 @@ describe('the run_code dispatch bridge', () => {
     ['result only', { logs: [], value: 'returned' }, 'returned'],
     ['logs plus result', { logs: ['printed'], value: 'returned' }, 'printed\nreturned'],
     ['no output', { logs: [] }, '(run_code completed with no output)'],
-  ] as [string, CodeRunResult, string][])('keeps %s in durable content without a result presenter', async (_name, output, text) => {
+  ] as [string, PtcRunResult, string][])('keeps %s in durable content without a result presenter', async (_name, output, text) => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve(output)
 
@@ -1793,5 +1807,47 @@ describe('per-agent presentation', () => {
 
     await expect(systemPrompt.assemble({ scope: agent }))
       .rejects.toThrow('mode "both" requires a PTC runtime')
+  })
+})
+
+
+describe('run_code retained environments', () => {
+  it('passes the agent as the state owner and releases the environment when the agent scope ends', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    const released: object[] = []
+    class RetainedRuntime extends FakeRuntime {
+      override get retainsState(): boolean { return true }
+      override release(owner: object): Promise<void> { released.push(owner); return Promise.resolve() }
+    }
+    await ctx.plugin(RetainedRuntime, {})
+    const runtime = ctx.ptcRuntime as RetainedRuntime
+    const { agent, releases } = retainedAgent()
+
+    await runCode(ctx, 'return 1', { agent })
+    expect(runtime.lastRequest?.stateOwner).toBe(agent)
+    expect(released).toEqual([])
+
+    await runCode(ctx, 'return 2', { agent })
+    // One release effect per agent-provider pair, not per call.
+    expect(releases).toHaveLength(1)
+    releases[0]?.()
+    expect(released).toEqual([agent])
+
+    await ctx.fiber.dispose()
+  })
+})
+
+
+describe('run_code SDK text per evaluation form', () => {
+  it('renders the script-form instructions without top-level return guidance', async () => {
+    const { renderToolsSdk } = await import('../src/ts-types.ts')
+    const body = renderToolsSdk([], 'function-body')
+    const script = renderToolsSdk([], 'script')
+    expect(script).toContain('the program to execute')
+    expect(script).toContain('Emit results with `console.log(...)`')
+    expect(script).not.toContain('ONLY what you print or return')
+    expect(renderToolsSdk([])).toBe(body)
   })
 })

@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { LAUNCHER_FAILURE_EXIT } from '@deepseek-ai/node-addon-landlock-run'
 import { SANDBOX_UNAVAILABLE, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
+import { SandboxUnsupportedPolicyError } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
   LocalSandboxProvider,
@@ -426,8 +427,17 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     expect(probeWindowsAcl).toHaveBeenCalledTimes(1)
     expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
     expect(confined.enforcement).toBe('partial')
-    expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
+    expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied', 'operation not permitted'])
     expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
+  })
+
+  it('refuses additional writable roots under the ACL runner (fail closed before the runner runs)', async () => {
+    const { sandbox } = await setup({}, {
+      chain: ['windows-acl'],
+      windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'],
+    })
+    expect(() => sandbox.confine(['true'], { mode: 'workspace-write', workspaceRoot: '/ws', additionalWritableRoots: ['/extra'] }))
+      .toThrow(SandboxUnsupportedPolicyError)
   })
 
   it('reads a failing probe as unusable and walks to the next rung', async () => {

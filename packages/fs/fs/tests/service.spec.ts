@@ -112,6 +112,11 @@ class FakeFileSystem extends FileSystem {
 }
 
 describe('FileSystem provider seam', () => {
+  it('maps no host path by default (the base provider shares no files with the host)', () => {
+    const provider = Object.create(FileSystem.prototype) as FileSystem
+    expect(provider.processPathFromHostPath('/etc/hosts')).toBeUndefined()
+  })
+
   it('registers as ctx.fs and serves the primitives', async () => {
     const ctx = new Context()
     await ctx.plugin(FakeFileSystem)

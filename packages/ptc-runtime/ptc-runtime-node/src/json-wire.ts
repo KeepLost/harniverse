@@ -1,11 +1,11 @@
 /**
- * Lossless-JSON snapshots for the dependency-free source child closure.
+ * Lossless-JSON snapshots shared by the host and the source bootstrap closure.
  * @module @deepseek-ai/dsh-ptc-runtime-node/json-wire
  */
 
-import type { CodeJsonValue } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcJsonValue } from '@deepseek-ai/dsh-ptc-runtime'
 
-/* jscpd:ignore-start -- the source child mirrors session JSON helpers without workspace runtime imports */
+/* jscpd:ignore-start -- the source bootstrap mirrors session JSON helpers without workspace runtime imports */
 type IntrinsicCallable = (this: unknown, ...args: unknown[]) => unknown
 
 const intrinsicFunctionToString = Reflect.get(Function.prototype, 'toString') as IntrinsicCallable
@@ -129,28 +129,28 @@ function enumerableStringKeys(value: object): string[] | undefined {
 
 type SnapshotDestination =
   | { kind: 'root' }
-  | { kind: 'array'; target: CodeJsonValue[]; index: number }
-  | { kind: 'object'; target: Record<string, CodeJsonValue>; key: string }
+  | { kind: 'array'; target: PtcJsonValue[]; index: number }
+  | { kind: 'object'; target: Record<string, PtcJsonValue>; key: string }
 
 type SnapshotTask =
   | { kind: 'visit'; value: unknown; destination: SnapshotDestination }
-  | { kind: 'array-item'; source: unknown[]; index: number; target: CodeJsonValue[] }
-  | { kind: 'object-property'; source: Record<string, unknown>; key: string; target: Record<string, CodeJsonValue> }
+  | { kind: 'array-item'; source: unknown[]; index: number; target: PtcJsonValue[] }
+  | { kind: 'object-property'; source: Record<string, unknown>; key: string; target: Record<string, PtcJsonValue> }
   | { kind: 'leave'; source: object }
 
 /**
- * Validate and detach one worker-boundary value without loading another
+ * Validate and detach one process-boundary value without loading another
  * workspace package at runtime. This mirrors the session-owned canonical
- * JSON boundary while remaining safe to import from the unbuilt worker.
+ * JSON boundary while remaining safe to import from the unbuilt bootstrap.
  * Its iterative traversal adds no JavaScript call-stack depth limit.
  *
  * @param value - the candidate completion value.
  * @returns a detached lossless-JSON snapshot, or `undefined` when invalid.
  */
-export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined {
+export function snapshotPtcJsonValue(value: unknown): PtcJsonValue | undefined {
   const active = new IntrinsicSet<object>()
-  let root: CodeJsonValue | undefined
-  const assign = (destination: SnapshotDestination, item: CodeJsonValue): void => {
+  let root: PtcJsonValue | undefined
+  const assign = (destination: SnapshotDestination, item: PtcJsonValue): void => {
     if (destination.kind === 'root') {
       root = item
     } else if (destination.kind === 'array') {
@@ -205,7 +205,7 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
       if (!hasPlainArrayPrototype(candidate)) return undefined
       const length = candidate.length
       if (intrinsicReflectOwnKeys(candidate).length !== length + 1) return undefined
-      const target: CodeJsonValue[] = []
+      const target: PtcJsonValue[] = []
       assign(task.destination, target)
       setAdd(active, candidate)
       append(tasks, { kind: 'leave', source: candidate })
@@ -218,7 +218,7 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
     if (!hasPlainObjectPrototype(candidate)) return undefined
     const keys = enumerableStringKeys(candidate)
     if (keys === undefined) return undefined
-    const target: Record<string, CodeJsonValue> = {}
+    const target: Record<string, PtcJsonValue> = {}
     assign(task.destination, target)
     setAdd(active, candidate)
     append(tasks, { kind: 'leave', source: candidate })
@@ -242,23 +242,23 @@ interface ObjectWireToken {
   keys: string[]
 }
 
-type WorkerJsonToken = null | boolean | number | string | ArrayWireToken | ObjectWireToken
+type PtcJsonToken = null | boolean | number | string | ArrayWireToken | ObjectWireToken
 
 /**
  * A pre-order, bounded-depth transport for one lossless JSON value. Container
- * markers and scalar leaves share one flat token array, so the control channel
- * never has to serialize the value's application nesting.
+ * markers and scalar leaves share one flat token array, so JSON serialization
+ * does not recurse through the value's application nesting.
  */
-export type WorkerJsonWire = WorkerJsonToken[]
+export type PtcJsonWire = PtcJsonToken[]
 
 /**
- * Flatten one validated JSON value for the child control channel.
+ * Flatten one validated JSON value for the process control channel.
  * @param value - the lossless JSON value to transport.
  * @returns a pre-order token stream whose own nesting is bounded.
  */
-export function encodeWorkerJson(value: CodeJsonValue): WorkerJsonWire {
-  const wire: WorkerJsonWire = []
-  const pending: CodeJsonValue[] = [value]
+export function encodePtcJsonWire(value: PtcJsonValue): PtcJsonWire {
+  const wire: PtcJsonWire = []
+  const pending: PtcJsonValue[] = [value]
   for (let current = takeLast(pending); current !== undefined; current = takeLast(pending)) {
     if (current === null || typeof current === 'boolean' || typeof current === 'number' || typeof current === 'string') {
       append(wire, current)
@@ -288,8 +288,8 @@ export function encodeWorkerJson(value: CodeJsonValue): WorkerJsonWire {
 }
 
 type DecodeFrame =
-  | { kind: 'array'; target: CodeJsonValue[]; length: number; index: number }
-  | { kind: 'object'; target: Record<string, CodeJsonValue>; keys: string[]; index: number }
+  | { kind: 'array'; target: PtcJsonValue[]; length: number; index: number }
+  | { kind: 'object'; target: Record<string, PtcJsonValue>; keys: string[]; index: number }
 
 /** Whether an array contains exactly its dense indexed slots and `length`. */
 function isDenseArray(value: unknown[]): boolean {
@@ -340,21 +340,21 @@ function containerToken(value: object): ArrayWireToken | ObjectWireToken | undef
 }
 
 /**
- * Rebuild one lossless JSON value from the flat child wire format.
+ * Rebuild one lossless JSON value from the flat process wire format.
  * Malformed or incomplete traffic returns `undefined`; traversal is iterative
  * and therefore independent of the transported value's application depth.
- * @param input - untrusted control-channel payload.
+ * @param input - untrusted message-port payload.
  * @returns the detached JSON value, or `undefined` when the wire is invalid.
  */
-export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
+export function decodePtcJsonWire(input: unknown): PtcJsonValue | undefined {
   try {
     if (!intrinsicArrayIsArray(input) || !isDenseArray(input) || input.length === 0) return undefined
     const wire = input as unknown[]
     const frames: DecodeFrame[] = []
-    let root: CodeJsonValue | undefined
+    let root: PtcJsonValue | undefined
     let rootAssigned = false
 
-    const attach = (value: CodeJsonValue): boolean => {
+    const attach = (value: PtcJsonValue): boolean => {
       const parent = frames[frames.length - 1]
       if (!parent) {
         if (rootAssigned) return false
@@ -378,7 +378,7 @@ export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
 
     for (let tokenIndex = 0; tokenIndex < wire.length; tokenIndex++) {
       const token = wire[tokenIndex]
-      let value: CodeJsonValue
+      let value: PtcJsonValue
       let frame: DecodeFrame | undefined
       if (token === null || typeof token === 'boolean' || typeof token === 'string') {
         value = token
@@ -392,12 +392,12 @@ export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
         const remainingTokens = wire.length - tokenIndex - 1
         if (marker.kind === 'array') {
           if (marker.length > remainingTokens) return undefined
-          const target: CodeJsonValue[] = []
+          const target: PtcJsonValue[] = []
           value = target
           if (marker.length > 0) frame = { kind: 'array', target, length: marker.length, index: 0 }
         } else {
           if (marker.keys.length > remainingTokens) return undefined
-          const target: Record<string, CodeJsonValue> = {}
+          const target: Record<string, PtcJsonValue> = {}
           value = target
           if (marker.keys.length > 0) frame = { kind: 'object', target, keys: marker.keys, index: 0 }
         }

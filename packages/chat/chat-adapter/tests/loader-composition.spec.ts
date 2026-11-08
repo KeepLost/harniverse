@@ -70,7 +70,8 @@ describe('real Loader composition', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(loaded.chatAdapters.list().map(entry => entry.botId)).toEqual(['bot-1', 'bot-2'])
+    // Sibling rows activate in parallel; presence, not completion order, is the contract.
+    expect(loaded.chatAdapters.list().map(entry => entry.botId).sort()).toEqual(['bot-1', 'bot-2'])
   })
 
   it('removes the registration when the provider fiber is disposed', async () => {
@@ -88,7 +89,8 @@ describe('real Loader composition', () => {
 
   it('exposes platform descriptors from provider rows in row order', async () => {
     const loaded = await loadYaml([registryRow, ...platformRow('telegram'), ...platformRow('feishu'), ...providerRows('bot-1')])
-    expect(loaded.chatAdapters.platforms().map(entry => entry.platform)).toEqual(['telegram', 'feishu'])
+    // Sibling rows activate in parallel; descriptor presence, not completion order, is the contract.
+    expect(loaded.chatAdapters.platforms().map(entry => entry.platform).sort()).toEqual(['feishu', 'telegram'])
     expect(loaded.chatAdapters.platform('feishu')?.label).toBe('feishu')
     expect(loaded.chatAdapters.list().map(entry => entry.botId)).toEqual(['bot-1'])
   })

@@ -34,7 +34,7 @@ import {
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
-import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
+import { SandboxUnsupportedPolicyError, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AclWriteGrant, assertTempRootOutsideWorkspace, registerAclDiagnosisSkill, tempWriteSid, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
@@ -222,8 +222,8 @@ const DENIAL_SIGNATURES = {
   landlock: ['permission denied'],
   seatbelt: ['operation not permitted'],
   // pwsh/.NET: "Access to the path '...' is denied."; cmd: "Access is denied.";
-  // node EACCES: "permission denied".
-  'windows-acl': ['access is denied', 'access to the path', 'permission denied'],
+  // node EACCES: "permission denied"; EPERM: "operation not permitted".
+  'windows-acl': ['access is denied', 'access to the path', 'permission denied', 'operation not permitted'],
   runnerCommand: ['read-only file system', 'permission denied'],
 } as const satisfies Record<SelectedRunner['runner'] | 'runnerCommand', readonly string[]>
 
@@ -392,6 +392,9 @@ export class LocalSandboxProvider extends SandboxProvider {
    * @returns the runner invocation.
    */
   private windowsAclRunnerArgv(policy: SandboxPolicy): string[] {
+    if (policy.mode === 'workspace-write' && (policy.additionalWritableRoots?.length ?? 0) > 0) {
+      throw new SandboxUnsupportedPolicyError('Windows ACL confinement does not support additional writable directories; remove the extra grants or use a supported host')
+    }
     const sessionId = policy.sessionId
     const confinementArgs = this.isConfinedWorkspace(policy.workspaceRoot) ? ['--low-integrity'] : []
     if (sessionId === undefined || policy.mode === 'read-only') {

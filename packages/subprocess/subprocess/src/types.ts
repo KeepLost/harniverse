@@ -7,7 +7,7 @@
  * @module dsh-subprocess/types
  */
 
-import type { Readable, Writable } from 'node:stream'
+import type { Duplex, Readable, Writable } from 'node:stream'
 
 /** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
 export const DSH_ENV_PREFIX = 'DSH_' as const
@@ -79,6 +79,8 @@ export interface SubprocessStdio {
   stdin: SubprocessStdinMode
   stdout: SubprocessOutputMode
   stderr: SubprocessOutputMode
+  /** Request a separate byte-mode duplex channel; omission creates none. */
+  control?: 'pipe'
 }
 
 /**
@@ -232,6 +234,8 @@ export interface SubprocessHandle {
   readonly stdout: Readable | undefined
   /** The child's raw stderr, present iff spawned with `stderr: 'pipe'`. */
   readonly stderr: Readable | undefined
+  /** Separate caller-owned byte channel when requested; native startup failure may leave it absent. */
+  readonly control: Duplex | undefined
   /** Offset-based readers for collect-mode streams (also readable after exit). */
   readonly collected: SubprocessCollectedOutputs
   /** Resolves at process close with exit facts; rejects only for spawn-level failures. */

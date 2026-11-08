@@ -24,7 +24,7 @@ This provider is opt-in. No shipped Profile selects it. A deployment that alread
 | `maxOutputBytes` | `67108864` | Combined serialized budget for ordered logs plus the completion value or failure message. |
 | `maxControlBytes` | `67109888` | Maximum control JSONL frame width; must leave 1 KiB above `maxOutputBytes`. This provider limit also bounds one binding argument or resolution frame. |
 
-Invalid config fails plugin setup, as does an executable that does not resolve to an executable file or fails the CPython version probe. An interpreter removed after load, interpreter exit, resource death, malformed oversized frame, program exception, timeout, abort, invalid completion, or output overflow resolves through `CodeRunResult.error`; invalid portable bindings, disposal misuse, and invalid config reject as Service Definition misuse.
+Invalid config fails plugin setup, as does an executable that does not resolve to an executable file or fails the CPython version probe. An interpreter removed after load, interpreter exit, resource death, malformed oversized frame, program exception, timeout, abort, invalid completion, or output overflow resolves through `PtcRunResult.error`; invalid portable bindings, disposal misuse, and invalid config reject as Service Definition misuse.
 
 ## Process and protocol
 

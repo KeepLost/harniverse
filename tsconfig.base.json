@@ -62,6 +62,7 @@
       "@deepseek-ai/dsh-workspace-file-write/types": ["./packages/host/workspace-file-write/src/types.ts"],
       "@deepseek-ai/dsh-chat-manager/types": ["./packages/chat/chat-manager/src/types.ts"],
       "@deepseek-ai/dsh-subprocess-local/output": ["./packages/subprocess/subprocess-local/src/output.ts"],
+      "@deepseek-ai/dsh-subprocess/control": ["./packages/subprocess/subprocess/src/control.ts"],
       "@deepseek-ai/dsh-execution-descriptor": ["./packages/sandbox/execution-descriptor/src/index.ts"],
       "@deepseek-ai/dsh-execution-descriptor/invariant": ["./packages/sandbox/execution-descriptor/src/invariant.ts"],
       "@deepseek-ai/dsh-subprocess-vm": ["./packages/vm/subprocess-vm/src/index.ts"],

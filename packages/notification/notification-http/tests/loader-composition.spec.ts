@@ -51,6 +51,11 @@ async function loadComposition(configPath: string): Promise<{ ctx: Context; incl
     config: { path: pathToFileURL(configPath).href },
   })
   await ctx.loader.await()
+  // Parallel sibling activation means a present fiber is not yet a started
+  // plugin; await each fiber so service visibility is deterministic.
+  for (const row of ctx.loader.entries()) {
+    if (row.fiber !== undefined) await row.fiber.await()
+  }
   const unloaded = [...ctx.loader.entries()]
     .filter(entry => entry.fiber === undefined && !entry.disabled)
     .map(entry => entry.options.name)

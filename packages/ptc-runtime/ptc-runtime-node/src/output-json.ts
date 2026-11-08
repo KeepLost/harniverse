@@ -1,6 +1,6 @@
 /** JSON string-prefix accounting for the outer-output ledger. @module @deepseek-ai/dsh-ptc-runtime-node/output-json */
 
-import type { CodeJsonValue } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcJsonValue } from '@deepseek-ai/dsh-ptc-runtime'
 
 type IntrinsicCallable = (this: unknown, ...args: unknown[]) => unknown
 
@@ -96,11 +96,11 @@ export function jsonStringBytesUpTo(text: string, maxBytes: number): number | un
  * @param maxBytes - largest serialized size the caller can admit.
  * @returns Exact serialized bytes, or `undefined` as soon as the cap is crossed.
  */
-export function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): number | undefined {
+export function jsonValueBytesUpTo(value: PtcJsonValue, maxBytes: number): number | undefined {
   type Task =
-    | { kind: 'value'; value: CodeJsonValue }
-    | { kind: 'array'; value: CodeJsonValue[]; index: number }
-    | { kind: 'object'; value: Record<string, CodeJsonValue>; keys: string[]; index: number }
+    | { kind: 'value'; value: PtcJsonValue }
+    | { kind: 'array'; value: PtcJsonValue[]; index: number }
+    | { kind: 'object'; value: Record<string, PtcJsonValue>; keys: string[]; index: number }
 
   let bytes = 0
   const add = (cost: number): boolean => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { CodeJsonValue } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcJsonValue } from '@deepseek-ai/dsh-ptc-runtime'
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from '../src/output-json.ts'
 
 describe('truncateJsonStringBytes', () => {
@@ -58,11 +58,11 @@ describe('jsonValueBytesUpTo', () => {
     expect(jsonValueBytesUpTo({ long: null }, 2)).toBeUndefined()
     expect(jsonValueBytesUpTo({ '': null }, 4)).toBeUndefined()
     expect(jsonValueBytesUpTo({ a: null }, 9)).toBeUndefined()
-    expect(jsonValueBytesUpTo({ a: undefined } as unknown as CodeJsonValue, 100)).toBeUndefined()
+    expect(jsonValueBytesUpTo({ a: undefined } as unknown as PtcJsonValue, 100)).toBeUndefined()
   })
 
   it('meters deeply nested arrays without recursive stack growth', () => {
-    let value: CodeJsonValue = null
+    let value: PtcJsonValue = null
     for (let depth = 0; depth < 5_000; depth++) value = [value]
 
     expect(jsonValueBytesUpTo(value, 10_004)).toBe(10_004)
@@ -70,7 +70,7 @@ describe('jsonValueBytesUpTo', () => {
   })
 
   it('uses module-captured intrinsics after model-visible globals are mutated', () => {
-    const value: CodeJsonValue = { payload: ['€', 42] }
+    const value: PtcJsonValue = { payload: ['€', 42] }
     const bytes = Buffer.byteLength(JSON.stringify(value), 'utf8')
     const arrayIsArrayDescriptor = Object.getOwnPropertyDescriptor(Array, 'isArray')!
     const arrayPopDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, 'pop')!

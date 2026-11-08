@@ -285,7 +285,8 @@ export function assembleRuntime(options: AssemblyOptions): string {
       browser,
       requiredFiles: [...new Set(['lib/preload.cjs', 'renderer/index.html', 'node_modules/@deepseek-ai/dsh/package.json',
         'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html', 'node_modules/pnpm/bin/pnpm.mjs',
-        'node_modules/pnpm/dist/pnpm.mjs', 'node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/child.cjs', ...nativeFiles, ...browserFiles])],
+        'node_modules/pnpm/dist/pnpm.mjs', 'node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/process.js',
+        'node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/persistent-process.js', ...nativeFiles, ...browserFiles])],
     }
     writeFileSync(join(temporary, 'runtime-input.json'), `${JSON.stringify(input, null, 2)}\n`)
     writeFileSync(join(temporary, 'assembly.json'), `${JSON.stringify({ schemaVersion: 1, platform, arch, libc: platform === 'linux' ? 'glibc' : null,

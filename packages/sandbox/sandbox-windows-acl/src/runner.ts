@@ -51,8 +51,10 @@
  * @module @deepseek-ai/dsh-sandbox-windows-acl/runner
  */
 
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { closeSync, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { SUBPROCESS_CONTROL_ENV, SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 
 import { win32 } from './ffi.ts'
 import { AclSandbox, assertTempRootOutsideWorkspace } from './index.ts'
@@ -192,11 +194,14 @@ async function main(): Promise<number> {
       }
     }
 
+    const controlRequested = process.env[SUBPROCESS_CONTROL_ENV] === 'pipe'
     const child = sandbox.spawn({
       command: parsed.command,
       args: parsed.args,
       stdio: 'inherit',
+      ...controlRequested ? { controlFileDescriptor: SUBPROCESS_CONTROL_FD } : {},
     })
+    if (controlRequested) closeSync(SUBPROCESS_CONTROL_FD)
     const result = await child.wait()
     return result.exitCode
   } finally {

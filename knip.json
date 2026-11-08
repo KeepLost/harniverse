@@ -550,7 +550,8 @@
     "packages/ptc-runtime/ptc-runtime-node": {
       "entry": [
         "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.e2e.ts",
+        "src/persistent-process-entry.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -966,7 +967,8 @@
     },
     "packages/bundle/headless": {
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-ptc-runtime-node"
+        "@deepseek-ai/dsh-ptc-runtime-node",
+        "@deepseek-ai/dsh-sandbox-local"
       ]
     },
     "packages/bundle/web-app": {

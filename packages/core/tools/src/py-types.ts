@@ -16,6 +16,7 @@
 
 import { assertSupportedJsonSchema } from './json-schema.ts'
 import type { JsonSchemaNode, JsonSchemaScalar } from './json-schema.ts'
+import type { PtcProgramFormat } from '@deepseek-ai/dsh-ptc-runtime'
 import type { ToolSdkSchema } from './ts-types.ts'
 
 /**
@@ -758,9 +759,10 @@ The available tools:`
  * never carries a duplicate.
  * @param schemas - the tool schemas plus canonical output schemas to declare
  *   (the caller excludes `run_code` itself).
+ * @param _programFormat - unused: the Python backend accepts only function bodies.
  * @returns the complete section text.
  */
-export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
+export function renderToolsSdkPy(schemas: ToolSdkSchema[], _programFormat?: PtcProgramFormat): string {
   const sorted = [...schemas].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   const state: RenderState = { classes: [], usedClassNames: new Set(), nextClassCounter: new Map(), typing: new Set(['Protocol']) }
   // ONE ordered member stream, matching the documented lexicographic contract

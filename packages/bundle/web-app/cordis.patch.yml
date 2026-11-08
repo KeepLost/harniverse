@@ -62,6 +62,8 @@
         levels:
           default: 2
 
+    - id: sandbox
+      name: '@deepseek-ai/dsh-sandbox-local'
     - id: ptc-runtime
       name: '@deepseek-ai/dsh-ptc-runtime-node'
 

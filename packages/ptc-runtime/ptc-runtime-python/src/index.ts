@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { PtcRuntime, DUNDER_MEMBER, PORTABLE_RESERVED_WORDS, RESERVED_BINDING_GLOBALS, RESERVED_ERROR_MEMBERS } from '@deepseek-ai/dsh-ptc-runtime'
-import type { CodeBindingFunction, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcBindingFunction, PtcJsonValue, PtcRunFailure, PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -56,7 +56,7 @@ const PYTHON_PROBE_SOURCE = 'import sys; print(sys.implementation.name, sys.vers
 const PYTHON_PROBE_OUTPUT = /^(\S+) (\d+) (\d+) (\d+)$/
 
 interface LiveRun {
-  settle(failure: CodeRunFailure): void
+  settle(failure: PtcRunFailure): void
   finished: Promise<void>
 }
 
@@ -66,7 +66,7 @@ interface LiveRun {
  * swapped or re-throwing getters, and member lookup stays own-property only.
  */
 interface ValidatedNamespace {
-  functions: Record<string, CodeBindingFunction>
+  functions: Record<string, PtcBindingFunction>
   errorClass?: { name: string; memberNameProperty: string }
 }
 
@@ -188,7 +188,7 @@ function numberJson(value: number): string {
   return Number.isInteger(value) && !Number.isSafeInteger(value) ? BigInt(value).toString() : String(value)
 }
 
-function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): number | undefined {
+function jsonValueBytesUpTo(value: PtcJsonValue, maxBytes: number): number | undefined {
   let bytes = 0
   const cursors: Iterator<JsonMeterTask>[] = [[{ value }].values()]
   while (cursors.length > 0) {
@@ -232,7 +232,9 @@ function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): number | un
   return bytes
 }
 
-class OutputLedger {
+/* jscpd:ignore-start -- deliberate mirror of dsh-ptc-runtime-node/src/output-ledger.ts:
+ * the same bounded-ledger contract, kept local to avoid a cross-backend dependency. */
+class OutputLedger{
   private bytes = 2
   private entries = 0
 
@@ -249,17 +251,17 @@ class OutputLedger {
     return true
   }
 
-  success(logs: string[], value?: CodeJsonValue): CodeRunResult {
+  success(logs: string[], value?: PtcJsonValue): PtcRunResult {
     if (value !== undefined && jsonValueBytesUpTo(value, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
     return { logs, ...value !== undefined ? { value } : {} }
   }
 
-  failure(logs: string[], error: CodeRunFailure): CodeRunResult {
+  failure(logs: string[], error: PtcRunFailure): PtcRunResult {
     if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
     return { logs, error }
   }
 
-  limit(logs: string[]): CodeRunResult {
+  limit(logs: string[]): PtcRunResult {
     const fullMessage = `outer output exceeded ${this.maxBytes} bytes`
     const fullMessageBytes = fullMessage.length + 2
     const retained: string[] = []
@@ -286,7 +288,7 @@ class OutputLedger {
     const message = truncateJsonString(fullMessage, this.maxBytes - retainedBytes)
     return { logs: retained, error: { kind: 'output-limit', message } }
   }
-}
+}/* jscpd:ignore-end */
 
 class JsonLineReader {
   private readonly parts: Buffer[] = []
@@ -346,6 +348,14 @@ function writeFrame(stream: Writable, frame: HostToChild, maxBytes = Number.POSI
  * Fresh-process `ctx.ptcRuntime` provider for Python 3.10 and newer. The
  * configured interpreter is resolved and probed once at plugin load; every
  * run spawns that exact file in a new process.
+ */
+/** The fixed execution directory reported by resolve: the fresh-process substrate owns no working directory. */
+const PTC_PYTHON_CWD = process.cwd()
+
+/**
+ * CPython subprocess provider for the PTC runtime seam: one fresh process per
+ * run over the fd-3 split control channel, resolving each call against the
+ * configured wall-clock budget.
  */
 export class PythonPtcRuntime extends PtcRuntime {
   static Config: z<Config> = z.object({
@@ -413,7 +423,32 @@ export class PythonPtcRuntime extends PtcRuntime {
    * @param request - Python source, portable bindings, and optional abort signal.
    * @returns The bounded completion, logs, or normalized failure.
    */
-  async run(request: CodeRunRequest): Promise<CodeRunResult> {
+  /**
+   * Resolve supported options and provider defaults before execution: the
+   * fresh-process substrate carries no execution directory of its own, so the
+   * request's directory choice is optional and every budget choice is
+   * provider-fixed (a per-call override is unsupported and rejects).
+   * @param request - Python source, portable bindings, and optional abort signal.
+   * @returns The complete spec for run.
+   * @throws When an explicit timeout or policy choice is supplied.
+   */
+  override resolve(request: PtcRunRequest): PtcRunSpec {
+    if (request.timeoutMs !== undefined && request.timeoutMs !== null) {
+      throw new Error('dsh-ptc-runtime-python: per-call timeoutMs is not supported')
+    }
+    if (request.sandboxPolicy !== undefined) {
+      throw new Error('dsh-ptc-runtime-python: per-call sandbox policies are not supported')
+    }
+    return { ...request, cwd: PTC_PYTHON_CWD, timeoutMs: this.config.maxWallMs }
+  }
+
+  /**
+   * Run one resolved program in a fresh Python process. Program and process outcomes
+   * resolve as result errors; rejection is reserved for service-contract misuse.
+   * @param spec - Python source, portable bindings, and optional abort signal.
+   * @returns The bounded completion, logs, or normalized failure.
+   */
+  async run(spec: PtcRunSpec): Promise<PtcRunResult> {
     if (this.disposed) throw new Error('dsh-ptc-runtime-python: run() after disposal')
     // This runtime spawns through the host child_process; a remote execution
     // world would decide an argv this host then executes, so it fails closed
@@ -421,18 +456,18 @@ export class PythonPtcRuntime extends PtcRuntime {
     if (this.ctx.get('subprocess')?.locality === 'remote') {
       throw new Error('dsh-ptc-runtime-python: run() requires a local execution world (this substrate spawns on the host; refusing a remote execution world)')
     }
-    const bindings = this.validateBindings(request)
-    if (request.signal?.aborted) {
+    const bindings = this.validateBindings(spec)
+    if (spec.signal?.aborted) {
       return this.failureBeforeProcess({ kind: 'abort', message: 'run aborted' })
     }
-    return await this.execute(request, bindings)
+    return await this.execute(spec, bindings)
   }
 
-  private failureBeforeProcess(error: CodeRunFailure): CodeRunResult {
+  private failureBeforeProcess(error: PtcRunFailure): PtcRunResult {
     return new OutputLedger(this.config.maxOutputBytes).failure([], error)
   }
 
-  private validateBindings(request: CodeRunRequest): Map<string, ValidatedNamespace> {
+  private validateBindings(request: PtcRunRequest): Map<string, ValidatedNamespace> {
     const bindings = new Map<string, ValidatedNamespace>()
     for (const namespace of request.bindings) {
       const global = namespace.global
@@ -446,7 +481,7 @@ export class PythonPtcRuntime extends PtcRuntime {
         throw new Error(`dsh-ptc-runtime-python: duplicate binding global ${JSON.stringify(global)}`)
       }
       const supplied = namespace.functions
-      const functions = Object.create(null) as Record<string, CodeBindingFunction>
+      const functions = Object.create(null) as Record<string, PtcBindingFunction>
       for (const name of Object.keys(supplied)) {
         const fn = supplied[name]
         if (typeof fn === 'function') functions[name] = fn
@@ -480,7 +515,7 @@ export class PythonPtcRuntime extends PtcRuntime {
     return bindings
   }
 
-  private execute(request: CodeRunRequest, bindings: Map<string, ValidatedNamespace>): Promise<CodeRunResult> {
+  private execute(request: PtcRunSpec, bindings: Map<string, ValidatedNamespace>): Promise<PtcRunResult> {
     const boot: BootMessage = {
       type: 'boot',
       cpuSeconds: this.config.cpuSeconds,
@@ -521,7 +556,7 @@ export class PythonPtcRuntime extends PtcRuntime {
       return Promise.resolve(this.failureBeforeProcess({ kind: 'worker-exit', message: 'python process control channel unavailable' }))
     }
 
-    return new Promise<CodeRunResult>((resolve) => {
+    return new Promise<PtcRunResult>((resolve) => {
       let settling = false
       let state: 'booting' | 'running' = 'booting'
       const answered = new Set<number>()
@@ -529,18 +564,18 @@ export class PythonPtcRuntime extends PtcRuntime {
       let pendingCalls = 0
       const logs: string[] = []
       const output = new OutputLedger(this.config.maxOutputBytes)
-      let terminalOverride: CodeRunResult | undefined
+      let terminalOverride: PtcRunResult | undefined
       let closeSignal: NodeJS.Signals | null = null
       let closeResolve!: () => void
       const closed = new Promise<void>((done) => { closeResolve = done })
       let finishResolve!: () => void
       const finished = new Promise<void>((done) => { finishResolve = done })
 
-      const finalExitFailure = (): CodeRunFailure => closeSignal === 'SIGXCPU'
+      const finalExitFailure = (): PtcRunFailure => closeSignal === 'SIGXCPU'
         ? { kind: 'timeout', message: `CPU budget exhausted (${this.config.cpuSeconds}s)` }
         : { kind: 'worker-exit', message: 'python process exited before completing' }
 
-      const finish = (finalize: () => CodeRunResult): void => {
+      const finish = (finalize: () => PtcRunResult): void => {
         if (settling) return
         settling = true
         clearTimeout(wallTimer)
@@ -564,7 +599,7 @@ export class PythonPtcRuntime extends PtcRuntime {
         if (terminalOverride !== undefined) return
         if (!output.admit(text, logs)) {
           terminalOverride = output.limit([...logs, text])
-          finish(() => terminalOverride as CodeRunResult)
+          finish(() => terminalOverride as PtcRunResult)
         }
       }
       stdout.on('data', (chunk: Buffer) => { capture(chunk.toString('utf8')) })
@@ -601,7 +636,7 @@ export class PythonPtcRuntime extends PtcRuntime {
         void (async () => {
           try {
             const resolved = await fn(message.args)
-            let value: CodeJsonValue | undefined
+            let value: PtcJsonValue | undefined
             try {
               value = snapshotJsonValue(resolved)
             } catch {
@@ -651,7 +686,7 @@ export class PythonPtcRuntime extends PtcRuntime {
           finish(() => output.failure(logs, { kind: 'invalid-output', message: 'program completion must be lossless JSON' }))
           return
         }
-        finish(() => output.success(logs, message.value as CodeJsonValue))
+        finish(() => output.success(logs, message.value as PtcJsonValue))
       }
 
       const reader = new JsonLineReader(

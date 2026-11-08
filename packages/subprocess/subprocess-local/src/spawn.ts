@@ -23,6 +23,8 @@ import { OutputCollector, privateSpillDir, reportSpillFailureToStderr } from './
 import type { SpillFailureReporter } from './output.ts'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
 import { taskkillTree } from './windows-inspector.ts'
+import { controlEnvironment, controlPipe } from './control-spawn.ts'
+import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 
 type SpawnProcess = (
   program: string,
@@ -188,14 +190,19 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const stdinMode = spec.stdio.stdin
 
   const env = childEnv(spec.env, spec.ambientEnv)
+  const stdio: import('node:child_process').StdioOptions = [
+    stdinMode === 'ignore' ? 'ignore' : 'pipe',
+    outMode === 'inherit' ? 'inherit' : 'pipe',
+    errMode === 'inherit' ? 'inherit' : 'pipe',
+  ]
+  if (spec.stdio.control === 'pipe') {
+    while (stdio.length < SUBPROCESS_CONTROL_FD) stdio.push('ignore')
+    stdio.push('overlapped')
+  }
   const child = spawnProcess(program, args, {
     cwd: spec.cwd,
-    env,
-    stdio: [
-      stdinMode === 'ignore' ? 'ignore' : 'pipe',
-      outMode === 'inherit' ? 'inherit' : 'pipe',
-      errMode === 'inherit' ? 'inherit' : 'pipe',
-    ],
+    env: controlEnvironment(env, spec.stdio.control),
+    stdio,
     // `detached` gives teardown a tree root on POSIX (its own process group);
     // Windows terminates by root pid through taskkill /T instead.
     detached: platform !== 'win32',
@@ -377,6 +384,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     stdin: stdinMode === 'pipe' ? child.stdin ?? undefined : undefined,
     stdout: outMode === 'pipe' ? child.stdout ?? undefined : undefined,
     stderr: errMode === 'pipe' ? child.stderr ?? undefined : undefined,
+    control: controlPipe(child, spec.stdio.control),
     /* v8 ignore stop */
     collected: {
       ...stdoutCollector !== undefined ? { stdout: stdoutCollector } : {},

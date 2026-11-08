@@ -29,6 +29,10 @@ const VENDOR_SRC_ALIASES: Record<string, string> = {
   '@deepseek-ai/cordis-plugin-timer': 'vendor/timer/src/index.ts',
   '@deepseek-ai/cordis-plugin-hmr': 'vendor/hmr/src/index.ts',
   '@deepseek-ai/cordis-plugin-logger-console': 'vendor/logger-console/src/index.ts',
+  // The control subpath's runtime default is the built bundle; source-mode
+  // suites (and the ptc provider's launch helper) resolve the module source
+  // so a clean checkout needs no prior build.
+  '@deepseek-ai/dsh-subprocess/control': 'packages/subprocess/subprocess/src/control.ts',
 }
 
 const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
@@ -194,6 +198,7 @@ const processBoundTests = [
   'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-worker-thread/tests/session.spec.ts',
   'packages/ptc-runtime/ptc-runtime-python/tests/runtime.spec.ts',
+  'packages/ptc-runtime/ptc-runtime-node/tests/imports.spec.ts',
 ]
 
 const platformTestTimeoutMs = process.platform === 'win32' ? 600_000 : 5_000
@@ -248,7 +253,9 @@ export default defineConfig({
 
         test: {
           name: 'process-bound',
-          execArgv: vitestExecArgv,
+          // The ptc-runner import suite builds VM module graphs; the missing-flag
+          // guard stays in the thread-safe lane.
+          execArgv: [...vitestExecArgv, '--experimental-vm-modules'],
           testTimeout: platformTestTimeoutMs,
           ...processBoundMaxWorkers === undefined ? {} : { maxWorkers: processBoundMaxWorkers },
           pool: 'forks',
@@ -280,6 +287,11 @@ export default defineConfig({
         // behavior is pinned end-to-end by tests/source-child.compat.spec.ts
         // and the real-process suites, which spawn the true entry.
         'packages/ptc-runtime/ptc-runtime-node/src/child.ts',
+        // The built Node entries invoke the independently covered process
+        // bootstrap through fd 7; they execute exclusively as spawned
+        // children, which v8 coverage never measures.
+        'packages/ptc-runtime/ptc-runtime-node/src/process-entry.ts',
+        'packages/ptc-runtime/ptc-runtime-node/src/persistent-process-entry.ts',
         // The packaged executable's process entry executes exclusively inside
         // the yao-pkg binary (the python smoke and release-shaped lane cover
         // it end-to-end); unit coverage can never import it.

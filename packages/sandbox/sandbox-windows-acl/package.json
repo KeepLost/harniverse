@@ -44,8 +44,9 @@
     "@deepseek-ai/cordis": "workspace:^"
   },
   "dependencies": {
-    "koffi": "3.1.1",
     "@deepseek-ai/dsh-lazy-require": "workspace:^",
+    "@deepseek-ai/dsh-subprocess": "workspace:^",
+    "koffi": "3.1.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

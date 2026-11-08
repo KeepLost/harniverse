@@ -32,13 +32,13 @@ async function mountInvariants(ctx: Context): Promise<void> {
   await ctx.plugin(AgentLoopInvariant)
 }
 
-interface CodeRunRequestLike {
+interface PtcRunRequestLike {
   bindings: { global: string; functions: Record<string, (args: unknown) => Promise<unknown>> }[]
 }
 
 interface SetupOptions {
   toolMode?: ToolConfig['mode']
-  codeRun?: (request: CodeRunRequestLike) => Promise<{ logs: never[]; value?: unknown }>
+  codeRun?: (request: PtcRunRequestLike) => Promise<{ logs: never[]; value?: unknown }>
 }
 
 const SCHEMA: ObjectJsonSchema = {
@@ -62,6 +62,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     ctx.provide('ptcRuntime', {
       language: 'typescript',
       isolation: 'test',
+      resolve: (request: { program: string; bindings: unknown[]; signal?: AbortSignal }) => ({ ...request, cwd: '/test', timeoutMs: null }),
       run: options.codeRun ?? (() => Promise.resolve({ logs: [] })),
     } as never)
   }

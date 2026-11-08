@@ -68,6 +68,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
     const pipeOutputs = {
       stdout: typeof spec.stdio.stdout === 'string' ? pullStream(ssh, ready, 'stdout', streamSignal) : undefined,
       stderr: typeof spec.stdio.stderr === 'string' ? pullStream(ssh, ready, 'stderr', streamSignal) : undefined,
+      control: undefined,
     }
     if (spec.stdio.stdout === 'inherit') pipeOutputs.stdout?.pipe(process.stdout, { end: false })
     if (spec.stdio.stderr === 'inherit') pipeOutputs.stderr?.pipe(process.stderr, { end: false })
@@ -125,6 +126,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
       }) : undefined,
       stdout: spec.stdio.stdout === 'pipe' ? pipeOutputs.stdout : undefined,
       stderr: spec.stdio.stderr === 'pipe' ? pipeOutputs.stderr : undefined,
+      control: undefined,
       collected: {
         ...(typeof spec.stdio.stdout === 'object' ? { stdout: { readFrom: (offset: number) => readFrom(stdout, offset) } } : {}),
         ...(typeof spec.stdio.stderr === 'object' ? { stderr: { readFrom: (offset: number) => readFrom(stderr, offset) } } : {}),

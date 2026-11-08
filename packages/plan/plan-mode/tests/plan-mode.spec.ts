@@ -10,7 +10,9 @@ import UserQuestionService, {
   UserQuestionError, type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { PtcRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import { type PtcRunRequest, type PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import PlanModeController, { EXIT_PLAN_MODE, foldPlanMode, resolveConfig } from '../src/index.ts'
 import type { PlanModeConfig } from '../src/index.ts'
 
@@ -466,9 +468,12 @@ describe('the soft layer', () => {
     // Minimal scriptable runtime: the SDK section resolves ctx.ptcRuntime at
     // assembly time (the code-mode.spec fake's shape).
     class FakeRuntime extends PtcRuntime {
+      override resolve(request: PtcRunRequest): PtcRunSpec {
+        return { ...request, cwd: '/fake', timeoutMs: null }
+      }
       readonly language = 'typescript'
       readonly isolation = 'fake'
-      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+      run(_request: PtcRunRequest): Promise<PtcRunResult> { return Promise.resolve({ logs: [] }) }
     }
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -487,9 +492,12 @@ describe('the soft layer', () => {
 
   it('keeps native wire schemas and the SDK in step under mode both', async () => {
     class FakeRuntime extends PtcRuntime {
+      override resolve(request: PtcRunRequest): PtcRunSpec {
+        return { ...request, cwd: '/fake', timeoutMs: null }
+      }
       readonly language = 'typescript'
       readonly isolation = 'fake'
-      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+      run(_request: PtcRunRequest): Promise<PtcRunResult> { return Promise.resolve({ logs: [] }) }
     }
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -508,9 +516,12 @@ describe('the soft layer', () => {
 
   it('keeps the PTC SDK byte-identical across mode switches', async () => {
     class FakeRuntime extends PtcRuntime {
+      override resolve(request: PtcRunRequest): PtcRunSpec {
+        return { ...request, cwd: '/fake', timeoutMs: null }
+      }
       readonly language = 'typescript'
       readonly isolation = 'fake'
-      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+      run(_request: PtcRunRequest): Promise<PtcRunResult> { return Promise.resolve({ logs: [] }) }
     }
     const withPlanMode = new Context()
     await withPlanMode.plugin(SystemPrompt)
@@ -886,9 +897,12 @@ describe('exit_plan_mode', () => {
   it('carries the exact plan through a PTC review and logs the nested dispatch', async () => {
     const plan = '# PTC plan\n\nUse the existing seam.'
     class ExitRuntime extends PtcRuntime {
+      override resolve(request: PtcRunRequest): PtcRunSpec {
+        return { ...request, cwd: '/fake', timeoutMs: null }
+      }
       readonly language = 'typescript'
       readonly isolation = 'fake'
-      async run(request: CodeRunRequest): Promise<CodeRunResult> {
+      async run(request: PtcRunRequest): Promise<PtcRunResult> {
         const exit = request.bindings[0]?.functions[EXIT_PLAN_MODE]
         if (exit === undefined) throw new Error('missing exit_plan_mode binding')
         return { logs: [], value: await exit({ plan }) }
