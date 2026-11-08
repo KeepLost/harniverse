@@ -758,6 +758,8 @@ async function throwGuardedCreateFailure(
  * @param createIfAbsent - when provided, publish with a hard-link no-replace
  * primitive; a concurrent creator's file is preserved and this write is
  * rejected with `FS_NOT_OBSERVED` using the supplied display path.
+ * @param displayPath - names the target in diagnostics; defaults to the
+ * createIfAbsent display path or `absolutePath`.
  */
 export function writeFileAtomic(
   absolutePath: string,
@@ -780,6 +782,7 @@ export function writeFileAtomic(
  * @param signal - cancellation checked before final publication.
  * @param internals - Test hook for pinning temp names and observing the staged file.
  * @param createIfAbsent - when provided, publish with a hard-link no-replace primitive.
+ * @param displayPath - names the target in diagnostics; defaults to the createIfAbsent display path or `absolutePath`.
  */
 export async function writeFileAtomicBytes(
   absolutePath: string,

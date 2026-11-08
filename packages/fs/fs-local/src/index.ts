@@ -417,7 +417,6 @@ export class LocalFileSystem extends FileSystem {
         fallbackEncodings: this.config.fallbackEncodings,
         detect: this.config.detect,
       })
-      if (signal?.aborted) throw new FsError('delete aborted', 'FS_ABORTED')
       await this.internals.inspectBeforeMutation?.(target)
       if (signal?.aborted) throw new FsError('delete aborted', 'FS_ABORTED')
       await removeFile(target.targetKey, target.displayPath, this.internals)
@@ -459,7 +458,6 @@ export class LocalFileSystem extends FileSystem {
           detect: this.config.detect,
         })
         : { basis: null as string | null }
-      if (signal?.aborted) throw new FsError('move aborted', 'FS_ABORTED')
       await this.internals.inspectBeforeMutation?.(source)
       if (signal?.aborted) throw new FsError('move aborted', 'FS_ABORTED')
       // After this checkpoint, complete both effects and report them even if cancellation arrives.
