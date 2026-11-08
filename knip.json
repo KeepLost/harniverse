@@ -967,7 +967,8 @@
     },
     "packages/bundle/headless": {
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-ptc-runtime-node"
+        "@deepseek-ai/dsh-ptc-runtime-node",
+        "@deepseek-ai/dsh-sandbox-local"
       ]
     },
     "packages/bundle/web-app": {

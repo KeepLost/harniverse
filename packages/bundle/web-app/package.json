@@ -137,6 +137,7 @@
     "@deepseek-ai/dsh-queue": "workspace:^",
     "@deepseek-ai/dsh-remote-hosts": "workspace:^",
     "@deepseek-ai/dsh-remote-hosts-ssh": "workspace:^",
+    "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/dsh-scheduler": "workspace:^",
     "@deepseek-ai/dsh-session-log-export": "workspace:^",
     "@deepseek-ai/dsh-session-projection-cache": "workspace:^",

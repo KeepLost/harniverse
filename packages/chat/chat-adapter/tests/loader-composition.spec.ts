@@ -70,7 +70,8 @@ describe('real Loader composition', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(loaded.chatAdapters.list().map(entry => entry.botId)).toEqual(['bot-1', 'bot-2'])
+    // Sibling rows activate in parallel; presence, not completion order, is the contract.
+    expect(loaded.chatAdapters.list().map(entry => entry.botId).sort()).toEqual(['bot-1', 'bot-2'])
   })
 
   it('removes the registration when the provider fiber is disposed', async () => {

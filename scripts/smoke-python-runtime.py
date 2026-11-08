@@ -86,6 +86,14 @@ CUSTOM_CORDIS = """\
   config:
     root: !!js process.env.DSH_SESSION_ROOT
     compression: 'none'
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.env.DSH_CWD
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
 - id: sandbox-policy
   name: '@deepseek-ai/dsh-sandbox-policy'
   config:

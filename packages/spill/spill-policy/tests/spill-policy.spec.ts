@@ -22,6 +22,7 @@ import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import { NodePtcRuntime } from '@deepseek-ai/dsh-ptc-runtime-node'
+import type { Config as NodeRuntimeConfig } from '@deepseek-ai/dsh-ptc-runtime-node'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 
 const testToolSignal = new AbortController().signal
@@ -192,7 +193,7 @@ describe('oversized plain-text replacement', () => {
 })
 
 /** Mount the Node PTC runtime with its required substrate services. */
-async function mountNodeRuntime(ctx: Context, config: Parameters<typeof ctx.plugin>[1] = {}): Promise<void> {
+async function mountNodeRuntime(ctx: Context, config: NodeRuntimeConfig = {}): Promise<void> {
   if (!ctx.get('sessions')) await ctx.plugin((await import('@deepseek-ai/dsh-session')).default)
   if (!ctx.get('fs')) await ctx.plugin((await import('@deepseek-ai/dsh-fs-local')).default)
   if (!ctx.get('subprocess')) await ctx.plugin((await import('@deepseek-ai/dsh-subprocess-local')).default)
