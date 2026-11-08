@@ -142,6 +142,8 @@
     { "path": "./vendor/logger-console" },
     { "path": "./packages/util/brand" },
     { "path": "./packages/util/deque" },
+    { "path": "./packages/util/file-drag" },
+    { "path": "./packages/util/workspace-path" },
     { "path": "./packages/util/lazy-require" },
     { "path": "./packages/util/launch-environment" },
     { "path": "./packages/util/native-command" },

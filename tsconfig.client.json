@@ -55,6 +55,7 @@
     { "path": "./packages/client/store" },
     { "path": "./packages/client/schema-form" },
     { "path": "./packages/client/ui-attachment" },
+    { "path": "./packages/client/ui-file-actions" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },
     { "path": "./packages/client/modules" },

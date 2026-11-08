@@ -50,8 +50,9 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-settings": "workspace:^",
-    "clsx": "^2.0.0",
-    "@deepseek-ai/schemastery": "workspace:^"
+    "@deepseek-ai/dsh-util-workspace-path": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^",
+    "clsx": "^2.0.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",

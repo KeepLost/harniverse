@@ -9,28 +9,10 @@
   ],
   "references": [
     {
-      "path": "../../attachment/attachment"
-    },
-    {
-      "path": "../../util/brand"
-    },
-    {
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../ui-slots"
-    },
-    {
-      "path": "../ui-attachment"
-    },
-    {
-      "path": "../ui-primitives"
-    },
-    {
-      "path": "../web-react"
-    },
-    {
-      "path": "../runtime"
+      "path": "../../attachment/attachment"
     },
     {
       "path": "../../core/agent"
@@ -39,43 +21,10 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../../interaction/commands"
-    },
-    {
-      "path": "../../session/session-projection"
-    },
-    {
-      "path": "../../session/session-stats"
-    },
-    {
-      "path": "../../llm/token-meter"
-    },
-    {
-      "path": "../../llm/llm-retry"
-    },
-    {
-      "path": "../../plan/plan-mode"
-    },
-    {
       "path": "../../goal/goal"
     },
     {
-      "path": "../../todo/tool-todo"
-    },
-    {
-      "path": "../ui-input-trigger"
-    },
-    {
-      "path": "../ui-layout"
-    },
-    {
-      "path": "../locale"
-    },
-    {
-      "path": "../../settings/settings"
-    },
-    {
-      "path": "../../runtime-diagnostics/invariants"
+      "path": "../../interaction/commands"
     },
     {
       "path": "../../interaction/permission-presets"
@@ -84,7 +33,61 @@
       "path": "../../interaction/supervision"
     },
     {
+      "path": "../../llm/llm-retry"
+    },
+    {
+      "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../plan/plan-mode"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../session/session-stats"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../todo/tool-todo"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../util/workspace-path"
+    },
+    {
+      "path": "../locale"
+    },
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../ui-attachment"
+    },
+    {
+      "path": "../ui-input-trigger"
+    },
+    {
+      "path": "../ui-layout"
+    },
+    {
+      "path": "../ui-primitives"
+    },
+    {
       "path": "../ui-settings"
+    },
+    {
+      "path": "../ui-slots"
+    },
+    {
+      "path": "../web-react"
     }
   ],
   "exclude": [

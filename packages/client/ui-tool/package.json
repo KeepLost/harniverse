@@ -45,6 +45,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-util-workspace-path": "workspace:^",
     "clsx": "^2.0.0"
   },
   "peerDependencies": {

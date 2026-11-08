@@ -21,6 +21,8 @@ flowchart TD
     pkg_native_command["native-command"]
     pkg_output_retention["output-retention"]
     pkg_timeout["timeout"]
+    pkg_util_file_drag["util-file-drag"]
+    pkg_util_workspace_path["util-workspace-path"]
   end
   subgraph group_llm["packages/llm"]
     pkg_llm["llm"]
@@ -181,6 +183,7 @@ flowchart TD
     pkg_client_ui_deliverables["client-ui-deliverables"]
     pkg_client_ui_directory_picker_browse["client-ui-directory-picker-browse"]
     pkg_client_ui_directory_picker_native["client-ui-directory-picker-native"]
+    pkg_client_ui_file_actions["client-ui-file-actions"]
     pkg_client_ui_goal["client-ui-goal"]
     pkg_client_ui_governor["client-ui-governor"]
     pkg_client_ui_input_trigger["client-ui-input-trigger"]
@@ -471,6 +474,8 @@ flowchart TD
   pkg_native_command --> pkg_invariants
   pkg_output_retention --> pkg_invariants
   pkg_timeout --> pkg_invariants
+  pkg_util_file_drag --> pkg_invariants
+  pkg_util_workspace_path --> pkg_invariants
   pkg_scope --> pkg_invariants
   pkg_fs_codec --> pkg_invariants
   pkg_fs_patch --> pkg_invariants
@@ -485,6 +490,7 @@ flowchart TD
   pkg_client_store --> pkg_invariants
   pkg_client_ui_attachment --> pkg_invariants
   pkg_client_ui_dashboard --> pkg_invariants
+  pkg_client_ui_file_actions --> pkg_invariants
   pkg_client_ui_primitives --> pkg_invariants
   pkg_client_ui_queue --> pkg_invariants
   pkg_client_ui_slots --> pkg_invariants
@@ -2247,6 +2253,8 @@ flowchart TD
 | [`native-command`](../packages/util/native-command) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`output-retention`](../packages/util/output-retention) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`util-file-drag`](../packages/util/file-drag) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`util-workspace-path`](../packages/util/workspace-path) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`fs-codec`](../packages/fs/fs-codec) | `fs` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`fs-patch`](../packages/fs/fs-patch) | `fs` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2261,6 +2269,7 @@ flowchart TD
 | [`client-store`](../packages/client/store) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-attachment`](../packages/client/ui-attachment) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-dashboard`](../packages/client/ui-dashboard) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-ui-file-actions`](../packages/client/ui-file-actions) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-primitives`](../packages/client/ui-primitives) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-queue`](../packages/client/ui-queue) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-slots`](../packages/client/ui-slots) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |

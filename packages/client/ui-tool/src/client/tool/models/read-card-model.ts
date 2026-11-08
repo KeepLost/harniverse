@@ -14,7 +14,8 @@
  * @module
  */
 import type { ReadBlockLine, ReadBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
-import { relativizeToCwd, type ToolCallBlock } from './tool-call-model.ts'
+import { relativizeToCwd } from '@deepseek-ai/dsh-util-workspace-path'
+import { type ToolCallBlock } from './tool-call-model.ts'
 
 /**
  * Content lines the chat row's resident read body shows before collapsing the
