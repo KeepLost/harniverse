@@ -314,6 +314,7 @@ export class LocalFileSystem extends FileSystem {
         signal,
         this.internals,
         expected?.kind === 'createIfAbsent' ? { displayPath: target.displayPath } : undefined,
+        target.displayPath,
       )
       const after = await probe(target.targetKey)
       if (decision !== undefined && after !== null) {
@@ -361,7 +362,7 @@ export class LocalFileSystem extends FileSystem {
       const edited = applyLiteralEdit(original.content, edit.oldString, edit.newString, edit.replaceAll, target.displayPath)
       const content = restoreLineEndings(edited.content, original.lineEndings)
       const bytes = encodeForWriteDecision(content, original.decision, 'edit', target.displayPath)
-      await writeFileAtomicBytes(target.targetKey, bytes, existing.mode, signal, this.internals)
+      await writeFileAtomicBytes(target.targetKey, bytes, existing.mode, signal, this.internals, undefined, target.displayPath)
       const after = await probe(target.targetKey)
       /* v8 ignore next 3 -- the post-write probe finding the file absent requires a concurrent unlink between rename and stat. */
       if (after !== null) {
@@ -394,7 +395,7 @@ export class LocalFileSystem extends FileSystem {
       })
       const after = this.patchContent(target, original.content, hunks)
       const bytes = encodeForWriteDecision(restoreLineEndings(after, original.lineEndings), original.decision, 'edit', target.displayPath)
-      await writeFileAtomicBytes(target.targetKey, bytes, existing.mode, signal, this.internals)
+      await writeFileAtomicBytes(target.targetKey, bytes, existing.mode, signal, this.internals, undefined, target.displayPath)
       const probed = await probe(target.targetKey)
       /* v8 ignore next 3 -- the post-write probe finding the file absent requires a concurrent unlink between rename and stat. */
       if (probed !== null) {
@@ -469,6 +470,7 @@ export class LocalFileSystem extends FileSystem {
         undefined,
         { ...this.internals, existingDestination: existing !== null },
         options.expectedDestination?.kind === 'createIfAbsent' ? { displayPath: destination.displayPath } : undefined,
+        destination.displayPath,
       )
       const outcome: FsWriteOutcome = {
         operation: existing ? 'update' : 'create',

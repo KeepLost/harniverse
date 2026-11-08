@@ -103,6 +103,18 @@ No direct invalidation; the owning tool's schema is the only model-visible surfa
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - Text updates implement only `NormalizeToLf`; callers own line-ending conversion.
 - The public API accepts complete strings, not streaming deltas.
 - **Line-ending preservation is out of scope** — the pinned Codex matcher operates on LF-normalized text only; providers restore the stored style after applying hunks.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

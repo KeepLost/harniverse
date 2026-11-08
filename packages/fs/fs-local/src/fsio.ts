@@ -58,6 +58,16 @@ function isPermissionError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM')
 }
 
+/** Preserve typed failures and defects; map Node write errors for filesystem consumers. */
+function writeIoError(path: string, error: unknown): unknown {
+  if (error instanceof FsError) return error
+  if (isPermissionError(error)) return new FsError(`cannot write "${path}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
+  if (error instanceof Error && 'code' in error && typeof error.code === 'string') {
+    return new FsError(`cannot write "${path}": ${error.message}`, 'FS_IO_ERROR', { cause: error })
+  }
+  return error
+}
+
 function throwIfAborted(signal: AbortSignal | undefined, verb: string): void {
   if (signal?.aborted) throw new FsError(`${verb} aborted`, 'FS_ABORTED')
 }
@@ -756,8 +766,9 @@ export function writeFileAtomic(
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
   createIfAbsent?: { displayPath: string },
+  displayPath?: string,
 ): Promise<void> {
-  return writeFileAtomicBytes(absolutePath, Buffer.from(content, 'utf8'), mode, signal, internals, createIfAbsent)
+  return writeFileAtomicBytes(absolutePath, Buffer.from(content, 'utf8'), mode, signal, internals, createIfAbsent, displayPath)
 }
 
 /**
@@ -777,10 +788,11 @@ export async function writeFileAtomicBytes(
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
   createIfAbsent?: { displayPath: string },
+  displayPath: string = createIfAbsent?.displayPath ?? absolutePath,
 ): Promise<void> {
   throwIfAborted(signal, 'write')
   const directory = dirname(absolutePath)
-  await mkdir(directory, { recursive: true })
+  try { await mkdir(directory, { recursive: true }) } catch (error) { throw writeIoError(displayPath, error) }
 
   throwIfAborted(signal, 'write')
   const stagingDirName = internals.tempDirName?.(absolutePath) ?? `.${basename(absolutePath)}.${process.pid}.${randomUUID()}.tmpdir`
@@ -840,7 +852,7 @@ export async function writeFileAtomicBytes(
     }
   } catch (error: unknown) {
     /* v8 ignore next -- abort-mid-write needs a writeFile/signal race; the non-abort (rename/open) side is tested. */
-    let failure: unknown = isAbortError(error) ? new FsError('write aborted', 'FS_ABORTED') : error
+    let failure: unknown = isAbortError(error) ? new FsError('write aborted', 'FS_ABORTED') : writeIoError(displayPath, error)
     /* v8 ignore next 8 -- reached only if writeFile/sync throws with the handle open (IO fault); close-failure is a double fault. */
     if (handle) {
       try {

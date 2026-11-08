@@ -103,6 +103,18 @@ if (operation?.kind === 'update') {
 
 ## 已知限制与延期工作
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - 文本更新只实现 `NormalizeToLf`；行尾转换由调用方负责。
 - 公开 API 接受完整字符串，不支持流式增量。
 - **不保留行尾风格** —— 钉死的 Codex 匹配器只在 LF 规范化文本上工作；提供方在应用 hunk 后恢复原存储风格。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作上下文 — 点击展开</summary>
+
+None.
+
+</details>

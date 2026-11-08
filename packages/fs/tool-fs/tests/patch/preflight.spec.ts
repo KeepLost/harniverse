@@ -168,7 +168,8 @@ it('resolves agentless calls against the provider default directory', async () =
   // Without an agent there is no session cwd, so 'a' resolves under the
   // provider's own root and the delete refuses on the unobserved file there.
   expect(outcome.phase).toBe('preflight')
-  expect(outcome.phase === 'preflight' && outcome.refusals[0]?.failure.message).toContain('/provider/a')
+  const refusal = outcome.phase === 'preflight' ? outcome.refusals[0]?.failure.message.replaceAll('\\', '/') : ''
+  expect(refusal).toContain('/provider/a')
 })
 
 it.each(['FS_NOT_TEXT', 'FS_TOO_LARGE'] satisfies FsErrorCode[])('preserves a preflight read failure %s', async (code) => {
