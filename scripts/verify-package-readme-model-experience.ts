@@ -144,6 +144,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/examples/agent-spine-demo': { kind: 'indirect', reason: 'The bundle only mounts model-facing child plugins.' },
   'packages/fs/fs': { kind: 'indirect', reason: 'The service interface delegates model rendering to dsh-tool-fs.' },
   'packages/fs/fs-codec': { kind: 'indirect', reason: 'The pure codec library computes decode decisions and annotation text; dsh-tool-fs and dsh-fs-local own what the model sees.' },
+  'packages/fs/fs-patch': { kind: 'indirect', reason: 'The pure patch library computes parse and match outcomes; dsh-tool-fs\'s config-gated apply_patch owns what the model sees.' },
   'packages/fs/fs-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-fs.' },
   'packages/hooks/hook-protocol': { kind: 'indirect', reason: 'Only the hook bridge plugins render decoded hook output to a model.' },
   'packages/host/apiproxy': { kind: 'none', reason: 'The wire contract and fetch carriers move already-composed messages and register nothing model-facing.' },

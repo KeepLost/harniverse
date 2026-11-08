@@ -6957,7 +6957,7 @@ importers:
         version: link:../../llm/llm
 
   packages/fs/fs-patch:
-    dependencies:
+    devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis

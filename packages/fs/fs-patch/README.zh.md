@@ -93,20 +93,16 @@ if (operation?.kind === 'update') {
 
 - [文件系统包组](../README.md)——提供方、策略和文件工具。
 - [Apply patch 文件编辑](../../../.agents/notes/implemented/feature/2026-11-07-apply-patch-file-editing.md)——决策记录。
+## 模型体验
 
-## 已知限制与后续工作
+间接生效，经由 `dsh-tool-fs` 的配置门控 `apply_patch` 工具：解析器的语法错误与匹配器的结构化失败即该工具报告的模型面诊断。
 
-<a id="known-limitations-and-deferred-work"></a>
+#### KV Cache 影响
 
-- 文本更新只实现 `NormalizeToLf`；调用方负责行尾转换。
-- 公开 API 接受完整字符串，不接收流式增量。
+无直接失效；所属工具的 schema 是唯一的模型可见面。
 
-<a id="dev-note"></a>
-### 开发备注
+## 已知限制与延期工作
 
-<details>
-<summary>维护者工作上下文——点击展开</summary>
-
-无。
-
-</details>
+- 文本更新只实现 `NormalizeToLf`；行尾转换由调用方负责。
+- 公开 API 接受完整字符串，不支持流式增量。
+- **不保留行尾风格** —— 钉死的 Codex 匹配器只在 LF 规范化文本上工作；提供方在应用 hunk 后恢复原存储风格。

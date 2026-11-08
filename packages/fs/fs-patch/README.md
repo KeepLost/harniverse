@@ -93,20 +93,16 @@ The [parser](src/parse.ts) builds syntax records without a Session or provider d
 
 - [Filesystem package group](../README.md) — providers, policies, and file tools.
 - [Apply patch file editing](../../../.agents/notes/implemented/feature/2026-11-07-apply-patch-file-editing.md) — decision record.
+## Model Experience
+
+Indirectly, through `dsh-tool-fs`'s config-gated `apply_patch` tool: the parser's syntax errors and the matcher's structured failures are the model-facing diagnostics that tool reports.
+
+#### KV Cache effect
+
+No direct invalidation; the owning tool's schema is the only model-visible surface.
 
 ## Known Limitations and Deferred Work
 
-<a id="known-limitations-and-deferred-work"></a>
-
 - Text updates implement only `NormalizeToLf`; callers own line-ending conversion.
 - The public API accepts complete strings, not streaming deltas.
-
-<a id="dev-note"></a>
-### Dev Note
-
-<details>
-<summary>Working context for maintainers — click to expand</summary>
-
-None.
-
-</details>
+- **Line-ending preservation is out of scope** — the pinned Codex matcher operates on LF-normalized text only; providers restore the stored style after applying hunks.
