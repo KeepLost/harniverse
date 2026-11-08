@@ -57,7 +57,16 @@ const manager = {
   name: 'test-manager',
   inject: ['chatAdapters', 'credentials'],
   async apply(ctx: Context, config: { bots: ManagedRow[] }): Promise<void> {
-    for (const bot of config.bots) await ctx.chatAdapters.platform(bot.platform)!.mount(ctx, bot)
+    for (const bot of config.bots) {
+      // Sibling rows activate in parallel; wait for the descriptor the manager
+      // mounts through rather than assuming the provider row finished first.
+      const descriptor = await vi.waitFor(() => {
+        const found = ctx.chatAdapters.platform(bot.platform)
+        if (found === undefined) throw new Error('platform descriptor not yet visible')
+        return found
+      })
+      await descriptor.mount(ctx, bot)
+    }
   },
 }
 
