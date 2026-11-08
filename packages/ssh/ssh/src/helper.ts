@@ -136,24 +136,6 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
       /* v8 ignore next -- async iterator results always carry a boolean done flag */
       return { done: next.done ?? false, value: next.done ? '' : next.value }
     }
-    const args = z.object({ target: targetSchema, content: z.string().optional(), edit: editSchema.optional(),
-      expected: z.union([intentSchema, z.object({ version: z.string() }).strict()]).optional(),
-      policy: policySchema.optional(), maxBytes: z.number().int().nonnegative().max(512 * 1024).optional(),
-    }).strict().parse(raw)
-    const target = args.target as FsTarget
-    if (method === 'fs.stat') return await ctx.fs.stat(target, signal) ?? null
-    if (method === 'fs.list') return ctx.fs.listDir(target, signal)
-    if (method === 'fs.readBytes') return Buffer.from(await ctx.fs.readBytes(target, signal, args.maxBytes ?? 512 * 1024)).toString('base64')
-    if (method === 'fs.stream') {
-      if (iterators.size >= SSH_MAX_TEXT_STREAMS) throw new Error('SSH text iterator capacity exhausted')
-      const iterator = (await ctx.fs.streamText(target, lifetime.signal))[Symbol.asyncIterator]()
-      if (iterators.size >= SSH_MAX_TEXT_STREAMS || lifetime.signal.aborted) { await iterator.return?.(); throw new Error('SSH text iterator allocation cancelled') }
-      const id = randomUUID()
-      iterators.set(id, iterator)
-      return id
-    }
-    if (method === 'fs.write') return ctx.fs.writeText(target, z.string().parse(args.content), args.expected as FsWriteIntent | undefined, signal, await policy(args.policy))
-    if (method === 'fs.edit') return ctx.fs.editText(target, editSchema.parse(args.edit), args.expected as { version: FsVersion } | undefined, signal, await policy(args.policy))
     if (method === 'fs.patch') {
       const input = z.object({
         target: targetSchema, hunks: z.array(hunkSchema), expected: versionGuardSchema.optional(), policy: policySchema.optional(),
@@ -180,6 +162,24 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
         ...(expectedDestination === undefined ? {} : { expectedDestination: expectedDestination as FsWriteIntent }),
       }, signal, await policy(input.policy))
     }
+    const args = z.object({ target: targetSchema, content: z.string().optional(), edit: editSchema.optional(),
+      expected: z.union([intentSchema, z.object({ version: z.string() }).strict()]).optional(),
+      policy: policySchema.optional(), maxBytes: z.number().int().nonnegative().max(512 * 1024).optional(),
+    }).strict().parse(raw)
+    const target = args.target as FsTarget
+    if (method === 'fs.stat') return await ctx.fs.stat(target, signal) ?? null
+    if (method === 'fs.list') return ctx.fs.listDir(target, signal)
+    if (method === 'fs.readBytes') return Buffer.from(await ctx.fs.readBytes(target, signal, args.maxBytes ?? 512 * 1024)).toString('base64')
+    if (method === 'fs.stream') {
+      if (iterators.size >= SSH_MAX_TEXT_STREAMS) throw new Error('SSH text iterator capacity exhausted')
+      const iterator = (await ctx.fs.streamText(target, lifetime.signal))[Symbol.asyncIterator]()
+      if (iterators.size >= SSH_MAX_TEXT_STREAMS || lifetime.signal.aborted) { await iterator.return?.(); throw new Error('SSH text iterator allocation cancelled') }
+      const id = randomUUID()
+      iterators.set(id, iterator)
+      return id
+    }
+    if (method === 'fs.write') return ctx.fs.writeText(target, z.string().parse(args.content), args.expected as FsWriteIntent | undefined, signal, await policy(args.policy))
+    if (method === 'fs.edit') return ctx.fs.editText(target, editSchema.parse(args.edit), args.expected as { version: FsVersion } | undefined, signal, await policy(args.policy))
     throw new Error(`Unknown SSH helper operation: ${method}`)
   })
   const closed = Promise.withResolvers<void>()
