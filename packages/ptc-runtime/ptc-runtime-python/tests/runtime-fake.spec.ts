@@ -844,3 +844,17 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     await fiber.dispose()
   })
 })
+
+
+describe('resolve', () => {
+  it('rejects unsupported per-call choices and accepts the null deadline', async () => {
+    const { ctx } = await setup()
+    const runtime = ctx.ptcRuntime as PythonPtcRuntime
+    expect(() => runtime.resolve(request({ timeoutMs: 5_000 }))).toThrow('per-call timeoutMs is not supported')
+    expect(() => runtime.resolve(request({ sandboxPolicy: { mode: 'read-only', workspaceRoot: '/w' } }))).toThrow('per-call sandbox policies are not supported')
+    const spec = runtime.resolve(request({ timeoutMs: null }))
+    expect(spec.timeoutMs).toBe(runtime['config'].maxWallMs)
+    expect(spec.cwd).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+})

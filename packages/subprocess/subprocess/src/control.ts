@@ -29,5 +29,8 @@ export function openInheritedControlChannel(): Duplex {
     if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error('subprocess control channel endpoint is invalid')
     return connect({ port, host: '127.0.0.1', allowHalfOpen: true })
   }
+  if (typeof marker === 'string' && marker.startsWith('winpipe:')) {
+    return connect({ path: marker.slice('winpipe:'.length), allowHalfOpen: true })
+  }
   throw new Error('subprocess control channel was not inherited')
 }

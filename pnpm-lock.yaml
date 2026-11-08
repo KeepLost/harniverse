@@ -6643,6 +6643,9 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../boot/app-boot
+      '@deepseek-ai/dsh-ptc-runtime-node':
+        specifier: workspace:^
+        version: link:../../ptc-runtime/ptc-runtime-node
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

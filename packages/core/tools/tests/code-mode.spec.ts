@@ -1838,3 +1838,16 @@ describe('run_code retained environments', () => {
     await ctx.fiber.dispose()
   })
 })
+
+
+describe('run_code SDK text per evaluation form', () => {
+  it('renders the script-form instructions without top-level return guidance', async () => {
+    const { renderToolsSdk } = await import('../src/ts-types.ts')
+    const body = renderToolsSdk([], 'function-body')
+    const script = renderToolsSdk([], 'script')
+    expect(script).toContain('the program to execute')
+    expect(script).toContain('Emit results with `console.log(...)`')
+    expect(script).not.toContain('ONLY what you print or return')
+    expect(renderToolsSdk([])).toBe(body)
+  })
+})

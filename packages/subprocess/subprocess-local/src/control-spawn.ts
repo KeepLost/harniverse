@@ -1,6 +1,7 @@
 /** Parent-side setup for one explicitly requested control channel. */
 
 import { createServer, type Server } from 'node:net'
+import { randomUUID } from 'node:crypto'
 import { SUBPROCESS_CONTROL_ENV, SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { PassThrough } from 'node:stream'
 import type { Duplex, Readable, Writable } from 'node:stream'
@@ -72,12 +73,10 @@ export function createControlCarrier(): ControlCarrier {
   const bridge = new PassThrough({ allowHalfOpen: true })
   let endpoint: Duplex | undefined
   let disposed = false
-  server.listen(0, '127.0.0.1')
-  const address = server.address()
-  if (address === null || typeof address === 'string') {
-    server.close()
-    throw new Error('subprocess control carrier could not bind a loopback endpoint')
-  }
+  // A named pipe: the path is known before the async listen completes, so the
+  // synchronous spawn can stamp the endpoint immediately.
+  const pipePath = `\\\\.\\pipe\\dsh-control-${randomUUID()}`
+  server.listen(pipePath)
   server.once('connection', (socket) => {
     endpoint = socket
     socket.pipe(bridge)
@@ -86,7 +85,7 @@ export function createControlCarrier(): ControlCarrier {
   })
   server.once('error', (error) => { bridge.destroy(error); server.close() })
   return {
-    marker: `tcp:${String(address.port)}`,
+    marker: `winpipe:${pipePath}`,
     control: bridge,
     dispose() {
       if (disposed) return

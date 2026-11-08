@@ -37,3 +37,19 @@ describe('loopback control endpoint', () => {
     expect(process.env[SUBPROCESS_CONTROL_ENV]).toBeUndefined()
   })
 })
+
+describe('named-pipe control endpoint', () => {
+  it.skipIf(process.platform !== 'win32')('connects a winpipe marker to the named pipe', async () => {
+    const { createControlCarrier } = await import('../../subprocess-local/src/control-spawn.ts')
+    const carrier = createControlCarrier()
+    vi.stubEnv(SUBPROCESS_CONTROL_ENV, carrier.marker)
+    const channel = openInheritedControlChannel()
+    await new Promise<void>((resolve) => { channel.once('connect', () => { resolve(undefined) }) })
+    channel.write('ping\n')
+    carrier.control.write('pong\n')
+    const reply = await new Promise<string>((resolve) => { channel.once('data', (chunk: Buffer) => { resolve(chunk.toString()) }) })
+    expect(reply.trim()).toBe('pong')
+    channel.destroy()
+    carrier.dispose()
+  })
+})

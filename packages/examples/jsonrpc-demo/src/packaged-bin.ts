@@ -16,5 +16,12 @@
 
 import { runJsonrpcAgent } from './runner.ts'
 
-/* v8 ignore next -- exercised through the built Python runtime carriers */
-await runJsonrpcAgent(import.meta.url)
+if (process.env.DSH_SUBPROCESS_CONTROL !== undefined) {
+  // Re-exec as the Node PTC runtime's managed child: the runtime spawned this
+  // binary with the control-channel marker and the message bound on argv; the
+  // private process entry self-executes against both.
+  await import('@deepseek-ai/dsh-ptc-runtime-node/process')
+} else {
+  /* v8 ignore next -- exercised through the built Python runtime carriers */
+  await runJsonrpcAgent(import.meta.url)
+}
