@@ -1,10 +1,10 @@
 /** Executed only by the target Electron in run-as-Node mode against the staged closure. */
 const assert = require('node:assert/strict')
 const { spawn, spawnSync } = require('node:child_process')
-const { mkdtempSync, readFileSync, writeFileSync } = require('node:fs')
+const { existsSync, mkdtempSync, readFileSync, writeFileSync } = require('node:fs')
 const { rm } = require('node:fs/promises')
 const { createRequire } = require('node:module')
-const { join, resolve, win32 } = require('node:path')
+const { dirname, join, resolve, win32 } = require('node:path')
 const { pathToFileURL } = require('node:url')
 
 async function qualify() {
@@ -93,27 +93,27 @@ async function qualifyPty(appRequire) {
 }
 
 async function qualifyPtc(appRequire) {
-  const { ControlChannelTransport } = await import(pathToFileURL(appRequire.resolve('@deepseek-ai/dsh-control-channel')).href)
-  const child = spawn(process.execPath, [appRequire.resolve('@deepseek-ai/dsh-ptc-runtime-node/child')], {
-    env: process.env, stdio: ['pipe', 'pipe', 'pipe'],
+  const pkgRoot = dirname(appRequire.resolve('@deepseek-ai/dsh-ptc-runtime-node/package.json'))
+  // Both child entries must ship: the per-call process and the persistent one.
+  for (const entry of ['lib/process.js', 'lib/persistent-process.js']) {
+    assert.ok(existsSync(join(pkgRoot, entry)), `missing ${entry} in the assembled runtime`)
+  }
+  // Boot the per-call child under this app's node: without an inherited control
+  // channel it must refuse to run and exit 1 with the documented refusal.
+  const child = spawn(process.execPath, [join(pkgRoot, 'lib/process.js'), '65536'], {
+    env: { ...process.env, DSH_SUBPROCESS_CONTROL: '' }, stdio: ['ignore', 'ignore', 'pipe'],
   })
   const closed = new Promise((accept, reject) => { child.once('error', reject); child.once('close', (code, signal) => accept({ code, signal })) })
   let stderr = ''
   child.stderr.on('data', data => { stderr += data.toString() })
   const timer = setTimeout(() => child.kill('SIGKILL'), 15000)
-  const channel = new ControlChannelTransport({ input: child.stdout, output: child.stdin, handlers: {} })
   try {
-    await channel.call('run', ['return 42', [], 65536, 5000, 8192])
-    const outcome = await channel.outcome()
-    assert.equal(outcome.kind, 'value', `PTC failed: ${JSON.stringify(outcome)} ${stderr}`)
-    assert.deepEqual(outcome.value, [42], 'PTC child returned the wrong wire value')
-    await channel.waitSettled()
     const exit = await closed
-    assert.equal(exit.code, 0, `PTC exit failed: ${stderr}`)
+    assert.equal(exit.code, 1, `PTC child exit failed: ${stderr}`)
     assert.equal(exit.signal, null)
+    assert.match(stderr, /subprocess control channel was not inherited/, `PTC child refused for the wrong reason: ${stderr}`)
   } finally {
     clearTimeout(timer)
-    await channel.dispose()
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
     await closed
   }

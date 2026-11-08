@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { constants as bufferConstants } from 'node:buffer'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
@@ -130,6 +130,13 @@ describe('resolve', () => {
     expect(fs.contains(root, root)).toBe(true)
     expect(fs.contains(root, child)).toBe(true)
     expect(fs.contains(root, outside)).toBe(false)
+  })
+})
+
+describe('processPathFromHostPath', () => {
+  it('resolves an absolute host path and refuses a relative spelling', () => {
+    expect(fs.processPathFromHostPath('/definitely/absolute/file.txt')).toBe(resolve('/definitely/absolute/file.txt'))
+    expect(fs.processPathFromHostPath('relative/file.txt')).toBeUndefined()
   })
 })
 

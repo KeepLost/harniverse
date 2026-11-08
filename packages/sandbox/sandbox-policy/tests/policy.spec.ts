@@ -33,7 +33,11 @@ class RemoteWorldRuntime extends SubprocessRuntime {
   }
 }
 
-async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}) {
+async function mounted(config: {
+  mode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  workspaceRoot?: string
+  additionalWritableRoots?: string[]
+} = {}) {
   const ctx = new Context()
   await ctx.plugin(SandboxPolicyService, config)
   return ctx
@@ -69,6 +73,19 @@ describe('SandboxPolicyService', () => {
     const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/ws/../ws/./sub' })
     expect(ctx.sandboxPolicy.defaultMode).toBe('workspace-write')
     expect(ctx.sandboxPolicy.workspaceRoot).toBe(resolve('/ws/../ws/./sub'))
+  })
+
+  it('freezes configured additional writable roots as a deduplicated copy and rejects relative spellings', async () => {
+    const ctx = await mounted({ additionalWritableRoots: ['/extra/a', '/extra/b', '/extra/a'] })
+    const policy = ctx.sandboxPolicy.resolve({})
+    expect(policy.additionalWritableRoots).toEqual(['/extra/a', '/extra/b'])
+    expect(Object.isFrozen(policy.additionalWritableRoots)).toBe(true)
+
+    const rejecting = new Context()
+    await expect(rejecting.plugin(SandboxPolicyService, { additionalWritableRoots: ['relative/root'] })).rejects.toThrow(
+      'additionalWritableRoots entries must be absolute execution-world paths',
+    )
+    await rejecting.fiber.dispose()
   })
 
   it('resolves the deployment policy for an agentless call', async () => {
