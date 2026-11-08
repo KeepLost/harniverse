@@ -16,10 +16,5 @@
 
 import { runJsonrpcAgent } from './runner.ts'
 
-if (process.env.DSH_PTC_RUNTIME_NODE === '1') {
-  Reflect.deleteProperty(process.env, 'DSH_PTC_RUNTIME_NODE')
-  await import('@deepseek-ai/dsh-ptc-runtime-node/child')
-} else {
-  /* v8 ignore next -- exercised through the built Python runtime carriers */
-  await runJsonrpcAgent(import.meta.url)
-}
+/* v8 ignore next -- exercised through the built Python runtime carriers */
+await runJsonrpcAgent(import.meta.url)

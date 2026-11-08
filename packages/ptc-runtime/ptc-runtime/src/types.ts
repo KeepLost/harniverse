@@ -128,9 +128,9 @@ export interface PtcRunSandbox {
 }
 
 /**
- * Why a run failed. The kinds are orthogonal outcomes reported independently
- * (per docs/defensive-patterns/general.md): a budget expiry is not an exception, an
- * abort is not a timeout, and a substrate death is neither.
+ * Why a run failed. The kinds are orthogonal outcomes reported independently:
+ * a budget expiry is not an exception, an abort is not a timeout, and a
+ * substrate death is neither.
  *
  * - `'exception'` — the program threw or failed to parse/transform.
  * - `'timeout'` — an implementation-owned budget expired; the message says which.

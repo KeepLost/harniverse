@@ -29,6 +29,10 @@ const VENDOR_SRC_ALIASES: Record<string, string> = {
   '@deepseek-ai/cordis-plugin-timer': 'vendor/timer/src/index.ts',
   '@deepseek-ai/cordis-plugin-hmr': 'vendor/hmr/src/index.ts',
   '@deepseek-ai/cordis-plugin-logger-console': 'vendor/logger-console/src/index.ts',
+  // The control subpath's runtime default is the built bundle; source-mode
+  // suites (and the ptc provider's launch helper) resolve the module source
+  // so a clean checkout needs no prior build.
+  '@deepseek-ai/dsh-subprocess/control': 'packages/subprocess/subprocess/src/control.ts',
 }
 
 const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
