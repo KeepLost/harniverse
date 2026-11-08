@@ -9,16 +9,22 @@ export interface ImageLightboxLabels {
   dialog: string
   /** Accessible label of the close control. */
   close: string
-  /** Accessible label of the copy-image control. */
-  copyImage?: string
-  /** Accessible label of the download control. */
-  download?: string
-  /** Accessible label of the save-as control (Desktop only). */
-  saveAs?: string
 }
 
-/** Original-file commands the owner resolves for the opened preview; every member is optional. */
+/** Original-file command labels, resolved by the owner offering the commands. */
+export interface ImageLightboxActionLabels {
+  /** Copy-image control. */
+  copy: string
+  /** Download control. */
+  download: string
+  /** Save-as control (Desktop only). */
+  saveAs: string
+}
+
+/** Original-file commands the owner resolves for the opened preview; a control renders per callback. */
 export interface ImageLightboxActions {
+  /** Control labels for every command the owner may offer. */
+  labels: ImageLightboxActionLabels
   /** Copy the decoded original to the clipboard. */
   copy?: () => void
   /** Download the original bytes. */
@@ -73,14 +79,14 @@ export function ImageLightbox({ src, alt, labels, actions, onClose }: {
     >
       <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />
       <img className={css.image} src={src} alt={alt} />
-      {actions !== undefined && (actions.copy !== undefined || actions.download !== undefined || actions.saveAs !== undefined)
+      {actions !== undefined
         && <div className={css.actions} role="toolbar" aria-label={labels.dialog}>
-          {actions.copy !== undefined && labels.copyImage !== undefined
-            && <button type="button" className={css.action} onClick={actions.copy}>{labels.copyImage}</button>}
-          {actions.download !== undefined && labels.download !== undefined
-            && <button type="button" className={css.action} onClick={actions.download}>{labels.download}</button>}
-          {actions.saveAs !== undefined && labels.saveAs !== undefined
-            && <button type="button" className={css.action} onClick={actions.saveAs}>{labels.saveAs}</button>}
+          {actions.copy !== undefined
+            && <button type="button" className={css.action} onClick={actions.copy}>{actions.labels.copy}</button>}
+          {actions.download !== undefined
+            && <button type="button" className={css.action} onClick={actions.download}>{actions.labels.download}</button>}
+          {actions.saveAs !== undefined
+            && <button type="button" className={css.action} onClick={actions.saveAs}>{actions.labels.saveAs}</button>}
         </div>}
       <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>
         <IconCloseOutline16 size={16} />

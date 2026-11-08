@@ -42,6 +42,29 @@ describe('MessageImage', () => {
     expect(view.queryByRole('dialog', { name: '原图预览' })).toBeNull()
   })
 
+  it('threads the owner resolver into the opened preview toolbar', async () => {
+    const load = vi.fn().mockResolvedValue('blob:history')
+    const copy = vi.fn()
+    const actionsFor = vi.fn(() => ({ labels: { copy: '复制图片', download: '下载', saveAs: '另存为…' }, copy }))
+    const view = render(<MessageImage attachment={attachment} load={load} variant="single" labels={labels} actionsFor={actionsFor} />)
+    await waitFor(() => { expect(view.getByAltText('history.png')).toBeTruthy() })
+    fireEvent.click(view.getByRole('button', { name: 'history.png，点击查看原图' }))
+    fireEvent.click(view.getByRole('button', { name: '复制图片' }))
+    expect(actionsFor).toHaveBeenCalledWith({ url: 'blob:history', name: 'history.png' })
+    expect(copy).toHaveBeenCalledOnce()
+    expect(view.queryByRole('button', { name: '下载' })).toBeNull()
+  })
+
+  it('threads the resolver through the gallery chain', async () => {
+    const load = vi.fn().mockResolvedValue('blob:history')
+    const copy = vi.fn()
+    const actionsFor = vi.fn(() => ({ labels: { copy: '复制图片', download: '下载', saveAs: '另存为…' }, copy }))
+    const view = render(<ImageGallery images={[{ attachment }]} load={load} align="start" labels={labels} actionsFor={actionsFor} />)
+    await waitFor(() => { expect(view.getByAltText('history.png')).toBeTruthy() })
+    fireEvent.click(view.getByRole('button', { name: 'history.png，点击查看原图' }))
+    expect(view.getByRole('toolbar', { name: '原图预览' })).toBeTruthy()
+  })
+
   it('ignores a click while the thumbnail is still loading', () => {
     const load = vi.fn(() => new Promise<string>(() => {}))
     const view = render(<MessageImage attachment={attachment} load={load} variant="single" labels={labels} />)

@@ -104,10 +104,15 @@ async function load(
   await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await context.loader.await()
   // Parallel sibling activation means a present fiber is not yet a started
-  // plugin; await each fiber so registry visibility is deterministic.
+  // plugin; await each fiber, then wait on the registry fact itself so
+  // visibility is deterministic regardless of await() resolution depth.
   for (const row of context.loader.entries()) {
     if (row.fiber !== undefined) await row.fiber.await()
   }
+  const composition = context
+  await vi.waitFor(() => {
+    if (composition.chatAdapters.platform('telegram') === undefined) throw new Error('telegram descriptor not yet visible')
+  })
   // rc.8 contains row activation failures inside the group update; re-surface
   // them so a broken row still fails the composition load.
   for (const row of context.loader.entries()) {

@@ -41,15 +41,24 @@ describe('ImageLightbox', () => {
 
 
   it('renders one labeled control per supplied action and invokes it on click', () => {
-    const actions = { copy: vi.fn(), download: vi.fn() }
-    const view = render(<ImageLightbox src="blob:original" alt="原图" onClose={vi.fn()}
-      labels={{ ...labels, copyImage: '复制图片', download: '下载' }} actions={actions} />)
+    const actions = { labels: { copy: '复制图片', download: '下载', saveAs: '另存为…' }, copy: vi.fn(), download: vi.fn() }
+    const view = render(<ImageLightbox src="blob:original" alt="原图" labels={labels} onClose={vi.fn()} actions={actions} />)
     fireEvent.click(view.getByRole('button', { name: '复制图片' }))
     fireEvent.click(view.getByRole('button', { name: '下载' }))
     expect(actions.copy).toHaveBeenCalledOnce()
     expect(actions.download).toHaveBeenCalledOnce()
-    // No saveAs member: no third control, and no unlabeled controls.
-    expect(view.getAllByRole('button').filter(button => button.textContent === '').length).toBe(1)
+    // No saveAs callback: no third control, and the close control stays the only other button.
+    expect(view.queryByRole('button', { name: '另存为…' })).toBeNull()
+    view.unmount()
+  })
+
+  it('offers the save-as control only through its callback', () => {
+    const saveAs = vi.fn()
+    const view = render(<ImageLightbox src="blob:original" alt="原图" labels={labels} onClose={vi.fn()}
+      actions={{ labels: { copy: '复制图片', download: '下载', saveAs: '另存为…' }, saveAs }} />)
+    fireEvent.click(view.getByRole('button', { name: '另存为…' }))
+    expect(saveAs).toHaveBeenCalledOnce()
+    expect(view.queryByRole('button', { name: '复制图片' })).toBeNull()
   })
 
   it('renders no toolbar without actions', () => {

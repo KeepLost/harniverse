@@ -25,9 +25,9 @@ export interface MessageImageLabels {
 
 /**
  * Resolve the original-file commands for one opened preview from its loaded
- * URL and display name; returning undefined leaves the preview without actions.
+ * URL and display name; owners without commands pass no resolver at all.
  */
-export type ImageActionsFor = (resolved: { url: string; name: string }) => ImageLightboxActions | undefined
+export type ImageActionsFor = (resolved: { url: string; name: string }) => ImageLightboxActions
 
 /** Display box for a lone image (DeepSeek Chat rule): long edge 240px with
  * the rendered aspect ratio clamped to [0.25, 4] — the overflow is cropped by
@@ -104,7 +104,7 @@ export function MessageImage({ attachment, load, variant, labels, actionsFor }: 
           : <img src={src} alt={label} style={fit === undefined ? undefined : { objectPosition: fit.objectPosition }} />}
       </button>
       {open && src !== null && <ImageLightbox src={src} alt={label} labels={labels.lightbox}
-        {...actionsFor === undefined ? {} : { actions: actionsFor({ url: src, name: label }) ?? {} }}
+        {...actionsFor === undefined ? {} : { actions: actionsFor({ url: src, name: label }) }}
         onClose={close} />}
     </>
   )
