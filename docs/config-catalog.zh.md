@@ -2360,56 +2360,52 @@ export interface PlanModeConfig {
 
 ## `@deepseek-ai/dsh-ptc-runtime-node`
 
-需要：`sandboxPolicy`
+Requires: `fs` · `subprocess` · `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
-/** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
+/** Deployment-varying runtime bounds and launch choices. */
 export interface Config {
-  /**
-   * Busy-time budget in milliseconds: the run fails with kind `'timeout'`
-   * once the child's MEASURED event-loop active time
-   * (`performance.eventLoopUtilization()`, sampled in-process) exceeds this.
-   * Metering measured busy time — not wall time, not host-side pending-call
-   * bookkeeping — is what makes the budget fair (a program awaiting a slow
-   * tool accrues nothing). A hot synchronous loop starves the child's
-   * sampler; the `maxWallMs` deadline is the backstop that stops it.
-   */
-  computeMs?: number
-  /**
-   * Wall-clock ceiling in milliseconds; never pauses for anything. The
-   * backstop for what busy-time cannot see (a program awaiting a promise
-   * nobody will resolve, or a loop blocking the child's sampling timer).
-   * At most `2_147_483_647` (Node's maximum `setTimeout` delay, about 24.9
-   * days): a longer value is rejected at load because `setTimeout` would
-   * clamp it to 1 ms.
-   */
-  maxWallMs?: number
-  /**
-   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
-   * fixed result-envelope syntax is excluded.
-   */
+  /** Worker invocation in the subprocess world; omitted selects the local carrier. */
+  launch?: LaunchConfig
+  /** per-call uses fresh async function bodies; vm-script uses VM contexts; persistent-in-memory retains a REPL per owner. */
+  executionMode?: 'per-call' | 'persistent-in-memory' | 'vm-script'
+  /** Retain a Script process and context per stateOwner; only supported with executionMode: vm-script. */
+  scriptPersistence?: boolean
+  /** Default elapsed deadline, including nested tool and approval waits. */
+  timeoutMs?: number
+  /** Maximum numeric elapsed budget accepted by resolve. */
+  maxTimeoutMs?: number
+  /** Combined serialized logs, completion and diagnostic byte cap. */
   maxOutputBytes?: number
-  /** The child's max old-generation heap in MiB (`--max-old-space-size`); overflow kills the child, surfacing as kind `'worker-exit'`. */
+  /** V8 old-generation heap limit in MiB; native allocations are excluded. */
   maxOldGenerationSizeMb?: number
-  /**
-   * Node executable that runs the child; defaults to the current one. An
-   * Electron self executable uses ELECTRON_RUN_AS_NODE at bootstrap; a
-   * separately configured Node executable receives no Electron variables.
-   */
-  nodeExecutable?: string
-  /**
-   * Absolute path to a preinstalled child entry in the execution world.
-   * Defaults to this package's own child entry (source or built, whichever
-   * world this module runs in). Inside a single-file executable there is no
-   * such path by default: the runtime respawns the executable itself (see
-   * {@link childSpawnPlan}) and its bin routes to the child. An explicit
-   * bootstrap path bypasses that route for a separately installed Node/entry.
-   */
+  /** Maximum control message, outstanding binding-argument and queued control-output bytes. */
+  maxMessageBytes?: number
+  /** Maximum simultaneous host binding calls accepted from a program. */
+  maxPendingCalls?: number
+  /** Time to wait for cooperative stop acknowledgment before terminating the process. */
+  stopGraceMs?: number
+  /** Managed process termination and output-drain grace in milliseconds. */
+  graceMs?: number
+}
+
+/** Deployment-owned worker invocation in the subprocess execution world. */
+export type LaunchConfig = {
+  /** Start a separately installed Node executable and JavaScript bootstrap. */
+  kind: 'node-script'
+  /** Executable name or path resolved by the subprocess provider. */
+  executable: string
+  /** Absolute preinstalled bootstrap; omitted maps this package's bootstrap into the execution world. */
   bootstrapPath?: string
+} | {
+  /** Start the private PTC worker embedded in a packaged executable. */
+  kind: 'embedded'
+  /** Packaged executable name or path resolved by the subprocess provider. */
+  executable: string
 }
 ```
 
-来源：[`packages/ptc-runtime/ptc-runtime-node/src/index.ts:31`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
+来源：[`packages/ptc-runtime/ptc-runtime-node/src/config.ts:6`](../packages/ptc-runtime/ptc-runtime-node/src/config.ts)
 
 <a id="deepseek-aidsh-ptc-runtime-python"></a>
 
@@ -2675,6 +2671,12 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
+  /**
+   * Extra directories every `workspace-write` policy may also write under
+   * (default: none). Entries stay in their execution-world spelling; the
+   * enforcing host validates each physical directory before granting.
+   */
+  additionalWritableRoots?: string[]
 }
 ```
 

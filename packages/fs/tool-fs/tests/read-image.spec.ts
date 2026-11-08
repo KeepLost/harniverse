@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import { CallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -69,11 +69,14 @@ class CatalogAdapter extends LlmAdapter {
 
 /** In-process PTC seam fake that invokes the real registry bindings. */
 class FakeRuntime extends PtcRuntime {
+  override resolve(request: PtcRunRequest): PtcRunSpec {
+    return { ...request, cwd: '/fake', timeoutMs: null }
+  }
   readonly language = 'typescript'
   readonly isolation = 'fake'
-  behavior: (request: CodeRunRequest) => Promise<CodeRunResult> = () => Promise.resolve({ logs: [] })
+  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ logs: [] })
 
-  run(request: CodeRunRequest): Promise<CodeRunResult> {
+  run(request: PtcRunRequest): Promise<PtcRunResult> {
     return this.behavior(request)
   }
 }

@@ -194,6 +194,7 @@ const processBoundTests = [
   'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-worker-thread/tests/session.spec.ts',
   'packages/ptc-runtime/ptc-runtime-python/tests/runtime.spec.ts',
+  'packages/ptc-runtime/ptc-runtime-node/tests/imports.spec.ts',
 ]
 
 const platformTestTimeoutMs = process.platform === 'win32' ? 600_000 : 5_000
@@ -248,7 +249,9 @@ export default defineConfig({
 
         test: {
           name: 'process-bound',
-          execArgv: vitestExecArgv,
+          // The ptc-runner import suite builds VM module graphs; the missing-flag
+          // guard stays in the thread-safe lane.
+          execArgv: [...vitestExecArgv, '--experimental-vm-modules'],
           testTimeout: platformTestTimeoutMs,
           ...processBoundMaxWorkers === undefined ? {} : { maxWorkers: processBoundMaxWorkers },
           pool: 'forks',

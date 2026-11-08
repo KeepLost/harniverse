@@ -1,13 +1,13 @@
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from '../src/json-wire.ts'
+import { decodePtcJsonWire, encodePtcJsonWire, snapshotPtcJsonValue } from '../src/json-wire.ts'
 
-describe('snapshotCodeJsonValue', () => {
+describe('snapshotPtcJsonValue', () => {
   it('matches the canonical scalar boundary', () => {
     const unsupported = [undefined, 1n, Symbol('value'), () => 1]
     for (const value of [null, false, 'text', 1.25, -0, Number.NaN, Number.POSITIVE_INFINITY, ...unsupported]) {
-      expect(snapshotCodeJsonValue(value)).toEqual(snapshotJsonValue(value))
+      expect(snapshotPtcJsonValue(value)).toEqual(snapshotJsonValue(value))
     }
   })
 
@@ -16,7 +16,7 @@ describe('snapshotCodeJsonValue', () => {
     const nullPrototype = Object.assign(Object.create(null) as Record<string, unknown>, { shared })
     const source = { list: [nullPrototype, shared], alias: shared }
 
-    const snapshot = snapshotCodeJsonValue(source) as Record<string, unknown>
+    const snapshot = snapshotPtcJsonValue(source) as Record<string, unknown>
     shared.value = 2
 
     expect(snapshot).toEqual({ list: [{ shared: { value: 1 } }, { value: 1 }], alias: { value: 1 } })
@@ -31,8 +31,8 @@ describe('snapshotCodeJsonValue', () => {
       array: unknown
     }
 
-    expect(snapshotCodeJsonValue(foreign.object)).toEqual({ nested: [1] })
-    expect(snapshotCodeJsonValue(foreign.array)).toEqual([2, { ok: true }])
+    expect(snapshotPtcJsonValue(foreign.object)).toEqual({ nested: [1] })
+    expect(snapshotPtcJsonValue(foreign.array)).toEqual([2, { ok: true }])
   })
 
   it('reads each accepted slot once and preserves a literal __proto__ key', () => {
@@ -55,7 +55,7 @@ describe('snapshotCodeJsonValue', () => {
       },
     })
 
-    const snapshot = snapshotCodeJsonValue(array) as Record<string, unknown>[]
+    const snapshot = snapshotPtcJsonValue(array) as Record<string, unknown>[]
 
     expect(objectReads).toBe(1)
     expect(arrayReads).toBe(1)
@@ -68,7 +68,7 @@ describe('snapshotCodeJsonValue', () => {
     let value: unknown = 'leaf'
     for (let depth = 0; depth < 5_000; depth++) value = [value]
 
-    let cursor = snapshotCodeJsonValue(value)
+    let cursor = snapshotPtcJsonValue(value)
     for (let depth = 0; depth < 5_000; depth++) {
       expect(Array.isArray(cursor)).toBe(true)
       cursor = Array.isArray(cursor) ? cursor[0] : undefined
@@ -139,7 +139,7 @@ describe('snapshotCodeJsonValue', () => {
     ]) {
       const canonical = snapshotJsonValue(value)
       expect(canonical).toBeUndefined()
-      expect(snapshotCodeJsonValue(value)).toEqual(canonical)
+      expect(snapshotPtcJsonValue(value)).toEqual(canonical)
     }
   })
 
@@ -153,7 +153,7 @@ describe('snapshotCodeJsonValue', () => {
       },
     })
 
-    expect(snapshotCodeJsonValue(array)).toBeUndefined()
+    expect(snapshotPtcJsonValue(array)).toBeUndefined()
   })
 
   it('propagates a throwing getter and releases its recursion guard', () => {
@@ -163,8 +163,8 @@ describe('snapshotCodeJsonValue', () => {
       get: () => { throw failure },
     })
 
-    expect(() => snapshotCodeJsonValue(source)).toThrow(failure)
-    expect(snapshotCodeJsonValue({ after: true })).toEqual({ after: true })
+    expect(() => snapshotPtcJsonValue(source)).toThrow(failure)
+    expect(snapshotPtcJsonValue({ after: true })).toEqual({ after: true })
   })
 })
 
@@ -174,11 +174,11 @@ describe('flat worker JSON wire', () => {
     withPrototypeKey.__proto__ = { safe: true }
     const values = [null, false, true, 1.25, 'text', [], {}, [1, { nested: [2] }], withPrototypeKey]
     for (const value of values) {
-      const snapshot = snapshotCodeJsonValue(value)
+      const snapshot = snapshotPtcJsonValue(value)
       expect(snapshot).not.toBeUndefined()
-      expect(decodeWorkerJson(encodeWorkerJson(snapshot!))).toEqual(snapshot)
+      expect(decodePtcJsonWire(encodePtcJsonWire(snapshot!))).toEqual(snapshot)
     }
-    const decoded = decodeWorkerJson(encodeWorkerJson(snapshotCodeJsonValue(withPrototypeKey)!)) as Record<string, unknown>
+    const decoded = decodePtcJsonWire(encodePtcJsonWire(snapshotPtcJsonValue(withPrototypeKey)!)) as Record<string, unknown>
     expect(Object.hasOwn(decoded, '__proto__')).toBe(true)
     expect(decoded.__proto__).toEqual({ safe: true })
   })
@@ -186,11 +186,11 @@ describe('flat worker JSON wire', () => {
   it('round-trips deep values through a bounded-depth token array', () => {
     let value: unknown = 'leaf'
     for (let depth = 0; depth < 5_000; depth++) value = [value]
-    const snapshot = snapshotCodeJsonValue(value)!
-    const wire = encodeWorkerJson(snapshot)
+    const snapshot = snapshotPtcJsonValue(value)!
+    const wire = encodePtcJsonWire(snapshot)
     expect(wire).toHaveLength(5_001)
 
-    let cursor = decodeWorkerJson(wire)
+    let cursor = decodePtcJsonWire(wire)
     for (let depth = 0; depth < 5_000; depth++) {
       expect(Array.isArray(cursor)).toBe(true)
       cursor = Array.isArray(cursor) ? cursor[0] : undefined
@@ -246,12 +246,12 @@ describe('flat worker JSON wire', () => {
       [{ kind: 'object', keys: ['x'] }],
       [{ kind: 'object', keys: [], extra: true }],
     ]) {
-      expect(decodeWorkerJson(value)).toBeUndefined()
+      expect(decodePtcJsonWire(value)).toBeUndefined()
     }
   })
 
   it('rejects invalid values passed through a forged static type', () => {
-    expect(() => encodeWorkerJson([undefined] as never)).toThrow(/sparse JSON array/)
-    expect(() => encodeWorkerJson({ value: undefined } as never)).toThrow(/undefined JSON object property/)
+    expect(() => encodePtcJsonWire([undefined] as never)).toThrow(/sparse JSON array/)
+    expect(() => encodePtcJsonWire({ value: undefined } as never)).toThrow(/undefined JSON object property/)
   })
 })

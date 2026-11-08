@@ -426,7 +426,7 @@ interface SessionEntry {
 }
 
 /** Store attachment for the append path; module-private to keep Session store-agnostic publicly. */
-const attachments = new WeakMap<Session, SessionEntry>()
+const attachments = new WeakMap<Session, SessionEntry | null>()
 
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
@@ -730,6 +730,9 @@ export class Session {
       throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
     }
     const entry = attachments.get(this)
+    if (entry === null) {
+      throw new Error(`session "${this.id}" cannot append outside a SessionStore`)
+    }
     if (entry?.appending) {
       throw new Error('session append cannot reenter while another append is being published')
     }
@@ -1150,7 +1153,7 @@ export class SessionStore extends Service {
     // This is the authoritative collision boundary after arbitrary unpublished
     // preparation. Only one exact same-id transaction can publish.
     if (this.store.has(id)) throw new Error(`session "${id}" already exists`)
-    if (attachments.has(session)) throw new Error(`session "${id}" is already attached to a store`)
+    if (attachments.get(session) != null) throw new Error(`session "${id}" is already attached to a store`)
     const entry: SessionEntry = {
       id,
       session,
@@ -1188,7 +1191,9 @@ export class SessionStore extends Service {
     /* v8 ignore next -- enter() rejects replacement while this single-shot detach capability is live. */
     if (this.store.get(entry.id) !== entry) return
     this.store.delete(entry.id)
-    attachments.delete(entry.session)
+    // The null marker refuses later appends: a session whose store lifecycle
+    // ended must not silently accept events nothing will persist.
+    attachments.set(entry.session, null)
     if (entry.announced) this.emitDisposed(entry)
   }
 
@@ -1290,7 +1295,7 @@ export class SessionStore extends Service {
   /** Return the exact live entry; detached/prepared objects reject. */
   private liveEntryFor(session: Session): SessionEntry {
     const entry = attachments.get(session)
-    if (entry === undefined || this.store.get(entry.id) !== entry) {
+    if (entry === null || entry === undefined || this.store.get(entry.id) !== entry) {
       throw new Error(`session "${session.id}" is not live in this store`)
     }
     return entry

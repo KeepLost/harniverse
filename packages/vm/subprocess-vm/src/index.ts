@@ -358,6 +358,7 @@ export class VmSubprocessRuntime extends SubprocessRuntime {
       stdin,
       stdout: pipes.get('stdout'),
       stderr: pipes.get('stderr'),
+      control: undefined,
       collected: {
         ...(collected.has('stdout') ? { stdout: makeReader(collected.get('stdout') as TailBuffer) } : {}),
         ...(collected.has('stderr') ? { stderr: makeReader(collected.get('stderr') as TailBuffer) } : {}),

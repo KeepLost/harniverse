@@ -1,0 +1,157 @@
+/**
+ * Length-prefixed JSON frame codec with byte bounds and queued-write
+ * backpressure, plus the pending-call gate. Pure buffer logic — transport
+ * attachment belongs to the PTC/SSH providers.
+ *
+ * @module @deepseek-ai/dsh-control-channel
+ */
+import { DEFAULT_CONTROL_CHANNEL_LIMITS } from "./types.js";
+/** Header size of one encoded frame: a 32-bit big-endian length prefix. */
+const PREFIX_BYTES = 4;
+/** A frame violated the codec contract (oversized or malformed). */
+export class ControlProtocolError extends Error {
+    constructor(message, options) {
+        super(message, options);
+        this.name = 'ControlProtocolError';
+    }
+}
+/**
+ * Encode one frame as `length-prefix + JSON`, refusing frames whose encoded
+ * size exceeds `limits.maxFrameBytes` — frames are refused, never split.
+ * @param frame - the frame to encode.
+ * @param limits - bounds to enforce; defaults when omitted.
+ * @returns the encoded bytes.
+ * @throws {@link ControlProtocolError} when the frame exceeds the byte bound.
+ */
+export function encodeControlFrame(frame, limits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+    const body = Buffer.from(JSON.stringify(frame), 'utf8');
+    if (PREFIX_BYTES + body.byteLength > limits.maxFrameBytes) {
+        throw new ControlProtocolError(`control frame (${frame.kind}) encodes to ${PREFIX_BYTES + body.byteLength} bytes, above maxFrameBytes ${limits.maxFrameBytes}`);
+    }
+    const head = Buffer.alloc(PREFIX_BYTES);
+    head.writeUInt32BE(body.byteLength, 0);
+    return Buffer.concat([head, body]);
+}
+/**
+ * Incremental decoder for a byte stream of length-prefixed frames. Feed
+ * arbitrary chunks; complete frames surface in order. A declared or buffered
+ * frame above `maxFrameBytes` fails the channel: the peer violated the
+ * contract and partial continuation would be guesswork.
+ */
+export class ControlFrameDecoder {
+    buffer = Buffer.alloc(0);
+    limits;
+    constructor(limits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+        this.limits = limits;
+    }
+    /**
+     * Feed one chunk and return every complete frame it completes.
+     * @param chunk - bytes read from the channel.
+     * @returns decoded frames in arrival order.
+     * @throws {@link ControlProtocolError} on an oversized or malformed frame.
+     */
+    feed(chunk) {
+        this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
+        const frames = [];
+        while (this.buffer.length >= PREFIX_BYTES) {
+            const declared = this.buffer.readUInt32BE(0);
+            if (PREFIX_BYTES + declared > this.limits.maxFrameBytes) {
+                throw new ControlProtocolError(`peer declared a ${PREFIX_BYTES + declared}-byte frame, above maxFrameBytes ${this.limits.maxFrameBytes}`);
+            }
+            if (this.buffer.length < PREFIX_BYTES + declared)
+                break;
+            const body = this.buffer.subarray(PREFIX_BYTES, PREFIX_BYTES + declared);
+            this.buffer = this.buffer.subarray(PREFIX_BYTES + declared);
+            frames[frames.length] = this.parse(body);
+        }
+        return frames;
+    }
+    parse(body) {
+        let parsed;
+        try {
+            parsed = JSON.parse(body.toString('utf8'));
+        }
+        catch (cause) {
+            throw new ControlProtocolError('frame body is not valid JSON', { cause });
+        }
+        if (typeof parsed !== 'object' || parsed === null || typeof parsed.kind !== 'string') {
+            throw new ControlProtocolError('frame body is not a control frame (missing kind)');
+        }
+        return parsed;
+    }
+}
+/** Queued-write accounting with bounded total bytes: the send-side backpressure. */
+export class ControlSendQueue {
+    queued = 0;
+    limits;
+    constructor(limits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+        this.limits = limits;
+    }
+    /**
+     * Reserve space for one encoded frame, refusing the send when it would push
+     * queued bytes above `maxQueuedBytes` — bounded queued writes, applied at
+     * the operation that makes the decision.
+     * @param encoded - the frame's encoded size, from {@link encodeControlFrame}.
+     * @returns a releaser to call once the bytes are handed to the transport.
+     * @throws {@link ControlProtocolError} when the queued bound would overflow.
+     */
+    reserve(encoded) {
+        if (this.queued + encoded > this.limits.maxQueuedBytes) {
+            throw new ControlProtocolError(`send queue would hold ${this.queued + encoded} bytes, above maxQueuedBytes ${this.limits.maxQueuedBytes}`);
+        }
+        this.queued += encoded;
+        return () => {
+            this.queued -= encoded;
+        };
+    }
+    /** Bytes currently waiting in the queue. */
+    get queuedBytes() {
+        return this.queued;
+    }
+}
+/** Captured at module load: this library also runs INSIDE hostile child
+ *  processes whose programs may rebind or delete the global constructors —
+ *  accounting must never consult a prototype the program armed. */
+const intrinsicObjectCreate = Object.create;
+/** Pending-reply accounting with a bounded call count. */
+export class PendingCallGate {
+    // Null-prototype membership table: plain property semantics, no Set.
+    pending = intrinsicObjectCreate(null);
+    count = 0;
+    limits;
+    constructor(limits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+        this.limits = limits;
+    }
+    /**
+     * Admit one call id, refusing it when `maxPendingCalls` replies are
+     * already outstanding.
+     * @param id - the call's correlation id.
+     * @throws {@link ControlProtocolError} when the pending bound would overflow or the id is already pending.
+     */
+    acquire(id) {
+        if (this.pending[id] === true) {
+            throw new ControlProtocolError(`call id ${id} is already pending`);
+        }
+        if (this.count >= this.limits.maxPendingCalls) {
+            throw new ControlProtocolError(`${this.limits.maxPendingCalls} calls await replies, above maxPendingCalls`);
+        }
+        this.pending[id] = true;
+        this.count += 1;
+    }
+    /**
+     * Release one call id when its reply arrived.
+     * @param id - the call's correlation id.
+     */
+    release(id) {
+        if (this.pending[id] === true) {
+            // oxlint-disable-next-line typescript/no-dynamic-delete -- null-proto table by design (hostile-child hardening)
+            delete this.pending[id];
+            this.count -= 1;
+        }
+    }
+    /** Calls currently awaiting a reply. */
+    get size() {
+        return this.count;
+    }
+}
+//# sourceMappingURL=codec.js.map

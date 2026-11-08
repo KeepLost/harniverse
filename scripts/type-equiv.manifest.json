@@ -896,37 +896,52 @@
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeBindingErrorClass",
+      "symbol": "PtcBindingErrorClass",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeBindingFunction",
+      "symbol": "PtcBindingFunction",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeBindingNamespace",
+      "symbol": "PtcBindingNamespace",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeJsonValue",
+      "symbol": "PtcJsonValue",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeRunFailure",
+      "symbol": "PtcProgramFormat",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeRunRequest",
+      "symbol": "PtcRunFailure",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
-      "symbol": "CodeRunResult",
+      "symbol": "PtcRunRequest",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "PtcRunResult",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "PtcRunSandbox",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "PtcRunSpec",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {

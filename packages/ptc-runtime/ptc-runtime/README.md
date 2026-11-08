@@ -1,30 +1,119 @@
+---
+description: "Abstract PTC execution seam (`ctx.ptcRuntime`) for users and maintainers composing, consuming, or building a backend that runs one model-written program against host-provided bindings."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-ptc-runtime
 
 English | [中文](README.zh.md)
 
-The **`PtcRuntime`** (`ctx.ptcRuntime`) defines WHAT a PTC runtime does — run one model-written program against a set of host-provided async bindings and report `{ value, logs, error? }` — without saying HOW.
+## Summary
 
-This package owns the Service Definition role of the capability (the bash trio is the template — see [capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): providers subclass `PtcRuntime` and register the service; the Consumer is the tool registry's PTC, which generates the model-facing SDK and bridges tool dispatch — both specified in the [PTC Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md). The [Node process provider](../ptc-runtime-node/README.md) runs TypeScript and the opt-in [Python process provider](../ptc-runtime-python/README.md) runs Python. The runtime knows nothing about tools or sessions: it is handed named async functions and a program string, and everything tool-shaped stays with the Consumer.
+Use `dsh-ptc-runtime` to execute model programs against host-provided asynchronous functions. Requests return lossless JSON, captured logs, or structured failures; rejected promises indicate caller misuse. Providers isolate distinct state owners and declare whether source is an async function body, REPL statements, or a script. `retainsState` reports whether a provider retains memory for an explicit owner until release; it never restores that memory from a Session. Language and isolation descriptors identify syntax and execution substrate, not security guarantees.
 
-## Service API (`ctx.ptcRuntime`)
+## Table of Contents
 
-| Member | Semantics |
+- [Use this package](#use-this-package)
+- [Understand the implementation](#understand-the-implementation)
+- [Further Exploration](#further-exploration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## Use this package
+
+Choose this package when you compose a deployment that executes model-written programs, consume `ctx.ptcRuntime` directly, or build a backend that runs programs. `dsh-tool-executor-ptc` uses it for tool programs, and `dsh-workflow-ptc` uses it for workflow orchestration. Each consumer owns the content returned to its model.
+
+### Run a program
+
+Call `resolve(request)` followed by `run(spec)` with a program and binding namespaces. Resolution validates cwd, timeout and sandbox choices and applies provider defaults. `programFormat: PtcProgramFormat` selects an async function body with top-level `await` and `return`, or REPL/Script statements with top-level declarations, `await`, and a final expression. The Node Script provider lowers top-level await and awaits the completion value; its [declaration limitations](../ptc-runtime-node/README.md#known-limitations-and-deferred-work) apply to transformed programs. Lossless-JSON completion becomes `result.value`, text becomes `result.logs`, and failures become `result.error`.
+
+```text
+const spec = ctx.ptcRuntime.resolve({
+  program: 'return await tools.add({ a: 1, b: 2 })',
+  bindings: [{ global: 'tools', functions: { add: async (args) => args.a + args.b } }],
+})
+const result = await ctx.ptcRuntime.run(spec)
+// result.value === 3
+```
+
+### Choose a backend
+
+Backends expose `language` and `isolation` as diagnostic descriptors; neither grants authority or proves confinement. [`dsh-ptc-runtime-node`](../ptc-runtime-node/README.md) executes erasable TypeScript in a fresh managed Node process under the resolved sandbox policy. The [`dsh-ptc-runtime-python`](../ptc-runtime-python/README.md) provider executes Python in a fresh CPython subprocess without file confinement. `sandboxMode` advertises a provider's deployment file-policy mode, or is absent when that capability is unsupported.
+
+For the optional [Node in-memory mode](../ptc-runtime-node/README.md#persistent-repl), pass the same `stateOwner` object across runs and await `release(owner)` at the owner's end. Different object identities never share an environment; omitted owners use a temporary environment. Stateless providers ignore ownership. Calls for one retained owner must not overlap.
+
+### Name your bindings portably
+
+Binding-global and error-class names are language-portable: they must match `[A-Za-z_][A-Za-z0-9_]*`, avoid every portable target language's reserved words, and avoid backend-owned slots, so one namespace list is valid against every backend. A name like `$tools`, `lambda`, or `console` fails the run before it starts; the exact exclusion sets are part of the seam contract.
+
+### What can go wrong
+
+Failures arrive as `result.error` with an orthogonal `kind`: `exception`, `timeout`, `abort`, `worker-exit`, `invalid-output`, `output-limit`, `protocol` or `sandbox-unavailable`. Providers return applicable `result.sandbox` facts separately from success or failure. Invalid or unsupported execution options fail during `resolve`; `run` rejects caller misuse, such as unresolved inputs, invalid binding names or a call after disposal.
+
+-----
+
+<a id="understand-the-implementation"></a>
+## Understand the implementation
+
+<details>
+<summary>Implementation internals — click to expand</summary>
+
+This section explains the design behind the seam; observable behavior is fully covered in [Use this package](#use-this-package).
+
+### Design concept
+
+The package is the Service Definition role of the PTC execution capability seam ([capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract `PtcRuntime extends Service` registered as `ctx.ptcRuntime`, plus the vocabulary providers and consumers share. Providers subclass `PtcRuntime`, implement `resolve` and `run`, and register the service. `dsh-tool-executor-ptc` owns tool bindings, while `dsh-workflow-ptc` owns workflow hooks and child agents. The runtime stays ignorant of tools and sessions by contract: it receives a program, named async bindings and resolved execution options, then returns captured output, the outcome and applicable sandbox facts.
+
+### Service API
+
+The readonly `timeout` descriptor exposes numeric `{ defaultMs, maxMs }` for consumer presentation; an absent descriptor means numeric overrides are unsupported. An omitted `timeoutMs` selects the provider default; a number requests a validated, capped elapsed budget; explicit `null` requests no elapsed deadline. A provider rejects choices it does not support. The Node workflow adapter requests `null`, while the model-facing `run_code` tool accepts only positive numeric overrides.
+
+`executionInstructions` supplies provider-owned usage guidance, or an empty string when none is needed. Consumers can include it in their program presentation without identifying the provider from its language or isolation descriptor; PTC includes it in the logged `run_code` schema.
+
+`resolve(request)` owns supported option validation and deployment defaulting. `run(spec)` executes the complete inputs and resolves program outcomes after cleanup. Language and substrate descriptors guide presentation; `sandboxMode` indicates whether the consumer can pass a resolved file policy. Neither descriptors nor a successful program result substitute for the backend's reported enforcement facts.
+
+The exhaustive semantics live in the [PTC runtime subsystem reference](../../../docs/subsystems/ptc-runtime.md); the exact signatures are in [`src/index.ts`](src/index.ts).
+
+### Vocabulary
+
+`PtcRunRequest` carries the program, host bindings, cancellation and optional execution choices. `PtcRunSpec` requires the resolved cwd and an explicit numeric or null deadline choice. `PtcBindingNamespace` declares program globals and optional typed rejection constructors. `PtcRunResult` separates logs/value, failure and `PtcRunSandbox` facts; exact fields and provider obligations live in [`src/types.ts`](src/types.ts).
+
+### Portable identifiers
+
+Binding-global and error-class names are language-portable: they must match the identifier subset `[A-Za-z_][A-Za-z0-9_]*` (no JS-only `$`) and clear the seam-exported exclusion sets, so one `bindings` list is valid against every backend. The package exports the contract every backend enforces — `PORTABLE_RESERVED_WORDS` (ECMAScript ∪ Python reserved words), `RESERVED_BINDING_GLOBALS` (backend-owned globals such as `console` and `__dsh_main__`), `RESERVED_ERROR_MEMBERS` and `DUNDER_MEMBER` (error-member exclusions) — so a name like `$tools`, `lambda`, or `__dsh_main__` makes `run()` reject as seam misuse on any backend. See `src/index.ts` for the exact sets.
+
+### Source map
+
+| File | Role |
 |---|---|
-| `run(request)` | Execute one program against the request's bindings. **Resolves with an error FIELD for every program outcome** — parse/transform failure, thrown exception, invalid completion, output overflow, budget expiry, abort, or substrate death (`CodeRunFailure`'s orthogonal `kind` taxonomy); it rejects only for caller misuse of the Service Definition contract (e.g. a run submitted after disposal). The program runs as the body of an async function: top-level `await`/`return` work, and a lossless JSON completion becomes `result.value`. |
-| `language` | Readonly descriptor: the source language `run` expects. `'typescript'` and `'python'` are the well-known values and both have providers; shipped Profiles select TypeScript while Python remains explicitly composed. Informational, not gating — a consumer that generates language-specific presentation switches on it and fails loud on a language it cannot present. |
-| `isolation` | Readonly descriptor: the execution substrate (`'worker-thread'`, `'process'`, `'container'`). A label for deployments and diagnostics, **not a security claim**. |
+| [`src/index.ts`](src/index.ts) | Plugin entry: abstract `PtcRuntime` service and the portable-identifier exclusion sets |
+| [`src/types.ts`](src/types.ts) | Vocabulary: `PtcRunRequest`, `PtcRunSpec`, bindings, results, failures and sandbox facts |
 
-Semantics every implementation must honor (contract details in the class JSDoc): binding calls bridge complete lossless-JSON arguments and resolutions with no seam-level byte cap; the program is treated as a hostile peer (arbitrary binding names are own properties, malformed traffic never crashes the host); no state survives between runs; disposal terminates in-flight runs AND awaits their exit before completing.
+</details>
 
-## Vocabulary
+-----
 
-`CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets and outer-output cap) is the provider's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions` + optional `errorClass`), each exposed to the program as one global object of async callables returning `CodeJsonValue`, the service-local structural equivalent of canonical `JsonValue` that keeps this Service Definition package independent of sessions. An `errorClass` descriptor names a real program-global constructor and the own property that receives the rejected member name; runtimes remain independent of Consumer terms such as `ToolCallError`. `CodeRunResult` reports the lossless JSON completion `value?`, ordered `logs: string[]`, and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
+<a id="further-exploration"></a>
+## Further Exploration
 
-Binding-global and error-class names are **language-portable**: they must match the identifier subset `[A-Za-z_][A-Za-z0-9_]*` (no JS-only `$`) and clear the seam-exported exclusion sets, so one `bindings` list is valid against every backend regardless of its `language`. The package exports the contract every backend enforces — `PORTABLE_RESERVED_WORDS` (ECMAScript ∪ Python reserved words), `RESERVED_BINDING_GLOBALS` (backend-owned globals such as `console`), `RESERVED_ERROR_MEMBERS` and `DUNDER_MEMBER` (error-member exclusions) — so a name like `$tools`, `lambda`, or `__dsh_main__` makes `run()` reject as seam misuse on any backend, not just some. See `src/index.ts` for the exact sets and rationale.
+Read these when the package-level contract is not enough. They move from the PTC mode consumer to the backends and the capability-seam model.
 
+- [PTC mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) — how the tool registry consumes `ctx.ptcRuntime` and presents `run_code` to the model.
+- [Node process backend](../ptc-runtime-node/README.md) — the shipped TypeScript execution backend.
+- [Experimental Python backend](../ptc-runtime-python/README.md) — the private CPython subprocess provider and its fd-3 protocol.
+- [PTC runtime subsystem reference](../../../docs/subsystems/ptc-runtime.md) — request/result vocabulary, bindings, and the `ctx.ptcRuntime` cordis surface.
+- [Capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) — the Service Definition / Service Provider / Consumer split.
+
+-----
+
+<a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through PTC in `dsh-tools`, which exposes `run_code` and returns program logs, values, or failures as retained tool-result tokens.
+Indirectly, through `dsh-tool-executor-ptc` and the workflow adapter, which present program outcomes through their own tool results.
 
 #### KV Cache effect
 
@@ -32,7 +121,30 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **`run()` is one-shot** — `logs` arrive only on the resolved `CodeRunResult`; the seam exposes no streaming-log or progress API for a live program's output.
-- **A persistent REPL-style kernel is recorded future work** — the no-state-between-runs contract stands until a persistent-kernel backend brings its own logging story ([PTC Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md)).
-- **No hard security-boundary backend ships** — the Node and Python process providers are same-host containment; `'container'` remains a declared `isolation` value without an implementation.
-- **Intermediate binding values have no byte cap** — implementations remain subject to structured-clone cost and process memory, while a provider or executor may already have imposed its own acquisition bound.
+<a id="known-limitations-and-deferred-work"></a>
+
+
+These limits define what the seam cannot do; they are current package constraints, not a task backlog.
+
+- **`run()` is one-shot** — `logs` arrive only on the resolved `PtcRunResult`; the seam exposes no streaming-log or progress API for a live program's output.
+- **Retained memory is disposable**: providers may keep state for an explicit owner; restart, release, and provider-specific failures discard it. Programs, binding calls and results remain logged by consumers; live objects are neither serialized nor replayed.
+- **Providers have different confinement capabilities** — the shipped Node provider enforces a resolved file policy, while the private experimental Python provider rejects an explicit policy. No container provider is supplied.
+- **No uniform binding byte cap applies across providers** — each provider owns its transport limits; a binding can still allocate memory before its result reaches those limits.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+This Dev Note is working context for maintainers: undecided directions and open questions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and the package code.
+
+#### Retained state
+
+Retained state has no disk checkpoint or restoration protocol. Consumers must tolerate its loss and retain only model-visible programs and outcomes in the Session log.
+
+#### Future: container backend
+
+A container-class backend would provide a hard multi-tenant boundary for both code and shell execution; nothing is decided beyond the well-known `isolation` value.
+
+</details>

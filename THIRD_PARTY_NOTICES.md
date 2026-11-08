@@ -61,8 +61,11 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@xterm/addon-serialize`](https://github.com/xtermjs/xterm.js/tree/master/addons/addon-serialize) | MIT |
 | [`@xterm/headless`](https://github.com/xtermjs/xterm.js) | MIT |
 | [`@xterm/xterm`](https://github.com/xtermjs/xterm.js) | MIT |
+| [`acorn`](https://github.com/acornjs/acorn) | MIT |
+| [`acorn-walk`](https://github.com/acornjs/acorn) | MIT |
 | [`ajv`](https://github.com/ajv-validator/ajv) | MIT |
 | [`anser`](https://github.com/IonicaBizau/anser) | MIT |
+| [`birpc`](https://github.com/antfu-collective/birpc) | MIT |
 | [`chokidar`](https://github.com/paulmillr/chokidar) | MIT |
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |

@@ -7,7 +7,7 @@ The PTC capability seam (see [capability seams](../../.agents/notes/implemented/
 | Package | Role | ctx key |
 |---|---|---|
 | [`ptc-runtime/`](ptc-runtime/README.md) | Service Definition and shared vocabulary | `ctx.ptcRuntime` |
-| [`ptc-runtime-node/`](ptc-runtime-node/README.md) | TypeScript fresh-process PTC backend | registers `ctx.ptcRuntime` |
+| [`ptc-runtime-node/`](ptc-runtime-node/README.md) | TypeScript process PTC backend: async-function, REPL and VM Script evaluators with optional per-Agent retained memory | registers `ctx.ptcRuntime` |
 | [`ptc-runtime-python/`](ptc-runtime-python/README.md) | Opt-in Python process backend | registers `ctx.ptcRuntime` |
 
 Providers register the service without changing its Consumer. The child READMEs own language, isolation, and execution-budget details.

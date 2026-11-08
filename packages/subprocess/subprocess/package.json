@@ -14,6 +14,10 @@
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
+    "./control": {
+      "types": "./lib/types/control.d.ts",
+      "default": "./lib/control.js"
+    },
     ".": {
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
@@ -28,6 +32,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/control.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
