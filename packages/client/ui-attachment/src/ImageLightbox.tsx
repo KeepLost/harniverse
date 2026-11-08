@@ -9,6 +9,22 @@ export interface ImageLightboxLabels {
   dialog: string
   /** Accessible label of the close control. */
   close: string
+  /** Accessible label of the copy-image control. */
+  copyImage?: string
+  /** Accessible label of the download control. */
+  download?: string
+  /** Accessible label of the save-as control (Desktop only). */
+  saveAs?: string
+}
+
+/** Original-file commands the owner resolves for the opened preview; every member is optional. */
+export interface ImageLightboxActions {
+  /** Copy the decoded original to the clipboard. */
+  copy?: () => void
+  /** Download the original bytes. */
+  download?: () => void
+  /** Save the original through the Desktop picker. */
+  saveAs?: () => void
 }
 
 /**
@@ -20,14 +36,16 @@ export interface ImageLightboxLabels {
  *
  * @param props.src - the original image URL.
  * @param props.alt - the image's alt text.
- * @param props.labels - dialog and close-control strings.
+ * @param props.labels - dialog, close-control, and optional action strings.
+ * @param props.actions - optional original-file commands; a control renders per member.
  * @param props.onClose - dismiss callback owned by the opener.
  * @returns the modal preview dialog.
  */
-export function ImageLightbox({ src, alt, labels, onClose }: {
+export function ImageLightbox({ src, alt, labels, actions, onClose }: {
   src: string
   alt: string
   labels: ImageLightboxLabels
+  actions?: ImageLightboxActions
   onClose: () => void
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
@@ -55,6 +73,15 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
     >
       <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />
       <img className={css.image} src={src} alt={alt} />
+      {actions !== undefined && (actions.copy !== undefined || actions.download !== undefined || actions.saveAs !== undefined)
+        && <div className={css.actions} role="toolbar" aria-label={labels.dialog}>
+          {actions.copy !== undefined && labels.copyImage !== undefined
+            && <button type="button" className={css.action} onClick={actions.copy}>{labels.copyImage}</button>}
+          {actions.download !== undefined && labels.download !== undefined
+            && <button type="button" className={css.action} onClick={actions.download}>{labels.download}</button>}
+          {actions.saveAs !== undefined && labels.saveAs !== undefined
+            && <button type="button" className={css.action} onClick={actions.saveAs}>{labels.saveAs}</button>}
+        </div>}
       <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>
         <IconCloseOutline16 size={16} />
       </button>

@@ -42,3 +42,24 @@
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
 }
+
+.actions {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-mask-1);
+}
+
+.action {
+  border: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--dsw-specific-input-major);
+  color: inherit;
+  cursor: pointer;
+}
