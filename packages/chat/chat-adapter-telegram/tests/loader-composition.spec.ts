@@ -103,6 +103,11 @@ async function load(
   } as unknown as NonNullable<typeof context.loader.internal>
   await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await context.loader.await()
+  // Parallel sibling activation means a present fiber is not yet a started
+  // plugin; await each fiber so registry visibility is deterministic.
+  for (const row of context.loader.entries()) {
+    if (row.fiber !== undefined) await row.fiber.await()
+  }
   // rc.8 contains row activation failures inside the group update; re-surface
   // them so a broken row still fails the composition load.
   for (const row of context.loader.entries()) {
