@@ -67,6 +67,14 @@ describe('inheritedControlStdio encodes the child CRT descriptor table', () => {
     expect(bytes.readBigUInt64LE(4 + 8 + 7 * 8)).toBe(77n)
   })
 
+  it('marks console and file handles with their CRT kinds', () => {
+    const api = { getFileType: vi.fn((handle: bigint) => (handle === 11n ? 2 : handle === 12n ? 1 : FILE_TYPE_PIPE)) }
+    const bytes = inheritedControlStdio(api, stdio)
+    // stdin is a char device (FOPEN | FDEV); stdout is a file (FOPEN only).
+    expect(bytes[4 + 0]).toBe(0x01 | 0x40)
+    expect(bytes[4 + 1]).toBe(0x01)
+  })
+
   it('rejects a control handle that is not a pipe', () => {
     const api = { getFileType: vi.fn(() => 1) }
     expect(() => inheritedControlStdio(api, stdio)).toThrow('subprocess control descriptor is not a Windows pipe')
