@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-util-file-drag",
   "description": "Platform-safe export filenames for original-file transfers",
-  "version": "0.2.2-rc.1",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },

@@ -46,6 +46,9 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
  * blocks. A package moves on or off this list with its context behavior.
  */
 const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
+  'packages/client/ui-file-actions': { kind: 'none', reason: 'The capability proxies caller-captured originals to the platform saver and clipboard; nothing enters a model request.' },
+  'packages/util/file-drag': { kind: 'none', reason: 'Pure filename derivation registers nothing model-facing.' },
+  'packages/util/workspace-path': { kind: 'none', reason: 'Pure path derivation registers nothing model-facing.' },
   'packages/attachment/attachment': { kind: 'indirect', reason: 'The storage seam delegates model request rendering to provider adapters.' },
   'packages/attachment/attachment-local': { kind: 'indirect', reason: 'The local backend delegates model request rendering to provider adapters.' },
   'packages/context/global-rules': { kind: 'indirect', reason: 'The service only edits the harness-home AGENTS.md; the agent-instructions baseline chain renders that file into model context.' },

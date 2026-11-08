@@ -1,14 +1,14 @@
 {
   "name": "@deepseek-ai/dsh-util-workspace-path",
   "description": "Browser-safe Workspace path and display helpers",
-  "version": "0.2.2-rc.1",
+  "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/util/file-drag"
+    "directory": "packages/util/workspace-path"
   },
   "type": "module",
   "main": "lib/index.js",
