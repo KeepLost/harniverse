@@ -25,6 +25,7 @@ All keys are optional; the defaults are the shipped read caps.
 | `readLimit` | `2000` | Default and maximum lines returned by one `read` call (the tool schema advertises it as the `limit` default). |
 | `readMaxLineLength` | `2000` | Maximum Unicode code points selected from one logical line before same-line continuation. |
 | `readMaxBytes` | `40960` | Maximum UTF-8 bytes across one call's selected content (40 KiB); overflow returns an exact continuation cursor. |
+| `applyPatch` | `false` | Register `apply_patch` and its guidance beside `edit`; a shipped composition opts in per `tool-fs` row. |
 
 ## Tools (schemas per [the filesystem tool schemas Agent Note](../../../.agents/notes/implemented/feature/2026-06-17-filesystem-tool-schemas.md))
 
@@ -34,6 +35,7 @@ All keys are optional; the defaults are the shipped read caps.
 | `read_image` | `file_path` | Reads a PNG/JPEG/WebP/GIF file through the bounded byte seam, persists it through `ctx.attachments.saveImage`, and returns an image block beside a small metadata envelope; an extension-less path is identified from its file signature. It succeeds only when the exact routed model declares image input. |
 | `write` | `file_path`, `content` | Create or fully replace a file. With the policy plugin: overwriting an existing file requires a prior `read` at the unchanged version; creating a new file does not. Without it: unconditional. |
 | `edit` | `file_path`, non-empty `old_string`, `new_string`, `replace_all?` | Literal replacement; unique match required unless `replace_all` is true. With the policy plugin: requires a prior `read` (any window) and the file unchanged since. Without it: unconditional. |
+| `apply_patch` (config-gated, default off) | `input` | One Codex-style patch across files: add, update (optionally with `*** Move to:`), and delete. The whole patch is preflighted (syntax, hunk matching, observed-state guards through the `fs/*` gate); a rejected patch changes nothing. Commit runs operations in order, stops at the first failure, and does not roll back; a partial move reports `sourceDeleted: false`. |
 
 Field names are snake_case to match Claude Code and existing harness tool schemas.
 

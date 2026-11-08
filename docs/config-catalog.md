@@ -1110,7 +1110,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:46`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:52`](../packages/fs/fs-local/src/index.ts)
 
 <a id="deepseek-aidsh-fs-sandbox"></a>
 
@@ -3737,10 +3737,12 @@ export interface Config {
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number
+  /** Register `apply_patch` and its guidance beside `edit`. Defaults to false; shipped compositions set it on their `tool-fs` rows. */
+  applyPatch?: boolean
 }
 ```
 
-Source: [`packages/fs/tool-fs/src/index.ts:25`](../packages/fs/tool-fs/src/index.ts)
+Source: [`packages/fs/tool-fs/src/index.ts:26`](../packages/fs/tool-fs/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs-search"></a>
 
@@ -4839,6 +4841,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-deque` ([`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts))
 - `@deepseek-ai/dsh-execution-descriptor` ([`packages/sandbox/execution-descriptor/src/index.ts`](../packages/sandbox/execution-descriptor/src/index.ts))
 - `@deepseek-ai/dsh-fs-codec` ([`packages/fs/fs-codec/src/index.ts`](../packages/fs/fs-codec/src/index.ts))
+- `@deepseek-ai/dsh-fs-patch` ([`packages/fs/fs-patch/src/index.ts`](../packages/fs/fs-patch/src/index.ts))
 - `@deepseek-ai/dsh-hmr-coordination` ([`packages/boot/hmr-coordination/src/index.ts`](../packages/boot/hmr-coordination/src/index.ts))
 - `@deepseek-ai/dsh-home-paths` ([`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))

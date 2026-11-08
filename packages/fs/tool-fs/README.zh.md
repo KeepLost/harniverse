@@ -25,6 +25,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 | `readLimit` | `2000` | 一次 `read` 调用返回的默认和最大行数（工具 schema 将其声明为 `limit` 默认值）。 |
 | `readMaxLineLength` | `2000` | 同一逻辑行进入续读前最多选择的 Unicode 码点数。 |
 | `readMaxBytes` | `40960` | 一次调用所选内容的最大 UTF-8 字节数（40 KiB）；溢出时返回精确续读游标。 |
+| `applyPatch` | `false` | 在 `edit` 旁注册 `apply_patch` 及其指引；随发行版组合按 `tool-fs` 行显式开启。 |
 
 ## 工具（schema 见[文件系统工具 schema Agent Note](../../../.agents/notes/implemented/feature/2026-06-17-filesystem-tool-schemas.md)）
 
@@ -34,6 +35,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 | `read_image` | `file_path` | 通过有界字节 seam 读取 PNG/JPEG/WebP/GIF 文件，经 `ctx.attachments.saveImage` 持久保存，并在小型元数据信封旁返回图像块；无扩展名路径按文件签名识别格式。只有确切路由的模型声明图像输入时才会成功。 |
 | `write` | `file_path`、`content` | 创建文件或完整替换文件。有策略插件时：覆盖现有文件要求先在未变版本上执行 `read`；创建新文件不需要。没有插件时：无条件执行。 |
 | `edit` | `file_path`、非空 `old_string`、`new_string`、`replace_all?` | 字面量替换；除非 `replace_all` 为 true，否则要求唯一匹配。有策略插件时：要求先执行 `read`（任何窗口），且文件此后未变。没有插件时：无条件执行。 |
+| `apply_patch`（配置门控，默认关） | `input` | 一份 Codex 风格补丁跨文件执行：新增、更新（可带 `*** Move to:`）与删除。整份补丁先预检（语法、hunk 匹配、经 `fs/*` 门禁的观察态防护）；被拒补丁不改变任何内容。提交按顺序执行操作，在首个失败处停止且不回滚；部分完成的移动以 `sourceDeleted: false` 报告。 |
 
 字段名使用 snake_case，与 Claude Code 和现有 harness 工具 schema 一致。
 

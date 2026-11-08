@@ -6879,6 +6879,10 @@ importers:
         version: link:../../typert/protocol
 
   packages/fs/fs:
+    dependencies:
+      '@deepseek-ai/dsh-fs-patch':
+        specifier: workspace:*
+        version: link:../fs-patch
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -6951,6 +6955,15 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+
+  packages/fs/fs-patch:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
 
   packages/fs/fs-sandbox:
     devDependencies:

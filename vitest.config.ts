@@ -15,7 +15,22 @@ const uncoveredLocationsReporter = fileURLToPath(new URL('./scripts/coverage-unc
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
 // has no include, which vite-tsconfig-paths treats as match-all, so its paths
 // map applies to every test file. paths must win over package exports so built
-// lib/ never loads a second module-singleton copy.
+// lib/ never loads a second module-singleton copy. The vendored framework
+// scopes get an explicit alias on top: their package exports point at the
+// tsdown bundle, whose enum output vite's ssr transform cannot re-export, so
+// any fallback to lib/ silently yields undefined runtime enums.
+const VENDOR_SRC_ALIASES: Record<string, string> = {
+  '@deepseek-ai/cordis': 'vendor/cordis/src/index.ts',
+  '@deepseek-ai/cosmokit': 'vendor/cosmokit/src/index.ts',
+  '@deepseek-ai/schemastery': 'vendor/schemastery/src/index.ts',
+  '@deepseek-ai/cordis-plugin-loader': 'vendor/loader/src/index.ts',
+  '@deepseek-ai/cordis-plugin-include': 'vendor/include/src/index.ts',
+  '@deepseek-ai/cordis-plugin-group': 'vendor/group/src/index.ts',
+  '@deepseek-ai/cordis-plugin-timer': 'vendor/timer/src/index.ts',
+  '@deepseek-ai/cordis-plugin-hmr': 'vendor/hmr/src/index.ts',
+  '@deepseek-ai/cordis-plugin-logger-console': 'vendor/logger-console/src/index.ts',
+}
+
 const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
 
 const windowsUnsupportedPackages = process.platform === 'win32'
@@ -199,6 +214,12 @@ export default defineConfig({
     projects: [
       {
         plugins: [pathsPlugin(), standardDecoratorPlugin()],
+        resolve: {
+          alias: Object.fromEntries(
+            Object.entries(VENDOR_SRC_ALIASES).map(([name, target]) => [name, fileURLToPath(new URL(`./${target}`, import.meta.url))]),
+          ),
+        },
+
         test: {
           name: 'thread-safe',
           execArgv: vitestExecArgv,
@@ -219,6 +240,12 @@ export default defineConfig({
       },
       {
         plugins: [pathsPlugin(), standardDecoratorPlugin()],
+        resolve: {
+          alias: Object.fromEntries(
+            Object.entries(VENDOR_SRC_ALIASES).map(([name, target]) => [name, fileURLToPath(new URL(`./${target}`, import.meta.url))]),
+          ),
+        },
+
         test: {
           name: 'process-bound',
           execArgv: vitestExecArgv,

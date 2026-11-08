@@ -2,12 +2,12 @@
 import { posix } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FileSystem, FsError } from '@deepseek-ai/dsh-fs'
-import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import type { FsDeleteOutcome, FsDirEntry, FsEditOutcome, FsEditRequest, FsErrorCode, FsInfo, FsMoveOutcome, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-ssh'
 import { RemoteOperationError } from '@deepseek-ai/dsh-ssh/protocol'
-import { editResultSchema, entriesSchema, infoSchema, pathInfoSchema, targetSchema, writeResultSchema } from '@deepseek-ai/dsh-ssh/schemas'
+import { deleteResultSchema, editResultSchema, entriesSchema, infoSchema, moveResultSchema, pathInfoSchema, targetSchema, writeResultSchema } from '@deepseek-ai/dsh-ssh/schemas'
 import { z } from 'zod'
 
 /** Serves the `FileSystem` seam over the SSH execution world's bounded RPC. */
@@ -87,6 +87,52 @@ export class SshFileSystem extends FileSystem {
     target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, policy?: SandboxExecutionPolicy,
   ): Promise<FsEditOutcome> {
     return await this.call('fs.edit', { target, edit, expected, policy: policy ?? this.ctx.sandboxPolicy.resolve() }, editResultSchema, signal) as FsEditOutcome
+  }
+
+  /**
+   * Apply parsed hunks through the remote backend under the machine-resolved policy.
+   * @param target - resolved remote target.
+   * @param hunks - ordered hunks from `parsePatch`.
+   * @param expected - the version guard for the patch; omit for unconditional.
+   * @param signal - aborts the remote request; a completed remote patch is not rolled back.
+   * @param policy - the per-call sandbox policy; omit to use the machine's resolved default.
+   * @returns the edit outcome from the remote backend.
+   */
+  override async patchText(
+    target: FsTarget, hunks: Parameters<FileSystem['patchText']>[1], expected?: { version: FsVersion },
+    signal?: AbortSignal, policy?: SandboxExecutionPolicy,
+  ): Promise<FsEditOutcome> {
+    return await this.call('fs.patch', { target, hunks, expected, policy: policy ?? this.ctx.sandboxPolicy.resolve() }, editResultSchema, signal) as FsEditOutcome
+  }
+
+  /**
+   * Remove one remote file under the machine-resolved policy.
+   * @param target - resolved remote target.
+   * @param expected - the version guard for the removal; omit for unconditional.
+   * @param signal - aborts the remote request.
+   * @param policy - the per-call sandbox policy; omit to use the machine's resolved default.
+   * @returns the bounded removed-text basis.
+   */
+  override async deleteFile(
+    target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal, policy?: SandboxExecutionPolicy,
+  ): Promise<FsDeleteOutcome> {
+    return await this.call('fs.delete', { target, expected, policy: policy ?? this.ctx.sandboxPolicy.resolve() }, deleteResultSchema, signal)
+  }
+
+  /**
+   * Publish, optionally patched, at the remote destination and remove the source.
+   * @param source - resolved remote source.
+   * @param destination - resolved remote destination.
+   * @param options - optional hunks and the source/destination guards.
+   * @param signal - aborts before destination staging; the commit then completes both effects.
+   * @param policy - the per-call sandbox policy; omit to use the machine's resolved default.
+   * @returns the source basis, the destination outcome, and the source-removal status.
+   */
+  override async moveFile(
+    source: FsTarget, destination: FsTarget, options: Parameters<FileSystem['moveFile']>[2],
+    signal?: AbortSignal, policy?: SandboxExecutionPolicy,
+  ): Promise<FsMoveOutcome> {
+    return await this.call('fs.move', { source, destination, options, policy: policy ?? this.ctx.sandboxPolicy.resolve() }, moveResultSchema, signal) as FsMoveOutcome
   }
   private async call<T>(method: string, params: unknown, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
     try { return await this.ctx.ssh.request(method, params, schema, signal) }

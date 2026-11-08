@@ -8,10 +8,14 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
+import { applyHunks } from '@deepseek-ai/dsh-fs-patch'
+import type { PatchHunk } from '@deepseek-ai/dsh-fs-patch'
 import type {
+  FsDeleteOutcome,
   FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
+  FsMoveOutcome,
   FsInfo,
   FsPathInfo,
   FsTarget,
@@ -79,6 +83,31 @@ class FakeFileSystem extends FileSystem {
     const after = content.split(edit.oldString).join(edit.newString)
     this.files.set(target.targetKey, after)
     return { version: FsVersion('v3'), before: content, after }
+  }
+
+  override async patchText(target: FsTarget, hunks: readonly PatchHunk[]): Promise<FsEditOutcome> {
+    const before = this.files.get(target.targetKey) ?? ''
+    const result = applyHunks(before, hunks)
+    if (!result.ok) throw new FsError('patch mismatch', 'FS_PATCH_MISMATCH')
+    this.files.set(target.targetKey, result.after)
+    return { version: FsVersion('v4'), before, after: result.after }
+  }
+
+  override async deleteFile(target: FsTarget): Promise<FsDeleteOutcome> {
+    const before = this.files.get(target.targetKey) ?? null
+    this.files.delete(target.targetKey)
+    return { before }
+  }
+
+  override async moveFile(source: FsTarget, destination: FsTarget): Promise<FsMoveOutcome> {
+    const original = this.files.get(source.targetKey) ?? ''
+    this.files.set(destination.targetKey, original)
+    this.files.delete(source.targetKey)
+    return {
+      sourceBefore: original,
+      destination: { operation: 'update', version: FsVersion('v5'), before: null, after: original },
+      sourceDeleted: true,
+    }
   }
 }
 

@@ -52,6 +52,7 @@ flowchart TD
     pkg_fs_codec["fs-codec"]
     pkg_fs_local["fs-local"]
     pkg_fs_observation_policy["fs-observation-policy"]
+    pkg_fs_patch["fs-patch"]
     pkg_fs_sandbox["fs-sandbox"]
     pkg_tool_fs["tool-fs"]
     pkg_tool_fs_search["tool-fs-search"]
@@ -472,6 +473,7 @@ flowchart TD
   pkg_timeout --> pkg_invariants
   pkg_scope --> pkg_invariants
   pkg_fs_codec --> pkg_invariants
+  pkg_fs_patch --> pkg_invariants
   pkg_cmdline --> pkg_invariants
   pkg_hmr_coordination --> pkg_invariants
   pkg_auth_app --> pkg_invariants
@@ -2245,6 +2247,7 @@ flowchart TD
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`fs-codec`](../packages/fs/fs-codec) | `fs` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`fs-patch`](../packages/fs/fs-patch) | `fs` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`cmdline`](../packages/boot/cmdline) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`hmr-coordination`](../packages/boot/hmr-coordination) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`auth-app`](../packages/bundle/auth-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { runSshHelper } from '../src/helper.ts'
 import { SshRpcPeer } from '../src/protocol.ts'
-import { editResultSchema, entriesSchema, infoSchema, pathInfoSchema, targetSchema, writeResultSchema } from '../src/schemas.ts'
+import { deleteResultSchema, editResultSchema, entriesSchema, infoSchema, moveResultSchema, pathInfoSchema, targetSchema, writeResultSchema } from '../src/schemas.ts'
 import { createHelper, profile } from './fixtures/helper.ts'
 
 const nextSchema = z.object({ done: z.boolean(), value: z.string() }).strict()
@@ -143,6 +143,47 @@ describe('SSH helper filesystem operations', () => {
       await expect(test.request('fs.write', { target, content: 'denied', policy: { mode: 'read-only', workspaceRoot: test.root } }, writeResultSchema))
         .rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
       await expect(test.request('fs.write', { target, content: 'elsewhere', policy: policy('/other-workspace') }, writeResultSchema)).rejects.toThrow('differs from captured execution world')
+    } finally { await test.close() }
+  })
+
+  it('applies patch, move, and delete operations across RPC', async () => {
+    const test = await createHelper()
+    try {
+      const target = await test.request('fs.resolve', { path: 'file.txt' }, targetSchema)
+      const created = await test.request('fs.write', { target, content: 'first\nsecond\n', policy: policy(test.root), expected: { kind: 'createIfAbsent' } }, writeResultSchema)
+      const patched = await test.request('fs.patch', {
+        target, policy: policy(test.root), expected: { version: created.version },
+        hunks: [{ lineNumber: 1, oldLines: ['first'], newLines: ['1st'], isEndOfFile: false }],
+      }, editResultSchema)
+      expect(patched).toMatchObject({ before: 'first\nsecond\n', after: '1st\nsecond\n' })
+      await expect(test.request('fs.patch', {
+        target, policy: policy(test.root), expected: { version: 'stale' },
+        hunks: [{ lineNumber: 1, oldLines: ['1st'], newLines: ['x'], isEndOfFile: false }],
+      }, editResultSchema)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+
+      const destination = await test.request('fs.resolve', { path: 'moved.txt' }, targetSchema)
+      const moved = await test.request('fs.move', {
+        source: target, destination, policy: policy(test.root),
+        options: { hunks: [{ lineNumber: 2, oldLines: ['second'], newLines: ['2nd'], isEndOfFile: false, context: '1st' }] },
+      }, moveResultSchema)
+      expect(moved.sourceDeleted).toBe(true)
+      expect(moved.destination.after).toBe('1st\n2nd\n')
+      await expect(test.request('fs.stat', { target }, infoSchema.nullable())).resolves.toBeNull()
+
+      // A guard-only move (no hunks) still carries both version guards across the boundary.
+      const guarded = await test.request('fs.resolve', { path: 'guard.txt' }, targetSchema)
+      const guardCreated = await test.request('fs.write', { target: guarded, content: 'g', policy: policy(test.root), expected: { kind: 'createIfAbsent' } }, writeResultSchema)
+      const guardMoved = await test.request('fs.move', {
+        source: guarded, destination: await test.request('fs.resolve', { path: 'guard-moved.txt' }, targetSchema), policy: policy(test.root),
+        options: { expectedSource: { version: guardCreated.version }, expectedDestination: { kind: 'createIfAbsent' } },
+      }, moveResultSchema)
+      expect(guardMoved.sourceDeleted).toBe(true)
+      expect(guardMoved.destination.after).toBe('g')
+
+      const removed = await test.request('fs.delete', { target: destination, policy: policy(test.root) }, deleteResultSchema)
+      expect(removed.before).toBe('1st\n2nd\n')
+      await expect(test.request('fs.delete', { target: destination, expected: { version: 'stale' }, policy: policy(test.root) }, deleteResultSchema))
+        .rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
     } finally { await test.close() }
   })
 

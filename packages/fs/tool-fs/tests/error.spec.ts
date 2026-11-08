@@ -10,7 +10,7 @@ import { remediateFsError } from '../src/error.ts'
 describe('remediateFsError', () => {
   it('appends the re-read remedy to FS_STALE_VERSION, preserving the code and chaining the cause', () => {
     const original = new FsError('cannot edit "x": file changed since it was read', 'FS_STALE_VERSION')
-    const remedied = remediateFsError(original, 'x') as FsError
+    const remedied = remediateFsError(original, 'x')
     expect(remedied).toBeInstanceOf(FsError)
     expect(remedied.message).toBe('cannot edit "x": file changed since it was read — re-read the file, then retry')
     expect(remedied.code).toBe('FS_STALE_VERSION')
@@ -22,7 +22,7 @@ describe('remediateFsError', () => {
       new FsError('edit requires reading "x" first', 'FS_NOT_OBSERVED'),
       new FsError('cannot overwrite existing "x" without reading it first', 'FS_NOT_OBSERVED'),
     ]
-    const remedied = sources.map(error => remediateFsError(error, 'x') as FsError)
+    const remedied = sources.map(error => remediateFsError(error, 'x'))
     expect(remedied.map(error => error.message)).toEqual([
       'cannot modify "x": file has not been read — read the file, then retry',
       'cannot modify "x": file has not been read — read the file, then retry',
@@ -45,7 +45,7 @@ describe('remediateFsError', () => {
 describe('remediateFsError — FS_UNMAPPABLE', () => {
   it('appends the representable-characters remedy, preserving the code', () => {
     const original = new FsError('cannot edit "x": 😀 (U+1F600) at 3:7 cannot be encoded in GB18030', 'FS_UNMAPPABLE')
-    const remedied = remediateFsError(original, 'x') as FsError
+    const remedied = remediateFsError(original, 'x')
     expect(remedied.message).toBe('cannot edit "x": 😀 (U+1F600) at 3:7 cannot be encoded in GB18030 — use characters the file\'s encoding can represent')
     expect(remedied.code).toBe('FS_UNMAPPABLE')
     expect(remedied.cause).toBe(original)
