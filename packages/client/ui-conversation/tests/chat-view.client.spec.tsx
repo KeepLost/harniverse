@@ -269,6 +269,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: (() => undefined),
     useInput: (() => { throw new Error('unused') }),
     inputActions: {

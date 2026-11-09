@@ -176,6 +176,7 @@ function mount(
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useContextMenu={() => ({ getTriggerProps: () => ({}) })}
           useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
@@ -196,6 +197,7 @@ function mount(
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useContextMenu={() => ({ getTriggerProps: () => ({}) })}
           useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
@@ -219,6 +221,7 @@ function mount(
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useContextMenu={() => ({ getTriggerProps: () => ({}) })}
           useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
@@ -271,6 +274,7 @@ function mount(
     useSession,
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: (() => undefined),
     useComposerBlock: select => select(options.composerBlock),
     useInput,

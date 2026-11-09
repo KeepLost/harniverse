@@ -70,6 +70,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     expandSidebar: vi.fn(),
     useSessions: hook(sessionState([])),
     useWorkspaces: hook(workspaceState([])),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useStore: bindSnapshotSelector(store),
     actions: store.actions,
     startSession: vi.fn(),

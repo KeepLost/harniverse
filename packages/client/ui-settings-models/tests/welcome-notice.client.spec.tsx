@@ -73,6 +73,7 @@ function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Prom
     complete,
     openSection: vi.fn(),
     useSessions: unusedHook,
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useWorkspaces: unusedHook,
     controller,
     useWelcome: bindSnapshotSelector(controller.store),

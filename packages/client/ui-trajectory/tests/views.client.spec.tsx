@@ -183,6 +183,7 @@ function standaloneProps(
     useSession: fakeSession(nodes).useSession,
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: (() => undefined) as never,
     // The locale seat the outlet would inject for the declared namespace.
     t: (key: LocaleKeysOf<'trajectory'>) => zh[key as TrajectoryKey] ?? key,
@@ -287,6 +288,7 @@ function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES
         useSession={useSession}
         useSessions={emptySessions()}
         useWorkspaces={emptyWorkspaces()}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useProjection={(() => undefined)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
@@ -303,6 +305,7 @@ function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES
         useSession={useSession}
         useSessions={emptySessions()}
         useWorkspaces={emptyWorkspaces()}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useProjection={(() => undefined)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}

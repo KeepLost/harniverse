@@ -124,6 +124,7 @@ describe('render branch tails', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
@@ -184,6 +185,7 @@ describe('render branch tails', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{

@@ -40,6 +40,7 @@ function mount(fontSize: number = 16) {
   const props: FontSizeRowComponentProps = {
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useStore: bindSnapshotSelector(store),
     actions: store.actions,
     t: (key: string) => COPY[key] ?? key,

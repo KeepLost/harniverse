@@ -176,6 +176,7 @@ flowchart TD
     pkg_client_ui_browser["client-ui-browser"]
     pkg_client_ui_commands["client-ui-commands"]
     pkg_client_ui_connection_status["client-ui-connection-status"]
+    pkg_client_ui_context_menu["client-ui-context-menu"]
     pkg_client_ui_conversation["client-ui-conversation"]
     pkg_client_ui_dashboard["client-ui-dashboard"]
     pkg_client_ui_deliverables["client-ui-deliverables"]
@@ -487,6 +488,7 @@ flowchart TD
   pkg_client_schema_form --> pkg_invariants
   pkg_client_store --> pkg_invariants
   pkg_client_ui_attachment --> pkg_invariants
+  pkg_client_ui_context_menu --> pkg_invariants
   pkg_client_ui_dashboard --> pkg_invariants
   pkg_client_ui_file_actions --> pkg_invariants
   pkg_client_ui_primitives --> pkg_invariants
@@ -2266,6 +2268,7 @@ flowchart TD
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-store`](../packages/client/store) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-attachment`](../packages/client/ui-attachment) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-ui-context-menu`](../packages/client/ui-context-menu) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-dashboard`](../packages/client/ui-dashboard) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-file-actions`](../packages/client/ui-file-actions) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-primitives`](../packages/client/ui-primitives) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |

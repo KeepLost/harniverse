@@ -306,6 +306,8 @@
       "@deepseek-ai/dsh-client-test-runtime/invariant": ["./packages/test-support/client-runtime/src/invariant.ts"],
       "@deepseek-ai/dsh-client-ui-layout": ["./packages/client/ui-layout/src"],
       "@deepseek-ai/dsh-client-ui-sidebar": ["./packages/client/ui-sidebar/src"],
+      "@deepseek-ai/dsh-client-ui-context-menu": ["./packages/client/ui-context-menu/src"],
+      "@deepseek-ai/dsh-client-ui-context-menu/client": ["./packages/client/ui-context-menu/src/client"],
       "@deepseek-ai/dsh-client-ui-conversation": ["./packages/client/ui-conversation/src"],
       "@deepseek-ai/dsh-client-ui-file-actions": ["./packages/client/ui-file-actions/src"],
       "@deepseek-ai/dsh-client-ui-tool": ["./packages/client/ui-tool/src"],

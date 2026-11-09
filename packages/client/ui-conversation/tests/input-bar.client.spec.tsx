@@ -232,6 +232,7 @@ function bench(over?: BenchOptions) {
       items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
       (selector ?? (v => v))(key === 'permissions'
         ? over?.permissions

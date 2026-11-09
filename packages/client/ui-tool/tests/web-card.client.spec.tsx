@@ -243,6 +243,7 @@ describe('DetailsPanel web Output section', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(sessions)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
           setDraft: () => {},

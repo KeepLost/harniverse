@@ -35,6 +35,7 @@ function mount(active = 'en') {
   const props: LanguageRowComponentProps = {
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useStore: bindSnapshotSelector(store),
     actions: store.actions,
     t: (key: string) => key === 'language.title' ? 'Language' : key,

@@ -47,6 +47,7 @@ const seatStubs = {
   SessionProvider: (({ children }: { children: (id: never) => unknown }) => children('s1' as never)) as never,
   useSessions: (() => ({})) as never,
   useWorkspaces: (() => ({})) as never,
+  useContextMenu: () => ({ getTriggerProps: () => ({}) }),
   sessionId: 's1' as never,
 } as const
 
