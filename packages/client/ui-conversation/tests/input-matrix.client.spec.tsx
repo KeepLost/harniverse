@@ -51,6 +51,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
       items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,

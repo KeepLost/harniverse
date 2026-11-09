@@ -100,6 +100,7 @@ function mountFrame() {
       renderSlot={renderSlot}
       useSessions={useSessions}
       useWorkspaces={useWorkspaces}
+      useContextMenu={() => ({ getTriggerProps: () => ({}) })}
       useBackdropOccupied={selector => selector(backdropOccupied.current)}
       SessionProvider={SessionProviderStub}
       t={t}

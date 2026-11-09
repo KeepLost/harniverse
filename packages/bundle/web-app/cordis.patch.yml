@@ -434,6 +434,11 @@
     - id: ui-file-actions
       name: '@deepseek-ai/dsh-client-ui-file-actions'
 
+    # Typed, plugin-extensible context menus with captured targets and the
+    # shared Web popup (registered kinds decide which targets show the button).
+    - id: ui-context-menu
+      name: '@deepseek-ai/dsh-client-ui-context-menu'
+
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
 

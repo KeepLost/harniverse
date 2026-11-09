@@ -41,6 +41,7 @@ function mount(preference: ThemePreference = 'system') {
   const props: AppearanceRowComponentProps = {
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useStore: bindSnapshotSelector(store),
     actions: store.actions,
     t: (key: string) => COPY[key] ?? key,

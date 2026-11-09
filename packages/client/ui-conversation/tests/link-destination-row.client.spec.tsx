@@ -35,6 +35,7 @@ function mount() {
   const props: LinkDestinationRowProps = {
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useLinkDestination: bindSnapshotSelector(destination),
     setLinkDestination,
     t: makeTranslate(en),

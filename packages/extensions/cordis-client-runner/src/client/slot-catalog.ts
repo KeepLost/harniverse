@@ -112,6 +112,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -123,6 +124,72 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'center.view\', () => ctx.slots.register(\n      { name: \'center.view\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
     source: 'packages/client/ui-layout/src/client/index.ts:79',
+  },
+  {
+    key: 'contextMenu.content',
+    kind: 'keyed',
+    scope: 'root',
+    summary: 'Optional React rows for existing extension positions; data contributions need no renderer.',
+    doc: 'Optional React rows for existing extension positions; data contributions need no renderer.',
+    registerOptions: [
+      {
+        name: 'key',
+        requirement: 'required',
+        type: 'string',
+        doc: 'Your cell key: the entry renders where the owner dispatches this exact key. Registering an already-occupied key replaces that occupant.',
+      },
+    ],
+    ownerProps: [
+      '/** Captured target; changing selection never changes an open menu\'s target. */\nexport type ContextMenuTarget = {\n  [K in keyof ContextMenuTargetMap]: { readonly kind: K; readonly value: ContextMenuTargetMap[K] }\n}[keyof ContextMenuTargetMap]',
+    ],
+    ownerPropsReferences: [
+      'ContextMenuTargetMap',
+    ],
+    standardProps: [
+      'useSessions: SnapshotSelectorHook<SessionListState>',
+      'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
+    ],
+    keyDomain: 'open: any string the owner dispatches (no compile-time key set), none are taken yet',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'shell.overlay\' (client-ui-context-menu), so it exists while that entry is mounted',
+    occupants: [],
+    replaceRisk: 'none',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'contextMenu.content\', () => ctx.slots.register(\n      { name: \'contextMenu.content\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-context-menu/src/client/index.ts:41',
+  },
+  {
+    key: 'contextMenu.icon',
+    kind: 'keyed',
+    scope: 'root',
+    summary: 'Business-owned glyph or image selected by the action\'s icon key.',
+    doc: 'Business-owned glyph or image selected by the action\'s icon key.',
+    registerOptions: [
+      {
+        name: 'key',
+        requirement: 'required',
+        type: 'string',
+        doc: 'Your cell key: the entry renders where the owner dispatches this exact key. Registering an already-occupied key replaces that occupant.',
+      },
+    ],
+    ownerProps: [
+      '/** Keyed icon renderer and optional image URL captured with the action. */\nexport interface ContextMenuIcon {\n  readonly key: string\n  readonly src?: string\n}',
+    ],
+    ownerPropsReferences: [],
+    standardProps: [
+      'useSessions: SnapshotSelectorHook<SessionListState>',
+      'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
+    ],
+    keyDomain: 'open: any string the owner dispatches (no compile-time key set), none are taken yet',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'shell.overlay\' (client-ui-context-menu), so it exists while that entry is mounted',
+    occupants: [],
+    replaceRisk: 'none',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'contextMenu.icon\', () => ctx.slots.register(\n      { name: \'contextMenu.icon\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-context-menu/src/client/index.ts:39',
   },
   {
     key: 'conversation',
@@ -138,6 +205,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: MaybeSnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId | undefined',
       'useProjection: UseProjection',
@@ -190,6 +258,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -224,6 +293,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -257,6 +327,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -298,6 +369,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -339,6 +411,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -385,6 +458,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -425,6 +499,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -459,6 +534,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -500,6 +576,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -533,6 +610,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: MaybeSnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId | undefined',
       'useProjection: UseProjection',
@@ -586,6 +664,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -619,6 +698,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -652,6 +732,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -683,6 +764,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -709,6 +791,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -752,6 +835,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -776,6 +860,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -802,6 +887,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -829,6 +915,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -882,6 +969,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -938,6 +1026,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -969,6 +1058,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1017,6 +1107,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1049,6 +1140,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1102,6 +1194,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1129,6 +1222,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1158,6 +1252,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1208,6 +1303,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1261,6 +1357,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1312,6 +1409,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1364,6 +1462,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1393,6 +1492,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -1424,6 +1524,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1469,6 +1570,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1514,6 +1616,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1546,6 +1649,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1591,6 +1695,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1622,6 +1727,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1655,6 +1761,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: agent-presets, appearance, global-rules, im, mcp, model-policy, models, plugins, session-import, sound',
     hookContext: '',
@@ -1709,6 +1816,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1754,6 +1862,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1802,6 +1911,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1849,6 +1959,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1890,6 +2001,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1935,6 +2047,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -1980,12 +2093,14 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-context-menu MenuOverlay id \'context-menu\'',
       'client-ui-workspace WorkspaceWorkbenchPreviewOverlay id \'workspace-workbench-preview\'',
     ],
     replaceRisk: 'none',
@@ -2006,6 +2121,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2032,6 +2148,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2077,6 +2194,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2104,6 +2222,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2130,6 +2249,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2156,6 +2276,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2182,6 +2303,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2207,6 +2329,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2243,6 +2366,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -2299,6 +2423,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
       'useSession: SnapshotSelectorHook<ConversationSnapshot>',
       'sessionId: SessionId',
       'useProjection: UseProjection',
@@ -2328,6 +2453,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2354,6 +2480,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2399,6 +2526,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',
@@ -2445,6 +2573,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
     ],
     keyDomain: '',
     hookContext: '',

@@ -314,6 +314,7 @@ function mountPlacements(options: {
       <WorkspaceWorkbenchPreviewOverlay
         useSessions={stubs.useSessions}
         useWorkspaces={stubs.useWorkspaces}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useStore={bindSnapshotSelector(store)}
         actions={store.actions}
         rightMode="workbench"
@@ -512,6 +513,7 @@ function workbenchStubs() {
       items: [{ workspaceId: 'ws-a', path: '/projects/a', sessionIds: ['s-a'] }],
       baselinesReady: true,
     } as never))) as never,
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     openWorkbench: () => {},
     closeWorkbench: () => {},
     listFiles: () => Promise.resolve({ path: '', entries: [], truncated: false }),

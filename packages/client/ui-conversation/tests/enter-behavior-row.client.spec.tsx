@@ -33,6 +33,7 @@ function mount() {
   const props: EnterBehaviorRowProps = {
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useBusyEnter: bindSnapshotSelector(policy.busyEnter),
     setBusyEnter,
     t: makeTranslate(en),
