@@ -9,6 +9,7 @@
 // (runningCalls) nest their so-far dispatches the same way.
 
 import { Context } from '@deepseek-ai/cordis'
+import type { ScopedStandardSourceBinding } from '@deepseek-ai/dsh-client-ui-slots'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -120,9 +121,11 @@ async function bench(snapshot: ConversationSnapshot) {
   // Provide-channel contributions land in this bundle the way the runtime
   // materializes them; the renderer host serves it through provideInfo.
   const provided: { hooks: Record<string, unknown>; props: Record<string, unknown> } = { hooks: {}, props: {} }
-  // Identity-stable currentProvideInfo snapshot (uSES getSnapshot contract),
-  // materialized on first render after the provide contributions landed.
-  let infoCell: { sessionId: SessionId; hooks: Record<string, unknown>; props: Record<string, unknown> } | undefined
+  // Identity-stable current scope binding (uSES getSnapshot contract),
+  // materialized on first render after the provide contributions landed. The
+  // ctx member only needs a stable identity plus a no-op effect face for the
+  // registry's store-scope bookkeeping.
+  let infoCell: ScopedStandardSourceBinding | undefined
   const sessionsFake = {
     list,
     binding: (id: SessionId) => (id === SID
@@ -136,11 +139,14 @@ async function bench(snapshot: ConversationSnapshot) {
       Object.assign(provided.props, contribution.props ?? {})
       return () => {}
     },
-    provideInfo: (id: string) => (id === SID
-      ? { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props }
-      : undefined),
-    currentProvideInfo: {
-      getSnapshot: () => infoCell ??= { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props },
+    currentScopeBinding: {
+      getSnapshot: () => infoCell ??= {
+        key: SID,
+        ctx,
+        hooks: { session, ...provided.hooks },
+        keyedHooks: {},
+        props: { sessionId: SID, ...provided.props },
+      },
       subscribe: () => () => {},
     },
     create: vi.fn(),
@@ -166,6 +172,16 @@ async function bench(snapshot: ConversationSnapshot) {
   ctx.provide('locale', locale)
   slots.installLocale(locale)
 
+  slots.provideRoot({
+    hooks: {
+      sessions: list,
+      workspaces: workspaces.list,
+    },
+  })
+  slots.installScope('session', {
+    current: sessionsFake.currentScopeBinding,
+    bindingSource: () => sessionsFake.currentScopeBinding,
+  })
   slots.install(createSlotRenderer())
   slots.register({
     name: 'root',

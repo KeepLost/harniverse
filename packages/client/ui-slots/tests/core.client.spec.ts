@@ -1,11 +1,8 @@
-// SlotCore terminal-design behavior: the single register composition API —
-// a-priori 'root', children declaration/authorization, load-time validation,
-// one-axis lifecycle cascade, store scope pinning, subscription API.
 import { describe, expect, it, vi } from 'vitest'
 import type { SlotComponent, StoreHandle } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
-// 'root' is NOT merged here: the runtime package owns the built-in row, and
+// 'root' is NOT merged here: ui-renderer owns the built-in row, and
 // the client aggregate program would see both merges collide.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -14,6 +11,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'test.list': { kind: 'list'; scope: 'root' }
     'test.keyed': { kind: 'keyed'; scope: 'session' }
     'test.chain': { kind: 'chain'; scope: 'session'; owner: { tags: string[] } }
+    'test.hoc': { kind: 'hoc'; scope: 'root' }
     'test.grandchild': { kind: 'single'; scope: 'root' }
   }
 }
@@ -23,7 +21,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 // RendersCheck would demand a renderSlot consumer).
 const Comp: SlotComponent<object> = () => null
 
-/** A minimal structurally-valid store handle (identity is what the ledger tracks). */
 function fakeHandle(): StoreHandle<{ n: number }, Record<string, (d: { n: number }) => void>> {
   return {
     spec: { init: () => ({ n: 0 }), actions: {} },
@@ -31,7 +28,6 @@ function fakeHandle(): StoreHandle<{ n: number }, Record<string, (d: { n: number
   }
 }
 
-/** Register a root-frame entry declaring the four test child slots. */
 function mountFrame(core: SlotCore) {
   return core.register({
     name: 'root',
@@ -41,6 +37,7 @@ function mountFrame(core: SlotCore) {
       'test.list': { kind: 'list', scope: 'root' },
       'test.keyed': { kind: 'keyed', scope: 'session' },
       'test.chain': { kind: 'chain', scope: 'session' },
+      'test.hoc': { kind: 'hoc', scope: 'root' },
     },
   // Type-level renderSlot presence is proven by the type-chain spec; erasing
   // here keeps runtime fixtures terse.
@@ -85,6 +82,29 @@ describe('a-priori root and declaration gate', () => {
 })
 
 describe('lifecycle cascade (one axis)', () => {
+  it('publishes Factory child mutations only after every sibling declaration is installed', () => {
+    const core = new SlotCore()
+    const observed: unknown[] = []
+    core.onMutate((key) => {
+      if (key === 'test.single') observed.push(core.specDynamic('test.session'))
+    })
+    const registerFactory = core.registerFactory as (
+      options: object,
+      component: unknown,
+    ) => () => void
+
+    registerFactory({
+      name: 'test.atomic-factory',
+      scope: 'root',
+      children: {
+        'test.single': { kind: 'single', scope: 'root' },
+        'test.session': { kind: 'single', scope: 'session' },
+      },
+    }, Comp)
+
+    expect(observed).toEqual([{ kind: 'single', scope: 'session' }])
+  })
+
   it('disposing a declaring entry collapses child slots and their contributions recursively', () => {
     const core = new SlotCore()
     const disposeFrame = mountFrame(core)
@@ -148,6 +168,19 @@ describe('kind semantics', () => {
     // @ts-expect-error list registration requires options.id
     expect(() => core.register({ name: 'test.list' }, Comp)).toThrow('requires options.id')
     expect(core.entries('test.list').map(e => e.options.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('hoc: missing or duplicate id throws, layers sort by priority then order, one winner per id', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    core.register({ name: 'test.hoc', id: 'inner', order: 10 }, Comp as never)
+    core.register({ name: 'test.hoc', id: 'outer' }, Comp as never)
+    expect(() => core.register({ name: 'test.hoc', id: 'outer' }, Comp as never)).toThrow('hoc slot "test.hoc" already has an entry with id "outer"')
+    // @ts-expect-error hoc registration requires options.id
+    expect(() => core.register({ name: 'test.hoc' }, Comp)).toThrow('hoc slot "test.hoc" requires options.id')
+    core.register({ name: 'test.hoc', id: 'inner', priority: -1, registrant: 'shadow' }, Comp as never)
+    expect(core.entries('test.hoc').map(e => e.options.id)).toEqual(['inner', 'outer', 'inner'])
+    expect(core.entriesOfSlot('test.hoc').map(e => e.registrant ?? e.options.id)).toEqual(['shadow', 'outer'])
   })
 
   it('chain: missing select throws; select and priority land on the stored entry', () => {
@@ -375,7 +408,7 @@ describe('subscription API', () => {
     const off = core.onMutate(key => keys.push(key))
     mountFrame(core)
     // Contribution first, then each declared child key.
-    expect(keys).toEqual(['root', 'test.single', 'test.session', 'test.list', 'test.keyed', 'test.chain'])
+    expect(keys).toEqual(['root', 'test.single', 'test.session', 'test.list', 'test.keyed', 'test.chain', 'test.hoc'])
     keys.length = 0
     core.register({ name: 'test.list', id: 'a' }, Comp)
     expect(keys).toEqual(['test.list'])

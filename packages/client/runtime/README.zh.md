@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端 cordis 启动与不依赖 React 的对象服务：SlotRegistry 包装 SlotCore 并提供 renderer 数据源；SessionRuntime 拥有 Session 对象、列表与 scope 状态，以及供已注册 conversation view target 共用的事件窗口与历史分页。WorkspaceRuntime 依赖 SessionRuntime，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给 Session 与 Workspace 所有者，并把每个通用 `host/remote-event` 帧交给 `ctx.remote.$dispatch`；各领域包通过 `ctx.remote.$on` 订阅自身 owner 事件，并自行决定使哪些缓存或会话行失效。客户端会话一律由 Host 创建（一次 `session.create` 同时产生 Session、agent（智能体）和 cwd）；客户端不持有任何实体化之前的会话状态——agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时创建，并随 prune 销毁。约定：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，并经 `session/projection` 帧按 seq 高者胜更新。普通会话首次打开时先安装仅含事件的历史响应，再在浏览器空闲时请求一份权威的仅投影基线；非 DOM 客户端使用任务回退，按地址访问的 subagent 则保留组合响应。重连与完成缺口修复后会调度新投影基线，generation 栅栏与取消则阻止陈旧后台工作发布。领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。该 store 还会通过 `SessionSummary.projectionValues` 发布一份引用稳定的完整值映射，使全局列表消费方无需为每个会话创建订阅，即可复用同一组投影。
+客户端 cordis 启动与不依赖 React 的对象服务：SlotRegistry 包装 SlotCore（普通 `register` 加上 `registerFactory` 组件工厂账本、机器命名空间的 store 作用域，以及严格的 `slot`／`factory` 快照节点），并把标准 source 交给 renderer；SessionRuntime 拥有 Session 对象、列表与 scope 状态，以及供已注册 conversation view target 共用的事件窗口与历史分页。WorkspaceRuntime 依赖 SessionRuntime，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给 Session 与 Workspace 所有者，并把每个通用 `host/remote-event` 帧交给 `ctx.remote.$dispatch`；各领域包通过 `ctx.remote.$on` 订阅自身 owner 事件，并自行决定使哪些缓存或会话行失效。客户端会话一律由 Host 创建（一次 `session.create` 同时产生 Session、agent（智能体）和 cwd）；客户端不持有任何实体化之前的会话状态——agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时创建，并随 prune 销毁。约定：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，并经 `session/projection` 帧按 seq 高者胜更新。普通会话首次打开时先安装仅含事件的历史响应，再在浏览器空闲时请求一份权威的仅投影基线；非 DOM 客户端使用任务回退，按地址访问的 subagent 则保留组合响应。重连与完成缺口修复后会调度新投影基线，generation 栅栏与取消则阻止陈旧后台工作发布。领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。该 store 还会通过 `SessionSummary.projectionValues` 发布一份引用稳定的完整值映射，使全局列表消费方无需为每个会话创建订阅，即可复用同一组投影。
 
 对于每条可到达本地根 Agent 或可继续子 Agent 的提示词，运行时都会采样浏览器当前的 `Intl.DateTimeFormat().resolvedOptions().timeZone`，并只把该值附加到这一次 Session 或 subagent 提示词 RPC。该值既不缓存，也不包含在 Session 创建或 fork 状态中，因此旅行与并发标签页都能保留消息本地的来源信息。浏览器若无法提供非空时区，会在本地拒绝该提示词，而不会悄然使用部署状态代替。
 
@@ -28,7 +28,7 @@ Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线�
 
 `WorkspaceListState.archivedSessionIds` 镜像 Host 的注册表级全局归档集合（一个按 Host 顺序的 `readonly SessionId[]`，仅在成员变化时才替换；需要 O(1) 查询的消费方自建临时 Set）。它是全快照状态：`workspace.list` 基线、`archiveSession` 一元回声和 `host/archived-sessions-changed` 帧各自安装完整集合。`WorkspaceRuntime.archiveSession(sessionId)` 通过 wire 归档；投影层在当前 selection 落入归档集合时统一清空为 New Session 视图状态——一条规则同时覆盖本地回声、其他标签页的帧、以及重连基线恢复出一个离线期间被归档的 selection。在 `workspace.list` 请求进行中安装的集合还会取代该过期基线携带的集合。各分组视图在所有位置隐藏集合成员，而会话行本身仍留在列表 store 中。`WorkspaceListState.pinnedSessionIds` 以同样方式镜像注册表级全局置顶集合（基线、pin/unpin 一元回声与 `host/pinned-sessions-changed` 帧安装按 Host 顺序的完整集合），且成功的归档回声会直接移除该会话的置顶，因为置顶帧可能滞后于一元回声。被 Host 活动准入拒绝的普通归档抛出携带 Host 上报活动家族与条目的 `SessionArchiveActiveError`；`{ stopActivity: true }` 先归档、后停止被上报的工作，`pinSession`／`unpinSession` 封装置顶变更。
 
-SlotRegistry 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建钩子。Workspace 业务状态不会进入 `SessionListState` 或条目 store。
+root 标准 source 走同一个 `provideRoot({ hooks, keyedHooks })` 贡献（sessions 与 workspaces 列表 observable，外加按会话的 projection 键控 source），会话作用域经 `installScope('session', sessions.scopeAdapter)` 安装自己的适配器——这是一个域中立的 host face：注册表只知道 root／scopeRevision／scope／factory 通道，不认识会话或 Workspace 词汇。web-react 绑定钩子，并依据适配器的 scope binding 门控严格会话 slot；没有安装适配器的区域会抛出。Store 挂载与工厂 store 轴都以 `(machineKey, scope)` 为键；`pruneStoreScope` 会在会话消亡时沿条目轴与工厂轴清除其持久化状态，`resetTarget` 则在机器切换时丢弃所有非 root 实例。Workspace 业务状态不会进入 `SessionListState` 或条目 store。
 
 `WorkspaceRuntime` 暴露无状态只读检查调用，用于惰性目录层级、带可选包含／排除 glob 列表的有界递归文件名搜索、UTF-8 文本、完整有界图片／PDF 数据、Git 状态与历史，以及暂存区或工作区 diff。它会清除空白 glob 条目并省略空列表，使 Host 能够应用默认排除项；除此之外，运行时只解包已认证 API 结果并传播调用方取消，查询、加载、缓存、标签和陈旧响应策略属于消费方 UI store。
 
@@ -97,5 +97,5 @@ reason 为 `max-tokens` 的 `turn/end` 会在该轮位置投影出一个 `turn-m
 ## 已知限制与暂缓事项
 
 - **`loader.unload` 是 stub**：它会抛出 not-implemented；客户端没有从 fiber dispose 到注册与样式移除的卸载链。
-- **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的会话精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ 会话位于 stage）；在 staged 状态下被移除的会话，其 scope 会冻结保留，直到 stage 转向其他会话，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentProvideInfo` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
+- **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的会话精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ 会话位于 stage）；在 staged 状态下被移除的会话，其 scope 会冻结保留，直到 stage 转向其他会话，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentScopeBinding` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
 - **插件 bundle 从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。

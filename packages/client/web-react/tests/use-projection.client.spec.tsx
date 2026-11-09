@@ -10,7 +10,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { act, render } from '@testing-library/react'
-import type { SessionMaybeProvideInfo, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ScopedStandardSourceBinding, StandardSourceBinding, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import { Context } from '@deepseek-ai/cordis'
 import { createSlotRenderer, type SlotRendererHost } from '@deepseek-ai/dsh-client-web-react'
 
 function observable<T>(initial: T) {
@@ -26,24 +27,32 @@ function observable<T>(initial: T) {
 type UseProjectionProp = (key: string, selector?: (v: unknown) => unknown) => unknown
 
 function makeHost() {
-  const absentInfo: SessionMaybeProvideInfo = { sessionId: undefined, hooks: { session: undefined }, props: {} }
-  const provide = observable<SessionMaybeProvideInfo>(absentInfo)
+  const absentInfo: StandardSourceBinding = {
+    key: undefined, hooks: { session: undefined }, keyedHooks: { projection: undefined }, props: {},
+  }
+  const provide = observable<StandardSourceBinding>(absentInfo)
   const cells = new Map<string, ReturnType<typeof observable<unknown>>>()
   /** Store-parallel face: always defined per key; an unseen key snapshots undefined. */
   const absent = { getSnapshot: () => undefined, subscribe: () => () => {} }
   const sessionEntries: StoredEntry[] = []
   let withFace = true
   const rootEntry: StoredEntry = {
-    component: (props: { renderSlot: (key: string, owner: object) => React.ReactNode }) =>
-      <>{props.renderSlot('k.session', {})}</>,
+    component: (props: {
+      renderSlot: (key: string, owner: object) => React.ReactNode
+      SessionProvider: { ({ children }: { children: React.ReactNode }): React.ReactNode }
+    }) => {
+      const body = props.renderSlot('k.session', {})
+      return <props.SessionProvider>{body}</props.SessionProvider>
+    },
     options: {},
     children: { 'k.session': { kind: 'single', scope: 'session' } },
   }
-  const info = (id: string): SessionMaybeProvideInfo => ({
-    sessionId: id,
+  const info = (id: string): ScopedStandardSourceBinding => ({
+    key: id,
+    ctx: new Context(),
     hooks: { session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} } },
+    keyedHooks: { projection: withFace ? (key: string) => cells.get(key) ?? absent : ((_key: string) => undefined) },
     props: {},
-    ...(withFace ? { projections: { faceOf: (key: string) => cells.get(key) ?? absent } } : {}),
   })
   const host: SlotRendererHost = {
     subscribe: () => () => {},
@@ -56,11 +65,16 @@ function makeHost() {
     specOf: key => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
     isLive: () => true,
     storeOf: () => undefined,
-    sessions: {
-      list: observable<unknown>({ ids: [] }),
-      provideInfo: provide,
-    },
-    workspaces: { list: observable<unknown>({ items: [] }) },
+    reportFactoryError: () => {},
+    factoryStoreOf: () => undefined,
+    retainFactoryOccurrence: () => () => {},
+    subscribeFactory: () => () => {},
+    getFactoryVersion: () => 0,
+    factoryOf: () => undefined,
+    isFactoryLive: () => false,
+    root: observable<StandardSourceBinding>({ key: undefined, hooks: {}, keyedHooks: {}, props: {} }),
+    scopeRevision: observable(0),
+    scope: () => ({ current: provide, bindingSource: () => provide }),
   }
   return {
     host,
@@ -114,7 +128,7 @@ describe('useProjection standard-kit delivery', () => {
     expect(reads.slice(-2)).toEqual([2, 'absent'])
   })
 
-  it('treats a bundle without the projections face as all-absent (capability absence)', () => {
+  it('treats a resolver with no faces as all-absent (capability absence)', () => {
     const h = makeHost()
     h.cells.set('test/marks', observable<unknown>({ marks: ['a'] }))
     h.dropFace()

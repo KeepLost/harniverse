@@ -1,13 +1,13 @@
 /** Test adapter for the production conversation.details.tool registration. */
 import type {
-  ChatConversationViewNode, ChatSnapshot, ConversationNode, RunningToolCall, SessionId,
+  ChatConversationViewNode, ChatSnapshot, ConversationNode, RunningToolCall,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionProviderComponent, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DetailsSlotProps, DetailsToolOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/contract/slots.ts'
 import { ToolDetails } from '../src/client/tool/ToolDetails.tsx'
 
 /** Framework session-area seat used by direct DetailsPanel tests. */
-export const SessionProviderStub: SessionProviderComponent = ({ children }) => children('s1' as SessionId)
+export const SessionProviderStub: SessionProviderComponent = ({ children }) => <>{children}</>
 
 /** Build the canonical Chat slice consumed by Tool rows and details tests. */
 export function toolChatSnapshot(

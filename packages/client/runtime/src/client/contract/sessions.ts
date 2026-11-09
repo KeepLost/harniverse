@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {
   RpcResult, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, StandardSourceBinding } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AgentContext } from '../agent-scope.ts'
 import type {
   SessionBinding, SessionListState, SessionProvideDescriptor, SessionSearchResultItem,
@@ -26,7 +26,7 @@ export interface ISessions {
   /** The useSessions standard feed (list rows + current selection; read face — writes stay inside the domain). */
   readonly list: ObservableSnapshot<SessionListState>
   /** Atomic current-session provide projection (the renderer host's `sessions.provideInfo` feed). */
-  readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
+  readonly currentScopeBinding: HostObservable<StandardSourceBinding>
   /**
    * The `session.search` result bound the wire schema fixes, exposed to
    * presentation as injected data. Not per-connection state: every transport

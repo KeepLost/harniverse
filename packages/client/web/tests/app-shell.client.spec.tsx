@@ -22,9 +22,19 @@ async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const slots = ctx.get('slots') as SlotRegistry
-  ctx.provide('sessions', new TestSessions(stabilize, ctx))
+  const sessions = new TestSessions(stabilize, ctx)
+  ctx.provide('sessions', sessions)
   ctx.provide('workspaces', new TestWorkspaces(stabilize))
   ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+  // Standard-source wiring mirrors the runtime apply pass (the sessions
+  // double owns the session scope adapter).
+  slots.provideRoot({
+    hooks: {
+      sessions: sessions.list,
+      workspaces: (ctx.get('workspaces') as TestWorkspaces).list,
+    },
+  })
+  slots.installScope('session', sessions.scopeAdapter)
   const fiber = ctx.plugin({ inject: [...AppShell.inject], apply: AppShell.apply })
   await fiber.await()
   return { ctx, slots, fiber }

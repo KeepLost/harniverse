@@ -43,6 +43,7 @@ beforeEach(() => {
 describe('selection survives on the store seat', () => {
   it('one session, two slots: conversation writes, details reads the SAME instance', async () => {
     const b = await bench()
+    await b.runtime.sessions.add({ id: 's1' })
 
     const conv = storeFor(b, 'conversation.session', sid('s1'))
     const details = storeFor(b, 'details', sid('s1'))
@@ -55,6 +56,8 @@ describe('selection survives on the store seat', () => {
 
   it('sessions are isolated: s2 selection never bleeds into s1', async () => {
     const b = await bench()
+    await b.runtime.sessions.add({ id: 's1' })
+    await b.runtime.sessions.add({ id: 's2' })
 
     const one = storeFor(b, 'conversation.session', sid('s1'))
     const two = storeFor(b, 'conversation.session', sid('s2'))
@@ -68,6 +71,7 @@ describe('selection survives on the store seat', () => {
 
   it('a list-projection update keeps instance identity and the selection value', async () => {
     const b = await bench()
+    await b.runtime.sessions.add({ id: 's1' })
     const id = sid('s1')
 
     const store = storeFor(b, 'conversation.session', id)
@@ -76,7 +80,7 @@ describe('selection survives on the store seat', () => {
 
     // A projection churn elsewhere (list rows re-projected) must not touch
     // store identity: drive the runtime's own list observable.
-    await b.runtime.sessions.add({ id, summary: { displayTitle: 'proj-a' } })
+    await b.runtime.sessions.updateSummary(id, { displayTitle: 'proj-a' })
     expect(b.runtime.sessions.list.getSnapshot().byId[id]?.displayTitle).toBe('proj-a')
 
     const after = storeFor(b, 'conversation.session', id)
@@ -102,6 +106,7 @@ describe('selection survives on the store seat', () => {
     // Persisted residue is gone with the session...
     expect(localStorage.getItem('dsh.conversation.chat.s1')).toBeNull()
     // ...and a re-created same-id session starts from a FRESH instance.
+    await b.runtime.sessions.add({ id: 's1' })
     const reborn = storeFor(b, 'conversation.session', sid('s1'))
     expect(reborn).not.toBe(doomed)
     expect(reborn.store.getSnapshot()).toEqual({

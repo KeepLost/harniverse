@@ -1,4 +1,4 @@
-/** Slot-facing re-exports of the React-free store contracts (authority: `@deepseek-ai/dsh-client-store`). */
+/** Slot-facing re-exports of the React-free store contracts. */
 
 export type {
   ActionsDecl,
@@ -13,6 +13,5 @@ export type {
   StoreFactory,
   StoreHandle,
   StoreInstance,
-  StorePersistence,
   StoreSpec,
 } from '@deepseek-ai/dsh-client-store'

@@ -233,6 +233,7 @@ export function AppFrame({
   useSessions,
   useWorkspaces,
   useBackdropOccupied,
+  SessionProvider,
   actions,
   renderSlot,
   t,
@@ -527,7 +528,9 @@ export function AppFrame({
               select: (section: string, request?: string) => { actions.setWorkbenchSection(section, request) },
               request: panels.workbenchSectionRequest,
             })
-            : renderSlot('details', {})}
+            // 'details' is strict-session: it renders inside the scope area,
+            // so an absent selection yields an empty drawer instead of a throw.
+            : <SessionProvider>{renderSlot('details', {})}</SessionProvider>}
         </DetailsColumn>
       </>
       <FrameRegion className={css.overlayLayer} blocked={rightDrawer || sidebarDrawer} overlay>

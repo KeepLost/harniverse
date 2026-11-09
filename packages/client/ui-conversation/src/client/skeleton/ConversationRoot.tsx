@@ -13,7 +13,7 @@ import css from './ConversationRoot.module.css'
 export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
-  sessionId, useSession, useSessions, useWorkspaces, useInput, useComposerBlock,
+  sessionId, useSession, useSessions, useWorkspaces, useInput, useComposerBlock, SessionProvider,
   renderSlot, renderSlotChain, selectWorkspace, openWorkbench, t,
 }: ConversationRootProps) {
   const openState = useSession(s => s.openState)
@@ -170,9 +170,11 @@ export function ConversationRoot({
         // user clears it.
         ? { blocked: composerBlock, placeholder: composerBlock.reason }
         : hero ? { placeholder: t('placeholder.hero') } : {}),
-    overlay: renderSlot('conversation.input.overlay', {}),
-    leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
-    rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
+    // Strict-session child seats render only while a session is bound
+    // (upstream InputBar's gating shape): the absent bar keeps its layout.
+    overlay: sessionId === undefined ? undefined : renderSlot('conversation.input.overlay', {}),
+    leftItems: zone === undefined || sessionId === undefined ? null : renderSlot('conversation.input.left', zone),
+    rightItems: zone === undefined || sessionId === undefined ? null : renderSlot('conversation.input.right', zone),
     // Stats band under the card, inside the bar's width column so both
     // share one constraint (composer.dock = stats-line family).
     footer: !hero && zone !== undefined ? renderSlot('conversation.composer.dock', zone) : null,
@@ -183,7 +185,7 @@ export function ConversationRoot({
       {hero && <HeroGlow className={css.heroGlow} />}
       {hero && <HeroShell t={t} />}
       {hero && heroWorkspaceRow}
-      {zone !== undefined && renderSlot('conversation.input.dock', zone)}
+      {zone !== undefined && sessionId !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>
   )
@@ -192,7 +194,9 @@ export function ConversationRoot({
   const composer = renderSlotChain(
     'conversation.composer',
     { interactions: pending, session },
-    { fallback: composerBar, overlay: true },
+    // fallbackOnly while no session is bound: a strict-session chain must not
+    // resolve its scope while absent; the blank composer bar stays resident.
+    { fallback: composerBar, fallbackOnly: sessionId === undefined, overlay: true },
   )
 
   // Sticky wraps the whole chain output (fallback + elected overlay), not
@@ -214,9 +218,14 @@ export function ConversationRoot({
     </div>
   )
 
+  // The strict-session seats render inside the framework session area: the
+  // area's empty branch leaves them unrendered while no session is bound,
+  // while the resident composer and the scroll body stay mounted.
   return (
     <div ref={rootResizeRef} className={css.root} data-phase={phase}>
-      {renderSlot('conversation.session.header', {})}
+      <SessionProvider>
+        {renderSlot('conversation.session.header', {})}
+      </SessionProvider>
       {/* The occurrence markers address fixed input to one Conversation
           occurrence: the composer seat carries its own region so a press
           inside it never combines with one in the chat region. */}
@@ -226,7 +235,9 @@ export function ConversationRoot({
         data-conversation-session={sessionId}
         data-conversation-region="chat"
       >
-        {renderSlot('conversation.session', {})}
+        <SessionProvider>
+          {renderSlot('conversation.session', {})}
+        </SessionProvider>
         {composerSeat}
       </div>
     </div>
