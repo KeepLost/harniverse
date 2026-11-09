@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 /** Trajectory ledger selection, details, status, and fold behavior. */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TrajectoryTable } from '../src/client/TrajectoryTable.tsx'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
+
+// jsdom has no matchMedia; hover-capable pointers gate the shared tooltip.
+beforeEach(() => { vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true }))) })
+afterEach(() => { vi.unstubAllGlobals() })
+
 
 afterEach(() => {
   cleanup()
@@ -747,13 +752,13 @@ describe('TrajectoryTable', () => {
     expect(toolTag?.getAttribute('title')).toBeNull()
     expect(toolIcon).toBeTruthy()
 
-    fireEvent.mouseEnter(toolTag as HTMLElement)
+    fireEvent.pointerEnter(toolTag as HTMLElement, { pointerType: 'mouse' })
     expect(screen.queryByRole('tooltip')).toBeNull()
-    fireEvent.mouseEnter(toolIcon as HTMLElement)
+    fireEvent.pointerEnter(toolIcon as HTMLElement, { pointerType: 'mouse' })
     const tooltip = screen.getByRole('tooltip')
     expect(tooltip.textContent).toBe('TOOL')
     expect(tooltip.getAttribute('data-side')).toBe('right')
-    fireEvent.mouseLeave(toolIcon as HTMLElement)
+    fireEvent.pointerLeave(toolIcon as HTMLElement)
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 

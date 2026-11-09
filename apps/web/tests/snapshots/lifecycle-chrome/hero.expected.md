@@ -44,7 +44,6 @@
 - textbox "Describe what you want to build"
 - button "Commands":
   - img
-- tooltip "Commands"
 - button "Add files":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write

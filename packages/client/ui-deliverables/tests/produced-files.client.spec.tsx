@@ -386,6 +386,15 @@ describe('ProducedFiles row', () => {
     expect(fitProducedFiles(20, 8, [60], [70, 50])).toBe(0)
   })
 
+  it('measures once where the runtime has no ResizeObserver', () => {
+    vi.stubGlobal('ResizeObserver', undefined)
+    const view = render(
+      <ProducedFiles matched={{ produced: ['only.ts'], presented: [] }} openFile={vi.fn()} {...capability(true)} t={t} />,
+    )
+    expect(view.getByRole('button', { name: '打开 only.ts' })).toBeDefined()
+    view.unmount()
+  })
+
   it('keeps one measured line, updates on resize, and opens a file or the workspace folder', () => {
     const paths = ['deep/a.html', 'b.css', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']
     const openFile = vi.fn<(path: string) => void>()

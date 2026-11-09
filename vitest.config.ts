@@ -207,7 +207,7 @@ const processBoundMaxWorkers = process.platform === 'win32' ? 1 : undefined
 export default defineConfig({
   plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
-    setupFiles: ['./scripts/test-invariants.ts'],
+    setupFiles: ['./scripts/test-invariants.ts', './scripts/test-dom-environment.ts'],
     // Hosted Windows runners need more time for process-heavy fixtures and
     // filesystem cleanup; keep the platform-specific ceiling at ten minutes.
     testTimeout: platformTestTimeoutMs,
@@ -233,7 +233,7 @@ export default defineConfig({
           // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS,
           // Linux, and Windows. Forked workers avoid that shared thread path.
           pool: 'forks',
-          setupFiles: ['./scripts/test-invariants.ts'],
+          setupFiles: ['./scripts/test-invariants.ts', './scripts/test-dom-environment.ts'],
           include: testIncludes,
           exclude: [
              ...windowsUnsupportedTests,
@@ -259,7 +259,7 @@ export default defineConfig({
           testTimeout: platformTestTimeoutMs,
           ...processBoundMaxWorkers === undefined ? {} : { maxWorkers: processBoundMaxWorkers },
           pool: 'forks',
-          setupFiles: ['./scripts/test-invariants.ts'],
+          setupFiles: ['./scripts/test-invariants.ts', './scripts/test-dom-environment.ts'],
           include: processBoundTests,
           exclude: [
              ...windowsUnsupportedTests,

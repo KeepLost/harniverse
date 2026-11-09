@@ -140,6 +140,7 @@ describe('ui-permission browser plugin', () => {
       title: 'Enable Full access?',
       description: accessEn['confirm.description'],
       acknowledgeLabel: 'I understand the risks and want to continue',
+      closeLabel: 'Close',
       cancelLabel: 'Cancel',
       confirmLabel: 'Enable Full access',
     })

@@ -25,6 +25,7 @@ const GATED: SelectOption = {
   confirmation: {
     title: 'Enable Full access?',
     description: 'Sensitive operations.',
+    closeLabel: 'Close',
     acknowledgeLabel: 'I understand',
     cancelLabel: 'Cancel',
     confirmLabel: 'Enable Full access',

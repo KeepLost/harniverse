@@ -13,6 +13,7 @@ export const zh = {
   'confirm.description': '启用完全权限后，新会话将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任后续任务时使用。',
   'confirm.acknowledge': '我已了解风险，并愿意继续',
   'confirm.cancel': '取消',
+  'confirm.close': '关闭',
   'confirm.enable': '启用完全权限',
 } satisfies Record<string, string>
 
@@ -32,6 +33,7 @@ export const en = {
   'confirm.description': 'Full access lets new sessions reduce confirmation steps and perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust subsequent tasks.',
   'confirm.acknowledge': 'I understand the risks and want to continue',
   'confirm.cancel': 'Cancel',
+  'confirm.close': 'Close',
   'confirm.enable': 'Enable Full access',
 } satisfies Record<PermissionSettingsKey, string>
 
@@ -44,6 +46,7 @@ export const accessZh = {
   'confirm.description': '启用完全权限后，智能体将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。',
   'confirm.acknowledge': '我已了解风险，并愿意继续',
   'confirm.cancel': '取消',
+  'confirm.close': '关闭',
   'confirm.enable': '启用完全权限',
 } satisfies Record<string, string>
 
@@ -59,5 +62,6 @@ export const accessEn = {
   'confirm.description': 'Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.',
   'confirm.acknowledge': 'I understand the risks and want to continue',
   'confirm.cancel': 'Cancel',
+  'confirm.close': 'Close',
   'confirm.enable': 'Enable Full access',
 } satisfies Record<PermissionAccessKey, string>
