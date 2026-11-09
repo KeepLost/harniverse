@@ -261,6 +261,13 @@ describe('TerminalPanelView', () => {
     expect(harness.resize).not.toHaveBeenCalled()
   })
 
+  it('mounts the surface without ResizeObserver and skips the subscription', async () => {
+    vi.stubGlobal('ResizeObserver', undefined)
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    await xtermSurface(harness.container)
+    expect(harness.surfaces).toHaveLength(1)
+  })
+
   it('observes container resizes when the browser provides ResizeObserver', async () => {
     vi.stubGlobal('ResizeObserver', class {
       observe(): void {}

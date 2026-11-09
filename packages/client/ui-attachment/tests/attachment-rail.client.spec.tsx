@@ -56,6 +56,18 @@ function stubGeometry(rail: HTMLElement, { scrollWidth, clientWidth }: { scrollW
 }
 
 describe('AttachmentRail', () => {
+  it('settles attachments without a progress figure and mounts without ResizeObserver', () => {
+    const settled = { ...item('a'), status: 'settled' as const }
+    const view = render(<AttachmentRail items={[settled]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} />)
+    // A settled item carries no determinate bar; its thumbnail keeps the plain fill.
+    expect(view.queryByRole('progressbar')).toBeNull()
+    view.unmount()
+    // Environments without ResizeObserver fall back to the no-op teardown.
+    vi.stubGlobal('ResizeObserver', undefined)
+    const plain = render(<AttachmentRail items={[settled]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} />)
+    plain.unmount()
+  })
+
   it('renders thumbnails in order and routes open and remove clicks', () => {
     const onOpen = vi.fn()
     const onRemove = vi.fn()
@@ -67,6 +79,14 @@ describe('AttachmentRail', () => {
     expect(onOpen).toHaveBeenCalledWith(items[0])
     fireEvent.click(view.getByRole('button', { name: '移除图片 b.png' }))
     expect(onRemove).toHaveBeenCalledWith(items[1])
+  })
+
+  it('shows an uploading item without a figure as indeterminate', () => {
+    const uploading = { ...item('a'), status: 'uploading' as const }
+    const view = render(<AttachmentRail items={[uploading]} labels={{ ...labels, uploading: '图片上传中' }} onOpen={vi.fn()} onRemove={vi.fn()} />)
+    const bar = view.getByRole('progressbar', { name: '图片上传中' })
+    expect(bar.getAttribute('data-indeterminate')).toBe('true')
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe('')
   })
 
   it('shows an uploading item with a determinate progress bar and busy thumbnail', () => {

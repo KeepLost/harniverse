@@ -522,7 +522,9 @@ describe('a long card description', () => {
   })
 
   it('renders where the runtime has no ResizeObserver', () => {
-    vi.unstubAllGlobals()
+    // The shared test environment installs a delivering observer outside
+    // vi.stubGlobal, so unstubbing alone cannot restore the absence.
+    vi.stubGlobal('ResizeObserver', undefined)
     clamp(true)
 
     expect(() => {

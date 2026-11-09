@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Menu, MenuItemButton, type MenuEntry } from '../src/Menu.tsx'
+import { menuIconColumns } from '../src/MenuRow.tsx'
 import { POINTER_GRACE_MS } from '../src/pointer-grace.ts'
 
 let panel: DOMRect
@@ -85,6 +86,38 @@ function openMenu() {
 function childMenu() {
   return screen.getByRole('menuitem', { name: 'First app' }).closest<HTMLElement>('[role="menu"]')!
 }
+
+describe('menu icon columns and decorated submenu pages', () => {
+  it('aligns contextual icon groups and leaves icon-free groups unaligned', () => {
+    const iconRow: MenuEntry = { id: 'a', label: 'A', icon: <span>●</span> }
+    const plainRow: MenuEntry = { id: 'b', label: 'B' }
+    const icons: readonly MenuEntry[] = [iconRow, { type: 'separator', id: 'sep' }, plainRow]
+    expect(menuIconColumns(icons, true).has(iconRow)).toBe(true)
+    expect(menuIconColumns(icons, true).has(plainRow)).toBe(false)
+    // Non-contextual menus never reserve an icon column.
+    expect(menuIconColumns(icons, false).size).toBe(0)
+  })
+
+  it('renders decorations inside a submenu page alongside its rows', () => {
+    render(
+      <Menu open anchor={<button>Actions</button>} submenuBackLabel="Back" onClose={() => {}} onSelect={() => {}}
+        items={[
+          { id: 'parent', label: 'Applications', submenu: [
+            { type: 'label', id: 'section', text: 'Section' },
+            { id: 'first', label: 'First app' },
+            { type: 'separator', id: 'divider' },
+            { id: 'second', label: 'Second app', icon: <span>●</span> },
+          ] },
+        ]}>
+        <MenuItemButton icon={<span>◆</span>} onSelect={() => {}}>Plugin row</MenuItemButton>
+      </Menu>,
+    )
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Applications' }))
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Applications' }), { key: 'ArrowRight' })
+    expect(screen.getByRole('menuitem', { name: 'First app' })).toBeDefined()
+    expect(screen.getByText('Section')).toBeDefined()
+  })
+})
 
 describe('Menu submenus', () => {
   it('dismisses a non-contextual menu when an external marked trigger is pressed', () => {
