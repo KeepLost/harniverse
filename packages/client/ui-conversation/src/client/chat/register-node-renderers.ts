@@ -1,4 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { FileActions } from '@deepseek-ai/dsh-client-ui-file-actions/client'
+import type { ImageLightboxActionLabels } from '@deepseek-ai/dsh-client-ui-attachment'
 import { NS } from '../locales.ts'
 import { CommandNodeView, ManualCompactionNodeView } from './CommandNodeView.tsx'
 import {
@@ -13,6 +16,33 @@ import { AssistantSeatView, AssistantMetaDefault, ChatImagesDefault, ReasoningBo
  * @param ctx - owning UI Conversation context.
  */
 export function registerChatNodeRenderers(ctx: Context): void {
+  // The file-actions capability is an optional sibling: track it through the
+  // service lifecycle so the image seats offer original-file commands exactly
+  // while a provider is live, without depending on its activation order.
+  const fileActions = createSnapshotStore<FileActions | undefined>(undefined)
+  ctx.effect(() => {
+    const read = (): FileActions | undefined => {
+      // An undeclared optional service read throws while absent; that is the
+      // off state this bridge publishes.
+      try {
+        return (ctx as unknown as { get(name: string): unknown }).get('fileActions') as FileActions | undefined ?? undefined
+      } catch {
+        return undefined
+      }
+    }
+    const refresh = (name?: string, value?: unknown): void => {
+      if (name !== undefined && name !== 'fileActions') return
+      fileActions.set(value === undefined ? read() : value as FileActions | undefined)
+    }
+    const off = ctx.on('internal/service', refresh)
+    refresh()
+    return off
+  }, 'chat image file-actions bridge')
+  const actionLabels = (): ImageLightboxActionLabels => {
+    const t = ctx.locale.bind('fileActions')
+    return { copy: t('menu.copyImage'), download: t('menu.download'), saveAs: t('menu.saveAs') }
+  }
+  const imageInject = () => ({ hooks: { fileActions }, actionLabels })
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',
     key: 'user',
@@ -65,9 +95,9 @@ export function registerChatNodeRenderers(ctx: Context): void {
   // priority 100 leaves room below for a third-party replacement per domain,
   // and disposal restores the shipped presentation.
   ctx.slots.inject('conversation.chat.user.images', () => ctx.slots.register(
-    { name: 'conversation.chat.user.images', priority: 100, locale: NS }, ChatImagesDefault))
+    { name: 'conversation.chat.user.images', priority: 100, locale: NS, inject: imageInject }, ChatImagesDefault))
   ctx.slots.inject('conversation.chat.assistant.images', () => ctx.slots.register(
-    { name: 'conversation.chat.assistant.images', priority: 100, locale: NS }, ChatImagesDefault))
+    { name: 'conversation.chat.assistant.images', priority: 100, locale: NS, inject: imageInject }, ChatImagesDefault))
   ctx.slots.inject('conversation.chat.reasoning.body', () => ctx.slots.register(
     { name: 'conversation.chat.reasoning.body', priority: 100, locale: NS }, ReasoningBodyDefault))
   ctx.slots.inject('conversation.chat.assistant.meta', () => ctx.slots.register(

@@ -23,7 +23,7 @@ kind: "package-client"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 web 组合中挂载本插件；消费方解析 `ctx.fileActions` 并传入捕获的 `FileActionSource`（解析出的原文件 URL 及可选的授权 `read`）。`save(source, 'download')` 请求浏览器下载或 Desktop 原生下载；`saveAs` 仅限 Desktop，Web 上拒绝。`copyImage` 解码来源并写入可粘贴的 PNG。`canSaveAs` 告知界面是否提供保存选择器。可选的原生适配器经 `window.dshDesktop.fileActions` 到达。
+在 web 组合中挂载本插件；消费方解析 `ctx.fileActions` 并传入捕获的 `FileActionSource`（解析出的原文件 URL 及可选的授权 `read`）。`save(source, 'download')` 请求浏览器下载或 Desktop 原生下载；`saveAs` 仅限 Desktop，Web 上拒绝。`copyImage` 解码来源并写入可粘贴的 PNG。`canSaveAs` 告知界面是否提供保存选择器。可选的原生适配器经 `window.harniverseFileActions` 到达，由 harniverse Desktop preload 暴露。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -40,7 +40,7 @@ kind: "package-client"
 
 - 上游的右键菜单挂载（`file` 与 `image` 目标上的菜单贡献、共享省略号按钮、在文件夹中显示的反馈）暂缓：随 context-menu seam 与 workspace-files remote 批次落地（见 wave-6 批 D 计划）。
 - 上游另外六种语言字典（ja/es/fr/de/ru/pt）随本客户端语言线超出 zh/en 时一并提供。
-- Desktop 原生适配器（`window.dshDesktop.fileActions`——受信窗口保存对话框与跨源剪贴板读取）随桌面接线批次落地；缺省时 `canSaveAs` 为 false，Web 的下载/复制照常可用。
+- Desktop 原生适配器（`window.harniverseFileActions`——受信窗口保存对话框与跨源剪贴板读取）由 harniverse Desktop 应用提供；缺省时 `canSaveAs` 为 false，Web 的下载/复制照常可用。
 
 <a id="dev-note"></a>
 ### 开发注记

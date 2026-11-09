@@ -23,7 +23,7 @@ One capability answers "save this original" and "copy this image": `ctx.fileActi
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin in a web composition; consumers resolve `ctx.fileActions` and pass captured `FileActionSource` values (the resolved original URL plus an optional authorized `read`). `save(source, 'download')` requests a browser download or a native Desktop download; `saveAs` is Desktop-only and rejects on Web. `copyImage` decodes the source and writes a pasteable PNG. `canSaveAs` tells surfaces whether to offer the picker. The optional native adapter arrives as `window.dshDesktop.fileActions`.
+Mount the plugin in a web composition; consumers resolve `ctx.fileActions` and pass captured `FileActionSource` values (the resolved original URL plus an optional authorized `read`). `save(source, 'download')` requests a browser download or a native Desktop download; `saveAs` is Desktop-only and rejects on Web. `copyImage` decodes the source and writes a pasteable PNG. `canSaveAs` tells surfaces whether to offer the picker. The optional native adapter arrives as `window.harniverseFileActions`, exposed by the harniverse Desktop preload.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -40,7 +40,7 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 
 - The upstream context-menu attachment (right-click contributions on `file` and `image` targets, the shared ellipsis button, and reveal-in-folder feedback) is deferred: it rides the context-menu seam and the workspace-files remote batch recorded in the wave-6 batch-D plan.
 - Upstream's six additional locale dictionaries (ja/es/fr/de/ru/pt) ship when this client's locale line grows past zh/en.
-- The Desktop native adapter (`window.dshDesktop.fileActions` — trusted-window save dialog and cross-origin clipboard reads) lands with the desktop wiring batch; without it `canSaveAs` is false and Web download/copy still work.
+- The Desktop native adapter (`window.harniverseFileActions` — trusted-window save dialog and cross-origin clipboard reads) is provided by the harniverse Desktop app; without it `canSaveAs` is false and Web download/copy still work.
 
 <a id="dev-note"></a>
 ### Dev Note

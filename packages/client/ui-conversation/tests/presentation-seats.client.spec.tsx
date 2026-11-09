@@ -6,7 +6,7 @@
  * 100, a lower-priority replacement shadows one domain only, disposal
  * restores the shipped presentation.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ReactNode } from 'react'
@@ -69,6 +69,34 @@ describe('shipped seat occupants', () => {
     render(<ChatImagesDefault images={[ref('shot.png')]} load={load} align="end" t={t} />)
     expect(await screen.findByRole('img', { name: 'shot.png' })).toBeTruthy()
     expect(load).toHaveBeenCalledOnce()
+  })
+
+  it('offers lightbox original-file commands only while the capability service is live', async () => {
+    const copy = vi.fn().mockResolvedValue(undefined)
+    const save = vi.fn().mockResolvedValue({ status: 'requested' as const })
+    const live = {
+      copyImage: copy, save, canSaveAs: true,
+    } as unknown as import('@deepseek-ai/dsh-client-ui-file-actions/client').FileActions
+    let visible: boolean = true
+    const useFileActions = (): typeof live | undefined => (visible ? live : undefined)
+    const actionLabels = () => ({ copy: '复制图片', download: '下载', saveAs: '另存为…' })
+    const load = vi.fn(() => Promise.resolve('blob:seat'))
+    const view = render(
+      <ChatImagesDefault images={[ref('shot.png')]} load={load} align="end" t={t}
+        useFileActions={useFileActions} actionLabels={actionLabels} />,
+    )
+    fireEvent.click(await view.findByRole('button', { name: 'shot.png，点击查看原图' }))
+    fireEvent.click(view.getByRole('button', { name: '复制图片' }))
+    fireEvent.click(view.getByRole('button', { name: '另存为…' }))
+    expect(copy).toHaveBeenCalledWith({ url: 'blob:seat', name: 'shot.png' })
+    expect(save).toHaveBeenCalledWith({ url: 'blob:seat', name: 'shot.png' }, 'saveAs')
+
+    visible = false
+    view.rerender(
+      <ChatImagesDefault images={[ref('shot.png')]} load={load} align="end" t={t}
+        useFileActions={useFileActions} actionLabels={actionLabels} />,
+    )
+    await waitFor(() => { expect(view.queryByRole('toolbar')).toBeNull() })
   })
 
   it('renders the reasoning body as the plain pre-wrap text', () => {

@@ -429,6 +429,11 @@
     - id: ui-settings-im
       name: '@deepseek-ai/dsh-client-ui-settings-im'
 
+    # Original-file capability behind the conversation image surfaces: save,
+    # save-as, and clipboard copy over captured sources.
+    - id: ui-file-actions
+      name: '@deepseek-ai/dsh-client-ui-file-actions'
+
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
 

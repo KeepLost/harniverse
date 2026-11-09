@@ -71,6 +71,8 @@ const electron = vi.hoisted(() => {
   return {
     app, windows, trays, handlers, BrowserWindow: Window, Tray,
     ipcMain: { handle: vi.fn((name: string, handler: (event: unknown, ...args: unknown[]) => unknown) => { handlers.set(name, handler) }) },
+    // The file-actions module subscribes to download events on the default session.
+    session: { defaultSession: { on: vi.fn() } },
     Menu: { buildFromTemplate: vi.fn((template: unknown) => template), setApplicationMenu: vi.fn() },
     dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })), showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: ['/local/work'] })), showErrorBox: vi.fn() },
     nativeImage: { createFromBitmap: vi.fn(() => ({ isEmpty: () => false, setTemplateImage: vi.fn() })) },
