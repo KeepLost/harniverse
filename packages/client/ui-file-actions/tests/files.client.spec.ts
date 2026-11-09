@@ -187,7 +187,7 @@ describe('file actions', () => {
 
   it.each([false, true])('binds the optional Desktop adapter (%s) for the plugin lifetime', async (desktop) => {
     const bridge = native()
-    if (desktop) vi.stubGlobal('dshDesktop', { fileActions: bridge })
+    if (desktop) vi.stubGlobal('harniverseFileActions', bridge)
     // rc.11 isolation: provisions from a fiber that injects a sibling-provided
     // service are isolated, so the bench provides a stub locale at the root
     // scope the way the web composition provides its faces.

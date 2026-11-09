@@ -1,6 +1,6 @@
 /** Sandboxed preload: bundled as CommonJS with Electron as its only external module. */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { DESKTOP_IPC, type DesktopBridge, type DesktopDirectoryBridge } from './ipc.ts'
+import { DESKTOP_IPC, type DesktopBridge, type DesktopDirectoryBridge, type DesktopFileActionsBridge } from './ipc.ts'
 import { bootstrapOwnedBrowser } from './preload-web.ts'
 import { shellCopy } from './locale.ts'
 
@@ -17,6 +17,12 @@ if (window === window.top) {
   } else if (window.location.protocol === 'https:' || window.location.protocol === 'http:') {
     const directory: DesktopDirectoryBridge = { pickDirectory: () => ipcRenderer.invoke(DESKTOP_IPC.pickDirectory) }
     contextBridge.exposeInMainWorld('harniverseDirectory', directory)
+    // Original-file saves and source-captured clipboard reads for the owned app page.
+    const fileActions: DesktopFileActionsBridge = {
+      save: request => ipcRenderer.invoke(DESKTOP_IPC.fileSave, request),
+      readClipboardImage: url => ipcRenderer.invoke(DESKTOP_IPC.clipboardImageRead, url),
+    }
+    contextBridge.exposeInMainWorld('harniverseFileActions', fileActions)
     // Names the harness-host path of a dropped or pasted file for the
     // composer's `@path` intake; only the Desktop shell resolves one.
     contextBridge.exposeInMainWorld('harniverseHostPaths', { pathFor: (file: File) => webUtils.getPathForFile(file) })

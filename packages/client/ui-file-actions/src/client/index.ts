@@ -23,7 +23,8 @@ export const inject = ['locale']
  * @param ctx - plugin-owned Client context.
  */
 export function apply(ctx: Context): void {
-  const desktop = (window as Window & { dshDesktop?: { fileActions?: DesktopFileActions } }).dshDesktop?.fileActions
+  // The harniverse Desktop preload exposes its native adapter under the app's bridge namespace.
+  const desktop = (window as Window & { harniverseFileActions?: DesktopFileActions }).harniverseFileActions
   const actions = new BrowserFileActions(desktop)
   ctx.provide('fileActions', actions)
   ctx.effect(() => () => { actions.dispose() }, 'file actions: lifetime')

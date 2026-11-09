@@ -37,6 +37,29 @@ export interface DesktopDirectoryBridge {
   pickDirectory(): Promise<DirectorySelection>
 }
 
+/**
+ * Native original-file save outcome. Only native completion supplies an
+ * absolute destination path; a browser download stays `requested`.
+ */
+export type DesktopFileSaveResult =
+  | { readonly status: 'cancelled' }
+  | { readonly status: 'saved'; readonly path: string }
+
+/** Shared Web preload exposes trusted-window original-file operations for the owned app page. */
+export interface DesktopFileActionsBridge {
+  /**
+   * @param request - captured original URL, suggested filename and destination policy.
+   * @returns the completed destination path, or cancellation.
+   */
+  save(this: void, request: { url: string; name?: string; mediaType?: string; mode: 'download' | 'saveAs' }): Promise<DesktopFileSaveResult>
+  /**
+   * Read cross-origin originals only for the source-captured clipboard operation.
+   * @param url - HTTP(S) original fetched without credentials.
+   * @returns original bytes and response MIME.
+   */
+  readClipboardImage(this: void, url: string): Promise<{ bytes: Uint8Array; mediaType: string }>
+}
+
 /** Fixed IPC identifiers shared by main and bundled sandbox preloads. */
 export const DESKTOP_IPC = {
   state: 'harniverse:desktop:state',
@@ -45,6 +68,8 @@ export const DESKTOP_IPC = {
   quit: 'harniverse:desktop:quit',
   pickDirectory: 'harniverse:desktop:pick-directory',
   authWeb: 'harniverse:desktop:auth-web',
+  fileSave: 'harniverse:desktop:file-save',
+  clipboardImageRead: 'harniverse:desktop:clipboard-image-read',
 } as const
 
 /** The preload bootstrap never exports the private browser key through contextBridge. */

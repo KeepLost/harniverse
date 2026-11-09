@@ -10,7 +10,7 @@ const device = vi.hoisted(() => ({
 vi.mock('electron', () => electron)
 vi.mock('../src/desktop-browser-device.ts', () => device)
 import { bootstrapOwnedBrowser } from '../src/preload-web.ts'
-import { DESKTOP_IPC, type DesktopBridge, type DesktopDirectoryBridge } from '../src/ipc.ts'
+import { DESKTOP_IPC, type DesktopBridge, type DesktopDirectoryBridge, type DesktopFileActionsBridge } from '../src/ipc.ts'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetAllMocks(); vi.resetModules() })
 
@@ -122,6 +122,12 @@ describe('desktop context bridge', () => {
     expect(Object.keys(bridge)).toEqual(['pickDirectory'])
     await bridge.pickDirectory()
     expect(electron.ipcRenderer.invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.pickDirectory)
+    const [, actions] = electron.contextBridge.exposeInMainWorld.mock.calls.find(([world]) => world === 'harniverseFileActions') as [string, DesktopFileActionsBridge]
+    expect(Object.keys(actions)).toEqual(['save', 'readClipboardImage'])
+    await actions.save({ url: 'https://images.example/a', mode: 'download' })
+    expect(electron.ipcRenderer.invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.fileSave, { url: 'https://images.example/a', mode: 'download' })
+    await actions.readClipboardImage('https://images.example/a.gif')
+    expect(electron.ipcRenderer.invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.clipboardImageRead, 'https://images.example/a.gif')
     vi.resetModules()
     electron.contextBridge.exposeInMainWorld.mockClear()
     page.top = {}
