@@ -22,7 +22,7 @@ import type {
 // plugin-to-plugin value imports are a bundle purity error.
 import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
-  HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
+  HostObservable, ScopedStandardSourceBinding, SlotScopeAdapter, StandardSourceBinding,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -152,8 +152,8 @@ interface ScopeRecord {
   binding: SessionBinding
   /** The concrete Session for runtime-internal entry points (staging open()); the binding carries only the outward face. */
   session: Session
-  /** Render-layer standard-props bundle (identity-stable per scope; the renderer's per-info caches key off it). */
-  provideInfo: SessionProvideInfo
+  /** Render-layer standard-source binding (identity-stable per scope; the renderer's per-binding caches key off it). */
+  provideBinding: ScopedStandardSourceBinding
 }
 
 /** One plugin's per-session standard-props contribution (see {@link SessionRuntime.provide}). */
@@ -178,12 +178,14 @@ export class SessionRuntime implements ISessions {
   private targetGeneration = 0
   private scopeDisposal = Promise.resolve()
   /**
-   * Atomic current-session provide projection: selection changes and
-   * provider-roster changes publish through this one source (the renderer
-   * host's `sessions.provide` feed), so a roster change under a stable
-   * current id republishes the bundle instead of stranding mounted entries.
+   * Atomic current-session scope-binding projection: selection changes and
+   * provider-roster changes publish through this one source (the renderer's
+   * scope adapter feed), so a roster change under a stable current id
+   * republishes the binding instead of stranding mounted entries.
    */
-  readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
+  readonly currentScopeBinding: HostObservable<StandardSourceBinding>
+  /** Renderer-facing adapter for the `session` and `session-maybe` slot scopes. */
+  readonly scopeAdapter: SlotScopeAdapter
 
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
@@ -273,12 +275,19 @@ export class SessionRuntime implements ISessions {
     this.provideChannel = new SessionProvideChannel({
       rebuildBundles: () => {
         for (const record of this.scopes.values()) {
-          record.provideInfo = this.provideChannel.materializeInfo(record.binding)
+          record.provideBinding = this.provideChannel.materializeBinding(record.binding)
         }
       },
-      resolveCurrent: () => this.maybeProvideInfo(this.list.getSnapshot().current),
+      resolveCurrent: () => this.maybeBinding(this.list.getSnapshot().current),
     })
-    this.currentProvideInfo = this.provideChannel.currentProvideInfo
+    this.currentScopeBinding = this.provideChannel.currentScopeBinding
+    this.scopeAdapter = {
+      current: this.currentScopeBinding,
+      // Explicit session targets are not declared in Harniverse yet
+      // (SlotScopeTargetMap stays empty): every explicit request resolves the
+      // absent projection until a target type lands.
+      bindingSource: () => this.provideChannel.absentSource,
+    }
     let registryRebuildQueued = false
     const scheduleRegistryRebuild = (): void => {
       if (registryRebuildQueued) return
@@ -662,22 +671,22 @@ export class SessionRuntime implements ISessions {
   }
 
   /**
-   * Resolve one session's render-layer standard-props bundle (ctx never
+   * Resolve one session's render-layer standard-source binding (ctx never
    * enters the render layer; the renderer subscribes to
-   * {@link SessionRuntime.currentProvideInfo}). Pure resolution — render-safe:
+   * {@link SessionRuntime.currentScopeBinding}). Pure resolution — render-safe:
    * no staging, no window side effects (StrictMode double-invokes and
    * concurrent discarded passes must stay free).
    */
-  private provideInfo(id: string): SessionProvideInfo | undefined {
-    return this.resolve(id as SessionId)?.provideInfo
+  private bindingOf(id: string): ScopedStandardSourceBinding | undefined {
+    return this.resolve(id as SessionId)?.provideBinding
   }
 
   /**
-   * Resolve the current-session-optional standard kit. Unknown or absent ids
+   * Resolve the current-session-optional scope binding. Unknown or absent ids
    * return the static no-session projection rather than removing hook props.
    */
-  private maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
-    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.provideChannel.maybeInfo
+  private maybeBinding(id: string | undefined): StandardSourceBinding {
+    return (id === undefined ? undefined : this.bindingOf(id)) ?? this.provideChannel.absentBinding
   }
 
   /**
@@ -728,7 +737,7 @@ export class SessionRuntime implements ISessions {
       binding,
       session,
       // Sources are bare observables; React binds selector hooks at its own boundary.
-      provideInfo: this.provideChannel.materializeInfo(binding),
+      provideBinding: this.provideChannel.materializeBinding(binding),
     }
     this.scopes.set(id, record)
     return record

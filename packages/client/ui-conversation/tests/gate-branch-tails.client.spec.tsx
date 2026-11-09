@@ -38,7 +38,7 @@ afterEach(() => {
 const SID = 's1' as SessionId
 
 /** Minimal framework seat for direct DetailsPanel host tests. */
-const SessionProviderStub: SessionProviderComponent = ({ children }) => children(SID)
+const SessionProviderStub: SessionProviderComponent = ({ children }) => <>{children}</>
 
 /** Observe the owner currency without importing the Tool details renderer. */
 function renderToolDetailsProbe(owners?: DetailsToolOwnerProps[]): DetailsSlotProps['renderSlot'] {

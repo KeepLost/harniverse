@@ -283,7 +283,7 @@ function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES
     <>
       <ConversationSessionHeader
         sessionId={SID}
-        SessionProvider={({ children }) => children(SID)}
+        SessionProvider={({ children }) => <>{children}</>}
         useSession={useSession}
         useSessions={emptySessions()}
         useWorkspaces={emptyWorkspaces()}
@@ -299,7 +299,7 @@ function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES
       />
       <ConversationSession
         sessionId={SID}
-        SessionProvider={({ children }) => children(SID)}
+        SessionProvider={({ children }) => <>{children}</>}
         useSession={useSession}
         useSessions={emptySessions()}
         useWorkspaces={emptyWorkspaces()}

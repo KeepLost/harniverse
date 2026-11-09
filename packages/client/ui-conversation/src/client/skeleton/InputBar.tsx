@@ -910,7 +910,7 @@ export function InputBar({
         </div>
         <div className={css.row}>
           <div className={css.tools}>
-            {renderSlot('conversation.input.commands', {
+            {sessionId !== undefined && renderSlot('conversation.input.commands', {
               locked,
               keepFocus,
               captureContext: captureCommandContext,
@@ -939,13 +939,13 @@ export function InputBar({
             <div className={css.modes}>
               {accessSelect}
               {supervisionSelect}
-              {renderSlot('conversation.input.plan', { locked })}
+              {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
           </div>
           <div className={css.trailing}>
             {rightItems}
-            {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
+            {sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
           </div>
           {/* The send/stop pair owns its own seat so the narrow-card grid can

@@ -11,7 +11,9 @@ import type {
 // The double reports the wire schema's own search bound, like the production
 // service — a transport-varying limit would be a fiction no client can see.
 import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { HostObservable, SessionMaybeProvideInfo, SessionProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  HostObservable, ScopedStandardSourceBinding, SlotScopeAdapter, StandardSourceBinding,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import { conversationSnapshot } from './fixtures.ts'
 import type { SessionFixture, Stabilizer } from './fixtures.ts'
 
@@ -147,7 +149,7 @@ interface SessionRecord {
   scope: AgentContext | undefined
   scopeFiber: { dispose(): Promise<void> } | undefined
   /** Materialized standard-props bundle (identity-stable per session; invalidated on roster change). */
-  provideInfo: SessionProvideInfo | undefined
+  provideBinding: ScopedStandardSourceBinding | undefined
 }
 
 /** Test binding shape handed to provider resolvers and feature injects (a SessionBinding whose session is the fixture face). */
@@ -166,18 +168,19 @@ export interface TestSessionBinding {
  * Implements the same ISessions face features receive as `ctx.sessions`, so
  * a production face change breaks this double at compile time; the extra
  * members (add/updateSnapshot/setCurrent/remove/behavior/calls/stubSearch and
- * the legacy provideInfo/maybeProvideInfo lookups) are bench-only surface.
+ * the bindingOf/maybeBinding lookups) are bench-only surface.
  */
 export class TestSessions implements ISessions {
   /** The useSessions standard feed (list rows + current selection). */
   readonly list: SnapshotStore<SessionListState>
   /**
-   * Atomic current-session provide projection (production SessionRuntime
+   * Atomic current-session scope-binding projection (production SessionRuntime
    * mirror): selection changes and provider-roster changes publish through
-   * this one source — the member the SlotRegistry host face hands the
-   * renderer's SessionProvider.
+   * this one source — the feed the session scope adapter hands the renderer.
    */
-  readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
+  readonly currentScopeBinding: HostObservable<StandardSourceBinding>
+  /** Renderer-facing scope adapter mirror (production SessionRuntime shape). */
+  readonly scopeAdapter: SlotScopeAdapter
   private readonly records = new Map<SessionId, SessionRecord>()
   /** The production provide channel (roster, materialization rules, current projection) — no test-side mirror. */
   private readonly channel: SessionProvideChannel
@@ -207,14 +210,18 @@ export class TestSessions implements ISessions {
     this.channel = new SessionProvideChannel({
       rebuildBundles: () => {
         for (const record of this.records.values()) {
-          if (record.provideInfo !== undefined) {
-            record.provideInfo = this.channel.materializeInfo(this.bindingOf(record.session.sessionId, record))
+          if (record.provideBinding !== undefined) {
+            record.provideBinding = this.channel.materializeBinding(this.bindingOf(record.session.sessionId, record))
           }
         }
       },
-      resolveCurrent: () => this.maybeProvideInfo(this.list.getSnapshot().current),
+      resolveCurrent: () => this.maybeBinding(this.list.getSnapshot().current),
     })
-    this.currentProvideInfo = this.channel.currentProvideInfo
+    this.currentScopeBinding = this.channel.currentScopeBinding
+    this.scopeAdapter = {
+      current: this.currentScopeBinding,
+      bindingSource: () => this.channel.absentSource,
+    }
     // The projection follows every current write, as in production.
     this.list.subscribe(() => { this.channel.publishCurrent() })
   }
@@ -246,7 +253,7 @@ export class TestSessions implements ISessions {
       session: new FixtureSession(id, snapshot, fixture.session ?? {}),
       scope: undefined,
       scopeFiber: undefined,
-      provideInfo: undefined,
+      provideBinding: undefined,
     })
     await this.stabilize(() => {
       this.list.update((draft) => {
@@ -331,11 +338,11 @@ export class TestSessions implements ISessions {
    * @param id - session id.
    * @returns the identity-stable bundle, or undefined for unknown sessions.
    */
-  provideInfo(id: string): SessionProvideInfo | undefined {
+  bindingValue(id: string): ScopedStandardSourceBinding | undefined {
     const record = this.records.get(id as SessionId)
     if (record === undefined) return undefined
-    record.provideInfo ??= this.channel.materializeInfo(this.bindingOf(id as SessionId, record))
-    return record.provideInfo
+    record.provideBinding ??= this.channel.materializeBinding(this.bindingOf(id as SessionId, record))
+    return record.provideBinding
   }
 
   /**
@@ -344,8 +351,8 @@ export class TestSessions implements ISessions {
    * @param id - current session id, when selected.
    * @returns a definite or no-session provide bundle.
    */
-  maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
-    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.channel.maybeInfo
+  maybeBinding(id: string | undefined): StandardSourceBinding {
+    return (id === undefined ? undefined : this.bindingValue(id)) ?? this.channel.absentBinding
   }
 
   /**

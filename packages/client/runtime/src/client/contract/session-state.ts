@@ -8,7 +8,7 @@
 import type {
   JobView, RpcError, SessionId, SubagentAddress, SubagentCatalog,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, KeyedStandardSource } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { AgentContext } from '../agent-scope.ts'
 import type { PendingInteractionStatus } from './pending.ts'
@@ -111,10 +111,12 @@ export interface SessionBinding {
   readonly ctx: AgentContext
 }
 
-/** Observable hooks and stable props resolved for one session's standard kit. */
+/** Observable hooks, keyed-hook families, and stable props resolved for one session's standard kit. */
 export interface SessionProvideContribution {
   /** Bare observable sources, keyed by hook base name ('input' → useInput). */
   hooks?: Record<string, HostObservable<unknown>>
+  /** Open-key source families, keyed by hook base name ('projection' → useProjection). */
+  keyedHooks?: Record<string, KeyedStandardSource>
   /** Stable plain members (action callbacks etc.), spread into standard props verbatim. */
   props?: Record<string, unknown>
 }
@@ -127,6 +129,8 @@ export interface SessionProvideContribution {
 export interface SessionProvideDescriptor {
   /** Hook base names (`input` becomes `useInput`). */
   hooks?: readonly string[]
+  /** Open-key source-family base names (`projection` becomes `useProjection`). */
+  keyedHooks?: readonly string[]
   /** Plain standard-prop names. */
   props?: readonly string[]
   /** Resolve every declared member for one definite session. */

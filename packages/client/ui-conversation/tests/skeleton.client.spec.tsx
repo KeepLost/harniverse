@@ -172,7 +172,7 @@ function mount(
       return (
         <ConversationSessionHeader
           sessionId={SID}
-          SessionProvider={({ children }) => children(SID)}
+          SessionProvider={({ children }) => <>{children}</>}
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
@@ -192,7 +192,7 @@ function mount(
       return (
         <ConversationSession
           sessionId={SID}
-          SessionProvider={({ children }) => children(SID)}
+          SessionProvider={({ children }) => <>{children}</>}
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
@@ -215,7 +215,7 @@ function mount(
       return (
         <InputBar
           sessionId={SID}
-          SessionProvider={({ children }) => children(SID)}
+          SessionProvider={({ children }) => <>{children}</>}
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
@@ -267,7 +267,7 @@ function mount(
   )) as ConversationRootProps['renderSlotChain']
   const props: ConversationRootProps = {
     sessionId: SID,
-    SessionProvider: ({ children }) => children(SID),
+    SessionProvider: ({ children }) => <>{children}</>,
     useSession,
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),

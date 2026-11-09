@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ScopedStandardSourceBinding, SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import { SlotRegistry } from '../src/client/slots.ts'
 import { SessionRuntime } from '../src/client/sessions/service.ts'
@@ -55,18 +55,22 @@ describe('machine-owned runtime persistence', () => {
     ctx.slots.renderSlot('root', {})
     const entry = ctx.slots.entries('machine.test' as never)[0]!
     const rootEntry = ctx.slots.entries('root')[0]!
-    const local = host.storeOf(entry, 'same') as ReturnType<typeof store.create>
+    // Minimal scope binding: this spec exercises the registry's machine-key
+    // instance axis, not generation release, so the root ctx stands in for a
+    // per-session Context.
+    const binding = { key: 'same', ctx, hooks: {}, keyedHooks: {}, props: {} } satisfies ScopedStandardSourceBinding
+    const local = host.storeOf(entry, binding) as ReturnType<typeof store.create>
     const preferences = host.storeOf(rootEntry, undefined)
     local.actions.write('local draft')
     ctx.slots.resetTarget('remote:one')
-    const remote = host.storeOf(entry, 'same') as ReturnType<typeof store.create>
+    const remote = host.storeOf(entry, binding) as ReturnType<typeof store.create>
     expect(remote.getSnapshot().draft).toBe('')
     remote.actions.write('remote draft')
     expect(host.storeOf(rootEntry, undefined)).toBe(preferences)
     ctx.slots.resetTarget('host')
-    expect((host.storeOf(entry, 'same') as ReturnType<typeof store.create>).getSnapshot().draft).toBe('local draft')
+    expect((host.storeOf(entry, binding) as ReturnType<typeof store.create>).getSnapshot().draft).toBe('local draft')
     ctx.slots.resetTarget('remote:one')
-    expect((host.storeOf(entry, 'same') as ReturnType<typeof store.create>).getSnapshot().draft).toBe('remote draft')
+    expect((host.storeOf(entry, binding) as ReturnType<typeof store.create>).getSnapshot().draft).toBe('remote draft')
     await ctx.fiber.dispose()
   })
 })

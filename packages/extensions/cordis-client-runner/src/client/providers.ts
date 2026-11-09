@@ -169,8 +169,6 @@ function readExact(input: JsonValue | undefined, field: string): string | undefi
 }
 /* jscpd:ignore-end */
 
-type LiveSlotNode = ReturnType<SlotRegistry['snapshot']>[number]
-
 const SLOT_CATALOG = new Map(CLIENT_SLOT_API.map(entry => [entry.key, entry]))
 const GUARDED_SLOT_KEYS = new Map<string, {
   description: string
@@ -185,10 +183,21 @@ const GUARDED_SLOT_KEYS = new Map<string, {
   }],
 ])
 
-function compactSlotTree(node: LiveSlotNode): JsonValue {
+type LiveCompositionNode = ReturnType<SlotRegistry['snapshot']>[number]
+
+function compactSlotTree(node: LiveCompositionNode): JsonValue {
+  if (node.type === 'factory') {
+    return {
+      type: node.type,
+      name: node.name,
+      scope: node.scope,
+      children: node.children.map(compactSlotTree),
+    }
+  }
   const catalog = SLOT_CATALOG.get(node.name)
   const guardedKeys = catalog === undefined ? undefined : GUARDED_SLOT_KEYS.get(catalog.key)
   return {
+    type: node.type,
     name: node.name,
     kind: node.kind,
     scope: node.scope,
@@ -211,9 +220,18 @@ function compactSlotTree(node: LiveSlotNode): JsonValue {
   }
 }
 
-function inspectLiveSlot(node: LiveSlotNode): JsonValue {
+function inspectLiveSlot(node: LiveCompositionNode): JsonValue {
+  if (node.type === 'factory') {
+    return {
+      type: node.type,
+      name: node.name,
+      scope: node.scope,
+      ...node.registrant === undefined ? {} : { registrant: node.registrant },
+    }
+  }
   const catalog = SLOT_CATALOG.get(node.name)
   return {
+    type: node.type,
     name: node.name,
     kind: node.kind,
     scope: node.scope,

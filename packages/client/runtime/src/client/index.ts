@@ -6,7 +6,9 @@ import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/c
 // project sits in the Host build graph.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypertContext } from '@deepseek-ai/dsh-typert-protocol'
-import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  MaybeSnapshotSelectorHook, RootStandardSourceContribution, SnapshotSelectorHook,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from './slots.ts'
 import { SessionRuntime } from './sessions/service.ts'
 import type { SessionListState } from './contract/session-state.ts'
@@ -200,7 +202,11 @@ export const inject = ['connection', 'typert', 'remote', 'remote.commands']
  * @param ctx - Client Cordis context.
  */
 export function apply(ctx: Context): void {
-  ctx.plugin(SlotRegistry)
+  // Direct construction (upstream ui-renderer's own shape): the Service
+  // constructor registers itself on the caller's fiber, so the instance is
+  // usable synchronously here — ctx.plugin would only construct it inside a
+  // later fiber, leaving every same-tick lookup undefined.
+  const slots = new SlotRegistry(ctx)
   const conversation = {
     events: new ConversationEventRegistry(ctx),
     views: new ConversationViewRegistry(ctx),
@@ -210,15 +216,25 @@ export function apply(ctx: Context): void {
     const target = connection.target.getSnapshot()
     return target.kind === 'host' ? 'host' : `remote:${target.id}`
   }
-  ctx.get('slots')?.resetTarget(machineKey())
+  slots.resetTarget(machineKey())
   const sessions = new SessionRuntime(ctx, connection.captureApi(), ctx.remote, conversation, machineKey(), connection.pageToken)
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })
   const workspaces = new WorkspaceRuntime(ctx, connection.captureApi(), sessions)
+  // Domain-neutral standard sources: the global sessions/workspaces selector
+  // hooks (useSessions/useWorkspaces) ride the root contribution, and the
+  // sessions service owns the session scope adapter.
+  slots.provideRoot({
+    hooks: {
+      sessions: sessions.list,
+      workspaces: workspaces.list,
+    },
+  } satisfies RootStandardSourceContribution)
+  slots.installScope('session', sessions.scopeAdapter)
   const resetTarget = (): Promise<void> => {
     const key = machineKey()
-    ctx.get('slots')?.resetTarget(key)
+    slots.resetTarget(key)
     const disposed = sessions.resetTarget(connection.captureApi(), key)
     workspaces.resetTarget(connection.captureApi())
     return disposed

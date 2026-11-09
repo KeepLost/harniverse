@@ -16,12 +16,17 @@ type RenderSlotFn = (key: string, owner: object, opts?: RenderOpts) => ReactNode
 type DeclaredSpec = SlotSpec<SlotEntryDef>
 
 /** Ledger-shaped fake: add/dispose maintain the live set the way the runtime ledger does. */
+const ABSENT_BINDING = { key: undefined, hooks: {}, keyedHooks: {}, props: {} }
+const ABSENT_SOURCE = { getSnapshot: () => ABSENT_BINDING, subscribe: () => () => {} }
+const SCOPE_REVISION = { getSnapshot: () => 0, subscribe: () => () => {} }
+/** One stable adapter: the machinery caches hooks per source object, so a fresh literal per call would loop uSES. */
+const SCOPE_ADAPTER = { current: ABSENT_SOURCE, bindingSource: () => ABSENT_SOURCE }
+
 function makeHost() {
   const entries = new Map<string, StoredEntry[]>()
   const versions = new Map<string, number>()
   const subs = new Map<string, Set<() => void>>()
   const live = new Set<StoredEntry>()
-  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   const bump = (key: string) => {
     versions.set(key, (versions.get(key) ?? 0) + 1)
     for (const fn of [...(subs.get(key) ?? [])]) fn()
@@ -42,13 +47,16 @@ function makeHost() {
     specOf: () => ({ kind: 'single', scope: 'root' }),
     isLive: entry => live.has(entry),
     storeOf: () => undefined,
-    sessions: {
-      list: { getSnapshot: () => ({}), subscribe: () => () => {} },
-      provideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
-    },
-    workspaces: {
-      list: { getSnapshot: () => ({}), subscribe: () => () => {} },
-    },
+    reportFactoryError: () => {},
+    factoryStoreOf: () => undefined,
+    retainFactoryOccurrence: () => () => {},
+    subscribeFactory: () => () => {},
+    getFactoryVersion: () => 0,
+    factoryOf: () => undefined,
+    isFactoryLive: () => false,
+    root: ABSENT_SOURCE,
+    scopeRevision: SCOPE_REVISION,
+    scope: () => SCOPE_ADAPTER,
   }
   return {
     host,
