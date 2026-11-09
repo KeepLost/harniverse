@@ -27,7 +27,6 @@
     - text: Edited queue item
     - button "Edit queued message":
       - img
-    - tooltip "Edit queued message"
     - button "Recall queued message":
       - img
     - button "Steer queued message":
