@@ -66,6 +66,7 @@ function optionsOf(value: PermissionSelect, t: (key: string) => string): SelectO
           confirmation: {
             title: t('confirm.title'),
             description: t('confirm.description'),
+            closeLabel: t('confirm.close'),
             acknowledgeLabel: t('confirm.acknowledge'),
             cancelLabel: t('confirm.cancel'),
             confirmLabel: t('confirm.enable'),
@@ -96,6 +97,7 @@ export function apply(ctx: ClientContext): void {
         'confirm.description': accessZh['confirm.description'],
         'confirm.acknowledge': accessZh['confirm.acknowledge'],
         'confirm.cancel': accessZh['confirm.cancel'],
+        'confirm.close': accessZh['confirm.close'],
         'confirm.enable': accessZh['confirm.enable'],
       }),
       ctx.locale.register(ACCESS_NS, 'en', {
@@ -106,6 +108,7 @@ export function apply(ctx: ClientContext): void {
         'confirm.description': accessEn['confirm.description'],
         'confirm.acknowledge': accessEn['confirm.acknowledge'],
         'confirm.cancel': accessEn['confirm.cancel'],
+        'confirm.close': accessEn['confirm.close'],
         'confirm.enable': accessEn['confirm.enable'],
       }),
     ]

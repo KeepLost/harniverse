@@ -184,6 +184,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
         open={confirmation !== null}
         title={t('access.confirm.title')}
         description={t('access.confirm.description')}
+        closeLabel={t('access.confirm.close')}
         acknowledgeLabel={t('access.confirm.acknowledge')}
         cancelLabel={t('access.confirm.cancel')}
         confirmLabel={t('access.confirm.enable')}

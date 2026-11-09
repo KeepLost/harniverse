@@ -8,12 +8,14 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-const css = readFileSync(fileURLToPath(new URL('../src/Menu.module.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+const surfaceCss = readFileSync(fileURLToPath(new URL('../src/MenuSurface.module.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ')
+const menuCss = readFileSync(fileURLToPath(new URL('../src/Menu.module.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ')
 
 /** One rule: its selector list and declarations, whitespace collapsed. */
 interface Rule { selectors: string[]; declarations: Map<string, string> }
 
-const rules: Rule[] = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectorList = '', body = '']) => ({
+const rules: Rule[] = [...`${surfaceCss} ${menuCss}`.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectorList = '', body = '']) => ({
   selectors: selectorList.split(',').map(value => value.trim()),
   declarations: new Map(body.split(';').flatMap((part): [string, string][] => {
     const colon = part.indexOf(':')
@@ -32,18 +34,19 @@ function valueOf(selector: string, property: string): string | undefined {
   return values.at(-1)
 }
 
-describe('Menu.module.css popover surface', () => {
-  it('fills both cards with the popover surface token', () => {
-    expect(valueOf('.list', 'background')).toBe('var(--dsw-surface-popover)')
-    expect(valueOf('.submenu', 'background')).toBe('var(--dsw-surface-popover)')
+describe('menu surface popover material', () => {
+  it('fills the shared surface card with the menu surface token', () => {
+    expect(valueOf('.material', 'background')).toBe('var(--dsw-menu-surface-fill)')
   })
 
-  it('carries the popover material on the primary card only', () => {
-    expect(valueOf('.list', 'backdrop-filter')).toBe('var(--dsw-material-popover-filter)')
+  it('carries the popover material on the surface card only', () => {
+    expect(valueOf('.material', 'backdrop-filter')).toBe('var(--dsw-menu-backdrop-filter)')
+    expect(valueOf('.list', 'backdrop-filter')).toBeUndefined()
     expect(valueOf('.submenu', 'backdrop-filter')).toBeUndefined()
   })
 
   it('no longer reads the opaque menu alias', () => {
-    expect(css).not.toContain('--dsw-specific-menu')
+    expect(menuCss).not.toContain('--dsw-specific-menu')
+    expect(surfaceCss).not.toContain('--dsw-specific-menu')
   })
 })

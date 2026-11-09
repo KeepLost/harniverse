@@ -11,6 +11,8 @@ export interface RiskConfirmationProps {
   open: boolean
   title: string
   description: string
+  /** Localized accessible close-button label for the dialog chrome. */
+  closeLabel: string
   acknowledgeLabel: string
   cancelLabel: string
   confirmLabel: string
@@ -29,6 +31,7 @@ export function RiskConfirmation({
   open,
   title,
   description,
+  closeLabel,
   acknowledgeLabel,
   cancelLabel,
   confirmLabel,
@@ -43,6 +46,7 @@ export function RiskConfirmation({
       open={open}
       onClose={onCancel}
       title={title}
+      closeLabel={closeLabel}
       className={css.confirmation ?? ''}
       contentClassName={css.confirmationContent ?? ''}
       footer={(

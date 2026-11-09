@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ConnectionHealthState } from '@deepseek-ai/dsh-client-connection/client'
@@ -11,6 +11,11 @@ import * as Invariant from '../src/invariant.ts'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 
 usePinnedBrowserLanguages('en')
+
+// jsdom has no matchMedia; hover-capable pointers gate the shared tooltip.
+beforeEach(() => { vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true }))) })
+afterEach(() => { vi.unstubAllGlobals() })
+
 
 describe('read-only sidebar connection status', () => {
   it('waits for its declaration, reflects live health, and offers no action', async () => {
@@ -41,6 +46,9 @@ describe('read-only sidebar connection status', () => {
         fireEvent.click(indicator)
         expect(view.view.queryByRole('button')).toBeNull()
         fireEvent.blur(indicator)
+        // Return to the keyboard modality: a pointer-focused control keeps its
+        // focus tooltips suppressed, and the next state probes focus again.
+        fireEvent.keyDown(document.body, { key: 'Tab' })
       }
       view.update({ wide: false })
       const touch = new Event('pointerdown', { bubbles: true })

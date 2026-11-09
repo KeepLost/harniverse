@@ -10,6 +10,7 @@ import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-input-trig
 export interface SelectConfirmation {
   readonly title: string
   readonly description: string
+  readonly closeLabel: string
   readonly acknowledgeLabel: string
   readonly cancelLabel: string
   readonly confirmLabel: string
