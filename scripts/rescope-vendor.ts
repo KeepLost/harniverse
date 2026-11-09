@@ -93,6 +93,11 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'packages/examples/acp-demo/tests/built-bin.e2e.ts', upstream: ['cordis', 'cosmokit', 'schemastery'] },
   // `Symbol.for('schemastery')` and the `vendor:` metadata field are upstream identifiers.
   { file: 'vendor/schemastery/src/index.ts', upstream: ['schemastery'] },
+  // Same upstream identifiers read by consumers: the app-boot schema detector
+  // and the loader's vendor-field comparison keep the upstream literal.
+  { file: 'packages/boot/app-boot/src/config-schema/native.ts', upstream: ['schemastery'] },
+  { file: 'packages/boot/app-boot/tests/config-schema.spec.ts', upstream: ['schemastery'] },
+  { file: 'vendor/loader/src/config/diff.ts', upstream: ['schemastery'] },
   // Asserts the vendored-manifest table, which gains an upstream-name column.
   { file: 'scripts/gen-third-party-notices.spec.ts', upstream: RENAMES.map(rename => rename.upstream) },
   // `cordis` is also an agent-preset id — the directory name under
@@ -163,7 +168,7 @@ const POSTCONDITIONS: readonly PostCondition[] = [
   { file: 'packages/boot/app-boot/tsdown.config.ts', text: '[\'@deepseek-ai/cordis-plugin-include\']', count: 1 },
   { file: 'tsconfig.base.json', text: '"@deepseek-ai/cordis-plugin-loader": ["./vendor/loader/src"]', count: 1 },
   // The vendored README owns this required entry; reject its deletion or duplication.
-  { file: 'vendor/README.md', text: '17. **`@deepseek-ai` rescope**', count: 1 },
+  { file: 'vendor/README.md', text: 'V17 · `@deepseek-ai` rescope', count: 1 },
   { file: 'knip.json', text: '@cordisjs', count: 0 },
   { file: 'pnpm-workspace.yaml', text: 'cordis@4.0.0-rc.7', count: 0 },
   // The preset ids in this table are product data, not package names.
@@ -258,20 +263,6 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     replace: `      // Vendored packages are rescoped too (vendor/README.md), so publication
       // never carries an upstream name that would squat it on the registry.
       if (!name.startsWith('@deepseek-ai/')) {`,
-    expect: 1,
-  },
-  {
-    id: 'vendor-readme-preamble',
-    file: 'vendor/README.md',
-    find: 'All vendored packages keep their **original npm names** and are marked `private: true` — they are never published from this repo. `pnpm-workspace.yaml#linkWorkspacePackages` makes matching upstream semver ranges resolve these pinned workspaces, including imports from built `lib/`; disabling it substitutes npm copies behind the same names.',
-    replace: 'All vendored packages are **renamed into the `@deepseek-ai` scope** (`cordis` → `@deepseek-ai/cordis`, `@cordisjs/plugin-<x>` → `@deepseek-ai/cordis-plugin-<x>`): every harness package declares `cordis` as a peer dependency, so publishing the harness publishes this framework layer too, and a publication under the upstream names would squat them on the registry. Directory names and upstream version numbers are deliberately unchanged, so the manifest below still reads as an upstream snapshot. `pnpm-workspace.yaml#linkWorkspacePackages` makes those preserved semver ranges resolve these pinned workspaces, including imports from built `lib/`.',
-    expect: 1,
-  },
-  {
-    id: 'vendor-readme-schemastery-note',
-    file: 'vendor/README.md',
-    find: 'whose lazy `require(\'cosmokit\')` can race',
-    replace: 'whose lazy `require(\'@deepseek-ai/cosmokit\')` can race',
     expect: 1,
   },
   {
