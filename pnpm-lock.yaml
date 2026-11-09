@@ -484,10 +484,6 @@ importers:
         version: 10.2.1
 
   apps/desktop:
-    dependencies:
-      '@deepseek-ai/dsh-util-file-drag':
-        specifier: workspace:*
-        version: link:../../packages/util/file-drag
     devDependencies:
       electron:
         specifier: 43.8.1
