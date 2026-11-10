@@ -72,15 +72,18 @@ export class CgroupRoot {
   }
 
   /**
-   * Ensure the parent group exists with the global budget applied.
-   * @param globalLimitBytes - the shared-pool memory budget.
+   * Ensure the parent group exists with the global budget applied. An
+   * unlimited budget (`'none'`) writes the kernel's `max` sentinel, lifting
+   * any cap a previously finite budget left behind.
+   * @param globalLimitBytes - the shared-pool memory budget, or `Infinity`.
    */
   async ensureParent(globalLimitBytes: number): Promise<void> {
     if (!await this.probe()) return
     try {
       await this.internals.mkdir(this.path)
-      await this.internals.writeFile(`${this.path}/memory.max`, String(globalLimitBytes))
-      await this.internals.writeFile(`${this.path}/memory.swap.max`, '0')
+      const cap = Number.isFinite(globalLimitBytes) ? String(globalLimitBytes) : 'max'
+      await this.internals.writeFile(`${this.path}/memory.max`, cap)
+      await this.internals.writeFile(`${this.path}/memory.swap.max`, Number.isFinite(globalLimitBytes) ? '0' : 'max')
     } catch {
       this.writable = false
     }

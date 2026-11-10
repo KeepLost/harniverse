@@ -18,12 +18,12 @@ import css from './GovernorSettingsSection.module.css'
 
 /** The quota fields of the `governor` settings section this page edits. */
 export interface GovernorQuotaSettings {
-  /** Global memory budget: `'auto'` or an explicit byte count. */
-  memory?: { limit?: 'auto' | number }
+  /** Global memory budget: `'none'` (the default), `'auto'`, or an explicit byte count. */
+  memory?: { limit?: 'none' | 'auto' | number }
 }
 
 /** Effective runtime view returned by the governor `configGet` Remote. */
-export type GovernorConfigRuntime = GovernorConfig & { globalLimitBytes: number }
+export type GovernorConfigRuntime = GovernorConfig & { globalLimitBytes: number | null }
 
 /** Injected business face of the settings page. */
 export interface GovernorSettingsInjected {
@@ -32,7 +32,7 @@ export interface GovernorSettingsInjected {
     scope: SnapshotStore<SettingsScopeSnapshot<GovernorQuotaSettings>>
   }
   /** Write the global memory budget through the settings scope. */
-  setMemoryLimit: (limit: 'auto' | number) => Promise<void>
+  setMemoryLimit: (limit: 'none' | 'auto' | number) => Promise<void>
   /** Fetch the host-resolved runtime config (the effective budget). */
   configGet: () => Promise<RemoteResult<GovernorConfigRuntime>>
   /** Bound translator for the section's copy. */
@@ -56,7 +56,7 @@ const RESYNC_MS = 600
 export function GovernorSettingsSection(props: GovernorSettingsSectionProps) {
   const { t, setMemoryLimit, configGet } = props
   const scope = props.useScope(snapshot => snapshot)
-  const [mode, setMode] = useState<'auto' | 'custom'>('auto')
+  const [mode, setMode] = useState<'none' | 'auto' | 'custom'>('none')
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [invalid, setInvalid] = useState(false)
@@ -69,7 +69,7 @@ export function GovernorSettingsSection(props: GovernorSettingsSectionProps) {
       setMode('custom')
       setDraft((limit / 1024 ** 3).toFixed(1))
     } else {
-      setMode('auto')
+      setMode(limit === 'auto' ? 'auto' : 'none')
     }
   }, [limit])
 
@@ -108,10 +108,10 @@ export function GovernorSettingsSection(props: GovernorSettingsSectionProps) {
 
   /** Validate the draft and push the chosen budget through the scope. */
   const apply = async () => {
-    if (mode === 'auto') {
+    if (mode !== 'custom') {
       setBusy(true)
       try {
-        await setMemoryLimit('auto')
+        await setMemoryLimit(mode)
         await resync()
       } finally {
         setBusy(false)
@@ -147,6 +147,19 @@ export function GovernorSettingsSection(props: GovernorSettingsSectionProps) {
       <p className={css.note}>{t('settings.intro')}</p>
       <fieldset className={css.fieldset}>
         <legend className={css.legend}>{t('settings.limit.title')}</legend>
+        <div className={css.modeRow}>
+          <label className={css.radioLabel}>
+            <input
+              type="radio"
+              name="governor-quota-mode"
+              checked={mode === 'none'}
+              onChange={() => { setMode('none') }}
+              disabled={disabled}
+            />
+            <span>{t('settings.limit.none')}</span>
+          </label>
+          <span className={css.hint}>{t('settings.limit.noneDesc')}</span>
+        </div>
         <div className={css.modeRow}>
           <label className={css.radioLabel}>
             <input
@@ -198,7 +211,9 @@ export function GovernorSettingsSection(props: GovernorSettingsSectionProps) {
       </fieldset>
       <p className={css.effective}>
         {runtimeState === 'ready' && runtime !== undefined
-          ? t('settings.effective', { value: formatBytes(runtime.globalLimitBytes, t) })
+          ? runtime.globalLimitBytes === null
+            ? t('settings.effective.none')
+            : t('settings.effective', { value: formatBytes(runtime.globalLimitBytes, t) })
           : runtimeState === 'loading'
             ? t('settings.effective.refreshing')
             : t('settings.effective.error')}

@@ -364,12 +364,15 @@ export class GovernorService extends TypertRemoteService {
   /**
    * Spawn bounds for one session — the tool-bash collaboration seam. Every
    * metered command carries its session's effective limit: an explicit quota
-   * for leaf sessions, the shared global budget for pool members.
+   * for leaf sessions, the shared global budget for pool members; sessions
+   * under no limit (no quota, budget `'none'`) carry no bound, so Linux
+   * spawns run without the address-space `prlimit` wrapper.
    * @param sessionId - session id.
    * @returns the limits the provider should enforce.
    */
   limitsFor(sessionId: string): { maxMemoryBytes?: number } | undefined {
-    return { maxMemoryBytes: this.requireBook().effectiveLimitBytes(sessionId) }
+    const limitBytes = this.requireBook().effectiveLimitBytes(sessionId)
+    return Number.isFinite(limitBytes) ? { maxMemoryBytes: limitBytes } : {}
   }
 
   /**
@@ -431,14 +434,15 @@ export class GovernorService extends TypertRemoteService {
   /**
    * Effective quota state for one session.
    * @param sessionId - session id.
-   * @returns the explicit quota (when set), effective limit, and pool membership.
+   * @returns the explicit quota (when set), the effective limit (null while unlimited), and pool membership.
    */
   quotaStateOf(sessionId: string): SessionQuotaState {
     const override = this.requireBook().override(sessionId)
+    const limitBytes = this.requireBook().effectiveLimitBytes(sessionId)
     return {
       sessionId,
       ...override !== undefined ? { quotaBytes: override.memoryBytes } : {},
-      effectiveLimitBytes: this.requireBook().effectiveLimitBytes(sessionId),
+      effectiveLimitBytes: Number.isFinite(limitBytes) ? limitBytes : null,
       shared: this.requireBook().isShared(sessionId),
     }
   }
@@ -463,7 +467,7 @@ export class GovernorService extends TypertRemoteService {
     const liveRssBytes = [...sessionRss.values()].reduce((sum, value) => sum + value, 0)
     return {
       tier: this.tier,
-      globalLimitBytes: this.globalLimitBytes,
+      globalLimitBytes: Number.isFinite(this.globalLimitBytes) ? this.globalLimitBytes : null,
       liveRssBytes,
       sessions: rows,
       ...this.lastTick !== undefined && this.lastTick.hostFreeBytes !== undefined ? { hostFreeBytes: this.lastTick.hostFreeBytes } : {},
@@ -485,7 +489,8 @@ export class GovernorService extends TypertRemoteService {
   async adjustQuota(sessionId: string, memoryBytes: number | null, reason: 'board' | 'tool' | 'clear'): Promise<SessionQuotaState> {
     const session = this.ctx.sessions.get(SessionId(sessionId))
     if (session === undefined) throw new Error(`governor: unknown session ${sessionId}`)
-    const before = this.requireBook().effectiveLimitBytes(sessionId)
+    const beforeBytes = this.requireBook().effectiveLimitBytes(sessionId)
+    const before = Number.isFinite(beforeBytes) ? beforeBytes : null
     if (memoryBytes === null) {
       await this.requireBook().clear(sessionId)
       await this.cgroup.cleanupSession(sessionId)
@@ -553,11 +558,11 @@ export class GovernorService extends TypertRemoteService {
 
   /**
    * Effective settings plus the resolved budget (`harniverse.observe`).
-   * @returns the config with `globalLimitBytes` attached.
+   * @returns the config with `globalLimitBytes` attached (null while `limit: 'none'`).
    */
   @Remote({ exportName: 'configGet', requiredCapability: 'harniverse.observe' })
-  configGet(): GovernorConfig & { globalLimitBytes: number } {
-    return { ...this.config, globalLimitBytes: this.globalLimitBytes }
+  configGet(): GovernorConfig & { globalLimitBytes: number | null } {
+    return { ...this.config, globalLimitBytes: Number.isFinite(this.globalLimitBytes) ? this.globalLimitBytes : null }
   }
 
   /** Re-resolve settings and re-apply the global budget (`harniverse.administer`). */

@@ -69,8 +69,8 @@ export interface SessionQuotaState {
   readonly sessionId: string
   /** Explicit quota in bytes, when the session has one (isolation leaf). */
   readonly quotaBytes?: number
-  /** The budget enforcement currently applies to this session's commands. */
-  readonly effectiveLimitBytes: number
+  /** The budget enforcement applies to this session's commands; null while unlimited (no quota, no shared-pool budget). */
+  readonly effectiveLimitBytes: number | null
   /** True while the session rides the shared pool (no explicit quota). */
   readonly shared: boolean
 }
@@ -92,8 +92,8 @@ export interface SessionResourceRow {
 /** Host-level view the board renders. */
 export interface GovernorOverview {
   readonly tier: GovernorTier
-  /** Resolved global memory budget in bytes. */
-  readonly globalLimitBytes: number
+  /** Resolved global memory budget in bytes; null while no shared-pool budget applies. */
+  readonly globalLimitBytes: number | null
   /** Summed current RSS across ALL live metered commands. */
   readonly liveRssBytes: number
   readonly sessions: readonly SessionResourceRow[]
@@ -163,8 +163,8 @@ export interface SamplerOptions {
 
 /** Global memory budget settings. */
 export interface GovernorMemoryConfig {
-  /** `'auto'` or an explicit byte budget. */
-  limit: 'auto' | number
+  /** `'none'` (no shared-pool budget), `'auto'`, or an explicit byte budget. */
+  limit: 'none' | 'auto' | number
 }
 
 /** Sampling cadence settings. */

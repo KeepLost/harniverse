@@ -1183,8 +1183,8 @@ export interface GovernorConfig {
 
 /** Global memory budget settings. */
 export interface GovernorMemoryConfig {
-  /** `'auto'` or an explicit byte budget. */
-  limit: 'auto' | number
+  /** `'none'` (no shared-pool budget), `'auto'`, or an explicit byte budget. */
+  limit: 'none' | 'auto' | number
 }
 
 /** Sampling cadence settings. */

@@ -1,7 +1,8 @@
 /**
  * Governor configuration: the settings.yaml `governor:` section schema and
- * the global memory-budget resolution (`auto` = 80% of the smaller of
- * physical memory and the host's own cgroup ceiling).
+ * the global memory-budget resolution (`none` = no shared-pool budget, the
+ * default; `auto` = 80% of the smaller of physical memory and the host's own
+ * cgroup ceiling).
  * @module @deepseek-ai/dsh-governor/config
  */
 
@@ -11,8 +12,8 @@ import { readHostMemory } from './proc.ts'
 
 /** Global memory budget settings. */
 export interface GovernorMemoryConfig {
-  /** `'auto'` or an explicit byte budget. */
-  limit: 'auto' | number
+  /** `'none'` (no shared-pool budget), `'auto'`, or an explicit byte budget. */
+  limit: 'none' | 'auto' | number
 }
 /** Sampling cadence settings. */
 export interface GovernorSamplingConfig {
@@ -37,8 +38,8 @@ export interface GovernorHistoryConfig {
 /** Runtime configuration schema (composed or from settings.yaml). */
 export const Config: z<GovernorConfig> = z.object({
   memory: z.object({
-    limit: z.union(['auto', z.number()]).default('auto'),
-  }).default({ limit: 'auto' }),
+    limit: z.union(['none', 'auto', z.number()]).default('none'),
+  }).default({ limit: 'none' }),
   sampling: z.object({
     baseMs: z.number().default(5_000),
     hotMs: z.number().default(1_000),
@@ -52,7 +53,7 @@ export const Config: z<GovernorConfig> = z.object({
 
 /** Composed default configuration (the settings layer's base entry). */
 export const DEFAULT_CONFIG: GovernorConfig = {
-  memory: { limit: 'auto' },
+  memory: { limit: 'none' },
   sampling: { baseMs: 5_000, hotMs: 1_000 },
   history: { persist: false, resolutionMs: 5_000, retentionMs: 7 * 24 * 3600 * 1000 },
 }
@@ -64,13 +65,15 @@ export const AUTO_BUDGET_FRACTION = 0.8
  * Resolve the global memory budget from config plus host facts.
  * @param config - effective governor config.
  * @param readMemInfo - injectable `/proc/meminfo` reader.
- * @returns the budget in bytes; a 2 GiB floor keeps enforcement meaningful
- *   when host facts are unreadable.
+ * @returns the budget in bytes, or `Infinity` while `limit: 'none'` (the
+ *   shared pool carries no budget); a 2 GiB floor keeps enforcement
+ *   meaningful when host facts are unreadable.
  */
 export async function resolveGlobalLimitBytes(
   config: GovernorConfig,
   readMemInfo?: (path: string) => Promise<string>,
 ): Promise<number> {
+  if (config.memory.limit === 'none') return Number.POSITIVE_INFINITY
   if (config.memory.limit !== 'auto') {
     return Number.isFinite(config.memory.limit) && config.memory.limit > 0 ? config.memory.limit : fallbackBudget()
   }

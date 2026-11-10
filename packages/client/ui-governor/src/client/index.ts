@@ -1,13 +1,14 @@
 /**
- * Resource governor board, browser half: the dashboard 本机资源 tab and the
- * Resource-governance settings section. The tab renders the
- * sessions-as-processes overview (per-session CPU, memory against effective
- * limits, live command counts, breach badges, and per-session memory quota
- * adjustment); data arrives through the generated governor Remote
- * (`ctx.remote.governor`) polled at the sampling cadence — the same door
- * scripts use, so the page cannot drift from the HTTP API — while quota
- * writes ride the client settings scope into the `governor:` settings
- * section.
+ * Resource governor board, browser half: the dashboard 本机资源 tab, the
+ * 会话配额 list tab, and the Resource-governance settings section. The
+ * resources tab renders the sessions-as-processes overview (per-session
+ * CPU, memory against effective limits, live command counts, breach badges,
+ * and per-session memory quota adjustment); the quota tab lists only
+ * explicitly limited sessions with an add-limit picker; data arrives
+ * through the generated governor Remote (`ctx.remote.governor`) polled at
+ * the sampling cadence — the same door scripts use, so the pages cannot
+ * drift from the HTTP API — while quota writes ride the client settings
+ * scope into the `governor:` settings section.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
@@ -22,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { GovernorResourcesTab } from './GovernorResourcesTab.tsx'
+import { GovernorQuotaTab } from './GovernorQuotaTab.tsx'
 import { GovernorSettingsSection } from './GovernorSettingsSection.tsx'
 import type { GovernorQuotaSettings } from './GovernorSettingsSection.tsx'
 import { en, NS, zh, type GovernorKey } from './locales.ts'
@@ -52,7 +54,7 @@ const POLL_MS = 5_000
 
 /**
  * Client plugin body: register the dictionaries, the dashboard resources
- * tab, and the global-quota settings section.
+ * tab, the session-quota list tab, and the global-quota settings section.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -72,6 +74,21 @@ export function apply(ctx: ClientContext): void {
       pollMs: POLL_MS,
     }),
   }, GovernorResourcesTab))
+  // The dashboard 会话配额 tab: only quota-limited sessions, plus the
+  // add-limit picker over the sessions feed.
+  ctx.slots.inject('dashboard.center.tab', () => ctx.slots.register({
+    name: 'dashboard.center.tab',
+    id: 'quotas',
+    order: 31,
+    locale: NS,
+    label: () => t('tab.quotas'),
+    inject: () => ({
+      overview: () => ctx.remote.governor.overview(),
+      adjustQuota: (sessionId: string, memoryBytes: number | null) =>
+        ctx.remote.governor.sessionQuotaAdjust(sessionId, memoryBytes),
+      pollMs: POLL_MS,
+    }),
+  }, GovernorQuotaTab))
   const quotaScope = ctx.settingsScope.bind<GovernorQuotaSettings>({ namespace: GOVERNOR_SETTINGS_NS })
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
@@ -81,7 +98,7 @@ export function apply(ctx: ClientContext): void {
     label: () => t('settings.nav'),
     inject: () => ({
       hooks: { scope: quotaScope },
-      setMemoryLimit: (limit: 'auto' | number) => quotaScope.set('memory', { limit }),
+      setMemoryLimit: (limit: 'none' | 'auto' | number) => quotaScope.set('memory', { limit }),
       configGet: () => ctx.remote.governor.configGet(),
       t,
     }),

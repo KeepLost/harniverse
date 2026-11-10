@@ -62,6 +62,22 @@ function mount(
 }
 
 describe('GovernorSettingsSection', () => {
+  it('defaults to the unlimited mode and writes none through the scope', async () => {
+    const handles = mount({ status: 'ready', value: { memory: {} }, writable: true }, {
+      ...RUNTIME,
+      memory: { limit: 'none' },
+      globalLimitBytes: null,
+    })
+    const none = screen.getByRole('radio', { name: zh['settings.limit.none'] }) as HTMLInputElement
+    const auto = screen.getByRole('radio', { name: zh['settings.limit.auto'] }) as HTMLInputElement
+    expect(none.checked).toBe(true)
+    expect(auto.checked).toBe(false)
+    expect(screen.getByText(zh['settings.limit.noneDesc'])).toBeDefined()
+    await waitFor(() => { expect(screen.getByText(zh['settings.effective.none'])).toBeDefined() })
+    fireEvent.click(screen.getByRole('button', { name: zh['settings.limit.apply'] }))
+    await waitFor(() => { expect(handles.setMemoryLimit).toHaveBeenCalledWith('none') })
+  })
+
   it('renders the quota form with the automatic mode and the effective budget', async () => {
     mount({ status: 'ready', value: { memory: { limit: 'auto' } }, writable: true })
     expect(screen.getByText(zh['settings.intro'])).toBeDefined()
@@ -100,6 +116,13 @@ describe('GovernorSettingsSection', () => {
     fireEvent.click(screen.getByRole('radio', { name: zh['settings.limit.auto'] }))
     fireEvent.click(screen.getByRole('button', { name: zh['settings.limit.apply'] }))
     await waitFor(() => { expect(handles.setMemoryLimit).toHaveBeenCalledWith('auto') })
+  })
+
+  it('switches an explicit budget back to unlimited through the scope', async () => {
+    const handles = mount({ status: 'ready', value: { memory: { limit: 4_294_967_296 } }, writable: true })
+    fireEvent.click(screen.getByRole('radio', { name: zh['settings.limit.none'] }))
+    fireEvent.click(screen.getByRole('button', { name: zh['settings.limit.apply'] }))
+    await waitFor(() => { expect(handles.setMemoryLimit).toHaveBeenCalledWith('none') })
   })
 
   it('rejects a non-positive draft without writing', () => {

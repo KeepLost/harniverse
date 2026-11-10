@@ -105,10 +105,26 @@ function seedSession(h: Harness, id: string): Session {
 }
 
 describe('GovernorService', () => {
-  it('resolves the global budget and starts in the rlimit tier without cgroupfs', async () => {
+  it('starts unlimited by default in the rlimit tier without cgroupfs', async () => {
     const h = await mounted({ cgroup: deadCgroup })
-    expect(h.service.configGet().globalLimitBytes).toBeGreaterThan(0)
+    expect(h.service.configGet().globalLimitBytes).toBeNull()
+    expect(h.service.overview().globalLimitBytes).toBeNull()
     expect(h.service.overview().tier).toBe('rlimit')
+    // Pool members carry no bound and no effective limit while unlimited.
+    expect(h.service.limitsFor('any')).toEqual({})
+    expect(h.service.quotaStateOf('any')).toMatchObject({ effectiveLimitBytes: null, shared: true })
+    await h.ctx.fiber.dispose()
+  })
+
+  it('a superseded budget apply stops before taking effect', async () => {
+    // 'auto' makes the resolve await real fs reads, so the second reload's
+    // epoch bump lands while the first is still resolving: the loser must
+    // return at its first epoch check and the winner settles the budget.
+    const h = await mounted({ cgroup: deadCgroup }, { memory: { limit: 'auto' } })
+    const first = h.service.reload()
+    const second = h.service.reload()
+    await Promise.all([first, second])
+    expect(h.service.configGet().globalLimitBytes).toBeGreaterThan(0)
     await h.ctx.fiber.dispose()
   })
 
