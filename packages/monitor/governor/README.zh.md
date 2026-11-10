@@ -22,7 +22,7 @@
 
 ## 配额
 
-全局内存预算默认为 min(MemTotal, 宿主自身 cgroup 上限) 的 80%，用户可在 `settings.yaml` 的 `governor:` 节配置。无显式配额的会话共享池；显式配额是隔离叶，其已承诺之和必须保持在全局预算内（准入钳制或拒绝提升）。`resource-quota` 模型工具只能协商自己会话的配额——提升需过准入闸，且在 `ask` 审批策略下需一次批准；`never`（danger-full-access）姿态直接放行。覆盖值是持久的决定：权威副本在 governor 的 `quota_overrides` storage-domain 表中，每次变更追加 log-only 的 `governor/quota` 审计事件，重启按先到顺序重放过准入闸（被钳制会告知 agent），会话显式关闭删行，TTL 清扫回收遗弃行。
+全局内存预算默认为 `none`：会话不共享内存预算，未显式设限即无限制。运维可在 `settings.yaml` 的 `governor:` 节恢复共享预算（`auto` = min(MemTotal, 宿主自身 cgroup 上限) 的 80%，或显式字节数）。显式配额是隔离叶：有限预算下其已承诺之和必须保持在预算内（准入钳制或拒绝提升），无预算则永不钳制——各会话配额自由组合。`resource-quota` 模型工具只能协商自己会话的配额——提升需过准入闸，且在 `ask` 审批策略下需一次批准；`never`（danger-full-access）姿态直接放行。覆盖值是持久的决定：权威副本在 governor 的 `quota_overrides` storage-domain 表中，每次变更追加 log-only 的 `governor/quota` 审计事件，重启按先到顺序重放过准入闸（被钳制会告知 agent），会话显式关闭删行，TTL 清扫回收遗弃行。
 
 ## Remote 面
 
@@ -33,7 +33,8 @@
 ```yaml
 governor:
   memory:
-    limit: auto        # auto = 80% of min(MemTotal, own cgroup max); or bytes
+    limit: none       # none (default) = no shared-pool budget; auto = 80% of
+                      # min(MemTotal, own cgroup max); or an explicit byte budget
   sampling:
     baseMs: 5000
     hotMs: 1000
@@ -51,7 +52,7 @@ governor:
 
 #### 模型看到什么
 
-`resource-quota` 的 `action: get` 返回会话的有效限额、全局预算与当前用量；`action: set` 带 `memoryBytes` 请求新的显式配额（提升须超过 64MiB 且可能需要用户批准），不带 `memoryBytes` 的 `set` 重回共享池。违约击杀在 bash 结果中以 `[killed by memory-limit (peak 6.5GiB > limit 6.4GiB)]` 呈现。
+`resource-quota` 的 `action: get` 返回会话的有效限额、全局预算与当前用量（无限制时 `effectiveLimitBytes`/`globalLimitBytes` 省略）；`action: set` 带 `memoryBytes` 请求新的显式配额（提升须超过 64MiB 且可能需要用户批准），不带 `memoryBytes` 的 `set` 重回共享池。违约击杀在 bash 结果中以 `[killed by memory-limit (peak 6.5GiB > limit 6.4GiB)]` 呈现。
 
 #### Token 影响
 
@@ -64,7 +65,7 @@ governor:
 ## Known Limitations and Deferred Work
 
 - C 档（cgroup）通过可注入的文件系统抽象操作并由 fake-fs 单测覆盖；本开发容器 cgroupfs 只读，裸机验证是手工步骤。
-- RLIMIT_AS 约束虚拟地址空间而非驻留内存——过度预留地址空间的运行时可能提前触发 R 档前缀，聚合由看门狗兜底。
+- RLIMIT_AS 约束虚拟地址空间而非驻留内存——过度预留地址空间的运行时可能提前触发 R 档前缀，聚合由看门狗兜底。Chromium 系浏览器是典型场景（VAS 远超 RSS）；无限制会话完全绕过该前缀，但被显式设限的会话内可能起不来浏览器实例——可调高该会话配额或清除限制。未来档位可为配额会话优先 cgroup `memory.max`（RSS 语义），该手术暂缓。
 - 网络归因仅覆盖 TCP（UDP、QUIC 与采样间隔内关闭的连接不可见）；网络看门狗默认只告警绝不击杀。
 - 磁盘哨兵只观测一个文件系统路径（宿主工作目录），不按命令工作目录区分。
 - 沙箱执行域接入是契约性的：未来的 VM provider 尊重 spawn spec 中的 correlation 并按共享样本 schema 上报；宿主侧计量不跨执行域。

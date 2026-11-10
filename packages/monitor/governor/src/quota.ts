@@ -62,7 +62,8 @@ export class QuotaBook {
 
   /**
    * The budget enforcement currently applies to one session: its explicit
-   * quota when it has one, else the shared-pool global budget.
+   * quota when it has one, else the shared-pool global budget — `Infinity`
+   * while the global budget is `'none'` (unlimited).
    * @param sessionId - session id.
    * @returns effective limit in bytes.
    */
@@ -115,7 +116,8 @@ export class QuotaBook {
 
   /**
    * Admit (or clamp) one requested quota: bounded by the global budget minus
-   * what other sessions have committed.
+   * what other sessions have committed. An unlimited budget (`'none'`)
+   * never clamps — explicit quotas are pure isolation leaves.
    * @param sessionId - session asking for the quota.
    * @param requestedBytes - the quota it wants.
    * @returns the granted quota and whether clamping happened.

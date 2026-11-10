@@ -34,6 +34,13 @@ describe('QuotaBook', () => {
     expect(book.admit('c', 1)).toEqual({ grantedBytes: 1, clamped: false })
   })
 
+  it('an unlimited budget never clamps and leaves pool members boundless', () => {
+    const book = new QuotaBook(() => Number.POSITIVE_INFINITY)
+    void book.commit('a', 600, 'test')
+    expect(book.admit('b', Number.MAX_SAFE_INTEGER)).toEqual({ grantedBytes: Number.MAX_SAFE_INTEGER, clamped: false })
+    expect(book.effectiveLimitBytes('c')).toBe(Number.POSITIVE_INFINITY)
+  })
+
   it('commits and clears through the durable store', async () => {
     const store = fakeStore()
     const book = new QuotaBook(() => 1_000, store)

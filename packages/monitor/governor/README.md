@@ -22,7 +22,7 @@ A killed command reports the reason in the bash tool's result meta (`governor: {
 
 ## Quotas
 
-The global memory budget defaults to 80% of min(MemTotal, the host's own cgroup ceiling) and is user-configurable in `settings.yaml` under `governor:`. Sessions without an explicit quota share the pool; explicit quotas are isolation leaves whose committed sum must stay within the global budget (admission clamps or rejects raises). The `resource-quota` model tool negotiates only the calling session's quota — a raise passes admission and, under an `ask` approval policy, one approval; the `never` (danger-full-access) posture proceeds. Overrides are durable decisions: the authoritative copy is the governor's `quota_overrides` storage-domain table, every change appends a log-only `governor/quota` audit event, restart replays overrides first-come through admission (clamping notifies the agent), explicit session closes drop rows, and a TTL sweep collects abandoned ones.
+The global memory budget defaults to `none`: sessions carry no shared-pool budget and run unlimited unless given an explicit quota. Operators can restore a shared budget in `settings.yaml` under `governor:` (`auto` = 80% of min(MemTotal, the host's own cgroup ceiling), or an explicit byte count). Explicit quotas are isolation leaves; under a finite budget their committed sum must stay within it (admission clamps or rejects raises), while an unlimited budget never clamps — per-session quotas then compose freely. The `resource-quota` model tool negotiates only the calling session's quota — a raise passes admission and, under an `ask` approval policy, one approval; the `never` (danger-full-access) posture proceeds. Overrides are durable decisions: the authoritative copy is the governor's `quota_overrides` storage-domain table, every change appends a log-only `governor/quota` audit event, restart replays overrides first-come through admission (clamping notifies the agent), explicit session closes drop rows, and a TTL sweep collects abandoned ones.
 
 ## Remote surface
 
@@ -33,7 +33,8 @@ The `governor` Typert Remote namespace (capability-gated) is the single door for
 ```yaml
 governor:
   memory:
-    limit: auto        # auto = 80% of min(MemTotal, own cgroup max); or bytes
+    limit: none       # none (default) = no shared-pool budget; auto = 80% of
+                      # min(MemTotal, own cgroup max); or an explicit byte budget
   sampling:
     baseMs: 5000
     hotMs: 1000
@@ -51,7 +52,7 @@ Mounted through the separately loadable `@deepseek-ai/dsh-governor/tool` Consume
 
 #### What the model sees
 
-`resource-quota` with `action: get` returns the session's effective limit, the global budget, and current usage; `action: set` with `memoryBytes` requests a different explicit quota (raises must exceed 64MiB and may require user approval), and `set` without `memoryBytes` rejoins the shared pool. Breach kills surface in bash results as `[killed by memory-limit (peak 6.5GiB > limit 6.4GiB)]`.
+`resource-quota` with `action: get` returns the session's effective limit, the global budget, and current usage (`effectiveLimitBytes`/`globalLimitBytes` are omitted while unlimited); `action: set` with `memoryBytes` requests a different explicit quota (raises must exceed 64MiB and may require user approval), and `set` without `memoryBytes` rejoins the shared pool. Breach kills surface in bash results as `[killed by memory-limit (peak 6.5GiB > limit 6.4GiB)]`.
 
 #### Token effect
 
@@ -66,7 +67,7 @@ Quota state is never injected into system context; steady sessions do not pertur
 ## Known Limitations and Deferred Work
 
 - Tier C (cgroup) operates through an injectable filesystem abstraction and is covered by fake-fs unit tests; this development container's cgroupfs is read-only, so bare-metal validation is a manual step.
-- RLIMIT_AS bounds virtual address space, not resident memory — runtimes that over-reserve address space can trip the R-tier prefix early while the watchdog covers the aggregate.
+- RLIMIT_AS bounds virtual address space, not resident memory — runtimes that over-reserve address space can trip the R-tier prefix early while the watchdog covers the aggregate. Chromium-family browsers are the canonical case (their VAS dwarfs RSS); unlimited sessions sidestep the wrapper entirely, but a quota-limited session may fail to start a browser instance — raise that session's quota or clear it. A future tier may prefer cgroup `memory.max` (RSS semantics) for quota sessions; that surgery is deferred.
 - Network attribution is TCP-only (UDP, QUIC, and connections closed between ticks are invisible); the network watchdog alerts but never kills by default.
 - Disk sentinel watches one filesystem path (the harness working directory), not per-command working directories.
 - The sandbox realm integration is contractual: a future VM provider honors the correlation in the spawn spec and reports against the shared sample schema; host-side metering does not cross realms.

@@ -76,6 +76,7 @@ describe('ui-governor browser half', () => {
   it('registers both slots, and fiber teardown removes them (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
     expect(ctx.slots.entries('dashboard.center.tab').map(entry => entry.options.id)).toContain('resources')
+    expect(ctx.slots.entries('dashboard.center.tab').map(entry => entry.options.id)).toContain('quotas')
     expect(ctx.slots.entries('settings.section').map(entry => entry.options.id)).toContain('governor')
     await fiber.dispose()
     expect(ctx.slots.entries('dashboard.center.tab')).toEqual([])
@@ -128,6 +129,36 @@ describe('ui-governor browser half', () => {
     expect(verbs.pollMs).toBe(5_000)
   })
 
+  it('binds the quota-list tab verbs to the governor Remote', async () => {
+    const { ctx, captured } = await bench()
+    const quotas = captured.find(({ options }) => options['id'] === 'quotas')
+    expect(quotas).toBeDefined()
+    expect((quotas!.options['label'] as () => string)()).toBe(zh['tab.quotas'])
+    const injectFace = quotas!.options['inject'] as () => {
+      overview: () => Promise<unknown>
+      adjustQuota: (sessionId: string, memoryBytes: number | null) => Promise<unknown>
+      pollMs: number
+    }
+    const calls: unknown[][] = []
+    const governor = (ctx.get('remote') as unknown as { governor: Record<string, ((...args: unknown[]) => Promise<unknown>) | undefined> }).governor
+    for (const name of ['overview', 'sessionQuotaAdjust']) {
+      const verb = governor[name]
+      governor[name] = async (...args: unknown[]) => {
+        calls.push([name, ...args])
+        if (verb === undefined) throw new Error(`unexpected remote verb: ${name}`)
+        return await verb(...args)
+      }
+    }
+    const face = injectFace()
+    await face.overview()
+    await face.adjustQuota('session-q', null)
+    expect(calls).toEqual([
+      ['overview'],
+      ['sessionQuotaAdjust', 'session-q', null],
+    ])
+    expect(face.pollMs).toBe(5_000)
+  })
+
   it('binds the settings section to the settings scope and the configGet verb', async () => {
     const { ctx, captured, quotaStub } = await bench()
     const registration = captured.find(({ options }) => options['id'] === 'governor' && options['name'] === 'settings.section')
@@ -143,7 +174,7 @@ describe('ui-governor browser half', () => {
     }
     const injectFace = registration!.options['inject'] as () => {
       hooks: { scope: unknown }
-      setMemoryLimit: (limit: 'auto' | number) => Promise<void>
+      setMemoryLimit: (limit: 'none' | 'auto' | number) => Promise<void>
       configGet: () => Promise<unknown>
     }
     const face = injectFace()

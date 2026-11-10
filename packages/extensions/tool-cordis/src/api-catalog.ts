@@ -1275,7 +1275,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'limitsFor(sessionId: string): { maxMemoryBytes?: number } | undefined',
-        description: 'Spawn bounds for one session — the tool-bash collaboration seam. Every metered command carries its session\'s effective limit: an explicit quota for leaf sessions, the shared global budget for pool members.',
+        description: 'Spawn bounds for one session — the tool-bash collaboration seam. Every metered command carries its session\'s effective limit: an explicit quota for leaf sessions, the shared global budget for pool members; sessions under no limit (no quota, budget `\'none\'`) carry no bound, so Linux spawns run without the address-space `prlimit` wrapper.',
         parameters: [{ name: 'sessionId', description: 'session id.' }],
         returns: 'the limits the provider should enforce.',
       },
@@ -1301,7 +1301,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'quotaStateOf(sessionId: string): SessionQuotaState',
         description: 'Effective quota state for one session.',
         parameters: [{ name: 'sessionId', description: 'session id.' }],
-        returns: 'the explicit quota (when set), effective limit, and pool membership.',
+        returns: 'the explicit quota (when set), the effective limit (null while unlimited), and pool membership.',
       },
       {
         signature: 'async adjustQuota(sessionId: string, memoryBytes: number | null, reason: \'board\' | \'tool\' | \'clear\'): Promise<SessionQuotaState>',
@@ -1340,10 +1340,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the bounded breach list.',
       },
       {
-        signature: '@Remote({ exportName: \'configGet\', requiredCapability: \'harniverse.observe\' }) configGet(): GovernorConfig & { globalLimitBytes: number }',
+        signature: '@Remote({ exportName: \'configGet\', requiredCapability: \'harniverse.observe\' }) configGet(): GovernorConfig & { globalLimitBytes: number | null }',
         description: 'Effective settings plus the resolved budget (`harniverse.observe`).',
         parameters: [],
-        returns: 'the config with `globalLimitBytes` attached.',
+        returns: 'the config with `globalLimitBytes` attached (null while `limit: \'none\'`).',
       },
       {
         signature: '@Remote({ exportName: \'reload\', requiredCapability: \'harniverse.administer\' }) async reload(): Promise<void>',
@@ -5778,7 +5778,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GovernorOverview',
-    declaration: 'export interface GovernorOverview {\n    readonly tier: GovernorTier;\n    readonly globalLimitBytes: number;\n    readonly liveRssBytes: number;\n    readonly sessions: readonly SessionResourceRow[];\n    readonly hostFreeBytes?: number;\n    readonly hostNetRxBytes?: number;\n    readonly hostNetTxBytes?: number;\n    readonly t: number;\n}',
+    declaration: 'export interface GovernorOverview {\n    readonly tier: GovernorTier;\n    readonly globalLimitBytes: number | null;\n    readonly liveRssBytes: number;\n    readonly sessions: readonly SessionResourceRow[];\n    readonly hostFreeBytes?: number;\n    readonly hostNetRxBytes?: number;\n    readonly hostNetTxBytes?: number;\n    readonly t: number;\n}',
   },
   {
     name: 'GovernorTier',
@@ -7074,7 +7074,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionQuotaState',
-    declaration: 'export interface SessionQuotaState {\n    readonly sessionId: string;\n    readonly quotaBytes?: number;\n    readonly effectiveLimitBytes: number;\n    readonly shared: boolean;\n}',
+    declaration: 'export interface SessionQuotaState {\n    readonly sessionId: string;\n    readonly quotaBytes?: number;\n    readonly effectiveLimitBytes: number | null;\n    readonly shared: boolean;\n}',
   },
   {
     name: 'SessionRawArtifact',

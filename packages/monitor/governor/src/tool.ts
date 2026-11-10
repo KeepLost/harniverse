@@ -24,7 +24,7 @@ export function apply(ctx: Context, _config: Config = {}): void {
   const governor: GovernorService = ctx.governor
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'resource-quota',
-    description: 'Read or negotiate the memory quota of YOUR current session. Get returns the effective limit, the global budget, and current usage. Set with memoryBytes to request a different explicit quota (must exceed 64MiB to be meaningful); omit memoryBytes to drop the explicit quota and rejoin the shared pool. Raises may require user approval and are always clamped by the remaining global budget. This tool cannot touch other sessions or the global budget.',
+    description: 'Read or negotiate the memory quota of YOUR current session. Get returns the effective limit, the global budget, and current usage. Set with memoryBytes to request a different explicit quota (must exceed 64MiB to be meaningful); omit memoryBytes to drop the explicit quota and rejoin the shared pool. Raises may require user approval and are clamped by the remaining global budget when one is configured. This tool cannot touch other sessions or the global budget.',
     parameters: {
       action: { type: 'string', required: true, enum: ['get', 'set'], description: 'get reads the quota state; set negotiates a change.' },
       memoryBytes: { type: 'number', description: 'With action=set: the explicit memory quota in bytes. Omit to clear the explicit quota and rejoin the shared pool.' },
@@ -39,8 +39,8 @@ export function apply(ctx: Context, _config: Config = {}): void {
               kind: { type: 'string', required: true, const: 'state' },
               sessionId: { type: 'string', required: true },
               quotaBytes: { type: 'number' },
-              effectiveLimitBytes: { type: 'number', required: true },
-              globalLimitBytes: { type: 'number', required: true },
+              effectiveLimitBytes: { type: 'number' },
+              globalLimitBytes: { type: 'number' },
               shared: { type: 'boolean', required: true },
               clamped: { type: 'boolean' },
               liveRssBytes: { type: 'number', required: true },
@@ -61,7 +61,7 @@ export function apply(ctx: Context, _config: Config = {}): void {
         text: value.kind === 'rejected'
           ? `quota request rejected: ${value.reason}`
           : `session ${value.sessionId} memory quota: ${value.shared ? 'shared pool' : `${String(value.quotaBytes)} bytes`}`
-            + `, effective limit ${String(value.effectiveLimitBytes)} bytes, global budget ${String(value.globalLimitBytes)} bytes`
+            + `, effective limit ${limitText(value.effectiveLimitBytes)}, global budget ${limitText(value.globalLimitBytes)}`
             + (value.clamped === true ? ' (clamped to the remaining budget)' : ''),
       }],
       presentationMeta: (_args, value) => value,
@@ -76,8 +76,8 @@ export function apply(ctx: Context, _config: Config = {}): void {
           kind: 'state' as const,
           sessionId,
           ...quotaField(state),
-          effectiveLimitBytes: state.effectiveLimitBytes,
-          globalLimitBytes: governor.budgetLimitBytes,
+          ...limitField('effectiveLimitBytes', state.effectiveLimitBytes),
+          ...limitField('globalLimitBytes', governor.budgetLimitBytes),
           shared: state.shared,
           liveRssBytes: governor.liveRssBytes(sessionId),
         }
@@ -129,12 +129,22 @@ function quotaField(state: SessionQuotaState): { quotaBytes?: number } {
   return state.quotaBytes === undefined ? {} : { quotaBytes: state.quotaBytes }
 }
 
+/** One limit field, omitted while unlimited (the schema keeps it optional). */
+function limitField(key: 'effectiveLimitBytes' | 'globalLimitBytes', value: number | null): { effectiveLimitBytes?: number; globalLimitBytes?: number } {
+  return Number.isFinite(value) ? { [key]: value } : {}
+}
+
+/** Render wording for one limit: finite bytes or the unlimited marker. */
+function limitText(value: number | undefined): string {
+  return value === undefined ? 'none' : `${String(value)} bytes`
+}
+
 function toolState(governor: GovernorService, sessionId: string, state: SessionQuotaState, clamped: boolean): {
   kind: 'state'
   sessionId: string
   quotaBytes?: number
-  effectiveLimitBytes: number
-  globalLimitBytes: number
+  effectiveLimitBytes?: number
+  globalLimitBytes?: number
   shared: boolean
   clamped: boolean
   liveRssBytes: number
@@ -143,8 +153,8 @@ function toolState(governor: GovernorService, sessionId: string, state: SessionQ
     kind: 'state' as const,
     sessionId,
     ...quotaField(state),
-    effectiveLimitBytes: state.effectiveLimitBytes,
-    globalLimitBytes: governor.budgetLimitBytes,
+    ...limitField('effectiveLimitBytes', state.effectiveLimitBytes),
+    ...limitField('globalLimitBytes', governor.budgetLimitBytes),
     shared: state.shared,
     clamped,
     liveRssBytes: governor.liveRssBytes(sessionId),

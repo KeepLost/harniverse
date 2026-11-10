@@ -15,7 +15,7 @@
   name: '@deepseek-ai/dsh-client-ui-governor'
 ```
 
-选项卡注册 `dashboard.center.tab`（id `resources`，排在远程主机选项卡之后）；配额编辑调用 `sessionQuotaAdjust`（宿主侧 `harniverse.operate` 门控）。一个 `settings.section` 注册（id `governor`，排在 Plugins 页之后——运行时治理随宿主配置而来）构成「资源治理」设置页。
+本机资源选项卡注册 `dashboard.center.tab`（id `resources`，排在远程主机选项卡之后）；配额编辑调用 `sessionQuotaAdjust`（宿主侧 `harniverse.operate` 门控）。第二个选项卡（id `quotas`）是会话配额列表：仅列出被设限的会话，行为侧栏式排布（状态点、标题、配额值、用量条、内联调整/取消），配以基于会话流的加限选择器——无限制会话按设计不出现在列表中。一个 `settings.section` 注册（id `governor`，排在 Plugins 页之后——运行时治理随宿主配置而来）构成「资源治理」设置页，全局预算三态可选（默认无限制、自动、显式字节数）。
 
 设置页承载全局配额：全局内存预算——自动（宿主侧解析为物理内存与自身 cgroup 上限中较小者的 80%）或自定义 GiB 数值。写入经客户端 settings 作用域（`ctx.settingsScope.bind({ namespace: 'governor' })`）通过 `settings.mutate` 落入 `governor:` settings 节，由设置域的 `harniverse.administer` 门授权；无该能力的身份看到只读表单。宿主服务的 settings 钩子在变更时热重解析并重应用预算，无需重启。表单旁显示的生效预算经 `configGet` 回读——解析归宿主，页面从不禁自算。会话级配额默认继承全局预算，始终是按会话的决定（agent 的 `resource-quota` 工具或看板内联协商），绝不进 preset 字段；CPU、磁盘、网络按设计仅观测，cgroup 档将交换预算钉在 0，rlimit 档不做交换限制。
 

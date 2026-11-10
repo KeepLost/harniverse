@@ -70,6 +70,15 @@ describe('CgroupRoot', () => {
     expect(files.get('/cg/dsh/memory.swap.max')).toBe('0')
   })
 
+  it('lifts the parent cap to the kernel max sentinel while unlimited', async () => {
+    const { internals, files } = fakeCgroup()
+    const root = new CgroupRoot('/cg', internals)
+    await root.ensureParent(9_000)
+    await root.ensureParent(Number.POSITIVE_INFINITY)
+    expect(files.get('/cg/dsh/memory.max')).toBe('max')
+    expect(files.get('/cg/dsh/memory.swap.max')).toBe('max')
+  })
+
   it('degrades to non-writable when writes start failing', async () => {
     const { internals, files, writable } = fakeCgroup()
     const root = new CgroupRoot('/cg', internals)

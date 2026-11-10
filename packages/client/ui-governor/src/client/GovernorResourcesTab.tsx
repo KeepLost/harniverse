@@ -68,8 +68,10 @@ export function GovernorResourcesTab({ overview: fetchOverview, adjustQuota, pol
   }, [refresh])
 
   const rows = overview?.sessions ?? []
-  const globalPct = overview !== undefined && overview.globalLimitBytes > 0
-    ? Math.min(100, Math.round(overview.liveRssBytes / overview.globalLimitBytes * 100))
+  const budget = overview?.globalLimitBytes ?? null
+  const liveRss = overview?.liveRssBytes ?? 0
+  const globalPct = budget !== null && budget > 0
+    ? Math.min(100, Math.round(liveRss / budget * 100))
     : 0
 
   return (
@@ -79,16 +81,26 @@ export function GovernorResourcesTab({ overview: fetchOverview, adjustQuota, pol
         <button type="button" className={css.button} onClick={() => { void refresh() }}>{t('view.refresh')}</button>
       </div>
       {overview !== undefined ? (
-        <div className={css.global}>
-          <span>{t('global.usage', { used: formatBytes(overview.liveRssBytes, t), limit: formatBytes(overview.globalLimitBytes, t) })}</span>
-          <span className={css.bar} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={globalPct}>
-            <span className={css.barFill} style={{ width: `${globalPct}%` }} />
-          </span>
-          {overview.hostFreeBytes !== undefined ? <span>{t('host.free', { free: formatBytes(overview.hostFreeBytes, t) })}</span> : null}
-          {overview.hostNetRxBytes !== undefined && overview.hostNetTxBytes !== undefined
-            ? <span>{t('host.net', { rx: formatBytes(overview.hostNetRxBytes, t), tx: formatBytes(overview.hostNetTxBytes, t) })}</span>
-            : null}
-        </div>
+        budget !== null ? (
+          <div className={css.global}>
+            <span>{t('global.usage', { used: formatBytes(overview.liveRssBytes, t), limit: formatBytes(budget, t) })}</span>
+            <span className={css.bar} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={globalPct}>
+              <span className={css.barFill} style={{ width: `${globalPct}%` }} />
+            </span>
+            {overview.hostFreeBytes !== undefined ? <span>{t('host.free', { free: formatBytes(overview.hostFreeBytes, t) })}</span> : null}
+            {overview.hostNetRxBytes !== undefined && overview.hostNetTxBytes !== undefined
+              ? <span>{t('host.net', { rx: formatBytes(overview.hostNetRxBytes, t), tx: formatBytes(overview.hostNetTxBytes, t) })}</span>
+              : null}
+          </div>
+        ) : (
+          <div className={css.global}>
+            <span>{t('global.disabled')}</span>
+            {overview.hostFreeBytes !== undefined ? <span>{t('host.free', { free: formatBytes(overview.hostFreeBytes, t) })}</span> : null}
+            {overview.hostNetRxBytes !== undefined && overview.hostNetTxBytes !== undefined
+              ? <span>{t('host.net', { rx: formatBytes(overview.hostNetRxBytes, t), tx: formatBytes(overview.hostNetTxBytes, t) })}</span>
+              : null}
+          </div>
+        )
       ) : null}
       {state === 'loading' ? <p className={css.note}>{t('view.loading')}</p> : null}
       {state === 'error' ? (
@@ -148,11 +160,11 @@ interface SessionRowProps {
 
 /** One session rendered as a process row. */
 function SessionRow({ row, busy, draft, onDraft, onApply, onClear, t }: SessionRowProps) {
+  const limit = row.quota.effectiveLimitBytes
   const pct = useMemo(() => {
-    const limit = row.quota.effectiveLimitBytes
-    const ratio = limit > 0 ? row.rssBytes / limit : 0
+    const ratio = limit !== null && limit > 0 ? row.rssBytes / limit : 0
     return Math.min(100, Math.round(ratio * 100))
-  }, [row.rssBytes, row.quota.effectiveLimitBytes])
+  }, [row.rssBytes, limit])
   return (
     <tr>
       <td className={css.session} title={row.sessionId}>{row.sessionId}</td>
@@ -160,7 +172,7 @@ function SessionRow({ row, busy, draft, onDraft, onApply, onClear, t }: SessionR
       <td>{row.cpuTicks}</td>
       <td>
         <div className={css.memoryCell}>
-          <span>{formatBytes(row.rssBytes, t)} / {formatBytes(row.quota.effectiveLimitBytes, t)}</span>
+          <span>{limit !== null ? `${formatBytes(row.rssBytes, t)} / ${formatBytes(limit, t)}` : formatBytes(row.rssBytes, t)}</span>
           <span className={css.bar} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
             <span className={pct >= 90 ? css.barFillHot : css.barFill} style={{ width: `${pct}%` }} />
           </span>
@@ -169,7 +181,9 @@ function SessionRow({ row, busy, draft, onDraft, onApply, onClear, t }: SessionR
       <td>
         <div className={css.quotaCell}>
           <span>
-            {row.quota.shared ? t('quota.shared') : quotaLabel(row, t)}
+            {row.quota.shared
+              ? (limit !== null ? t('quota.shared') : t('quota.unlimited'))
+              : quotaLabel(row, t)}
           </span>
           <input
             className={css.quotaInput}
