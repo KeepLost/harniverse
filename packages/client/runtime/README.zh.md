@@ -30,7 +30,7 @@ Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线�
 
 root 标准 source 走同一个 `provideRoot({ hooks, keyedHooks })` 贡献（sessions 与 workspaces 列表 observable，外加按会话的 projection 键控 source），会话作用域经 `installScope('session', sessions.scopeAdapter)` 安装自己的适配器——这是一个域中立的 host face：注册表只知道 root／scopeRevision／scope／factory 通道，不认识会话或 Workspace 词汇。web-react 绑定钩子，并依据适配器的 scope binding 门控严格会话 slot；没有安装适配器的区域会抛出。Store 挂载与工厂 store 轴都以 `(machineKey, scope)` 为键；`pruneStoreScope` 会在会话消亡时沿条目轴与工厂轴清除其持久化状态，`resetTarget` 则在机器切换时丢弃所有非 root 实例。Workspace 业务状态不会进入 `SessionListState` 或条目 store。
 
-`WorkspaceRuntime` 暴露无状态只读检查调用，用于惰性目录层级、带可选包含／排除 glob 列表的有界递归文件名搜索、UTF-8 文本、完整有界图片／PDF 数据、Git 状态与历史，以及暂存区或工作区 diff。它会清除空白 glob 条目并省略空列表，使 Host 能够应用默认排除项；除此之外，运行时只解包已认证 API 结果并传播调用方取消，查询、加载、缓存、标签和陈旧响应策略属于消费方 UI store。
+`WorkspaceRuntime` 暴露无状态只读检查调用，用于惰性目录层级、带可选包含／排除 glob 列表的有界递归文件名搜索、UTF-8 文本、完整有界图片／PDF 数据、原始字节窗口与文件 stat（规范绝对路径和新鲜度令牌——原文件菜单面）、Git 状态与历史，以及暂存区或工作区 diff。它会清除空白 glob 条目并省略空列表，使 Host 能够应用默认排除项；除此之外，运行时只解包已认证 API 结果并传播调用方取消，查询、加载、缓存、标签和陈旧响应策略属于消费方 UI store。
 
 `indexSubagentDescendants()` 从保留的列表镜像中派生每个 parent 的后代总数与运行中后代数。它只沿不间断的 `origin: 'subagent'` 祖先链追踪，因此普通 fork 会开启独立的归属子树；遇到环时，追踪会停止但不会抛出异常，缺失的 parent 则会保留为无害的键，直至其摘要到达。
 

@@ -657,6 +657,121 @@ export async function readWorkspaceFile(
 }
 
 /**
+ * Stat one workspace file for identity and freshness: the absolute path with
+ * symlinks resolved (the host's path vocabulary) plus an opaque `version`
+ * token derived from the modification timestamp. The original-file menu
+ * surface uses this to decide availability without reading content.
+ * @param root - workspace root directory.
+ * @param path - workspace-relative file path.
+ * @param signal - caller cancellation.
+ * @param guard - stall guard owner.
+ * @returns identity, freshness token, and size.
+ */
+export async function statWorkspaceFile(
+  root: string,
+  path: string,
+  signal: AbortSignal,
+  guard: WorkspaceStallGuard = sharedStallGuard,
+): Promise<{ absolutePath: string; version: string; bytes: number }> {
+  return guard.run(root, path, signal, async () => {
+    const canonicalRoot = await canonicalRootOf(root, signal)
+    // containedPath already returns the canonical, containment-checked
+    // target (symlinks resolved, escapes refused).
+    const absolutePath = await containedPath(root, path, signal, canonicalRoot)
+    try {
+      const info = await stat(absolutePath)
+      if (!info.isFile()) {
+        throw new WorkspaceInspectorError(
+          'workspace-entry-type-invalid',
+          `workspace entry ${JSON.stringify(path)} is not a regular file`,
+          path,
+        )
+      }
+      signal.throwIfAborted()
+      return { absolutePath, version: String(info.mtimeMs), bytes: info.size }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      if (error instanceof WorkspaceInspectorError) throw error
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') {
+        throw new WorkspaceInspectorError('workspace-entry-not-found', `workspace file ${JSON.stringify(path)} was not found`, path)
+      }
+      throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} cannot be stat`, path)
+    }
+  })
+}
+
+/**
+ * Read one byte window of a workspace file as base64: raw bytes, no
+ * media-type restriction, no decode. Omitting the window reads the complete
+ * file under the binary byte cap; an explicit window is capped by the same
+ * limit per call. The original-file menu surface streams originals through
+ * this, so the cap is a transfer bound, not a format verdict.
+ * @param root - workspace root directory.
+ * @param path - workspace-relative file path.
+ * @param options - byte window: `offset` (default 0) and `length`.
+ * @param signal - caller cancellation.
+ * @param guard - stall guard owner.
+ * @returns the window plus the complete file's size and an EOF marker.
+ */
+export async function readWorkspaceFileBytes(
+  root: string,
+  path: string,
+  options: { offset?: number; length?: number },
+  signal: AbortSignal,
+  guard: WorkspaceStallGuard = sharedStallGuard,
+): Promise<{ path: string; offset: number; dataBase64: string; bytes: number; eof: boolean }> {
+  const { offset = 0, length } = options
+  return guard.run(root, path, signal, async () => {
+    const canonicalRoot = await canonicalRootOf(root, signal)
+    const target = await containedPath(root, path, signal, canonicalRoot)
+    let handle
+    try {
+      handle = await open(target, READ_FILE_FLAGS)
+      const info = await openedPathInfo(root, path, target, handle, signal, 'file', canonicalRoot)
+      const windowLength = Math.min(length ?? info.size, WORKSPACE_BINARY_BYTE_LIMIT)
+      if (windowLength <= 0 || offset < 0 || offset > info.size) {
+        throw new WorkspaceInspectorError('workspace-path-invalid', `workspace byte window ${JSON.stringify(path)} is empty or out of range`, path)
+      }
+      if (length === undefined && info.size > WORKSPACE_BINARY_BYTE_LIMIT) {
+        throw new WorkspaceInspectorError(
+          'workspace-file-too-large',
+          `workspace file ${JSON.stringify(path)} exceeds the binary byte limit`,
+          path,
+        )
+      }
+      const buffer = Buffer.allocUnsafe(windowLength)
+      const { bytesRead } = await handle.read(buffer, 0, windowLength, offset)
+      signal.throwIfAborted()
+      return {
+        path, offset,
+        dataBase64: buffer.subarray(0, bytesRead).toString('base64'),
+        bytes: info.size,
+        eof: offset + bytesRead >= info.size,
+      }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      if (error instanceof WorkspaceInspectorError) throw error
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ELOOP') {
+        throw new WorkspaceInspectorError('workspace-path-invalid', `workspace path ${JSON.stringify(path)} contains a symbolic link`, path)
+      }
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        throw new WorkspaceInspectorError('workspace-entry-not-found', `workspace file ${JSON.stringify(path)} was not found`, path)
+      }
+      throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace file ${JSON.stringify(path)} cannot be read`, path)
+    } finally {
+      /* Same non-blocking close posture as the other reads. */
+      void handle?.close().catch(
+        /* v8 ignore next -- a rejected close needs the mock fs double to fail
+           close specifically; the swallow exists for abandoned stalled mounts. */
+        () => {},
+      )
+    }
+  })
+}
+
+/**
  * Read one complete, bounded image or PDF for an in-browser object-URL preview.
  * @param root - registered canonical Workspace root.
  * @param path - Workspace-relative allowlisted image or PDF.

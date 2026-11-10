@@ -3138,6 +3138,16 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           eol: 'LF' as const,
         })
       },
+      stat: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return ok(request, { absolutePath: `/fixture-workspace/${request.payload.path}`, version: '1', bytes: 0 })
+      },
+      readBytes: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return ok(request, { path: request.payload.path, offset: 0, dataBase64: '', bytes: 0, eof: true })
+      },
       readBinary: (request, signal) => {
         const missing = requireWorkspaceInspection(request, signal)
         if (missing !== undefined) return missing
@@ -3728,6 +3738,10 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.files.read': return this.fixtureApi.workspaceFiles?.read(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
       case 'workspace.files.readBinary': return this.fixtureApi.workspaceFiles?.readBinary(request, signal)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
+      case 'workspace.files.stat': return this.fixtureApi.workspaceFiles?.stat(request, signal)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
+      case 'workspace.files.readBytes': return this.fixtureApi.workspaceFiles?.readBytes(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
       case 'workspace.git.status': return this.fixtureApi.workspaceGit?.status(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } })

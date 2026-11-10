@@ -158,6 +158,8 @@ import {
   listWorkspaceFiles,
   readWorkspaceBinary,
   readWorkspaceFile,
+  readWorkspaceFileBytes,
+  statWorkspaceFile,
   searchWorkspaceFiles,
   WorkspaceInspectorError,
   workspaceGitCommitDiff,
@@ -5402,6 +5404,35 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
         try {
           return ok(request, await readWorkspaceFile(workspace.path, path, signal, encoding === undefined ? {} : { encoding }))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, path, error, signal)
+        }
+      },
+
+      async stat(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
+        const { workspaceId, path } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await statWorkspaceFile(workspace.path, path, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, path, error, signal)
+        }
+      },
+
+      async readBytes(request, signal) {
+        const worldError = workspaceWorldError()
+        if (worldError !== undefined) return err(request, worldError)
+        const { workspaceId, path, offset, length } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await readWorkspaceFileBytes(workspace.path, path, {
+            ...offset === undefined ? {} : { offset },
+            ...length === undefined ? {} : { length },
+          }, signal))
         } catch (error: unknown) {
           return workspaceInspectionFailure(request, workspaceId, path, error, signal)
         }

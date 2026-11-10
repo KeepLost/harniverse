@@ -16,6 +16,8 @@ import {
   openedPathInfo,
   readIntoBuffer,
   readWorkspaceBinary,
+  readWorkspaceFileBytes,
+  statWorkspaceFile,
   readWorkspaceFile,
   searchWorkspaceFiles,
   workspaceGitCommitDiff,
@@ -167,6 +169,59 @@ describe('workspace file inspection', () => {
       rmSync(root, { recursive: true, force: true })
     }
   }, process.platform === 'win32' ? 120_000 : 60_000)
+
+  it('stats a workspace file with canonical path, freshness token, and size', async () => {
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'note.txt'), 'hello')
+
+    const result = await statWorkspaceFile(root, 'note.txt', new AbortController().signal)
+
+    expect(result.absolutePath).toBe(realpathSync(join(root, 'note.txt')))
+    expect(result.bytes).toBe(5)
+    expect(result.version).toMatch(/^\d+(\.\d+)?$/u)
+  })
+
+  it('stat refuses directories and missing files with typed errors', async () => {
+    const root = tempWorkspace()
+    mkdirSync(join(root, 'pkg'))
+
+    await expect(statWorkspaceFile(root, 'pkg', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-entry-type-invalid' })
+    await expect(statWorkspaceFile(root, 'missing.txt', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-entry-not-found' })
+  })
+
+  it('reads raw byte windows of any file type and reports EOF', async () => {
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'blob.bin'), Buffer.from([10, 11, 12, 13, 14, 15]))
+    const signal = new AbortController().signal
+
+    await expect(readWorkspaceFileBytes(root, 'blob.bin', {}, signal)).resolves.toEqual({
+      path: 'blob.bin', offset: 0, dataBase64: Buffer.from([10, 11, 12, 13, 14, 15]).toString('base64'), bytes: 6, eof: true,
+    })
+    await expect(readWorkspaceFileBytes(root, 'blob.bin', { offset: 2, length: 2 }, signal)).resolves.toEqual({
+      path: 'blob.bin', offset: 2, dataBase64: Buffer.from([12, 13]).toString('base64'), bytes: 6, eof: false,
+    })
+    await expect(readWorkspaceFileBytes(root, 'blob.bin', { offset: 6 }, signal)).resolves.toMatchObject({
+      dataBase64: '', eof: true,
+    })
+  })
+
+  it('byte reads refuse oversized whole files, empty windows, and directories with typed errors', async () => {
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'huge.bin'), Buffer.alloc(WORKSPACE_BINARY_BYTE_LIMIT + 1))
+    mkdirSync(join(root, 'pkg'))
+    const signal = new AbortController().signal
+
+    await expect(readWorkspaceFileBytes(root, 'huge.bin', {}, signal))
+      .rejects.toMatchObject({ code: 'workspace-file-too-large' })
+    await expect(readWorkspaceFileBytes(root, 'huge.bin', { offset: 0, length: 4 }, signal))
+      .resolves.toMatchObject({ eof: false })
+    await expect(readWorkspaceFileBytes(root, 'huge.bin', { length: 0 }, signal))
+      .rejects.toMatchObject({ code: 'workspace-path-invalid' })
+    await expect(readWorkspaceFileBytes(root, 'pkg', {}, signal))
+      .rejects.toMatchObject({ code: 'workspace-entry-type-invalid' })
+  })
 
   it('reads supported binary previews completely and rejects unsupported or oversized files', async () => {
     const root = tempWorkspace()

@@ -101,8 +101,8 @@ import { jobsFollowRequestSchema, jobsKillRequestSchema } from '../api/jobs.sche
 import { speechPrepareRequestSchema, speechTranscribeRequestSchema } from '../api/speech.schema.ts'
 import { globalRulesReadRequestSchema, globalRulesWriteRequestSchema } from '../api/global-rules.schema.ts'
 import {
-  workspaceFilesListRequestSchema, workspaceFilesReadBinaryRequestSchema,
-  workspaceFilesReadRequestSchema, workspaceFilesSearchRequestSchema,
+  workspaceFilesListRequestSchema, workspaceFilesReadBinaryRequestSchema, workspaceFilesReadBytesRequestSchema,
+  workspaceFilesReadRequestSchema, workspaceFilesSearchRequestSchema, workspaceFilesStatRequestSchema,
   workspaceFilesWatchRequestSchema,
 } from '../api/workspace-files.schema.ts'
 import {
@@ -189,6 +189,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'workspace.files.list': { schema: workspaceFilesListRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.list(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
   'workspace.files.search': { schema: workspaceFilesSearchRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.search(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
   'workspace.files.read': { schema: workspaceFilesReadRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.read(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
+  'workspace.files.stat': { schema: workspaceFilesStatRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.stat(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
+  'workspace.files.readBytes': { schema: workspaceFilesReadBytesRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.readBytes(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
   'workspace.files.readBinary': { schema: workspaceFilesReadBinaryRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.readBinary(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
   'workspace.git.status': { schema: workspaceGitStatusRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.status(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
   'workspace.git.commits': { schema: workspaceGitCommitsRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.commits(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },

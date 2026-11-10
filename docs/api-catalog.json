@@ -314,6 +314,18 @@
       "stability": "stable"
     },
     {
+      "method": "workspace.files.stat",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.files.readBytes",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
       "method": "workspace.files.readBinary",
       "requiredCapability": "harniverse.observe",
       "effect": "read",
