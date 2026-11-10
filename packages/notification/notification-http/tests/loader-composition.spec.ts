@@ -51,11 +51,7 @@ async function loadComposition(configPath: string): Promise<{ ctx: Context; incl
     config: { path: pathToFileURL(configPath).href },
   })
   await ctx.loader.await()
-  // Parallel sibling activation means a present fiber is not yet a started
-  // plugin; await each fiber so service visibility is deterministic.
-  for (const row of ctx.loader.entries()) {
-    if (row.fiber !== undefined) await row.fiber.await()
-  }
+  await settleFibers(ctx)
   const unloaded = [...ctx.loader.entries()]
     .filter(entry => entry.fiber === undefined && !entry.disabled)
     .map(entry => entry.options.name)
@@ -63,6 +59,18 @@ async function loadComposition(configPath: string): Promise<{ ctx: Context; incl
   const includeEntry = [...ctx.loader.entries()].find(entry => entry.subtree !== undefined)
   if (includeEntry?.subtree === undefined) throw new Error('expected Loader include subtree')
   return { ctx, include: includeEntry.subtree as Include }
+}
+
+/**
+ * Parallel sibling activation means a present fiber is not yet a started
+ * plugin; await each fiber so service visibility is deterministic. Applies
+ * equally to boot and to include-refresh re-activation.
+ */
+async function settleFibers(ctx: Context): Promise<void> {
+  await ctx.loader.await()
+  for (const row of ctx.loader.entries()) {
+    if (row.fiber !== undefined) await row.fiber.await()
+  }
 }
 
 function yaml(url?: string | null): string {
@@ -164,7 +172,7 @@ describe('notification-http through a real Loader composition', () => {
 
       await writeFile(configPath, yaml())
       await include.refresh()
-      await ctx.loader.await()
+      await settleFibers(ctx)
       expect(ctx.get('notification')).toBeUndefined()
       session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
       await new Promise<void>(resolve => setImmediate(resolve))
@@ -172,7 +180,7 @@ describe('notification-http through a real Loader composition', () => {
 
       await writeFile(configPath, yaml(url))
       await include.refresh()
-      await ctx.loader.await()
+      await settleFibers(ctx)
       expect(ctx.get('notification')).toBeInstanceOf(NotificationHttp.HttpNotificationBackend)
       session.append('turn/start', { turn: 3 })
       session.append('approval/asked', { id: ApprovalRequestId('approval-2'), toolName: 'write' })
