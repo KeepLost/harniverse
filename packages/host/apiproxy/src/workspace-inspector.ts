@@ -657,14 +657,6 @@ export async function readWorkspaceFile(
 }
 
 /**
- * Read one complete, bounded image or PDF for an in-browser object-URL preview.
- * @param root - registered canonical Workspace root.
- * @param path - Workspace-relative allowlisted image or PDF.
- * @param signal - caller cancellation signal.
- * @param guard - stall watchdog and breaker; defaults to the shared instance.
- * @returns complete base64 data, media type, and byte size.
- */
-/**
  * Stat one workspace file for identity and freshness: the absolute path with
  * symlinks resolved (the host's path vocabulary) plus an opaque `version`
  * token derived from the modification timestamp. The original-file menu
@@ -779,6 +771,14 @@ export async function readWorkspaceFileBytes(
   })
 }
 
+/**
+ * Read one complete, bounded image or PDF for an in-browser object-URL preview.
+ * @param root - registered canonical Workspace root.
+ * @param path - Workspace-relative allowlisted image or PDF.
+ * @param signal - caller cancellation signal.
+ * @param guard - stall watchdog and breaker; defaults to the shared instance.
+ * @returns complete base64 data, media type, and byte size.
+ */
 export async function readWorkspaceBinary(
   root: string,
   path: string,
