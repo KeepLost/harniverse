@@ -397,6 +397,35 @@ export class WorkspaceRuntime implements IWorkspaces {
     return response.result.value
   }
 
+  /** Stat one workspace file through the inspection API: canonical absolute path, freshness token, size. */
+  async statFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    absolutePath: string
+    version: string
+    bytes: number
+  }> {
+    const response = await fsCall('workspace file stat', () => this.api.workspaceFiles.stat({ workspaceId, path }, signal))
+    if (!response.result.ok) throw new Error(`workspace file stat failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  /** Read one byte window of a workspace file as base64; the original-file menu surface streams through this. */
+  async readFileBytes(workspaceId: WorkspaceId, path: string, opts?: { offset?: number; length?: number }, signal?: AbortSignal): Promise<{
+    path: string
+    offset: number
+    dataBase64: string
+    bytes: number
+    eof: boolean
+  }> {
+    const response = await fsCall('workspace file byte read', () => this.api.workspaceFiles.readBytes({
+      workspaceId,
+      path,
+      ...opts?.offset === undefined ? {} : { offset: opts.offset },
+      ...opts?.length === undefined ? {} : { length: opts.length },
+    }, signal))
+    if (!response.result.ok) throw new Error(`workspace file byte read failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
   async readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
     path: string
     dataBase64: string

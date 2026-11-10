@@ -18,6 +18,9 @@ const faults = vi.hoisted(() => ({
   /** errno raised by `open` for a path ending with this suffix. */
   openCode: undefined as string | undefined,
   openSuffix: '',
+  /** errno raised by `stat` for a path ending with this suffix. */
+  statCode: undefined as string | undefined,
+  statSuffix: '',
   /** errno raised by `realpath` for a path ending with this suffix. */
   realpathCode: undefined as string | undefined,
   realpathSuffix: '',
@@ -58,6 +61,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     Object.assign(new Error(`simulated ${code}`), { code })
   return {
     ...actual,
+    stat: async (...args: Parameters<typeof actual.stat>) => {
+      if (faults.statCode !== undefined && String(args[0]).endsWith(faults.statSuffix)) {
+        throw Object.assign(new Error(`simulated ${faults.statCode}`), { code: faults.statCode })
+      }
+      return await actual.stat(...args)
+    },
     open: async (...args: Parameters<typeof actual.open>) => {
       if (faults.openCode !== undefined && String(args[0]).endsWith(faults.openSuffix)) {
         throw fail(faults.openCode)
@@ -96,6 +105,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 const {
   listWorkspaceFiles,
   readWorkspaceBinary,
+  readWorkspaceFileBytes,
+  statWorkspaceFile,
   readWorkspaceFile,
   workspaceGitCommitDiff,
   workspaceGitCommitFiles,
@@ -110,6 +121,8 @@ function tempWorkspace(): string {
 afterEach(() => {
   faults.openCode = undefined
   faults.openSuffix = ''
+  faults.statCode = undefined
+  faults.statSuffix = ''
   faults.realpathCode = undefined
   faults.realpathSuffix = ''
   faults.opendirCode = undefined
@@ -547,5 +560,41 @@ describe('entry shape classification', () => {
     // scripted listing supplies its shape; classification still resolves it.
     await expect(listWorkspaceFiles(root, '.', new AbortController().signal))
       .resolves.toMatchObject({ entries: [{ name: 'pipe', kind: 'other' }] })
+  })
+})
+
+describe('stat failure classification', () => {
+  it('classifies a stat errno without leaking it', async () => {
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'busy.txt'), 'x')
+
+    faults.statCode = 'EACCES'
+    faults.statSuffix = 'busy.txt'
+    await expect(statWorkspaceFile(root, 'busy.txt', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-entry-not-readable' })
+
+    faults.statCode = 'ENOENT'
+    await expect(statWorkspaceFile(root, 'busy.txt', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-entry-not-found' })
+  })
+})
+
+describe('byte-window failure classification', () => {
+  it('classifies open errnos without leaking them', async () => {
+    const root = tempWorkspace()
+    writeFileSync(join(root, 'raw.bin'), Buffer.from([1, 2]))
+
+    faults.openSuffix = 'raw.bin'
+    faults.openCode = 'EACCES'
+    await expect(readWorkspaceFileBytes(root, 'raw.bin', {}, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-entry-not-readable' })
+
+    faults.openCode = 'ELOOP'
+    await expect(readWorkspaceFileBytes(root, 'raw.bin', {}, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-path-invalid' })
+
+    faults.openCode = 'ENOENT'
+    await expect(readWorkspaceFileBytes(root, 'raw.bin', {}, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-entry-not-found' })
   })
 })

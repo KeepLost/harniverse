@@ -139,6 +139,8 @@ function scriptedApi(overrides: {
       search: r => ok(r, { entries: [{ name: r.payload.query, path: r.payload.query, kind: 'file' as const }], truncated: false }),
       read: r => ok(r, { path: r.payload.path, content: 'stub', bytes: 4, truncated: false, encoding: 'utf-8', encodingSource: 'utf8' as const, bom: false, eol: 'LF' as const }),
       readBinary: r => ok(r, { path: r.payload.path, dataBase64: 'AA==', mediaType: 'image/png', bytes: 1 }),
+      stat: r => ok(r, { absolutePath: `/w/${r.payload.path}`, version: '1', bytes: 0 }),
+      readBytes: r => ok(r, { path: r.payload.path, offset: 0, dataBase64: 'AA==', bytes: 1, eof: true }),
       watchFiles: () => empty<WorkspaceFileWatchFrame>(),
       ...overrides.workspaceFiles,
     },
@@ -343,6 +345,8 @@ describe('unary round trip', () => {
       (await c.workspaceFiles.search({ workspaceId, query: 'x' })).result,
       (await c.workspaceFiles.read({ workspaceId, path: 'a.md' })).result,
       (await c.workspaceFiles.readBinary({ workspaceId, path: 'a.png' })).result,
+      (await c.workspaceFiles.stat({ workspaceId, path: 'a.bin' })).result,
+      (await c.workspaceFiles.readBytes({ workspaceId, path: 'a.bin', offset: 0, length: 4 })).result,
     ]) expect(reasonOf(result)).toBe('workspace file inspection is unavailable')
 
     const hash = 'a'.repeat(40)

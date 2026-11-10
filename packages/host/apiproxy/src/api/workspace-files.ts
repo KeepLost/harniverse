@@ -72,6 +72,39 @@ export interface WorkspaceFilesApi {
     eol: 'LF' | 'CRLF'
   }>>
 
+  /** Stat one workspace file: canonical absolute path, opaque freshness token, and size. */
+  stat(request: RpcRequest<{
+    workspaceId: WorkspaceId
+    path: string
+  }>, signal: AbortSignal): Promise<RpcResponse<{
+    /** Absolute path in the host's path vocabulary, symlinks resolved. */
+    absolutePath: string
+    /** Opaque freshness token derived from the modification timestamp; never parsed. */
+    version: string
+    /** Complete file size in bytes. */
+    bytes: number
+  }>>
+
+  /** Read one byte window of a workspace file as base64: raw bytes, no media-type restriction. */
+  readBytes(request: RpcRequest<{
+    workspaceId: WorkspaceId
+    path: string
+    /** First byte of the window; defaults to 0. */
+    offset?: number
+    /** Window length in bytes; omitted reads the complete file under the byte cap. */
+    length?: number
+  }>, signal: AbortSignal): Promise<RpcResponse<{
+    path: string
+    /** First byte of the window, as requested. */
+    offset: number
+    /** The window's bytes, base64-encoded. */
+    dataBase64: string
+    /** Complete file size in bytes. */
+    bytes: number
+    /** Whether the window includes the file's last byte. */
+    eof: boolean
+  }>>
+
   /** Read one complete, bounded image or PDF as base64 for a browser object URL. */
   readBinary(request: RpcRequest<{
     workspaceId: WorkspaceId
