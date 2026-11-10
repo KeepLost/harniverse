@@ -57,8 +57,8 @@ interface SessionQuotaState {
   readonly sessionId: string
   /** Explicit quota in bytes, when the session has one (isolation leaf). */
   readonly quotaBytes?: number
-  /** The budget enforcement currently applies to this session's commands. */
-  readonly effectiveLimitBytes: number
+  /** The budget enforcement applies to this session's commands; null while unlimited (no quota, no shared-pool budget). */
+  readonly effectiveLimitBytes: number | null
   /** True while the session rides the shared pool (no explicit quota). */
   readonly shared: boolean
 }

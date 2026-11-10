@@ -28,6 +28,12 @@ The governor's shared-pool memory budget (`limit: 'auto'` = 80% of host memory) 
 - Keeping the pool default and special-casing browser spawns in the metering prefix — rejected: the meter cannot know which argv is a browser, and carving process-name exemptions into an enforcement tier is the wrong seam.
 - Per-session cgroup-preferred enforcement now — rejected: tier selection is host-probed, not per-session; deferring keeps this change semantics-only.
 
+## Consequences
+
+- Default deployments lose the machine-wide backstop: a runaway command in an unlimited session is again bounded only by the host/container limit. Operators who want it back select `auto` or an explicit budget — one settings flip, no migration.
+- Spawning Chromium-family browsers inside ordinary sessions works again; inside quota-limited sessions it may still fail (VAS vs RSS), documented as the package's known limitation with the cgroup-preferred tier deferred.
+- Quota rows on the wire are `number | null` for unlimited — every future consumer of the governor Remote must treat null as "no bound" rather than zero.
+
 ## Verification
 
 - `packages/monitor/governor`: 83 unit tests (config `'none'`/auto/explicit resolution, unlimited admission, cgroup `max` lift, wire-null mapping, tool unlimited output, loader composition under the new default).

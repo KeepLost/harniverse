@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-10-per-session-quotas-default-unlimited.md
-2026-11-10-per-session-quotas-default-unlimited.md: b8e78ae45f89e8ae64e5eb28b081094cc436f658
-2026-11-10-per-session-quotas-default-unlimited.zh.md: cea92e1dcf39ef4f0940e8e0bbd5c7881b4da04a
+2026-11-10-per-session-quotas-default-unlimited.md: 8927e4a6ed046775c09dc19a0b5d5b56497d426c
+2026-11-10-per-session-quotas-default-unlimited.zh.md: f5b3afae23204663ca10360ff43c7a5c58ec0bd0

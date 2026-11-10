@@ -119,16 +119,16 @@ describe('GovernorQuotaTab', () => {
     })
     await waitFor(() => { expect(screen.getByText('标题-session-alpha')).toBeDefined() })
     // The picker offers only sessions without a limit.
-    const select = screen.getByRole('combobox', { name: zh['quotaList.add.pick'] }) as HTMLSelectElement
-    expect([...select.options].map(option => option.value)).toEqual(['', 'session-beta'])
-    const apply = screen.getByRole('button', { name: zh['quotaList.add.apply'] }) as HTMLButtonElement
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: zh['quotaList.add.pick'] })
+    expect(screen.getAllByRole('option').map(option => (option as HTMLOptionElement).value)).toEqual(['', 'session-beta'])
+    const apply = screen.getByRole<HTMLButtonElement>('button', { name: zh['quotaList.add.apply'] })
     expect(apply.disabled).toBe(true)
     fireEvent.change(select, { target: { value: 'session-beta' } })
     fireEvent.change(screen.getByPlaceholderText(zh['quota.set']), { target: { value: '256' } })
     expect(apply.disabled).toBe(false)
     fireEvent.click(apply)
     await waitFor(() => { expect(calls.adjust).toContainEqual(['session-beta', 256 * 1024 * 1024]) })
-    await waitFor(() => { expect((screen.getByRole('combobox', { name: zh['quotaList.add.pick'] }) as HTMLSelectElement).value).toBe('') })
+    await waitFor(() => { expect(screen.getByRole<HTMLSelectElement>('combobox', { name: zh['quotaList.add.pick'] }).value).toBe('') })
   })
 
   it('keeps the picker apply disabled for an invalid draft', async () => {
@@ -137,9 +137,9 @@ describe('GovernorQuotaTab', () => {
       'session-beta': summary('session-beta'),
     })
     await waitFor(() => { expect(screen.getByText('标题-session-alpha')).toBeDefined() })
-    fireEvent.change(screen.getByRole('combobox', { name: zh['quotaList.add.pick'] }), { target: { value: 'session-beta' } })
+    fireEvent.change(screen.getByRole<HTMLSelectElement>('combobox', { name: zh['quotaList.add.pick'] }), { target: { value: 'session-beta' } })
     fireEvent.change(screen.getByPlaceholderText(zh['quota.set']), { target: { value: 'nope' } })
-    expect((screen.getByRole('button', { name: zh['quotaList.add.apply'] }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh['quotaList.add.apply'] }).disabled).toBe(true)
   })
 
   it('renders the status-dot states of limited sessions', async () => {
