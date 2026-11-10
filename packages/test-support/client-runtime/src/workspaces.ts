@@ -173,6 +173,40 @@ export class TestWorkspaces implements IWorkspaces {
     return { path, dataBase64: '', mediaType: 'image/png', bytes: 0 }
   }
 
+  async statFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    absolutePath: string
+    version: string
+    bytes: number
+  }> {
+    this.calls.push({ method: 'statFile', args: [workspaceId, path, signal] })
+    const stub = this.stubs.get('statFile')
+    if (stub !== undefined) return await stub(workspaceId, path, signal) as {
+      absolutePath: string
+      version: string
+      bytes: number
+    }
+    return { absolutePath: `/workspace/${path}`, version: '1', bytes: 0 }
+  }
+
+  async readFileBytes(workspaceId: WorkspaceId, path: string, opts?: { offset?: number; length?: number }, signal?: AbortSignal): Promise<{
+    path: string
+    offset: number
+    dataBase64: string
+    bytes: number
+    eof: boolean
+  }> {
+    this.calls.push({ method: 'readFileBytes', args: [workspaceId, path, opts, signal] })
+    const stub = this.stubs.get('readFileBytes')
+    if (stub !== undefined) return await stub(workspaceId, path, opts, signal) as {
+      path: string
+      offset: number
+      dataBase64: string
+      bytes: number
+      eof: boolean
+    }
+    return { path, offset: 0, dataBase64: '', bytes: 0, eof: true }
+  }
+
   async gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
     branch: string | null
     upstream: string | null

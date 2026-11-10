@@ -883,6 +883,17 @@ export const IconInspectOutline12 = ({ size = 12, className }: IconProps) => (
 )
 
 /** skill_outline_16 (skill tool-row glyph; document instructions + sparkle) */
+/** Original-file save glyph for the context-menu icon seat. */
+export const IconSaveOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M2.5 1.5h8l3 3v9a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1Z"
+      stroke="currentColor" strokeWidth="1" strokeLinejoin="round"
+    />
+    <path d="M4.5 1.5v4h6v-4M4 14.5v-6h7v6" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+  </svg>
+)
+
 export const IconSkillOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path
