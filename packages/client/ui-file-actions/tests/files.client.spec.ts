@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BrowserFileActions, exportName } from '../src/client/files.ts'
 import type { DesktopFileActions } from '../src/types.ts'
 import { Context } from '@deepseek-ai/cordis'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply as clientApply, inject as clientInject } from '../src/client/index.ts'
 import { apply as hostApply } from '../src/index.ts'
 
@@ -194,6 +195,9 @@ describe('file actions', () => {
     const registered: string[] = []
     const ctx = new Context()
     ctx.provide('locale', { register: (ns: string) => { registered.push(ns); return () => {} } } as never)
+    ctx.provide('contextMenus', { register: () => () => {}, notify: () => {} } as never)
+    ctx.provide('slots', { inject: (_name: string, register: Parameters<SlotRegistry['inject']>[1]) => ctx.effect(register), register: () => () => {} } as never)
+    ctx.provide('workspaces', { list: { getSnapshot: () => ({ items: [] }) } } as never)
     const fiber = ctx.plugin({ inject: clientInject, apply: clientApply })
     await fiber.await()
     expect(hostApply).not.toThrow()

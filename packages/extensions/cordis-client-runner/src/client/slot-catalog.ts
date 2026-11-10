@@ -186,7 +186,9 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'shell.overlay\' (client-ui-context-menu), so it exists while that entry is mounted',
-    occupants: [],
+    occupants: [
+      'client-ui-file-actions Icon',
+    ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'contextMenu.icon\', () => ctx.slots.register(\n      { name: \'contextMenu.icon\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
     source: 'packages/client/ui-context-menu/src/client/index.ts:39',

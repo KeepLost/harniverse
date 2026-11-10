@@ -125,6 +125,37 @@ export interface IWorkspaces {
     mediaType: string
     bytes: number
   }>
+  /**
+   * Stat one regular file inside a registered Workspace: canonical absolute
+   * path (symlinks resolved), opaque freshness token, and size. The
+   * original-file menu surface decides availability without reading content.
+   * @param workspaceId - registered Workspace whose root contains the file.
+   * @param path - Workspace-relative file path.
+   * @param signal - propagates caller cancellation.
+   * @returns identity, freshness token, and size; throws typed failures.
+   */
+  statFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    absolutePath: string
+    version: string
+    bytes: number
+  }>
+  /**
+   * Read one raw byte window of any regular file as base64 (no media-type
+   * verdict); an omitted window reads the complete file under the shared
+   * binary cap. The original-file menu surface streams originals through this.
+   * @param workspaceId - registered Workspace whose root contains the file.
+   * @param path - Workspace-relative file path.
+   * @param opts - byte window; omit for the complete file under the cap.
+   * @param signal - propagates caller cancellation.
+   * @returns the window's path, offset, base64 data, size, and eof marker.
+   */
+  readFileBytes(workspaceId: WorkspaceId, path: string, opts?: { offset?: number; length?: number }, signal?: AbortSignal): Promise<{
+    path: string
+    offset: number
+    dataBase64: string
+    bytes: number
+    eof: boolean
+  }>
   /** Read the current read-only Git status for a Workspace. */
   gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
     branch: string | null

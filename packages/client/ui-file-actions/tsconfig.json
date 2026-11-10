@@ -18,10 +18,19 @@
       "path": "../../util/file-drag"
     },
     {
+      "path": "../../util/workspace-path"
+    },
+    {
       "path": "../locale"
     },
     {
       "path": "../runtime"
+    },
+    {
+      "path": "../ui-context-menu"
+    },
+    {
+      "path": "../ui-primitives"
     },
     {
       "path": "../ui-slots"

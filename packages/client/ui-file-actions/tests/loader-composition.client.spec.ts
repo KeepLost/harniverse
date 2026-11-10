@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, FiberState } from '@deepseek-ai/cordis'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { Loader } from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { apply as applyFileActions, inject as fileActionsInject } from '../src/client/index.ts'
@@ -39,6 +40,12 @@ describe('ui-file-actions through a real Loader composition', () => {
             return () => {}
           },
         })
+        localeCtx.provide('contextMenus', { register: () => () => {}, notify: () => {} } as never)
+        localeCtx.provide('slots', {
+          inject: (_name: string, register: Parameters<SlotRegistry['inject']>[1]) => localeCtx.effect(register),
+          register: () => () => {},
+        } as never)
+        localeCtx.provide('workspaces', { list: { getSnapshot: () => ({ items: [] }) } } as never)
       },
     }
     const consumer = {
