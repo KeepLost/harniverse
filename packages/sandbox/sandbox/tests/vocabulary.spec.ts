@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { SANDBOX_UNAVAILABLE, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
+import { SANDBOX_UNAVAILABLE, SandboxUnavailableError, SandboxUnsupportedPolicyError } from '@deepseek-ai/dsh-sandbox'
 
 describe('SandboxUnavailableError', () => {
   it('carries the structured { name, code } identity consumers key on', () => {
@@ -31,5 +31,14 @@ describe('SandboxUnavailableError', () => {
     const error = new SandboxUnavailableError('read-only', 'landlock-run: landlock is not enforced by this kernel')
     expect(error.code).toBe(SANDBOX_UNAVAILABLE)
     expect(error.message).toContain('Runner failure: landlock-run: landlock is not enforced by this kernel')
+  })
+})
+
+describe('SandboxUnsupportedPolicyError', () => {
+  it('carries the structured code a denying provider reports', () => {
+    const error = new SandboxUnsupportedPolicyError('additional writable directories')
+    expect(error.message).toBe('additional writable directories')
+    expect(error.code).toBe('SANDBOX_UNSUPPORTED_POLICY')
+    expect(error.name).toBe('SandboxUnsupportedPolicyError')
   })
 })

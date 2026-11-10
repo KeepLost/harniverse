@@ -63,6 +63,7 @@ function mount({
   const props: SettingsRootComponentProps = {
     useSessions,
     useWorkspaces: unusedHook,
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     wide,
     useOnboardingSteps: select => select(steps),
     useSections: (select) => {

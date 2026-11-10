@@ -14,6 +14,6 @@ export type { FileBadgeItem, FileBadgeLabels, FileChipItem, FileChipLabels } fro
 export { DropOverlay } from './DropOverlay.tsx'
 export type { DropOverlayLabels } from './DropOverlay.tsx'
 export { ImageLightbox } from './ImageLightbox.tsx'
-export type { ImageLightboxLabels } from './ImageLightbox.tsx'
+export type { ImageLightboxActionLabels, ImageLightboxActions, ImageLightboxLabels } from './ImageLightbox.tsx'
 export { ImageGallery, MessageImage } from './MessageImage.tsx'
-export type { ImageLoader, MessageImageLabels } from './MessageImage.tsx'
+export type { ImageActionsFor, ImageLoader, MessageImageLabels } from './MessageImage.tsx'

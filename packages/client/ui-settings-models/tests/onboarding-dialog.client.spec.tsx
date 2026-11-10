@@ -146,6 +146,7 @@ function harness(options: {
     complete,
     openSection,
     useSessions: unusedHook,
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useWorkspaces: unusedHook,
     controller,
     useModels: bindSnapshotSelector(controller.store),

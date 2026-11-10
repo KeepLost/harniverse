@@ -33,6 +33,12 @@ describe('TestWorkspaces file and git verbs', () => {
     await expect(workspaces.readBinaryFile(wid('ws'), 'p.png', controller.signal)).resolves.toEqual({
       path: 'p.png', dataBase64: '', mediaType: 'image/png', bytes: 0,
     })
+    await expect(workspaces.statFile(wid('ws'), 'p.bin', controller.signal)).resolves.toEqual({
+      absolutePath: '/workspace/p.bin', version: '1', bytes: 0,
+    })
+    await expect(workspaces.readFileBytes(wid('ws'), 'p.bin', { offset: 2, length: 4 }, controller.signal)).resolves.toEqual({
+      path: 'p.bin', offset: 0, dataBase64: '', bytes: 0, eof: true,
+    })
     await expect(workspaces.gitStatus(wid('ws'), controller.signal)).resolves.toEqual({
       branch: null, upstream: null, ahead: null, behind: null, entries: [], truncated: false,
     })
@@ -56,6 +62,8 @@ describe('TestWorkspaces file and git verbs', () => {
       { method: 'readFile', args: [wid('ws'), 'a.ts', undefined, controller.signal] },
       { method: 'searchFiles', args: [wid('ws'), 'query', { include: ['*.ts'], exclude: [] }, controller.signal] },
       { method: 'readBinaryFile', args: [wid('ws'), 'p.png', controller.signal] },
+      { method: 'statFile', args: [wid('ws'), 'p.bin', controller.signal] },
+      { method: 'readFileBytes', args: [wid('ws'), 'p.bin', { offset: 2, length: 4 }, controller.signal] },
       { method: 'gitStatus', args: [wid('ws'), controller.signal] },
       { method: 'gitCommits', args: [wid('ws'), 5, controller.signal] },
       { method: 'gitDiff', args: [wid('ws'), 'a.ts', true, controller.signal] },
@@ -77,6 +85,12 @@ describe('TestWorkspaces file and git verbs', () => {
       Promise.resolve({ path: path as string, content: 'body', bytes: 4, truncated: false })
     ))
     workspaces.stub('searchFiles', () => Promise.resolve({ entries: [file], truncated: false }))
+    workspaces.stub('statFile', (_workspaceId: unknown, path: unknown) => (
+      Promise.resolve({ absolutePath: `/resolved/${String(path)}`, version: '9', bytes: 7 })
+    ))
+    workspaces.stub('readFileBytes', (_workspaceId: unknown, path: unknown, opts: unknown) => (
+      Promise.resolve({ path: String(path), offset: (opts as { offset?: number }).offset ?? 0, dataBase64: 'AA==', bytes: 1, eof: true })
+    ))
     workspaces.stub('readBinaryFile', (_workspaceId: unknown, path: unknown) => (
       Promise.resolve({ path: path as string, dataBase64: 'AA==', mediaType: 'image/png', bytes: 1 })
     ))
@@ -107,6 +121,12 @@ describe('TestWorkspaces file and git verbs', () => {
     await expect(workspaces.readBinaryFile(wid('ws'), 'p.png')).resolves.toEqual({
       path: 'p.png', dataBase64: 'AA==', mediaType: 'image/png', bytes: 1,
     })
+    await expect(workspaces.statFile(wid('ws'), 'p.bin')).resolves.toEqual({
+      absolutePath: '/resolved/p.bin', version: '9', bytes: 7,
+    })
+    await expect(workspaces.readFileBytes(wid('ws'), 'p.bin', { offset: 3 })).resolves.toEqual({
+      path: 'p.bin', offset: 3, dataBase64: 'AA==', bytes: 1, eof: true,
+    })
     await expect(workspaces.gitStatus(wid('ws'))).resolves.toEqual({
       branch: 'dev', upstream: 'origin/dev', ahead: 0, behind: 3, entries: [], truncated: false,
     })
@@ -124,7 +144,7 @@ describe('TestWorkspaces file and git verbs', () => {
       diff: 'commit:a.ts', truncated: false,
     })
     expect(workspaces.calls.map(call => call.method)).toEqual([
-      'listFiles', 'readFile', 'searchFiles', 'readBinaryFile',
+      'listFiles', 'readFile', 'searchFiles', 'readBinaryFile', 'statFile', 'readFileBytes',
       'gitStatus', 'gitCommits', 'gitDiff', 'gitCommitFiles', 'gitCommitDiff',
     ])
   })

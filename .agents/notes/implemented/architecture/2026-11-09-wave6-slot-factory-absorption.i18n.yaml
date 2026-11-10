@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-09-wave6-slot-factory-absorption.md
+2026-11-09-wave6-slot-factory-absorption.md: 374f4b89c98953265040a22d5bc88763b16c3548
+2026-11-09-wave6-slot-factory-absorption.zh.md: 1b121223703a295de99f014c3efc3ebc6428e124

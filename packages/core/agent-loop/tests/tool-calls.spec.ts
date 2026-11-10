@@ -14,7 +14,7 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 
 async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
   const ctx = new Context()
@@ -887,9 +887,12 @@ describe('failed-step recovery boundaries', () => {
 describe('PTC native-tool denial through the agent loop', () => {
   /** A minimal in-process code runtime for test purposes — never actually runs. */
   class FakePtcRuntime extends PtcRuntime {
+    override resolve(request: PtcRunRequest): PtcRunSpec {
+      return { ...request, cwd: '/fake', timeoutMs: null }
+    }
     readonly language = 'typescript'
     readonly isolation = 'fake' as const
-    async run(_request: CodeRunRequest): Promise<CodeRunResult> {
+    async run(_request: PtcRunRequest): Promise<PtcRunResult> {
       return { logs: [] }
     }
   }

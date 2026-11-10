@@ -21,6 +21,8 @@
 
 - insert:
     # PTC is a core execution capability, not a Web component.
+    - id: sandbox
+      name: '@deepseek-ai/dsh-sandbox-local'
     - id: ptc-runtime
       name: '@deepseek-ai/dsh-ptc-runtime-node'
 

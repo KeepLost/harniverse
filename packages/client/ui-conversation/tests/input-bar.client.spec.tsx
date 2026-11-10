@@ -222,7 +222,7 @@ function bench(over?: BenchOptions) {
   }) as InputBarProps['renderSlot']
   const props: InputBarProps = {
     sessionId: SID,
-    SessionProvider: ({ children }) => children(SID),
+    SessionProvider: ({ children }) => <>{children}</>,
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
@@ -232,6 +232,7 @@ function bench(over?: BenchOptions) {
       items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
       (selector ?? (v => v))(key === 'permissions'
         ? over?.permissions

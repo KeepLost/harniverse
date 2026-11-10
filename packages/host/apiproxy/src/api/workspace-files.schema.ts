@@ -48,6 +48,36 @@ export const workspaceFilesSearchValueSchema = z.object({
   truncated: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.files.search'>>>
 
+/** Wire validator for one file-stat request. */
+export const workspaceFilesStatRequestSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  path: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.files.stat'>>>
+
+/** Wire validator for one file-stat result. */
+export const workspaceFilesStatValueSchema = z.object({
+  absolutePath: z.string(),
+  version: z.string(),
+  bytes: z.number().int().nonnegative(),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.files.stat'>>>
+
+/** Wire validator for one file byte-window request. */
+export const workspaceFilesReadBytesRequestSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  path: z.string().min(1),
+  offset: z.number().int().nonnegative().optional(),
+  length: z.number().int().positive().optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.files.readBytes'>>>
+
+/** Wire validator for one file byte-window result. */
+export const workspaceFilesReadBytesValueSchema = z.object({
+  path: z.string(),
+  offset: z.number().int().nonnegative(),
+  dataBase64: z.string(),
+  bytes: z.number().int().nonnegative(),
+  eof: z.boolean(),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.files.readBytes'>>>
+
 /** Wire validator for one bounded file-read request. */
 export const workspaceFilesReadRequestSchema = z.object({
   workspaceId: workspaceIdSchema,

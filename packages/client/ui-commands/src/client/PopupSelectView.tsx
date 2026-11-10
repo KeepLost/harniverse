@@ -162,6 +162,7 @@ export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
           open
           title={confirmation.title}
           description={confirmation.description}
+          closeLabel={confirmation.closeLabel}
           acknowledgeLabel={confirmation.acknowledgeLabel}
           cancelLabel={confirmation.cancelLabel}
           confirmLabel={confirmation.confirmLabel}

@@ -118,9 +118,13 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
       () => branchButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-disabled'))),
       { timeout: 5_000 },
     ).toEqual(['true', null])
-    await branchButtons.first().focus()
-    await expect.poll(() => page.getByRole('tooltip').textContent(), { timeout: 5_000 })
-      .toBe('Available only on the last message of a completed turn')
+    // Focus-reveal after a pointer interaction needs the keyboard modality
+    // back: the shared tooltip suppresses focus bubbles while the last input
+    // was a pointer press.
+    await branchButtons.first().press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect.poll(() => page.getByRole('tooltip').allTextContents(), { timeout: 5_000 })
+      .toEqual(['Available only on the last message of a completed turn'])
     await expect.poll(() => page.getByRole('button', { name: 'Edit' }).count(), { timeout: 5_000 }).toBe(0)
   }, 60_000)
 

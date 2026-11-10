@@ -651,9 +651,7 @@ export function JsonTree({
               setCopyMenuOpen(false)
             }}
             onClose={clearCopyTarget}
-            getAnchorRect={() => (
-              copyButtonRef.current as HTMLButtonElement
-            ).getBoundingClientRect()}
+            anchorRef={copyButtonRef}
           />
         </span>
       )}

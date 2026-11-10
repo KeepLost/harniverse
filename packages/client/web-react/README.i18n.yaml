@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/web-react/README.md
-README.md: e438715f8c85ba89fe885b3e932fef360e59f630
-README.zh.md: 470f62e872d8ba2fc57fd2ae6cb75fdc9356a4f2
+README.md: 42026fa49d22815f880d4d98f488813d4d2327f7
+README.zh.md: d04c5103697dd3c535c2ecf028d12e43805ead74

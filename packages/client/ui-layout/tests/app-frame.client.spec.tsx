@@ -41,7 +41,7 @@ const t: AppFrameProps['t'] = makeTranslate(zh, commonZh)
 // shape. Typed as the seat's own component type so the branded sessionId
 // parameter stays contract-checked.
 const SessionProviderStub: AppFrameProps['SessionProvider'] = ({ children, empty }) =>
-  selectedSession.current === undefined ? <>{empty?.() ?? null}</> : <>{children(selectedSession.current)}</>
+  selectedSession.current === undefined ? <>{empty?.() ?? null}</> : <>{children}</>
 
 
 /** Observer stub: captures the callback so tests can fire resizes manually. */
@@ -100,6 +100,7 @@ function mountFrame() {
       renderSlot={renderSlot}
       useSessions={useSessions}
       useWorkspaces={useWorkspaces}
+      useContextMenu={() => ({ getTriggerProps: () => ({}) })}
       useBackdropOccupied={selector => selector(backdropOccupied.current)}
       SessionProvider={SessionProviderStub}
       t={t}

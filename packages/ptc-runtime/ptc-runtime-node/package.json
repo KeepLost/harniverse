@@ -1,28 +1,36 @@
 {
   "name": "@deepseek-ai/dsh-ptc-runtime-node",
-  "description": "Fresh-process PTC implementation of the DeepSeek Harness code-execution seam",
+  "description": "Node PTC execution with async function, REPL and VM Script evaluators and optional retained state",
   "type": "module",
   "exports": {
+    "./package.json": "./package.json",
     ".": {
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./configuration": {
+      "types": "./lib/types/configuration.d.ts",
+      "default": "./lib/configuration.js"
+    },
+    "./process": {
+      "types": "./lib/types/process-entry.d.ts",
+      "default": "./lib/process.js"
+    },
+    "./locale/*.json": "./locale/*.json",
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
-    },
-    "./child": {
-      "types": "./lib/types/child.d.ts",
-      "default": "./lib/child.cjs"
-    },
-    "./package.json": "./package.json"
+    }
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/child.cjs",
+    "lib/configuration.js",
+    "lib/process.js",
+    "lib/persistent-process.js",
+    "locale/*.json",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
@@ -35,29 +43,38 @@
     "directory": "packages/ptc-runtime/ptc-runtime-node"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "workspace:^",
-    "@deepseek-ai/dsh-subprocess": "workspace:^"
+    "@deepseek-ai/schemastery": "workspace:~",
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
+    "birpc": "4.2.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-ptc-runtime": "workspace:^",
-    "@deepseek-ai/dsh-control-channel": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-ptc-runtime": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-timeout": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-subprocess": "workspace:^"
+    "@deepseek-ai/dsh-subprocess": "workspace:^",
+    "@deepseek-ai/dsh-timeout": "workspace:^"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-ptc-runtime": "workspace:^",
-    "@deepseek-ai/dsh-control-channel": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-fs": "workspace:^",
+    "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-ptc-runtime": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
+    "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-timeout": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/dsh-session-projection": "workspace:^",
+    "@deepseek-ai/dsh-subprocess": "workspace:^",
+    "@deepseek-ai/dsh-subprocess-local": "workspace:^",
+    "@deepseek-ai/dsh-timeout": "workspace:^"
   },
   "version": "1.0.0-rc.3"
 }

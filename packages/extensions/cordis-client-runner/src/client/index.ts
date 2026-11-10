@@ -288,7 +288,7 @@ export function apply(ctx: Context): void {
     isLoaded: id => runner.isLoaded(id),
   }
   ctx.provide('dynamicCordisRunner', face)
-  ctx.effect(() => () => { void runner.dispose() }, 'cordis-client-runner: dynamic package runner')
+  ctx.effect(() => () => { runner.dispose() }, 'cordis-client-runner: dynamic package runner')
 
   // Forwarded Host events: `$on` hands the listener the Host's own argument list,
   // so these read the request itself rather than a transport envelope.

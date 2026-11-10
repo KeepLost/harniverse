@@ -452,6 +452,8 @@ export class SessionTitleService extends Service {
           }
         }
         await this.drain(registration.active)
+        /* v8 ignore next 1 -- register() refuses a new provider while a registration is
+           seated, so the slot can only still be this one's. */
         if (this.registration === registration) this.registration = undefined
       }
     }.bind(this), 'sessionTitle.register()')

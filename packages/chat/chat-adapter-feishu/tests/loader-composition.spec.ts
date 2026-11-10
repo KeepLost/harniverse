@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import { FiberState } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import ChatAdapters, { type ChatInbound } from '@deepseek-ai/dsh-chat-adapter'
@@ -73,7 +74,16 @@ const manager = {
   name: 'test-manager',
   inject: ['chatAdapters', 'credentials'],
   async apply(ctx: Context, config: { bots: ManagedRow[] }): Promise<void> {
-    for (const bot of config.bots) await ctx.chatAdapters.platform(bot.platform)!.mount(ctx, bot)
+    for (const bot of config.bots) {
+      // Sibling rows activate in parallel; wait for the descriptor the manager
+      // mounts through rather than assuming the provider row finished first.
+      const descriptor = await vi.waitFor(() => {
+        const found = ctx.chatAdapters.platform(bot.platform)
+        if (found === undefined) throw new Error('platform descriptor not yet visible')
+        return found
+      })
+      await descriptor.mount(ctx, bot)
+    }
   },
 }
 
@@ -116,6 +126,21 @@ async function load(
   } as unknown as NonNullable<typeof context.loader.internal>
   await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await context.loader.await()
+  // Parallel sibling activation means a present fiber is not yet a started
+  // plugin; await each fiber, then wait on the registry fact itself so
+  // visibility is deterministic regardless of await() resolution depth.
+  for (const row of context.loader.entries()) {
+    if (row.fiber !== undefined) await row.fiber.await()
+  }
+  const composition = context
+  await vi.waitFor(() => {
+    if (composition.chatAdapters.platform('feishu') === undefined) throw new Error('feishu descriptor not yet visible')
+  })
+  // rc.8 contains row activation failures inside the group update; re-surface
+  // them so a broken row still fails the composition load.
+  for (const row of context.loader.entries()) {
+    if (!row.disabled && row.fiber !== undefined && row.fiber.state === FiberState.FAILED) await row.fiber.await()
+  }
   return context
 }
 

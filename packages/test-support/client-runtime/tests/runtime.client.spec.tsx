@@ -33,7 +33,7 @@ function Frame({ renderSlot, SessionProvider }: FrameProps) {
     <>
       {renderSlot('trt.panel', { label: 'from-owner' }, { fallback: <i>no panel</i> })}
       <SessionProvider empty={() => <i>no session</i>}>
-        {() => renderSlot('trt.chat', {})}
+        {renderSlot('trt.chat', {})}
       </SessionProvider>
       {renderSlot('trt.rows', {})}
     </>
@@ -125,7 +125,7 @@ describe('sessions', () => {
     const prompt = vi.fn()
     await runtime.sessions.add({ id: 's1', session: { prompt } })
 
-    expect(runtime.sessions.provideInfo('ghost')).toBeUndefined()
+    expect(runtime.sessions.bindingValue('ghost')).toBeUndefined()
     expect(runtime.sessions.scope('ghost')).toBeUndefined()
     expect(runtime.sessions.binding('ghost')).toBeUndefined()
 
@@ -156,10 +156,10 @@ describe('sessions', () => {
     const runtime = await runtimeWithFrame()
     await runtime.sessions.add({ id: 's1' })
 
-    const info = runtime.sessions.provideInfo('s1')!
-    expect(info.sessionId).toBe('s1')
+    const info = runtime.sessions.bindingValue('s1')!
+    expect(info.key).toBe('s1')
     expect(info.hooks['session']).toBeDefined() // the built-in useSession source
-    expect(runtime.sessions.provideInfo('s1')).toBe(info) // identity-stable
+    expect(runtime.sessions.bindingValue('s1')).toBe(info) // identity-stable
 
     // A feature provider (the ui-conversation input pattern): declared names
     // materialize per session and land in the no-session roster as undefined.
@@ -171,14 +171,14 @@ describe('sessions', () => {
         props: { probeActions: { poke: () => {} } },
       }),
     })
-    const enriched = runtime.sessions.provideInfo('s1')!
+    const enriched = runtime.sessions.bindingValue('s1')!
     expect(enriched.hooks['probe']?.getSnapshot()).toBe('s1')
     expect(enriched.props['probeActions']).toBeDefined()
-    const maybe = runtime.sessions.maybeProvideInfo(undefined)
-    expect(maybe.sessionId).toBeUndefined()
+    const maybe = runtime.sessions.maybeBinding(undefined)
+    expect(maybe.key).toBeUndefined()
     expect(Object.keys(maybe.hooks)).toEqual(['session', 'probe'])
-    expect(runtime.sessions.maybeProvideInfo('s1')).toBe(runtime.sessions.provideInfo('s1'))
-    expect(runtime.sessions.maybeProvideInfo('ghost').sessionId).toBeUndefined()
+    expect(runtime.sessions.maybeBinding('s1')).toBe(runtime.sessions.bindingValue('s1'))
+    expect(runtime.sessions.maybeBinding('ghost').key).toBeUndefined()
 
     // Misdeclared providers fail loud AT REGISTRATION (the production
     // channel rebuilds live bundles eagerly and rolls the roster back):
@@ -196,10 +196,10 @@ describe('sessions', () => {
       .toThrow(/duplicate prop "twice"/)
     propA()
     // The rejected registrations rolled back: the roster still materializes.
-    expect(runtime.sessions.provideInfo('s1')).toBeDefined()
+    expect(runtime.sessions.bindingValue('s1')).toBeDefined()
     off()
     off() // disposer is idempotent
-    expect(Object.keys(runtime.sessions.maybeProvideInfo(undefined).hooks)).toEqual(['session'])
+    expect(Object.keys(runtime.sessions.maybeBinding(undefined).hooks)).toEqual(['session'])
     await runtime.dispose()
   })
 
@@ -300,11 +300,12 @@ describe('stores', () => {
     await runtime.dispose()
   })
 
-  it('storeOf guards: before renderRoot, and for storeless entries', async () => {
+  it('storeOf guards: before renderRoot, unknown session bindings, and storeless entries', async () => {
     const runtime = await runtimeWithFrame()
     runtime.slots.register({ name: 'trt.panel' }, () => null)
     expect(() => runtime.storeOf('trt.panel')).toThrow(/before renderRoot/)
     runtime.renderRoot()
+    expect(() => runtime.storeOf('trt.panel', 'ghost')).toThrow(/no live session binding for 'ghost'/)
     expect(() => runtime.storeOf('trt.panel')).toThrow(/declares no store/)
     await runtime.dispose()
   })
@@ -323,7 +324,7 @@ describe('stores', () => {
     await runtime.sessions.remove('s1')
     expect(localStorage.getItem('trt.store.s1')).toBeNull()
     expect(runtime.sessions.list.getSnapshot().ids).toEqual([])
-    expect(runtime.sessions.provideInfo('s1')).toBeUndefined()
+    expect(runtime.sessions.bindingValue('s1')).toBeUndefined()
 
     await runtime.sessions.add({ id: 's1' })
     const reborn = runtime.storeOf('trt.chat', 's1')
@@ -542,8 +543,8 @@ describe('fixture session face', () => {
     // A never-subscribed key sets without listeners (the empty-notify arm).
     session.projections.set('untouched', 1)
     // The provide bundle hands the same store to the render side.
-    const info = runtime.sessions.provideInfo('s1')!
-    expect(info.projections?.faceOf('todos').getSnapshot()).toEqual([3])
+    const info = runtime.sessions.bindingValue('s1')!
+    expect(info.keyedHooks.projection?.('todos')?.getSnapshot()).toEqual([3])
     // A roster change rebuilds the ALREADY-materialized bundle eagerly
     // (production channel semantics: mounted entries must see the provider)
     // and skips never-materialized records (they pick the roster up lazily).
@@ -552,7 +553,7 @@ describe('fixture session face', () => {
       hooks: ['probe2'],
       resolve: () => ({ hooks: { probe2: { getSnapshot: () => 1, subscribe: () => () => {} } } }),
     })
-    const rebuilt = runtime.sessions.provideInfo('s1')!
+    const rebuilt = runtime.sessions.bindingValue('s1')!
     expect(rebuilt).not.toBe(info)
     expect(rebuilt.hooks['probe2']).toBeDefined()
     offProbe()

@@ -92,6 +92,7 @@ function mount(
       anchorRef={anchorRef}
       useSessions={hook(sessions)}
       useWorkspaces={hook(workspaceState(nextItems))}
+      useContextMenu={() => ({ getTriggerProps: () => ({}) })}
       onPick={onPick}
       onClose={onClose}
       createWorkspace={createWorkspace}
@@ -211,6 +212,7 @@ describe('WorkspacePicker', () => {
     render(
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([workspace('alpha', 'Alpha')]))}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
         useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot} t={t}
       />,
@@ -226,6 +228,7 @@ describe('WorkspacePicker', () => {
     render(
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
         useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot} t={t}
       />,

@@ -15,7 +15,26 @@ const uncoveredLocationsReporter = fileURLToPath(new URL('./scripts/coverage-unc
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
 // has no include, which vite-tsconfig-paths treats as match-all, so its paths
 // map applies to every test file. paths must win over package exports so built
-// lib/ never loads a second module-singleton copy.
+// lib/ never loads a second module-singleton copy. The vendored framework
+// scopes get an explicit alias on top: their package exports point at the
+// tsdown bundle, whose enum output vite's ssr transform cannot re-export, so
+// any fallback to lib/ silently yields undefined runtime enums.
+const VENDOR_SRC_ALIASES: Record<string, string> = {
+  '@deepseek-ai/cordis': 'vendor/cordis/src/index.ts',
+  '@deepseek-ai/cosmokit': 'vendor/cosmokit/src/index.ts',
+  '@deepseek-ai/schemastery': 'vendor/schemastery/src/index.ts',
+  '@deepseek-ai/cordis-plugin-loader': 'vendor/loader/src/index.ts',
+  '@deepseek-ai/cordis-plugin-include': 'vendor/include/src/index.ts',
+  '@deepseek-ai/cordis-plugin-group': 'vendor/group/src/index.ts',
+  '@deepseek-ai/cordis-plugin-timer': 'vendor/timer/src/index.ts',
+  '@deepseek-ai/cordis-plugin-hmr': 'vendor/hmr/src/index.ts',
+  '@deepseek-ai/cordis-plugin-logger-console': 'vendor/logger-console/src/index.ts',
+  // The control subpath's runtime default is the built bundle; source-mode
+  // suites (and the ptc provider's launch helper) resolve the module source
+  // so a clean checkout needs no prior build.
+  '@deepseek-ai/dsh-subprocess/control': 'packages/subprocess/subprocess/src/control.ts',
+}
+
 const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
 
 const windowsUnsupportedPackages = process.platform === 'win32'
@@ -179,6 +198,7 @@ const processBoundTests = [
   'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-worker-thread/tests/session.spec.ts',
   'packages/ptc-runtime/ptc-runtime-python/tests/runtime.spec.ts',
+  'packages/ptc-runtime/ptc-runtime-node/tests/imports.spec.ts',
 ]
 
 const platformTestTimeoutMs = process.platform === 'win32' ? 600_000 : 5_000
@@ -187,7 +207,7 @@ const processBoundMaxWorkers = process.platform === 'win32' ? 1 : undefined
 export default defineConfig({
   plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
-    setupFiles: ['./scripts/test-invariants.ts'],
+    setupFiles: ['./scripts/test-invariants.ts', './scripts/test-dom-environment.ts'],
     // Hosted Windows runners need more time for process-heavy fixtures and
     // filesystem cleanup; keep the platform-specific ceiling at ten minutes.
     testTimeout: platformTestTimeoutMs,
@@ -199,6 +219,12 @@ export default defineConfig({
     projects: [
       {
         plugins: [pathsPlugin(), standardDecoratorPlugin()],
+        resolve: {
+          alias: Object.fromEntries(
+            Object.entries(VENDOR_SRC_ALIASES).map(([name, target]) => [name, fileURLToPath(new URL(`./${target}`, import.meta.url))]),
+          ),
+        },
+
         test: {
           name: 'thread-safe',
           execArgv: vitestExecArgv,
@@ -207,7 +233,7 @@ export default defineConfig({
           // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS,
           // Linux, and Windows. Forked workers avoid that shared thread path.
           pool: 'forks',
-          setupFiles: ['./scripts/test-invariants.ts'],
+          setupFiles: ['./scripts/test-invariants.ts', './scripts/test-dom-environment.ts'],
           include: testIncludes,
           exclude: [
              ...windowsUnsupportedTests,
@@ -219,13 +245,21 @@ export default defineConfig({
       },
       {
         plugins: [pathsPlugin(), standardDecoratorPlugin()],
+        resolve: {
+          alias: Object.fromEntries(
+            Object.entries(VENDOR_SRC_ALIASES).map(([name, target]) => [name, fileURLToPath(new URL(`./${target}`, import.meta.url))]),
+          ),
+        },
+
         test: {
           name: 'process-bound',
-          execArgv: vitestExecArgv,
+          // The ptc-runner import suite builds VM module graphs; the missing-flag
+          // guard stays in the thread-safe lane.
+          execArgv: [...vitestExecArgv, '--experimental-vm-modules'],
           testTimeout: platformTestTimeoutMs,
           ...processBoundMaxWorkers === undefined ? {} : { maxWorkers: processBoundMaxWorkers },
           pool: 'forks',
-          setupFiles: ['./scripts/test-invariants.ts'],
+          setupFiles: ['./scripts/test-invariants.ts', './scripts/test-dom-environment.ts'],
           include: processBoundTests,
           exclude: [
              ...windowsUnsupportedTests,
@@ -253,6 +287,11 @@ export default defineConfig({
         // behavior is pinned end-to-end by tests/source-child.compat.spec.ts
         // and the real-process suites, which spawn the true entry.
         'packages/ptc-runtime/ptc-runtime-node/src/child.ts',
+        // The built Node entries invoke the independently covered process
+        // bootstrap through fd 7; they execute exclusively as spawned
+        // children, which v8 coverage never measures.
+        'packages/ptc-runtime/ptc-runtime-node/src/process-entry.ts',
+        'packages/ptc-runtime/ptc-runtime-node/src/persistent-process-entry.ts',
         // The packaged executable's process entry executes exclusively inside
         // the yao-pkg binary (the python smoke and release-shaped lane cover
         // it end-to-end); unit coverage can never import it.

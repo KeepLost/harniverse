@@ -234,7 +234,9 @@ describe('real Loader composition', () => {
 
   it('unmounts the backend when the surface entry fails to load', { timeout: 60_000 }, async () => {
     stubAttendedHost()
-    await expect(loadComposition('127.0.0.1', { failSurface: true })).rejects.toThrow(/surface import failed/)
+    const { ctx } = await loadComposition('127.0.0.1', { failSurface: true })
+    const chooser = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
+    await expect(chooser.fiber!.await()).rejects.toThrow(/directory-picker-auto: failed to load/)
 
     // Setup owns both entries until it returns its disposer, so a failed surface
     // must take the mounted backend with it: otherwise a retry collides with the
@@ -248,7 +250,7 @@ describe('real Loader composition', () => {
     const { ctx, configPath } = await loadComposition('127.0.0.1')
 
     const backendEntry = [...ctx.loader.entries()].find(entry => entry.options.name === NATIVE)!
-    await ctx.loader.remove(backendEntry.id)
+    ctx.loader.remove(backendEntry.id)
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
     renameControl.remainingFailures = 1
     await expect(autoEntry.fiber!.dispose()).resolves.not.toThrow()
@@ -261,7 +263,7 @@ describe('real Loader composition', () => {
     expect(renameControl.attempts).toBeGreaterThanOrEqual(2)
   })
 
-  it('reports a terminal debounced-write failure again to the teardown owner', { timeout: 60_000 }, async () => {
+  it('reports unsaved changes at shutdown and clears the error after a successful retry', { timeout: 60_000 }, async () => {
     stubAttendedHost()
     const { ctx } = await loadComposition('127.0.0.1')
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
@@ -269,11 +271,14 @@ describe('real Loader composition', () => {
       .find(entry => entry.options.name === 'cordis:include')?.subtree as Include | undefined
     if (include === undefined) throw new Error('expected the root Include tree')
     renameControl.failureCode = 'EIO'
-    renameControl.remainingFailures = 1
+    renameControl.remainingFailures = Infinity
 
     await autoEntry.fiber!.dispose()
     await expect.poll(() => renameControl.injectedFailures).toBe(1)
     await expect(include.stop()).rejects.toMatchObject({ code: 'EIO' })
+    renameControl.remainingFailures = 0
+    await expect(include.flush()).resolves.toBeUndefined()
+    await expect(include.flush()).resolves.toBeUndefined()
     await expect(ctx.fiber.dispose()).resolves.not.toThrow()
     context = undefined
   })

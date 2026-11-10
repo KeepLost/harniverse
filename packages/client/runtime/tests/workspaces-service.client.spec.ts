@@ -204,15 +204,27 @@ describe('WorkspaceRuntime', () => {
     await expect(workspaces.readBinaryFile(wid('alpha'), 'pixel.png', signal)).resolves.toEqual({
       path: '', dataBase64: '', mediaType: 'image/png', bytes: 0,
     })
+    await expect(workspaces.statFile(wid('alpha'), 'doc.txt', signal)).resolves.toEqual({
+      absolutePath: '/w/f.txt', version: '1', bytes: 0,
+    })
+    await expect(workspaces.readFileBytes(wid('alpha'), 'doc.txt', { offset: 4, length: 8 }, signal)).resolves.toEqual({
+      path: '', offset: 0, dataBase64: '', bytes: 0, eof: true,
+    })
     expect(api.callsOf('workspace.files.search')).toEqual([{
       workspaceId: wid('alpha'), query: 'main', include: ['*.ts'], exclude: ['dist/'],
     }])
     expect(api.callsOf('workspace.files.readBinary')).toEqual([{ workspaceId: wid('alpha'), path: 'pixel.png' }])
+    expect(api.callsOf('workspace.files.stat')).toEqual([{ workspaceId: wid('alpha'), path: 'doc.txt' }])
+    expect(api.callsOf('workspace.files.readBytes')).toEqual([{ workspaceId: wid('alpha'), path: 'doc.txt', offset: 4, length: 8 }])
 
     api.workspaceFiles.search = () => Promise.resolve(err({ code: 'internal', message: 'search unavailable', details: {} }))
     api.workspaceFiles.readBinary = () => Promise.resolve(err({ code: 'internal', message: 'preview unavailable', details: {} }))
+    api.workspaceFiles.stat = () => Promise.resolve(err({ code: 'internal', message: 'stat unavailable', details: {} }))
+    api.workspaceFiles.readBytes = () => Promise.resolve(err({ code: 'internal', message: 'bytes unavailable', details: {} }))
     await expect(workspaces.searchFiles(wid('alpha'), 'main')).rejects.toThrow('search unavailable')
     await expect(workspaces.readBinaryFile(wid('alpha'), 'pixel.png')).rejects.toThrow('preview unavailable')
+    await expect(workspaces.statFile(wid('alpha'), 'doc.txt')).rejects.toThrow('stat unavailable')
+    await expect(workspaces.readFileBytes(wid('alpha'), 'doc.txt')).rejects.toThrow('bytes unavailable')
   })
 
   it('translates the carrier timeout into an actionable filesystem message per fs call', async () => {

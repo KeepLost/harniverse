@@ -27,7 +27,8 @@ import {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
 import type {
-  ChildrenDecl, ComposedProps, OwnerOf, SlotComponent, SlotMap, SlotRendererHost, StoreInstanceLike,
+  ChildrenDecl, ComposedProps, OwnerOf, SlotComponent, SlotFactoryMap, SlotMap, SlotRendererHost,
+  StoreInstanceLike, StoredFactory,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { registerDomSnapshotSerializer } from './snapshot.ts'
 import { TestSessions } from './sessions.ts'
@@ -203,6 +204,16 @@ export class SlotTestRuntime {
     this.workspaces = new TestWorkspaces(this.stabilizer)
     ctx.provide('sessions', this.sessions)
     ctx.provide('workspaces', this.workspaces)
+    // Standard-source wiring mirrors the runtime apply pass: global
+    // sessions/workspaces hooks ride the root contribution, and the sessions
+    // double owns the session scope adapter.
+    slots.provideRoot({
+      hooks: {
+        sessions: this.sessions.list,
+        workspaces: this.workspaces.list,
+      },
+    })
+    slots.installScope('session', this.sessions.scopeAdapter)
     // Capturing install: the production renderer does the rendering; the
     // wrapper only takes the host face for storeOf (no machinery copied).
     const renderer = createSlotRenderer()
@@ -338,6 +349,20 @@ export class SlotTestRuntime {
   }
 
   /**
+   * Read one registered Factory definition for direct contract assertions.
+   * @param name - registered factory name.
+   * @returns the live definition.
+   */
+  factoryOf(name: keyof SlotFactoryMap & string): StoredFactory {
+    if (this.host === undefined) {
+      throw new Error('factoryOf before renderRoot() — the host face exists only inside the installed renderer')
+    }
+    const definition = this.host.factoryOf(name)
+    if (definition === undefined) throw new Error(`factoryOf('${String(name)}'): no definition`)
+    return definition
+  }
+
+  /**
    * Resolve the store instance the renderer would hand a slot's component
    * (identity assertions, action-driven writes). Requires a prior
    * {@link SlotTestRuntime.renderRoot} — the host face exists only inside the
@@ -352,7 +377,11 @@ export class SlotTestRuntime {
     }
     const entry = this.host.entriesOf(key)[0]
     if (entry === undefined) throw new Error(`storeOf('${key}'): no registration on the ledger`)
-    const instance = this.host.storeOf(entry, scopeKey)
+    const scopeBinding = scopeKey === undefined ? undefined : this.sessions.bindingValue(scopeKey)
+    if (scopeKey !== undefined && scopeBinding === undefined) {
+      throw new Error(`storeOf('${key}'): no live session binding for '${scopeKey}'`)
+    }
+    const instance = this.host.storeOf(entry, scopeBinding)
     if (instance === undefined) throw new Error(`storeOf('${key}'): the entry declares no store`)
     return instance
   }

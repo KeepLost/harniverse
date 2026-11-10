@@ -62,6 +62,8 @@
         levels:
           default: 2
 
+    - id: sandbox
+      name: '@deepseek-ai/dsh-sandbox-local'
     - id: ptc-runtime
       name: '@deepseek-ai/dsh-ptc-runtime-node'
 
@@ -426,6 +428,16 @@
     # mount the namespace, so the section stays absent there.
     - id: ui-settings-im
       name: '@deepseek-ai/dsh-client-ui-settings-im'
+
+    # Original-file capability behind the conversation image surfaces: save,
+    # save-as, and clipboard copy over captured sources.
+    - id: ui-file-actions
+      name: '@deepseek-ai/dsh-client-ui-file-actions'
+
+    # Typed, plugin-extensible context menus with captured targets and the
+    # shared Web popup (registered kinds decide which targets show the button).
+    - id: ui-context-menu
+      name: '@deepseek-ai/dsh-client-ui-context-menu'
 
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'

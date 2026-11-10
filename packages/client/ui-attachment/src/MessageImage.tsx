@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { ImageLightbox } from './ImageLightbox.tsx'
-import type { ImageLightboxLabels } from './ImageLightbox.tsx'
+import type { ImageLightboxActions, ImageLightboxLabels } from './ImageLightbox.tsx'
 import css from './MessageImage.module.css'
 
 /** Loads a session-authorized durable image URL. */
@@ -22,6 +22,12 @@ export interface MessageImageLabels {
   /** Lightbox strings forwarded to the opened preview. */
   lightbox: ImageLightboxLabels
 }
+
+/**
+ * Resolve the original-file commands for one opened preview from its loaded
+ * URL and display name; owners without commands pass no resolver at all.
+ */
+export type ImageActionsFor = (resolved: { url: string; name: string }) => ImageLightboxActions
 
 /** Display box for a lone image (DeepSeek Chat rule): long edge 240px with
  * the rendered aspect ratio clamped to [0.25, 4] — the overflow is cropped by
@@ -49,13 +55,15 @@ function singleFit(attachment: ImageAttachmentRef): { width: number; height: num
  * @param props.load - session-authorized URL loader.
  * @param props.variant - `single` for a message's lone image, `tile` otherwise.
  * @param props.labels - resolved strings (tooltip, loading, retry, lightbox).
+ * @param props.actionsFor - optional original-file commands for the opened preview.
  * @returns the bounded thumbnail button, or the retry control on failure.
  */
-export function MessageImage({ attachment, load, variant, labels }: {
+export function MessageImage({ attachment, load, variant, labels, actionsFor }: {
   attachment: ImageAttachmentRef
   load: ImageLoader
   variant: 'single' | 'tile'
   labels: MessageImageLabels
+  actionsFor?: ImageActionsFor
 }) {
   const [src, setSrc] = useState<string | null>(null)
   const [error, setError] = useState(false)
@@ -95,25 +103,29 @@ export function MessageImage({ attachment, load, variant, labels }: {
           ? <span className={css.loading}>{labels.loading}</span>
           : <img src={src} alt={label} style={fit === undefined ? undefined : { objectPosition: fit.objectPosition }} />}
       </button>
-      {open && src !== null && <ImageLightbox src={src} alt={label} labels={labels.lightbox} onClose={close} />}
+      {open && src !== null && <ImageLightbox src={src} alt={label} labels={labels.lightbox}
+        {...actionsFor === undefined ? {} : { actions: actionsFor({ url: src, name: label }) }}
+        onClose={close} />}
     </>
   )
 }
 
 /** Wrapping image group shared by user and assistant history: a lone image
  * renders large, several render as 64px square tiles (DeepSeek Chat rule). */
-export function ImageGallery({ images, load, align, labels }: {
+export function ImageGallery({ images, load, align, labels, actionsFor }: {
   images: readonly { attachment: ImageAttachmentRef }[]
   load: ImageLoader
   align: 'start' | 'end'
   labels: MessageImageLabels
+  actionsFor?: ImageActionsFor
 }) {
   if (images.length === 0) return null
   const variant = images.length === 1 ? 'single' : 'tile'
   return (
     <div className={css.gallery} data-align={align}>
       {images.map((image, index) => (
-        <MessageImage key={`${image.attachment.attachmentId}:${index}`} {...image} load={load} variant={variant} labels={labels} />
+        <MessageImage key={`${image.attachment.attachmentId}:${index}`} {...image} load={load} variant={variant} labels={labels}
+          {...actionsFor === undefined ? {} : { actionsFor }} />
       ))}
     </div>
   )

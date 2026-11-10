@@ -292,7 +292,7 @@ export class DynamicCordisPackageRunner {
         // Already running this activation here: nothing to load, but the caller
         // still needs an answer (a replayed run must not look unacknowledged).
         if (current.pkg.pluginRunId === half.pluginRunId) return settled(current)
-        await this.teardown(current.pkg.pluginId, current.entryId, current.styles)
+        this.teardown(current.pkg.pluginId, current.entryId, current.styles)
       }
       const result = await this.mount(half)
       this.notify()
@@ -307,19 +307,20 @@ export class DynamicCordisPackageRunner {
    * @param pluginRunId - exact activation being retracted; a newer run survives.
    */
   retract(pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId): void {
-    void this.enqueue(pluginId, async () => {
+    void this.enqueue(pluginId, () => {
       const current = this.live.get(pluginId)
-      if (current === undefined || current.pkg.pluginRunId !== pluginRunId) return
-      await this.teardown(pluginId, current.entryId, current.styles)
+      if (current === undefined || current.pkg.pluginRunId !== pluginRunId) return Promise.resolve()
+      this.teardown(pluginId, current.entryId, current.styles)
       this.notify()
+      return Promise.resolve()
     })
   }
 
   /** Unload everything (plugin disposal path). */
-  async dispose(): Promise<void> {
+  dispose(): void {
     this.unwatch()
     for (const current of [...this.live.values()]) {
-      await this.teardown(current.pkg.pluginId, current.entryId, current.styles)
+      this.teardown(current.pkg.pluginId, current.entryId, current.styles)
     }
     this.notify()
   }
@@ -378,13 +379,13 @@ export class DynamicCordisPackageRunner {
     const entryId = await this.env.loader.create({ name: moduleId })
     const fiber = this.env.loader.resolve(entryId).fiber
     if (fiber === undefined) {
-      await this.teardown(half.pluginId, entryId, styles)
+      this.teardown(half.pluginId, entryId, styles)
       return { ok: false, cause: 'module-import', message: 'module import failed (see the browser console)' }
     }
     try {
       await fiber.await()
     } catch (error) {
-      await this.teardown(half.pluginId, entryId, styles)
+      this.teardown(half.pluginId, entryId, styles)
       return { ok: false, cause: 'activate', ...errorDetails(error), error }
     }
     // Settled but not active = legal pending on an unsatisfied declaration. The
@@ -440,18 +441,18 @@ export class DynamicCordisPackageRunner {
    * Unload one package's contributions. Takes the pieces rather than the record
    * because a load can fail before any record is seated.
    */
-  private async teardown(
+  private teardown(
     id: CordisDynamicPluginId,
     entryId: string,
     styles: DynamicCordisStyles,
-  ): Promise<void> {
+  ): void {
     this.live.delete(id)
     // Nothing of this package renders here any more, so a crash row would outlive
     // the thing it described.
     this.failures.delete(id)
     // Entry removal disposes the fiber (slot entries and facade effects
     // cascade); the factory invalidation makes a later re-load legal.
-    await this.env.loader.remove(entryId)
+    this.env.loader.remove(entryId)
     this.env.modules.invalidate(moduleIdOf(id))
     styles.dispose()
   }

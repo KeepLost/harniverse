@@ -172,10 +172,11 @@ function mount(
       return (
         <ConversationSessionHeader
           sessionId={SID}
-          SessionProvider={({ children }) => children(SID)}
+          SessionProvider={({ children }) => <>{children}</>}
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useContextMenu={() => ({ getTriggerProps: () => ({}) })}
           useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
@@ -192,10 +193,11 @@ function mount(
       return (
         <ConversationSession
           sessionId={SID}
-          SessionProvider={({ children }) => children(SID)}
+          SessionProvider={({ children }) => <>{children}</>}
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useContextMenu={() => ({ getTriggerProps: () => ({}) })}
           useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
@@ -215,10 +217,11 @@ function mount(
       return (
         <InputBar
           sessionId={SID}
-          SessionProvider={({ children }) => children(SID)}
+          SessionProvider={({ children }) => <>{children}</>}
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useContextMenu={() => ({ getTriggerProps: () => ({}) })}
           useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
@@ -267,10 +270,11 @@ function mount(
   )) as ConversationRootProps['renderSlotChain']
   const props: ConversationRootProps = {
     sessionId: SID,
-    SessionProvider: ({ children }) => children(SID),
+    SessionProvider: ({ children }) => <>{children}</>,
     useSession,
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: (() => undefined),
     useComposerBlock: select => select(options.composerBlock),
     useInput,

@@ -6,9 +6,10 @@
  * @module @deepseek-ai/dsh-tools/src/ptc
  */
 
+import { symbols } from '@deepseek-ai/cordis'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { CodeBindingFunction, CodeRunResult, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcBindingFunction, PtcRunResult, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool, parameterSchemaSpecToJsonSchema } from './schema.ts'
@@ -38,12 +39,11 @@ interface RunCodeFlavor {
 }
 
 /**
- * The TypeScript flavor: the fallback for a schema read with no runtime
- * mounted ({@link resolveFlavor} owns which readers reach that). A real
- * assembly always resolves a runtime first, so the model never sees this
- * fallback outside its own language.
+ * The TypeScript function-body flavor: the body of an async function, top-level
+ * `await` and `return`, matching {@link ./ts-types.ts}'s function-body SDK
+ * instructions.
  */
-const TYPESCRIPT_FLAVOR: RunCodeFlavor = {
+const TYPESCRIPT_FUNCTION_FLAVOR: RunCodeFlavor = {
   description:
     'Execute a TypeScript program against the available tools. Takes two required '
     + 'arguments: `code`, the BODY of an async function (erasable syntax only; top-level '
@@ -51,6 +51,21 @@ const TYPESCRIPT_FLAVOR: RunCodeFlavor = {
     + 'does. Call tools as `await tools.name(args)` per the declarations in the system '
     + 'prompt. Only what you print or return comes back — curate it.',
   codeDescription: 'The program: the body of an async TypeScript function.',
+}
+
+/**
+ * The TypeScript program flavor for script and REPL evaluation forms: whole
+ * programs with top-level declarations and a final expression, no top-level
+ * `return`; output is what the program emits.
+ */
+const TYPESCRIPT_PROGRAM_FLAVOR: RunCodeFlavor = {
+  description:
+    'Execute a TypeScript program against the available tools. Takes two required '
+    + 'arguments: `code`, the program to execute, and `description`, a short summary of '
+    + 'what the program does. Call tools as `await tools.name(args)` per the declarations '
+    + 'in the system prompt. Follow the execution instructions for this runtime; only '
+    + 'emitted program output comes back — curate it.',
+  codeDescription: 'The program: follow the execution instructions in the system prompt.',
 }
 
 /**
@@ -81,7 +96,7 @@ export type CodeSdkLanguage = 'typescript' | 'python'
 
 /** Per-language `run_code` schema flavors (see {@link RunCodeFlavor}); one entry per {@link CodeSdkLanguage}. */
 const RUN_CODE_FLAVORS: Record<string, RunCodeFlavor> = {
-  typescript: TYPESCRIPT_FLAVOR,
+  typescript: TYPESCRIPT_PROGRAM_FLAVOR,
   python: PYTHON_FLAVOR,
 } satisfies Record<CodeSdkLanguage, RunCodeFlavor>
 
@@ -116,8 +131,9 @@ function resolveFlavor(peekRuntime: () => PtcRuntime | undefined): RunCodeFlavor
     // No runtime mounted: reached by definition readers and `schemas()`, of
     // which the doc-catalog harvest is the only shipped one. None feeds a
     // model — `wireSchemas` calls `requirePtcRuntime` before projecting, so
-    // the assembly path never arrives here. Degrade to the TS default.
-    return TYPESCRIPT_FLAVOR
+    // the assembly path never arrives here. Degrade to the TS function-body
+    // default every released TypeScript runtime has shipped.
+    return TYPESCRIPT_FUNCTION_FLAVOR
   }
   // Own-property read: a language like `toString`/`constructor` would otherwise
   // resolve an inherited Object.prototype member as a flavor.
@@ -126,7 +142,10 @@ function resolveFlavor(peekRuntime: () => PtcRuntime | undefined): RunCodeFlavor
     const known = Object.keys(RUN_CODE_FLAVORS).map(name => JSON.stringify(name)).join(', ')
     throw new Error(`dsh-tools: no run_code schema flavor registered for runtime language ${JSON.stringify(runtime.language)} (known: ${known})`)
   }
-  return flavor
+  // The evaluation form is part of the schema contract: a function-body runtime
+  // promises top-level `return`; script and REPL forms do not.
+  return runtime.language === 'typescript' && runtime.programFormat === 'function-body'
+    ? TYPESCRIPT_FUNCTION_FLAVOR : flavor
 }
 
 /**
@@ -281,6 +300,38 @@ export interface RunCodeBridgeOptions {
 }
 
 /**
+ * Agents whose retained environment this registry has already registered a
+ * release effect for, per original provider instance: retained state is
+ * best-effort process memory tied to one provider, so cleanup registers once
+ * per agent-provider pair.
+ */
+const stateOwners = new WeakMap<object, WeakSet<PtcRuntime>>()
+
+/**
+ * Register the agent-scoped release effect for one provider's retained
+ * environment: when the agent's scope disposes, the owner's environment is
+ * released through the provider's `release`.
+ * @param runtime - the retaining provider (unwrapped to its original instance).
+ * @param agent - the exact object supplied as the run's state owner.
+ */
+type StateOwningAgent = object & { ctx: { effect: (execute: () => () => void, label: string) => unknown } }
+
+function registerStateOwner(runtime: PtcRuntime, agent: StateOwningAgent): void {
+  let runtimes = stateOwners.get(agent)
+  if (runtimes === undefined) stateOwners.set(agent, runtimes = new WeakSet())
+  // Cordis can wrap service returns repeatedly; cleanup belongs to the original provider.
+  let provider: PtcRuntime = runtime
+  for (;;) {
+    const original = (provider as PtcRuntime & { [symbols.original]?: PtcRuntime })[symbols.original]
+    if (original === undefined) break
+    provider = original
+  }
+  if (runtimes.has(provider)) return
+  agent.ctx.effect(() => () => { void runtime.release(agent) }, 'PTC retained environment')
+  runtimes.add(provider)
+}
+
+/**
  * Build the `run_code` {@link ToolDefinition}: required `code` and
  * `description` parameters, executed through the dispatch bridge described
  * above. The
@@ -301,9 +352,9 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
     // sees matches the SDK section's language. Argument VALIDATION still keys
     // off this static spec (defineTool closes over it), which is language-
     // independent (one required string `code`).
-    description: TYPESCRIPT_FLAVOR.description,
+    description: TYPESCRIPT_FUNCTION_FLAVOR.description,
     parameters: {
-      code: { type: 'string', required: true, description: TYPESCRIPT_FLAVOR.codeDescription },
+      code: { type: 'string', required: true, description: TYPESCRIPT_FUNCTION_FLAVOR.codeDescription },
       description: {
         type: 'string',
         required: true,
@@ -461,7 +512,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       // would be narrowed away by control flow analysis.
       const runOver = (): boolean => runController.signal.aborted
 
-      const binding = (name: string): CodeBindingFunction => async (rawArgs: unknown): Promise<JsonValue> => {
+      const binding = (name: string): PtcBindingFunction => async (rawArgs: unknown): Promise<JsonValue> => {
         if (runOver()) {
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} not dispatched`)
         }
@@ -598,7 +649,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       // own key (a plain-object assignment would hit the prototype setter,
       // silently dropping the binding), and the runtime host resolves
       // binding names as own properties only.
-      const functions: Record<string, CodeBindingFunction> = Object.create(null) as Record<string, CodeBindingFunction>
+      const functions: Record<string, PtcBindingFunction> = Object.create(null) as Record<string, PtcBindingFunction>
       // Enumerate the CALLING AGENT's visible set (scoped tools join,
       // restricted globals vanish) — the same view the SDK section declared,
       // so a program can bind exactly what its prompt promised; sub-dispatch
@@ -609,17 +660,21 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       }
 
       try {
-        let result: CodeRunResult
+        let result: PtcRunResult
         try {
-          result = await runtime.run({
+          if (runtime.retainsState && exec.agent !== undefined) {
+            registerStateOwner(runtime, exec.agent)
+          }
+          result = await runtime.run(runtime.resolve({
             program: args.code,
+            ...(runtime.retainsState && exec.agent !== undefined ? { stateOwner: exec.agent } : {}),
             bindings: [{
               global: 'tools',
               functions,
               errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
             }],
             signal: runController.signal,
-          })
+          }))
         } finally {
           // Abort sub-dispatches and drain every in-flight dispatch before
           // closing the turn (queued-unstarted ones are abandoned unlogged).

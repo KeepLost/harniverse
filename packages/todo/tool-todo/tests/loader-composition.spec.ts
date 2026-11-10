@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import { FiberState } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -84,6 +85,11 @@ async function boot(configLines: readonly string[]): Promise<Context> {
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
+  // rc.8 contains row activation failures inside the group update; re-surface
+  // them so a broken row still fails the composition load.
+  for (const row of ctx.loader.entries()) {
+    if (!row.disabled && row.fiber !== undefined && row.fiber.state === FiberState.FAILED) await row.fiber.await()
+  }
   return ctx
 }
 

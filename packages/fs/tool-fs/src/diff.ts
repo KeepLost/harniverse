@@ -77,3 +77,13 @@ export function diffsFromMeta(meta: unknown): FileDiff[] | undefined {
   if (!Array.isArray(diffs) || diffs.length === 0 || !diffs.every(isFileDiff)) return undefined
   return diffs
 }
+
+/**
+ * Narrow the patch tool's optional stopped flag from persisted metadata.
+ * @param meta - opaque live or replayed result metadata.
+ * @returns true only for an explicit stopped flag.
+ */
+export function stoppedFromMeta(meta: unknown): boolean {
+  return typeof meta === 'object' && meta !== null && !Array.isArray(meta)
+    && (meta as Record<string, unknown>).stopped === true
+}

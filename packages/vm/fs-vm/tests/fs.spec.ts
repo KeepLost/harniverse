@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { FsError } from '@deepseek-ai/dsh-fs'
+import { FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
@@ -265,6 +265,105 @@ describe('VmFileSystem', () => {
     const version = (await ctx.fs.stat(target))!.version
     await expect(ctx.fs.editText(target, { oldString: 'two', newString: '2', replaceAll: false }, { version: `${version}!` as never }, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
     await expect(ctx.fs.editText(await ctx.fs.resolve('/workspace/absent.txt'), { oldString: 'a', newString: 'b', replaceAll: false }, undefined, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+  })
+
+  it('patches, deletes, and moves through the world under the resolved policy', async () => {
+    const { ctx, memory } = await setup()
+    memory.files.set('/workspace/a.txt', Buffer.from('old\nline\n'))
+    const a = await ctx.fs.resolve('/workspace/a.txt')
+    const hunks = [{ lineNumber: 1, oldLines: ['old'], newLines: ['new'], isEndOfFile: false }]
+
+    // patch: applied, mismatched, stale, and policy-denied shapes.
+    await expect(ctx.fs.patchText(a, hunks, undefined, undefined, danger)).resolves.toMatchObject({ before: 'old\nline\n', after: 'new\nline\n' })
+    await expect(ctx.fs.patchText(a, [{ lineNumber: 1, oldLines: ['missing'], newLines: ['x'], isEndOfFile: false }], undefined, undefined, danger)).rejects.toMatchObject({ code: 'FS_PATCH_MISMATCH' })
+    await expect(ctx.fs.patchText(a, hunks, { version: FsVersion('stale') }, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    await expect(ctx.fs.patchText(await ctx.fs.resolve('/workspace/absent.txt'), hunks, undefined, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    await expect(ctx.fs.patchText(a, hunks, undefined, undefined, { mode: 'read-only', workspaceRoot: '/workspace' })).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    // Omitting the per-call policy falls back to the deployment default.
+    await expect(ctx.fs.patchText(a, [{ lineNumber: 1, oldLines: ['new'], newLines: ['def'], isEndOfFile: false }])).resolves.toMatchObject({ after: 'def\nline\n' })
+
+    // delete: removed with its basis; stale, missing, and non-file shapes.
+    await expect(ctx.fs.deleteFile(a, undefined, undefined, danger)).resolves.toEqual({ before: 'def\nline\n' })
+    await expect(ctx.fs.deleteFile(a, undefined, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    memory.files.set('/workspace/keep.txt', Buffer.from('keep\n'))
+    await expect(ctx.fs.deleteFile(await ctx.fs.resolve('/workspace'), undefined, undefined, danger)).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+    await expect(ctx.fs.deleteFile(a, undefined, undefined, { mode: 'read-only', workspaceRoot: '/workspace' })).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+
+    // move: same-target refusal, guards, hunks-before-publish, and both removal outcomes.
+    memory.files.set('/workspace/src.txt', Buffer.from('payload\n'))
+    memory.files.set('/workspace/dst.txt', Buffer.from('existing\n'))
+    const src = await ctx.fs.resolve('/workspace/src.txt')
+    const dst = await ctx.fs.resolve('/workspace/dst.txt')
+    await expect(ctx.fs.moveFile(src, src, {}, undefined, danger)).rejects.toMatchObject({ code: 'FS_SAME_TARGET' })
+    await expect(ctx.fs.moveFile(src, dst, { expectedSource: { version: FsVersion('stale') } }, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    await expect(ctx.fs.moveFile(src, dst, { expectedDestination: { kind: 'createIfAbsent' } }, undefined, danger)).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    const srcVersion = (await ctx.fs.stat(src))!.version
+    const dstVersion = (await ctx.fs.stat(dst))!.version
+    await expect(ctx.fs.moveFile(src, dst, {
+      hunks: [{ lineNumber: 1, oldLines: ['payload'], newLines: ['moved'], isEndOfFile: false }],
+      expectedSource: { version: srcVersion },
+      expectedDestination: { kind: 'replaceIfVersion', version: dstVersion },
+    }, undefined, danger)).resolves.toMatchObject({
+      sourceBefore: 'payload\n', destination: { operation: 'update', before: 'existing\n', after: 'moved\n' }, sourceDeleted: true,
+    })
+    expect(memory.files.has('/workspace/src.txt')).toBe(false)
+
+    // partial move: the destination publishes even when source removal fails.
+    memory.files.set('/workspace/p.txt', Buffer.from('p\n'))
+    const p = await ctx.fs.resolve('/workspace/p.txt')
+    const q = await ctx.fs.resolve('/workspace/q.txt')
+    const realUnlink = memory.unlink.bind(memory)
+    const failing = memory.unlink.bind(memory)
+    memory.unlink = async (path: string): Promise<void> => {
+      if (path === '/workspace/p.txt') throw new GuestFsError('EACCES', 13, 'unlink denied')
+      await failing(path)
+    }
+    try {
+      await expect(ctx.fs.moveFile(p, q, {}, undefined, danger)).resolves.toMatchObject({
+        destination: { operation: 'create', before: null, after: 'p\n' }, sourceDeleted: false,
+        sourceFailure: { code: 'FS_PERMISSION_DENIED' },
+      })
+      expect(memory.files.has('/workspace/p.txt')).toBe(true)
+    } finally {
+      memory.unlink = realUnlink
+    }
+
+    // cancellation at the last pre-commit checkpoint leaves both files untouched.
+    memory.files.set('/workspace/c.txt', Buffer.from('c\n'))
+    const c = await ctx.fs.resolve('/workspace/c.txt')
+    const controller = new AbortController()
+    controller.abort()
+    await expect(ctx.fs.patchText(c, hunks, undefined, controller.signal, danger)).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    await expect(ctx.fs.deleteFile(c, undefined, controller.signal, danger)).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    await expect(ctx.fs.moveFile(c, await ctx.fs.resolve('/workspace/d.txt'), {}, controller.signal, danger)).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    expect(memory.files.get('/workspace/c.txt')!.toString('utf8')).toBe('c\n')
+
+    // partial move with an unmapped guest errno still reports a typed IO failure.
+    memory.files.set('/workspace/p2.txt', Buffer.from('p2\n'))
+    const p2 = await ctx.fs.resolve('/workspace/p2.txt')
+    memory.unlink = async (path: string): Promise<void> => {
+      if (path === '/workspace/p2.txt') throw new GuestFsError('EXDEV', 999, 'cross-device')
+      await realUnlink(path)
+    }
+    try {
+      await expect(ctx.fs.moveFile(p2, await ctx.fs.resolve('/workspace/q2.txt'), {}, undefined, danger)).resolves.toMatchObject({
+        sourceDeleted: false, sourceFailure: { code: 'FS_IO_ERROR' },
+      })
+    } finally {
+      memory.unlink = realUnlink
+    }
+
+    // move guard shapes: non-file destination, replaceIfVersion on absent and stale targets.
+    memory.files.set('/workspace/dir-marker/x.txt', Buffer.from('x\n'))
+    await expect(ctx.fs.moveFile(c, await ctx.fs.resolve('/workspace/dir-marker'), {}, undefined, danger)).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+    await expect(ctx.fs.moveFile(c, await ctx.fs.resolve('/workspace/absent.txt'), {
+      expectedDestination: { kind: 'replaceIfVersion', version: FsVersion('stale') },
+    }, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    const cVersion = (await ctx.fs.stat(c))!.version
+    const staleVersion = `${cVersion}!` as never
+    await expect(ctx.fs.moveFile(c, await ctx.fs.resolve('/workspace/q.txt'), {
+      expectedDestination: { kind: 'replaceIfVersion', version: staleVersion },
+    }, undefined, danger)).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
   })
 
   it('maps world errno facts onto the typed error taxonomy', async () => {

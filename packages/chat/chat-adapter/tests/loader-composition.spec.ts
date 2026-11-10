@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import { FiberState } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import ChatAdapters from '../src/index.ts'
 import { apply, inject, name } from './fixtures/mount-provider.ts'
@@ -44,6 +45,11 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
   } as unknown as NonNullable<typeof context.loader.internal>
   await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await context.loader.await()
+  // rc.8 contains row activation failures inside the group update; re-surface
+  // them so a broken row still fails the composition load.
+  for (const row of context.loader.entries()) {
+    if (!row.disabled && row.fiber !== undefined && row.fiber.state === FiberState.FAILED) await row.fiber.await()
+  }
   return context
 }
 
@@ -64,7 +70,8 @@ describe('real Loader composition', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(loaded.chatAdapters.list().map(entry => entry.botId)).toEqual(['bot-1', 'bot-2'])
+    // Sibling rows activate in parallel; presence, not completion order, is the contract.
+    expect(loaded.chatAdapters.list().map(entry => entry.botId).sort()).toEqual(['bot-1', 'bot-2'])
   })
 
   it('removes the registration when the provider fiber is disposed', async () => {
@@ -82,7 +89,8 @@ describe('real Loader composition', () => {
 
   it('exposes platform descriptors from provider rows in row order', async () => {
     const loaded = await loadYaml([registryRow, ...platformRow('telegram'), ...platformRow('feishu'), ...providerRows('bot-1')])
-    expect(loaded.chatAdapters.platforms().map(entry => entry.platform)).toEqual(['telegram', 'feishu'])
+    // Sibling rows activate in parallel; descriptor presence, not completion order, is the contract.
+    expect(loaded.chatAdapters.platforms().map(entry => entry.platform).sort()).toEqual(['feishu', 'telegram'])
     expect(loaded.chatAdapters.platform('feishu')?.label).toBe('feishu')
     expect(loaded.chatAdapters.list().map(entry => entry.botId)).toEqual(['bot-1'])
   })

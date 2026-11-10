@@ -1,34 +1,53 @@
 import { existsSync } from 'node:fs'
+import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 
 /**
  * Keyless built-artifact smoke: plain Node imports the package by name through its exports map,
- * then exercises type stripping, sibling `child.cjs` loading, bindings, and logs. Unit tests use
- * `src/child.ts`; this pins the downstream `lib/index.js` path. It skips when `lib/` is absent,
+ * then exercises type stripping, sibling `process.js` loading, bindings, and logs. Unit tests use
+ * `src/process.ts`; this pins the downstream `lib/index.js` path. It skips when `lib/` is absent,
  * and CI runs it after the build.
  */
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url))
-const built = ['lib/index.js', 'lib/child.cjs'].every(file => existsSync(join(pkgDir, file)))
+const built = ['lib/index.js', 'lib/process.js'].every(file => existsSync(join(pkgDir, file)))
   && existsSync(join(pkgDir, '../ptc-runtime/lib/index.js'))
 
 describe.skipIf(!built)('built lib real load path (plain node)', () => {
-  it('runs a TypeScript program with a binding through lib/index.js and its lib/child.cjs entry', async () => {
+  it.each(['process', 'persistent-process'])('loads a copied %s bundle before rejecting a missing control channel', async (entry) => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-standalone-worker-'))
+    onTestFinished(async () => { await rm(directory, { recursive: true, force: true }) })
+    const path = join(directory, 'worker.mjs')
+    await copyFile(join(pkgDir, `lib/${entry}.js`), path)
+    const result = await execa(process.execPath, ['--experimental-vm-modules', path, '100000'], {
+      cwd: directory, env: { DSH_SUBPROCESS_CONTROL: '' }, stdin: 'ignore',
+      timeout: 55_000, killSignal: 'SIGKILL', reject: false,
+    })
+    expect(result.timedOut).toBe(false)
+    expect(result.signal).toBeUndefined()
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('subprocess control channel was not inherited')
+  })
+
+  it.each(['per-call', 'vm-script'] as const)('runs TypeScript and bindings through published exports in %s mode', async (executionMode) => {
+    const program = 'const doubled: number = await tools.double({ n: 21 }); console.log("halfway", doubled); let failure; try { await tools.fail({}) } catch (error) { failure = { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message } }; const env = Object.keys((await import("node:process")).env); ' + (executionMode === 'per-call' ? 'return { doubled, failure, env };' : '({ doubled, failure, env })')
     const script = `
       const { Context } = await import('@deepseek-ai/cordis')
-      const { SandboxPolicyService } = await import('@deepseek-ai/dsh-sandbox-policy')
       const { NodePtcRuntime } = await import('@deepseek-ai/dsh-ptc-runtime-node')
-      // Qualify the Electron spawn branch with real Node children; the desktop
-      // composition separately proves Electron's executable honors its switch.
-      Object.defineProperty(process.versions, 'electron', { value: '42.0.0' })
       const ctx = new Context()
-      await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-      const fiber = await ctx.plugin(NodePtcRuntime, {})
-      const result = await ctx.ptcRuntime.run({
-        program: 'const doubled: number = await tools.double({ n: 21 }); console.log("halfway", doubled); let failure; try { await tools.fail({}) } catch (error) { failure = { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message } } return { doubled, failure, environment: [process.env.ELECTRON_RUN_AS_NODE, process.env.DSH_PTC_RUNTIME_NODE, process.env.NODE_OPTIONS, process.env.DSH_TEST_HOST_SECRET].map(value => value ?? null) };',
+      for (const name of ['session-projection', 'fs-local', 'subprocess-local', 'sandbox-local']) {
+        const plugin = await import('@deepseek-ai/dsh-' + name)
+        await ctx.plugin(plugin.default, {})
+      }
+      const { default: SandboxPolicy } = await import('@deepseek-ai/dsh-sandbox-policy')
+      await ctx.plugin(SandboxPolicy, { mode: 'read-only' })
+      await ctx.plugin(NodePtcRuntime, ${JSON.stringify({ executionMode })})
+      const result = await ctx.ptcRuntime.run(ctx.ptcRuntime.resolve({
+        program: ${JSON.stringify(program)},
         bindings: [{
           global: 'tools',
           functions: {
@@ -37,28 +56,28 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
           },
           errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
         }],
-      })
+      }))
+      await ctx.fiber.dispose()
       console.log(JSON.stringify(result))
-      await fiber.dispose()
-      process.exit(0)
     `
-    const { exitCode, stdout, stderr } = await execa(process.execPath, ['--input-type=module', '-e', script], {
+    const resultProcess = await execa(process.execPath, ['--input-type=module', '-e', script], {
       cwd: pkgDir,
-      env: { DSH_TEST_HOST_SECRET: 'host-only-test-value' },
       stdin: 'ignore',
       timeout: 55_000,
       killSignal: 'SIGKILL',
       reject: false,
     })
 
-    expect(exitCode, `stderr:\n${stderr}`).toBe(0)
-    const lastLine = stdout.trim().split('\n').at(-1) ?? ''
+    expect(resultProcess.timedOut).toBe(false)
+    expect(resultProcess.signal).toBeUndefined()
+    expect(resultProcess.exitCode, resultProcess.stderr).toBe(0)
+    const lastLine = resultProcess.stdout.trim().split('\n').at(-1) ?? ''
     const result = JSON.parse(lastLine) as { value?: unknown; logs: string[]; error?: unknown }
     expect(result.error).toBeUndefined()
     expect(result.value).toEqual({
       doubled: 42,
-      environment: [null, null, null, null],
       failure: { typed: true, name: 'ToolCallError', toolName: 'fail', message: 'denied' },
+      env: [],
     })
     expect(result.logs).toContain('halfway 42')
   })

@@ -2360,56 +2360,52 @@ export interface PlanModeConfig {
 
 ## `@deepseek-ai/dsh-ptc-runtime-node`
 
-需要：`sandboxPolicy`
+Requires: `fs` · `subprocess` · `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
-/** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
+/** Deployment-varying runtime bounds and launch choices. */
 export interface Config {
-  /**
-   * Busy-time budget in milliseconds: the run fails with kind `'timeout'`
-   * once the child's MEASURED event-loop active time
-   * (`performance.eventLoopUtilization()`, sampled in-process) exceeds this.
-   * Metering measured busy time — not wall time, not host-side pending-call
-   * bookkeeping — is what makes the budget fair (a program awaiting a slow
-   * tool accrues nothing). A hot synchronous loop starves the child's
-   * sampler; the `maxWallMs` deadline is the backstop that stops it.
-   */
-  computeMs?: number
-  /**
-   * Wall-clock ceiling in milliseconds; never pauses for anything. The
-   * backstop for what busy-time cannot see (a program awaiting a promise
-   * nobody will resolve, or a loop blocking the child's sampling timer).
-   * At most `2_147_483_647` (Node's maximum `setTimeout` delay, about 24.9
-   * days): a longer value is rejected at load because `setTimeout` would
-   * clamp it to 1 ms.
-   */
-  maxWallMs?: number
-  /**
-   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
-   * fixed result-envelope syntax is excluded.
-   */
+  /** Worker invocation in the subprocess world; omitted selects the local carrier. */
+  launch?: LaunchConfig
+  /** per-call uses fresh async function bodies; vm-script uses VM contexts; persistent-in-memory retains a REPL per owner. */
+  executionMode?: 'per-call' | 'persistent-in-memory' | 'vm-script'
+  /** Retain a Script process and context per stateOwner; only supported with executionMode: vm-script. */
+  scriptPersistence?: boolean
+  /** Default elapsed deadline, including nested tool and approval waits. */
+  timeoutMs?: number
+  /** Maximum numeric elapsed budget accepted by resolve. */
+  maxTimeoutMs?: number
+  /** Combined serialized logs, completion and diagnostic byte cap. */
   maxOutputBytes?: number
-  /** The child's max old-generation heap in MiB (`--max-old-space-size`); overflow kills the child, surfacing as kind `'worker-exit'`. */
+  /** V8 old-generation heap limit in MiB; native allocations are excluded. */
   maxOldGenerationSizeMb?: number
-  /**
-   * Node executable that runs the child; defaults to the current one. An
-   * Electron self executable uses ELECTRON_RUN_AS_NODE at bootstrap; a
-   * separately configured Node executable receives no Electron variables.
-   */
-  nodeExecutable?: string
-  /**
-   * Absolute path to a preinstalled child entry in the execution world.
-   * Defaults to this package's own child entry (source or built, whichever
-   * world this module runs in). Inside a single-file executable there is no
-   * such path by default: the runtime respawns the executable itself (see
-   * {@link childSpawnPlan}) and its bin routes to the child. An explicit
-   * bootstrap path bypasses that route for a separately installed Node/entry.
-   */
+  /** Maximum control message, outstanding binding-argument and queued control-output bytes. */
+  maxMessageBytes?: number
+  /** Maximum simultaneous host binding calls accepted from a program. */
+  maxPendingCalls?: number
+  /** Time to wait for cooperative stop acknowledgment before terminating the process. */
+  stopGraceMs?: number
+  /** Managed process termination and output-drain grace in milliseconds. */
+  graceMs?: number
+}
+
+/** Deployment-owned worker invocation in the subprocess execution world. */
+export type LaunchConfig = {
+  /** Start a separately installed Node executable and JavaScript bootstrap. */
+  kind: 'node-script'
+  /** Executable name or path resolved by the subprocess provider. */
+  executable: string
+  /** Absolute preinstalled bootstrap; omitted maps this package's bootstrap into the execution world. */
   bootstrapPath?: string
+} | {
+  /** Start the private PTC worker embedded in a packaged executable. */
+  kind: 'embedded'
+  /** Packaged executable name or path resolved by the subprocess provider. */
+  executable: string
 }
 ```
 
-来源：[`packages/ptc-runtime/ptc-runtime-node/src/index.ts:31`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
+来源：[`packages/ptc-runtime/ptc-runtime-node/src/config.ts:6`](../packages/ptc-runtime/ptc-runtime-node/src/config.ts)
 
 <a id="deepseek-aidsh-ptc-runtime-python"></a>
 
@@ -2675,6 +2671,12 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
+  /**
+   * Extra directories every `workspace-write` policy may also write under
+   * (default: none). Entries stay in their execution-world spelling; the
+   * enforcing host validates each physical directory before granting.
+   */
+  additionalWritableRoots?: string[]
 }
 ```
 
@@ -3706,7 +3708,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/shell/tool-bash-persistent/src/index.ts:405`](../packages/shell/tool-bash-persistent/src/index.ts)
+来源：[`packages/shell/tool-bash-persistent/src/index.ts:412`](../packages/shell/tool-bash-persistent/src/index.ts)
 
 <a id="deepseek-aidsh-tool-compaction-history"></a>
 
@@ -3743,10 +3745,12 @@ export interface Config {
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number
+  /** Register `apply_patch` and its guidance beside `edit`. Defaults to false; shipped compositions set it on their `tool-fs` rows. */
+  applyPatch?: boolean
 }
 ```
 
-来源：[`packages/fs/tool-fs/src/index.ts:25`](../packages/fs/tool-fs/src/index.ts)
+来源：[`packages/fs/tool-fs/src/index.ts:26`](../packages/fs/tool-fs/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs-search"></a>
 
@@ -4689,12 +4693,14 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-browser` ([`packages/client/ui-browser/src/index.ts`](../packages/client/ui-browser/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-commands` ([`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-connection-status` ([`packages/client/ui-connection-status/src/index.ts`](../packages/client/ui-connection-status/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-context-menu` ([`packages/client/ui-context-menu/src/index.ts`](../packages/client/ui-context-menu/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-cordis` ([`packages/extensions/ui-cordis/src/index.ts`](../packages/extensions/ui-cordis/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-dashboard` ([`packages/client/ui-dashboard/src/index.ts`](../packages/client/ui-dashboard/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-deliverables` — requires `systemPrompt` ([`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-directory-picker-browse` ([`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-directory-picker-native` ([`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-file-actions` ([`packages/client/ui-file-actions/src/index.ts`](../packages/client/ui-file-actions/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-governor` ([`packages/client/ui-governor/src/index.ts`](../packages/client/ui-governor/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-input-trigger` ([`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts))
@@ -4845,6 +4851,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-deque`（[`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts)）
 - `@deepseek-ai/dsh-execution-descriptor`（[`packages/sandbox/execution-descriptor/src/index.ts`](../packages/sandbox/execution-descriptor/src/index.ts)）
 - `@deepseek-ai/dsh-fs-codec`（[`packages/fs/fs-codec/src/index.ts`](../packages/fs/fs-codec/src/index.ts)）
+- `@deepseek-ai/dsh-fs-patch`（[`packages/fs/fs-patch/src/index.ts`](../packages/fs/fs-patch/src/index.ts)）
 - `@deepseek-ai/dsh-hmr-coordination`（[`packages/boot/hmr-coordination/src/index.ts`](../packages/boot/hmr-coordination/src/index.ts)）
 - `@deepseek-ai/dsh-home-paths`（[`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts)）
 - `@deepseek-ai/dsh-hook-protocol`（[`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts)）
@@ -4870,3 +4877,5 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-typert-generator`（[`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts)）
 - `@deepseek-ai/dsh-typert-protocol`（[`packages/typert/protocol/src/index.ts`](../packages/typert/protocol/src/index.ts)）
 - `@deepseek-ai/dsh-typert-registry`（[`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts)）
+- `@deepseek-ai/dsh-util-file-drag`（[`packages/util/file-drag/src/index.ts`](../packages/util/file-drag/src/index.ts)）
+- `@deepseek-ai/dsh-util-workspace-path`（[`packages/util/workspace-path/src/index.ts`](../packages/util/workspace-path/src/index.ts)）

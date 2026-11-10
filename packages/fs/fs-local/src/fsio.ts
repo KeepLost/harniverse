@@ -58,6 +58,16 @@ function isPermissionError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM')
 }
 
+/** Preserve typed failures and defects; map Node write errors for filesystem consumers. */
+function writeIoError(path: string, error: unknown): unknown {
+  if (error instanceof FsError) return error
+  if (isPermissionError(error)) return new FsError(`cannot write "${path}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
+  if (error instanceof Error && 'code' in error && typeof error.code === 'string') {
+    return new FsError(`cannot write "${path}": ${error.message}`, 'FS_IO_ERROR', { cause: error })
+  }
+  return error
+}
+
 function throwIfAborted(signal: AbortSignal | undefined, verb: string): void {
   if (signal?.aborted) throw new FsError(`${verb} aborted`, 'FS_ABORTED')
 }
@@ -96,6 +106,9 @@ export interface FsIoInternals {
   tempName?: (writePath: string) => string
   /** Override the Win32 DACL copy boundary. */
   copyFileDacl?: (source: string, destination: string) => Promise<void>
+  /** Whether the published destination already exists; false skips the Win32
+   * DACL copy (a move's source mode is not an existing destination). */
+  existingDestination?: boolean
   /** Override the Win32 security-preserving replacement boundary. */
   replaceFile?: (replaced: string, replacement: string) => Promise<void>
   /** Override the hard-link no-replace publication boundary. */
@@ -108,6 +121,26 @@ export interface FsIoInternals {
   inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
   /** Test hook after raw-read stat preflight and before bounded content I/O. */
   inspectReadBytesAfterStat?: (target: LocalTarget) => void | Promise<void>
+  /** Override source removal for fault-injection coverage of delete and move tails. */
+  removeFile?: (absolutePath: string) => Promise<void>
+  /** Observation hook at the last pre-commit checkpoint of a delete or move. */
+  inspectBeforeMutation?: (target: { targetKey: string; displayPath: string }) => void | Promise<void>
+}
+
+/**
+ * Remove one regular file, mapping permission and I/O failures to typed codes.
+ * @param absolutePath - the resolved file to remove.
+ * @param displayPath - the user-facing path quoted in errors.
+ * @param internals - optional source-removal fault injection; omission uses non-recursive rm.
+ * @returns once removal completes; permission and other failures use filesystem error codes.
+ */
+export async function removeFile(absolutePath: string, displayPath: string, internals: FsIoInternals = {}): Promise<void> {
+  try {
+    await (internals.removeFile ?? rm)(absolutePath)
+  } catch (error: unknown) {
+    throw new FsError(`cannot delete "${displayPath}": ${errorMessage(error)}`,
+      isPermissionError(error) ? 'FS_PERMISSION_DENIED' : 'FS_IO_ERROR', { cause: error })
+  }
 }
 
 /** A resolved local path: the absolute path shown to callers and its realpath identity. */
@@ -725,6 +758,8 @@ async function throwGuardedCreateFailure(
  * @param createIfAbsent - when provided, publish with a hard-link no-replace
  * primitive; a concurrent creator's file is preserved and this write is
  * rejected with `FS_NOT_OBSERVED` using the supplied display path.
+ * @param displayPath - names the target in diagnostics; defaults to the
+ * createIfAbsent display path or `absolutePath`.
  */
 export function writeFileAtomic(
   absolutePath: string,
@@ -733,8 +768,9 @@ export function writeFileAtomic(
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
   createIfAbsent?: { displayPath: string },
+  displayPath?: string,
 ): Promise<void> {
-  return writeFileAtomicBytes(absolutePath, Buffer.from(content, 'utf8'), mode, signal, internals, createIfAbsent)
+  return writeFileAtomicBytes(absolutePath, Buffer.from(content, 'utf8'), mode, signal, internals, createIfAbsent, displayPath)
 }
 
 /**
@@ -746,6 +782,7 @@ export function writeFileAtomic(
  * @param signal - cancellation checked before final publication.
  * @param internals - Test hook for pinning temp names and observing the staged file.
  * @param createIfAbsent - when provided, publish with a hard-link no-replace primitive.
+ * @param displayPath - names the target in diagnostics; defaults to the createIfAbsent display path or `absolutePath`.
  */
 export async function writeFileAtomicBytes(
   absolutePath: string,
@@ -754,10 +791,11 @@ export async function writeFileAtomicBytes(
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
   createIfAbsent?: { displayPath: string },
+  displayPath: string = createIfAbsent?.displayPath ?? absolutePath,
 ): Promise<void> {
   throwIfAborted(signal, 'write')
   const directory = dirname(absolutePath)
-  await mkdir(directory, { recursive: true })
+  try { await mkdir(directory, { recursive: true }) } catch (error) { throw writeIoError(displayPath, error) }
 
   throwIfAborted(signal, 'write')
   const stagingDirName = internals.tempDirName?.(absolutePath) ?? `.${basename(absolutePath)}.${process.pid}.${randomUUID()}.tmpdir`
@@ -781,7 +819,7 @@ export async function writeFileAtomicBytes(
 
     handle = await open(tempPath, 'wx', 0o600)
     await handle.chmod(0o600)
-    if (platform === 'win32' && mode !== undefined) {
+    if (platform === 'win32' && mode !== undefined && (internals.existingDestination ?? true)) {
       await copyFileDacl(absolutePath, tempPath)
     }
     await handle.writeFile(bytes, { ...signal ? { signal } : {} })
@@ -798,7 +836,7 @@ export async function writeFileAtomicBytes(
       } catch (error: unknown) {
         await throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget)
       }
-    } else if (platform === 'win32' && mode !== undefined) {
+    } else if (platform === 'win32' && mode !== undefined && (internals.existingDestination ?? true)) {
       try {
         await replaceFile(absolutePath, tempPath)
       } catch (error: unknown) {
@@ -817,7 +855,7 @@ export async function writeFileAtomicBytes(
     }
   } catch (error: unknown) {
     /* v8 ignore next -- abort-mid-write needs a writeFile/signal race; the non-abort (rename/open) side is tested. */
-    let failure: unknown = isAbortError(error) ? new FsError('write aborted', 'FS_ABORTED') : error
+    let failure: unknown = isAbortError(error) ? new FsError('write aborted', 'FS_ABORTED') : writeIoError(displayPath, error)
     /* v8 ignore next 8 -- reached only if writeFile/sync throws with the handle open (IO fault); close-failure is a double fault. */
     if (handle) {
       try {

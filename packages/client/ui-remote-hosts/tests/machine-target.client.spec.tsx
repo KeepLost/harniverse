@@ -64,5 +64,6 @@ describe('current machine navigation', () => {
 
 function props(target: import('@deepseek-ai/dsh-api-remotes/client').MachineTarget): MachineTargetProps {
   return { wide: true, useMachine: selector => selector(target), nameOf: async () => undefined,
-    returnToHost: () => {}, t: makeTranslate(zh), useSessions: (() => undefined) as never, useWorkspaces: (() => undefined) as never }
+    returnToHost: () => {}, t: makeTranslate(zh), useSessions: (() => undefined) as never, useWorkspaces: (() => undefined) as never,
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }) }
 }

@@ -236,6 +236,7 @@ function mountWorkbench(
       <WorkspaceWorkbench
         useSessions={selector => selector(sessionState())}
         useWorkspaces={selector => selector(workspaceState())}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useStore={bindSnapshotSelector(instance)}
         actions={instance.actions}
         drawer={options.drawer ?? false}
@@ -252,6 +253,7 @@ function mountWorkbench(
       <WorkspaceWorkbenchPreviewOverlay
         useSessions={selector => selector(sessionState())}
         useWorkspaces={selector => selector(workspaceState())}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useStore={bindSnapshotSelector(instance)}
         actions={instance.actions}
         rightMode={rightMode}

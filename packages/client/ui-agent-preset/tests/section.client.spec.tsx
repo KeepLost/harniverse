@@ -456,7 +456,18 @@ describe('deleting a preset', () => {
 describe('a long card description', () => {
   /** jsdom has no ResizeObserver; the description watches its own box through one. */
   class ResizeObserverStub {
-    observe(): void {}
+    constructor(private readonly callback: ResizeObserverCallback) {}
+    observe(target: Element): void {
+      // Deliver the initial box synchronously: the shared tooltip positions
+      // its bubble from the first observer report.
+      const width = target instanceof HTMLElement ? target.offsetWidth : 0
+      const height = target instanceof HTMLElement ? target.offsetHeight : 0
+      const size = [{ inlineSize: width, blockSize: height }]
+      this.callback([{
+        target, contentRect: new DOMRectReadOnly(0, 0, width, height),
+        borderBoxSize: size, contentBoxSize: size, devicePixelContentBoxSize: size,
+      }], this)
+    }
     unobserve(): void {}
     disconnect(): void {}
   }
@@ -481,9 +492,12 @@ describe('a long card description', () => {
     try {
       renderSection({ rows: [{ id: 'zh', trust: 'user', isDefault: false, name: '中文助手', description: LONG }] })
 
-      fireEvent.mouseEnter(within(rowFor('zh')).getByText(LONG))
+      vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+      fireEvent.pointerEnter(within(rowFor('zh')).getByText(LONG), { pointerType: 'mouse' })
       act(() => { vi.advanceTimersByTime(400) })
 
+      const dbgEl = document.querySelector('[role="tooltip"]') as HTMLElement | null
+      console.log('DBG4 vis=', dbgEl?.style.visibility, 'data-side=', dbgEl?.dataset.side, 'display=', dbgEl && getComputedStyle(dbgEl).display)
       expect(screen.getByRole('tooltip').textContent).toBe(LONG)
     } finally {
       vi.useRealTimers()
@@ -496,7 +510,8 @@ describe('a long card description', () => {
     try {
       renderSection({ rows: [{ id: 'zh', trust: 'user', isDefault: false, name: '中文助手', description: '短描述。' }] })
 
-      fireEvent.mouseEnter(within(rowFor('zh')).getByText('短描述。'))
+      vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+      fireEvent.pointerEnter(within(rowFor('zh')).getByText('短描述。'), { pointerType: 'mouse' })
       act(() => { vi.advanceTimersByTime(400) })
 
       // A bubble repeating what is already fully on the card is noise.
@@ -507,7 +522,9 @@ describe('a long card description', () => {
   })
 
   it('renders where the runtime has no ResizeObserver', () => {
-    vi.unstubAllGlobals()
+    // The shared test environment installs a delivering observer outside
+    // vi.stubGlobal, so unstubbing alone cannot restore the absence.
+    vi.stubGlobal('ResizeObserver', undefined)
     clamp(true)
 
     expect(() => {

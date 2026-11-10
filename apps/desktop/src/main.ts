@@ -9,6 +9,7 @@ import {
   assertShellSender, DESKTOP_IPC, parseConnectionProfile, quitWarning, validateHostUrl,
   type AuthWebReply, type ConnectionProfile, type DirectorySelection, type RendererAuthority, type ShellActivity, type ShellState,
 } from './ipc.ts'
+import { installFileActions } from './file-actions.ts'
 import { shellCopy } from './locale.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportApp, type CrashReportSource } from './crash-report.ts'
@@ -387,6 +388,18 @@ export class DesktopShell {
   }
 
   private registerIpc(): void {
+    // Trusted-window original-file operations for the owned app page; the
+    // module owns its will-download chain and validates each event's sender.
+    installFileActions(
+      (event) => {
+        const window = this.window
+        const authority = this.authority
+        if (window === undefined || authority === undefined || authority.kind !== 'web') throw new Error('Desktop file operations are unavailable in this page.')
+        assertShellSender(event, window.webContents, authority)
+        return window
+      },
+      () => this.connection?.origin,
+    )
     const handle = (channel: string, audience: 'shell' | 'web', action: (...args: unknown[]) => unknown) => {
       ipcMain.handle(channel, (event, ...args: unknown[]) => {
         const owner = this.window?.webContents

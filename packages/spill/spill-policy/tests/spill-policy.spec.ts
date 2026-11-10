@@ -22,6 +22,7 @@ import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import { NodePtcRuntime } from '@deepseek-ai/dsh-ptc-runtime-node'
+import type { Config as NodeRuntimeConfig } from '@deepseek-ai/dsh-ptc-runtime-node'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 
 const testToolSignal = new AbortController().signal
@@ -191,6 +192,16 @@ describe('oversized plain-text replacement', () => {
   })
 })
 
+/** Mount the Node PTC runtime with its required substrate services. */
+async function mountNodeRuntime(ctx: Context, config: NodeRuntimeConfig = {}): Promise<void> {
+  if (!ctx.get('sessions')) await ctx.plugin((await import('@deepseek-ai/dsh-session')).default)
+  if (!ctx.get('fs')) await ctx.plugin((await import('@deepseek-ai/dsh-fs-local')).default)
+  if (!ctx.get('subprocess')) await ctx.plugin((await import('@deepseek-ai/dsh-subprocess-local')).default)
+  if (!ctx.get('sandbox')) await ctx.plugin((await import('@deepseek-ai/dsh-sandbox-local')).default)
+  if (!ctx.get('sessionProjections')) await ctx.plugin((await import('@deepseek-ai/dsh-session-projection')).default)
+  await ctx.plugin(NodePtcRuntime, config)
+}
+
 describe('outer PTC failure capture', () => {
   it('spills the bounded output-limit diagnostic through the ordinary outer-result policy', async () => {
     const ctx = new Context()
@@ -199,7 +210,7 @@ describe('outer PTC failure capture', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(NodePtcRuntime, { maxOutputBytes: 500 })
+    await mountNodeRuntime(ctx, { maxOutputBytes: 500 })
     const events: unknown[] = []
     const agent = {
       session: {
@@ -249,7 +260,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(NodePtcRuntime, {})
+    await mountNodeRuntime(ctx)
     const events: { type: string; data: unknown }[] = []
     const agent = {
       session: {
@@ -324,7 +335,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(NodePtcRuntime, {})
+    await mountNodeRuntime(ctx)
     // A spill backend that hangs until released.
     let releaseSave!: () => void
     const gate = new Promise<void>((resolve) => { releaseSave = resolve })
@@ -389,7 +400,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(NodePtcRuntime, {})
+    await mountNodeRuntime(ctx)
     const store = ctx.spillStore as StubStore
     const releases: (() => void)[] = []
     store.gate = () => new Promise<void>((resolve) => { releases.push(resolve) })
@@ -443,7 +454,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(NodePtcRuntime, {})
+    await mountNodeRuntime(ctx)
     ;(ctx.spillStore as StubStore).fail = true
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const events: { type: string; data: unknown }[] = []

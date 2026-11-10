@@ -100,6 +100,7 @@ class FakeHandle implements SubprocessHandle {
   readonly stdin = undefined
   readonly stdout = undefined
   readonly stderr = undefined
+  readonly control = undefined
   readonly collected: SubprocessCollectedOutputs
   readonly done: Promise<SubprocessOutcome>
   /** True once `done` settled — the search tools must never leave a spawn running. */

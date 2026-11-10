@@ -118,3 +118,20 @@
   gap: 8px;
   padding: 0 24px;
 }
+
+/* Warning-tone dialogs: amber title icon with compact title-to-body spacing. */
+.warning .title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.warningIcon {
+  flex: none;
+  margin-top: 3px;
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.warning .body {
+  margin-top: 0;
+}

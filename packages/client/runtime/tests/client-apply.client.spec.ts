@@ -88,7 +88,7 @@ describe('runtime client apply', () => {
     const workspaces = bench.ctx.get('workspaces') as WorkspaceRuntime
     const list = sessions.list
     const workspaceList = workspaces.list
-    const emptyProvide = sessions.currentProvideInfo.getSnapshot()
+    const emptyProvide = sessions.currentScopeBinding.getSnapshot()
     bench.sinks?.onHostEnvelope?.({ rpcId: 'local' as never, payload: { type: 'host/session-added', sessionId: 'same', blank: true } as never })
     await flushMicrotasks()
     sessions.open('same' as never)
@@ -99,7 +99,7 @@ describe('runtime client apply', () => {
     expect(workspaces.list).toBe(workspaceList)
     expect(list.getSnapshot()).toMatchObject({ ids: [], current: undefined, phase: 'pending' })
     expect(workspaceList.getSnapshot()).toMatchObject({ items: [], phase: 'pending' })
-    expect(sessions.currentProvideInfo.getSnapshot()).not.toBe(emptyProvide)
+    expect(sessions.currentScopeBinding.getSnapshot()).not.toBe(emptyProvide)
     expect(bench.sinks?.muxSince?.()).toEqual({})
     expect(sessions.binding('same' as never)).toBeUndefined()
     bench.sinks?.onHostEnvelope?.({ rpcId: 'remote' as never, payload: { type: 'host/session-added', sessionId: 'same', blank: true } as never })

@@ -50,6 +50,7 @@ const t: PermissionRowProps['t'] = key => dictionary[key] ?? key
 const runtime = {
   useSessions: (() => { throw new Error('unused') }) as never,
   useWorkspaces: (() => { throw new Error('unused') }) as never,
+  useContextMenu: () => ({ getTriggerProps: () => ({}) }),
 }
 
 function mount(controller: PermissionPresetSettingsController) {

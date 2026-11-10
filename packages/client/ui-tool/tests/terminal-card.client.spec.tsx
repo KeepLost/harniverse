@@ -4,6 +4,7 @@
 // consume it — the chat tool row's expanded body (GenericToolCard / BashRow)
 // and the details panel's Output section.
 
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -26,13 +27,17 @@ import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { zh as zhTool } from '../src/client/locales.ts'
 
+
 type BashRowProps = Parameters<typeof BashRow>[0]
+
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 const tTool = makeTranslate(zhTool)
 
+
 afterEach(cleanup)
+
 
 /**
  * Match an output line with its interior whitespace intact: the column
@@ -41,29 +46,36 @@ afterEach(cleanup)
  */
 const RAW = { normalizer: (text: string) => text }
 
+
 /** The rendered card's run-state dot state, so a render site cannot silently drop it. */
 function runStateOf(container: HTMLElement): string | null {
   return container.querySelector('[data-terminal] [data-state]')?.getAttribute('data-state') ?? null
 }
 
+
 const SID = 's1' as SessionId
 
+
 const ARGS = '{"command":"ls -la","description":"List files"}'
+
 
 /** The bash tool's own call view for a foreground command. */
 const callTerminal = (over?: Partial<Extract<ToolCallView, { card: 'terminal' }>>): ToolCallView => ({
   card: 'terminal', title: 'ls -la', description: 'List files', ...over,
 })
 
+
 /** The bash tool's own result view for a settled foreground command. */
 const resultTerminal = (over?: Partial<Extract<ToolResultView, { card: 'terminal' }>>): ToolResultView => ({
   card: 'terminal', output: 'a.ts  b.ts\nc.ts  d.ts\n', exitCode: 0, ...over,
 })
 
+
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: ARGS,
   turn: 1, step: 1, time: 1_000, callView: callTerminal(), subCalls: [], ...over,
 })
+
 
 const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   kind: 'tool-result', seq: 10, time: 2_000, callId: 'c1',
@@ -72,6 +84,7 @@ const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   content: [{ type: 'text', text: 'a.ts  b.ts\nc.ts  d.ts\n' }], isError: false,
   callView: callTerminal(), resultView: resultTerminal(), subCalls: [], ...over,
 })
+
 
 describe('terminalCardModel', () => {
   it('derives a running card from the call view alone', () => {
@@ -83,6 +96,7 @@ describe('terminalCardModel', () => {
       },
     })
   })
+
 
   it('derives a settled card from both sides, carrying the exit status', () => {
     expect(terminalCardModel(settled({
@@ -100,6 +114,7 @@ describe('terminalCardModel', () => {
     }))?.card.signal).toBe('SIGTERM')
   })
 
+
   it('flags a failing exit as terminalFailed; clean exits and running cards are not', () => {
     // isError stays false on a failing command (the exit status is result
     // data), so this predicate is the row's only failure signal.
@@ -113,6 +128,7 @@ describe('terminalCardModel', () => {
     expect(terminalFailed(terminalCardModel(running())!)).toBe(false)
   })
 
+
   it('takes the result view\'s replacement title over the pending one', () => {
     // The presentation contract defines a result title as REPLACING the pending
     // title, so a tool that rewrites it at settle time must win here.
@@ -123,6 +139,7 @@ describe('terminalCardModel', () => {
     // Without one, the call's title is what the card keeps.
     expect(terminalCardModel(settled())?.card.command).toBe('ls -la')
   })
+
 
   it('resolves the cwd against the session workspace the way the bridge must', () => {
     // Omitted workdir — the common bash call — IS the session workspace.
@@ -144,6 +161,7 @@ describe('terminalCardModel', () => {
     // The running arm resolves identically.
     expect(terminalCardModel(running(), '/w/app')?.card.cwd).toBe('/w/app')
   })
+
 
   it('normalizes a relative workdir so the label names the directory actually used', () => {
     // The bash executor resolves the workdir before running, so `..` against
@@ -179,6 +197,7 @@ describe('terminalCardModel', () => {
     }))?.card.cwd).toBe('../elsewhere')
   })
 
+
   it('keeps a UNC server and share as an unpoppable root', () => {
     // Windows cannot climb above a share, so `..` from the share root stays put.
     expect(terminalCardModel(settled({
@@ -194,6 +213,7 @@ describe('terminalCardModel', () => {
     }), '\\\\server\\share\\app')?.card.cwd).toBe('\\\\server\\share')
   })
 
+
   it('draws a bare $ when the window dropped the call head, rather than guessing', () => {
     // A truncated call carries no cwd anywhere: the result view has none, and
     // the original call may have used an explicit workdir. Falling back to the
@@ -204,6 +224,7 @@ describe('terminalCardModel', () => {
     // A present call view that omits its cwd still means the workspace.
     expect(terminalCardModel(settled(), '/w/app')?.card.cwd).toBe('/w/app')
   })
+
 
   it('carries the call view\'s description, which the contract renders above the card', () => {
     expect(terminalCardModel(settled())?.description).toBe('List files')
@@ -216,6 +237,7 @@ describe('terminalCardModel', () => {
     expect(terminalCardModel(settled({ call: null, callView: null }))?.description).toBeUndefined()
   })
 
+
   it('a window-truncated call side falls back to the result title, then to an empty command', () => {
     // Truncation drops both the call head and its view (conversation.ts).
     const truncated = { call: null, callView: null }
@@ -224,6 +246,7 @@ describe('terminalCardModel', () => {
     }))?.card).toMatchObject({ command: 'ls -la', cwd: undefined, running: false })
     expect(terminalCardModel(settled(truncated))?.card).toMatchObject({ command: '', cwd: undefined })
   })
+
 
   it('returns null for every non-terminal call: no views, generic views, unknown cards', () => {
     expect(terminalCardModel(running({ callView: null }))).toBeNull()
@@ -242,15 +265,18 @@ describe('terminalCardModel', () => {
   })
 })
 
+
 describe('chat row terminal body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
     callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', t, tTool,
   })
 
+
   /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
   const toggleRow = (view: { container: HTMLElement }) => {
     fireEvent.click(view.container.querySelector('[data-expandable]')!)
   }
+
 
   it('the expanded body is the command output inside the row scroll container', () => {
     const view = render(<GenericToolCard {...ownerProps(settled())} />)
@@ -264,6 +290,7 @@ describe('chat row terminal body', () => {
     expect(view.queryByText(/"command"/)).toBeNull()
   })
 
+
   it('a long output renders in full — the scroll container replaces the middle collapse', () => {
     const lines = Array.from({ length: 20 }, (_, i) => `line-${i}`)
     const view = render(<GenericToolCard {...ownerProps(settled({
@@ -274,6 +301,7 @@ describe('chat row terminal body', () => {
     expect(view.getByText('line-19')).toBeTruthy()
     expect(view.queryByText(/其余/)).toBeNull()
   })
+
 
   it('renders a multi-line command as one prompt row per line', () => {
     const view = render(<GenericToolCard {...ownerProps(settled({
@@ -286,6 +314,7 @@ describe('chat row terminal body', () => {
     expect(view.container.querySelectorAll('[data-terminal] [data-state]')).toHaveLength(1)
   })
 
+
   it('the fallback row shows the presenter description, not the args summary', () => {
     // Any terminal-declaring tool without its own keyed row lands here, so the
     // contract's above-card description has to win at this render site as well.
@@ -295,6 +324,7 @@ describe('chat row terminal body', () => {
     expect(view.getByText('Terminal 3')).toBeTruthy()
     expect(view.queryByText('List files')).toBeNull()
   })
+
 
   it('keeps the presenter description visible once the terminal card is expanded', () => {
     // The contract puts the description ABOVE the card. The collapsed summary is
@@ -309,6 +339,7 @@ describe('chat row terminal body', () => {
     expect(view.getByText('Terminal 3')).toBeTruthy()
   })
 
+
   it('a running terminal call expands to the prompt line with no output yet', () => {
     const view = render(<GenericToolCard {...ownerProps(running())} />)
     toggleRow(view)
@@ -319,6 +350,7 @@ describe('chat row terminal body', () => {
     expect(runStateOf(view.container)).toBe('ongoing')
   })
 
+
   it('a non-terminal call keeps the args-JSON text body', () => {
     const view = render(<GenericToolCard {...ownerProps(settled({
       callView: null, resultView: null,
@@ -326,6 +358,7 @@ describe('chat row terminal body', () => {
     toggleRow(view)
     expect(view.getByText(/"command"/)).toBeTruthy()
   })
+
 
   it('a terminal call with no args still expands, through its terminal body alone', () => {
     // Empty args make the text body null; the terminal material carries the row.
@@ -336,6 +369,7 @@ describe('chat row terminal body', () => {
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
   })
 
+
   it('a failing exit status surfaces as the collapsed row\'s error state', () => {
     const view = render(<GenericToolCard {...ownerProps(settled({
       resultView: resultTerminal({ exitCode: 2 }),
@@ -343,6 +377,7 @@ describe('chat row terminal body', () => {
     expect(view.container.querySelector('[data-state]')?.getAttribute('data-state')).toBe('error')
   })
 })
+
 
 describe('BashRow terminal card', () => {
   const list = () => createSnapshotStore<SessionListState>({
@@ -354,11 +389,13 @@ describe('BashRow terminal card', () => {
     currentAddress: undefined, selectionSeq: 0,
   })
 
+
   const rowProps = (block: RunningToolCall | ToolResultNode): BashRowProps => ({
     callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), loadModelImage: async () => 'data:image/png;base64,AA==', tTool,
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
     t,
   } as unknown as BashRowProps)
+
 
   it('collapses to the summary row; the whole row toggles the command output', () => {
     const view = render(<BashRow {...rowProps(settled())} />)
@@ -372,6 +409,7 @@ describe('BashRow terminal card', () => {
     expect(view.queryByText(/a\.ts/)).toBeNull()
     expect(view.getByText('List files')).toBeTruthy()
   })
+
 
   // The row's leading StateDot and the card's run-state dot describe the same
   // command, so a running row whose card claimed 'done' would be a contradiction
@@ -388,12 +426,14 @@ describe('BashRow terminal card', () => {
     expect(runStateOf(settledView.container)).toBe('done')
   })
 
+
   it('a failing exit status surfaces as the collapsed row\'s error state', () => {
     const view = render(<BashRow {...rowProps(settled({
       resultView: resultTerminal({ exitCode: 2 }),
     }))} />)
     expect(view.container.querySelector('[data-variant="bash"]')?.getAttribute('data-state')).toBe('error')
   })
+
 
   it('shows the terminal presenter\'s description instead of the args summary', () => {
     // `terminal_send`-style presenters author a description the args do not
@@ -405,12 +445,14 @@ describe('BashRow terminal card', () => {
     expect(view.queryByText('List files')).toBeNull()
   })
 
+
   it('keeps the args-derived summary when the presenter authored no description', () => {
     const view = render(<BashRow {...rowProps(settled({
       callView: { card: 'terminal', title: 'ls -la' },
     }))} />)
     expect(view.getByText('List files')).toBeTruthy()
   })
+
 
   it('a non-terminal bash call (background start) renders the summary row alone', () => {
     const view = render(<BashRow {...rowProps(settled({
@@ -421,6 +463,7 @@ describe('BashRow terminal card', () => {
     expect(view.queryByText(/a\.ts/)).toBeNull()
     expect(view.container.querySelector('[data-sample="bash"]')?.getAttribute('role')).toBeNull()
   })
+
 
   it('expands a generic execution error to its original args and full output', () => {
     const view = render(<BashRow {...rowProps(settled({
@@ -434,7 +477,9 @@ describe('BashRow terminal card', () => {
     expect(row.getAttribute('aria-expanded')).toBe('false')
     expect(view.queryByText(/"command": "ls -la"/)).toBeNull()
 
+
     fireEvent.click(row)
+
 
     expect(row.getAttribute('aria-expanded')).toBe('true')
     expect(view.getByText('IN')).toBeTruthy()
@@ -443,6 +488,7 @@ describe('BashRow terminal card', () => {
     expect(view.container.querySelector('[data-error]')?.textContent).toBe('Error: command aborted')
   })
 })
+
 
 describe('DetailsPanel Output section', () => {
   function mount(snapshot: ConversationSnapshot, selection: SelectionTarget | null, cwd?: string) {
@@ -471,6 +517,7 @@ describe('DetailsPanel Output section', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(sessions)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{ setDraft: () => {}, addImages: () => true, removeImage: () => {}, pruneImages: () => {}, addFiles: () => false,
           removeFile: () => {}, submit: () => {} }}
@@ -483,6 +530,7 @@ describe('DetailsPanel Output section', () => {
       />,
     )
   }
+
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     const nodes = over.nodes ?? []
@@ -497,7 +545,9 @@ describe('DetailsPanel Output section', () => {
     }
   }
 
+
   const target: SelectionTarget = { turnSeq: 10, callId: 'c1', toolName: 'bash' }
+
 
   // The panel never unmounts between selections, so per-call view state has to
   // be keyed off the selected call or it leaks into the next one.
@@ -518,6 +568,7 @@ describe('DetailsPanel Output section', () => {
     expect(second.getByRole('button', { name: '展开其余 4 行输出' })).toBeTruthy()
   })
 
+
   it('renders the presenter description above the card', () => {
     const view = mount(snapshot({
       nodes: [settled({ callView: callTerminal({ description: 'Terminal 3' }) })],
@@ -529,11 +580,13 @@ describe('DetailsPanel Output section', () => {
     expect(description.compareDocumentPosition(card!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+
   it('resolves the prompt cwd against the session workspace', () => {
     const view = mount(snapshot({ nodes: [settled()] }), target, '/w/app')
     // No workdir in the call view: the prompt label is the workspace basename.
     expect(view.getByText('app')).toBeTruthy()
   })
+
 
   it('renders the terminal card at full height, keeping the JSON Input section', () => {
     const long = Array.from({ length: 20 }, (_, i) => `row-${i}`)
@@ -547,6 +600,7 @@ describe('DetailsPanel Output section', () => {
     expect(view.getByText('row-0')).toBeTruthy()
   })
 
+
   it('a running terminal call shows the prompt line, not the 运行中… placeholder', () => {
     const view = mount(snapshot({ runningCalls: [running()] }), target)
     expect(view.getByText('ls -la')).toBeTruthy()
@@ -554,10 +608,12 @@ describe('DetailsPanel Output section', () => {
     expect(runStateOf(view.container)).toBe('ongoing')
   })
 
+
   it('a running non-terminal call keeps the 运行中… placeholder', () => {
     const view = mount(snapshot({ runningCalls: [running({ callView: null })] }), target)
     expect(view.getByText('运行中…')).toBeTruthy()
   })
+
 
   it('a non-terminal result keeps the flattened pre with its error styling', () => {
     const view = mount(snapshot({
@@ -569,6 +625,7 @@ describe('DetailsPanel Output section', () => {
     const pre = view.container.querySelector('pre[data-error]')
     expect(pre?.textContent).toBe('permission denied')
   })
+
 
   // The panel resolves a sub-dispatch through the same material as a native
   // call, so a sub-call that DID carry terminal views would render the card.
@@ -585,6 +642,7 @@ describe('DetailsPanel Output section', () => {
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
   })
 
+
   it('a sub-dispatch as the wire actually delivers it (no views) keeps the flattened form', () => {
     const child = settled({ callId: 'c1', callView: null, resultView: null })
     const view = mount(snapshot({
@@ -597,6 +655,7 @@ describe('DetailsPanel Output section', () => {
     expect(output?.querySelector('pre')?.textContent).toContain('a.ts  b.ts')
   })
 
+
   it('a running run_code sub-dispatch resolves through the running material', () => {
     const view = mount(snapshot({
       // The leading non-matching sub-call exercises the scan's skip.
@@ -608,6 +667,7 @@ describe('DetailsPanel Output section', () => {
     expect(view.getByText('ls -la')).toBeTruthy()
   })
 
+
   it('a window-truncated call head titles the panel by callId and drops the Input section', () => {
     const view = mount(snapshot({
       nodes: [settled({ call: null, callView: null, resultView: resultTerminal({ title: 'ls -la' }) })],
@@ -616,6 +676,7 @@ describe('DetailsPanel Output section', () => {
     expect(view.queryByText('输入')).toBeNull()
     expect(view.getByText('输出')).toBeTruthy()
   })
+
 
   it('scans past other nodes and other calls before reporting the call out of window', () => {
     const view = mount(snapshot({
@@ -628,16 +689,19 @@ describe('DetailsPanel Output section', () => {
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
   })
 
+
   it('no selection at all renders the guidance line and the default title', () => {
     const view = mount(snapshot(), null)
     expect(view.getByText('详情')).toBeTruthy()
     expect(view.getByText('点击消息流中的工具行查看详情')).toBeTruthy()
   })
 
+
   it('a step selection without a callId renders the guidance line too', () => {
     const view = mount(snapshot(), { turnSeq: 3, stepSeq: 1 })
     expect(view.getByText('点击消息流中的工具行查看详情')).toBeTruthy()
   })
+
 
   it('the close button reaches closeDetails', () => {
     localStorage.clear()
@@ -655,6 +719,7 @@ describe('DetailsPanel Output section', () => {
             ids: [], byId: {}, current: undefined, phase: 'ready',
             subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
           }))}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useWorkspaces={bindSnapshotSelector(createSnapshotStore<WorkspaceListState>({
           items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
           baselinesReady: true, recentWorkspaceId: undefined,
@@ -680,6 +745,7 @@ describe('DetailsPanel Output section', () => {
     fireEvent.click(view.getByRole('button', { name: '关闭详情' }))
     expect(closeDetails).toHaveBeenCalledTimes(1)
   })
+
 
   it('a non-text result block renders as JSON, and an empty result falls back to its error', () => {
     const nonText = mount(snapshot({

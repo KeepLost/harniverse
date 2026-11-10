@@ -127,7 +127,7 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
   })
   const barProps: InputBarProps = {
     sessionId,
-    SessionProvider: ({ children }) => children(sessionId),
+    SessionProvider: ({ children }) => <>{children}</>,
     useSession: bindSnapshotSelector(sessionStore),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
@@ -137,6 +137,7 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
       items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,

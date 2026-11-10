@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import { FiberState } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
 import HarniverseClient from '../src/index.ts'
@@ -56,6 +57,16 @@ async function loadYaml(credentials: Record<string, string>, clientConfig: strin
   } as unknown as NonNullable<typeof context.loader.internal>
   await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await context.loader.await()
+  // Parallel sibling activation means a present fiber is not yet a started
+  // plugin; await each fiber so registry visibility is deterministic.
+  for (const row of context.loader.entries()) {
+    if (row.fiber !== undefined) await row.fiber.await()
+  }
+  // rc.8 contains row activation failures inside the group update; re-surface
+  // them so a broken row still fails the composition load.
+  for (const row of context.loader.entries()) {
+    if (!row.disabled && row.fiber !== undefined && row.fiber.state === FiberState.FAILED) await row.fiber.await()
+  }
   return context
 }
 

@@ -182,6 +182,14 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // The shared bounded output collector ships as its own subpath bundle
     // (the SSH helper and process providers consume it without the service).
     ...manifest.exports?.['./output'] ? ['lib/output.js'] : [],
+    // The subprocess control-channel subpath is its own bundle: the helper
+    // process opens the inherited fd-7 endpoint without the service singleton.
+    ...manifest.exports?.['./control'] ? ['lib/control.js'] : [],
+    // The Node PTC provider ships its process bootstraps as private bundles
+    // (each is spawned by path) and its localized config descriptions.
+    ...manifest.exports?.['./configuration'] ? ['lib/configuration.js'] : [],
+    ...manifest.exports?.['./process'] ? ['lib/process.js', 'lib/persistent-process.js'] : [],
+    ...manifest.exports?.['./locale/*.json'] ? ['locale/*.json'] : [],
     // The SSH package's wire protocol and schema subpaths must stay module-
     // singleton-compatible with the bundled connection entry (RemoteOperationError
     // instanceof), so helper/protocol/schemas build in one multi-entry pass

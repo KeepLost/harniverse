@@ -40,7 +40,7 @@ Cordis effect 在初始刷新能够 dispose 其所有者之前就持有清理职
 
 ## 测试
 
-[确切配置路径回归测试](../../../../packages/boot/app-boot/tests/hmr-config.spec.ts) 固定了跨延迟原生启动的单次创建、缺失父目录的创建、规范别名互斥、stat 字段/错误恢复、不重叠轮询，以及注册/所有者 dispose 后无迟到工作的行为。[用户补丁组合覆盖](../../../../packages/boot/app-boot/tests/user-patches.spec.ts) 演练添加、无效编辑后保留、恢复和删除，不使用等待 Chokidar 稳定的睡眠。
+[确切配置路径回归测试](../../../../packages/boot/hmr-coordination/tests/hmr-coordination.spec.ts) 固定了缺失父目录下的创建、规范别名去重、串行化刷新与连续写合并，以及监视器/所有者 dispose 时排空在途工作。[用户补丁组合覆盖](../../../../packages/boot/app-boot/tests/user-patches.spec.ts) 演练添加、无效编辑后保留、恢复和删除，不使用等待 Chokidar 稳定的睡眠。
 
 临时加入一秒 HTTP 延迟的浏览器诊断实验复现了六个测试失败和两个清理错误；相同延迟配合数据就绪等待后，10/10 测试通过。这些诊断延迟已移除。该证据区分了缺少就绪条件与预期 UI 变化，并非新的时间阈值，也不是跨平台浏览器保证。
 

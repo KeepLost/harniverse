@@ -292,26 +292,8 @@ Observed state is a `WeakMap<owner, Map<targetKey, FsObservation>>` held inside 
 Filesystem failures use stable `FsErrorCode` strings carried by `FsError` (`HarnessError`). The tool registry preserves `{ name, code }` on error results, so retry, permission, and UI layers can branch without parsing text.
 
 ```ts type-equiv
-/**
- * Stable, machine-routable codes for filesystem failures. Carried on
- * {@link FsError}; the tool registry exposes `{ name, code }` on `isError`
- * results so retry/permission/UI layers can branch without parsing messages.
- */
-type FsErrorCode =
-  | 'FS_NOT_FOUND'
-  | 'FS_NOT_DIRECTORY'
-  | 'FS_NOT_TEXT'
-  | 'FS_NOT_REGULAR_FILE'
-  | 'FS_TOO_LARGE'
-  | 'FS_PERMISSION_DENIED'
-  | 'FS_SANDBOX_DENIED'
-  | 'FS_IO_ERROR'
-  | 'FS_STALE_VERSION'
-  | 'FS_NOT_OBSERVED'
-  | 'FS_AMBIGUOUS_EDIT'
-  | 'FS_EDIT_NOT_FOUND'
-  | 'FS_ABORTED'
-  | 'FS_UNMAPPABLE'
+/** One machine-routable filesystem failure code from FS_ERROR_CODES. */
+type FsErrorCode = typeof FS_ERROR_CODES[number]
 ```
 
 `FS_UNMAPPABLE` means a guarded write-back cannot represent some character in the file's recorded encoding (`dsh-fs-local` refuses the write before staging rather than publishing `?` bytes). `FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_SANDBOX_DENIED` is a POLICY refusal from a sandbox-enforcing backend (`dsh-fs-sandbox`) — the mode fence denied a write/edit — distinct from `FS_PERMISSION_DENIED` (the host kernel refusing). `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_NOT_FOUND` also represents an edit rejected from confirmed absence. `FS_STALE_VERSION` means the backend version no longer matches the observed one (or the provider itself receives an edit for a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
@@ -389,6 +371,16 @@ abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): P
  * @returns an absolute path in the backend's execution world.
  */
 abstract processPath(target: FsTarget): string
+
+/**
+ * Map an absolute path from the harness host into this filesystem's
+ * execution world when both paths identify the same file. The base provider
+ * exposes no mapping; host-backed or explicitly shared backends override it.
+ * @param hostPath - absolute path in the harness host filesystem.
+ * @returns the process path for the same file, or undefined when this
+ * execution world cannot read that host file.
+ */
+processPathFromHostPath(hostPath: string): string | undefined
 
 /**
  * Return the canonical `file:` URI for a target in this filesystem's
@@ -503,15 +495,81 @@ abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent,
  * @returns the outcome, including the version the edit produced.
  */
 abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>
+
+/**
+ * Atomically apply parsed hunks to the LF-normalized text and restore the
+ * stored line-ending style. A missing or stale target reports
+ * `FS_STALE_VERSION`; an unmatched hunk reports `FS_PATCH_MISMATCH`.
+ * @param target - the resolved regular file to patch.
+ * @param hunks - ordered hunks from `parsePatch`.
+ * @param expected - the version guard; omit for an unconditional patch.
+ * @param signal - aborts before atomic publication takes effect.
+ * @param sandboxPolicy - the per-call mode and workspace root this patch runs
+ *   under; a sandboxing backend fences the patch by it, the bare backend
+ *   ignores it. Omit to leave the backend its own default.
+ * @returns the outcome, including the version the patch produced.
+ */
+abstract patchText( target: FsTarget, hunks: readonly PatchHunk[], expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>
+
+/**
+ * Remove a regular file. A missing or stale target reports `FS_STALE_VERSION`;
+ * a directory or other non-file reports `FS_NOT_REGULAR_FILE`. Resolution has
+ * already followed symlinks, so the target is the real file.
+ * @param target - the resolved file to remove.
+ * @param expected - the version guard; omit for an unconditional removal.
+ * @param signal - aborts before removal.
+ * @param sandboxPolicy - the per-call mode and workspace root this removal
+ *   runs under; a sandboxing backend fences it, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
+ * @returns the bounded LF-normalized removed text, or null when no basis is available.
+ */
+abstract deleteFile( target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsDeleteOutcome>
+
+/**
+ * Publish the source text, optionally patched, at the destination, then remove
+ * the source. Both targets stay locked in canonical order. Identical targets
+ * report `FS_SAME_TARGET`; the source guard follows `patchText` and the
+ * destination guard follows `writeText`. The two effects are separate: a
+ * published destination with a retained source is a final outcome reported
+ * through `sourceDeleted: false`.
+ * @param source - the resolved regular source; its line-ending style and mode carry over.
+ * @param destination - the resolved destination within the same provider.
+ * @param options - optional hunks and the source/destination guards; an omitted guard is unconditional.
+ * @param signal - checked before destination staging; the commit then completes both effects.
+ * @param sandboxPolicy - the per-call mode and workspace root both paths run
+ *   under; a sandboxing backend fences them, the bare backend ignores it.
+ *   Omit to leave the backend its own default.
+ * @returns the bounded LF source basis, the destination outcome, and the source-removal status.
+ */
+abstract moveFile( source: FsTarget, destination: FsTarget, options: { hunks?: readonly PatchHunk[] expectedSource?: { version: FsVersion } expectedDestination?: FsWriteIntent }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsMoveOutcome>
 ```
 
 Types: [SandboxExecutionPolicy](sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:108`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:122`](../../packages/fs/fs/src/index.ts)
 
 <a id="fs-events"></a>
 
 ### `fs/*` events
+
+<a id="fsdelete-intent--waterfall"></a>
+
+#### `fs/delete-intent` — waterfall
+
+Single-slot decision for FileSystem.deleteFile; the first returned guard wins. Calling next() delegates to an unconditional deletion.
+
+```ts cordis-catalog
+/**
+ * Single-slot decision for FileSystem.deleteFile; the first returned guard wins.
+ * Calling next() delegates to an unconditional deletion.
+ * @param target - the resolved source about to be removed.
+ * @param actor - the opaque tool-execution context used to select observed state.
+ * @mode waterfall
+ */
+'fs/delete-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
+```
+
+Source: [`packages/fs/fs/src/index.ts:82`](../../packages/fs/fs/src/index.ts)
 
 <a id="fsedit-intent--waterfall"></a>
 
@@ -530,7 +588,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:68`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:74`](../../packages/fs/fs/src/index.ts)
 
 <a id="fsobserved--emit"></a>
 
@@ -551,7 +609,7 @@ Record an authoritative positive or negative observation. Listeners must be sync
 'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
 ```
 
-Source: [`packages/fs/fs/src/index.ts:78`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:92`](../../packages/fs/fs/src/index.ts)
 
 <a id="fswrite-intent--waterfall"></a>
 
@@ -571,5 +629,73 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:60`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:66`](../../packages/fs/fs/src/index.ts)
 <!-- END GENERATED cordis-surface -->
+
+<a id="patch-syntax-records"></a>
+## Patch syntax records
+
+[dsh-fs-patch](../../packages/fs/fs-patch/README.md) parses complete patch text into serializable operations whose paths are unresolved strings, and `applyHunks` applies hunks to caller-supplied LF-normalized text, returning complete new text or a structured match failure. The package README owns the pinned parsing and matching rules.
+
+```ts type-equiv
+/** One contiguous update. */
+interface PatchHunk {
+  /** One-based input line containing the marker or first implicit hunk line. */
+  lineNumber: number
+  /** Text following `@@ `, used as a search anchor by the text matcher. */
+  context?: string
+  /** Context and removed lines, without patch prefixes or line endings. */
+  oldLines: string[]
+  /** Context and added lines, without patch prefixes or line endings. */
+  newLines: string[]
+  /** Whether `*** End of File` follows this hunk. */
+  isEndOfFile: boolean
+}
+
+```
+
+```ts type-equiv
+/** Ordered file operation; a move is an update with a destination path. */
+type PatchOperation =
+  | {
+    kind: 'add'
+    path: string
+    lineNumber: number
+    /** Added lines joined with LF, including a final LF for every added line. */
+    content: string
+  }
+  | {
+    kind: 'delete'
+    path: string
+    lineNumber: number
+  }
+  | {
+    kind: 'update'
+    path: string
+    lineNumber: number
+    moveTo?: string
+    hunks: PatchHunk[]
+  }
+```
+
+```ts type-equiv
+/** The first hunk whose anchor or old lines could not be located in the original text. */
+interface HunkApplyFailure {
+  /** One-based line of the failing hunk in the patch input. */
+  hunkLineNumber: number
+  /** The failed anchor or old-content search. */
+  stage: 'context' | 'oldLines'
+  /** Zero-based sequential search cursor; EOF searches override it with the tail candidate. */
+  searchStart: number
+  /** Original anchor or old lines, including any trailing empty line retried without its sentinel. */
+  pattern: string[]
+}
+
+```
+
+```ts type-equiv
+/** Complete new text or a match failure; failures contain no partially updated text. */
+type ApplyHunksResult =
+  | { ok: true; after: string }
+  | { ok: false; failure: HunkApplyFailure }
+```

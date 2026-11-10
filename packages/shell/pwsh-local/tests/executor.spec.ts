@@ -176,6 +176,7 @@ describe('spawn construction (pure, every platform)', () => {
       this.specs.push(spec)
       return {
         pid: -1,
+        control: undefined,
         stdin: undefined,
         stdout: undefined,
         stderr: undefined,

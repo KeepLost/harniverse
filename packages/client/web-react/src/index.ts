@@ -12,12 +12,13 @@ export { bindSnapshotSelector } from './bind.ts'
 export type UseSession<Snap extends object = object> = SnapshotSelectorHook<Snap>
 
 export type {
-  ChainRenderOpts, HostObservable, RenderOpts, SessionProvideInfo, SnapshotSelectorHook,
-  SlotRenderer, SlotRendererHost, StoreInstanceLike,
+  ChainRenderOpts, HostObservable, KeyedStandardSource, RenderOpts, SnapshotSelectorHook,
+  ScopedStandardSourceBinding, SlotRenderer, SlotRendererHost, SlotScopeAdapter,
+  StandardSourceBinding, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 export { SlotOwnershipError, StaleAuthorizationError } from '@deepseek-ai/dsh-client-ui-slots'
 export { createSlotRenderer } from './scoped-slots.tsx'
 
-export { SessionProvider, SlotAssemblyError, type SessionProviderProps } from './session-provider.tsx'
+export { SlotAssemblyError } from './errors.ts'
 
 export { useInvoke } from './use-invoke.ts'

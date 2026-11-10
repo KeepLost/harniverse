@@ -19,6 +19,8 @@ flowchart TD
     pkg_native_command["native-command"]
     pkg_output_retention["output-retention"]
     pkg_timeout["timeout"]
+    pkg_util_file_drag["util-file-drag"]
+    pkg_util_workspace_path["util-workspace-path"]
   end
   subgraph group_llm["packages/llm"]
     pkg_llm["llm"]
@@ -50,6 +52,7 @@ flowchart TD
     pkg_fs_codec["fs-codec"]
     pkg_fs_local["fs-local"]
     pkg_fs_observation_policy["fs-observation-policy"]
+    pkg_fs_patch["fs-patch"]
     pkg_fs_sandbox["fs-sandbox"]
     pkg_tool_fs["tool-fs"]
     pkg_tool_fs_search["tool-fs-search"]
@@ -173,11 +176,13 @@ flowchart TD
     pkg_client_ui_browser["client-ui-browser"]
     pkg_client_ui_commands["client-ui-commands"]
     pkg_client_ui_connection_status["client-ui-connection-status"]
+    pkg_client_ui_context_menu["client-ui-context-menu"]
     pkg_client_ui_conversation["client-ui-conversation"]
     pkg_client_ui_dashboard["client-ui-dashboard"]
     pkg_client_ui_deliverables["client-ui-deliverables"]
     pkg_client_ui_directory_picker_browse["client-ui-directory-picker-browse"]
     pkg_client_ui_directory_picker_native["client-ui-directory-picker-native"]
+    pkg_client_ui_file_actions["client-ui-file-actions"]
     pkg_client_ui_goal["client-ui-goal"]
     pkg_client_ui_governor["client-ui-governor"]
     pkg_client_ui_input_trigger["client-ui-input-trigger"]
@@ -468,8 +473,11 @@ flowchart TD
   pkg_native_command --> pkg_invariants
   pkg_output_retention --> pkg_invariants
   pkg_timeout --> pkg_invariants
+  pkg_util_file_drag --> pkg_invariants
+  pkg_util_workspace_path --> pkg_invariants
   pkg_scope --> pkg_invariants
   pkg_fs_codec --> pkg_invariants
+  pkg_fs_patch --> pkg_invariants
   pkg_cmdline --> pkg_invariants
   pkg_hmr_coordination --> pkg_invariants
   pkg_auth_app --> pkg_invariants
@@ -480,7 +488,9 @@ flowchart TD
   pkg_client_schema_form --> pkg_invariants
   pkg_client_store --> pkg_invariants
   pkg_client_ui_attachment --> pkg_invariants
+  pkg_client_ui_context_menu --> pkg_invariants
   pkg_client_ui_dashboard --> pkg_invariants
+  pkg_client_ui_file_actions --> pkg_invariants
   pkg_client_ui_primitives --> pkg_invariants
   pkg_client_ui_queue --> pkg_invariants
   pkg_client_ui_slots --> pkg_invariants
@@ -491,7 +501,6 @@ flowchart TD
   pkg_host_directory_picker_browse --> pkg_invariants
   pkg_host_directory_picker_native --> pkg_invariants
   pkg_host_webserver --> pkg_invariants
-  pkg_ptc_runtime --> pkg_invariants
   pkg_plugin_diagnostics --> pkg_invariants
   pkg_speech --> pkg_invariants
   pkg_remote_hosts_ssh --> pkg_invariants
@@ -697,11 +706,6 @@ flowchart TD
   pkg_environment --> pkg_system_prompt
   pkg_persona --> pkg_invariants
   pkg_persona --> pkg_system_prompt
-  pkg_ptc_runtime_python --> pkg_invariants
-  pkg_ptc_runtime_python --> pkg_ptc_runtime
-  pkg_ptc_runtime_python --> pkg_session
-  pkg_ptc_runtime_python --> pkg_subprocess
-  pkg_ptc_runtime_python --> pkg_timeout
   pkg_sandbox --> pkg_invariants
   pkg_sandbox --> pkg_llm
   pkg_sandbox --> pkg_session
@@ -805,6 +809,8 @@ flowchart TD
   pkg_agent_presets --> pkg_session
   pkg_agent_presets --> pkg_settings
   pkg_agent_presets --> pkg_system_prompt
+  pkg_ptc_runtime --> pkg_invariants
+  pkg_ptc_runtime --> pkg_sandbox
   pkg_sandbox_local --> pkg_invariants
   pkg_sandbox_local --> pkg_llm
   pkg_sandbox_local --> pkg_sandbox
@@ -960,14 +966,20 @@ flowchart TD
   pkg_lsp_stdio --> pkg_lsp
   pkg_lsp_stdio --> pkg_subprocess
   pkg_lsp_stdio --> pkg_timeout
-  pkg_ptc_runtime_node --> pkg_control_channel
+  pkg_ptc_runtime_node --> pkg_fs
   pkg_ptc_runtime_node --> pkg_invariants
+  pkg_ptc_runtime_node --> pkg_llm
   pkg_ptc_runtime_node --> pkg_ptc_runtime
   pkg_ptc_runtime_node --> pkg_sandbox
   pkg_ptc_runtime_node --> pkg_sandbox_policy
   pkg_ptc_runtime_node --> pkg_session
   pkg_ptc_runtime_node --> pkg_subprocess
   pkg_ptc_runtime_node --> pkg_timeout
+  pkg_ptc_runtime_python --> pkg_invariants
+  pkg_ptc_runtime_python --> pkg_ptc_runtime
+  pkg_ptc_runtime_python --> pkg_session
+  pkg_ptc_runtime_python --> pkg_subprocess
+  pkg_ptc_runtime_python --> pkg_timeout
   pkg_session_title_llm --> pkg_invariants
   pkg_session_title_llm --> pkg_llm
   pkg_session_title_llm --> pkg_model_policy
@@ -2241,8 +2253,11 @@ flowchart TD
 | [`native-command`](../packages/util/native-command) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`output-retention`](../packages/util/output-retention) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`util-file-drag`](../packages/util/file-drag) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`util-workspace-path`](../packages/util/workspace-path) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`fs-codec`](../packages/fs/fs-codec) | `fs` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`fs-patch`](../packages/fs/fs-patch) | `fs` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`cmdline`](../packages/boot/cmdline) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`hmr-coordination`](../packages/boot/hmr-coordination) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`auth-app`](../packages/bundle/auth-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2253,7 +2268,9 @@ flowchart TD
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-store`](../packages/client/store) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-attachment`](../packages/client/ui-attachment) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-ui-context-menu`](../packages/client/ui-context-menu) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-dashboard`](../packages/client/ui-dashboard) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-ui-file-actions`](../packages/client/ui-file-actions) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-primitives`](../packages/client/ui-primitives) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-queue`](../packages/client/ui-queue) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-slots`](../packages/client/ui-slots) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2264,7 +2281,6 @@ flowchart TD
 | [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
-| [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | `runtime-diagnostics` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`speech`](../packages/speech/speech) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2334,7 +2350,6 @@ flowchart TD
 | [`harness-source`](../packages/context/harness-source) | `context` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
 | [`environment`](../packages/preset/environment) | `preset` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
 | [`persona`](../packages/preset/persona) | `preset` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
-| [`ptc-runtime-python`](../packages/ptc-runtime/ptc-runtime-python) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants), [`skill`](../packages/skill/skill) |
 | [`session-persistence`](../packages/session/session-persistence) | `session` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
@@ -2357,6 +2372,7 @@ flowchart TD
 | [`commands`](../packages/interaction/commands) | `interaction` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol) |
 | [`jobs`](../packages/jobs/jobs) | `jobs` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
 | [`agent-presets`](../packages/preset/agent-presets) | `preset` | [`agent`](../packages/core/agent), [`atomic-write`](../packages/util/atomic-write), [`capabilities`](../packages/capability/capabilities), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt) |
+| [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
 | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`system-prompt`](../packages/core/system-prompt) |
 | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl) | `session` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence) |
@@ -2389,7 +2405,8 @@ flowchart TD
 | [`supervision`](../packages/interaction/supervision) | `interaction` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt) |
 | [`jobs-local`](../packages/jobs/jobs-local) | `jobs` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`jobs`](../packages/jobs/jobs), [`scope`](../packages/core/scope), [`timeout`](../packages/util/timeout), [`workspace`](../packages/workspace/workspace) |
 | [`lsp-stdio`](../packages/lsp/lsp-stdio) | `lsp` | [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
-| [`ptc-runtime-node`](../packages/ptc-runtime/ptc-runtime-node) | `ptc-runtime` | [`control-channel`](../packages/subprocess/control-channel), [`invariants`](../packages/runtime-diagnostics/invariants), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`ptc-runtime-node`](../packages/ptc-runtime/ptc-runtime-node) | `ptc-runtime` | [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`ptc-runtime-python`](../packages/ptc-runtime/ptc-runtime-python) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`session-title-llm`](../packages/session/session-title-llm) | `session` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`model-policy`](../packages/core/model-policy), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`timeout`](../packages/util/timeout) |
 | [`working-directory`](../packages/session/working-directory) | `session` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt) |
 | [`bash-local`](../packages/shell/bash-local) | `shell` | [`fs-codec`](../packages/fs/fs-codec), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |

@@ -9,19 +9,25 @@
   ],
   "references": [
     {
-      "path": "../../core/session"
+      "path": "../../../vendor/cordis"
     },
     {
       "path": "../../../vendor/cosmokit"
     },
     {
-      "path": "../../../vendor/cordis"
-    },
-    {
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../ptc-runtime"
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../../fs/fs-local"
+    },
+    {
+      "path": "../../llm/llm"
     },
     {
       "path": "../../runtime-diagnostics/invariants"
@@ -30,16 +36,25 @@
       "path": "../../sandbox/sandbox"
     },
     {
+      "path": "../../sandbox/sandbox-local"
+    },
+    {
       "path": "../../sandbox/sandbox-policy"
     },
     {
-      "path": "../../subprocess/control-channel"
+      "path": "../../session/session-projection"
     },
     {
       "path": "../../subprocess/subprocess"
     },
     {
+      "path": "../../subprocess/subprocess-local"
+    },
+    {
       "path": "../../util/timeout"
+    },
+    {
+      "path": "../ptc-runtime"
     }
   ]
 }

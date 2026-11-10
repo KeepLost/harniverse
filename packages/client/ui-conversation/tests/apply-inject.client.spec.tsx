@@ -150,7 +150,7 @@ async function bench(over: {
   }
   /** Materialize the input provide contribution the way the runtime does. */
   const inputApi = (id: SessionId) => {
-    const info = runtime.sessions.provideInfo(id)!
+    const info = runtime.sessions.bindingValue(id)!
     const state = info.hooks['input'] as {
       getSnapshot: () => InputState
       subscribe: (fn: () => void) => () => void

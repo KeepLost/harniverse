@@ -45,6 +45,8 @@
             name: '@deepseek-ai/dsh-sandbox-policy'
             config:
               mode: danger-full-access
+          - id: sandbox
+            name: '@deepseek-ai/dsh-sandbox-local'
           - id: ptc-runtime
             name: '@deepseek-ai/dsh-ptc-runtime-node'
           - id: cordis-host-runner

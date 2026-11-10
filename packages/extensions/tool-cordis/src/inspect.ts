@@ -33,7 +33,7 @@ interface LiveService {
 }
 
 /** The live service registrations, read from the reflect store. */
-function liveImpls(ctx: Context): { name: string; fiber: Fiber }[] {
+function liveImpls(ctx: Context) {
   const store = ctx.reflect.store
   return Object.getOwnPropertySymbols(store)
     .map(key => store[key])
@@ -63,8 +63,8 @@ function liveServices(ctx: Context, api: readonly ServiceApiEntry[]): LiveServic
       const entry = catalogued.get(impl.name)
       return {
         name: impl.name,
-        owner: impl.fiber.name,
-        state: STATE_LABELS[impl.fiber.state],
+        owner: impl.ctx.fiber.name,
+        state: STATE_LABELS[impl.ctx.fiber.state],
         summary: entry === undefined ? '' : plainSummary(entry.summary),
         catalogued: entry !== undefined,
         methods: entry === undefined ? [] : entry.methods.map(method => method.signature),
@@ -103,7 +103,7 @@ export function withinFiber(fiber: Fiber, root: Fiber): boolean {
  */
 export function providedServices(ctx: Context, fiber: Fiber): string[] {
   return liveImpls(ctx)
-    .filter(impl => withinFiber(impl.fiber, fiber))
+    .filter(impl => withinFiber(impl.ctx.fiber, fiber))
     .map(impl => impl.name)
     .sort()
 }

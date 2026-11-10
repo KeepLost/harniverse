@@ -131,6 +131,35 @@ describe('SSH filesystem provider', () => {
     expect(calls.at(-1)?.params).toMatchObject({ expected: { version: 'v1' }, policy: { mode: 'workspace-write', workspaceRoot: '/machine/work' } })
   })
 
+  it('patches, moves, and deletes remote files', async () => {
+    const edit = { version: 'v2', before: 'first', after: 'second' }
+    const removed = { before: 'second' }
+    const moved = { sourceBefore: 'second', destination: { operation: 'create' as const, before: null, after: 'second', version: 'v3' }, sourceDeleted: true }
+    const partial = { sourceBefore: 'second', destination: { operation: 'update' as const, before: 'old', after: 'second', version: 'v3' }, sourceDeleted: false,
+      sourceFailure: { code: 'FS_PERMISSION_DENIED', message: 'cannot unlink the source' } }
+    const { fs, calls, controller } = await mount((call) => {
+      if (call.method === 'fs.patch') return call.params.expected === undefined ? edit : Object.assign(new RemoteOperationError('hunk does not match'), { code: 'FS_PATCH_MISMATCH' })
+      if (call.method === 'fs.move') return (call.params.options as { hunks?: unknown }).hunks === undefined ? partial : moved
+      if (call.method === 'fs.delete') return removed
+      return null
+    })
+    expect(await fs.patchText(target, [{ lineNumber: 1, oldLines: ['first'], newLines: ['second'], isEndOfFile: false }])).toEqual(edit)
+    expect(calls.at(-1)?.params).toMatchObject({ policy: { mode: 'workspace-write', workspaceRoot: '/machine/work' } })
+    await expect(fs.patchText(target, [{ lineNumber: 1, oldLines: ['x'], newLines: ['y'], isEndOfFile: false }], { version: 'v1' as FsVersion }, controller.signal))
+      .rejects.toMatchObject({ name: 'FsError', code: 'FS_PATCH_MISMATCH' })
+    expect(calls.at(-1)).toMatchObject({ method: 'fs.patch', signal: controller.signal })
+
+    expect(await fs.moveFile(target, { ...target, targetKey: FsTargetKey('/machine/work/moved.txt') },
+      { hunks: [{ lineNumber: 1, oldLines: ['first'], newLines: ['second'], isEndOfFile: false }] })).toEqual(moved)
+    expect(calls.at(-1)?.params.options).toEqual({ hunks: [{ lineNumber: 1, oldLines: ['first'], newLines: ['second'], isEndOfFile: false }] })
+    const partialMove = await fs.moveFile(target, { ...target, targetKey: FsTargetKey('/machine/work/moved.txt') }, {})
+    expect(partialMove).toEqual(partial)
+    expect((partialMove as typeof partial).sourceDeleted).toBe(false)
+
+    expect(await fs.deleteFile(target, { version: 'v2' as FsVersion })).toEqual(removed)
+    expect(calls.at(-1)?.params).toMatchObject({ expected: { version: 'v2' }, policy: { mode: 'workspace-write', workspaceRoot: '/machine/work' } })
+  })
+
   it('maps remote failures onto filesystem error codes', async () => {
     const aborted = new AbortController()
     aborted.abort(new Error('caller cancelled'))

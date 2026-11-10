@@ -235,6 +235,11 @@ describe('TerminalBlock run-state dot', () => {
   // The cwd labels the call, not each line: a `cd` in the command moves later
   // lines elsewhere, so repeating the label would state a directory per line
   // that the view does not know.
+  it('merges partial caller labels over the defaults', () => {
+    const view = render(<TerminalBlock command="true" output="/w" exitCode={0} labels={{ done: '完成' }} />)
+    expect(view.getByText('完成')).toBeDefined()
+  })
+
   it('labels only the first row with the cwd, leaving later rows a bare $', () => {
     const view = render(<TerminalBlock command={'cd ~\nls'} cwd="/srv/app" output="a" exitCode={0} />)
     expect(promptRows(view.container)).toEqual(['appcd ~', '$ls'])

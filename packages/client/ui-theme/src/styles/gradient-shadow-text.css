@@ -9,6 +9,24 @@ body {
     0 0 1px 0 rgba(0, 0, 0, 0.2), 0 0 4px 0 rgba(0, 0, 0, 0.02), 0 12px 32px 0 rgba(0, 0, 0, 0.08);
   /* blur filter */
   --dsw-mask-blur: blur(2px);
+  /* Blocking masks dim the page; menu backgrounds retain their blur. */
+  --dsw-menu-backdrop-filter: blur(40px) saturate(150%);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l4);
+}
+
+/* 派生 elevation 值逐元素声明而非从 body 继承：继承传下来的是在 body 上就
+   已替换完 var() 的值，组件重绑 --dsw-elevation-stroke-color 将无法进入
+   var(--dsw-elevation-*)；逐元素声明让每个元素按自己看到的描边色重新替换
+   （同 scrollbar.css 对 --dsh-scrollbar-thumb 的处理）。 */
+body,
+body * {
+  --dsw-elevation-stroke: 0 0 0 0.5px var(--dsw-elevation-stroke-color);
+  --dsw-elevation-panel:
+    var(--dsw-elevation-stroke), 0 3px 8px 0 rgba(0, 0, 0, 0.03), 0 0 16px 0 rgba(0, 0, 0, 0.02);
+  --dsw-elevation-prominent:
+    var(--dsw-elevation-stroke), 0 3px 8px 0 rgba(0, 0, 0, 0.04), 0 0 20px 0 rgba(0, 0, 0, 0.05);
+  --dsw-elevation-soft:
+    var(--dsw-elevation-stroke), 0 4px 16px 0 rgba(0, 0, 0, 0.03), 0 0 24px 0 rgba(0, 0, 0, 0.03);
 }
 
 body[data-ds-dark-theme] {

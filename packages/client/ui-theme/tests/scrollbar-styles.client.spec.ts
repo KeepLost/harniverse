@@ -245,7 +245,8 @@ function elevatedRungs(): Set<string> {
     }
     return current
   }
-  const rungs = new Set([resolve('--dsw-alias-bg-layer-2'), resolve('--dsw-alias-bg-layer-3')])
+  // The translucent menu fill joins the opaque rungs as an elevated surface.
+  const rungs = new Set([resolve('--dsw-alias-bg-layer-2'), resolve('--dsw-alias-bg-layer-3'), resolve('--dsw-menu-surface-fill')])
   const tokens = new Set<string>()
   for (const name of definitions.keys()) {
     if (SURFACE_TOKEN_PATTERN.test(name) && rungs.has(resolve(name))) tokens.add(name)

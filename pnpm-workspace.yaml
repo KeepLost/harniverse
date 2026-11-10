@@ -95,8 +95,10 @@ overrides:
   # and @hono/node-server; force the patched release.
   'hono@4': '4.13.11'
   # Hold every js-yaml resolution on the v4 line: v5 removes the `Type`
-  # class that vendored cordis-plugin-include needs for `!!js` tags; the
-  # major jump belongs to the vendor cordis sync, not a routine bump.
+  # class that vendored cordis-plugin-include needs for `!!js` tags. Verified
+  # again against the cordis 4.1.0 vendor sync (include 1.1.0 still constructs
+  # `new yaml.Type` and pins `js-yaml@^4.1.0`); drop only when the vendored
+  # include stops needing the class.
   js-yaml: '4.3.2'
   # CVE-2026-103923 (GHSA-238p-pmpm-9mq7): every katex before 0.18.2 is
   # affected, and the 0.16 line pulled in by mermaid and

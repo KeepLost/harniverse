@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-10-wave6-ui-context-menu-absorption.md
+2026-11-10-wave6-ui-context-menu-absorption.md: 9c85738c607b88ab0755ab666c7dcaf8d0d52d79
+2026-11-10-wave6-ui-context-menu-absorption.zh.md: ecc347ffac66cb99d14b02754280d6015d7aa526

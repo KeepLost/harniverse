@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import type { CodeBindingNamespace, CodeRunRequest } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcBindingNamespace, PtcRunRequest } from '@deepseek-ai/dsh-ptc-runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { execFileSyncMock, spawnMock } = vi.hoisted(() => ({ execFileSyncMock: vi.fn(), spawnMock: vi.fn() }))
@@ -86,15 +86,15 @@ class FakeChild extends EventEmitter {
   }
 }
 
-function namespace(functions: Record<string, (args: unknown) => unknown>, errorClass = true): CodeBindingNamespace {
+function namespace(functions: Record<string, (args: unknown) => unknown>, errorClass = true): PtcBindingNamespace {
   return {
     global: 'tools',
     functions,
     ...errorClass ? { errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' } } : {},
-  } as CodeBindingNamespace
+  } as PtcBindingNamespace
 }
 
-function request(overrides: Partial<CodeRunRequest> = {}): CodeRunRequest {
+function request(overrides: Partial<PtcRunRequest> = {}): PtcRunRequest {
   return { program: 'return 1', bindings: [], ...overrides }
 }
 
@@ -147,14 +147,14 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(PythonPtcRuntime, {})
     spawnMock.mockImplementation(() => { throw new Error('spawn denied') })
-    await expect(ctx.ptcRuntime.run(request())).resolves.toEqual({
+    await expect(ctx.ptcRuntime.run(ctx.ptcRuntime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process could not start' },
     })
     await fiber.dispose()
 
     const startupFailure = arm((child) => { child.fail() })
     const startupRuntime = await setup()
-    await expect(startupRuntime.runtime.run(request())).resolves.toEqual({
+    await expect(startupRuntime.runtime.run(startupRuntime.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process could not start' },
     })
     expect(startupFailure().listenerCount('error')).toBe(0)
@@ -169,7 +169,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     })
     const { runtime, fiber } = await setup()
 
-    await expect(runtime.run(request())).resolves.toEqual({ logs: [], value: 1 })
+    await expect(runtime.run(runtime.resolve(request()))).resolves.toEqual({ logs: [], value: 1 })
 
     const options = spawnMock.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv } | undefined
     expect(options?.env).toEqual(process.env.PATH === undefined ? {} : { PATH: process.env.PATH })
@@ -184,7 +184,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
         else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 2 })
       })
       const withoutPath = await setup()
-      await expect(withoutPath.runtime.run(request())).resolves.toEqual({ logs: [], value: 2 })
+      await expect(withoutPath.runtime.run(withoutPath.runtime.resolve(request()))).resolves.toEqual({ logs: [], value: 2 })
       const fallback = spawnMock.mock.calls.at(-1)?.[2] as { env?: NodeJS.ProcessEnv } | undefined
       expect(fallback?.env).toEqual({})
       await withoutPath.fiber.dispose()
@@ -198,7 +198,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     missingInput.stdin = null
     spawnMock.mockImplementationOnce(() => missingInput as never)
     const noInput = await setup()
-    await expect(noInput.runtime.run(request())).resolves.toEqual({
+    await expect(noInput.runtime.run(noInput.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
     })
     expect(missingInput.killed).toBe(true)
@@ -208,7 +208,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     missing.stdio[3] = null
     spawnMock.mockImplementationOnce(() => missing as never)
     const first = await setup()
-    await expect(first.runtime.run(request())).resolves.toEqual({
+    await expect(first.runtime.run(first.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
     })
     expect(missing.killed).toBe(true)
@@ -218,7 +218,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     throwing.input.write = () => { throw new Error('stdin write failed') }
     spawnMock.mockImplementationOnce(() => throwing as never)
     const second = await setup()
-    await expect(second.runtime.run(request())).resolves.toEqual({
+    await expect(second.runtime.run(second.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
     })
     await second.fiber.dispose()
@@ -226,7 +226,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
 
   it('rejects invalid, duplicate, reserved, and unusable binding descriptors', async () => {
     const { runtime, fiber } = await setup()
-    const cases: [CodeBindingNamespace[], RegExp][] = [
+    const cases: [PtcBindingNamespace[], RegExp][] = [
       [
         [namespace({}), namespace({})],
         /duplicate binding global/,
@@ -240,11 +240,11 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       [[{ global: 'tools', functions: {}, errorClass: { name: 'Other', memberNameProperty: '__value__' } }], /error member/],
     ]
     for (const [bindings, message] of cases) {
-      await expect(runtime.run(request({ bindings }))).rejects.toThrow(message)
+      await expect(runtime.run(runtime.resolve(request({ bindings })))).rejects.toThrow(message)
     }
     const controller = new AbortController()
     controller.abort()
-    await expect(runtime.run(request({ bindings: [namespace({}, false)], signal: controller.signal }))).resolves.toEqual({
+    await expect(runtime.run(runtime.resolve(request({ bindings: [namespace({}, false)], signal: controller.signal })))).resolves.toEqual({
       logs: [], error: { kind: 'abort', message: 'run aborted' },
     })
     arm((child) => {
@@ -252,7 +252,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
       else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
     })
-    await expect(runtime.run(request({ bindings: [namespace({}, false)] }))).resolves.toEqual({ logs: [], value: 1 })
+    await expect(runtime.run(runtime.resolve(request({ bindings: [namespace({}, false)] })))).resolves.toEqual({ logs: [], value: 1 })
     await fiber.dispose()
   })
 
@@ -260,7 +260,8 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     const bootOverflow = arm(() => {})
     const first = await setup({ maxOutputBytes: 128, maxControlBytes: 1_152 })
     const hugeName = 'functionName'.repeat(200)
-    await expect(first.runtime.run(request({ bindings: [namespace({ [hugeName]: async () => 1 })] }))).resolves.toEqual({
+    const huge = namespace({ [hugeName]: async () => 1 })
+    await expect(first.runtime.run(first.runtime.resolve(request({ bindings: [huge] })))).resolves.toEqual({
       logs: [], error: { kind: 'exception', message: 'binding metadata exceeds configured control limit' },
     })
     expect(bootOverflow().killed).toBe(true)
@@ -270,7 +271,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       child.protocol.send({ type: 'boot-ack' })
     })
     const second = await setup({ maxOutputBytes: 128, maxControlBytes: 2_048 })
-    await expect(second.runtime.run(request({ program: 'x'.repeat(3_000) }))).resolves.toEqual({
+    await expect(second.runtime.run(second.runtime.resolve(request({ program: 'x'.repeat(3_000) })))).resolves.toEqual({
       logs: [], error: { kind: 'exception', message: 'program exceeds configured control limit' },
     })
     await second.fiber.dispose()
@@ -288,7 +289,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const normal = await setup({ maxOutputBytes: 512 })
-    await expect(normal.runtime.run(request())).resolves.toEqual({
+    await expect(normal.runtime.run(normal.runtime.resolve(request()))).resolves.toEqual({
       logs: ['ascii', 'é', 'quote\\" slash\\ control\u0001 two-byte é three-byte € four-byte 😀'],
       value: { text: 'value', array: [true, null, 1.5], object: { n: 1 } },
     })
@@ -303,7 +304,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const capped = await setup({ maxOutputBytes: 4 })
-    const cappedResult = await capped.runtime.run(request())
+    const cappedResult = await capped.runtime.run(capped.runtime.resolve(request()))
     expect(cappedResult.error?.kind).toBe('output-limit')
     expect(cappedResult.logs).toEqual([])
     const cappedBytes = Buffer.byteLength(JSON.stringify(cappedResult.logs))
@@ -320,7 +321,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const emptyBoundary = await setup({ maxOutputBytes: 4 })
-    await expect(emptyBoundary.runtime.run(request())).resolves.toMatchObject({ error: { kind: 'output-limit' } })
+    await expect(emptyBoundary.runtime.run(emptyBoundary.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' } })
     await emptyBoundary.fiber.dispose()
 
     arm((child) => {
@@ -332,7 +333,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const partial = await setup({ maxOutputBytes: 64 })
-    const partialResult = await partial.runtime.run(request())
+    const partialResult = await partial.runtime.run(partial.runtime.resolve(request()))
     expect(partialResult.error?.kind).toBe('output-limit')
     expect(partialResult.logs[0]).toBe('kept')
     expect(partialResult.logs[1]?.length).toBeGreaterThan(0)
@@ -348,7 +349,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const emptyPrefix = await setup({ maxOutputBytes: 64 })
-    await expect(emptyPrefix.runtime.run(request())).resolves.toMatchObject({ error: { kind: 'output-limit' }, logs: ['a'.repeat(24)] })
+    await expect(emptyPrefix.runtime.run(emptyPrefix.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' }, logs: ['a'.repeat(24)] })
     await emptyPrefix.fiber.dispose()
   })
 
@@ -365,7 +366,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const split = await setup({ maxControlBytes: 1_152, maxOutputBytes: 128 })
-    await expect(split.runtime.run(request())).resolves.toEqual({ logs: [], value: 'split' })
+    await expect(split.runtime.run(split.runtime.resolve(request()))).resolves.toEqual({ logs: [], value: 'split' })
     await split.fiber.dispose()
 
     arm((child) => {
@@ -377,7 +378,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const oversized = await setup({ maxControlBytes: 1_152, maxOutputBytes: 128 })
-    await expect(oversized.runtime.run(request())).resolves.toEqual({
+    await expect(oversized.runtime.run(oversized.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process violated the control protocol' },
     })
     await oversized.fiber.dispose()
@@ -395,7 +396,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const unknown = await setup()
-    await expect(unknown.runtime.run(request({ bindings: [namespace({ known: () => 1 })] }))).resolves.toEqual({ logs: [], value: 'unknown' })
+    await expect(unknown.runtime.run(unknown.runtime.resolve(request({ bindings: [namespace({ known: () => 1 })] })))).resolves.toEqual({ logs: [], value: 'unknown' })
     await unknown.fiber.dispose()
 
     arm((child) => {
@@ -405,7 +406,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.includes('"id":2')) child.protocol.send({ type: 'done', value: 'rejected' })
     })
     const rejected = await setup()
-    await expect(rejected.runtime.run(request({ bindings: [namespace({ reject: () => { throw new Error('no') } })] }))).resolves.toEqual({ logs: [], value: 'rejected' })
+    await expect(rejected.runtime.run(rejected.runtime.resolve(request({ bindings: [namespace({ reject: () => { throw new Error('no') } })] })))).resolves.toEqual({ logs: [], value: 'rejected' })
     await rejected.fiber.dispose()
   })
 
@@ -417,7 +418,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.includes('"id":3')) child.protocol.send({ type: 'done', value: 'fallback' })
     })
     const runtime = await setup({ maxOutputBytes: 128, maxControlBytes: 1_152 })
-    await expect(runtime.runtime.run(request({ bindings: [namespace({ large: () => 'x'.repeat(2_000) })] }))).resolves.toEqual({ logs: [], value: 'fallback' })
+    await expect(runtime.runtime.run(runtime.runtime.resolve(request({ bindings: [namespace({ large: () => 'x'.repeat(2_000) })] })))).resolves.toEqual({ logs: [], value: 'fallback' })
     await runtime.fiber.dispose()
   })
 
@@ -432,9 +433,9 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const pending = await setup()
-    const pendingResult = pending.runtime.run(request({
+    const pendingResult = pending.runtime.run(pending.runtime.resolve(request({
       bindings: [namespace({ pending: () => new Promise((resolve) => { release = resolve }) })],
-    }))
+    })))
     await expect(pendingResult).resolves.toEqual({ logs: [], value: 'finished' })
     release(1)
     await Promise.resolve()
@@ -448,7 +449,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'call', id: 6, global: 'tools', name: 'throwsWhileSnapshotting', args: null })
       else if (frame?.includes('"id":6')) child.protocol.send({ type: 'done', value: 'snapshot-caught' })
     })
-    await expect(snapshotFailure.runtime.run(request({ bindings: [namespace({ throwsWhileSnapshotting: () => throwingValue })] }))).resolves.toEqual({ logs: [], value: 'snapshot-caught' })
+    await expect(snapshotFailure.runtime.run(snapshotFailure.runtime.resolve(request({ bindings: [namespace({ throwsWhileSnapshotting: () => throwingValue })] })))).resolves.toEqual({ logs: [], value: 'snapshot-caught' })
     await snapshotFailure.fiber.dispose()
   })
 
@@ -467,7 +468,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const runtime = await setup()
-    await expect(runtime.runtime.run(request())).resolves.toEqual({ logs: [], value: 'done' })
+    await expect(runtime.runtime.run(runtime.runtime.resolve(request()))).resolves.toEqual({ logs: [], value: 'done' })
     await runtime.fiber.dispose()
   })
 
@@ -480,7 +481,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       } else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
     })
     const runtime = await setup()
-    await expect(runtime.runtime.run(request())).resolves.toEqual({ logs: [], value: 1 })
+    await expect(runtime.runtime.run(runtime.runtime.resolve(request()))).resolves.toEqual({ logs: [], value: 1 })
     await runtime.fiber.dispose()
 
     arm((child) => {
@@ -492,7 +493,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const lateOutput = await setup({ maxOutputBytes: 128 })
-    await expect(lateOutput.runtime.run(request())).resolves.toMatchObject({ error: { kind: 'output-limit' } })
+    await expect(lateOutput.runtime.run(lateOutput.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' } })
     await lateOutput.fiber.dispose()
   })
 
@@ -507,7 +508,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
           else child.protocol.send(done)
         }
       }) as never)
-      return runtime.runtime.run(request())
+      return runtime.runtime.run(runtime.runtime.resolve(request()))
     }
 
     await expect(runFrame({ type: 'done' })).resolves.toEqual({ logs: [] })
@@ -536,7 +537,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
         child.protocol.send({ type: 'done', error: { kind: 'exception', message: 'x'.repeat(200) } })
       }
     }) as never)
-    await expect(runtime.runtime.run(request())).resolves.toMatchObject({ error: { kind: 'output-limit' }, logs: ['kept'] })
+    await expect(runtime.runtime.run(runtime.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' }, logs: ['kept'] })
 
     spawnMock.mockImplementationOnce(() => new FakeChild((child) => {
       const frame = child.protocol.writes.at(-1)
@@ -544,7 +545,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 123 })
     }) as never)
     const tiny = await setup({ maxOutputBytes: 4 })
-    await expect(tiny.runtime.run(request())).resolves.toMatchObject({ error: { kind: 'output-limit' } })
+    await expect(tiny.runtime.run(tiny.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' } })
     await tiny.fiber.dispose()
 
     Object.defineProperty(Object.prototype, '__pythonRuntimeCoverageInherited', { configurable: true, enumerable: true, value: 1, writable: true })
@@ -563,7 +564,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) child.close(1)
     })
     const exited = await setup()
-    await expect(exited.runtime.run(request())).resolves.toEqual({
+    await expect(exited.runtime.run(exited.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process exited before completing' },
     })
     await exited.fiber.dispose()
@@ -574,7 +575,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) child.close(0)
     })
     const cleanExit = await setup()
-    await expect(cleanExit.runtime.run(request())).resolves.toEqual({
+    await expect(cleanExit.runtime.run(cleanExit.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process exited before completing' },
     })
     await cleanExit.fiber.dispose()
@@ -585,7 +586,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) child.close(null, 'SIGXCPU')
     })
     const cpu = await setup({ cpuSeconds: 7 })
-    await expect(cpu.runtime.run(request())).resolves.toEqual({
+    await expect(cpu.runtime.run(cpu.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'timeout', message: 'CPU budget exhausted (7s)' },
     })
     await cpu.fiber.dispose()
@@ -599,7 +600,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const controlError = await setup()
-    await expect(controlError.runtime.run(request())).resolves.toEqual({
+    await expect(controlError.runtime.run(controlError.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
     })
     await controlError.fiber.dispose()
@@ -613,7 +614,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const inputError = await setup()
-    await expect(inputError.runtime.run(request())).resolves.toEqual({
+    await expect(inputError.runtime.run(inputError.runtime.resolve(request()))).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
     })
     await inputError.fiber.dispose()
@@ -621,7 +622,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     vi.useFakeTimers()
     arm(() => {})
     const wall = await setup({ maxWallMs: 20 })
-    const wallRun = wall.runtime.run(request())
+    const wallRun = wall.runtime.run(wall.runtime.resolve(request()))
     await vi.advanceTimersByTimeAsync(20)
     await expect(wallRun).resolves.toEqual({ logs: [], error: { kind: 'timeout', message: 'wall-clock ceiling reached (20ms)' } })
     await wall.fiber.dispose()
@@ -630,7 +631,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     const controller = new AbortController()
     arm(() => {})
     const aborted = await setup()
-    const abortedRun = aborted.runtime.run(request({ signal: controller.signal }))
+    const abortedRun = aborted.runtime.run(aborted.runtime.resolve(request({ signal: controller.signal })))
     controller.abort()
     await expect(abortedRun).resolves.toEqual({ logs: [], error: { kind: 'abort', message: 'run aborted' } })
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
@@ -640,11 +641,11 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
   it('disposes in-flight work and rejects later runs', async () => {
     arm(() => {})
     const { fiber, runtime, ctx } = await setup()
-    const inFlight = runtime.run(request())
+    const inFlight = runtime.run(runtime.resolve(request()))
     await fiber.dispose()
     await expect(inFlight).resolves.toEqual({ logs: [], error: { kind: 'abort', message: 'runtime disposed' } })
     expect(ctx.get('ptcRuntime')).toBeUndefined()
-    await expect(runtime.run(request())).rejects.toThrow(/after disposal/)
+    await expect(runtime.run(runtime.resolve(request()))).rejects.toThrow(/after disposal/)
   })
 
   it('resolves and probes the configured executable once at load', async () => {
@@ -670,7 +671,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
         else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
       })
       vi.stubEnv('PATH', tmpdir())
-      await expect(runtime.run(request())).resolves.toEqual({ logs: [], value: 1 })
+      await expect(runtime.run(runtime.resolve(request()))).resolves.toEqual({ logs: [], value: 1 })
       expect(spawnMock.mock.calls[0]?.[0]).toBe(executable)
       await fiber.dispose()
     } finally {
@@ -757,7 +758,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const { runtime, fiber } = await setup()
-    await expect(runtime.run(request({ bindings: [namespace({ hang: () => new Promise(() => {}) })] }))).resolves.toEqual({
+    await expect(runtime.run(runtime.resolve(request({ bindings: [namespace({ hang: () => new Promise(() => {}) })] })))).resolves.toEqual({
       logs: [],
       error: { kind: 'worker-exit', message: 'call backlog exceeded 1024 in-flight binding calls (a binding never settled)' },
     })
@@ -776,7 +777,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const { runtime, fiber } = await setup()
-    await expect(runtime.run(request({ bindings: [namespace({ echo: (args: unknown) => args })] }))).resolves.toEqual({
+    await expect(runtime.run(runtime.resolve(request({ bindings: [namespace({ echo: (args: unknown) => args })] })))).resolves.toEqual({
       logs: [],
       error: { kind: 'worker-exit', message: 'reply backlog exceeded 1024 frames the child has not consumed on stdin' },
     })
@@ -811,14 +812,14 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
           },
         }
       },
-    } as unknown as CodeBindingNamespace
+    } as unknown as PtcBindingNamespace
     const getChild = arm((child) => {
       const frame = child.protocol.writes.at(-1)
       if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
       else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
     })
     const { runtime, fiber } = await setup()
-    await expect(runtime.run(request({ bindings: [hostile] }))).resolves.toEqual({ logs: [], value: 1 })
+    await expect(runtime.run(runtime.resolve(request({ bindings: [hostile] })))).resolves.toEqual({ logs: [], value: 1 })
     expect(globalReads).toBe(1)
     expect(functionsReads).toBe(1)
     expect(nameReads).toBe(1)
@@ -839,7 +840,21 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame.type === 'reply') child.protocol.send({ type: 'done', value: frame.value })
     })
     const { runtime, fiber } = await setup()
-    await expect(runtime.run(request({ bindings: [namespace(functions)] }))).resolves.toEqual({ logs: [], value: 'ping' })
+    await expect(runtime.run(runtime.resolve(request({ bindings: [namespace(functions)] })))).resolves.toEqual({ logs: [], value: 'ping' })
     await fiber.dispose()
+  })
+})
+
+
+describe('resolve', () => {
+  it('rejects unsupported per-call choices and accepts the null deadline', async () => {
+    const { ctx } = await setup()
+    const runtime = ctx.ptcRuntime as PythonPtcRuntime
+    expect(() => runtime.resolve(request({ timeoutMs: 5_000 }))).toThrow('per-call timeoutMs is not supported')
+    expect(() => runtime.resolve(request({ sandboxPolicy: { mode: 'read-only', workspaceRoot: '/w' } }))).toThrow('per-call sandbox policies are not supported')
+    const spec = runtime.resolve(request({ timeoutMs: null }))
+    expect(spec.timeoutMs).toBe(runtime['config'].maxWallMs)
+    expect(spec.cwd).toBeDefined()
+    await ctx.fiber.dispose()
   })
 })

@@ -49,6 +49,11 @@ const sessionSnapshots = new WeakMap<SlotRegistry, SnapshotStore<ConversationSna
 const tConversation: ConversationSessionHeaderProps['t'] =
   key => (conversationZh as Record<string, string>)[key] ?? key
 
+// jsdom has no matchMedia; hover-capable pointers gate the shared tooltip.
+beforeEach(() => { vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true }))) })
+afterEach(() => { vi.unstubAllGlobals() })
+
+
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
@@ -178,6 +183,7 @@ function standaloneProps(
     useSession: fakeSession(nodes).useSession,
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useContextMenu: () => ({ getTriggerProps: () => ({}) }),
     useProjection: (() => undefined) as never,
     // The locale seat the outlet would inject for the declared namespace.
     t: (key: LocaleKeysOf<'trajectory'>) => zh[key as TrajectoryKey] ?? key,
@@ -278,10 +284,11 @@ function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES
     <>
       <ConversationSessionHeader
         sessionId={SID}
-        SessionProvider={({ children }) => children(SID)}
+        SessionProvider={({ children }) => <>{children}</>}
         useSession={useSession}
         useSessions={emptySessions()}
         useWorkspaces={emptyWorkspaces()}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useProjection={(() => undefined)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
@@ -294,10 +301,11 @@ function mount(slots: SlotRegistry, nodes: ConversationSnapshot['nodes'] = NODES
       />
       <ConversationSession
         sessionId={SID}
-        SessionProvider={({ children }) => children(SID)}
+        SessionProvider={({ children }) => <>{children}</>}
         useSession={useSession}
         useSessions={emptySessions()}
         useWorkspaces={emptyWorkspaces()}
+        useContextMenu={() => ({ getTriggerProps: () => ({}) })}
         useProjection={(() => undefined)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
@@ -670,7 +678,7 @@ describe('timeline projection', () => {
       expect(span?.getAttribute('data-assistant-timing')).toBe('true')
       expect(span?.style.getPropertyValue('--trajectory-assistant-ttft')).toBe('25%')
 
-      fireEvent.mouseEnter(span as HTMLElement)
+      fireEvent.pointerEnter(span as HTMLElement, { pointerType: 'mouse' })
       act(() => { vi.advanceTimersByTime(499) })
       expect(view.container.querySelector('[role="tooltip"]')).toBeNull()
       act(() => { vi.advanceTimersByTime(1) })
@@ -703,6 +711,9 @@ describe('timeline projection', () => {
     expect(view.container.querySelector('[data-timeline-hover-line]')).toBeTruthy()
     fireEvent.pointerEnter(boundary)
     expect(view.container.querySelector('[data-timeline-hover-line]')).toBeNull()
+    // An earlier test's pointer press leaves the pointer modality set; the
+    // boundary marker answers focus, so return to the keyboard first.
+    fireEvent.keyDown(document.body, { key: 'Tab' })
     fireEvent.focus(boundary)
     expect(screen.getByRole('tooltip').textContent)
       .toContain('Click to load earlier history')

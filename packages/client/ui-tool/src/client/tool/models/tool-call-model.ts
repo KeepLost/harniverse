@@ -11,6 +11,7 @@
 // that produces the values).
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import { relativizeToCwd } from '@deepseek-ai/dsh-util-workspace-path'
 
 export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
@@ -170,19 +171,6 @@ const SUMMARY_KEYS: Record<ToolRowVariant, readonly string[]> = {
   edit: ['path', 'file_path'],
   code: ['description'],
   others: [],
-}
-
-/**
- * Strip the workspace root from a workspace-rooted absolute path (display only).
- * @param text - the path to shorten.
- * @param cwd - session workspace root; absent or empty leaves the path unchanged.
- * @returns the path relative to the workspace root, or unchanged when it is not rooted there.
- */
-export function relativizeToCwd(text: string, cwd: string | undefined): string {
-  if (cwd === undefined || cwd === '') return text
-  const root = cwd.replace(/[/\\]+$/, '')
-  if (text.startsWith(`${root}/`) || text.startsWith(`${root}\\`)) return text.slice(root.length + 1)
-  return text
 }
 
 function deriveSummary(variant: ToolRowVariant, argsRaw: string): string {

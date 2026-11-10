@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import { FiberState } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '../src/index.ts'
 
@@ -93,6 +94,11 @@ async function loadComposition(
     config: { path: pathToFileURL(configPath).href },
   })
   await context.loader.await()
+  // rc.8 contains row activation failures inside the group update; re-surface
+  // them so a broken row still fails the composition load.
+  for (const row of context.loader.entries()) {
+    if (!row.disabled && row.fiber !== undefined && row.fiber.state === FiberState.FAILED) await row.fiber.await()
+  }
   return context
 }
 
@@ -448,7 +454,7 @@ describe('real Loader composition', () => {
         failure = error
       }
       second = context
-      expect(String(failure)).toMatch(/failed to apply loader entry.*EADDRINUSE/)
+      expect(String(failure)).toMatch(/EADDRINUSE/)
     } finally {
       await second?.fiber.dispose()
       context = first

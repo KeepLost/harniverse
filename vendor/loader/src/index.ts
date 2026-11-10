@@ -1,10 +1,10 @@
-import { Context, FiberState, Inject, Service, type Fiber } from '@deepseek-ai/cordis'
-import { defineProperty, isNullable, type Dict } from '@deepseek-ai/cosmokit'
+import { Context, FiberState, Inject, Service } from '@deepseek-ai/cordis'
+import { defineProperty, isNullable, type Awaitable, type Dict } from '@deepseek-ai/cosmokit'
 import { ModuleLoader } from './internal.ts'
 import { Entry, type EntryOptions } from './config/entry.ts'
 import { EntryGroup } from './config/group.ts'
 import isolate from './config/isolate.ts'
-import { EntryTree } from './config/tree.ts'
+import { EntryTree, type EntryChange } from './config/tree.ts'
 import { interpolate } from './config/utils.ts'
 
 /** Re-export entry node APIs. */
@@ -26,7 +26,19 @@ declare module '@deepseek-ai/cordis' {
     'loader/config-update'(): void
     'loader/entry-init'(entry: Entry): void
     'loader/partial-dispose'(entry: Entry, legacy: Partial<EntryOptions>, active: boolean): void
-    'loader/patch-context'(entry: Entry, next: () => void | Promise<void>): void | Promise<void>
+    /**
+     * Volatile config values were committed into the running fiber without a remount; dispatched to the owning fiber only.
+     * @param paths - changed config paths as key arrays; every value is committed before dispatch.
+     * @mode emit
+     */
+    'loader/volatile-update'(paths: readonly (readonly string[])[]): void
+    /**
+     * Refresh entry context before applying config.
+     * @param entry - entry containing the new raw config and optional current fiber.
+     * @param next - continue context refresh and Loader's config update.
+     * @mode waterfall
+     */
+    'loader/patch-context'(entry: Entry, next: () => Awaitable<void>): Awaitable<void>
   }
 
   interface Context {
@@ -60,7 +72,7 @@ export namespace Loader {
 /**
  * Service that owns a loader entry tree and imports configured plugins.
  *
- * Subclasses provide persistence by implementing `write()` on `EntryTree`.
+ * Subclasses provide persistence by implementing `commit(change)` on `EntryTree`.
  */
 export class Loader extends EntryTree {
   declare [Service.config]: Loader.Intercept
@@ -89,26 +101,25 @@ export class Loader extends EntryTree {
 
     ctx.reflect.provide('loader', this, this[Service.check])
 
-    ctx.on('internal/config', function (this: Fiber, _config, next) {
+    ctx.on('internal/config', (fiber, next) => {
       const config = next()
-      if (!this.entry || this.parent.fiber?.entry === this.entry) return config
-      // Tree carriers (Group, Include) keep their configs literal: their
-      // entry and patch lists hold other rows' configs, whose `!!js`
-      // expressions belong to those rows' own fibers.
-      const plugin = this.runtime?.callback as Record<PropertyKey, unknown> | undefined
-      if (plugin?.[EntryGroup.key]) return config
-      return interpolate(this.ctx, config)
-    }, { global: true })
+      if (!fiber.entry || fiber.parent.fiber?.entry === fiber.entry) return config
+      // Tree carriers preserve the expressions owned by their child entries.
+      if (fiber.runtime?.callback[EntryGroup.key]) return config
+      return interpolate(fiber.ctx, config)
+    })
 
-    ctx.on('internal/update', async function (config, noSave, next) {
-      if (!this.entry || noSave || this.parent.fiber?.entry === this.entry) return next()
-      await next()
-      const unparse = this.runtime?.Config?.['simplify']
-      this.entry.options.config = unparse ? unparse(config) : config
-      this.entry.parent.tree.write()
-    }, { global: true, prepend: true })
+    ctx.on('internal/commit', (fiber, config) => {
+      if (!fiber.entry || fiber.parent.fiber?.entry === fiber.entry) return
+      const schema = fiber.runtime?.Config
+      const unparse = schema?.['simplify']
+      const { entry } = fiber
+      const legacy = { ...entry.options }
+      entry.options.config = unparse ? unparse.call(schema, config) : config
+      entry.parent.tree.commit({ id: entry.options.id, group: entry.parent, options: entry.options, legacy })
+    })
 
-    ctx.on('internal/update', function (config, _, next) {
+    ctx.on('internal/update', function (config, next) {
       if (!this.entry || this.parent.fiber?.entry === this.entry) return next()
       self.showLog(this.entry, 'reload')
       return next()
@@ -140,27 +151,33 @@ export class Loader extends EntryTree {
       if (!ctx.registry.has(fiber.runtime!.callback)) return
 
       // case 5: the entry's tree is being disposed
-      const treeOwner = fiber.entry.parent.tree.ctx.fiber
-      if (!treeOwner.uid || treeOwner.state === FiberState.UNLOADING) return
+      if (!fiber.entry.parent.tree.ctx.fiber.uid) return
 
-      // case 6: Loader is replacing or removing this exact fiber
-      if (fiber.entry._disposing) return
+      const { entry } = fiber
+      this.showLog(entry, 'unload')
 
-      this.showLog(fiber.entry, 'unload')
+      // case 6: the entry's parent is being unloaded, which takes the entry with it
+      // (the parent may still be registered, e.g. when it has lost a dependency)
+      if (fiber.parent.fiber.state === FiberState.UNLOADING) return
 
-      // case 7: fiber is disposed by loader behavior
+      // case 7: the entry is being removed by the loader (`EntryGroup.remove`
+      // unregisters it before disposing the fiber)
+      if (entry.parent.tree.store[entry.options.id] !== entry) return
+
+      // case 8: fiber is disposed by loader behavior
       // such as inject checker, config file update, ancestor group disable
-      if (fiber.entry.disabled) return
+      if (entry.disabled) return
 
-      fiber.entry.options.disabled = true
-      fiber.entry.parent.tree.write()
+      const legacy = { ...entry.options }
+      entry.options.disabled = true
+      entry.parent.tree.commit({ id: entry.options.id, group: entry.parent, options: entry.options, legacy })
     })
 
     ctx.plugin(isolate)
   }
 
-  write() {
-    // Loader's root tree is in-memory; writes are no-ops.
+  commit(_change: EntryChange) {
+    // Loader's root tree is in-memory; commits are no-ops.
   }
 
   [Service.check]() {

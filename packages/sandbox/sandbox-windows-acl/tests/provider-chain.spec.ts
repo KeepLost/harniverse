@@ -42,7 +42,7 @@ describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
       'pwsh', '/Command', 'x',
     ])
     expect(confined.enforcement).toBe('partial')
-    expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
+    expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied', 'operation not permitted'])
     expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
     // A sole candidate is selected unprobed.
     expect(probeWindowsAcl).not.toHaveBeenCalled()

@@ -28,10 +28,13 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
 /**
  * Wire/type layers a client bundle may inline: browser-safe contracts
  * with no runtime identity to share (no Symbol/instanceof/singleton state).
+ * The two util packages join by the same rule: pure string/bytes derivation
+ * (export filenames; workspace-path display and the file media URL) with no
+ * shared runtime identity.
  * Everything else under @deepseek-ai/* is either a module-table entry
  * (external) or a leak the purity gate rejects.
  */
-export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
+export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand|util-file-drag|util-workspace-path)(\/|$)/
 
 /**
  * Vendored framework libraries: rescoped into @deepseek-ai, so the gate below
