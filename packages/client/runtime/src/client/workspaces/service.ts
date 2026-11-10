@@ -397,7 +397,14 @@ export class WorkspaceRuntime implements IWorkspaces {
     return response.result.value
   }
 
-  /** Stat one workspace file through the inspection API: canonical absolute path, freshness token, size. */
+  /**
+   * Stat one workspace file through the inspection API: canonical absolute
+   * path, freshness token, size.
+   * @param workspaceId - registered Workspace whose root contains the file.
+   * @param path - workspace-relative file path.
+   * @param signal - propagates caller cancellation.
+   * @returns the file's canonical absolute path, freshness token, and size.
+   */
   async statFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
     absolutePath: string
     version: string
@@ -408,7 +415,15 @@ export class WorkspaceRuntime implements IWorkspaces {
     return response.result.value
   }
 
-  /** Read one byte window of a workspace file as base64; the original-file menu surface streams through this. */
+  /**
+   * Read one byte window of a workspace file as base64; the original-file
+   * menu surface streams through this.
+   * @param workspaceId - registered Workspace whose root contains the file.
+   * @param path - workspace-relative file path.
+   * @param opts - byte window; omit for the complete file under the size cap.
+   * @param signal - propagates caller cancellation.
+   * @returns the window's path, offset, base64 data, size, and eof marker.
+   */
   async readFileBytes(workspaceId: WorkspaceId, path: string, opts?: { offset?: number; length?: number }, signal?: AbortSignal): Promise<{
     path: string
     offset: number
