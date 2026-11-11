@@ -319,6 +319,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools.',
   },
   {
+    key: 'mcpUserConfigRegistrations',
+    pkg: 'mcp-user-config',
+    title: 'Plugin MCP registration seam',
+    mode: 'seam',
+    implementations: ['mcp-user-config'],
+    consumers: ['mcp-user-config'],
+    note: 'Plugins contribute MCP servers for their own lifetime; the provider validates against the configured namespace in both directions, mounts host-shared owners, and profile consumers follow the live registration set on the global plane.',
+  },
+  {
     key: 'modelPolicy',
     pkg: 'model-policy',
     title: 'Session model authorization and routing seam',

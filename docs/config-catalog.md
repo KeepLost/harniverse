@@ -2073,7 +2073,7 @@ export interface UserMcpServerConfig {
 
 Depends on: [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
 
-Source: [`packages/mcp/mcp-user-config/src/index.ts:112`](../packages/mcp/mcp-user-config/src/index.ts)
+Source: [`packages/mcp/mcp-user-config/src/index.ts:156`](../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

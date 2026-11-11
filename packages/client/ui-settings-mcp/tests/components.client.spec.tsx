@@ -50,7 +50,7 @@ const STATUS: McpManagementStatusRow = {
 }
 
 function readyState(rows: readonly McpServerRow[]): McpSectionState {
-  return { status: 'ready', rows, writable: true }
+  return { status: 'ready', rows, writable: true, probes: {} }
 }
 
 /**
@@ -65,6 +65,7 @@ function renderSection(state: McpSectionState, settingsServers: readonly Setting
     refresh: vi.fn(() => Promise.resolve()),
     writeServers: vi.fn((servers: readonly unknown[]) => { void servers; return Promise.resolve() }),
     restart: vi.fn(() => Promise.resolve(undefined)),
+    probe: vi.fn(() => Promise.resolve()),
   }
   const props = {
     ...actions,
@@ -83,16 +84,16 @@ describe('McpSection page', () => {
   })
 
   it('shows the loading notice before the first read and the error notice when the scope is unavailable', () => {
-    const { unmount } = renderSection({ status: 'loading', rows: undefined, writable: false })
+    const { unmount } = renderSection({ status: 'loading', rows: undefined, writable: false, probes: {} })
     expect(screen.getByText(en['loading'])).toBeDefined()
     unmount()
 
-    renderSection({ status: 'error', rows: undefined, writable: false })
+    renderSection({ status: 'error', rows: undefined, writable: false, probes: {} })
     expect(screen.getByText(en['error'])).toBeDefined()
   })
 
   it('renders one card per row and disables every write action while read-only', () => {
-    renderSection({ status: 'ready', rows: [{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: ['standard'], status: STATUS }], writable: false })
+    renderSection({ status: 'ready', rows: [{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: ['standard'], registered: false, status: STATUS }], writable: false, probes: {} })
     expect(screen.getAllByText('docs').length).toBeGreaterThan(0)
     expect(screen.getByText(t('row.presets', { names: 'standard' }))).toBeDefined()
     expect(screen.getByText(t('row.tools', { count: '1' }))).toBeDefined()
@@ -130,7 +131,7 @@ describe('McpSection page', () => {
   })
 
   it('deletes a row through the confirmation modal', async () => {
-    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
     expect(screen.getByText(t('row.confirmDelete', { name: 'docs' }))).toBeDefined()
     const dialog = screen.getByRole('dialog')
@@ -145,6 +146,7 @@ describe('ServerRow card', () => {
     edit: vi.fn(),
     requestDelete: vi.fn(),
     restart: vi.fn(() => Promise.resolve(undefined)),
+    probe: vi.fn(() => Promise.resolve()),
   }
 
   it.each([
@@ -161,9 +163,11 @@ describe('ServerRow card', () => {
         transport: 'stdio',
         enabled: true,
         presets: [],
+        registered: false,
         status: { ...STATUS, state, failedAttempts: 2, maxAttempts: 5, lastErrorKind: 'spawn' },
       }}
       writable
+      probe={undefined}
       t={t}
       actions={actions}
     />)
@@ -172,7 +176,7 @@ describe('ServerRow card', () => {
   })
 
   it('falls back to the enabled/disabled pill while no live status has landed', () => {
-    render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: false, presets: [] }} writable={false} t={t} actions={actions} />)
+    render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: false, presets: [], registered: false }} writable={false} probe={undefined} t={t} actions={actions} />)
     // With no live status the state pill falls back to the disabled band,
     // and the toggle label reads Disabled as well.
     expect(screen.getAllByText(en['state.disabled'])).toHaveLength(2)
@@ -183,8 +187,25 @@ describe('ServerRow card', () => {
     expect(disabledCheckbox.parentElement?.textContent).toContain(en['row.disabled'])
   })
 
+  it.each([
+    ['probing', { phase: 'probing' } as const, en['row.probing']],
+    ['success', { phase: 'done', ok: true, summary: { server: 'docs 1.0.0', count: '3', ms: '12', cleanup: 'ok' } } as const,
+      t('row.probeOk', { server: 'docs 1.0.0', count: '3', ms: '12', cleanup: 'ok' })],
+    ['failure', { phase: 'done', ok: false, summary: { stage: 'connect', message: 'connect timed out' } } as const,
+      t('row.probeFail', { stage: 'connect', message: 'connect timed out' })],
+  ])('renders the %s probe view under the row meta', (_kind, probe, expected) => {
+    render(<ServerRow
+      row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false, status: STATUS }}
+      writable
+      probe={probe}
+      t={t}
+      actions={actions}
+    />)
+    expect(screen.getByText(expected)).toBeDefined()
+  })
+
   it('expands the tool inventory and forwards every action', async () => {
-    render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], status: STATUS }} writable t={t} actions={actions} />)
+    render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false, status: STATUS }} writable probe={undefined} t={t} actions={actions} />)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: t('row.tools', { count: '1' }) })) })
     expect(screen.getByText('search')).toBeDefined()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['row.restart'] })) })
@@ -300,7 +321,7 @@ describe('ImportDialog modal', () => {
 
 describe('McpSection page flows', () => {
   it('edits an existing row through the editor and writes the merged array', async () => {
-    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['row.edit'] })) })
     expect(screen.getByText(en['editor.editTitle'])).toBeDefined()
     await act(async () => { fireEvent.change(screen.getByLabelText(en['editor.serverName']), { target: { value: 'docs2' } }) })
@@ -310,13 +331,13 @@ describe('McpSection page flows', () => {
   })
 
   it('toggles a row enabled through the checkbox', async () => {
-    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(screen.getByRole('checkbox')) })
     await waitFor(() => { expect(actions.writeServers).toHaveBeenCalledWith([expect.objectContaining({ id: 'docs', enabled: false })]) })
   })
 
   it('cancels a delete without writing', async () => {
-    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['editor.cancel'] }))) })
     expect(actions.writeServers).not.toHaveBeenCalled()
@@ -334,7 +355,7 @@ describe('McpSection page flows', () => {
   })
 
   it('surfaces rejected toggles, deletes, and imports as the page failure notice', async () => {
-    const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     let calls = 0
     const props = {
       refresh: () => Promise.resolve(),
@@ -354,7 +375,7 @@ describe('McpSection page flows', () => {
   })
 
   it('renders write rejections that are not Error instances verbatim', async () => {
-    const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     // Non-Error rejections lose instanceof across the IPC boundary, exercising the String() arm.
     class PlainRefusal {
       message: string
@@ -395,7 +416,7 @@ describe('McpSection page flows', () => {
 
 describe('McpSection remaining arms', () => {
   it('treats a ready scope with no section value as an empty list', () => {
-    const store = createSnapshotStore<McpSectionState>({ status: 'ready', rows: [], writable: true })
+    const store = createSnapshotStore<McpSectionState>({ status: 'ready', rows: [], writable: true, probes: {} })
     const props = {
       refresh: () => Promise.resolve(),
       writeServers: () => Promise.resolve(),
@@ -410,8 +431,8 @@ describe('McpSection remaining arms', () => {
 
   it('keeps the other rows intact when an edit saves', async () => {
     const actions = renderSection(readyState([
-      { id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] },
-      { id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [] },
+      { id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false },
+      { id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [], registered: false },
     ]), [
       { id: 'docs', serverName: 'docs', enabled: true, transport: 'stdio', command: 'docs-mcp' },
       { id: 'web', serverName: 'web', enabled: true, transport: 'streamable-http', url: 'https://web' },
@@ -424,13 +445,13 @@ describe('McpSection remaining arms', () => {
   })
 
   it('ignores an edit request for a row the settings scope no longer carries', async () => {
-    renderSection(readyState([{ id: 'ghost', serverName: 'ghost', transport: 'stdio', enabled: true, presets: [] }]), [])
+    renderSection(readyState([{ id: 'ghost', serverName: 'ghost', transport: 'stdio', enabled: true, presets: [], registered: false }]), [])
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['row.edit'] })) })
     expect(screen.queryByText(en['editor.editTitle'])).toBeNull()
   })
 
   it('confirms deletion of a settings row by id when the joined row is gone', async () => {
-    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
     expect(screen.getByText(t('row.confirmDelete', { name: 'docs' }))).toBeDefined()
     const dialog = screen.getByRole('dialog')
@@ -445,7 +466,7 @@ describe('McpSection remaining arms', () => {
   })
 
   it('surfaces non-Error write rejections from every write path verbatim', async () => {
-    const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const store = createSnapshotStore<McpSectionState>(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     const props = {
       refresh: () => Promise.resolve(),
       writeServers: (_servers: readonly unknown[]) => Promise.reject(new Error('plain refusal')),
@@ -488,8 +509,8 @@ describe('McpSection remaining arms', () => {
 describe('McpSection final arms', () => {
   it('toggles one row among several without touching the others', async () => {
     const actions = renderSection(readyState([
-      { id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] },
-      { id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [] },
+      { id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false },
+      { id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [], registered: false },
     ]), [
       { id: 'docs', serverName: 'docs', enabled: true, transport: 'stdio', command: 'docs-mcp' },
       { id: 'web', serverName: 'web', enabled: true, transport: 'streamable-http', url: 'https://web' },
@@ -501,7 +522,7 @@ describe('McpSection final arms', () => {
   })
 
   it('opens the editor for creation while another settings row exists', async () => {
-    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['add'] })) })
     await act(async () => { fireEvent.change(screen.getByLabelText(en['editor.command']), { target: { value: 'x' } }) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
@@ -530,7 +551,7 @@ describe('McpSection final arms', () => {
   })
 
   it('closes a delete confirmation through the footer cancel control', async () => {
-    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }]))
+    const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
     const dialog = screen.getByRole('dialog')
     const cancel = within(dialog).getAllByRole('button', { name: en['editor.cancel'] }).find(button => button.textContent === en['editor.cancel'])
@@ -549,7 +570,7 @@ describe('McpSection final arms', () => {
   })
 
   it('deletes a ghost row by id and shows its transport lookup miss', async () => {
-    const actions = renderSection(readyState([{ id: 'ghost', serverName: 'ghost', transport: 'stdio', enabled: true, presets: [] }]), [])
+    const actions = renderSection(readyState([{ id: 'ghost', serverName: 'ghost', transport: 'stdio', enabled: true, presets: [], registered: false }]), [])
     await act(async () => { fireEvent.click(first(screen.getAllByRole('button', { name: en['row.delete'] }))) })
     expect(screen.getByText(t('row.confirmDelete', { name: 'ghost' }))).toBeDefined()
     const dialog = screen.getByRole('dialog')
@@ -565,8 +586,9 @@ describe('ServerRow checkbox', () => {
       edit: vi.fn(),
       requestDelete: vi.fn(),
       restart: vi.fn(() => Promise.resolve(undefined)),
+      probe: vi.fn(() => Promise.resolve()),
     }
-    render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [] }} writable t={t} actions={actions} />)
+    render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }} writable probe={undefined} t={t} actions={actions} />)
     await act(async () => { fireEvent.click(screen.getByRole('checkbox')) })
     expect(actions.setEnabled).toHaveBeenCalledWith('docs', false)
   })
@@ -646,5 +668,31 @@ describe('McpNavIcon', () => {
   it('renders the plug glyph', () => {
     const { container } = render(<McpNavIcon />)
     expect(container.querySelector('svg')).toBeDefined()
+  })
+})
+
+describe('McpSection probe and registered rows', () => {
+  it('runs the probe action from the card button and renders the outcome summary', async () => {
+    const state = readyState([
+      { id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false, status: STATUS },
+    ])
+    state.probes = { docs: { phase: 'done', ok: true, summary: { server: 'peer 1.2.3', count: '4', ms: '20', cleanup: 'ok' } } }
+    const actions = renderSection(state)
+    expect(screen.getByText(t('row.probeOk', { server: 'peer 1.2.3', count: '4', ms: '20', cleanup: 'ok' }))).toBeDefined()
+    const probeButton = screen.getByRole('button', { name: en['row.probe'] })
+    await act(async () => { probeButton.click() })
+    expect(actions.probe).toHaveBeenCalledWith('docs')
+  })
+
+  it('renders a plugin-registered row read-only with its badge and no settings actions', () => {
+    renderSection(readyState([
+      { id: 'registered-extra', serverName: 'extra', transport: 'stdio', enabled: true, presets: [], registered: true, status: { ...STATUS, id: 'registered-extra', serverName: 'extra' } },
+    ]), [])
+    expect(screen.getByText(en['row.registered'])).toBeDefined()
+    expect(screen.queryByRole('button', { name: en['row.edit'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: en['row.delete'] })).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.getByRole('button', { name: en['row.probe'] })).toBeDefined()
+    expect(screen.getByRole('button', { name: en['row.restart'] })).toBeDefined()
   })
 })

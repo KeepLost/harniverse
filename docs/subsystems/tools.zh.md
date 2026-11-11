@@ -537,6 +537,38 @@ register(server: string, provider: McpResourceProvider, options: Omit<McpResourc
 
 Source: [`packages/mcp/mcp-resources/src/index.ts:63`](../../packages/mcp/mcp-resources/src/index.ts)
 
+<a id="ctxmcpuserconfigregistrations--mcpuserconfigregistrationsservice"></a>
+
+### `ctx.mcpUserConfigRegistrations` — `McpUserConfigRegistrationsService`
+
+Host face a plugin uses to contribute one MCP server for its own lifetime. A registered server is enabled while registered; its removal awaits the owner's teardown, so plugin disposal withdraws the server's tools before settling. Registrations share the serverName namespace with configured entries in both directions and never appear in Settings.
+
+```ts cordis-catalog
+/**
+ * Contribute one server for the calling plugin's lifetime.
+ * @param serverName - public server namespace, unique across configured and registered servers.
+ * @param entry - transport, endpoint, and budgets, validated like a configured entry.
+ * @returns an idempotent disposer that removes the registration.
+ * @throws when the name is taken, the entry is invalid, or the provider is disposed.
+ */
+register(serverName: string, entry: McpServerRegistration): () => void
+
+/**
+ * Current registrations in registration order.
+ * @returns detached copies of every live registration entry.
+ */
+list(): readonly UserMcpServerConfig[]
+
+/**
+ * Observe registration additions and removals.
+ * @param listener - invoked after each registration change commits.
+ * @returns the disposer that removes the listener.
+ */
+subscribe(listener: () => void): () => void
+```
+
+Source: [`packages/mcp/mcp-user-config/src/index.ts:97`](../../packages/mcp/mcp-user-config/src/index.ts)
+
 <a id="ctxtools--toolruntime"></a>
 
 ### `ctx.tools` — `ToolRuntime`
@@ -646,6 +678,30 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 Types: [ScopeKey](scope.md)
 
 Source: [`packages/core/tools/src/index.ts:811`](../../packages/core/tools/src/index.ts)
+
+<a id="mcpmanagement-events"></a>
+
+### `mcpManagement/*` events
+
+<a id="mcpmanagementfleet-changed--emit"></a>
+
+#### `mcpManagement/fleet-changed` — emit
+
+The MCP connection fleet changed: a server's connection state moved, an owner mounted or unmounted, or a settings/registration change re-shaped the fleet. This payload-free notification fires after each change commits; consumers re-read `mcpManagement.status()` for the new rows. Observer failures are contained and cannot veto the change.
+
+```ts cordis-catalog
+/**
+ * The MCP connection fleet changed: a server's connection state moved, an
+ * owner mounted or unmounted, or a settings/registration change re-shaped
+ * the fleet. This payload-free notification fires after each change
+ * commits; consumers re-read `mcpManagement.status()` for the new rows.
+ * Observer failures are contained and cannot veto the change.
+ * @mode emit
+ */
+'mcpManagement/fleet-changed'(): void
+```
+
+Source: [`packages/mcp/mcp-user-config/src/types.ts:66`](../../packages/mcp/mcp-user-config/src/types.ts)
 
 <a id="tools-events"></a>
 

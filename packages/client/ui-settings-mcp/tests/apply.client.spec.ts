@@ -33,16 +33,30 @@ async function bench(options: { roster?: 'ok' | 'fail' | 'absent'; catalog?: 'ok
   const catalogEntries = options.catalog === 'mixed'
     ? [...CATALOG_SELECTED.entries, { id: 'other:x', kind: 'agent-profile', selected: true }, { id: 'mcp-server:776562', kind: 'mcp-server', selected: false }]
     : CATALOG_SELECTED.entries
+  const forwarded = new Map<string, Set<() => void>>()
   class RemoteService extends Service {
+    /** Forwarded-event subscription stub the fleet-change test drives. */
+    $on = vi.fn((event: string, listener: () => void) => {
+      const listeners = forwarded.get(event) ?? new Set()
+      listeners.add(listener)
+      forwarded.set(event, listeners)
+      return () => { listeners.delete(listener) }
+    })
+    /** Deliver one forwarded host event to its subscribers. */
+    $dispatch = vi.fn((event: string) => {
+      for (const listener of forwarded.get(event) ?? []) listener()
+    })
     constructor(serviceCtx: Context) {
       super(serviceCtx, 'remote')
     }
   }
-  new RemoteService(ctx)
-  ctx.provide('remote.mcpManagement', {
+  const remote = new RemoteService(ctx)
+  const mcpManagement = {
     status: vi.fn(() => options.status === 'throw' ? Promise.reject(new Error('remote gone')) : Promise.resolve({ ok: true as const, value: STATUS_ROWS })),
     restart: vi.fn(() => Promise.resolve({ ok: true as const, value: undefined })),
-  })
+    probe: vi.fn(() => Promise.resolve({ ok: true as const, value: { ok: true, toolNames: ['search'], truncated: false, durationMs: 3, cleanup: 'ok' as const } })),
+  }
+  ctx.provide('remote.mcpManagement', mcpManagement)
   ctx.provide('remote.capabilityManagement', {
     catalog: vi.fn(() => options.catalog === 'fail' ? Promise.resolve({ ok: false as const, error: { message: 'denied' } }) : Promise.resolve({ ok: true as const, value: { entries: catalogEntries } })),
   })
@@ -62,7 +76,7 @@ async function bench(options: { roster?: 'ok' | 'fail' | 'absent'; catalog?: 'ok
     set: vi.fn(() => Promise.resolve()),
   }
   ctx.provide('settingsScope', { bind: () => scope })
-  return { ctx, slots: ctx.slots, scope }
+  return { ctx, slots: ctx.slots, scope, remote, mcpManagement }
 }
 
 function declareRoot(slots: SlotRegistry): () => void {
@@ -126,12 +140,23 @@ describe('ui-settings-mcp apply', () => {
       scope: { getSnapshot: () => { writable: boolean } }
       writeServers: (servers: ReadonlyArray<{ id: string }>) => Promise<void>
       restart: (id: string) => Promise<string | undefined>
+      probe: (id: string) => Promise<void>
     }
     await face.refresh()
     expect(face.scope.getSnapshot().writable).toBe(true)
     await face.writeServers([{ id: 'docs' }])
     await expect(face.restart('docs')).resolves.toBeUndefined()
+    await face.probe('docs')
     expect((scope.set as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('servers', [{ id: 'docs' }])
+  })
+
+  it('re-joins immediately when the Host reports a fleet change', async () => {
+    const { ctx, slots, remote, mcpManagement } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ apply, inject }).await()
+    const callsBefore = mcpManagement.status.mock.calls.length
+    remote.$dispatch('mcpManagement/fleet-changed')
+    await vi.waitFor(() => { expect(mcpManagement.status.mock.calls.length).toBeGreaterThan(callsBefore) })
   })
 
   it.each([
