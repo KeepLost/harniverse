@@ -29,7 +29,12 @@ async function bench() {
   // The section binds its scopes through the Settings surface's service, and
   // forwarded Host events reach it through the same `$dispatch` handoff the
   // connection sink makes.
-  new TestRemote(ctx)
+  const remote = new TestRemote(ctx)
+  // The web provider directory rides the generated `web` namespace; the
+  // double carries it as a plain property with a controllable answer.
+  type ListAnswer = { ok: true; value: readonly unknown[] } | { ok: false; error: { message: string } }
+  const listProviders = vi.fn((): Promise<ListAnswer> => Promise.resolve({ ok: true as const, value: [] as readonly unknown[] }))
+  ;(remote as unknown as { web: { listProviders: typeof listProviders } }).web = { listProviders }
   const describeSettings = vi.fn(() => Promise.resolve({ rpcId: 's', result: { ok: false, error: {} } }))
   const api = {
     settings: { describe: describeSettings },
@@ -42,7 +47,7 @@ async function bench() {
   ctx.provide('connection', connection)
   const mirror = new SettingsDescribeMirror(api as never, TEST_AUTHENTICATION)
   await ctx.plugin({ apply(plugin: Context) { new SettingsScopeBinder(plugin, mirror) } }).await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials, describeSettings }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials, describeSettings, listProviders }
 }
 
 function declareRoot(slots: SlotRegistry): () => void {
@@ -204,5 +209,16 @@ describe('ui-settings-plugins apply', () => {
     expect(slots.entries('settings.nav.icon')).toHaveLength(0)
     expect(slots.spec('settings.plugins.tab')).toBeUndefined()
     expect(slots.spec('settings.plugin.item')).toBeUndefined()
+  })
+  it('reads the web provider directory at mount and re-reads on the forwarded registry event', async () => {
+    const fixture = await bench()
+    declareRoot(fixture.slots)
+    await fixture.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(fixture.listProviders).toHaveBeenCalledTimes(1)
+    // A refused read maps to the empty listing; the next event still re-reads.
+    fixture.listProviders.mockResolvedValueOnce({ ok: false as const, error: { message: 'denied' } })
+    const remote = fixture.ctx.get('remote') as { $dispatch(event: string, args: readonly unknown[]): void }
+    remote.$dispatch('web/providers-changed', [])
+    await vi.waitFor(() => { expect(fixture.listProviders).toHaveBeenCalledTimes(2) })
   })
 })

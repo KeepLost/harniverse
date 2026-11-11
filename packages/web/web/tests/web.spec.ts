@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime, { WebError } from '../src/index.ts'
 import type {
@@ -286,13 +286,57 @@ describe('WebRuntime provider directory', () => {
     expect(calls).toEqual(['heard', 'heard'])
   })
 
+  it('contains an ASYNC listener rejection instead of leaving it unhandled', async () => {
+    const { ctx, web } = await mountWeb()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      // An emit listener may be an async function; its rejection cannot reach
+      // the synchronous catch, so it must be contained to a warned failure.
+      const rejecting = (): unknown => Promise.reject(new Error('async observer'))
+      ctx.on('web/providers-changed', rejecting)
+      web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
+      expect(web.listProviders('search').map(provider => provider.id)).toEqual(['exa'])
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(unhandled).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalledWith('web: a web/providers-changed listener failed')
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('rethrows the first INVARIANT-coded listener failure after notifying the rest', async () => {
+    const { ctx, web } = await mountWeb()
+    const later = vi.fn()
+    ctx.on('web/providers-changed', () => {
+      throw Object.assign(new Error('registry incoherent'), { code: 'INVARIANT' })
+    })
+    ctx.on('web/providers-changed', later)
+    expect(() => web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa')))))
+      .toThrow('registry incoherent')
+    expect(later).toHaveBeenCalledTimes(1)
+  })
+
+  it('registers a fetch provider without metadata and omits the absent keys', async () => {
+    const { web } = await mountWeb()
+    web.registerFetchProvider(makeFetchProvider('http', available, fetchResult('http')))
+    expect(web.listProviders('fetch')).toEqual([{ id: 'http', capabilities: ['fetch'] }])
+  })
+
   it('re-lists through the Remote face the settings menus read', async () => {
     const { web } = await mountWeb()
     web.registerFetchProvider({
       ...makeFetchProvider('http', available, fetchResult('http')),
       title: 'Plain HTTP',
+      description: 'Direct retrieval without a service.',
     })
-    expect(web.listProviders('fetch')).toEqual([{ id: 'http', capabilities: ['fetch'], title: 'Plain HTTP' }])
+    expect(web.listProviders('fetch')).toEqual([{
+      id: 'http',
+      capabilities: ['fetch'],
+      title: 'Plain HTTP',
+      description: 'Direct retrieval without a service.',
+    }])
   })
 })
 
