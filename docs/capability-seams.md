@@ -98,6 +98,7 @@ flowchart LR
   svc_mcpResources["ctx.mcpResources<br/>Scoped MCP resource seam"]
   svc_mcpConnections["ctx.mcpConnections<br/>Host-shared MCP connection seam"]
   svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
+  svc_mcpUserConfigRegistrations["ctx.mcpUserConfigRegistrations<br/>Plugin MCP registration seam"]
   pkg_model_policy["model-policy"]
   svc_modelPolicy["ctx.modelPolicy<br/>Session model authorization and routing seam"]
   pkg_model_policy_fallback["model-policy-fallback"]
@@ -364,6 +365,7 @@ flowchart LR
   pkg_lsp_local --> svc_lsp
   pkg_mcp_client --> svc_mcpConnections
   pkg_mcp_resources --> svc_mcpResources
+  pkg_mcp_user_config --> svc_mcpUserConfigRegistrations
   pkg_mcp_user_config --> svc_mcpUserConfigSettings
   pkg_message_feedback --> svc_messageFeedback
   pkg_model_policy --> svc_modelPolicy
@@ -504,6 +506,7 @@ flowchart LR
   svc_mcpConnections --> pkg_mcp_client
   svc_mcpConnections --> pkg_mcp_user_config
   svc_mcpResources --> pkg_mcp_client
+  svc_mcpUserConfigRegistrations --> pkg_mcp_user_config
   svc_mcpUserConfigSettings --> pkg_mcp_user_config
   svc_modelPolicy --> pkg_apiproxy
   svc_modelPolicy --> pkg_compaction_basic
@@ -662,6 +665,7 @@ flowchart LR
 | `ctx.mcpResources` | `seam` | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-client`](../packages/mcp/mcp-client) | - | Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list. |
 | `ctx.mcpConnections` | `seam` | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client), [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | One host-global owner plugin per configured server holds the live connection and reconnect policy; preset consumers mount registrar children that expose scoped tools while the registry tracks generations so no consumer ever sees a half-applied fleet. |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
+| `ctx.mcpUserConfigRegistrations` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins contribute MCP servers for their own lifetime; the provider validates against the configured namespace in both directions, mounts host-shared owners, and profile consumers follow the live registration set on the global plane. |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |
 | `ctx.notification` | `seam` | [`notification`](../packages/notification/notification) | [`notification-http`](../packages/notification/notification-http) | [`notification`](../packages/notification/notification) | - | The Definition package also bundles the coordinator Consumer that projects selected lifecycle metadata into a stable external protocol; the opt-in HTTP provider persists endpoint deliveries and sends them outside the process. |
