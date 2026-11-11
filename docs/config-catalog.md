@@ -4339,7 +4339,7 @@ export interface WebRuntimeConfig {
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:65`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:66`](../packages/web/web/src/index.ts)
 
 <a id="deepseek-aidsh-web-app"></a>
 

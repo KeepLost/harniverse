@@ -137,10 +137,14 @@ type WebProviderCapability = 'search' | 'fetch'
 interface WebProvider {
   /** Stable provider id, unique within each capability it implements. */
   readonly id: string
+  /** Display title for provider pickers; shared by every capability it implements. */
+  readonly title?: string
+  /** One-line picker description; shared by every capability it implements. */
+  readonly description?: string
   /** Search implementation, when this provider supports search. */
-  readonly search?: Omit<WebSearchProvider, 'id'>
+  readonly search?: Omit<WebSearchProvider, 'id' | 'title' | 'description'>
   /** Fetch implementation, when this provider supports fetch. */
-  readonly fetch?: Omit<WebFetchProvider, 'id'>
+  readonly fetch?: Omit<WebFetchProvider, 'id' | 'title' | 'description'>
 }
 ```
 
@@ -148,6 +152,10 @@ interface WebProvider {
 /** Non-secret provider catalog entry exposed to discovery surfaces. */
 interface WebProviderInfo {
   readonly id: string
+  /** Picker title carried by the registration; absent when the provider offered none. */
+  readonly title?: string
+  /** Picker description carried by the registration; absent when the provider offered none. */
+  readonly description?: string
   readonly capabilities: readonly WebProviderCapability[]
 }
 ```
