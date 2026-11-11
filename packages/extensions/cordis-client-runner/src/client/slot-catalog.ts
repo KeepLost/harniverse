@@ -1472,6 +1472,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     declaredBy: 'an entry in \'center.view\' (client-ui-dashboard), so it exists while that entry is mounted',
     occupants: [
       'client-ui-governor GovernorResourcesTab id \'resources\'',
+      'client-ui-governor GovernorQuotaTab id \'quotas\'',
       'client-ui-queue QueueTab id \'queue\'',
       'client-ui-remote-hosts RemoteHostsView id \'remote-hosts\'',
       'client-ui-scheduler ScheduleTab id \'schedules\'',

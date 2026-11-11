@@ -125,10 +125,11 @@ describe('governor real Loader composition', () => {
     expect(context.governor).toBeDefined()
     expect(context.tools.get('resource-quota')).toBeDefined()
 
-    // The overview answers with the resolved tier and global budget.
+    // The overview answers with the resolved tier; the default budget is 'none'
+    // (no shared-pool cap), so the wire reports null rather than a byte count.
     const overview = context.governor.overview()
     expect(['cgroup', 'rlimit', 'observe']).toContain(overview.tier)
-    expect(overview.globalLimitBytes).toBeGreaterThan(0)
+    expect(overview.globalLimitBytes).toBeNull()
 
     // A metered spawn joins the engine and settles out again.
     context.emit('subprocess/spawned', {

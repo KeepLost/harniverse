@@ -57,8 +57,8 @@ interface SessionQuotaState {
   readonly sessionId: string
   /** Explicit quota in bytes, when the session has one (isolation leaf). */
   readonly quotaBytes?: number
-  /** The budget enforcement currently applies to this session's commands. */
-  readonly effectiveLimitBytes: number
+  /** The budget enforcement applies to this session's commands; null while unlimited (no quota, no shared-pool budget). */
+  readonly effectiveLimitBytes: number | null
   /** True while the session rides the shared pool (no explicit quota). */
   readonly shared: boolean
 }
@@ -96,7 +96,9 @@ The resource governor service. See the package README and the Agent Note (`2026-
 /**
  * Spawn bounds for one session — the tool-bash collaboration seam. Every
  * metered command carries its session's effective limit: an explicit quota
- * for leaf sessions, the shared global budget for pool members.
+ * for leaf sessions, the shared global budget for pool members; sessions
+ * under no limit (no quota, budget `'none'`) carry no bound, so Linux
+ * spawns run without the address-space `prlimit` wrapper.
  * @param sessionId - session id.
  * @returns the limits the provider should enforce.
  */
@@ -130,7 +132,7 @@ liveRssBytes(sessionId: string): number
 /**
  * Effective quota state for one session.
  * @param sessionId - session id.
- * @returns the explicit quota (when set), effective limit, and pool membership.
+ * @returns the explicit quota (when set), the effective limit (null while unlimited), and pool membership.
  */
 quotaStateOf(sessionId: string): SessionQuotaState
 
@@ -179,9 +181,9 @@ async adjustQuota(sessionId: string, memoryBytes: number | null, reason: 'board'
 
 /**
  * Effective settings plus the resolved budget (`harniverse.observe`).
- * @returns the config with `globalLimitBytes` attached.
+ * @returns the config with `globalLimitBytes` attached (null while `limit: 'none'`).
  */
-@Remote({ exportName: 'configGet', requiredCapability: 'harniverse.observe' }) configGet(): GovernorConfig & { globalLimitBytes: number }
+@Remote({ exportName: 'configGet', requiredCapability: 'harniverse.observe' }) configGet(): GovernorConfig & { globalLimitBytes: number | null }
 
 /** Re-resolve settings and re-apply the global budget (`harniverse.administer`). */
 @Remote({ exportName: 'reload', requiredCapability: 'harniverse.administer' }) async reload(): Promise<void>

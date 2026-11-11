@@ -120,6 +120,32 @@ describe('GovernorResourcesTab', () => {
     expect(screen.queryByText((content, element) => element?.tagName === 'SPAN' && content.includes('KiB'))).toBeNull()
   })
 
+  it('reports the disabled budget and unlimited pool rows while none applies', async () => {
+    mount({
+      ...OVERVIEW,
+      globalLimitBytes: null,
+      sessions: [{
+        sessionId: 'free',
+        rssBytes: 500_000_000,
+        cpuTicks: 0,
+        commands: 1,
+        quota: { sessionId: 'free', effectiveLimitBytes: null, shared: true },
+        breaches: [],
+      }],
+    })
+    await waitFor(() => { expect(screen.getByText('free')).toBeDefined() })
+    expect(screen.getByText(zh['global.disabled'])).toBeDefined()
+    // The pool row labels itself unlimited and shows its RSS without a limit.
+    expect(screen.getByText(zh['quota.unlimited'])).toBeDefined()
+    expect(screen.getByText((content, element) => element?.tagName === 'SPAN' && content.includes('476.8 MiB') && !content.includes('/'))).toBeDefined()
+    // Bare host facts stay absent on the disabled line as well.
+    cleanup()
+    const { hostFreeBytes: _f, hostNetRxBytes: _r, hostNetTxBytes: _t, ...bare } = OVERVIEW
+    mount({ ...bare, globalLimitBytes: null })
+    await waitFor(() => { expect(screen.getByText(zh['global.disabled'])).toBeDefined() })
+    expect(screen.queryByText((content, element) => element?.tagName === 'SPAN' && content.includes('KiB'))).toBeNull()
+  })
+
   it('treats an empty or invalid draft as a clear back to the pool', async () => {
     const { calls } = mount(OVERVIEW)
     await waitFor(() => { expect(screen.getByText('session-alpha')).toBeDefined() })

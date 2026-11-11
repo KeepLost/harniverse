@@ -54,7 +54,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
-async function harness(policy: 'ask' | 'never' | 'none', memoryLimit = 10_000_000) {
+async function harness(policy: 'ask' | 'never' | 'none', memoryLimit: number | 'none' = 10_000_000) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-governor-tool-'))
   roots.push(root)
   const ctx = new Context()
@@ -98,10 +98,21 @@ function call(ctx: Context, agent: Agent, arguments_: Record<string, unknown>) {
 }
 
 describe('resource-quota tool', () => {
+  it('reports unlimited limits while the global budget is none', async () => {
+    const { ctx, agent } = await harness('never', 'none')
+    const result = await call(ctx, agent, { action: 'get' })
+    expect(result.isError).toBe(false)
+    expect(result.meta).toEqual(expect.objectContaining({ kind: 'state', sessionId: 'tool-session', shared: true }))
+    expect(result.meta).not.toHaveProperty('effectiveLimitBytes')
+    expect(result.meta).not.toHaveProperty('globalLimitBytes')
+    expect(JSON.stringify(result.content)).toContain('effective limit none')
+    expect(JSON.stringify(result.content)).toContain('global budget none')
+    await ctx.fiber.dispose()
+  })
+
   it('reads the current quota state', async () => {
     const { ctx, agent } = await harness('never')
     const result = await call(ctx, agent, { action: 'get' })
-    process.stdout.write(`TOOLDBG err=${String(result.isError)} content=${JSON.stringify(result.content).slice(0, 300)}\n`)
     expect(result.isError).toBe(false)
     expect(result.meta).toMatchObject({ kind: 'state', sessionId: 'tool-session', shared: true })
     await ctx.fiber.dispose()
