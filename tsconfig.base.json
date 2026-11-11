@@ -251,6 +251,8 @@
       "@deepseek-ai/dsh-auth-app/startup": ["./packages/bundle/auth-app/src/startup.ts"],
       "@deepseek-ai/dsh-chat-app/startup": ["./packages/bundle/chat-app/src/startup.ts"],
       "@deepseek-ai/dsh-web-app/startup": ["./packages/bundle/web-app/src/startup.ts"],
+      "@deepseek-ai/dsh-web": ["./packages/web/web/src/index.ts"],
+      "@deepseek-ai/dsh-web/types": ["./packages/web/web/src/types.ts"],
       "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
        // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is

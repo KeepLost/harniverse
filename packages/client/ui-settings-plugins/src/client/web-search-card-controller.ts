@@ -472,7 +472,7 @@ export class WebSearchCardController {
 
   private selectorState(): WebSearchSelectorState {
     const extra = (capability: 'search' | 'fetch'): readonly WebProviderOptionEntry[] => {
-      const firstParty = capability === 'search' ? WEB_SEARCH_PROVIDER_IDS : WEB_FETCH_PROVIDER_IDS
+      const firstParty: readonly string[] = capability === 'search' ? WEB_SEARCH_PROVIDER_IDS : WEB_FETCH_PROVIDER_IDS
       return this.directoryEntries.flatMap(entry =>
         entry.capabilities.includes(capability) && !firstParty.includes(entry.id) ? [entry] : [])
     }
