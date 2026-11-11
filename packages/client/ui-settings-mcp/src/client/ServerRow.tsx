@@ -6,9 +6,9 @@
 
 import { useState } from 'react'
 import {
-  Button, IconEditOutline16, IconRefreshOutline16, IconTrashOutline16, Pill,
+  Button, IconEditOutline16, IconPlayOutline16, IconRefreshOutline16, IconTrashOutline16, Pill,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { McpServerRow } from './section-store.ts'
+import type { McpProbeView, McpServerRow } from './section-store.ts'
 import type { McpLocaleKey } from './locales.ts'
 import css from './McpSection.module.css'
 
@@ -22,6 +22,14 @@ export interface ServerRowActions {
   requestDelete: (id: string) => void
   /** Restart this row's shared connection through the management Remote. */
   restart: (id: string) => Promise<string | undefined>
+  /** Probe this row's configuration without touching the live fleet. */
+  probe: (id: string) => Promise<void>
+}
+
+/** Probe view for one card; undefined carries no probe surface. */
+export interface ServerRowProbe {
+  /** The row's current probe view. */
+  view: McpProbeView | undefined
 }
 
 /** Translator carrying the section's dictionary. */
@@ -33,6 +41,8 @@ export interface ServerRowProps {
   row: McpServerRow
   /** Whether writes are accepted for the current principal. */
   writable: boolean
+  /** The row's current probe view, if any. */
+  probe: McpProbeView | undefined
   /** Locale translator. */
   t: ServerRowTranslate
   /** Row actions. */
@@ -49,7 +59,7 @@ function stateClass(state: string): string | undefined {
 
 /** One server card. */
 export function ServerRow(props: ServerRowProps) {
-  const { row, writable, t, actions } = props
+  const { row, writable, probe, t, actions } = props
   const [open, setOpen] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const state = row.status?.state ?? (row.enabled ? 'connecting' : 'disabled')
@@ -67,6 +77,7 @@ export function ServerRow(props: ServerRowProps) {
     <article className={css.card}>
       <div className={css.cardTop}>
         <span className={css.cardName}>{row.serverName}</span>
+        {row.registered && <span className={css.cardMeta}>{t('row.registered')}</span>}
         <span className={`${css.cardMeta} ${stateClass(state)}`}>{label}</span>
         {row.status?.connectedAtMs !== undefined && (
           <span className={css.cardMeta}>
@@ -77,18 +88,33 @@ export function ServerRow(props: ServerRowProps) {
           <span className={css.cardMeta}>{t('state.errorKind', { kind: row.status.lastErrorKind })}</span>
         )}
         <span className={css.cardSpacer} />
-        <label className={css.cardMeta}>
-          <input
-            type="checkbox"
-            checked={row.enabled}
-            disabled={!writable}
-            onChange={(event) => { void actions.setEnabled(row.id, event.target.checked) }}
-          />
-          {row.enabled ? t('row.enabled') : t('row.disabled')}
-        </label>
+        {/* A plugin-registered server exists for its plugin's lifetime: the
+            toggle and the settings-owned actions stay off, the fleet actions stay on. */}
+        {!row.registered && (
+          <label className={css.cardMeta}>
+            <input
+              type="checkbox"
+              checked={row.enabled}
+              disabled={!writable}
+              onChange={(event) => { void actions.setEnabled(row.id, event.target.checked) }}
+            />
+            {row.enabled ? t('row.enabled') : t('row.disabled')}
+          </label>
+        )}
         <div className={css.cardActions}>
-          <Button variant="ghost" size="sm" disabled={!writable} onClick={() => { actions.edit(row.id) }} aria-label={t('row.edit')}>
-            <IconEditOutline16 size={16} />
+          {!row.registered && (
+            <Button variant="ghost" size="sm" disabled={!writable} onClick={() => { actions.edit(row.id) }} aria-label={t('row.edit')}>
+              <IconEditOutline16 size={16} />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!writable || probe?.phase === 'probing'}
+            aria-label={t('row.probe')}
+            onClick={() => { void actions.probe(row.id) }}
+          >
+            <IconPlayOutline16 size={16} />
           </Button>
           <Button
             variant="ghost"
@@ -102,9 +128,11 @@ export function ServerRow(props: ServerRowProps) {
           >
             <IconRefreshOutline16 size={16} />
           </Button>
-          <Button variant="ghost" size="sm" disabled={!writable} aria-label={t('row.delete')} onClick={() => { actions.requestDelete(row.id) }}>
-            <IconTrashOutline16 size={16} />
-          </Button>
+          {!row.registered && (
+            <Button variant="ghost" size="sm" disabled={!writable} aria-label={t('row.delete')} onClick={() => { actions.requestDelete(row.id) }}>
+              <IconTrashOutline16 size={16} />
+            </Button>
+          )}
         </div>
       </div>
       <div className={css.cardMeta}>
@@ -118,6 +146,15 @@ export function ServerRow(props: ServerRowProps) {
           )
           : <Pill>{toolsLabel}</Pill>}
       </div>
+      {probe !== undefined && (
+        <div className={css.cardMeta}>
+          {probe.phase === 'probing'
+            ? <span>{t('row.probing')}</span>
+            : probe.ok
+              ? <span>{t('row.probeOk', probe.summary)}</span>
+              : <span>{t('row.probeFail', probe.summary)}</span>}
+        </div>
+      )}
       <div className={css.presets}>{presetText}</div>
       {open && tools.length > 0 && (
         <div className={css.tools}>

@@ -11,6 +11,7 @@
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { McpManagementStatusRow } from '@deepseek-ai/dsh-mcp-user-config/types'
+import type { McpProbeResult } from '@deepseek-ai/dsh-mcp-client/types'
 
 /** One server row the page renders: the settings entry joined with live state. */
 export interface McpServerRow {
@@ -26,21 +27,35 @@ export interface McpServerRow {
   status?: McpManagementStatusRow
   /** Preset ids whose current composition selects this server. */
   presets: readonly string[]
+  /** Whether a plugin registered this row for its lifetime; Settings never edits it. */
+  registered: boolean
 }
+
+/** One probe outcome as the card renders it. */
+export type McpProbeView =
+  | { readonly phase: 'probing' }
+  | {
+    readonly phase: 'done'
+    readonly ok: boolean
+    /** Locale parameters for the summary line. */
+    readonly summary: Readonly<Record<string, string>>
+  }
 
 /** The section's joined view state. */
 export interface McpSectionState {
   /** Aggregate load state of the joined data. */
   status: 'idle' | 'loading' | 'ready' | 'error'
-  /** Server rows in settings order; absent until first read lands. */
+  /** Server rows in settings order, then registered rows; absent until first read lands. */
   rows: readonly McpServerRow[] | undefined
   /** Last failure message, shown verbatim on the error surface. */
   error?: string
   /** Whether the underlying settings scope accepts writes. */
   writable: boolean
+  /** Probe outcomes by server id; absent ids carry no probe view. */
+  probes: Readonly<Record<string, McpProbeView>>
 }
 
-const INITIAL: McpSectionState = { status: 'idle', rows: undefined, writable: false }
+const INITIAL: McpSectionState = { status: 'idle', rows: undefined, writable: false, probes: {} }
 
 /** How the joined status view is refreshed while the page is open. */
 const STATUS_POLL_MS = 5_000
@@ -67,10 +82,12 @@ export interface McpSettingsServers {
 
 /** Face the controller reads live fleet state through. */
 export interface McpStatusFace {
-  /** List every configured server's live state. */
+  /** List every fleet server's live state. */
   status: () => Promise<{ ok: true; value: readonly McpManagementStatusRow[] } | { ok: false; error: { message: string } }>
   /** Restart one enabled server's shared connection. */
   restart: (serverId: string) => Promise<{ ok: true; value: void } | { ok: false; error: { message: string } }>
+  /** Test one server's configuration without mounting an owner. */
+  probe: (serverId: string) => Promise<{ ok: true; value: McpProbeResult } | { ok: false; error: { message: string } }>
 }
 
 /** Face the controller reads per-preset exposure through. */
@@ -156,10 +173,30 @@ export class McpSectionController {
         transport: entry.transport,
         enabled: entry.enabled !== false,
         presets: presetSelection.get(entry.serverName) ?? [],
+        registered: false,
         ...status === undefined ? {} : { status },
       }
     })
+    // Plugin-registered servers join after the settings rows, read-only: they
+    // exist for their plugin's lifetime and Settings never edits them.
+    for (const status of statusRows ?? []) {
+      if (status.source !== 'registered' || settingsRows.some(entry => entry.id === status.id)) continue
+      rows.push({
+        id: status.id,
+        serverName: status.serverName,
+        transport: status.transport,
+        enabled: true,
+        presets: presetSelection.get(status.serverName) ?? [],
+        registered: true,
+        status,
+      })
+    }
     this.publish({ status: 'ready', rows, writable: snapshot.writable })
+  }
+
+  /** Immediate re-join after the Host reported a fleet change. */
+  fleetChanged(): void {
+    void this.refresh()
   }
 
   /**
@@ -184,6 +221,26 @@ export class McpSectionController {
     return result.ok ? undefined : result.error.message
   }
 
+  /**
+   * Test one server's configuration through a one-shot probe and publish the
+   * rendered outcome under its id.
+   *
+   * @param serverId - Stable id of the configured or registered server.
+   */
+  async probe(serverId: string): Promise<void> {
+    this.publish({ probes: { ...this.store.getSnapshot().probes, [serverId]: { phase: 'probing' } } })
+    const view = await this.statusFace.probe(serverId)
+      .then(result => result.ok
+        ? ({ phase: 'done' as const, ok: result.value.ok, summary: probeSummary(result.value) })
+        : ({ phase: 'done' as const, ok: false, summary: { message: result.error.message } }))
+      .catch((error: unknown) => ({
+        phase: 'done' as const,
+        ok: false,
+        summary: { message: error instanceof Error ? error.message : String(error) },
+      }))
+    this.publish({ probes: { ...this.store.getSnapshot().probes, [serverId]: view } })
+  }
+
   /** Current writable state for disabling controls. */
   get writable(): boolean {
     return this.store.getSnapshot().writable
@@ -205,5 +262,17 @@ export class McpSectionController {
       }
     }
     return joined
+  }
+}
+
+/** Locale parameters summarizing one probe outcome for the card. */
+function probeSummary(result: McpProbeResult): Readonly<Record<string, string>> {
+  if (!result.ok) return { stage: result.stage, message: result.message }
+  return {
+    ...result.serverInfo === undefined ? {} : { server: `${result.serverInfo.name} ${result.serverInfo.version}` },
+    count: `${result.toolNames.length}${result.truncated ? '+' : ''}`,
+    ms: String(result.durationMs),
+    cleanup: result.cleanup,
+    ...result.cleanupError === undefined ? {} : { cleanupError: result.cleanupError },
   }
 }

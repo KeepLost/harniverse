@@ -90,6 +90,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../mcp/mcp-user-config"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {

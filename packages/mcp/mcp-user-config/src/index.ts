@@ -17,8 +17,10 @@ import {
   McpOwnerPlugin,
   McpRegistrarPlugin,
   mcpServerCapabilityId,
+  probeServer,
 } from '@deepseek-ai/dsh-mcp-client'
 import type { Config as McpClientConfig, ReconnectConfig } from '@deepseek-ai/dsh-mcp-client'
+import type { McpProbeResult } from '@deepseek-ai/dsh-mcp-client/types'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { McpManagementService } from './management.ts'
@@ -80,6 +82,48 @@ export interface UserMcpServerConfig {
 /** Composition defaults for the host-owned `mcp` settings namespace. */
 export interface McpUserConfigSettingsConfig {
   servers: UserMcpServerConfig[]
+}
+
+/** A plugin's server registration: every configured field except identity and enablement. */
+export type McpServerRegistration = Omit<UserMcpServerConfig, 'id' | 'enabled' | 'serverName'>
+
+/**
+ * Host face a plugin uses to contribute one MCP server for its own lifetime.
+ * A registered server is enabled while registered; its removal awaits the
+ * owner's teardown, so plugin disposal withdraws the server's tools before
+ * settling. Registrations share the serverName namespace with configured
+ * entries in both directions and never appear in Settings.
+ */
+export interface McpUserConfigRegistrationsService {
+  /**
+   * Contribute one server for the calling plugin's lifetime.
+   * @param serverName - public server namespace, unique across configured and registered servers.
+   * @param entry - transport, endpoint, and budgets, validated like a configured entry.
+   * @returns an idempotent disposer that removes the registration.
+   * @throws when the name is taken, the entry is invalid, or the provider is disposed.
+   */
+  register(serverName: string, entry: McpServerRegistration): () => void
+  /**
+   * Current registrations in registration order.
+   * @returns detached copies of every live registration entry.
+   */
+  list(): readonly UserMcpServerConfig[]
+  /**
+   * Observe registration additions and removals.
+   * @param listener - invoked after each registration change commits.
+   * @returns the disposer that removes the listener.
+   */
+  subscribe(listener: () => void): () => void
+}
+
+/** Cordis service key carrying the plugin-registration face. */
+export const MCP_USER_CONFIG_REGISTRATIONS_SERVICE = 'mcpUserConfigRegistrations'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Plugin-registration face over the host-owned MCP fleet. */
+    mcpUserConfigRegistrations: McpUserConfigRegistrationsService
+  }
 }
 
 /** Loader role for one named plugin row. */
@@ -203,11 +247,33 @@ function ownerConfigSignature(entry: UserMcpServerConfig): string {
   return JSON.stringify(toOwnerConfig(entry))
 }
 
+/** Validate one entry's transport and reconnect constraints in isolation. */
+function validateServerEntry(entry: UserMcpServerConfig, path: string): void {
+  if (entry.transport === 'stdio') {
+    if (entry.command === undefined) throw new TypeError(`mcp-user-config: ${path}.command is required for stdio`)
+    if (entry.url !== undefined) throw new TypeError(`mcp-user-config: ${path}.url is only valid for streamable-http`)
+  } else {
+    if (entry.url === undefined) throw new TypeError(`mcp-user-config: ${path}.url is required for streamable-http`)
+    if (entry.command !== undefined) throw new TypeError(`mcp-user-config: ${path}.command is only valid for stdio`)
+  }
+
+  assertKnownKeys(entry.reconnect, RECONNECT_KEYS, `${path}.reconnect`)
+  const { initialDelayMs, maxDelayMs } = entry.reconnect
+  if (initialDelayMs !== undefined && maxDelayMs !== undefined && initialDelayMs > maxDelayMs) {
+    throw new TypeError(`mcp-user-config: ${path}.reconnect.initialDelayMs must be less than or equal to maxDelayMs`)
+  }
+}
+
 /**
  * Validate cross-entry identity and transport constraints before any child is mounted.
  * Invalid settings fail closed and leave the last good child set untouched.
+ * @param value - the settings document to validate.
+ * @param registrations - live plugin registrations; a configured serverName refuses a registered one.
  */
-function validateSettingsConfig(value: McpUserConfigSettingsConfig): void {
+function validateSettingsConfig(
+  value: McpUserConfigSettingsConfig,
+  registrations?: ReadonlyMap<string, UserMcpServerConfig>,
+): void {
   assertKnownKeys(value, CONFIG_KEYS, 'mcp')
   const ids = new Set<string>()
   const serverNames = new Set<string>()
@@ -220,20 +286,10 @@ function validateSettingsConfig(value: McpUserConfigSettingsConfig): void {
       throw new TypeError(`mcp-user-config: duplicate serverName "${entry.serverName}"`)
     }
     serverNames.add(entry.serverName)
-
-    if (entry.transport === 'stdio') {
-      if (entry.command === undefined) throw new TypeError(`mcp-user-config: ${path}.command is required for stdio`)
-      if (entry.url !== undefined) throw new TypeError(`mcp-user-config: ${path}.url is only valid for streamable-http`)
-    } else {
-      if (entry.url === undefined) throw new TypeError(`mcp-user-config: ${path}.url is required for streamable-http`)
-      if (entry.command !== undefined) throw new TypeError(`mcp-user-config: ${path}.command is only valid for stdio`)
+    if (registrations?.has(entry.serverName)) {
+      throw new TypeError(`mcp-user-config: serverName "${entry.serverName}" is registered by a plugin`)
     }
-
-    assertKnownKeys(entry.reconnect, RECONNECT_KEYS, `${path}.reconnect`)
-    const { initialDelayMs, maxDelayMs } = entry.reconnect
-    if (initialDelayMs !== undefined && maxDelayMs !== undefined && initialDelayMs > maxDelayMs) {
-      throw new TypeError(`mcp-user-config: ${path}.reconnect.initialDelayMs must be less than or equal to maxDelayMs`)
-    }
+    validateServerEntry(entry, path)
   }
 }
 
@@ -244,39 +300,71 @@ function validateSettingsConfig(value: McpUserConfigSettingsConfig): void {
 export function applySettingsProvider(ctx: Context, config: Config): void {
   const resolvedConfig = SettingsConfig({ servers: config.servers })
   validateSettingsConfig(resolvedConfig)
+  /** Registered serverName → entry; created first so settings validation can refuse collisions. */
+  const registrations = new Map<string, UserMcpServerConfig>()
+  /** Host-side observers of registration changes (capability catalog, settings service). */
+  const registrationsListeners = new Set<() => void>()
+  const notifyRegistrationsChanged = (): void => {
+    for (const listener of registrationsListeners) listener()
+  }
   const scope = ctx.settings.register(MCP_SETTINGS_NAMESPACE, SettingsConfig, {
     base: resolvedConfig,
-    validate: validateSettingsConfig,
+    validate: (value) => { validateSettingsConfig(value, registrations) },
   })
   const captured = new WeakMap<ScopeKey, McpUserConfigSettingsConfig>()
   let revision = ++settingsGenerationCounter
   ctx.effect(() => scope.watch(() => { revision = ++settingsGenerationCounter }), 'mcp-user-config.revision')
-  applyOwnerFleet(ctx, scope)
+  applyOwnerFleet(ctx, scope, registrations, notifyRegistrationsChanged)
   ctx.provide(MCP_USER_CONFIG_SETTINGS_SERVICE, {
     get: key => structuredClone(key === undefined ? scope.get() : captured.get(key) ?? scope.get()),
     watch: callback => scope.watch(callback),
   })
   ctx.inject(['capabilities'], (inner) => {
     inner.capabilities.registerAdapter((control) => {
-      inner.effect(() => scope.watch(() => { control.invalidate() }), 'mcp-user-config.catalog')
+      inner.effect(() => {
+        const unsubscribeScope = scope.watch(() => { control.invalidate() })
+        const invalidate = (): void => { control.invalidate() }
+        registrationsListeners.add(invalidate)
+        return () => {
+          unsubscribeScope()
+          registrationsListeners.delete(invalidate)
+        }
+      }, 'mcp-user-config.catalog')
       return {
         id: 'mcp-user-config',
         snapshot: view => ({
           complete: true,
           // Scoped clients own their discovered members; unmounted Profiles only need identities.
-          entries: view.scope !== undefined || view.scopes?.length ? [] : scope.get().servers.filter(entry => entry.enabled).map(entry => ({
-            id: mcpServerCapabilityId(entry.serverName),
-            kind: 'mcp-server' as const,
-            name: entry.serverName,
-            description: `MCP server ${entry.serverName}`,
-            provenance: 'external' as const,
-            assembleable: true,
-            available: true,
-            defaultLoaded: true,
-            manageable: true,
-            owner: '@deepseek-ai/dsh-mcp-client',
-            requires: [],
-          })),
+          entries: view.scope !== undefined || view.scopes?.length ? [] : [
+            ...scope.get().servers.filter(entry => entry.enabled).map(entry => ({
+              id: mcpServerCapabilityId(entry.serverName),
+              kind: 'mcp-server' as const,
+              name: entry.serverName,
+              description: `MCP server ${entry.serverName}`,
+              provenance: 'external' as const,
+              assembleable: true,
+              available: true,
+              defaultLoaded: true,
+              manageable: true,
+              owner: '@deepseek-ai/dsh-mcp-client',
+              requires: [],
+            })),
+            // Plugin-registered servers join the catalog read-only: live for
+            // every profile while registered, never edited through Settings.
+            ...[...registrations.values()].map(entry => ({
+              id: mcpServerCapabilityId(entry.serverName),
+              kind: 'mcp-server' as const,
+              name: entry.serverName,
+              description: `MCP server ${entry.serverName} (plugin-registered)`,
+              provenance: 'external' as const,
+              assembleable: true,
+              available: true,
+              defaultLoaded: true,
+              manageable: false,
+              owner: '@deepseek-ai/dsh-mcp-client',
+              requires: [],
+            })),
+          ],
         }),
         capture: () => {
           const value = structuredClone(scope.get())
@@ -317,19 +405,52 @@ interface SettingsScopeFace {
   watch(callback: () => void | Promise<void>): () => void
 }
 
+/** One fleet entry with its provenance, as the management face reports it. */
+export interface McpFleetEntry {
+  /** The validated entry an owner mounts. */
+  readonly entry: UserMcpServerConfig
+  /** Whether a plugin registered the entry for its lifetime rather than Settings configuring it. */
+  readonly registered: boolean
+}
+
+/** Mint the stable registry id a registration mounts under. */
+function registeredIdOf(serverName: string): string {
+  return `registered-${serverName}`
+}
+
 /**
  * Own the process-global connection fleet for the current settings: one
- * shared-connection owner child per enabled entry, remounted whenever its
- * configuration changes, plus the management Remote over the fleet.
+ * shared-connection owner child per enabled configured entry and per live
+ * plugin registration, remounted whenever its configuration changes, plus the
+ * management Remote over the fleet and the registration face plugins use.
  * @param ctx - host/base plugin context carrying the settings scope.
  * @param scope - the registered `mcp` settings scope.
+ * @param registrations - serverName → entry map the registration face mutates.
+ * @param notifyRegistrationsChanged - host-side observers (capability catalog).
  */
-function applyOwnerFleet(ctx: Context, scope: SettingsScopeFace): void {
+function applyOwnerFleet(
+  ctx: Context,
+  scope: SettingsScopeFace,
+  registrations: Map<string, UserMcpServerConfig>,
+  notifyRegistrationsChanged: () => void,
+): void {
   const registry = new McpConnectionsRegistry()
   ctx.provide(MCP_CONNECTIONS_SERVICE, registry)
   const owners = new Map<string, ChildRecord>()
   /** Serializes fleet mutations so a restart cannot race a settings-driven remount. */
   let fleetChain: Promise<void> = Promise.resolve()
+
+  /** Every fleet entry as the management face reports it: all configured settings plus registrations. */
+  const fleetEntries = (): McpFleetEntry[] => [
+    ...scope.get().servers.map(entry => ({ entry, registered: false })),
+    ...[...registrations.values()].map(entry => ({ entry, registered: true })),
+  ]
+
+  /** The subset an owner mounts for: enabled configured entries plus every registration. */
+  const mountableEntries = (): UserMcpServerConfig[] => [
+    ...scope.get().servers.filter(entry => entry.enabled),
+    ...[...registrations.values()],
+  ]
 
   const mountOwner = (entry: UserMcpServerConfig): void => {
     const fiber = ctx.plugin(McpOwnerPlugin, toOwnerConfig(entry))
@@ -354,41 +475,104 @@ function applyOwnerFleet(ctx: Context, scope: SettingsScopeFace): void {
     return next
   }
 
-  /** Reconcile the fleet with the current settings snapshot. */
+  /** Reconcile the fleet with the settings snapshot and the live registrations. */
   const syncFleet = (): void => {
     void runOnFleet(async () => {
-      const enabled = scope.get().servers.filter(entry => entry.enabled)
+      const desired = mountableEntries()
       for (const [id, record] of [...owners]) {
-        const next = enabled.find(entry => entry.id === id)
+        const next = desired.find(candidate => candidate.id === id)
         if (next !== undefined && ownerConfigSignature(next) === ownerConfigSignature(record.config)) continue
         await disposeOwner(record)
       }
-      for (const entry of enabled) {
+      for (const entry of desired) {
         if (owners.has(entry.id)) continue
         mountOwner(entry)
       }
     })
   }
 
+  /** Resolve one fleet entry by its stable id across both sources. */
+  const fleetEntryOf = (serverId: string): McpFleetEntry | undefined =>
+    fleetEntries().find(candidate => candidate.entry.id === serverId)
+
   /**
    * Dispose and remount one server's owner with unchanged configuration.
-   * @param serverId - stable settings identity of the enabled server.
+   * @param serverId - stable identity of the enabled server.
    * @returns settlement after the old owner disposed and its replacement mounted.
    */
   const restartOwner = (serverId: string): Promise<void> => runOnFleet(async () => {
-    const entry = scope.get().servers.find(candidate => candidate.id === serverId)
-    if (entry === undefined) throw new Error(`mcp-user-config: unknown server "${serverId}"`)
-    if (!entry.enabled) throw new Error(`mcp-user-config: server "${serverId}" is disabled`)
+    const candidate = fleetEntryOf(serverId)
+    if (candidate === undefined) throw new Error(`mcp-user-config: unknown server "${serverId}"`)
+    if (!candidate.registered && !candidate.entry.enabled) {
+      throw new Error(`mcp-user-config: server "${serverId}" is disabled`)
+    }
     const record = owners.get(serverId)
     /* v8 ignore start -- a settings race can find no live owner yet; restart then just mounts a fresh one. */
     if (record !== undefined) {
       await disposeOwner(record)
     } else {
-      mountOwner(entry)
+      mountOwner(candidate.entry)
       return
     }
     /* v8 ignore stop */
-    mountOwner(entry)
+    mountOwner(candidate.entry)
+  })
+
+  /**
+   * Probe one fleet entry's configuration without mounting an owner.
+   * @param serverId - stable identity of the configured or registered server.
+   * @returns the stage-classified probe outcome and independent cleanup result.
+   */
+  const probeEntry = async (serverId: string): Promise<McpProbeResult> => {
+    const candidate = fleetEntryOf(serverId)
+    if (candidate === undefined) throw new Error(`mcp-user-config: unknown server "${serverId}"`)
+    return probeServer(toOwnerConfig(candidate.entry))
+  }
+
+  const registrationListeners = new Set<() => void>()
+
+  ctx.provide(MCP_USER_CONFIG_REGISTRATIONS_SERVICE, {
+    register: (serverName: string, registration: McpServerRegistration) => {
+      if (!SERVER_NAME_PATTERN.test(serverName)) {
+        throw new TypeError(`mcp-user-config: invalid serverName "${serverName}"`)
+      }
+      const id = registeredIdOf(serverName)
+      const entry = UserMcpServer({
+        ...registration,
+        id,
+        enabled: true,
+        serverName,
+      }) as UserMcpServerConfig
+      validateServerEntry(entry, `registration("${serverName}")`)
+      const configured = scope.get().servers
+      if (configured.some(candidate => candidate.serverName === serverName) || registrations.has(serverName)) {
+        throw new Error(`mcp-user-config: serverName "${serverName}" is already configured or registered`)
+      }
+      if (configured.some(candidate => candidate.id === id) || [...registrations.values()].some(candidate => candidate.id === id)) {
+        throw new Error(`mcp-user-config: registration id "${id}" collides with an existing server`)
+      }
+      const dispose = ctx.effect(() => {
+        registrations.set(serverName, entry)
+        syncFleet()
+        notifyRegistrationsChanged()
+        for (const listener of registrationListeners) listener()
+        return () => {
+          registrations.delete(serverName)
+          notifyRegistrationsChanged()
+          for (const listener of registrationListeners) listener()
+          // The registration's removal awaits the owner's teardown, so plugin
+          // disposal withdraws the server's tools before settling.
+          syncFleet()
+          return fleetChain
+        }
+      }, 'mcp-user-config.registration')
+      return () => { void dispose() }
+    },
+    list: () => [...registrations.values()].map(entry => structuredClone(entry)),
+    subscribe: (listener: () => void) => {
+      registrationListeners.add(listener)
+      return () => { registrationListeners.delete(listener) }
+    },
   })
 
   ctx.effect(() => {
@@ -406,17 +590,60 @@ function applyOwnerFleet(ctx: Context, scope: SettingsScopeFace): void {
   // the provider fiber; no manual teardown exists or is needed.
   void new McpManagementService(ctx, {
     registry,
-    entries: () => scope.get().servers,
+    entries: fleetEntries,
     restartOwner,
+    probeEntry,
   })
 }
 
-/** Mount only the settings captured by this Profile generation. */
+/** Mount one registrar child for a fleet entry, contained per entry. */
+function mountRegistrar(
+  ctx: Context,
+  children: Map<string, ChildRecord>,
+  entry: UserMcpServerConfig,
+  reservationKey: string,
+): void {
+  // A registrar never rejects on connection state; a rejection here means
+  // a duplicate namespace, which the loader surfaces for the composition.
+  // Both the synchronous mount throw and the fiber rejection are
+  // contained the same way, so one broken entry never fails the consumer.
+  try {
+    const fiber = ctx.plugin(McpRegistrarPlugin, {
+      serverId: entry.id,
+      serverName: entry.serverName,
+      reservationKey,
+    })
+    children.set(entry.id, { config: entry, fiber })
+    void Promise.resolve(fiber).catch((error: unknown) => { logChildFailure(ctx, entry, 'registrar startup', error) })
+  } catch (error) {
+    /* v8 ignore next -- sync throws require a malformed plugin shape; the registrar import always carries apply. */
+    logChildFailure(ctx, entry, 'registrar startup', error)
+  }
+}
+
+/** Dispose one registrar child, contained per entry. */
+async function disposeRegistrar(ctx: Context, children: Map<string, ChildRecord>, record: ChildRecord): Promise<void> {
+  children.delete(record.config.id)
+  /* v8 ignore next 3 -- cordis contains effect-disposer failures inside fiber.dispose; the generation unwinds either way. */
+  try {
+    await record.fiber.dispose()
+  } catch (error) {
+    logChildFailure(ctx, record.config, 'registrar disposal', error)
+  }
+}
+
+/**
+ * Mount only the settings captured by this Profile generation, plus every
+ * live plugin registration on the global plane: a registration's registrar
+ * mounts while the registration exists and withdraws with it, so profile
+ * tools track the registered fleet without any per-profile selection.
+ */
 async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsService): Promise<void> {
   const children = new Map<string, ChildRecord>()
   const snapshot = settings.get(scopeOf(ctx))
   validateSettingsConfig(snapshot)
   const reservationKey = reservationKeyFor()
+  const registrations = ctx.get(MCP_USER_CONFIG_REGISTRATIONS_SERVICE)
   const lifecycle = ctx.effect(async () => {
     // Async boundary on purpose: cordis routes a child fiber's rejection
     // through the effect's promise, where the containment below attaches;
@@ -424,33 +651,26 @@ async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsServic
     // context-level error before the catch runs.
     await Promise.resolve()
     for (const entry of snapshot.servers.filter(entry => entry.enabled)) {
-      // A registrar never rejects on connection state; a rejection here means
-      // a duplicate namespace, which the loader surfaces for the composition.
-      // Both the synchronous mount throw and the fiber rejection are
-      // contained the same way, so one broken entry never fails the consumer.
-      try {
-        const fiber = ctx.plugin(McpRegistrarPlugin, {
-          serverId: entry.id,
-          serverName: entry.serverName,
-          reservationKey,
-        })
-        children.set(entry.id, { config: entry, fiber })
-        void Promise.resolve(fiber).catch((error: unknown) => { logChildFailure(ctx, entry, 'registrar startup', error) })
-      } catch (error) {
-        /* v8 ignore next -- sync throws require a malformed plugin shape; the registrar import always carries apply. */
-        logChildFailure(ctx, entry, 'registrar startup', error)
+      mountRegistrar(ctx, children, entry, reservationKey)
+    }
+    // Registered servers ride the live plane: mounts and withdrawals follow
+    // the host-side registration set, not this generation's capture.
+    const syncRegistrations = (): void => {
+      const desired = new Set(registrations?.list().map(entry => entry.id) ?? [])
+      for (const record of [...children.values()]) {
+        if (!record.config.id.startsWith('registered-') || desired.has(record.config.id)) continue
+        void disposeRegistrar(ctx, children, record)
+      }
+      for (const entry of registrations?.list() ?? []) {
+        if (children.has(entry.id)) continue
+        mountRegistrar(ctx, children, entry, reservationKey)
       }
     }
+    const unsubscribe = registrations?.subscribe(() => { syncRegistrations() })
+    if (registrations !== undefined) syncRegistrations()
     return async () => {
-      await Promise.all([...children.values()].map(async (record) => {
-        children.delete(record.config.id)
-        /* v8 ignore next 3 -- cordis contains effect-disposer failures inside fiber.dispose; the generation unwinds either way. */
-        try {
-          await record.fiber.dispose()
-        } catch (error) {
-          logChildFailure(ctx, record.config, 'registrar disposal', error)
-        }
-      }))
+      unsubscribe?.()
+      await Promise.all([...children.values()].map(record => disposeRegistrar(ctx, children, record)))
     }
   }, 'mcp-user-config.lifecycle')
   await lifecycle

@@ -34,6 +34,8 @@ async function bench(options: { roster?: 'ok' | 'fail' | 'absent'; catalog?: 'ok
     ? [...CATALOG_SELECTED.entries, { id: 'other:x', kind: 'agent-profile', selected: true }, { id: 'mcp-server:776562', kind: 'mcp-server', selected: false }]
     : CATALOG_SELECTED.entries
   class RemoteService extends Service {
+    /** Forwarded-event subscription stub: tests capture nothing. */
+    $on = vi.fn(() => () => {})
     constructor(serviceCtx: Context) {
       super(serviceCtx, 'remote')
     }
@@ -42,6 +44,7 @@ async function bench(options: { roster?: 'ok' | 'fail' | 'absent'; catalog?: 'ok
   ctx.provide('remote.mcpManagement', {
     status: vi.fn(() => options.status === 'throw' ? Promise.reject(new Error('remote gone')) : Promise.resolve({ ok: true as const, value: STATUS_ROWS })),
     restart: vi.fn(() => Promise.resolve({ ok: true as const, value: undefined })),
+    probe: vi.fn(() => Promise.resolve({ ok: true as const, value: { ok: true, toolNames: ['search'], truncated: false, durationMs: 3, cleanup: 'ok' } })),
   })
   ctx.provide('remote.capabilityManagement', {
     catalog: vi.fn(() => options.catalog === 'fail' ? Promise.resolve({ ok: false as const, error: { message: 'denied' } }) : Promise.resolve({ ok: true as const, value: { entries: catalogEntries } })),

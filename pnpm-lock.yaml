@@ -7609,6 +7609,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-mcp-user-config':
+        specifier: workspace:^
+        version: link:../../mcp/mcp-user-config
       '@deepseek-ai/dsh-model-policy':
         specifier: workspace:^
         version: link:../../core/model-policy

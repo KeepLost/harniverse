@@ -36,6 +36,8 @@ export interface McpSectionInjected {
   writeServers: (servers: ReadonlyArray<ServerSettingsRow>) => Promise<void>
   /** Restart one enabled server's shared connection. */
   restart: (id: string) => Promise<string | undefined>
+  /** Probe one server's configuration without mounting an owner. */
+  probe: (id: string) => Promise<void>
 }
 
 /** The settings-scope face the section reads rows from. */
@@ -52,7 +54,7 @@ export type McpSectionProps =
 
 /** The settings page. */
 export function McpSection(props: McpSectionProps) {
-  const { t, scope, refresh, writeServers, restart } = props
+  const { t, scope, refresh, writeServers, restart, probe } = props
   const state = props.useMcpSection(snapshot => snapshot)
   const settings = scope.getSnapshot()
   const rows = state.rows ?? []
@@ -140,6 +142,7 @@ export function McpSection(props: McpSectionProps) {
             key={row.id}
             row={row}
             writable={writable}
+            probe={state.probes[row.id]}
             t={t}
             actions={{
               setEnabled,
@@ -152,6 +155,7 @@ export function McpSection(props: McpSectionProps) {
               },
               requestDelete: (id) => { setDeleteId(id) },
               restart,
+              probe,
             }}
           />
         ))}

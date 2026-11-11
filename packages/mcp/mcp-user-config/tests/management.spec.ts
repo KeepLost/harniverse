@@ -1,12 +1,13 @@
 /**
  * Unit tests for the management Remote: status projection across live,
- * absent, and disabled entries, plus the restart pass-through and its
- * fleet-side validation errors.
+ * absent, and disabled entries, the restart and probe pass-throughs with
+ * their fleet-side validation errors, registered-row provenance, and the
+ * fleet-changed notification over registry and handle change feeds.
  */
 
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import type { McpConnectionsService, SharedConnection } from '@deepseek-ai/dsh-mcp-client'
+import type { McpConnectionsService, McpProbeResult, SharedConnection } from '@deepseek-ai/dsh-mcp-client'
 import { McpManagementService } from '../src/management.ts'
 import type { UserMcpServerConfig } from '../src/index.ts'
 
@@ -29,6 +30,7 @@ function entry(overrides: Partial<UserMcpServerConfig> = {}): UserMcpServerConfi
 }
 
 function fakeHandle(overrides: Partial<Pick<SharedConnection, 'status' | 'toolDescriptors'>> = {}): SharedConnection {
+  const listeners = new Set<() => void>()
   return {
     serverName: 'alpha',
     ready: Promise.resolve({}),
@@ -48,13 +50,30 @@ function fakeHandle(overrides: Partial<Pick<SharedConnection, 'status' | 'toolDe
     instructions: () => '',
     callTool: () => Promise.resolve({}),
     resources: { request: () => Promise.resolve({}) },
-    subscribe: () => () => {},
-    dispose: () => Promise.resolve(),
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    dispose: () => {
+      for (const listener of listeners) listener()
+      return Promise.resolve()
+    },
   }
 }
 
-function registryOf(live: Record<string, SharedConnection>): McpConnectionsService {
-  return { get: id => live[id] } as McpConnectionsService
+/** Registry with a listener set the tests can fire like the real one. */
+function registryOf(live: Record<string, SharedConnection>): McpConnectionsService & { notify(serverId: string): void } {
+  const listeners = new Set<(serverId: string) => void>()
+  const registry: McpConnectionsService & { notify(serverId: string): void } = {
+    get: id => live[id],
+    register: () => () => {},
+    subscribe: (listener: (serverId: string) => void) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    notify: (serverId: string) => { for (const listener of listeners) listener(serverId) },
+  }
+  return registry
 }
 
 describe('mcp management service', () => {
@@ -66,11 +85,12 @@ describe('mcp management service', () => {
     const service = new McpManagementService(ctx, {
       registry: registryOf({ alpha: live, missing: fakeHandle() }),
       entries: () => [
-        entry(),
-        entry({ id: 'away', serverName: 'away', enabled: false }),
-        entry({ id: 'broken', serverName: 'broken', reconnect: {} }),
+        { entry: entry(), registered: false },
+        { entry: entry({ id: 'away', serverName: 'away', enabled: false }), registered: false },
+        { entry: entry({ id: 'broken', serverName: 'broken', reconnect: {} }), registered: false },
       ],
       restartOwner: async () => { throw new Error('unreachable') },
+      probeEntry: async () => { throw new Error('unreachable') },
     })
     const [alpha, away, broken] = service.status()
     expect(alpha).toMatchObject({
@@ -79,11 +99,26 @@ describe('mcp management service', () => {
       tools: [{ name: 'add', description: 'Adds numbers' }],
     })
     expect(alpha!.lastErrorKind).toBeUndefined()
+    expect(alpha!.source).toBeUndefined()
     expect(away).toMatchObject({ id: 'away', state: 'disabled', tools: [], maxAttempts: 10 })
     // A configured server with no live handle reads stopped; the reconnect
     // fallback reports the default budget when the raw entry omits it.
     expect(broken).toMatchObject({ id: 'broken', state: 'stopped', tools: [], maxAttempts: 10 })
     void service
+  })
+
+  it('marks plugin-registered fleet entries with their provenance', () => {
+    const ctx = new Context()
+    const service = new McpManagementService(ctx, {
+      registry: registryOf({ 'registered-extra': fakeHandle() }),
+      entries: () => [
+        { entry: entry({ id: 'registered-extra', serverName: 'extra' }), registered: true },
+      ],
+      restartOwner: async () => {},
+      probeEntry: async () => { throw new Error('unreachable') },
+    })
+    expect(service.status()[0]).toMatchObject({ id: 'registered-extra', serverName: 'extra', state: 'connected' })
+    expect(service.status()[0]!.source).toBe('registered')
   })
 
   it('carries the failure kind and outage counters of a retrying server', () => {
@@ -92,8 +127,9 @@ describe('mcp management service', () => {
       registry: registryOf({ flaky: fakeHandle({
         status: () => ({ state: 'reconnecting', failedAttempts: 3, maxAttempts: 7, lastErrorKind: 'TypeError' }),
       }) }),
-      entries: () => [entry({ id: 'flaky', serverName: 'flaky' })],
+      entries: () => [{ entry: entry({ id: 'flaky', serverName: 'flaky' }), registered: false }],
       restartOwner: async () => {},
+      probeEntry: async () => { throw new Error('unreachable') },
     })
     expect(service.status()[0]).toMatchObject({
       id: 'flaky', state: 'reconnecting', failedAttempts: 3, maxAttempts: 7, lastErrorKind: 'TypeError',
@@ -106,10 +142,53 @@ describe('mcp management service', () => {
     const restarted: string[] = []
     const service = new McpManagementService(ctx, {
       registry: registryOf({}),
-      entries: () => [entry()],
+      entries: () => [{ entry: entry(), registered: false }],
       restartOwner: async (id) => { restarted.push(id) },
+      probeEntry: async () => { throw new Error('unreachable') },
     })
     await service.restart('alpha')
     expect(restarted).toEqual(['alpha'])
+  })
+
+  it('passes probe through and surfaces an unknown server as a Remote failure', async () => {
+    const ctx = new Context()
+    const probed: string[] = []
+    const outcome: McpProbeResult = { ok: true, toolNames: ['add'], truncated: false, durationMs: 1, cleanup: 'ok' }
+    const service = new McpManagementService(ctx, {
+      registry: registryOf({}),
+      entries: () => [{ entry: entry({ id: 'away', serverName: 'away', enabled: false }), registered: false }],
+      restartOwner: async () => {},
+      probeEntry: async (id) => {
+        probed.push(id)
+        if (id !== 'away') throw new Error(`mcp-user-config: unknown server "${id}"`)
+        return outcome
+      },
+    })
+    await expect(service.probe('away')).resolves.toBe(outcome)
+    expect(probed).toEqual(['away'])
+    await expect(service.probe('ghost')).rejects.toThrow('unknown server "ghost"')
+  })
+
+  it('emits mcpManagement/fleet-changed on registry and handle changes with contained listeners', async () => {
+    const ctx = new Context()
+    const heard: string[] = []
+    ctx.on('mcpManagement/fleet-changed', () => { throw new Error('broken listener') })
+    ctx.on('mcpManagement/fleet-changed', () => { heard.push('fleet') })
+    const handle = fakeHandle()
+    const registry = registryOf({ alpha: handle })
+    new McpManagementService(ctx, {
+      registry,
+      entries: () => [{ entry: entry(), registered: false }],
+      restartOwner: async () => {},
+      probeEntry: async () => { throw new Error('unreachable') },
+    })
+    // A handle's own change feed (state transition inside one connection).
+    await handle.dispose()
+    expect(heard).toEqual(['fleet'])
+    // Registry membership/replacement (owner mount, unmount, restart).
+    registry.notify('alpha')
+    expect(heard).toEqual(['fleet', 'fleet'])
+    await ctx.fiber.dispose()
+    expect(heard).toEqual(['fleet', 'fleet'])
   })
 })

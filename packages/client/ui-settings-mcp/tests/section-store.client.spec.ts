@@ -40,15 +40,21 @@ function scopeDouble(state: ScopeState):
 }
 
 /** A status face double with programmable answers and a restart log. */
-function statusDouble(rows: readonly McpManagementStatusRow[] | 'fail', restartResult: 'ok' | { message: string } = 'ok'): McpStatusFace & { restarts: string[] } {
+function statusDouble(rows: readonly McpManagementStatusRow[] | 'fail', restartResult: 'ok' | { message: string } = 'ok'): McpStatusFace & { restarts: string[]; probes: string[] } {
   const restarts: string[] = []
+  const probes: string[] = []
   return {
     status: () => rows === 'fail' ? Promise.resolve({ ok: false, error: { message: 'down' } }) : Promise.resolve({ ok: true, value: rows }),
     restart: (serverId) => {
       restarts.push(serverId)
       return restartResult === 'ok' ? Promise.resolve({ ok: true as const, value: undefined }) : Promise.resolve({ ok: false as const, error: restartResult })
     },
+    probe: (serverId) => {
+      probes.push(serverId)
+      return Promise.resolve({ ok: true as const, value: { ok: true, toolNames: ['add', 'get'], truncated: true, durationMs: 12, cleanup: 'ok' as const } })
+    },
     restarts,
+    probes,
   }
 }
 
@@ -137,7 +143,7 @@ describe('McpSectionController', () => {
     const scope = scopeDouble({ snapshot: { ...READY_SNAPSHOT, value: undefined }, written: [] })
     const controller = new McpSectionController(
       scope,
-      { status: () => Promise.reject(new Error('socket gone')), restart: () => Promise.resolve({ ok: true as const, value: undefined }) },
+      { status: () => Promise.reject(new Error('socket gone')), restart: () => Promise.resolve({ ok: true as const, value: undefined }), probe: () => Promise.resolve({ ok: true as const, value: { ok: false, stage: 'connect', message: 'x', durationMs: 0, cleanup: 'ok' } }) },
       emptyExposure(),
     )
     await controller.refresh()
@@ -209,5 +215,42 @@ describe('McpSectionController', () => {
     scope.push({ ...READY_SNAPSHOT, value: { servers: [] } })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(controller.store.getSnapshot().rows).toHaveLength(1)
+  })
+
+  it('joins plugin-registered status rows after the settings rows as read-only', async () => {
+    vi.useFakeTimers()
+    const registered: McpManagementStatusRow = { ...STATUS_ROW, id: 'registered-extra', serverName: 'extra', source: 'registered' }
+    const status = statusDouble([STATUS_ROW, registered])
+    const controller = new McpSectionController(scopeDouble({ snapshot: READY_SNAPSHOT, written: [] }), status, emptyExposure())
+    controller.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const rows = controller.store.getSnapshot().rows!
+    expect(rows.map(row => [row.id, row.registered])).toEqual([['docs', false], ['registered-extra', true]])
+    expect(rows[1]!.status).toBe(registered)
+
+    controller.stop()
+    vi.useRealTimers()
+  })
+
+  it('publishes probe phases under the probed id and re-joins on fleet changes', async () => {
+    vi.useFakeTimers()
+    const scope = scopeDouble({ snapshot: READY_SNAPSHOT, written: [] })
+    const controller = new McpSectionController(scope, statusDouble([STATUS_ROW]), emptyExposure())
+    controller.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    await controller.probe('docs')
+    const view = controller.store.getSnapshot().probes.docs!
+    expect(view).toMatchObject({ phase: 'done', ok: true })
+    expect(view.phase === 'done' && view.summary).toMatchObject({ count: '2+', ms: '12', cleanup: 'ok' })
+
+    const statusSpy = vi.spyOn(controller, 'refresh')
+    controller.fleetChanged()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(statusSpy).toHaveBeenCalled()
+
+    controller.stop()
+    vi.useRealTimers()
   })
 })

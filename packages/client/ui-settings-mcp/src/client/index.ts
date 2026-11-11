@@ -86,7 +86,15 @@ export function apply(ctx: ClientContext): void {
   const controller = new McpSectionController(scope, {
     status: () => ctx.remote.mcpManagement.status(),
     restart: serverId => ctx.remote.mcpManagement.restart(serverId),
+    probe: serverId => ctx.remote.mcpManagement.probe(serverId),
   }, { presetIds, selectedServerNames })
+
+  // The Host reports every fleet change through the forwarded registry
+  // event; the section re-joins immediately instead of waiting for its poll.
+  ctx.effect(
+    () => ctx.remote.$on('mcpManagement/fleet-changed', () => { controller.fleetChanged() }),
+    'ui-settings-mcp: fleet changes',
+  )
 
   const t = ctx.locale.bind(NS)
   ctx.slots.inject('settings.section', () => ctx.slots.register({
@@ -103,6 +111,7 @@ export function apply(ctx: ClientContext): void {
       refresh: () => controller.refresh(),
       writeServers: (servers: ReadonlyArray<NonNullable<McpSettingsServers['servers']>[number]>) => controller.writeServers(servers),
       restart: (id: string) => controller.restart(id),
+      probe: (id: string) => controller.probe(id),
     }),
   }, McpSection))
   ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({

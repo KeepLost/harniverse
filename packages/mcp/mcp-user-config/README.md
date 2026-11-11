@@ -80,18 +80,26 @@ The shipped Standard, Code, and Cordis profiles mount the consumer; Minimal does
 
 ## Management Remote
 
-`McpManagementService` (Typert namespace `mcpManagement`, both operations gated by `harniverse.administer`) projects the fleet for the settings page:
+`McpManagementService` (Typert namespace `mcpManagement`, all operations gated by `harniverse.administer`) projects the fleet for the settings page:
 
 | Operation | Result |
 |---|---|
-| `status()` | One row per settings entry: stable id, `serverName`, transport, live connection state (`connecting`/`connected`/`reconnecting`/`exhausted`/`stopped`/`disposed`, or `disabled`), failed-attempt counters, current tool inventory, and the epoch of the current connection generation |
+| `status()` | One row per settings entry plus one per live plugin registration: stable id, `serverName`, transport, live connection state (`connecting`/`connected`/`reconnecting`/`exhausted`/`stopped`/`disposed`, or `disabled`), failed-attempt counters, current tool inventory, the epoch of the current connection generation, and `source: 'registered'` on plugin-registered rows |
 | `restart(serverId)` | Recreate one enabled server's shared connection; validation (`unknown server`, `server "X" is disabled`) lives in the fleet step, so a restart cannot bypass settings |
+| `probe(serverId)` | One-shot test of one configured or registered entry — connect, read the server identity, list tool names, close — without mounting an owner or reserving a namespace; disabled entries answer too, so a settings surface can trial before enabling |
+
+Every fleet change (connection state moves, owner mounts/unmounts, settings or registration reshapes) emits the payload-free `mcpManagement/fleet-changed` cordis event after it commits; listener failures are contained. The event is forwarded to web clients verbatim, and the settings page re-joins on it instead of waiting out its poll.
+
+## Plugin registrations
+
+`ctx.mcpUserConfigRegistrations.register(serverName, entry)` contributes one MCP server for the calling plugin's lifetime: the entry carries every configured field except `id`/`enabled`/`serverName`, is validated like a configured entry, and shares the `serverName` namespace with Settings in both directions — a registration refuses a configured name and a settings write refuses a registered name. The registration is enabled while registered; its removal (the returned disposer, or the plugin fiber that owns the `ctx.effect` wrapping it) awaits the shared owner's teardown, so the server's tools withdraw before plugin disposal settles. Registered servers join the capability catalog read-only, mount scoped registrars in every profile on the live plane, and never appear as editable settings rows.
 
 ## Services consumed
 
 | Service | Usage |
 |---|---|
 | `ctx.mcpUserConfigSettings` | Read the captured generation snapshot, or current settings for a standalone consumer |
+| `ctx.mcpUserConfigRegistrations` | Plugin-registration face over the host-owned fleet (provider scope) |
 | `ctx.mcpConnections` | Shared-connection registry the owners create into and the registrars attach through |
 | `ctx.capabilities` | Optional private generation capture and server selection integration |
 | `ctx.tools` | Required by each registrar for model-facing tool registration |
@@ -119,4 +127,4 @@ The prefix stays stable while the captured servers' discovered tools and instruc
 - Settings descriptors are safe only when a wire consumer requests `ctx.settings.describe({ redactSecrets: true })`; `env` and `headers` values are declared with `role('secret')` for that redaction path.
 - Host/base owns the provider row; Standard, Code, and Cordis own consumer rows. Custom compositions must preserve that one-provider, scoped-consumer split.
 - A pinned generation rides the live shared connection: a server renamed after capture exposes the new public namespace to old registrars too, and a removed slot strands them until their scope is disposed.
-- The management Remote reports state; it does not stream it. The settings page polls `status()` (5 s while open) rather than subscribing to fleet events.
+- The management Remote reports state; the settings page re-joins on the forwarded `mcpManagement/fleet-changed` event (and keeps a 5 s poll as fallback) rather than subscribing to a wire stream — the typert protocol has no stream-mode Remotes.
