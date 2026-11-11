@@ -13,6 +13,10 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type SessionShellService from '@deepseek-ai/dsh-session-shell'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
+// The forwarded-Events allowlist handler registers `ctx.on(name, ...)` for
+// every allowlisted event; this merge pulls the web registry event's shape
+// into this compilation face.
+import type {} from '@deepseek-ai/dsh-web/types'
 import {
   effectiveModelProfile, effectiveModelTarget, ModelTargetNotAllowedError, MODEL_POLICY_SETTINGS_NAMESPACE,
   UNRESTRICTED_MODEL_PROFILE_ID,

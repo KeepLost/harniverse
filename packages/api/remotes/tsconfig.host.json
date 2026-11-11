@@ -44,6 +44,9 @@
       "path": "../../settings/settings"
     },
     {
+      "path": "../../web/web"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

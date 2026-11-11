@@ -26,11 +26,13 @@ Search and fetch share no request schema and no business logic, but they are del
 
 | Member | Semantics |
 |---|---|
-| `registerSearchProvider(provider)` / `registerFetchProvider(provider)` | Register a backend. Throws `WebError` `WEB_DUPLICATE_PROVIDER` on a duplicate id within that capability kind. Returns a disposer. Disposed with the calling fiber. |
-| `registerProvider(provider)` | Register one provider's search and/or fetch capabilities as one lifecycle unit. |
-| `listProviders(capability?)` | Return non-secret registered provider ids and their capabilities, optionally filtered by capability. |
+| `registerSearchProvider(provider)` / `registerFetchProvider(provider)` | Register a backend; an optional `title`/`description` on the provider reaches provider pickers. Throws `WebError` `WEB_DUPLICATE_PROVIDER` on a duplicate id within that capability kind. Returns a disposer. Disposed with the calling fiber. |
+| `registerProvider(provider)` | Register one provider's search and/or fetch capabilities as one lifecycle unit; its optional `title`/`description` apply to every capability it implements. |
+| `listProviders(capability?)` | Return non-secret registered provider entries — `id`, optional picker `title`/`description`, and capabilities — in registration order, optionally filtered by capability. Also a `harniverse.observe` Remote for provider menus. |
 | `search(request, signal?)` | Resolve the search provider and run one search. Enforces `request.maxResults` on the result (truncates `sources[]`, sets `truncated`). Throws `WebError` when the capability cannot run. |
 | `fetch(request, signal?)` | Resolve the fetch provider and retrieve one URL. A non-2xx response is a result, not a throw. Throws `WebError` for failures to safely retrieve or represent the resource. |
+
+Every registration and disposal emits the payload-free `web/providers-changed` cordis event (listener failures are contained and never veto the mutation); pickers re-read `listProviders()` on it. The event is forwarded to web clients verbatim.
 
 Providers register **capabilities**, not tools. `dsh-tool-web` is the only owner of model-facing names, descriptions, prompt guidance, JSON schemas, and presentation.
 

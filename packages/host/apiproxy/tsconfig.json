@@ -90,6 +90,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../web/web"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {

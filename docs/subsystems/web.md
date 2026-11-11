@@ -137,10 +137,14 @@ type WebProviderCapability = 'search' | 'fetch'
 interface WebProvider {
   /** Stable provider id, unique within each capability it implements. */
   readonly id: string
+  /** Display title for provider pickers; shared by every capability it implements. */
+  readonly title?: string
+  /** One-line picker description; shared by every capability it implements. */
+  readonly description?: string
   /** Search implementation, when this provider supports search. */
-  readonly search?: Omit<WebSearchProvider, 'id'>
+  readonly search?: Omit<WebSearchProvider, 'id' | 'title' | 'description'>
   /** Fetch implementation, when this provider supports fetch. */
-  readonly fetch?: Omit<WebFetchProvider, 'id'>
+  readonly fetch?: Omit<WebFetchProvider, 'id' | 'title' | 'description'>
 }
 ```
 
@@ -148,6 +152,10 @@ interface WebProvider {
 /** Non-secret provider catalog entry exposed to discovery surfaces. */
 interface WebProviderInfo {
   readonly id: string
+  /** Picker title carried by the registration; absent when the provider offered none. */
+  readonly title?: string
+  /** Picker description carried by the registration; absent when the provider offered none. */
+  readonly description?: string
   readonly capabilities: readonly WebProviderCapability[]
 }
 ```
@@ -214,11 +222,14 @@ registerFetchProvider(provider: WebFetchProvider): () => void
 registerProvider(provider: WebProvider): () => void
 
 /**
- * List registered provider ids and their capability kinds without secrets.
+ * List registered provider ids, capabilities, and picker metadata without
+ * secrets. The Remote export serves provider menus; they re-read on every
+ * `web/providers-changed`.
  * @param capability - optionally limit entries to providers supporting this capability.
- * @returns detached provider catalog entries sorted by provider id.
+ * @returns detached catalog entries in registration order (search
+ * registrations first, then fetch-only ids).
  */
-listProviders(capability?: WebProviderCapability): WebProviderInfo[]
+@Remote({ exportName: 'listProviders', requiredCapability: 'harniverse.observe' }) listProviders(capability?: WebProviderCapability): WebProviderInfo[]
 
 /**
  * Run one search through the selected provider. Resolves the provider at call
@@ -242,5 +253,29 @@ async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearch
 async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:99`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:100`](../../packages/web/web/src/index.ts)
+
+<a id="web-events"></a>
+
+### `web/*` events
+
+<a id="webproviders-changed--emit"></a>
+
+#### `web/providers-changed` — emit
+
+The provider topology changed: a search or fetch provider registered or unregistered. This payload-free registry notification fires at each commit point (including registration disposal); consumers re-read `listProviders()` for the new state. Observer failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * The provider topology changed: a search or fetch provider registered or
+ * unregistered. This payload-free registry notification fires at each
+ * commit point (including registration disposal); consumers re-read
+ * `listProviders()` for the new state. Observer failures are contained
+ * and cannot veto the registry mutation.
+ * @mode emit
+ */
+'web/providers-changed'(): void
+```
+
+Source: [`packages/web/web/src/types.ts:172`](../../packages/web/web/src/types.ts)
 <!-- END GENERATED cordis-surface -->
