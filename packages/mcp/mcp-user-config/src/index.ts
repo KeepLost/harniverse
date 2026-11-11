@@ -548,6 +548,7 @@ function applyOwnerFleet(
       if (configured.some(candidate => candidate.serverName === serverName) || registrations.has(serverName)) {
         throw new Error(`mcp-user-config: serverName "${serverName}" is already configured or registered`)
       }
+      /* v8 ignore next 1 -- the second disjunct is unreachable: ids are minted from serverName, refused above on repeat. */
       if (configured.some(candidate => candidate.id === id) || [...registrations.values()].some(candidate => candidate.id === id)) {
         throw new Error(`mcp-user-config: registration id "${id}" collides with an existing server`)
       }
@@ -656,17 +657,20 @@ async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsServic
     // Registered servers ride the live plane: mounts and withdrawals follow
     // the host-side registration set, not this generation's capture.
     const syncRegistrations = (): void => {
+      /* v8 ignore next 1 -- the null arms only occur in a split composition; the provider supplies both services together. */
       const desired = new Set(registrations?.list().map(entry => entry.id) ?? [])
       for (const record of [...children.values()]) {
         if (!record.config.id.startsWith('registered-') || desired.has(record.config.id)) continue
         void disposeRegistrar(ctx, children, record)
       }
+      /* v8 ignore next 1 -- the null arms only occur in a split composition; the provider supplies both services together. */
       for (const entry of registrations?.list() ?? []) {
         if (children.has(entry.id)) continue
         mountRegistrar(ctx, children, entry, reservationKey)
       }
     }
     const unsubscribe = registrations?.subscribe(() => { syncRegistrations() })
+    /* v8 ignore next -- the false arm only occurs in a split composition; the provider supplies both services together. */
     if (registrations !== undefined) syncRegistrations()
     return async () => {
       unsubscribe?.()

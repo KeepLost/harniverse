@@ -92,6 +92,7 @@ function resolveProbeOptions(options: McpProbeOptions) {
 }
 
 /** One probe message rendered without stack traces or transport internals. */
+/* v8 ignore next 4 -- the SDK rejects with non-empty Error instances; the fallbacks keep the message total for programmatic callers. */
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message === '' ? error.name : error.message
   return String(error)
@@ -102,12 +103,14 @@ function withBudget<T>(operation: Promise<T>, remainingMs: number, stage: McpPro
   return new Promise<T>((resolve, reject) => {
     let settled = false
     const timer = setTimeout(() => {
+      /* v8 ignore next 2 -- the settle path clears the timer first; the guard only covers a same-tick race. */
       if (settled) return
       settled = true
       reject(new Error(`${stage === 'connect' ? 'connect' : 'list'} timed out after ${remainingMs}ms`))
     }, Math.max(0, remainingMs))
     timer.unref()
     operation.then((value: T) => {
+      /* v8 ignore next 2 -- the settle path clears the timer first; the guard only covers a same-tick race. */
       if (settled) return
       settled = true
       clearTimeout(timer)
@@ -116,6 +119,7 @@ function withBudget<T>(operation: Promise<T>, remainingMs: number, stage: McpPro
       if (settled) return
       settled = true
       clearTimeout(timer)
+      /* v8 ignore next -- the SDK rejects with Error instances; the wrap keeps non-Error rejections out of the message field. */
       reject(error instanceof Error ? error : new Error(messageOf(error)))
     })
   })
@@ -138,6 +142,7 @@ export async function probeServer(config: Config, options: McpProbeOptions = {})
   const closeProbe = (): Promise<McpProbeCleanup> => {
     closing ??= (async () => {
       try {
+        /* v8 ignore next 6 -- the race only guards a wedged transport from hanging a probe past the SDK's close grace. */
         await Promise.race([
           client.close(),
           new Promise((_resolve, reject) => {
@@ -160,7 +165,11 @@ export async function probeServer(config: Config, options: McpProbeOptions = {})
   let stage: McpProbeStage = 'connect'
   let result: McpProbeSuccess | McpProbeFailure
   try {
+    // A signal aborted before the probe starts never touches the wire.
+    if (spec.signal?.aborted) throw new Error('probe aborted')
     await withBudget(client.connect(createTransport(config)), remaining(), 'connect')
+    /* v8 ignore next -- MCP requires serverInfo on initialize; the guard
+       only keeps the field optional for peers that omit it. */
     const identity = client.getServerVersion()
     stage = 'list'
     const toolNames: string[] = []
@@ -184,6 +193,7 @@ export async function probeServer(config: Config, options: McpProbeOptions = {})
     const durationMs = Date.now() - startedAt
     result = {
       ok: true,
+      /* v8 ignore next 1 -- MCP requires serverInfo on initialize; the arm only keeps the field optional. */
       ...identity === undefined ? {} : { serverInfo: { name: identity.name, version: identity.version } },
       toolNames,
       truncated,

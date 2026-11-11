@@ -4,9 +4,6 @@
  * disposal.
  */
 
-/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-call,
-   typescript/no-unsafe-member-access -- ctx.get on untyped test contexts and
-   Vitest asymmetric matchers are typed as any. */
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import Capabilities from '@deepseek-ai/dsh-capabilities'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -14,6 +11,7 @@ import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-setti
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mcpServerCapabilityId } from '@deepseek-ai/dsh-mcp-client'
 import type { McpServerRegistration, UserMcpServerConfig } from '../src/index.ts'
 import * as bridgeModule from '../src/index.ts'
 
@@ -123,11 +121,12 @@ afterEach(async () => {
   settingsOwner = undefined
 })
 
-async function providerContext(): Promise<Context> {
+async function providerContext(options: { capabilities?: boolean } = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(MemorySettings)
+  if (options.capabilities === true) await ctx.plugin(Capabilities)
   settingsOwner = ctx.plugin({
     name: bridgeModule.name,
     inject: bridgeModule.inject,
@@ -462,6 +461,15 @@ describe('mcp-user-config plugin registrations', () => {
     dispose()
   })
 
+  it('refuses a registration whose minted id collides with a configured id', async () => {
+    const ctx = await providerContext()
+    await replaceSettings(ctx, [server('spoof', { id: 'registered-extra' })])
+    const registrations = ctx.get(bridgeModule.MCP_USER_CONFIG_REGISTRATIONS_SERVICE)!
+    expect(() => registrations.register('extra', registrationEntry()))
+      .toThrow('registration id "registered-extra" collides with an existing server')
+    expect(control.ownerConfigs.map(config => config.serverName)).toEqual(['spoof'])
+  })
+
   it('rejects an invalid serverName and an invalid entry shape', async () => {
     const ctx = await providerContext()
     const registrations = ctx.get(bridgeModule.MCP_USER_CONFIG_REGISTRATIONS_SERVICE)!
@@ -496,12 +504,44 @@ describe('mcp-user-config plugin registrations', () => {
   it('mounts and withdraws consumer registrars with the live registration set', async () => {
     const ctx = await providerContext()
     const registrations = ctx.get(bridgeModule.MCP_USER_CONFIG_REGISTRATIONS_SERVICE)!
-    const dispose = registrations.register('extra', registrationEntry())
+    // The consumer subscribes first, so the registration itself notifies it.
     const consumer = mountBridge(ctx)
     await consumer
-    expect(control.registrarConfigs.map(config => config.serverName)).toEqual(['extra'])
+    const dispose = registrations.register('extra', registrationEntry())
+    await vi.waitFor(() => { expect(control.registrarConfigs.map(config => config.serverName)).toEqual(['extra']) })
     dispose()
     await vi.waitFor(() => { expect(control.registrarDisposes).toEqual(['extra']) })
+  })
+
+  it('joins the live capability catalog with read-only registered entries', async () => {
+    const ctx = await providerContext({ capabilities: true })
+    await replaceSettings(ctx, [server('configured')])
+    const registrations = ctx.get(bridgeModule.MCP_USER_CONFIG_REGISTRATIONS_SERVICE)!
+    const dispose = registrations.register('extra', registrationEntry())
+    type CatalogEntry = { id: string; manageable: boolean; name: string }
+    const capabilities = ctx.get('capabilities') as {
+      snapshot(target: Record<string, unknown>, view: Record<string, unknown>): Promise<{ entries: ReadonlyArray<CatalogEntry> }>
+    }
+    const snapshot = await capabilities.snapshot({ kind: 'agent-profile', agentProfile: 'standard' }, {})
+    const entries = [...snapshot.entries]
+    const configured = entries.find(entry => entry.name === 'configured')!
+    const registered = entries.find(entry => entry.name === 'extra')!
+    expect(configured.manageable).toBe(true)
+    expect(registered.manageable).toBe(false)
+    expect(registered.id).toBe(mcpServerCapabilityId('extra'))
+    dispose()
+  })
+
+  it('probes a configured entry without mounting an owner and rejects unknown ids', async () => {
+    const ctx = await providerContext()
+    await replaceSettings(ctx, [server('dead', { command: 'dsh-probe-definitely-missing-binary', enabled: false })])
+    const management = ctx.get('mcpManagement') as { probe(serverId: string): Promise<{ ok: boolean; stage?: string; cleanup: string }> }
+    await expect(management.probe('ghost')).rejects.toThrow('mcp-user-config: unknown server "ghost"')
+    const outcome = await management.probe('dead')
+    expect(outcome.ok).toBe(false)
+    expect(outcome.cleanup).toBe('ok')
+    // A disabled entry stays unmounted: probing must not have started an owner.
+    expect(control.ownerConfigs).toHaveLength(0)
   })
 
   it('reports registered rows with their provenance on the management status', async () => {

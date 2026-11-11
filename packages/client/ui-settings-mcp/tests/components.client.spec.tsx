@@ -654,7 +654,6 @@ describe('McpNavIcon', () => {
   })
 })
 
-
 describe('McpSection probe and registered rows', () => {
   it('runs the probe action from the card button and renders the outcome summary', async () => {
     const state = readyState([

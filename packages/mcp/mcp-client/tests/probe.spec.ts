@@ -21,7 +21,8 @@ const PROBE_CONFIG: Config = {
 let peer: InMemoryTransport | undefined
 
 afterEach(async () => {
-  await peer?.close()
+  // One spec injects a failing transport close; the teardown must not surface it.
+  await peer?.close().catch(() => {})
 })
 
 /** One scripted peer answering initialize and tools/list over in-memory transport. */
@@ -120,5 +121,105 @@ describe('probeServer', () => {
     await expect(probeServer(PROBE_CONFIG, { timeoutMs: 0 })).rejects.toThrow(TypeError)
     await expect(probeServer(PROBE_CONFIG, { maxPages: 0 })).rejects.toThrow(TypeError)
     await expect(probeServer(PROBE_CONFIG, { maxToolNames: 1.5 })).rejects.toThrow(TypeError)
+  })
+
+  it('classifies a whole-probe budget timeout at the connect stage', async () => {
+    const [transport, server] = InMemoryTransport.createLinkedPair()
+    peer = server
+    transportFactory.mockReturnValue(transport)
+    // The peer never answers initialize, so the connect budget runs out first.
+    await server.start()
+    const result = await probeServer(PROBE_CONFIG, { timeoutMs: 80 })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.stage).toBe('connect')
+      expect(result.message).toMatch(/connect timed out after \d+ms/u)
+    }
+  })
+
+  it('classifies a whole-probe budget timeout at the list stage', async () => {
+    await mountPeer(method => method === 'initialize'
+      ? { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.at(-1)!, capabilities: { tools: {} }, serverInfo: { name: 'peer', version: '1' } }
+      : undefined)
+    const result = await probeServer(PROBE_CONFIG, { timeoutMs: 150 })
+    expect(result).toMatchObject({ ok: false, stage: 'list' })
+    if (!result.ok) expect(result.message).toMatch(/list timed out after \d+ms/u)
+  })
+
+  it('skips listing for a tools-less peer while reading its identity', async () => {
+    await mountPeer(method => method === 'initialize'
+      ? { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.at(-1)!, capabilities: { resources: {} }, serverInfo: { name: 'peer', version: '1' } }
+      : undefined)
+    const result = await probeServer(PROBE_CONFIG, { timeoutMs: 2_000 })
+    expect(result).toMatchObject({
+      ok: true,
+      serverInfo: { name: 'peer', version: '1' },
+      toolNames: [],
+      truncated: false,
+      cleanup: 'ok',
+    })
+  })
+
+  it('settles as an aborted failure when the signal is already aborted', async () => {
+    await mountPeer(method => method === 'initialize'
+      ? { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.at(-1)!, capabilities: { tools: {} }, serverInfo: { name: 'peer', version: '1' } }
+      : method === 'tools/list' ? toolsResult(['add'])
+        : undefined)
+    const controller = new AbortController()
+    controller.abort()
+    const result = await probeServer(PROBE_CONFIG, { timeoutMs: 2_000, signal: controller.signal })
+    expect(result).toMatchObject({ ok: false, message: 'probe aborted' })
+  })
+
+  it('names the error kind when the wire rejects with an empty message', async () => {
+    await mountPeer(method => method === 'initialize'
+      ? { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.at(-1)!, capabilities: { tools: {} }, serverInfo: { name: 'peer', version: '1' } }
+      : undefined)
+    peer!.onmessage = (message) => {
+      if (!('method' in message) || !('id' in message)) return
+      if (message.method === 'initialize') {
+        void peer!.send({
+          jsonrpc: '2.0', id: message.id,
+          result: { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.at(-1)!, capabilities: { tools: {} }, serverInfo: { name: 'peer', version: '1' } },
+        })
+        return
+      }
+      if (message.method === 'tools/list') {
+        void peer!.send({ jsonrpc: '2.0', id: message.id, error: { code: -32_000, message: '' } })
+      }
+    }
+    const result = await probeServer(PROBE_CONFIG, { timeoutMs: 2_000 })
+    expect(result).toMatchObject({ ok: false, stage: 'list' })
+  })
+
+  it('classifies a failed closure independently of the stage outcome', async () => {
+    const [transport, server] = InMemoryTransport.createLinkedPair()
+    peer = server
+    Object.assign(transport, {
+      close: () => Promise.reject(new Error('close bug')),
+    })
+    transportFactory.mockReturnValue(transport)
+    await server.start()
+    const result = await probeServer(PROBE_CONFIG, { timeoutMs: 2_000 })
+    expect(result).toMatchObject({ ok: false, stage: 'connect', cleanup: 'failed', cleanupError: 'close bug' })
+  })
+
+  it('ignores late settlements after the budget timer fired', async () => {
+    const [transport, server] = InMemoryTransport.createLinkedPair()
+    peer = server
+    transportFactory.mockReturnValue(transport)
+    // initialize resolves (and one probe errors) only after the tiny budget
+    // already rejected, so both late arms hit the settled guard.
+    server.onmessage = (message) => {
+      if (!('method' in message) || !('id' in message)) return
+      const answer = message.method === 'initialize'
+        ? { jsonrpc: '2.0' as const, id: message.id, result: { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.at(-1)!, capabilities: {}, serverInfo: { name: 'peer', version: '1' } } }
+        : { jsonrpc: '2.0' as const, id: message.id, error: { code: -32_000, message: 'late' } }
+      setTimeout(() => { void server.send(answer) }, 150)
+    }
+    await server.start()
+    const result = await probeServer(PROBE_CONFIG, { timeoutMs: 60 })
+    expect(result).toMatchObject({ ok: false, stage: 'connect' })
+    await new Promise(resolve => setTimeout(resolve, 200))
   })
 })

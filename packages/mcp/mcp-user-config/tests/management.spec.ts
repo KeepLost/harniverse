@@ -169,6 +169,49 @@ describe('mcp management service', () => {
     await expect(service.probe('ghost')).rejects.toThrow('unknown server "ghost"')
   })
 
+  it('contains an ASYNC fleet-changed listener rejection instead of leaving it unhandled', async () => {
+    const ctx = new Context()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const rejecting = (): unknown => Promise.reject(new Error('async observer'))
+      ctx.on('mcpManagement/fleet-changed', rejecting)
+      const registry = registryOf({})
+      new McpManagementService(ctx, {
+        registry,
+        entries: () => [],
+        restartOwner: async () => {},
+        probeEntry: async () => { throw new Error('unreachable') },
+      })
+      registry.notify('alpha')
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(unhandled).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalledWith('mcpManagement: a fleet-changed listener failed')
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('rethrows the first INVARIANT-coded fleet-changed failure after notifying the rest', () => {
+    const ctx = new Context()
+    const later = vi.fn()
+    ctx.on('mcpManagement/fleet-changed', () => {
+      throw Object.assign(new Error('fleet incoherent'), { code: 'INVARIANT' })
+    })
+    ctx.on('mcpManagement/fleet-changed', later)
+    const registry = registryOf({})
+    const service = new McpManagementService(ctx, {
+      registry,
+      entries: () => [],
+      restartOwner: async () => {},
+      probeEntry: async () => { throw new Error('unreachable') },
+    })
+    expect(() => { registry.notify('alpha') }).toThrow('fleet incoherent')
+    expect(later).toHaveBeenCalledTimes(1)
+    void service
+  })
+
   it('emits mcpManagement/fleet-changed on registry and handle changes with contained listeners', async () => {
     const ctx = new Context()
     const heard: string[] = []
