@@ -215,7 +215,8 @@ describe('probeServer', () => {
       const answer = message.method === 'initialize'
         ? { jsonrpc: '2.0' as const, id: message.id, result: { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.at(-1)!, capabilities: {}, serverInfo: { name: 'peer', version: '1' } } }
         : { jsonrpc: '2.0' as const, id: message.id, error: { code: -32_000, message: 'late' } }
-      setTimeout(() => { void server.send(answer) }, 150)
+      // Late sends race the probe's own close; a rejected send after close is the expected outcome.
+      setTimeout(() => { server.send(answer).catch(() => {}) }, 150)
     }
     await server.start()
     const result = await probeServer(PROBE_CONFIG, { timeoutMs: 60 })

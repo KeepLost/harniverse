@@ -152,6 +152,11 @@ async function replaceSettings(ctx: Context, servers: UserMcpServerConfig[]): Pr
   await (ctx.get('settings') as MemorySettings).replace(bridgeModule.MCP_SETTINGS_NAMESPACE, { servers })
 }
 
+type ManagementFace = {
+  restart: (serverId: string) => Promise<void>
+  status: () => Array<{ id: string; state: string; tools: unknown[] }>
+}
+
 describe('mcp-user-config captured-generation lifecycle', () => {
   it('forwards an explicit instruction budget to the shared owner transport', async () => {
     const ctx = await providerContext()
@@ -159,7 +164,10 @@ describe('mcp-user-config captured-generation lifecycle', () => {
     await mountBridge(ctx)
     expect(control.ownerConfigs).toHaveLength(1)
     expect(control.ownerConfigs[0]).toMatchObject({ serverId: 'bounded', serverName: 'bounded', maxInstructionBytes: 128 })
-    expect(control.registrarConfigs).toEqual([{ serverId: 'bounded', serverName: 'bounded', reservationKey: expect.stringContaining('mcp-user-config') }])
+    expect(control.registrarConfigs).toHaveLength(1)
+    const registrar = control.registrarConfigs[0]
+    expect(registrar).toMatchObject({ serverId: 'bounded', serverName: 'bounded' })
+    expect(String(registrar!.reservationKey)).toContain('mcp-user-config')
   })
 
   it('watches committed settings until released and returns independent uncaptured reads', async () => {
@@ -242,7 +250,7 @@ describe('mcp-user-config captured-generation lifecycle', () => {
     const ctx = await providerContext()
     await replaceSettings(ctx, [server('alpha')])
     await vi.waitFor(() => { expect(control.ownerConfigs).toHaveLength(1) })
-    const management = ctx.get('mcpManagement')
+    const management = ctx.get('mcpManagement') as ManagementFace | undefined
     await expect(management!.restart('ghost')).rejects.toThrow('mcp-user-config: unknown server "ghost"')
     // The rejected step must not wedge the serialized fleet mutations.
     await replaceSettings(ctx, [server('alpha', { enabled: false })])
@@ -363,11 +371,10 @@ describe('mcp-user-config captured-generation lifecycle', () => {
     await replaceSettings(ctx, [server('alpha'), server('beta', { enabled: false })])
     await vi.waitFor(() => { expect(control.ownerConfigs).toHaveLength(1) })
 
-    const management = ctx.get('mcpManagement')
+    const management = ctx.get('mcpManagement') as ManagementFace | undefined
     expect(management).toBeDefined()
     // The mocked owner registers no live handle, so the enabled row reads stopped.
-    type Row = { id: string; state: string; tools: unknown[] }
-    expect(management!.status().map((row: Row) => ({ id: row.id, state: row.state, tools: row.tools })))
+    expect(management!.status().map(row => ({ id: row.id, state: row.state, tools: row.tools })))
       .toEqual([
         { id: 'alpha', state: 'stopped', tools: [] },
         { id: 'beta', state: 'disabled', tools: [] },
