@@ -253,4 +253,51 @@ describe('McpSectionController', () => {
     controller.stop()
     vi.useRealTimers()
   })
+
+  it('settles a rejected probe call as a failed done view', async () => {
+    vi.useFakeTimers()
+    const scope = scopeDouble({ snapshot: READY_SNAPSHOT, written: [] })
+    const failing = statusDouble([STATUS_ROW])
+    failing.probe = () => Promise.reject(new Error('socket gone'))
+    const controller = new McpSectionController(scope, failing, emptyExposure())
+    controller.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    await controller.probe('docs')
+    expect(controller.store.getSnapshot().probes.docs).toMatchObject({
+      phase: 'done',
+      ok: false,
+      summary: { message: 'socket gone' },
+    })
+
+    controller.stop()
+    vi.useRealTimers()
+  })
+
+  it.each([
+    ['carrier failure', { ok: false, error: { message: 'denied by policy' } }, { phase: 'done', ok: false, summary: { message: 'denied by policy' } }],
+    ['non-error rejection', undefined, { phase: 'done', ok: false, summary: { message: 'plain string' } }],
+    ['failed probe value', { ok: true, value: { ok: false, stage: 'list', message: 'listing boom', durationMs: 2, cleanup: 'ok' } }, { phase: 'done', ok: false, summary: { stage: 'list', message: 'listing boom' } }],
+    ['successful probe with identity and cleanup failure', {
+      ok: true,
+      value: { ok: true, serverInfo: { name: 'docs', version: '1.2.0' }, toolNames: ['add'], truncated: false, durationMs: 5, cleanup: 'failed', cleanupError: 'grace exceeded' },
+    }, { phase: 'done', ok: true, summary: { server: 'docs 1.2.0', count: '1', ms: '5', cleanup: 'failed', cleanupError: 'grace exceeded' } }],
+  ] as const)('settles a probe view from a %s', async (_kind, carrier, expected) => {
+    vi.useFakeTimers()
+    const scope = scopeDouble({ snapshot: READY_SNAPSHOT, written: [] })
+    const face = statusDouble([STATUS_ROW])
+    face.probe = carrier === undefined
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the catch arm must render non-Error rejections
+      ? () => Promise.reject('plain string')
+      : () => Promise.resolve(carrier)
+    const controller = new McpSectionController(scope, face, emptyExposure())
+    controller.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    await controller.probe('docs')
+    expect(controller.store.getSnapshot().probes.docs).toMatchObject(expected)
+
+    controller.stop()
+    vi.useRealTimers()
+  })
 })

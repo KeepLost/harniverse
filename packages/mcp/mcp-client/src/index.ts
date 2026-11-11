@@ -65,7 +65,7 @@ export type {
   McpProbeServerInfo,
   McpProbeStage,
   McpProbeSuccess,
-} from './probe.ts'
+} from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'

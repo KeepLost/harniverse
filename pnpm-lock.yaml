@@ -1188,6 +1188,9 @@ importers:
       '@deepseek-ai/dsh-governor':
         specifier: workspace:^
         version: link:../../monitor/governor
+      '@deepseek-ai/dsh-mcp-client':
+        specifier: workspace:^
+        version: link:../../mcp/mcp-client
       '@deepseek-ai/dsh-queue':
         specifier: workspace:^
         version: link:../../queue/queue
@@ -4380,6 +4383,10 @@ importers:
         version: 18.3.31
 
   packages/client/ui-settings-mcp:
+    dependencies:
+      '@deepseek-ai/dsh-mcp-client':
+        specifier: workspace:^
+        version: link:../../mcp/mcp-client
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

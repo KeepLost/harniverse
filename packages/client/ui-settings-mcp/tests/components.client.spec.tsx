@@ -187,6 +187,23 @@ describe('ServerRow card', () => {
     expect(disabledCheckbox.parentElement?.textContent).toContain(en['row.disabled'])
   })
 
+  it.each([
+    ['probing', { phase: 'probing' } as const, en['row.probing']],
+    ['success', { phase: 'done', ok: true, summary: { server: 'docs 1.0.0', count: '3', ms: '12', cleanup: 'ok' } } as const,
+      t('row.probeOk', { server: 'docs 1.0.0', count: '3', ms: '12', cleanup: 'ok' })],
+    ['failure', { phase: 'done', ok: false, summary: { stage: 'connect', message: 'connect timed out' } } as const,
+      t('row.probeFail', { stage: 'connect', message: 'connect timed out' })],
+  ])('renders the %s probe view under the row meta', (_kind, probe, expected) => {
+    render(<ServerRow
+      row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false, status: STATUS }}
+      writable
+      probe={probe}
+      t={t}
+      actions={actions}
+    />)
+    expect(screen.getByText(expected)).toBeDefined()
+  })
+
   it('expands the tool inventory and forwards every action', async () => {
     render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false, status: STATUS }} writable probe={undefined} t={t} actions={actions} />)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: t('row.tools', { count: '1' }) })) })

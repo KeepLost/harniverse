@@ -58,6 +58,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-chat-manager": "workspace:^",
     "@deepseek-ai/dsh-governor": "workspace:^",
+    "@deepseek-ai/dsh-mcp-client": "workspace:^",
     "@deepseek-ai/dsh-queue": "workspace:^",
     "@deepseek-ai/dsh-remote-hosts": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
