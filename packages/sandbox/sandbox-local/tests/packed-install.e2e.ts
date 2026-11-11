@@ -39,6 +39,9 @@ const WORKSPACE_CLOSURE = [
   // packed closure must carry them or npm resolves the missing version
   // from the registry and fails (ETARGET on unreleased lines).
   'packages/subprocess/subprocess',
+  // subprocess declares dsh-http-proxy as a peer; without the local tarball
+  // npm resolves that peer from the registry and fails on unreleased lines.
+  'packages/util/http-proxy',
   'packages/sandbox/sandbox',
   'packages/core/session',
   'packages/core/scope',
