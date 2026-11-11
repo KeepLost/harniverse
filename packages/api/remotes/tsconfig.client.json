@@ -78,6 +78,9 @@
       "path": "../../mcp/mcp-user-config"
     },
     {
+      "path": "../../web/web"
+    },
+    {
       "path": "../../typert/protocol"
     }
   ]

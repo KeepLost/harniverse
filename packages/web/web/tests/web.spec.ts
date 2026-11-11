@@ -78,13 +78,13 @@ describe('WebRuntime registration', () => {
       .toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_INVALID' }))
   })
 
-  it('lists fetch-only providers using a detached capability set', async () => {
+  it('lists fetch-only providers using a detached capability set in registration order', async () => {
     const { web } = await mountWeb()
     web.registerFetchProvider(makeFetchProvider('zeta', available, fetchResult('zeta')))
     web.registerFetchProvider(makeFetchProvider('alpha', available, fetchResult('alpha')))
     expect(web.listProviders()).toEqual([
-      { id: 'alpha', capabilities: ['fetch'] },
       { id: 'zeta', capabilities: ['fetch'] },
+      { id: 'alpha', capabilities: ['fetch'] },
     ])
   })
 
@@ -257,6 +257,42 @@ describe('WebRuntime fetch capability', () => {
     await expect(web.fetch({ url: 'https://example.com' })).rejects.toThrow(
       expect.objectContaining({ code: 'WEB_PROVIDER_DEFAULT_MISSING' }),
     )
+  })
+})
+
+describe('WebRuntime provider directory', () => {
+  it('carries registration metadata into listProviders entries in registration order', async () => {
+    const { web } = await mountWeb()
+    web.registerSearchProvider({
+      ...makeSearchProvider('brave', available, () => Promise.resolve(searchResult('brave'))),
+      title: 'Brave Search',
+      description: 'Independent index, privacy first.',
+    })
+    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
+    expect(web.listProviders('search')).toEqual([
+      { id: 'brave', capabilities: ['search'], title: 'Brave Search', description: 'Independent index, privacy first.' },
+      { id: 'exa', capabilities: ['search'] },
+    ])
+  })
+
+  it('emits web/providers-changed on registration and disposal with contained listener failures', async () => {
+    const { ctx, web } = await mountWeb()
+    const calls: string[] = []
+    ctx.on('web/providers-changed', () => { throw new Error('broken listener') })
+    ctx.on('web/providers-changed', () => { calls.push('heard') })
+    const dispose = web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
+    expect(calls).toEqual(['heard'])
+    dispose()
+    expect(calls).toEqual(['heard', 'heard'])
+  })
+
+  it('re-lists through the Remote face the settings menus read', async () => {
+    const { web } = await mountWeb()
+    web.registerFetchProvider({
+      ...makeFetchProvider('http', available, fetchResult('http')),
+      title: 'Plain HTTP',
+    })
+    expect(web.listProviders('fetch')).toEqual([{ id: 'http', capabilities: ['fetch'], title: 'Plain HTTP' }])
   })
 })
 

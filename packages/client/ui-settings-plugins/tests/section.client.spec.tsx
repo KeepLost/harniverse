@@ -432,7 +432,13 @@ describe('WebSearchCard', () => {
       ...settled,
       selectedProvider: 'deepseek-search-api',
       selectedFetchProvider: 'http',
-      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http') },
+      selector: {
+        ...settled,
+        searchProvider: field('deepseek-search-api'),
+        fetchProvider: field('http'),
+        extraSearchOptions: [],
+        extraFetchOptions: [],
+      },
       deepseek: deepseekState(),
       exa: exaState(),
       perplexity: perplexityState(),
@@ -541,7 +547,7 @@ describe('WebSearchCard', () => {
 
   it('routes provider selection and DeepSeek controls with scoped addresses', () => {
     const actions = renderWebSearch({
-      selector: { ...settled, searchProvider: field('deepseek-search-api', { overridden: true }), fetchProvider: field('http') },
+      selector: { ...settled, searchProvider: field('deepseek-search-api', { overridden: true }), fetchProvider: field('http'), extraSearchOptions: [], extraFetchOptions: [] },
       deepseek: {
         ...deepseekState(),
         apiKey: field(''),
@@ -619,7 +625,7 @@ describe('WebSearchCard', () => {
 
   it('routes fetch-provider selection and reset with scoped addresses', () => {
     const actions = renderWebSearch({
-      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http', { overridden: true }) },
+      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http', { overridden: true }), extraSearchOptions: [], extraFetchOptions: [] },
     })
     fireEvent.click(screen.getByText(en.webSearchTitle))
 

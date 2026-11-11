@@ -3,7 +3,7 @@
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore, type SettingsScope, type SettingsScopeSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  CardForm, booleanField, positiveIntegerField, selectField, textField,
+  CardForm, booleanField, dynamicSelectField, positiveIntegerField, selectField, textField,
   type CardActions, type CardFieldState, type CardShell,
 } from './card-form.ts'
 
@@ -126,6 +126,10 @@ interface ProviderCredentialState extends CardShell {
 export interface WebSearchSelectorState extends CardShell {
   searchProvider: CardFieldState
   fetchProvider: CardFieldState
+  /** Registry-enumerated search providers beyond the first-party set. */
+  extraSearchOptions: readonly WebProviderOptionEntry[]
+  /** Registry-enumerated fetch providers beyond the first-party set. */
+  extraFetchOptions: readonly WebProviderOptionEntry[]
 }
 
 /** DeepSeek provider form projected into the aggregate card. */
@@ -187,10 +191,24 @@ export interface FirecrawlWebSearchState extends ProviderCredentialState {
   maxChars: CardFieldState
 }
 
+/** One Host-registered provider the selector menus list beyond the first-party set. */
+export interface WebProviderOptionEntry {
+  readonly id: string
+  readonly title?: string
+  readonly description?: string
+  readonly capabilities: readonly ('search' | 'fetch')[]
+}
+
+/** Host provider registry the selector menus enumerate and re-read on change. */
+export interface WebProviderDirectory {
+  /** Read the registered providers; rejection keeps the last good listing. */
+  list(): Promise<readonly WebProviderOptionEntry[]>
+}
+
 /** Complete state rendered by the single Web search card. */
 export interface WebSearchCardState extends CardShell {
-  selectedProvider: WebSearchProviderId
-  selectedFetchProvider: WebFetchProviderId
+  selectedProvider: WebSearchProviderId | undefined
+  selectedFetchProvider: WebFetchProviderId | undefined
   selector: WebSearchSelectorState
   deepseek: DeepSeekWebSearchState
   exa: ExaWebSearchState
@@ -242,19 +260,23 @@ export class WebSearchCardController {
     cloudflare: credential('CLOUDFLARE_API_TOKEN'),
     firecrawl: credential('FIRECRAWL_API_KEY'),
   }
+  /** Last good Host registry listing; the first-party set renders until one arrives. */
+  private directoryEntries: readonly WebProviderOptionEntry[] = []
   private saving = false
 
   /**
    * @param scopes - the selector and provider settings scopes.
    * @param api - wire face used for write-only provider credentials.
+   * @param directory - Host provider registry the selector menus enumerate.
    */
   constructor(
     private readonly scopes: WebSearchScopes,
     private readonly api: Pick<IApiClient, 'credentials'>,
+    private readonly directory: WebProviderDirectory,
   ) {
     this.selectorForm = new CardForm(scopes.selector, [
-      selectField('searchProvider', WEB_SEARCH_PROVIDER_IDS),
-      selectField('fetchProvider', WEB_FETCH_PROVIDER_IDS),
+      dynamicSelectField('searchProvider', () => this.acceptedProviderIds('search')),
+      dynamicSelectField('fetchProvider', () => this.acceptedProviderIds('fetch')),
     ])
     this.deepseekForm = new CardForm(
       scopes.deepseek,
@@ -320,6 +342,37 @@ export class WebSearchCardController {
       this.scope(provider).subscribe(() => { void this.readCredential(provider) })
       void this.readCredential(provider)
     }
+    void this.readDirectory()
+  }
+
+  /** Re-read the Host provider registry; the menus re-compose from the next publish. */
+  providersChanged(): void {
+    void this.readDirectory()
+  }
+
+  private async readDirectory(): Promise<void> {
+    let entries: readonly WebProviderOptionEntry[]
+    try {
+      entries = await this.directory.list()
+    } catch (_directoryUnavailable) {
+      // Keep the last good listing; the first-party menus stay usable offline.
+      return
+    }
+    this.directoryEntries = entries
+    this.publish()
+  }
+
+  /** Registry ids registered for one capability, in registration order. */
+  private registeredIds(capability: 'search' | 'fetch'): readonly string[] {
+    return this.directoryEntries.flatMap(entry => entry.capabilities.includes(capability) ? [entry.id] : [])
+  }
+
+  /** Values the selector accepts: first-party ids plus registry-enumerated ids. */
+  private acceptedProviderIds(capability: 'search' | 'fetch'): readonly string[] {
+    return [...new Set([
+      ...(capability === 'search' ? WEB_SEARCH_PROVIDER_IDS : WEB_FETCH_PROVIDER_IDS),
+      ...this.registeredIds(capability),
+    ])]
   }
 
   /**
@@ -378,17 +431,21 @@ export class WebSearchCardController {
     const kagi = this.kagiState()
     const cloudflare = this.cloudflareState()
     const firecrawl = this.firecrawlState()
-    const selected = selectedProvider === 'deepseek-search-api'
-      ? deepseek
-      : selectedProvider === 'exa' ? exa
-        : selectedProvider === 'perplexity' ? perplexity
-          : selectedProvider === 'tavily' ? tavily
-            : selectedProvider === 'brave' ? brave
-              : selectedProvider === 'kagi' ? kagi
-                : selectedProvider === 'cloudflare' ? cloudflare : firecrawl
-    const selectedProviders = selectedFetchProvider === 'firecrawl' && selectedProvider !== 'firecrawl'
-      ? [selected, firecrawl]
-      : [selected]
+    // A registry-enumerated selection owns no first-party form; only the
+    // selector addresses it, so no detail pane projects for it.
+    const selected = selectedProvider === undefined ? undefined
+      : selectedProvider === 'deepseek-search-api'
+        ? deepseek
+        : selectedProvider === 'exa' ? exa
+          : selectedProvider === 'perplexity' ? perplexity
+            : selectedProvider === 'tavily' ? tavily
+              : selectedProvider === 'brave' ? brave
+                : selectedProvider === 'kagi' ? kagi
+                  : selectedProvider === 'cloudflare' ? cloudflare : firecrawl
+    const selectedProviders = [
+      ...selected !== undefined ? [selected] : [],
+      ...selectedFetchProvider === 'firecrawl' && selectedProvider !== 'firecrawl' ? [firecrawl] : [],
+    ]
     const forms = [selector, deepseek, exa, perplexity, tavily, brave, kagi, cloudflare, firecrawl]
     return {
       available: selector.available,
@@ -414,10 +471,17 @@ export class WebSearchCardController {
   }
 
   private selectorState(): WebSearchSelectorState {
+    const extra = (capability: 'search' | 'fetch'): readonly WebProviderOptionEntry[] => {
+      const firstParty = capability === 'search' ? WEB_SEARCH_PROVIDER_IDS : WEB_FETCH_PROVIDER_IDS
+      return this.directoryEntries.flatMap(entry =>
+        entry.capabilities.includes(capability) && !firstParty.includes(entry.id) ? [entry] : [])
+    }
     return {
       ...this.selectorForm.shell(),
       searchProvider: this.selectorForm.field('searchProvider'),
       fetchProvider: this.selectorForm.field('fetchProvider'),
+      extraSearchOptions: extra('search'),
+      extraFetchOptions: extra('fetch'),
     }
   }
 
@@ -619,12 +683,19 @@ function refOf(snapshot: SettingsScopeSnapshot<{ apiKeyEnv?: string }>, fallback
   return declared !== undefined && declared.length > 0 ? declared : fallback
 }
 
-function providerId(value: string): WebSearchProviderId {
-  return WEB_SEARCH_PROVIDER_IDS.find(provider => provider === value) ?? 'deepseek-search-api'
+function providerId(value: string): WebSearchProviderId | undefined {
+  const firstParty = WEB_SEARCH_PROVIDER_IDS.find(provider => provider === value)
+  if (firstParty !== undefined) return firstParty
+  // An empty draft falls back to the first-party default; any concrete id the
+  // first-party set does not contain — registered or stale — addresses no
+  // first-party form, and the menu keeps it visible for re-selection.
+  return value === '' ? 'deepseek-search-api' : undefined
 }
 
-function fetchProviderId(value: string): WebFetchProviderId {
-  return WEB_FETCH_PROVIDER_IDS.find(provider => provider === value) ?? 'http'
+function fetchProviderId(value: string): WebFetchProviderId | undefined {
+  const firstParty = WEB_FETCH_PROVIDER_IDS.find(provider => provider === value)
+  if (firstParty !== undefined) return firstParty
+  return value === '' ? 'http' : undefined
 }
 
 function addressPrefix(address: string): string {

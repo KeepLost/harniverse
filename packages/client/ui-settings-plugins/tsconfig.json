@@ -12,6 +12,9 @@
       "path": "../locale"
     },
     {
+      "path": "../../web/web"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {

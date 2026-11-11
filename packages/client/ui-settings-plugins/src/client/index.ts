@@ -10,6 +10,9 @@
  */
 
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+// Type-only: pulls the web Remote namespace merge (ctx.remote.web) onto the
+// client assembly's TypertClientRemote.
+import type {} from '@deepseek-ai/dsh-web/remote'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the settings shell's SlotMap merge (the 'settings.section' and
@@ -81,7 +84,19 @@ export function apply(ctx: ClientContext): void {
     kagi: ctx.settingsScope.bind({ namespace: WEB_SEARCH_KAGI_NS }),
     cloudflare: ctx.settingsScope.bind({ namespace: WEB_SEARCH_CLOUDFLARE_NS }),
     firecrawl: ctx.settingsScope.bind({ namespace: WEB_FIRECRAWL_NS }),
-  }, api)
+  }, api, {
+    list: async () => {
+      const result = await ctx.remote.web.listProviders()
+      return result.ok ? result.value : []
+    },
+  })
+
+  // The provider topology changes with plugin lifetimes, not settings writes;
+  // the forwarded registry event is the one signal to re-enumerate the menus.
+  ctx.effect(
+    () => ctx.remote.$on('web/providers-changed', () => { webSearch.providersChanged() }),
+    'ui-settings-plugins: web provider directory changes',
+  )
 
   // The credential a card reports is not part of any settings section, so its
   // scope publishes nothing when one is written. This is the only signal that

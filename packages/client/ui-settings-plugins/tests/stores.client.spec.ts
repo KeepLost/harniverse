@@ -52,11 +52,18 @@ function credentialsApi(configured: Record<string, boolean> = {}) {
   return { api: { credentials: { describe, set } } as never, describe, set }
 }
 
-function webSearchController(credentials = credentialsApi({
-  DEEPSEEK_API_KEY: true,
-  EXA_API_KEY: false,
-  PERPLEXITY_API_KEY: true,
-})) {
+function webSearchController(
+  credentials = credentialsApi({
+    DEEPSEEK_API_KEY: true,
+    EXA_API_KEY: false,
+    PERPLEXITY_API_KEY: true,
+  }),
+  directory: { list: () => Promise<readonly import('../src/client/web-search-card-controller.ts').WebProviderOptionEntry[]> } = {
+    // The Host registry reports no plugin providers in the base fixtures; the
+    // fixed first-party menus render.
+    list: () => Promise.resolve([]),
+  },
+) {
   const selector = stubSettingsScope<WebSettings>()
   const deepseek = stubSettingsScope<DeepSeekWebSearchSettings>()
   const exa = stubSettingsScope<ExaWebSearchSettings>()
@@ -79,6 +86,7 @@ function webSearchController(credentials = credentialsApi({
       firecrawl: firecrawl.scope,
     },
     credentials.api,
+    directory,
   )
   selector.publish({
     status: 'ready', writable: true,
@@ -893,12 +901,12 @@ describe('WebSearchCardController', () => {
     expect(fixture.face.hooks.webSearchCard.getSnapshot().dirty).toBe(false)
   })
 
-  it('falls back to DeepSeek while an invalid provider draft blocks saving', () => {
+  it('keeps an unknown provider draft menu-visible and pane-less while it blocks saving', () => {
     const fixture = webSearchController()
     fixture.face.edit('selector.searchProvider', 'unknown-provider')
 
     expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({
-      selectedProvider: 'deepseek-search-api',
+      selectedProvider: undefined,
       invalid: true,
     })
   })
@@ -1058,5 +1066,54 @@ describe('WebSearchCardController', () => {
 
     fixture.deepseek.publish({ status: 'unavailable' })
     expect(fixture.face.hooks.webSearchCard.getSnapshot().writable).toBe(false)
+  })
+
+  it('enumerates registered plugin providers after the first-party set and re-reads on the registry event', async () => {
+    const listings: Array<readonly import('../src/client/web-search-card-controller.ts').WebProviderOptionEntry[]> = [
+      [{ id: 'site-search', title: 'Site Search', capabilities: ['search'] }],
+    ]
+    const fixture = webSearchController(credentialsApi(), { list: () => Promise.resolve(listings.at(-1)!) })
+    await vi.waitFor(() => {
+      expect(fixture.face.hooks.webSearchCard.getSnapshot().selector.extraSearchOptions).toEqual([
+        { id: 'site-search', title: 'Site Search', capabilities: ['search'] },
+      ])
+    })
+    expect(fixture.face.hooks.webSearchCard.getSnapshot().selector.extraFetchOptions).toEqual([])
+
+    // The registry event path re-reads the directory and re-composes the menus.
+    listings.push([
+      { id: 'site-search', title: 'Site Search', capabilities: ['search'] },
+      { id: 'archive-fetch', description: 'Reads the internal archive.', capabilities: ['fetch'] },
+    ])
+    fixture.controller.providersChanged()
+    await vi.waitFor(() => {
+      expect(fixture.face.hooks.webSearchCard.getSnapshot().selector.extraFetchOptions).toEqual([
+        { id: 'archive-fetch', description: 'Reads the internal archive.', capabilities: ['fetch'] },
+      ])
+    })
+  })
+
+  it('stages a registered selection without a first-party detail pane and keeps an unregistered selection visible', async () => {
+    const fixture = webSearchController(credentialsApi(), {
+      list: () => Promise.resolve([{ id: 'site-search', title: 'Site Search', capabilities: ['search'] }]),
+    })
+    await vi.waitFor(() => {
+      expect(fixture.face.hooks.webSearchCard.getSnapshot().selector.extraSearchOptions.length).toBe(1)
+    })
+
+    fixture.face.edit('selector.searchProvider', 'site-search')
+    expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({
+      selectedProvider: undefined,
+      dirty: true,
+    })
+    expect(fixture.face.hooks.webSearchCard.getSnapshot().deepseek).toBeDefined()
+
+    // A staged id the registry no longer lists stays staged and pane-less —
+    // the menu keeps it visible so the stored selection is never renamed.
+    fixture.face.edit('selector.searchProvider', 'gone-plugin')
+    expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: undefined })
+    // A cleared draft falls back to the first-party default pane.
+    fixture.face.edit('selector.searchProvider', '')
+    expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'deepseek-search-api' })
   })
 })

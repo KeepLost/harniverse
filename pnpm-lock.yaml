@@ -1197,6 +1197,9 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:^
+        version: link:../../web/web
       '@deepseek-ai/dsh-workspace-file-write':
         specifier: workspace:^
         version: link:../../host/workspace-file-write
@@ -4583,6 +4586,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:^
+        version: link:../../web/web
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -12849,6 +12855,9 @@ importers:
       '@deepseek-ai/dsh-settings':
         specifier: workspace:^
         version: link:../../settings/settings
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:^
+        version: link:../../typert/protocol
 
   packages/web/web-deepseek-api:
     dependencies:

@@ -3749,10 +3749,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer that unregisters every capability contributed by the provider.',
       },
       {
-        signature: 'listProviders(capability?: WebProviderCapability): WebProviderInfo[]',
-        description: 'List registered provider ids and their capability kinds without secrets.',
+        signature: '@Remote({ exportName: \'listProviders\', requiredCapability: \'harniverse.observe\' }) listProviders(capability?: WebProviderCapability): WebProviderInfo[]',
+        description: 'List registered provider ids, capabilities, and picker metadata without secrets. The Remote export serves provider menus; they re-read on every `web/providers-changed`.',
         parameters: [{ name: 'capability', description: 'optionally limit entries to providers supporting this capability.' }],
-        returns: 'detached provider catalog entries sorted by provider id.',
+        returns: 'detached catalog entries in registration order (search registrations first, then fetch-only ids).',
       },
       {
         signature: 'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
@@ -4579,6 +4579,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Observe the frozen, lossless-JSON final outcome.',
     description: 'Observe the frozen, lossless-JSON final outcome. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.',
     parameters: [{ name: 'exec', description: 'the execution object that traversed the pipeline.' }, { name: 'result', description: 'a deep-frozen snapshot of the final returned result.' }],
+  },
+  {
+    name: 'web/providers-changed',
+    mode: 'emit',
+    signature: '\'web/providers-changed\'(): void',
+    summary: 'The provider topology changed: a search or fetch provider registered or unregistered.',
+    description: 'The provider topology changed: a search or fetch provider registered or unregistered. This payload-free registry notification fires at each commit point (including registration disposal); consumers re-read `listProviders()` for the new state. Observer failures are contained and cannot veto the registry mutation.',
+    parameters: [],
   },
   {
     name: 'workflow/agent-end',
@@ -7966,7 +7974,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebFetchProvider',
-    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    available(): boolean;\n    fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;\n}',
+    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    available(): boolean;\n    fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;\n}',
   },
   {
     name: 'WebFetchRequest',
@@ -7982,7 +7990,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebProvider',
-    declaration: 'export interface WebProvider {\n    readonly id: string;\n    readonly search?: Omit<WebSearchProvider, \'id\'>;\n    readonly fetch?: Omit<WebFetchProvider, \'id\'>;\n}',
+    declaration: 'export interface WebProvider {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    readonly search?: Omit<WebSearchProvider, \'id\' | \'title\' | \'description\'>;\n    readonly fetch?: Omit<WebFetchProvider, \'id\' | \'title\' | \'description\'>;\n}',
   },
   {
     name: 'WebProviderCapability',
@@ -7990,7 +7998,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebProviderInfo',
-    declaration: 'export interface WebProviderInfo {\n    readonly id: string;\n    readonly capabilities: readonly WebProviderCapability[];\n}',
+    declaration: 'export interface WebProviderInfo {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    readonly capabilities: readonly WebProviderCapability[];\n}',
   },
   {
     name: 'WebResultView',
@@ -8006,7 +8014,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebSearchProvider',
-    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
+    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
   {
     name: 'WebSearchRequest',
