@@ -202,6 +202,25 @@ export function selectField(field: string, values: readonly string[]): CardField
 }
 
 /**
+ * A string field restricted to a set of values that can change while the card
+ * lives, such as a provider registry the Host reports.
+ * @param field - field name inside the namespace section.
+ * @param values - accepted values at parse time; call sites union the fixed
+ * set with the live registry.
+ * @returns the field's conversion spec.
+ */
+export function dynamicSelectField(field: string, values: () => readonly string[]): CardFieldSpec {
+  return {
+    field,
+    format: value => typeof value === 'string' ? value : '',
+    parse: (text) => {
+      if (text === '') return { kind: 'clear' }
+      return values().includes(text) ? { kind: 'set', value: text } : undefined
+    },
+  }
+}
+
+/**
  * Stages one card's edits over one settings namespace and writes them on save.
  *
  * The form publishes through a snapshot store because slot components read

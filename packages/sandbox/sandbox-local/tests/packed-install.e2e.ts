@@ -35,6 +35,13 @@ const WORKSPACE_CLOSURE = [
   // sandbox-windows-acl imports the skill-seam constants at runtime, so a
   // packed consumer resolves its dsh-skill peer like every other member.
   'packages/skill/skill',
+  // sandbox-windows-acl also depends on the subprocess seam constants; the
+  // packed closure must carry them or npm resolves the missing version
+  // from the registry and fails (ETARGET on unreleased lines).
+  'packages/subprocess/subprocess',
+  // subprocess declares dsh-http-proxy as a peer; without the local tarball
+  // npm resolves that peer from the registry and fails on unreleased lines.
+  'packages/util/http-proxy',
   'packages/sandbox/sandbox',
   'packages/core/session',
   'packages/core/scope',

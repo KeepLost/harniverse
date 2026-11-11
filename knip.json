@@ -806,6 +806,11 @@
         "zod"
       ]
     },
+    "packages/web/web": {
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
     "packages/client/web": {
       "project": [
         "src/**/*.ts",

@@ -62,6 +62,7 @@
     "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
     "@deepseek-ai/dsh-jobs": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-mcp-user-config": "workspace:^",
     "@deepseek-ai/dsh-model-policy": "workspace:^",
     "@deepseek-ai/dsh-native-command": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

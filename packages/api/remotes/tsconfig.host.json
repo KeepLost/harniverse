@@ -32,6 +32,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../mcp/mcp-user-config"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {
@@ -42,6 +45,9 @@
     },
     {
       "path": "../../settings/settings"
+    },
+    {
+      "path": "../../web/web"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

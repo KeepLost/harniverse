@@ -6,7 +6,7 @@ import { PluginCard } from './PluginCard.tsx'
 import type {
   BraveWebSearchState, CloudflareWebSearchState, DeepSeekWebSearchState, ExaWebSearchState,
   FirecrawlWebSearchState, KagiWebSearchState, PerplexityWebSearchState,
-  TavilyWebSearchState, WebSearchCardState,
+  TavilyWebSearchState, WebProviderOptionEntry, WebSearchCardState,
   WebSearchCardFace,
 } from './web-search-card-controller.ts'
 import type { CardFieldState } from './card-form.ts'
@@ -43,7 +43,7 @@ export function WebSearchCard(props: WebSearchCardProps) {
         hint={t('webSearchProviderHint')}
         disabled={!state.selector.writable}
         {...state.selector.searchProvider}
-        options={[
+        options={withRegistryOptions([
           { value: 'deepseek-search-api', label: t('webSearchProviderDeepSeek') },
           { value: 'exa', label: t('webSearchProviderExa') },
           { value: 'perplexity', label: t('webSearchProviderPerplexity') },
@@ -52,7 +52,7 @@ export function WebSearchCard(props: WebSearchCardProps) {
           { value: 'kagi', label: t('webSearchProviderKagi') },
           { value: 'cloudflare', label: t('webSearchProviderCloudflare') },
           { value: 'firecrawl', label: t('webSearchProviderFirecrawl') },
-        ]}
+        ], state.selector.extraSearchOptions, state.selector.searchProvider.text)}
         onEdit={(text) => { props.edit('selector.searchProvider', text) }}
         onReset={() => { props.resetField('selector.searchProvider') }}
       />
@@ -63,11 +63,11 @@ export function WebSearchCard(props: WebSearchCardProps) {
         hint={t('webSearchFetchProviderHint')}
         disabled={!state.selector.writable}
         {...state.selector.fetchProvider}
-        options={[
+        options={withRegistryOptions([
           { value: 'http', label: t('webSearchFetchProviderHttp') },
           { value: 'deepseek-fetch-api', label: t('webSearchFetchProviderDeepSeek') },
           { value: 'firecrawl', label: t('webSearchFetchProviderFirecrawl') },
-        ]}
+        ], state.selector.extraFetchOptions, state.selector.fetchProvider.text)}
         onEdit={(text) => { props.edit('selector.fetchProvider', text) }}
         onReset={() => { props.resetField('selector.fetchProvider') }}
       />
@@ -82,6 +82,30 @@ export function WebSearchCard(props: WebSearchCardProps) {
 type T = (key: PluginsSettingsLocaleKey) => string
 type Edit = (address: string, text: string) => void
 type Reset = (address: string) => void
+
+/**
+ * Registry-enumerated options after the first-party set: each contributes its
+ * title (or bare id), and a staged id neither list carries stays visible so
+ * the stored selection is never silently renamed.
+ * @param firstParty - the fixed, locale-labeled options.
+ * @param entries - Host-registered providers beyond the first-party set.
+ * @param staged - the selector's currently staged id.
+ * @returns the complete select option list.
+ */
+function withRegistryOptions(
+  firstParty: readonly { value: string; label: string }[],
+  entries: readonly WebProviderOptionEntry[],
+  staged: string,
+) {
+  const options = [
+    ...firstParty,
+    ...entries.map(entry => ({ value: entry.id, label: entry.title ?? entry.id })),
+  ]
+  if (staged !== '' && !options.some(option => option.value === staged)) {
+    options.push({ value: staged, label: staged })
+  }
+  return options
+}
 
 function fieldFrame(t: T) {
   return {
@@ -174,6 +198,9 @@ function ProviderUnavailable({ t }: { t: T }) {
 }
 
 function SearchProviderFields(props: { t: T; state: WebSearchCardState; edit: Edit; reset: Reset }) {
+  // A registry-enumerated provider owns its own configuration; this card
+  // stages only the selection, so no detail pane renders for it.
+  if (props.state.selectedProvider === undefined) return null
   if (props.state.selectedProvider === 'deepseek-search-api') {
     return <DeepSeekFields t={props.t} state={props.state.deepseek} edit={props.edit} reset={props.reset} />
   }

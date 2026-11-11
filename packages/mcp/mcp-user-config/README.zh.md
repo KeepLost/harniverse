@@ -80,18 +80,26 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 
 ## 管理 Remote
 
-`McpManagementService`（Typert namespace `mcpManagement`，两个操作都以 `harniverse.administer` 门禁）为设置页投影机群状态：
+`McpManagementService`（Typert namespace `mcpManagement`，全部操作以 `harniverse.administer` 门禁）为设置页投影机群状态：
 
 | 操作 | 结果 |
 |---|---|
-| `status()` | 每条设置条目一行：稳定 id、`serverName`、传输方式、实时连接状态（`connecting`/`connected`/`reconnecting`/`exhausted`/`stopped`/`disposed`，或 `disabled`）、失败尝试计数、当前工具清单以及当前连接世代的纪元 |
+| `status()` | 每条设置条目一行，外加每条活的插件注册一行：稳定 id、`serverName`、传输方式、实时连接状态（`connecting`/`connected`/`reconnecting`/`exhausted`/`stopped`/`disposed`，或 `disabled`）、失败尝试计数、当前工具清单、当前连接世代的纪元，以及插件注册行的 `source: 'registered'` |
 | `restart(serverId)` | 重建一条已启用服务器的共享连接；校验（`unknown server`、`server "X" is disabled`）位于机群步骤，重启无法绕过设置 |
+| `probe(serverId)` | 对一条已配置或已注册条目做一次性测试——连接、读取服务器身份、列出工具名、关闭——不挂载 owner、不占用命名空间；禁用条目同样应答，设置面可在启用前先试连 |
+
+每次机群变更（连接状态迁移、owner 挂载/卸载、设置或注册形状变化）在提交后发出无载荷的 `mcpManagement/fleet-changed` cordis 事件；监听器失败被隔离。该事件原样转发给 web 客户端，设置页收到后立即重新联表，而不必等待轮询。
+
+## 插件注册
+
+`ctx.mcpUserConfigRegistrations.register(serverName, entry)` 为调用方插件的生命周期贡献一台 MCP 服务器：entry 携带除 `id`/`enabled`/`serverName` 之外的全部配置字段，按配置条目同等校验，并与 Settings 双向共享 `serverName` 命名空间——注册拒绝已配置的名字，设置写入也拒绝已注册的名字。注册在存续期间始终启用；其移除（返回的 disposer，或包裹它的 `ctx.effect` 所在的插件 fiber）等待共享 owner 拆卸完成，因此插件释放结算前服务器的工具已撤下。已注册服务器以只读方式进入能力目录、在全局面上为每个预设挂载 scoped registrar，且绝不作为可编辑的设置行出现。
 
 ## 消费的服务
 
 | 服务 | 用途 |
 |---|---|
 | `ctx.mcpUserConfigSettings` | 读取捕获的世代快照；独立 consumer 读取当前设置 |
+| `ctx.mcpUserConfigRegistrations` | 宿主拥有机群之上的插件注册面（provider scope） |
 | `ctx.mcpConnections` | owner 创建、registrar 附接的共享连接注册表 |
 | `ctx.capabilities` | 可选的私有世代捕获及服务器选择集成 |
 | `ctx.tools` | 每个 registrar 都需要它来注册模型工具 |
@@ -119,4 +127,4 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 - 只有 wire consumer 请求 `ctx.settings.describe({ redactSecrets: true })` 时，设置 descriptor 才是安全的；`env` 和 `headers` 已使用 `role('secret')` 声明以支持该脱敏路径。
 - Host/base 拥有 provider row，Standard、Code 与 Cordis 拥有 consumer row。自定义组合必须保留这个单 provider、scoped consumer 划分。
 - 固定世代乘搭活的共享连接：捕获后被重命名的服务器同样向旧 registrar 暴露新的公开 namespace，被移除的槽位会搁浅它们直到作用域释放。
-- 管理 Remote 只报告状态、不推送状态。设置页在打开期间每 5 秒轮询 `status()`，而非订阅机群事件。
+- 管理 Remote 报告状态；设置页在转发的 `mcpManagement/fleet-changed` 事件上立即重新联表（并保留 5 秒轮询兜底），而非订阅 wire 流——typert 协议没有 stream 模式 Remote。

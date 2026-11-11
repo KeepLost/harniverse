@@ -156,6 +156,7 @@
       "@deepseek-ai/dsh-client-ui-secret-mask/client": ["./packages/client/ui-secret-mask/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-message-quotes/client": ["./packages/client/ui-message-quotes/src/client/index.ts"],
       "@deepseek-ai/dsh-llm/types": ["./packages/llm/llm/src/types.ts"],
+      "@deepseek-ai/dsh-mcp-client/types": ["./packages/mcp/mcp-client/src/types.ts"],
       "@deepseek-ai/dsh-llm/brand": ["./packages/llm/llm/src/brand.ts"],
       "@deepseek-ai/dsh-llm-retry/types": ["./packages/llm/llm-retry/src/types.ts"],
       "@deepseek-ai/dsh-workflow/types": ["./packages/workflow/workflow/src/types.ts"],
@@ -251,6 +252,8 @@
       "@deepseek-ai/dsh-auth-app/startup": ["./packages/bundle/auth-app/src/startup.ts"],
       "@deepseek-ai/dsh-chat-app/startup": ["./packages/bundle/chat-app/src/startup.ts"],
       "@deepseek-ai/dsh-web-app/startup": ["./packages/bundle/web-app/src/startup.ts"],
+      "@deepseek-ai/dsh-web": ["./packages/web/web/src/index.ts"],
+      "@deepseek-ai/dsh-web/types": ["./packages/web/web/src/types.ts"],
       "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
        // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is

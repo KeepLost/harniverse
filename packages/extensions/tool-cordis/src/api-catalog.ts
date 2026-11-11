@@ -1663,6 +1663,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'mcpUserConfigRegistrations',
+    summary: 'Host face a plugin uses to contribute one MCP server for its own lifetime.',
+    description: 'Host face a plugin uses to contribute one MCP server for its own lifetime. A registered server is enabled while registered; its removal awaits the owner\'s teardown, so plugin disposal withdraws the server\'s tools before settling. Registrations share the serverName namespace with configured entries in both directions and never appear in Settings.',
+    methods: [
+      {
+        signature: 'register(serverName: string, entry: McpServerRegistration): () => void',
+        description: 'Contribute one server for the calling plugin\'s lifetime.',
+        parameters: [{ name: 'serverName', description: 'public server namespace, unique across configured and registered servers.' }, { name: 'entry', description: 'transport, endpoint, and budgets, validated like a configured entry.' }],
+        returns: 'an idempotent disposer that removes the registration.',
+        throws: ['when the name is taken, the entry is invalid, or the provider is disposed.'],
+      },
+      {
+        signature: 'list(): readonly UserMcpServerConfig[]',
+        description: 'Current registrations in registration order.',
+        parameters: [],
+        returns: 'detached copies of every live registration entry.',
+      },
+      {
+        signature: 'subscribe(listener: () => void): () => void',
+        description: 'Observe registration additions and removals.',
+        parameters: [{ name: 'listener', description: 'invoked after each registration change commits.' }],
+        returns: 'the disposer that removes the listener.',
+      },
+    ],
+  },
+  {
     key: 'mcpUserConfigSettings',
     summary: 'Read/watch-only view of the host-owned `mcp` settings scope.',
     description: 'Read/watch-only view of the host-owned `mcp` settings scope.',
@@ -3749,10 +3775,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer that unregisters every capability contributed by the provider.',
       },
       {
-        signature: 'listProviders(capability?: WebProviderCapability): WebProviderInfo[]',
-        description: 'List registered provider ids and their capability kinds without secrets.',
+        signature: '@Remote({ exportName: \'listProviders\', requiredCapability: \'harniverse.observe\' }) listProviders(capability?: WebProviderCapability): WebProviderInfo[]',
+        description: 'List registered provider ids, capabilities, and picker metadata without secrets. The Remote export serves provider menus; they re-read on every `web/providers-changed`.',
         parameters: [{ name: 'capability', description: 'optionally limit entries to providers supporting this capability.' }],
-        returns: 'detached provider catalog entries sorted by provider id.',
+        returns: 'detached catalog entries in registration order (search registrations first, then fetch-only ids).',
       },
       {
         signature: 'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
@@ -4349,6 +4375,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; their messages already obey the immutable creation contract.' }],
   },
   {
+    name: 'mcpManagement/fleet-changed',
+    mode: 'emit',
+    signature: '\'mcpManagement/fleet-changed\'(): void',
+    summary: 'The MCP connection fleet changed: a server\'s connection state moved, an owner mounted or unmounted, or a settings/registration change re-shaped the fleet.',
+    description: 'The MCP connection fleet changed: a server\'s connection state moved, an owner mounted or unmounted, or a settings/registration change re-shaped the fleet. This payload-free notification fires after each change commits; consumers re-read `mcpManagement.status()` for the new rows. Observer failures are contained and cannot veto the change.',
+    parameters: [],
+  },
+  {
     name: 'remote-runtime/ownerless',
     mode: 'emit',
     signature: '\'remote-runtime/ownerless\'(): void',
@@ -4579,6 +4613,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Observe the frozen, lossless-JSON final outcome.',
     description: 'Observe the frozen, lossless-JSON final outcome. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.',
     parameters: [{ name: 'exec', description: 'the execution object that traversed the pipeline.' }, { name: 'result', description: 'a deep-frozen snapshot of the final returned result.' }],
+  },
+  {
+    name: 'web/providers-changed',
+    mode: 'emit',
+    signature: '\'web/providers-changed\'(): void',
+    summary: 'The provider topology changed: a search or fetch provider registered or unregistered.',
+    description: 'The provider topology changed: a search or fetch provider registered or unregistered. This payload-free registry notification fires at each commit point (including registration disposal); consumers re-read `listProviders()` for the new state. Observer failures are contained and cannot veto the registry mutation.',
+    parameters: [],
   },
   {
     name: 'workflow/agent-end',
@@ -6151,6 +6193,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpResourceRequest',
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
+  },
+  {
+    name: 'McpServerRegistration',
+    declaration: 'export type McpServerRegistration = Omit<UserMcpServerConfig, \'id\' | \'enabled\' | \'serverName\'>;',
   },
   {
     name: 'McpToolDescriptor',
@@ -7966,7 +8012,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebFetchProvider',
-    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    available(): boolean;\n    fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;\n}',
+    declaration: 'export interface WebFetchProvider {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    available(): boolean;\n    fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;\n}',
   },
   {
     name: 'WebFetchRequest',
@@ -7982,7 +8028,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebProvider',
-    declaration: 'export interface WebProvider {\n    readonly id: string;\n    readonly search?: Omit<WebSearchProvider, \'id\'>;\n    readonly fetch?: Omit<WebFetchProvider, \'id\'>;\n}',
+    declaration: 'export interface WebProvider {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    readonly search?: Omit<WebSearchProvider, \'id\' | \'title\' | \'description\'>;\n    readonly fetch?: Omit<WebFetchProvider, \'id\' | \'title\' | \'description\'>;\n}',
   },
   {
     name: 'WebProviderCapability',
@@ -7990,7 +8036,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebProviderInfo',
-    declaration: 'export interface WebProviderInfo {\n    readonly id: string;\n    readonly capabilities: readonly WebProviderCapability[];\n}',
+    declaration: 'export interface WebProviderInfo {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    readonly capabilities: readonly WebProviderCapability[];\n}',
   },
   {
     name: 'WebResultView',
@@ -8006,7 +8052,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebSearchProvider',
-    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
+    declaration: 'export interface WebSearchProvider {\n    readonly id: string;\n    readonly title?: string;\n    readonly description?: string;\n    available(): boolean;\n    search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;\n}',
   },
   {
     name: 'WebSearchRequest',

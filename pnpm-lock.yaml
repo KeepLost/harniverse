@@ -1188,6 +1188,9 @@ importers:
       '@deepseek-ai/dsh-governor':
         specifier: workspace:^
         version: link:../../monitor/governor
+      '@deepseek-ai/dsh-mcp-client':
+        specifier: workspace:^
+        version: link:../../mcp/mcp-client
       '@deepseek-ai/dsh-queue':
         specifier: workspace:^
         version: link:../../queue/queue
@@ -1197,6 +1200,9 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:^
+        version: link:../../web/web
       '@deepseek-ai/dsh-workspace-file-write':
         specifier: workspace:^
         version: link:../../host/workspace-file-write
@@ -4380,6 +4386,10 @@ importers:
         version: 18.3.31
 
   packages/client/ui-settings-mcp:
+    dependencies:
+      '@deepseek-ai/dsh-mcp-client':
+        specifier: workspace:^
+        version: link:../../mcp/mcp-client
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -4583,6 +4593,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:^
+        version: link:../../web/web
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -7609,6 +7622,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-mcp-user-config':
+        specifier: workspace:^
+        version: link:../../mcp/mcp-user-config
       '@deepseek-ai/dsh-model-policy':
         specifier: workspace:^
         version: link:../../core/model-policy
@@ -12836,6 +12852,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
+      zod:
+        specifier: ^4.6.6
+        version: 4.6.7
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -12849,6 +12868,9 @@ importers:
       '@deepseek-ai/dsh-settings':
         specifier: workspace:^
         version: link:../../settings/settings
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:^
+        version: link:../../typert/protocol
 
   packages/web/web-deepseek-api:
     dependencies:

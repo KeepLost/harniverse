@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-11-wave6-mcp-manager-absorption.md
+2026-11-11-wave6-mcp-manager-absorption.md: a793dfde4f2c127e8fcac4c7876ec7d530cb93ee
+2026-11-11-wave6-mcp-manager-absorption.zh.md: 3325388edd7b7490f14c23d83dcfdd0f09a5ad1b

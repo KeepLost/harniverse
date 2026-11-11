@@ -45,4 +45,24 @@ export interface McpManagementStatusRow {
   connectedAtMs?: number
   /** Error name of the most recent failed attempt; absent while none occurred. */
   lastErrorKind?: string
+  /**
+   * Provenance of the fleet entry; absent means configured in the `mcp`
+   * settings namespace, `registered` means a plugin contributed it for its
+   * lifetime and Settings never edits it.
+   */
+  source?: 'registered'
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * The MCP connection fleet changed: a server's connection state moved, an
+     * owner mounted or unmounted, or a settings/registration change re-shaped
+     * the fleet. This payload-free notification fires after each change
+     * commits; consumers re-read `mcpManagement.status()` for the new rows.
+     * Observer failures are contained and cannot veto the change.
+     * @mode emit
+     */
+    'mcpManagement/fleet-changed'(): void
+  }
 }

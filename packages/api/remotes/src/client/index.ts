@@ -18,6 +18,7 @@ import remoteHostsRemote from '@deepseek-ai/dsh-remote-hosts/remote'
 import workspaceFileWriteRemote from '@deepseek-ai/dsh-workspace-file-write/remote'
 import chatBotsRemote from '@deepseek-ai/dsh-chat-manager/remote'
 import mcpUserConfigRemote from '@deepseek-ai/dsh-mcp-user-config/remote'
+import webRemote from '@deepseek-ai/dsh-web/remote'
 import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 
 export type { TypertClientRemote as ClientRemote } from '@deepseek-ai/dsh-typert-protocol'
@@ -232,6 +233,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       workspaceFileWriteRemote,
       chatBotsRemote,
       mcpUserConfigRemote,
+      webRemote,
     ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }

@@ -6,8 +6,9 @@
  * @module @deepseek-ai/dsh-web
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {
   WebFetchProvider,
@@ -96,7 +97,7 @@ export const WEB_SETTINGS_SCHEMA: z<WebSettings> = z.object({
  *   `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
  * - No operation or configured id → `WEB_PROVIDER_DEFAULT_MISSING`.
  */
-export class WebRuntime extends Service {
+export class WebRuntime extends TypertRemoteService {
   /**
    * Provider selection config. Operational env overrides seed the SAME default
    * fields: `$DSH_WEB_SEARCH_PROVIDER` / `$DSH_WEB_FETCH_PROVIDER` are
@@ -136,7 +137,12 @@ export class WebRuntime extends Service {
    * @returns the disposer that unregisters the provider.
    */
   registerSearchProvider(provider: WebSearchProvider): () => void {
-    return this.registerProvider({ id: provider.id, search: provider })
+    return this.registerProvider({
+      id: provider.id,
+      ...provider.title === undefined ? {} : { title: provider.title },
+      ...provider.description === undefined ? {} : { description: provider.description },
+      search: provider,
+    })
   }
 
   /**
@@ -147,7 +153,12 @@ export class WebRuntime extends Service {
    * @returns the disposer that unregisters the provider.
    */
   registerFetchProvider(provider: WebFetchProvider): () => void {
-    return this.registerProvider({ id: provider.id, fetch: provider })
+    return this.registerProvider({
+      id: provider.id,
+      ...provider.title === undefined ? {} : { title: provider.title },
+      ...provider.description === undefined ? {} : { description: provider.description },
+      fetch: provider,
+    })
   }
 
   /**
@@ -165,11 +176,17 @@ export class WebRuntime extends Service {
     }
     const searchProviders = this.searchProviders
     const fetchProviders = this.fetchProviders
+    const emitChanged = (): void => { this.emitProvidersChanged() }
+    const metadata = {
+      ...provider.title === undefined ? {} : { title: provider.title },
+      ...provider.description === undefined ? {} : { description: provider.description },
+    }
     const dispose = this.ctx.effect(function* () {
       if (provider.search !== undefined) {
         const search = provider.search
         searchProviders.set(provider.id, {
           id: provider.id,
+          ...metadata,
           available: () => search.available(),
           search: (request, signal) => search.search(request, signal),
         })
@@ -178,13 +195,16 @@ export class WebRuntime extends Service {
         const fetch = provider.fetch
         fetchProviders.set(provider.id, {
           id: provider.id,
+          ...metadata,
           available: () => fetch.available(),
           fetch: (request, signal) => fetch.fetch(request, signal),
         })
       }
+      emitChanged()
       yield () => {
         if (provider.search !== undefined) searchProviders.delete(provider.id)
         if (provider.fetch !== undefined) fetchProviders.delete(provider.id)
+        emitChanged()
       }
     }, 'web.registerProvider()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
@@ -193,25 +213,64 @@ export class WebRuntime extends Service {
   }
 
   /**
-   * List registered provider ids and their capability kinds without secrets.
+   * List registered provider ids, capabilities, and picker metadata without
+   * secrets. The Remote export serves provider menus; they re-read on every
+   * `web/providers-changed`.
    * @param capability - optionally limit entries to providers supporting this capability.
-   * @returns detached provider catalog entries sorted by provider id.
+   * @returns detached catalog entries in registration order (search
+   * registrations first, then fetch-only ids).
    */
+  @Remote({ exportName: 'listProviders', requiredCapability: 'harniverse.observe' })
   listProviders(capability?: WebProviderCapability): WebProviderInfo[] {
-    const ids = new Map<string, Set<WebProviderCapability>>()
-    for (const id of this.searchProviders.keys()) ids.set(id, new Set(['search']))
+    const capabilitiesOf = new Map<string, WebProviderCapability[]>()
+    for (const id of this.searchProviders.keys()) capabilitiesOf.set(id, ['search'])
     for (const id of this.fetchProviders.keys()) {
-      const current = ids.get(id) ?? new Set<WebProviderCapability>()
-      current.add('fetch')
-      ids.set(id, current)
+      const current = capabilitiesOf.get(id) ?? []
+      current.push('fetch')
+      capabilitiesOf.set(id, current)
     }
-    return [...ids.entries()]
-      .filter(([, capabilities]) => capability === undefined || capabilities.has(capability))
-      .map(([id, capabilities]) => ({
-        id,
-        capabilities: [...capabilities].sort(),
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id))
+    return [...capabilitiesOf]
+      .filter(([, capabilities]) => capability === undefined || capabilities.includes(capability))
+      .map(([id, capabilities]) => {
+        const registered = this.searchProviders.get(id) ?? this.fetchProviders.get(id)
+        return {
+          id,
+          ...registered?.title === undefined ? {} : { title: registered.title },
+          ...registered?.description === undefined ? {} : { description: registered.description },
+          capabilities: [...capabilities].sort(),
+        }
+      })
+  }
+
+  /** Emit `web/providers-changed` without letting one broken listener veto the registration. */
+  private emitProvidersChanged(): void {
+    // Cordis emit uses Array.map: one synchronous throw starves later
+    // listeners. Registry notifications are non-vetoing, so contain each
+    // callback independently; INVARIANT-coded failures still surface.
+    let invariantFailure: unknown
+    for (const listener of this.ctx.events.dispatch('emit', ['web/providers-changed']) as Array<() => unknown>) {
+      try {
+        const returned = listener()
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+            this.warnProvidersListenerFailure(error)
+          })
+        }
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
+          invariantFailure ??= error
+          continue
+        }
+        this.warnProvidersListenerFailure(error)
+      }
+    }
+    if (invariantFailure !== undefined) throw invariantFailure as Error
+  }
+
+  /** Contained-listener diagnostic shared by the sync and async failure paths. */
+  private warnProvidersListenerFailure(error: unknown): void {
+    this.ctx.logger.warn('web: a web/providers-changed listener failed')
+    this.ctx.logger.warn(error)
   }
 
   /**

@@ -432,7 +432,13 @@ describe('WebSearchCard', () => {
       ...settled,
       selectedProvider: 'deepseek-search-api',
       selectedFetchProvider: 'http',
-      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http') },
+      selector: {
+        ...settled,
+        searchProvider: field('deepseek-search-api'),
+        fetchProvider: field('http'),
+        extraSearchOptions: [],
+        extraFetchOptions: [],
+      },
       deepseek: deepseekState(),
       exa: exaState(),
       perplexity: perplexityState(),
@@ -541,7 +547,7 @@ describe('WebSearchCard', () => {
 
   it('routes provider selection and DeepSeek controls with scoped addresses', () => {
     const actions = renderWebSearch({
-      selector: { ...settled, searchProvider: field('deepseek-search-api', { overridden: true }), fetchProvider: field('http') },
+      selector: { ...settled, searchProvider: field('deepseek-search-api', { overridden: true }), fetchProvider: field('http'), extraSearchOptions: [], extraFetchOptions: [] },
       deepseek: {
         ...deepseekState(),
         apiKey: field(''),
@@ -619,7 +625,7 @@ describe('WebSearchCard', () => {
 
   it('routes fetch-provider selection and reset with scoped addresses', () => {
     const actions = renderWebSearch({
-      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http', { overridden: true }) },
+      selector: { ...settled, searchProvider: field('deepseek-search-api'), fetchProvider: field('http', { overridden: true }), extraSearchOptions: [], extraFetchOptions: [] },
     })
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
@@ -664,5 +670,46 @@ describe('WebSearchCard', () => {
 
     expect(screen.getByLabelText(en.webSearchProvider)).toBeTruthy()
     expect(screen.getByText(en.webSearchProviderUnavailable)).toBeTruthy()
+  })
+  it('renders registry-enumerated options after the first-party set and keeps an unknown staged id visible', () => {
+    renderWebSearch({
+      selector: {
+        ...settled,
+        searchProvider: field('gone-plugin'),
+        fetchProvider: field('http'),
+        extraSearchOptions: [
+          { id: 'site-search', title: 'Site Search', capabilities: ['search'] },
+          { id: 'bare-plugin', capabilities: ['search'] },
+        ],
+        extraFetchOptions: [],
+      },
+    })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+    const select = screen.getByLabelText(en.webSearchProvider) as HTMLSelectElement
+    const values = [...select.options].map(option => option.value)
+    expect(values).toEqual([
+      'deepseek-search-api', 'exa', 'perplexity', 'tavily', 'brave', 'kagi', 'cloudflare', 'firecrawl',
+      'site-search', 'bare-plugin', 'gone-plugin',
+    ])
+    expect([...select.options].at(-1)!.textContent).toBe('gone-plugin')
+    expect(screen.getByText('Site Search')).toBeDefined()
+    expect(screen.getByText('bare-plugin')).toBeDefined()
+  })
+
+  it('renders no first-party detail pane while a registry selection is staged', () => {
+    renderWebSearch({
+      selectedProvider: undefined,
+      selector: {
+        ...settled,
+        searchProvider: field('site-search'),
+        fetchProvider: field('http'),
+        extraSearchOptions: [{ id: 'site-search', title: 'Site Search', capabilities: ['search'] }],
+        extraFetchOptions: [],
+      },
+    })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+    // No provider secret or base-url control renders for a plugin-owned selection.
+    expect(screen.queryByLabelText(/API ?Key|密钥/)).toBeNull()
+    expect(screen.queryByText('Base URL')).toBeNull()
   })
 })

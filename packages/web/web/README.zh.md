@@ -26,11 +26,13 @@
 
 | 成员 | 语义 |
 |---|---|
-| `registerSearchProvider(provider)`／`registerFetchProvider(provider)` | 注册后端。同一能力类型下 id 重复时抛出 `WebError` `WEB_DUPLICATE_PROVIDER`。返回 disposer。随调用 fiber 一并 dispose（资源释放）。 |
-| `registerProvider(provider)` | 将一个提供方的搜索和／或抓取能力作为一个生命周期单元注册。 |
-| `listProviders(capability?)` | 返回不含机密的已注册提供方 id 与能力，可按能力筛选。 |
+| `registerSearchProvider(provider)`／`registerFetchProvider(provider)` | 注册后端；提供方上可选的 `title`／`description` 会进入提供方选择菜单。同一能力类型下 id 重复时抛出 `WebError` `WEB_DUPLICATE_PROVIDER`。返回 disposer。随调用 fiber 一并 dispose（资源释放）。 |
+| `registerProvider(provider)` | 将一个提供方的搜索和／或抓取能力作为一个生命周期单元注册；其可选的 `title`／`description` 适用于它实现的每个能力。 |
+| `listProviders(capability?)` | 返回不含机密的已注册提供方条目——`id`、可选的选择菜单 `title`／`description` 与能力——按注册顺序排列，可按能力筛选。同时作为 `harniverse.observe` Remote 供提供方菜单使用。 |
 | `search(request, signal?)` | 解析搜索提供方并运行一次搜索。在结果上强制执行 `request.maxResults`（截断 `sources[]`，设置 `truncated`）。能力无法运行时抛出 `WebError`。 |
 | `fetch(request, signal?)` | 解析抓取提供方并获取一个 URL。非 2xx 响应是结果，不会抛出异常。无法安全获取或表示资源时抛出 `WebError`。 |
+
+每次注册与注销都会发出无载荷的 `web/providers-changed` cordis 事件（监听器失败被隔离，绝不会否决注册表变更）；选择菜单在收到该事件后重新读取 `listProviders()`。该事件会原样转发给 web 客户端。
 
 提供方注册的是**能力**而非工具。`dsh-tool-web` 是面向模型的名称、描述、提示词指引、JSON Schema 和呈现的唯一归属方。
 

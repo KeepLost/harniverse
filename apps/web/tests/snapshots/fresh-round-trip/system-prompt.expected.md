@@ -48,7 +48,7 @@ Current shell for commands: bash. Run shell commands with the `bash` tool; its s
 
 Current working directory: "{{cwd}}".
 
-Current web_search providers: brave, cloudflare, deepseek-search-api, exa, firecrawl, kagi, perplexity, tavily. Pass one of these ids as the optional provider parameter; omitting it uses the configured default. Provider failures are not retried through another provider.
+Current web_search providers: deepseek-search-api, exa, perplexity, tavily, brave, kagi, cloudflare, firecrawl. Pass one of these ids as the optional provider parameter; omitting it uses the configured default. Provider failures are not retried through another provider.
 
 Current web_fetch providers: deepseek-fetch-api, http. Pass one of these ids as the optional provider parameter; omitting it uses the configured default. Provider failures are not retried through another provider.
 

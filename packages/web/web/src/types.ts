@@ -106,6 +106,10 @@ export type WebFetchBody =
  */
 export interface WebSearchProvider {
   readonly id: string
+  /** Display title for provider pickers; omitted entries name themselves by id. */
+  readonly title?: string
+  /** One-line picker description; omitted when the provider offers none. */
+  readonly description?: string
   /** Cheap local usability check; must not make network calls. */
   available(): boolean
   /** Run one search; honor `signal` for cancellation. */
@@ -118,6 +122,10 @@ export interface WebSearchProvider {
  */
 export interface WebFetchProvider {
   readonly id: string
+  /** Display title for provider pickers; omitted entries name themselves by id. */
+  readonly title?: string
+  /** One-line picker description; omitted when the provider offers none. */
+  readonly description?: string
   /** Cheap local usability check; must not make network calls. */
   available(): boolean
   /** Retrieve one URL; honor `signal` for cancellation. */
@@ -131,16 +139,38 @@ export type WebProviderCapability = 'search' | 'fetch'
 export interface WebProvider {
   /** Stable provider id, unique within each capability it implements. */
   readonly id: string
+  /** Display title for provider pickers; shared by every capability it implements. */
+  readonly title?: string
+  /** One-line picker description; shared by every capability it implements. */
+  readonly description?: string
   /** Search implementation, when this provider supports search. */
-  readonly search?: Omit<WebSearchProvider, 'id'>
+  readonly search?: Omit<WebSearchProvider, 'id' | 'title' | 'description'>
   /** Fetch implementation, when this provider supports fetch. */
-  readonly fetch?: Omit<WebFetchProvider, 'id'>
+  readonly fetch?: Omit<WebFetchProvider, 'id' | 'title' | 'description'>
 }
 
 /** Non-secret provider catalog entry exposed to discovery surfaces. */
 export interface WebProviderInfo {
   readonly id: string
+  /** Picker title carried by the registration; absent when the provider offered none. */
+  readonly title?: string
+  /** Picker description carried by the registration; absent when the provider offered none. */
+  readonly description?: string
   readonly capabilities: readonly WebProviderCapability[]
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * The provider topology changed: a search or fetch provider registered or
+     * unregistered. This payload-free registry notification fires at each
+     * commit point (including registration disposal); consumers re-read
+     * `listProviders()` for the new state. Observer failures are contained
+     * and cannot veto the registry mutation.
+     * @mode emit
+     */
+    'web/providers-changed'(): void
+  }
 }
 
 /**

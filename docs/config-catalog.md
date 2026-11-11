@@ -2073,7 +2073,7 @@ export interface UserMcpServerConfig {
 
 Depends on: [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
 
-Source: [`packages/mcp/mcp-user-config/src/index.ts:112`](../packages/mcp/mcp-user-config/src/index.ts)
+Source: [`packages/mcp/mcp-user-config/src/index.ts:156`](../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -4339,7 +4339,7 @@ export interface WebRuntimeConfig {
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:65`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:66`](../packages/web/web/src/index.ts)
 
 <a id="deepseek-aidsh-web-app"></a>
 

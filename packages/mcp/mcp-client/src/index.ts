@@ -56,6 +56,16 @@ export { startSharedConnection } from './connection.ts'
 export type { McpConnectionState, SharedConnection } from './connection.ts'
 export { RECONNECT_DEFAULTS } from './connection.ts'
 export { activeServerNamesOf } from './reservations.ts'
+export { probeServer } from './probe.ts'
+export type {
+  McpProbeCleanup,
+  McpProbeFailure,
+  McpProbeOptions,
+  McpProbeResult,
+  McpProbeServerInfo,
+  McpProbeStage,
+  McpProbeSuccess,
+} from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'

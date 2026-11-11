@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../typert/protocol"
+    },
+    {
       "path": "../../../vendor/cosmokit"
     },
     {
