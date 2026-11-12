@@ -233,19 +233,21 @@ export class TerminalPanelController {
   switchSessionShell(entry: string): void {
     const snapshot = this.state.getSnapshot()
     const sessions = this.deps.sessions
-    if (snapshot.session === undefined || sessions === undefined) return
+    const sessionId = snapshot.session
+    if (sessionId === undefined || sessions === undefined) return
     const shellSession = snapshot.shellSession
     if (shellSession === undefined || shellSession.pending || shellSession.current === entry) return
     this.patchState({ shellSession: { ...shellSession, pending: true } })
-    void sessions.switchShell({ sessionId: snapshot.session, entry }).then((response) => {
+    void sessions.switchShell({ sessionId, entry }).then((response) => {
       const latest = this.state.getSnapshot().shellSession
       if (latest === undefined || this.disposed) return
       if (!response.result.ok) {
         this.patchState({ shellSession: { ...latest, pending: false }, error: response.result.error.message })
         // A refusal can mean the probe table moved under the session; the
         // affordance re-reads availability instead of trusting stale rows.
-        const sessions = this.deps.sessions
-        if (sessions !== undefined && snapshot.session !== undefined) this.readShellSession(sessions, snapshot.session)
+        // The entry guards already proved the face and session; both ride
+        // this closure, so the re-read needs no re-check.
+        this.readShellSession(sessions, sessionId)
         return
       }
       this.patchState({ shellSession: { ...latest, current: response.result.value.current, pending: false } })

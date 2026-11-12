@@ -294,12 +294,12 @@
   justify-content: center;
   width: 20px;
   border: none;
-  border-radius: var(--dsw-alias-radius-s, 6px);
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
-  color: var(--dsw-alias-label-2, inherit);
+  color: var(--dsw-alias-label-secondary);
   cursor: pointer;
 }
 
 .newSessionCaret:hover {
-  background: var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.12));
+  background: var(--dsw-alias-bg-layer-2);
 }

@@ -1008,6 +1008,7 @@ describe('TerminalPanelController holds', () => {
     // The refreshed list no longer reports the terminal running: no new hold.
     expect(hold.opens).toHaveLength(3)
   })
+
   it('binds without a sessions face and never reads the shell capability', async () => {
     // A host that exposes no session-shell capability leaves the sessions
     // face absent entirely: binding still works and publishes no shell state.

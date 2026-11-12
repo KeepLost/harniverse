@@ -141,6 +141,12 @@ describe('SidebarRoot shell', () => {
     expect((preview as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('menuitem', { name: 'zsh (nightly)' }))
     expect(startSession).toHaveBeenLastCalledWith(undefined, 'zsh-nightly')
+
+    // Escape closes the menu without starting anything (the onClose path).
+    fireEvent.click(screen.getByRole('button', { name: en['session.new.shell.aria'] }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(startSession).toHaveBeenCalledTimes(2)
   })
 
 })

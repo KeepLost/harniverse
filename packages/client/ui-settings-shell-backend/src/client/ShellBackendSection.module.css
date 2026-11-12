@@ -96,7 +96,7 @@
   padding: 4px 8px;
   border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-primary);
+  background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
 }
