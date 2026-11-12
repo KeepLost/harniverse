@@ -1,0 +1,147 @@
+/* Statistics view: totals bar plus the turn table. It paints no fill — the
+   conversation column it sits in owns the surface. */
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.totalsCaption {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.loadOlder {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 2px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.loadOlder:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.table th {
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.turnRow {
+  cursor: default;
+}
+
+.turnCell {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stepRow {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.stepCell {
+  white-space: nowrap;
+}
+
+.calls {
+  font-variant-numeric: tabular-nums;
+}
+
+.expand {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.trigger {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  max-width: 100%;
+}
+
+.triggerKind {
+  white-space: nowrap;
+}
+
+.pill {
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.compactionRow,
+.compactionDetail {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.compactionRow td,
+.compactionDetail td {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    var(--dsw-alias-bg-layer-2) 6px,
+    var(--dsw-alias-bg-layer-2) 8px
+  );
+}

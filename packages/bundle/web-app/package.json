@@ -109,6 +109,7 @@
     "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
     "@deepseek-ai/dsh-client-ui-tool": "workspace:^",
     "@deepseek-ai/dsh-client-ui-trajectory": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-stats": "workspace:^",
     "@deepseek-ai/dsh-client-ui-user-questions": "workspace:^",
     "@deepseek-ai/dsh-client-ui-voice-input": "workspace:^",
     "@deepseek-ai/dsh-client-ui-workflow-run": "workspace:^",

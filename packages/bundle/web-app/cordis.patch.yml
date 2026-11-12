@@ -573,6 +573,11 @@
     - id: ui-trajectory
       name: '@deepseek-ai/dsh-client-ui-trajectory'
 
+    # Statistics view: per-turn/per-step context, timing, cache, and tool
+    # facts over the same session window, behind the conversation view ring.
+    - id: ui-stats
+      name: '@deepseek-ai/dsh-client-ui-stats'
+
 # ── the agent plane moves behind agent presets ─────────────────────────────
 #
 # Every row below composes what ONE agent contributes to the host registries:
