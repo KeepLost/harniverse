@@ -10,6 +10,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+    - tab "Statistics"
     - tab "Capabilities"
 - text: Render this mathematical proof. {{clock}}
 - button "Copy":

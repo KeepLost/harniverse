@@ -10,6 +10,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+    - tab "Statistics"
     - tab "Capabilities"
 - text: m1 7/25 {{clock}}
 - button "Copy":

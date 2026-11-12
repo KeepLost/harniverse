@@ -12,6 +12,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+    - tab "Statistics"
     - tab "Capabilities"
 - button "Context injection @deepseek-ai/dsh-context-snapshot":
   - img
