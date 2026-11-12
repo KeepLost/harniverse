@@ -14,8 +14,8 @@
         - columnheader "状态"
         - columnheader "操作"
     - rowgroup:
-      - row "{{duration}} 整理收件箱并汇总未读 本会话 · schedule-management (#schedule) 30 分钟后 {{date}} {{clock}} 暂无执行 运行中 编辑 暂停 删除":
-        - cell "{{duration}}"
+      - row "{{scheduleId}} 整理收件箱并汇总未读 本会话 · schedule-management (#schedule) 30 分钟后 {{date}} {{clock}} 暂无执行 运行中 编辑 暂停 删除":
+        - cell "{{scheduleId}}"
         - cell "整理收件箱并汇总未读"
         - cell "本会话 · schedule-management (#schedule)"
         - cell "30 分钟后"
