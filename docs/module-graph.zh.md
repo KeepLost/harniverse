@@ -391,8 +391,8 @@ flowchart TD
     pkg_pwsh_sandbox["pwsh-sandbox"]
     pkg_session_shell["session-shell"]
     pkg_shell["shell"]
-    pkg_shell_backend_settings["shell-backend-settings"]
     pkg_shell_env["shell-env"]
+    pkg_shell_registry_settings["shell-registry-settings"]
     pkg_shell_router["shell-router"]
     pkg_tool_bash["tool-bash"]
     pkg_tool_bash_persistent["tool-bash-persistent"]
@@ -1009,9 +1009,9 @@ flowchart TD
   pkg_pwsh_local --> pkg_shell
   pkg_pwsh_local --> pkg_subprocess
   pkg_pwsh_local --> pkg_timeout
-  pkg_shell_backend_settings --> pkg_invariants
-  pkg_shell_backend_settings --> pkg_settings
-  pkg_shell_backend_settings --> pkg_shell
+  pkg_shell_registry_settings --> pkg_invariants
+  pkg_shell_registry_settings --> pkg_settings
+  pkg_shell_registry_settings --> pkg_shell
   pkg_terminal_bash --> pkg_agent
   pkg_terminal_bash --> pkg_invariants
   pkg_terminal_bash --> pkg_sandbox
@@ -2427,7 +2427,7 @@ flowchart TD
 | [`working-directory`](../packages/session/working-directory) | `session` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt) |
 | [`bash-local`](../packages/shell/bash-local) | `shell` | [`fs-codec`](../packages/fs/fs-codec), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`pwsh-local`](../packages/shell/pwsh-local) | `shell` | [`fs-codec`](../packages/fs/fs-codec), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
-| [`shell-backend-settings`](../packages/shell/shell-backend-settings) | `shell` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell) |
+| [`shell-registry-settings`](../packages/shell/shell-registry-settings) | `shell` | [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell) |
 | [`terminal-bash`](../packages/terminal/terminal-bash) | `terminal` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`shell`](../packages/shell/shell), [`subprocess`](../packages/subprocess/subprocess), [`terminal`](../packages/terminal/terminal) |
 | [`fs-vm`](../packages/vm/fs-vm) | `vm` | [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`vm`](../packages/vm/vm) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection) |

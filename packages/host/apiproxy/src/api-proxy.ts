@@ -257,7 +257,7 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
  * is deferred work.
  */
 const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'compaction', 'governor', 'shell', 'shell-backend', 'exec-world', 'locale', 'permission', 'mcp', 'speech', 'ui-conversation', 'ui-skin', 'ui-sound', 'ui-theme',
+  'agent-loop', 'compaction', 'governor', 'shell', 'shell-registry', 'exec-world', 'locale', 'permission', 'mcp', 'speech', 'ui-conversation', 'ui-skin', 'ui-sound', 'ui-theme',
   'web', 'web-deepseek-api', 'web-search-exa', 'web-search-perplexity',
   'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-search-cloudflare', 'web-firecrawl', 'network-proxy',
 ] as const
@@ -3577,6 +3577,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         const cwd = workspace?.path ?? request.payload.cwd ?? defaults.cwd
         const requestedPreset = request.payload.agentProfile
+        // Validate a birth shell choice against the probed registry BEFORE
+        // anything is created: an explicit unavailable entry fails closed.
+        const shellChoice = request.payload.shell
+        if (shellChoice !== undefined && shellChoice !== 'platform-default') {
+          const service: SessionShellService | undefined = ctx.get('sessionShell')
+          const available = service?.describe().entries.some(entry => entry.id === shellChoice && entry.available)
+          if (service === undefined || available !== true) {
+            return err(request, {
+              code: 'shell-unavailable',
+              message: service === undefined
+                ? 'session shell selection is not configured on this host'
+                : `the "${shellChoice}" shell is unavailable on this host`,
+              details: {},
+            })
+          }
+        }
         try {
           await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined, requestedPreset, request.payload.modelProfile)
         } catch (error: unknown) {
@@ -3633,6 +3649,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // echoing the header would contradict both the adoption this call just
         // allowed and the row `session.list` serves for the same session.
         const created = ctx.agents.get(sessionId)
+        // A birth shell choice is one durable event at session birth: it
+        // persists even when it equals today's default, so a later default
+        // change never shifts a session the user pinned at creation.
+        if (shellChoice !== undefined && shellChoice !== 'platform-default' && created !== undefined) {
+          created.session.append('session-shell/change', { entry: shellChoice })
+        }
         const createdProfile = created === undefined ? undefined : resolveSessionProfile(created.session)
         const createdPolicy = created === undefined ? undefined : ctx.get('modelPolicy')?.profileOf(created.session)
         return ok(request, {
@@ -4016,11 +4038,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (service === undefined) {
           return err(request, { code: 'shell-unavailable', message: 'session shell switching is not configured on this host', details: {} })
         }
-        return ok(request, { current: service.family(found.agent.session), ...service.describe() })
+        const effective = service.effective(found.agent.session)
+        const described = service.describe()
+        return ok(request, {
+          current: {
+            entry: effective.entryId,
+            label: effective.label,
+            stack: effective.stack,
+            executablePath: effective.executablePath,
+            ...effective.degraded !== undefined ? { degraded: effective.degraded } : {},
+          },
+          switchable: described.switchable,
+          entries: described.entries,
+        })
       },
 
       async switchShell(request) {
-        const { sessionId, family } = request.payload
+        const { sessionId, entry } = request.payload
         const found = await activeAgentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const service: SessionShellService | undefined = ctx.get('sessionShell')
@@ -4028,7 +4062,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'shell-unavailable', message: 'session shell switching is not configured on this host', details: {} })
         }
         try {
-          return ok(request, { current: await service.switch(found.agent, family) })
+          return ok(request, { current: await service.switch(found.agent, entry) })
         } catch (error: unknown) {
           return err(request, { code: 'shell-unavailable', message: error instanceof Error ? error.message : String(error), details: {} })
         }
@@ -5547,6 +5581,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ...(ctx.get('governor') as { overview(): { tier: 'cgroup' | 'rlimit' | 'observe' } } | undefined) !== undefined
             ? { resourceGovernor: { tier: (ctx.get('governor') as { overview(): { tier: 'cgroup' | 'rlimit' | 'observe' } }).overview().tier } }
             : {},
+          // Shell registry snapshot for creation-time selection: boot-stable
+          // (restart-applied settings, boot-time probing), absent when this
+          // host composes no session-shell service.
+          ...((): { shell?: {
+            default: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string }
+            switchable: boolean
+            entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[]
+          } } => {
+            const service: SessionShellService | undefined = ctx.get('sessionShell')
+            if (service === undefined) return {}
+            const described = service.describe()
+            const effective = service.defaultEffective()
+            return {
+              shell: {
+                default: {
+                  entry: effective.entryId,
+                  label: effective.label,
+                  stack: effective.stack,
+                  executablePath: effective.executablePath,
+                },
+                switchable: described.switchable,
+                entries: described.entries,
+              },
+            }
+          })(),
         }))
       },
 

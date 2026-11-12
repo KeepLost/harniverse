@@ -15,15 +15,18 @@ export const name = 'session-shell-invariant'
 export const inject = ['invariants']
 
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
-/** Reject any committed change whose family is not one of the two selections. */
+/** Reject any committed change carrying neither an entry id nor a legacy family. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'session-shell/change') {
-    // Widened on purpose: the declared type says one of the two selections;
-    // the runtime check exists for exactly the case where it lies (foreign
-    // archives, older writers, hand-edited stores).
-    const family: unknown = event.data.family
-    if (family !== 'bash' && family !== 'pwsh') {
-      fail(`session-shell/change carries an unknown family ${JSON.stringify(family)}`)
+    // Widened on purpose: the declared type says an entry id; the runtime
+    // check exists for exactly the case where it lies (foreign archives,
+    // older writers, hand-edited stores).
+    const data: unknown = event.data
+    const entry: unknown = (data as { entry?: unknown } | null | undefined)?.entry
+    const family: unknown = (data as { family?: unknown } | null | undefined)?.family
+    const folded = entry ?? family
+    if (typeof folded !== 'string' || folded.length === 0) {
+      fail(`session-shell/change carries neither an entry id nor a legacy family: ${JSON.stringify(data)}`)
     }
   }
 }

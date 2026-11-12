@@ -1,21 +1,21 @@
-/** Package-owned invariant companion for `@deepseek-ai/dsh-shell-backend-settings`. */
+/** Package-owned invariant companion for `@deepseek-ai/dsh-shell-registry-settings`. */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-shell-backend-settings'
+const PACKAGE_NAME = '@deepseek-ai/dsh-shell-registry-settings'
 
 /** Cordis companion plugin name. */
-export const name = 'shell-backend-settings-invariant'
+export const name = 'shell-registry-settings-invariant'
 /** The invariant service owns registration of this companion. */
 export const inject = ['invariants']
 
 /**
  * No runtime invariant: the settings service owns namespace uniqueness,
- * validation, and registration disposal; the published switchboard is a pure
- * function of each resolved value (`resolveShellBackend`) and is exercised by
- * this package's suites.
+ * validation, and registration disposal; the resolved registry is a pure
+ * input consumed by the router's probe table and the single session
+ * resolver, both exercised by this package's and their suites.
  */
 const install: InvariantInstaller = () => {}
 

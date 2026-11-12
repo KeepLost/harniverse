@@ -509,6 +509,7 @@ export class SessionRuntime implements ISessions {
     cwd?: string
     sessionId?: SessionId
     agentProfile?: string
+    shell?: string
   } = {}): Promise<SessionId> {
     const manager = this.manager
     const result = await manager.create(opts)

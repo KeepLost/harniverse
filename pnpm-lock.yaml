@@ -310,9 +310,9 @@ importers:
       '@deepseek-ai/dsh-session-shell':
         specifier: workspace:^
         version: link:../../packages/shell/session-shell
-      '@deepseek-ai/dsh-shell-backend-settings':
+      '@deepseek-ai/dsh-shell-registry-settings':
         specifier: workspace:^
-        version: link:../../packages/shell/shell-backend-settings
+        version: link:../../packages/shell/shell-registry-settings
       '@deepseek-ai/dsh-shell-router':
         specifier: workspace:^
         version: link:../../packages/shell/shell-router
@@ -1711,12 +1711,12 @@ importers:
       '@deepseek-ai/dsh-settings-file':
         specifier: workspace:^
         version: link:../../settings/settings-file
-      '@deepseek-ai/dsh-shell-backend-settings':
-        specifier: workspace:^
-        version: link:../../shell/shell-backend-settings
       '@deepseek-ai/dsh-shell-env':
         specifier: workspace:^
         version: link:../../shell/shell-env
+      '@deepseek-ai/dsh-shell-registry-settings':
+        specifier: workspace:^
+        version: link:../../shell/shell-registry-settings
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../skill/skill
@@ -10463,6 +10463,9 @@ importers:
       '@deepseek-ai/dsh-scope':
         specifier: workspace:^
         version: link:../../core/scope
+      '@deepseek-ai/dsh-shell-router':
+        specifier: workspace:^
+        version: link:../shell-router
       zod:
         specifier: ^4.6.6
         version: 4.6.7
@@ -10485,9 +10488,6 @@ importers:
       '@deepseek-ai/dsh-shell':
         specifier: workspace:^
         version: link:../shell
-      '@deepseek-ai/dsh-shell-router':
-        specifier: workspace:^
-        version: link:../shell-router
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
@@ -10512,25 +10512,6 @@ importers:
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:^
         version: link:../../subprocess/subprocess
-
-  packages/shell/shell-backend-settings:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-settings':
-        specifier: workspace:^
-        version: link:../../settings/settings
-      '@deepseek-ai/dsh-shell':
-        specifier: workspace:^
-        version: link:../shell
 
   packages/shell/shell-env:
     dependencies:
@@ -10562,6 +10543,25 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+
+  packages/shell/shell-registry-settings:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
+      '@deepseek-ai/dsh-shell':
+        specifier: workspace:^
+        version: link:../shell
 
   packages/shell/shell-router:
     dependencies:

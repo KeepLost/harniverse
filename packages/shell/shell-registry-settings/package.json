@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-shell-backend-settings",
-  "description": "Root settings namespace for the Windows shell backend: platform-default PowerShell or Git Bash, published as the shellBackend switchboard the shell stacks gate on",
+  "name": "@deepseek-ai/dsh-shell-registry-settings",
+  "description": "Root settings namespace for the shell registry: registered shell entries plus the default sessions fall back to, exposed in-process for router probing and the session resolver",
   "version": "1.0.0-rc.3",
   "publishConfig": {
     "access": "public"
@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/shell/shell-backend-settings"
+    "directory": "packages/shell/shell-registry-settings"
   },
   "type": "module",
   "main": "lib/index.js",

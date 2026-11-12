@@ -1,23 +1,30 @@
 /**
- * The `shell-backend` namespace narrowing: the host schema already validates
+ * The `shell-registry` namespace narrowing: the host schema already validates
  * the wire section; this decoder only narrows it to the typed shape the
- * section renders, defaulting an absent backend to the composed
+ * section renders, defaulting an absent default to the reserved
  * `platform-default`.
  */
 
-/** One selectable shell family preference; mirrors the host plugin's union. */
-export type ShellBackendPreferenceValue = 'platform-default' | 'git-bash'
+/** One registered shell entry as the settings section renders it. */
+export interface ShellRegistryEntryValue {
+  /** Stable selector id. */
+  id: string
+  /** Executable path or PATH name. */
+  path: string
+  /** User-facing label; absent means the executable's basename. */
+  label?: string
+}
 
 /** The resolved namespace section the section form renders. */
 export interface ShellBackendSectionValue {
-  /** Stored preference; absent on the wire means the composed default `platform-default`. */
-  backend: ShellBackendPreferenceValue
+  /** Registry default: the reserved platform split, a builtin id, or one entry id. */
+  default: string
+  /** User-registered entries. */
+  entries: readonly ShellRegistryEntryValue[]
 }
 
 /** The host plugin's settings namespace, as the gateway exposes it. */
-export const SHELL_BACKEND_NS = 'shell-backend'
-
-const BACKENDS: readonly ShellBackendPreferenceValue[] = ['platform-default', 'git-bash']
+export const SHELL_BACKEND_NS = 'shell-registry'
 
 /**
  * Narrow one wire section to {@link ShellBackendSectionValue}.
@@ -26,9 +33,23 @@ const BACKENDS: readonly ShellBackendPreferenceValue[] = ['platform-default', 'g
  */
 export function decodeShellBackendSection(section: unknown): ShellBackendSectionValue | undefined {
   if (typeof section !== 'object' || section === null) return undefined
-  const backend = (section as Record<string, unknown>).backend
-  if (backend === undefined) return { backend: 'platform-default' }
-  return BACKENDS.includes(backend as ShellBackendPreferenceValue)
-    ? { backend: backend as ShellBackendPreferenceValue }
+  const record = section as Record<string, unknown>
+  const def = record.default
+  const rawEntries = record.entries
+  const entries: ShellRegistryEntryValue[] = Array.isArray(rawEntries)
+    ? rawEntries.flatMap((entry): ShellRegistryEntryValue[] => {
+      if (typeof entry !== 'object' || entry === null) return []
+      const { id, path, label } = entry as Record<string, unknown>
+      if (typeof id !== 'string' || typeof path !== 'string') return []
+      return [{
+        id,
+        path,
+        ...(typeof label === 'string' && label.length > 0 ? { label } : {}),
+      }]
+    })
+    : []
+  if (def === undefined) return { default: 'platform-default', entries }
+  return typeof def === 'string'
+    ? { default: def, entries }
     : undefined
 }

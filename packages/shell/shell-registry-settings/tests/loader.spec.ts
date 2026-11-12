@@ -36,8 +36,8 @@ async function runCase(options: {
     await writeFile(join(cwd, '.dsh', 'settings.yaml'), seed)
   }
   const { stderr } = await runLoaderSmoke({
-    label: 'shell-backend loader smoke',
-    tempDirPrefix: 'shell-backend-loader-',
+    label: 'shell-registry loader smoke',
+    tempDirPrefix: 'shell-registry-loader-',
     binScript: driver,
     libBinScript: driver,
     configPath,
@@ -45,15 +45,15 @@ async function runCase(options: {
     ...options.env === undefined ? {} : { env: options.env },
     ...prepare === undefined ? {} : { prepare },
     inspect: async (cwd) => {
-      report = JSON.parse(await readFile(join(cwd, 'shell-backend-loader-report.json'), 'utf8')) as ShellBackendLoaderReport
+      report = JSON.parse(await readFile(join(cwd, 'shell-registry-loader-report.json'), 'utf8')) as ShellBackendLoaderReport
     },
   })
   return { report, stderr }
 }
 
-describe('shell-backend through a real Loader composition', () => {
-  it('follows the seeded git-bash document into the bash stack', async () => {
-    const { report, stderr } = await runCase({ seed: 'shell-backend:\n  backend: git-bash\n' })
+describe('shell-registry through a real Loader composition', () => {
+  it('follows a seeded custom default entry into its dialect stack', async () => {
+    const { report, stderr } = await runCase({ seed: 'shell-registry:\n  default: my-git-bash\n  entries:\n    - id: my-git-bash\n      path: bash\n' })
     expect(stderr).not.toContain('UNHANDLED')
     expect(report).toBeDefined()
     expect(report).toMatchObject({

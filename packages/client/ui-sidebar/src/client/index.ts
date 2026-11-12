@@ -31,12 +31,29 @@ export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-sidebar: dictionaries')
 
-  const injectProps = (): SidebarRootInjected => ({
+  const injectProps = (): SidebarRootInjected => {
     // The shell's New Session button rides the runtime's shared action
-    // (current Session Workspace, then recent Workspace).
-    startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
-    toggleSidebar: () => { ctx.layout.toggleSidebar() },
-  })
+    // (current Session Workspace, then recent Workspace). The shell menu
+    // reads the host description's boot-stable registry snapshot.
+    const connection = ctx.get('connection') as { hostDescription: { getSnapshot(): { shell?: {
+      default: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string }
+      switchable: boolean
+      entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[]
+    } } | undefined } } | undefined
+    const shell = connection?.hostDescription.getSnapshot()?.shell
+    return {
+      startSession: (workspaceId, shellChoice) => {
+        if (shellChoice === undefined) ctx.workspaces.startSession(workspaceId)
+        else ctx.workspaces.startSession(workspaceId, undefined, undefined, shellChoice)
+      },
+      toggleSidebar: () => { ctx.layout.toggleSidebar() },
+      shellChoices: shell === undefined
+        ? undefined
+        : shell.entries.map(entry => ({
+          id: entry.id, label: entry.label, stack: entry.stack, available: entry.available,
+        })),
+    }
+  }
   ctx.effect(
     () => ctx.slots.register({
       name: 'sidebar',
