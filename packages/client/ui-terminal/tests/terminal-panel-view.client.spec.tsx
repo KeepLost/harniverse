@@ -517,14 +517,17 @@ describe('TerminalPanelView', () => {
   it('hides the session shell toggle when the host reports no switching', () => {
     mount({ session: 's1' as SessionId, panel: { shellSession: undefined } })
     expect(screen.queryByRole('group', { name: zh['sessionShell.label'] })).toBeNull()
-    mount({ session: 's1' as SessionId, panel: { shellSession: { current: 'bash', switchable: false, families: { bash: true, pwsh: false }, pending: false } } })
+    mount({ session: 's1' as SessionId, panel: { shellSession: { current: 'posix', switchable: false, entries: [{ id: 'posix', label: 'bash', stack: 'bash', available: true }], pending: false } } })
     expect(screen.queryByRole('group', { name: zh['sessionShell.label'] })).toBeNull()
   })
 
   it('renders the toggle with pressed and disabled families and drives the switch verb', () => {
     const harness = mount({
       session: 's1' as SessionId,
-      panel: { shellSession: { current: 'bash', switchable: true, families: { bash: true, pwsh: false }, pending: false } },
+      panel: { shellSession: { current: 'posix', switchable: true, pending: false, entries: [
+        { id: 'posix', label: 'bash', stack: 'bash', available: true },
+        { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: false },
+      ] } },
     })
     // The segmented buttons carry literal family names, not locale keys.
     const pwsh = screen.getByRole('button', { name: 'pwsh' }) as HTMLButtonElement
@@ -533,7 +536,7 @@ describe('TerminalPanelView', () => {
     expect(pwsh.disabled).toBe(true)
     expect(bashButton.disabled).toBe(false)
     fireEvent.click(bashButton)
-    expect(harness.switchSessionShell).toHaveBeenCalledWith('bash')
+    expect(harness.switchSessionShell).toHaveBeenCalledWith('posix')
   })
 
   it('a family switch re-aims the shell picker at a matching discovered shell', async () => {
@@ -544,7 +547,10 @@ describe('TerminalPanelView', () => {
           { path: '/bin/bash', args: [], name: 'bash' },
           { path: '/usr/bin/pwsh', args: [], name: 'pwsh' },
         ],
-        shellSession: { current: 'bash', switchable: true, families: { bash: true, pwsh: true }, pending: false },
+        shellSession: { current: 'posix', switchable: true, pending: false, entries: [
+          { id: 'posix', label: 'bash', stack: 'bash', available: true },
+          { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: true },
+        ] },
       },
     })
     const select = document.getElementById('terminal-panel-shell') as HTMLSelectElement
@@ -552,7 +558,10 @@ describe('TerminalPanelView', () => {
     // the family match rather than the first entry.
     await waitFor(() => { expect(select.value).toBe('/bin/bash') })
     act(() => {
-      harness.setPanel({ shellSession: { current: 'pwsh', switchable: true, families: { bash: true, pwsh: true }, pending: false } })
+      harness.setPanel({ shellSession: { current: 'pwsh', switchable: true, pending: false, entries: [
+        { id: 'posix', label: 'bash', stack: 'bash', available: true },
+        { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: true },
+      ] } })
     })
     await waitFor(() => { expect(select.value).toBe('/usr/bin/pwsh') })
   })

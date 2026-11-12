@@ -81,9 +81,20 @@ export type SidebarRootInjected = {
    * and open it; without one, inherit the current Session Workspace, then the
    * recent Workspace, or clear into the New Session pure view when none exist.
    */
-  startSession: (workspaceId?: WorkspaceId) => void
+  startSession: (workspaceId?: WorkspaceId, shell?: string) => void
   /** Toggle the sidebar column through the layout service. */
   toggleSidebar: () => void
+  /**
+   * Shell registry snapshot from the host description: the boot-stable
+   * default and every entry's probe status, for the New Session shell menu.
+   * Undefined when this host exposes no shell selection.
+   */
+  shellChoices: readonly {
+    id: string
+    label: string
+    stack: 'bash' | 'pwsh'
+    available: boolean
+  }[] | undefined
 }
 
 /**

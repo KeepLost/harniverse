@@ -26,6 +26,15 @@ export const zh = {
   'saved': '已保存，重启后生效。',
   'saveFailed': '保存失败：{message}',
   'unknownError': '未知错误',
+  'entries.title': '自定义 Shell',
+  'entries.intro': '注册主机上的额外 shell（按可执行文件路径或 PATH 名）；保存的更改在下次启动时生效，新会话可在创建时或在终端面板中选用。',
+  'entries.empty': '尚未注册自定义 shell。',
+  'entries.remove': '移除',
+  'entries.add': '添加',
+  'entries.id': '标识（小写连字符）',
+  'entries.path': '可执行文件',
+  'entries.probeOk': '可用',
+  'entries.probeFail': '主机上不可用',
 } as const
 
 /** English dictionary (mirrors the Chinese key set). */
@@ -48,4 +57,13 @@ export const en: Record<ShellBackendLocaleKey, string> = {
   'saved': 'Saved; applies on the next start.',
   'saveFailed': 'Save failed: {message}',
   'unknownError': 'Unknown error',
+  'entries.title': 'Custom shells',
+  'entries.intro': 'Register extra shells on the host (by executable path or PATH name); a saved change applies on the next start, and new sessions can pick one at creation or from the terminal panel.',
+  'entries.empty': 'No custom shells registered yet.',
+  'entries.remove': 'Remove',
+  'entries.add': 'Add',
+  'entries.id': 'Id (lowercase hyphens)',
+  'entries.path': 'Executable',
+  'entries.probeOk': 'Available',
+  'entries.probeFail': 'Unavailable on the host',
 }

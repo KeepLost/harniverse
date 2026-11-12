@@ -568,6 +568,7 @@ export class SessionManager {
       sessionId?: SessionId
       agentProfile?: string
       modelProfile?: string
+      shell?: string
     } = {},
   ): Promise<RpcResult<{ sessionId: SessionId }>> {
     try {
@@ -575,6 +576,7 @@ export class SessionManager {
         ...opts.sessionId === undefined ? {} : { sessionId: opts.sessionId },
         ...opts.agentProfile === undefined ? {} : { agentProfile: opts.agentProfile },
         ...opts.modelProfile === undefined ? {} : { modelProfile: opts.modelProfile },
+        ...opts.shell === undefined ? {} : { shell: opts.shell },
       }
       const payload = opts.workspaceId !== undefined
         ? { workspaceId: opts.workspaceId, ...shared }

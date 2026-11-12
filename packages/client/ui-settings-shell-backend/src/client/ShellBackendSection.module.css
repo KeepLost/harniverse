@@ -68,3 +68,48 @@
   color: var(--dsw-alias-label-secondary);
   font-size: 13px;
 }
+
+.legend {
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.addRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.addField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.addField input {
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-primary);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+/* Entry rows sit horizontally: identity, path, then the remove action. */
+.entryRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.entryRow .hint {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -280,3 +280,26 @@
     animation: none;
   }
 }
+
+/* The New Session row: the primary button plus the shell-choice caret. */
+.newSessionRow {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.newSessionCaret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  border: none;
+  border-radius: var(--dsw-alias-radius-s, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-2, inherit);
+  cursor: pointer;
+}
+
+.newSessionCaret:hover {
+  background: var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.12));
+}

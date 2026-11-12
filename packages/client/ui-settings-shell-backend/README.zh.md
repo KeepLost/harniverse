@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Shell 默认设置页:基于宿主 `shell-registry` 设置命名空间(`@deepseek-ai/dsh-shell-registry-settings`)的注册表默认单选组。写入经由绑定的 settings scope 作为单个 `default` 字段进行;该命名空间声明 `applies: 'restart'`,应用启动桥会在下次启动时把存储的注册表解析为 `$DSH_SHELL_BACKEND`(外加自定义默认条目的可执行文件),shell 行随之重新组合。选项覆盖保留的平台拆分、两个内置项(`posix`、`pwsh`)与每条已注册自定义条目(以路径标注);显式默认在所有平台都有意义。
+Shell 注册表设置页:基于宿主 `shell-registry` 设置命名空间(`@deepseek-ai/dsh-shell-registry-settings`)的注册表默认单选组与自定义条目列表。写入经由绑定的 settings scope 作为 `default` 与 `entries` 字段进行;该命名空间声明 `applies: 'restart'`,应用启动桥会在下次启动时把存储的注册表解析为 `$DSH_SHELL_BACKEND`(外加自定义默认条目的可执行文件),shell 行随之重新组合。选项覆盖保留的平台拆分、两个内置项(`posix`、`pwsh`)与每条已注册自定义条目(以路径标注);显式默认在所有平台都有意义。自定义条目登记一个标识与一个可执行文件(路径或 PATH 名);条目级探测徽标来自启动时的主机描述快照,反映上一次启动的探测结果。
 
 ## 组合
 
@@ -17,7 +17,7 @@ Shell 默认设置页:基于宿主 `shell-registry` 设置命名空间(`@deepsee
 ## 设置页行为
 
 - 命名空间解析完成后渲染表单;网关未暴露的命名空间显示不可用提示。
-- 保存只在草稿与已解析值不同时写入 `default` 字段,落定的修订会被自动采纳;草稿干净时外部修订同样被采纳。
+- 保存只在默认草稿与已解析值不同时写入 `default` 字段,只在条目草稿列表结构不同时写入 `entries` 字段;落定的修订会被自动采纳,草稿干净时外部修订同样被采纳。
 - 保存提示会说明重启生效——不会实时切换任何东西。
 - 写入被拒绝会展示服务器消息;只读身份下所有控件禁用并显示只读提示。
 
@@ -32,4 +32,5 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 ## Known Limitations and Deferred Work
 
 - **Restart-applied, not live** — the section edits the durable preference only; the running process keeps its composed shell family until the next start (the namespace declares `applies: 'restart'`).
-- **此处不探测条目可用性**——表单不验证可执行文件能否解析;缺失的安装经由下次启动的 shell 工具(及启动探测的警告)暴露,而非本表单。条目 CRUD(注册/编辑/删除自定义 shell)为后续工作:本节仅编辑默认值。
+- **探测徽标随启动快照**——徽标反映启动时主机描述的探测结果(重启生效),不做实时再探测;表单自身不验证可执行文件能否解析。缺失的安装下次启动后经徽标暴露,此前经 shell 工具的拒绝暴露。
+- **条目编辑仅为增删**——原位编辑既有条目的标识或路径等价于先删后加;slug/方言类/保留字/重复 id 规则由命名空间校验强制执行,并以拒绝写入的提示原文呈现。
