@@ -63,11 +63,13 @@ Token 计数是不相交的:`inputTokens` 不含缓存输入,因此上下文 = i
 
 </details>
 
+<a id="further-exploration"></a>
 ## 延伸阅读
 
 - `docs/cookbook/adding-a-conversation-node.md` —— 这些定义遵循的会话节点纪律。
 - 上游 `packages/session/session-stats` —— 整日志投影模式;本视图的合计保持在已加载窗口范围内。
 
+<a id="dev-note"></a>
 ## 开发注记
 
 吸收自官方 `dsh-experimental-client-ui-stats` 线(wave-6 row 8):逐步事实视图被裁定在"禁本地计量"默认之外,而计费与成本核算仍被禁止。触发词汇遵循本代码库的消息来源(用户提示、带声明形式的插件注入)——官方的团队消息发送者列在此没有对应物。
@@ -80,6 +82,7 @@ Token 计数是不相交的:`inputTokens` 不含缓存输入,因此上下文 = i
 
 无;本包既不装配也不发送提供方请求。
 
+<a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与后续工作
 
 - **合计仅覆盖已加载窗口,非整日志** —— 数字派生自分页进入的事件窗口;整日志投影(上游 `dsh-session-stats` 模式)需要宿主侧折叠。
