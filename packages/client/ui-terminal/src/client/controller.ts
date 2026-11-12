@@ -212,10 +212,11 @@ export class TerminalPanelController {
   }
 
   /**
-   * Switch the session's shell family. Purely a pointer change host-side: the
-   * next model request announces the new family and its tool catalog; running
-   * terminals and background jobs are untouched.
-   * @param family - family to select.
+   * Switch the session's shell stack. Purely a pointer change host-side: the
+   * next model request announces the new shell and its tool catalog; running
+   * terminals and background jobs are untouched. The stack's builtin entry
+   * rides the entry-addressed RPC (the host folds the legacy vocabulary).
+   * @param family - stack to select.
    */
   switchSessionShell(family: 'bash' | 'pwsh'): void {
     const snapshot = this.state.getSnapshot()
@@ -224,14 +225,15 @@ export class TerminalPanelController {
     const shellSession = snapshot.shellSession
     if (shellSession === undefined || shellSession.pending || shellSession.current === family) return
     this.patchState({ shellSession: { ...shellSession, pending: true } })
-    void sessions.switchShell({ sessionId: snapshot.session, family }).then((response) => {
+    void sessions.switchShell({ sessionId: snapshot.session, entry: family }).then((response) => {
       const latest = this.state.getSnapshot().shellSession
       if (latest === undefined || this.disposed) return
       if (!response.result.ok) {
         this.patchState({ shellSession: { ...latest, pending: false }, error: response.result.error.message })
         return
       }
-      this.patchState({ shellSession: { ...latest, current: response.result.value.current, pending: false } })
+      const settled = response.result.value.current
+      this.patchState({ shellSession: { ...latest, current: settled === 'pwsh' ? 'pwsh' : 'bash', pending: false } })
     })
   }
 
@@ -383,7 +385,21 @@ export class TerminalPanelController {
         // undefined keeps the early-out observable.
         if (!response.result.ok) return undefined
         if (this.state.getSnapshot().session !== sessionId || this.disposed) return undefined
-        this.patchState({ shellSession: { ...response.result.value, pending: false } })
+        const value = response.result.value
+        // The stack-level view over the entry-addressed read: the current
+        // stack drives the active button; per-stack availability the disabled
+        // states.
+        this.patchState({
+          shellSession: {
+            current: value.current.stack,
+            switchable: value.switchable,
+            families: {
+              bash: value.entries.some(entry => entry.stack === 'bash' && entry.available),
+              pwsh: value.entries.some(entry => entry.stack === 'pwsh' && entry.available),
+            },
+            pending: false,
+          },
+        })
         return undefined
       })
     }

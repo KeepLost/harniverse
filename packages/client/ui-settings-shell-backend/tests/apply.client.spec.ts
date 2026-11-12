@@ -78,8 +78,8 @@ describe('ui-settings-shell-backend apply', () => {
       set: (field: string, value: unknown) => Promise<void>
     }
     expect(face.hooks.scope).toBe(scope)
-    await face.set('backend', 'git-bash')
-    expect(setMock).toHaveBeenCalledWith('backend', 'git-bash')
+    await face.set('default', 'posix')
+    expect(setMock).toHaveBeenCalledWith('default', 'posix')
     await ctx.fiber.dispose()
   })
 
@@ -106,22 +106,36 @@ describe('ui-settings-shell-backend apply', () => {
 })
 
 describe('decodeShellBackendSection', () => {
-  it('accepts each stored preference', () => {
-    expect(decodeShellBackendSection({ backend: 'git-bash' })).toEqual({ backend: 'git-bash' })
-    expect(decodeShellBackendSection({ backend: 'platform-default' })).toEqual({ backend: 'platform-default' })
+  it('drops null, non-object, and unlabeled entry rows without failing the section', () => {
+    expect(decodeShellBackendSection({
+      default: 'my-zsh',
+      entries: [null, 'nope', 42, { id: 'my-zsh', path: '/bin/zsh' }, { id: 'other', path: '/bin/sh', label: '' }],
+    })).toEqual({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/bin/zsh' }, { id: 'other', path: '/bin/sh' }] })
   })
 
-  it('defaults an absent backend to the platform default', () => {
-    expect(decodeShellBackendSection({})).toEqual({ backend: 'platform-default' })
+  it('keeps the last accepted value on a non-array entries field', () => {
+    expect(decodeShellBackendSection({ default: 'posix', entries: 'oops' })).toEqual({ default: 'posix', entries: [] })
+  })
+
+  it('accepts each stored default and narrows the entry list', () => {
+    expect(decodeShellBackendSection({ default: 'posix' })).toEqual({ default: 'posix', entries: [] })
+    expect(decodeShellBackendSection({ default: 'platform-default' })).toEqual({ default: 'platform-default', entries: [] })
+    expect(decodeShellBackendSection({
+      default: 'my-zsh',
+      entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh', label: 'Work zsh' }, { id: 7, path: '/bin/bash' }],
+    })).toEqual({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh', label: 'Work zsh' }] })
+  })
+
+  it('defaults an absent default to the platform split', () => {
+    expect(decodeShellBackendSection({})).toEqual({ default: 'platform-default', entries: [] })
   })
 
   it('rejects a non-object section', () => {
-    expect(decodeShellBackendSection('git-bash')).toBeUndefined()
+    expect(decodeShellBackendSection('posix')).toBeUndefined()
     expect(decodeShellBackendSection(null)).toBeUndefined()
   })
 
-  it('rejects an unknown or wrongly typed backend', () => {
-    expect(decodeShellBackendSection({ backend: 'wsl' })).toBeUndefined()
-    expect(decodeShellBackendSection({ backend: 7 })).toBeUndefined()
+  it('rejects a wrongly typed default', () => {
+    expect(decodeShellBackendSection({ default: 7 })).toBeUndefined()
   })
 })

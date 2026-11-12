@@ -2,7 +2,7 @@
 /**
  * Test driver: boot the shellBackend Loader composition (settings provider
  * seeded with `git-bash`, both shell stacks ungated) and persist the observed
- * composition facts to `./shell-backend-loader-report.json` for the package
+ * composition facts to `./shell-registry-loader-report.json` for the package
  * spec's inspect step.
  */
 
@@ -14,9 +14,9 @@ if (configPath === undefined) throw new Error('shell-backend driver requires a c
 
 const ctx = await boot('shell-backend-loader-smoke', resolveConfigPath(configPath, undefined))
 try {
-  const described = ctx.settings.describe().find(entry => entry.ns === 'shell-backend')
+  const described = ctx.settings.describe().find(entry => entry.ns === 'shell-registry')
   const toolNames = ctx.tools.schemas().map(tool => tool.name)
-  await writeFile('./shell-backend-loader-report.json', JSON.stringify({
+  await writeFile('./shell-registry-loader-report.json', JSON.stringify({
     nsApplies: described?.applies,
     publishedEnv: process.env.DSH_SHELL_BACKEND,
     shellService: ctx.get('shell')?.constructor?.name,

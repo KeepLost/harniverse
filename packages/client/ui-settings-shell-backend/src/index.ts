@@ -4,7 +4,7 @@
  * half ships via exports["./client"], discovered through the package.json
  * dsh.client declaration. The stored preference is resolved by the app boot
  * bridge into `$DSH_SHELL_BACKEND` on the next start
- * (`@deepseek-ai/dsh-shell-backend-settings`).
+ * (`@deepseek-ai/dsh-shell-registry-settings`).
  */
 
 /** Host plugin body — no host-side behavior for this surface plugin. */

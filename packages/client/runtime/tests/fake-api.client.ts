@@ -227,14 +227,32 @@ export class FakeApiClient implements IApiClient {
       attachmentsRetained: true as const,
     }))),
     shell: (payload: unknown) => this.record('session.shell', payload, Promise.resolve(ok({
-      current: process.platform === 'win32' ? ('pwsh' as const) : ('bash' as const),
+      current: {
+        entry: process.platform === 'win32' ? 'pwsh' : 'posix',
+        label: process.platform === 'win32' ? 'pwsh' : 'bash',
+        stack: process.platform === 'win32' ? ('pwsh' as const) : ('bash' as const),
+        executablePath: process.platform === 'win32' ? 'pwsh' : 'bash',
+      },
       switchable: false,
-      families: process.platform === 'win32'
-        ? { bash: false, pwsh: true }
-        : { bash: true, pwsh: false },
+      entries: [
+        {
+          id: 'posix',
+          label: 'bash',
+          stack: 'bash' as const,
+          available: process.platform !== 'win32',
+          ...(process.platform !== 'win32' ? { resolvedPath: 'bash' } : { reason: 'not found' }),
+        },
+        {
+          id: 'pwsh',
+          label: 'pwsh',
+          stack: 'pwsh' as const,
+          available: process.platform === 'win32',
+          ...(process.platform === 'win32' ? { resolvedPath: 'pwsh' } : { reason: 'not found' }),
+        },
+      ],
     }))),
     switchShell: (payload: unknown) => this.record('session.switchShell', payload, Promise.resolve(ok({
-      current: (payload as { family: 'bash' | 'pwsh' }).family,
+      current: (payload as { entry: string }).entry === 'pwsh' ? 'pwsh' : 'posix',
     }))),
   }
 

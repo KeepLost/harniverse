@@ -88,7 +88,7 @@ describe('the shipped shell composition (real bundle layers)', () => {
     for (const name of [
       '@deepseek-ai/dsh-pwsh-sandbox',
       '@deepseek-ai/dsh-tool-pwsh',
-      '@deepseek-ai/dsh-shell-backend-settings',
+      '@deepseek-ai/dsh-shell-registry-settings',
       '@deepseek-ai/dsh-shell-router',
       '@deepseek-ai/dsh-session-shell',
     ]) {

@@ -22,7 +22,15 @@ import Loader, { type Entry, type EntryOptions } from '@deepseek-ai/cordis-plugi
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Group from '@deepseek-ai/cordis-plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { resolveShellBackend, SHELL_BACKEND_ENV, type ShellBackendPreference } from '@deepseek-ai/dsh-shell'
+import {
+  BUILTIN_POSIX_ID,
+  BUILTIN_PWSH_ID,
+  registryEntryIndex,
+  resolveRegistryDefaultStack,
+  SHELL_BACKEND_ENV,
+  SHELL_DEFAULT_PATH_ENV,
+} from '@deepseek-ai/dsh-shell'
+import type { ShellRegistryDocument, ShellRegistryEntry } from '@deepseek-ai/dsh-shell'
 import { EXEC_WORLD_ENV, HOST_WORKSPACE_ROOT_ENV, resolveExecWorld, type ExecWorldAvailability, type ExecWorldPreference } from '@deepseek-ai/dsh-vm'
 import { probeWorld } from '@deepseek-ai/dsh-vm-qemu-local'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
@@ -751,7 +759,7 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   }
 }
 
-export { SHELL_BACKEND_ENV } from '@deepseek-ai/dsh-shell'
+export { SHELL_BACKEND_ENV, SHELL_DEFAULT_PATH_ENV } from '@deepseek-ai/dsh-shell'
 
 /** Options steering {@link applyShellBackendBootEnv}; every field defaults to this process. */
 export interface ShellBackendBootEnvOptions {
@@ -764,43 +772,74 @@ export interface ShellBackendBootEnvOptions {
 }
 
 /**
- * Read the stored `shell-backend` preference from the user settings document.
+ * Read the stored `shell-registry` document from the user settings file.
+ * Malformed shapes fall back to the empty registry: the settings provider
+ * owns the loud read/validation error when it loads, and composition takes
+ * the platform default meanwhile.
  * @param home - harness home holding `settings.yaml`.
- * @returns The stored preference, or `'platform-default'` when absent.
+ * @returns The stored registry document, or the empty default registry.
  */
-function readStoredShellBackend(home: string): ShellBackendPreference {
+function readStoredShellRegistry(home: string): ShellRegistryDocument {
   try {
     const document: unknown = yaml.load(readFileSync(join(home, 'settings.yaml'), 'utf8'))
     const section = typeof document === 'object' && document !== null
-      ? (document as Record<string, unknown>)['shell-backend']
+      ? (document as Record<string, unknown>)['shell-registry']
       : undefined
-    const backend = typeof section === 'object' && section !== null
-      ? (section as Record<string, unknown>).backend
+    const def = typeof section === 'object' && section !== null
+      ? (section as Record<string, unknown>).default
       : undefined
-    return backend === 'git-bash' ? 'git-bash' : 'platform-default'
+    const rawEntries = typeof section === 'object' && section !== null
+      ? (section as Record<string, unknown>).entries
+      : undefined
+    const entries: ShellRegistryEntry[] = Array.isArray(rawEntries)
+      ? rawEntries.flatMap((entry): ShellRegistryEntry[] => {
+        if (typeof entry !== 'object' || entry === null) return []
+        const { id, path, label } = entry as Record<string, unknown>
+        if (typeof id !== 'string' || typeof path !== 'string') return []
+        return [{
+          id,
+          path,
+          ...(typeof label === 'string' && label.length > 0 ? { label } : {}),
+        }]
+      })
+      : []
+    return {
+      default: typeof def === 'string' ? def : 'platform-default',
+      entries,
+    }
   } catch {
     // Absent, unreadable, or malformed document: the settings provider owns
     // the loud read/validation error when it loads; composition takes the
     // default meanwhile.
-    return 'platform-default'
+    return { default: 'platform-default', entries: [] }
   }
 }
 
 /**
- * Publish the resolved shell backend as `$DSH_SHELL_BACKEND` before the config
- * tree mounts, so the shell rows' `disabled` expressions evaluate against a
- * settled value (loader entries start concurrently, so a service-based gate
- * would race). An explicit non-blank env value wins over the document, the
- * same escape-hatch shape as `$DSH_PERMISSION_MODE`; a committed settings
- * change therefore applies on the next start.
+ * Publish the resolved shell stack (and, for a custom registry default, its
+ * executable) before the config tree mounts, so the shell rows' `disabled`
+ * expressions evaluate against a settled value (loader entries start
+ * concurrently, so a service-based gate would race). An explicit non-blank
+ * `$DSH_SHELL_BACKEND` wins over the whole document default — the same
+ * escape-hatch shape as `$DSH_PERMISSION_MODE`; a committed settings change
+ * therefore applies on the next start.
  * @param options - overrides for testability; defaults act on this process.
  */
 export function applyShellBackendBootEnv(options: ShellBackendBootEnvOptions = {}): void {
   const env = options.env ?? process.env
   const explicit = env[SHELL_BACKEND_ENV]
   if (explicit !== undefined && explicit.trim().length > 0) return
-  const preference = readStoredShellBackend(options.home ?? resolveDshHome())
-  env[SHELL_BACKEND_ENV] = resolveShellBackend(options.platform ?? process.platform, preference)
+  const platform = options.platform ?? process.platform
+  const registry = readStoredShellRegistry(options.home ?? resolveDshHome())
+  env[SHELL_BACKEND_ENV] = resolveRegistryDefaultStack(platform, registry)
+  const defaultEntry = registryEntryIndex(platform, registry).get(
+    registry.default === 'bash' ? 'posix' : registry.default,
+  )
+  if (defaultEntry !== undefined
+    && defaultEntry.id !== BUILTIN_POSIX_ID && defaultEntry.id !== BUILTIN_PWSH_ID
+    && defaultEntry.stack === env[SHELL_BACKEND_ENV]) {
+    env[SHELL_DEFAULT_PATH_ENV] = defaultEntry.path
+  }
 }
 
 export { EXEC_WORLD_ENV }

@@ -29,6 +29,11 @@ import { processJob } from './background.ts'
 import { runPromotableForeground } from './promotable.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
 
+/** Structural face of the session-shell service, when the composition carries it. */
+interface SessionShellFace {
+  dispatchTarget(agent: Agent): { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string } | undefined
+}
+
 export const name = 'tool-bash'
 export const inject = ['tools', 'shell', 'systemPrompt', 'shellEnv']
 
@@ -406,11 +411,19 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'shell' as const,
       }
       const limits = correlation === undefined ? undefined : governor?.limitsFor(correlation.sessionId)
+      // The session's request-frozen promise: when its stack is this tool's
+      // family, the promised executable is exactly what the model was told
+      // runs, so the call stamps it and the executor never re-resolves.
+      const sessionShell = ctx.get('sessionShell') as SessionShellFace | undefined
+      const target = sessionShell !== undefined && exec.agent !== undefined
+        ? sessionShell.dispatchTarget(exec.agent)
+        : undefined
       const request = {
         command: call.command,
         // Stamped by the family's own tool: the visible tool and the executor
         // family stay aligned on routed (multi-family) hosts.
         family: 'bash' as const,
+        ...target?.stack === 'bash' ? { shellPath: target.executablePath } : {},
         ...workdir !== undefined ? { workdir } : {},
         ...call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {},
         dshEnv,

@@ -99,6 +99,12 @@ describe('the provider hand-off', () => {
     }])
   })
 
+
+  it('threads the spec-materialized executable into the confined argv', async () => {
+    const { bash, calls } = await setup()
+    await bash.run(bash.resolve({ command: 'echo hi', shellPath: '/bin/sh' }))
+    expect(calls[0]?.argv).toEqual(['/bin/sh', '-c', 'echo hi'])
+  })
   it('hands the provider\'s returned argv directly to ctx.subprocess.spawn', async () => {
     const returnedArgv = ['env', 'DSH_WRAP=1', 'bash', '-c', 'printf "%s" "$DSH_WRAP"']
     const { ctx, bash } = await setup({}, () => ({ argv: returnedArgv, enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureRules: RUNNER_FAILURE }))

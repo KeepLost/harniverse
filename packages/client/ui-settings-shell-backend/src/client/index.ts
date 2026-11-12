@@ -1,10 +1,10 @@
 /**
- * Shell backend settings plugin, browser half: contributes the Settings →
- * Shell 后端 section (`settings.section`) over the host `shell-backend`
- * settings namespace. The section edits the durable `backend` field only;
+ * Shell default settings plugin, browser half: contributes the Settings →
+ * Shell 默认 section (`settings.section`) over the host `shell-registry`
+ * settings namespace. The section edits the durable `default` field only;
  * the namespace declares `applies: 'restart'`, so the app boot bridge
- * resolves the stored preference into `$DSH_SHELL_BACKEND` and the shell
- * tool rows re-compose on the next start.
+ * resolves the stored registry into `$DSH_SHELL_BACKEND` (plus a custom
+ * default's executable) and the shell rows re-compose on the next start.
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -29,8 +29,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'locale', 'settingsScope']
 
 /**
- * Client plugin body: register the dictionaries and the Shell backend
- * settings section bound to the host `shell-backend` namespace.
+ * Client plugin body: register the dictionaries and the Shell default
+ * settings section bound to the host `shell-registry` namespace.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {

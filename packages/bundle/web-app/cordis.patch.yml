@@ -191,6 +191,10 @@
     # from this composition.
     - id: shell-router
       name: '@deepseek-ai/dsh-shell-router'
+      # The router probes the shell registry itself and stamps unstamped
+      # requests with the default entry's materialized path, so the boot
+      # bridge's `$DSH_SHELL_DEFAULT_PATH` stays a base-bundle (single-stack)
+      # concern and must NOT thread family configs here.
       config:
         families:
           bash:
@@ -391,9 +395,9 @@
     - id: ui-settings-network-proxy
       name: '@deepseek-ai/dsh-client-ui-settings-network-proxy'
 
-    # Shell 后端设置页：PowerShell / Git Bash 单选，写入 shell-backend
+    # Shell 默认设置页：注册表默认单选，写入 shell-registry
     # 设置命名空间（applies: restart），启动桥在下次启动时解析为
-    # $DSH_SHELL_BACKEND 并重新组合 shell 工具行。
+    # $DSH_SHELL_BACKEND（及自定义默认条目的可执行文件）并重新组合 shell 行。
     - id: ui-settings-shell-backend
       name: '@deepseek-ai/dsh-client-ui-settings-shell-backend'
 

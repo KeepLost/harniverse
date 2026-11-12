@@ -383,6 +383,12 @@ export interface SessionsApi {
     sessionId?: SessionId
     agentProfile?: string
     modelProfile?: string
+    /**
+     * Registry entry the session's shell tool runs under from birth; an
+     * unavailable entry fails the create with `shell-unavailable` before
+     * anything is created. Absent uses the host default.
+     */
+    shell?: string
   }>):
   Promise<RpcResponse<{ sessionId: SessionId; agentProfile?: string; modelProfile?: string }>>
 
@@ -451,21 +457,29 @@ export interface SessionsApi {
   Promise<RpcResponse<{ profile: ModelProfileDescriptor; target?: ModelTarget; selected?: ModelSelection }>>
 
   /**
-   * Read the session's effective shell family and every family this host
-   * serves. `switchable` is false on hosts without the shell router, and
-   * `families` reports per-family availability for the switch affordance.
+   * Read the session's effective shell and every entry this host serves.
+   * `switchable` is false on hosts without the shell router; `entries`
+   * reports per-entry availability for the switch affordance, and `current`
+   * names the effective entry (id, real shell label, stack, and the
+   * materialized executable the model was told runs).
    */
   shell?(request: RpcRequest<{ sessionId: SessionId }>):
-  Promise<RpcResponse<{ current: 'bash' | 'pwsh'; switchable: boolean; families: { bash: boolean; pwsh: boolean } }>>
+  Promise<RpcResponse<{
+    current: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string; degraded?: string }
+    switchable: boolean
+    entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[]
+  }>>
 
   /**
-   * Switch the session's shell family. Effective at the next model request:
-   * the runtime-context snapshot announces the new family and the retired
-   * family's tools leave that request's catalog. In-flight shell calls and
-   * background terminals are untouched.
+   * Switch the session's shell to another registry entry. Effective at the
+   * next model request: the runtime-context snapshot announces the new shell
+   * (with an explicit change notice) and the retired stack's tools leave
+   * that request's catalog. In-flight shell calls and background terminals
+   * keep their frozen promise. Legacy `bash`/`pwsh` family values fold onto
+   * the builtin entries.
    */
-  switchShell?(request: RpcRequest<{ sessionId: SessionId; family: 'bash' | 'pwsh' }>):
-  Promise<RpcResponse<{ current: 'bash' | 'pwsh' }>>
+  switchShell?(request: RpcRequest<{ sessionId: SessionId; entry: string }>):
+  Promise<RpcResponse<{ current: string }>>
 
   /**
    * Renames a session: appends a `session/title` event with the `user`
