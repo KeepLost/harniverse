@@ -271,13 +271,21 @@ describe('registry entries', () => {
   })
 
   it('adopts a probed registry default as the default entry and materializes it on unstamped specs', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      [posixBuiltin, 'pwsh', '/opt/homebrew/bin/zsh'],
-    )
-    expect(router.availability().defaultEntry).toBe('my-zsh')
-    expect(router.resolve({ command: 'x' }).shellPath).toBe('/opt/homebrew/bin/zsh')
-    await ctx.fiber.dispose()
+    // Registry-default adoption is the unpinned-host path whose default
+    // family follows the platform split: pin the split to the entry's stack
+    // so the semantics hold on pwsh-split platforms too.
+    await withPlatform('linux', async () => {
+      const { ctx, router } = await setupRegistryRouter(
+        { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
+        ['bash', 'pwsh', '/opt/homebrew/bin/zsh'],
+      )
+      try {
+        expect(router.availability().defaultEntry).toBe('my-zsh')
+        expect(router.resolve({ command: 'x' }).shellPath).toBe('/opt/homebrew/bin/zsh')
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    })
   })
 
   it('falls back to the platform builtin when the registry default probes unavailable', async () => {
