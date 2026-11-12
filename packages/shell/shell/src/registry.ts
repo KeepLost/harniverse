@@ -160,7 +160,8 @@ export function builtinRegistryEntries(platform: NodeJS.Platform): BuiltinRegist
  */
 export function registryEntryIndex(platform: NodeJS.Platform, document: ShellRegistryDocument): Map<string, IndexedEntry> {
   const index = new Map<string, IndexedEntry>()
-  for (const entry of Object.values(builtinRegistryEntries(platform))) index.set(entry.id, entry)
+  const builtins = builtinRegistryEntries(platform)
+  for (const entry of [builtins.bash, builtins.pwsh]) index.set(entry.id, entry)
   for (const entry of document.entries) {
     const dialect = classifyShellDialect(entry.path)
     if (dialect === undefined) continue

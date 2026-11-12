@@ -213,6 +213,7 @@ describe('session.create with a birth shell choice', () => {
       rpcId: RpcId('cs2'),
       payload: { shell: 'my-zsh' },
     })
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- expect.any matcher
     expect(response?.result).toMatchObject({ ok: true, value: { sessionId: expect.any(String) } })
     const session = ctx.sessions.list()[0]!
     expect(session.events.filter(event => event.type === 'session-shell/change').map(event => event.data))

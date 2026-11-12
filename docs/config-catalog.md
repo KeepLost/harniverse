@@ -3023,7 +3023,7 @@ export interface Config {
 
 Depends on: [`ShellBackendSelection`](subsystems/shell.md)
 
-Source: [`packages/shell/shell-router/src/index.ts:51`](../packages/shell/shell-router/src/index.ts)
+Source: [`packages/shell/shell-router/src/index.ts:50`](../packages/shell/shell-router/src/index.ts)
 
 <a id="deepseek-aidsh-skill"></a>
 

@@ -121,7 +121,9 @@ export class ShellRegistryService extends Service {
     })
   }
 
-  /** The resolved registry document: the default and every registered entry. */
+  /** The resolved registry document: the default and every registered entry.
+   * @returns the current shell registry document (default id plus entries).
+   */
   document(): ShellRegistryDocument {
     const value = this.scope.get()
     return {

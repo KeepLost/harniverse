@@ -10463,6 +10463,9 @@ importers:
       '@deepseek-ai/dsh-scope':
         specifier: workspace:^
         version: link:../../core/scope
+      '@deepseek-ai/dsh-shell-router':
+        specifier: workspace:^
+        version: link:../shell-router
       zod:
         specifier: ^4.6.6
         version: 4.6.7
@@ -10485,9 +10488,6 @@ importers:
       '@deepseek-ai/dsh-shell':
         specifier: workspace:^
         version: link:../shell
-      '@deepseek-ai/dsh-shell-router':
-        specifier: workspace:^
-        version: link:../shell-router
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt

@@ -197,7 +197,8 @@ export class ShellRouter extends ShellExecutor {
       const indexed = index.get(entry.id)
       return indexed === undefined ? [] : [{ id: indexed.id, label: indexed.label, stack: indexed.stack, path: indexed.path }]
     })
-    const probeTargets: readonly ProbeTarget[] = [...Object.values(builtinRegistryEntries(process.platform)), ...customTargets]
+    const builtins = builtinRegistryEntries(process.platform)
+    const probeTargets: readonly ProbeTarget[] = [builtins.bash, builtins.pwsh, ...customTargets]
     await Promise.all(probeTargets.map(async (target) => {
       try {
         const resolvedPath = await this.ctx.subprocess.resolveExecutable(target.path)

@@ -85,7 +85,7 @@ flowchart LR
   plugin_dsh_base_sandbox_vm["sandbox-vm<br/>@deepseek-ai/dsh-sandbox-vm"]
   cfg --> plugin_dsh_base_sandbox_vm
   plugin_dsh_base_shell_registry_settings["shell-registry-settings<br/>@deepseek-ai/dsh-shell-registry-settings"]
-  cfg --> plugin_dsh_base_shell_backend_settings
+  cfg --> plugin_dsh_base_shell_registry_settings
   plugin_dsh_base_bash_sandbox["bash-sandbox<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_dsh_base_bash_sandbox
   plugin_dsh_base_pwsh_sandbox["pwsh-sandbox<br/>@deepseek-ai/dsh-pwsh-sandbox"]
