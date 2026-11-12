@@ -1,32 +1,29 @@
-# Wave-6 批次 D:client-ui-stats 逐步事实视图
+# Agent Note:Wave-6 批次 D —— client-ui-stats 逐步事实视图
+
+Status: implemented
 
 [English](2026-11-12-wave6-client-ui-stats.md) | 中文
 
-日期:2026-11-12
-状态:已实现(wave-6 row 8 定论"吸收";计费仍被禁止)
+## Problem
 
-## 做了什么
+官方 `dsh-experimental-client-ui-stats`(wave-6 调查 row 8)在会话旁渲染按轮次/步的上下文用量、计时、缓存命中与工具事实。Harniverse 此前没有这样的表面:wave-2 默认禁止本地模型计量/计费,因此没有任何逐步测量被展示。owner 的 row 8 裁定将该事实视图放行到默认之外,同时维持计费禁令,并列入 wave-6 执行队列的批次 D。
 
-新增客户端插件 `packages/client/ui-stats`(`@deepseek-ai/dsh-client-ui-stats`),向 `conversation.view` 环贡献"统计"页签,与 Chat、Capabilities、Trajectory 并列。它基于共享会话窗口展示按轮次/步的测量事实:上下文 tokens(input + cacheRead + cacheWrite,不相交的提供方 usage 契约)、缓存读·写与命中率、首字延迟、模型与解码墙时、解码速度(t/s)、工具记账(按名称 pill、按区间取并的配对墙时、未完成调用、错误)、重试计数、关闭原因,以及压缩事务(编号压缩归入所属轮次,独立压缩位于轮次之间)。合计栏汇总已加载窗口。费用/计费数字刻意缺席——row 8 裁定保持"禁计费"默认,只放行事实。
+## Decision
 
-## 为什么
+以纯消费型客户端插件 `packages/client/ui-stats`(`@deepseek-ai/dsh-client-ui-stats`)吸收:折叠共享会话窗口 —— 无宿主侧服务、无新会话事件、无计量:
 
-官方 `dsh-experimental-client-ui-stats`(wave-6 调查 row 8)被裁定可吸收:逐步事实视图(上下文用量、计时、缓存命中、工具成本)在 wave-2"永不本地模型计量/计费"默认之外;默认本身不变。这是 wave-6 执行队列的最后一项(批次 A/B/C 经 PR #286/#287 合入并由 #288 晋升)。
+- **四个 `ConversationNodeDefinition` 拥有一个 `stats` 视图目标**:`stats-step`(每个 `step/start`;折叠流块得 TTFT、装配消息得不相交 usage/中断/答案预览、按 callId 配对的 `tool/call`→`tool/result`(区间取并的墙时)、`llm/retry` 计数),`stats-prompt`(每个 `user/message`;触发事实 —— 来源种类、生产者、声明形式、通知摘要、预览、文件/图片计数 —— 轮次归属取自引擎解析的 Location),`stats-turn-end`(关闭标记,使中断尾部与结局可渲染),`stats-compaction`(一次事务的提供者/模型/usage/折叠规模/耗时/错误;编号压缩归入所属轮次,独立压缩位于轮次之间)。
+- **视图注册一个 `conversation.view` 页签**(`ctx.slots.inject`,排在 Trajectory 之后),经会话绑定提供 `loadOlder`;合计栏汇总已加载窗口;表格把轮次展开为步,展示上下文 tokens(input + cacheRead + cacheWrite)、缓存读·写与命中率(cacheRead ÷ (cacheRead + input))、TTFT、模型/解码耗时、t/s、工具 pill、重试与错误。
+- **触发词汇本地化**:仅用户提示与插件注入 —— 官方的团队消息发送者列无对应物(Agent Teams 维持拒绝)。费用/计费数字按裁定缺席。
 
-## 决策
+## Alternatives considered
 
-- **本地折叠,不做宿主投影**:合计覆盖已加载事件窗口,非整日志。官方 sessionStats 整日志投影(宿主侧包)作为后续工作记录在 README;Trajectory 已确立"已加载窗口合计"这一诚实口径。
-- **触发词汇本地化**:用户提示(按 `source.files` 媒体类型计文件/图片数)与插件注入(生产者、声明形式、通知摘要)。官方的团队消息发送者列无对应物——Agent Teams 维持拒绝。
-- **PTC 内层派发并入父调用**:`tool/code-dispatch` 子调用不单独归因;其时间位于父 `tool/call` 配对区间内,输出计入父结果规模。记为已知限制。
-- **无逐调用折叠面板**:按名称 pill 加未完成计数;逐调用细节留在 Trajectory 检查器(不复制表面)。
-- **壳层滚动**:ui-theme 滚动条规范捕获到"抬升面上滚动未 rebind"后,视图移除了自己的 `overflow-y`——由会话壳的滚动器负责翻页。
+**宿主侧整日志投影(官方 `dsh-session-stats` 模式)。** 本批次拒绝:已加载窗口合计是 Trajectory 已确立的诚实口径,而宿主折叠会为一个页眉新增持久化投影包;已作为后续工作记入 README。
 
-## 形态
+**逐调用折叠详情行。** 拒绝:逐调用检查已在 Trajectory 检查器中;步行携带按名称 pill 与未完成计数,不复制该表面。
 
-四个 `ConversationNodeDefinition`(`stats-step`、`stats-prompt`、`stats-turn-end`、`stats-compaction`)为一个 `stats` 视图目标折叠事件窗口;`stats-aggregate.ts` 分组行与合计;`StatsView.tsx` 渲染。注册:`ctx.slots.inject('conversation.view', ...)`,经会话绑定提供 `loadOlder`,在真实框架栈上验证可销毁。挂载面:`tsconfig.base.json` paths、`tsconfig.client.json` 引用、`cordis.patch.yml` 行、web-app 依赖、slot 目录再生、模块图(中英)更新。
+**PTC 内层派发的单独归因。** 拒绝:`tool/code-dispatch` 子调用并入父 `tool/call` 配对 —— 其时间位于父区间内,输出计入父结果规模;记为已知限制。
 
-## 验证
+## Consequences
 
-- 包套件:42 测试全绿(真实 ConversationNodeAssembler 折叠、聚合/构建器、格式化、jsdom 视图行为、真实栈注册+销毁、构建产物交接/CSS)。
-- 定向覆盖率:包内语句/分支/函数/行 100%(v8 ignore 仅用于引擎保证的防御臂,均附理由)。
-- `pnpm run test:gui` 全绿(581 文件);定向 oxlint 干净;typecheck 干净;翻译配对 1328/1328。
+统计页签补完了 wave-6 执行队列(A/B/C 经 PR #286/#287 合入、#288 晋升)。`ConversationViewSnapshotMap` 合并加宽了会话存储暴露的泛型;Trajectory 的规格夹具随之收窄(增量调和,无行为变化)。挂载面遵循新包清单(tsconfig paths + client 聚合、`cordis.patch.yml` 行、web-app 依赖、slot 目录、中英模块图、README 对)。视图滚动由会话壳的滚动器承担 —— ui-theme 抬升面规则捕获到缺失的滚动条 rebind 后修正。包证据:42/42 测试、定向覆盖率 100%(v8 ignore 仅用于引擎保证臂并附理由)、`test:gui` 全绿、翻译配对一致。

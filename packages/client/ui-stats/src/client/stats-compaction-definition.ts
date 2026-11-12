@@ -30,6 +30,10 @@ interface CompactionState {
   error: string | null
 }
 
+/**
+ * The compaction-transaction Definition: folds `compaction/start` → optional
+ * `summary` → `end` by `compactionId` into one published facts node.
+ */
 export const statsCompactionDefinition: ConversationNodeDefinition<CompactionState> = {
   kind: 'stats-compaction',
   target: 'stats',

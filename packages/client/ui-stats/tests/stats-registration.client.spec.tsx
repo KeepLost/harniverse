@@ -55,7 +55,7 @@ describe('stats view registration', () => {
     const entry = slots.entries('conversation.view')[0]
     expect(entry?.options.id).toBe('stats')
     const label = entry?.options.label
-    expect(typeof label === 'function' ? (label as () => string)() : label).toBe(en['view.label'])
+    expect(typeof label === 'function' ? label() : label).toBe(en['view.label'])
     expect(events.entries().map(definition => definition.kind)).toEqual([
       'stats-step', 'stats-prompt', 'stats-turn-end', 'stats-compaction',
     ])

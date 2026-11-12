@@ -68,6 +68,10 @@ Token counts are disjoint: `inputTokens` excludes cached input, so context = inp
 - `docs/cookbook/adding-a-conversation-node.md` — the Conversation Node discipline these Definitions follow.
 - `packages/session/session-stats` (upstream) — the whole-log projection pattern; this view keeps totals scoped to the loaded window instead.
 
+## Dev Note
+
+Absorbed from the official `dsh-experimental-client-ui-stats` line (wave-6 row 8): the per-step facts view is ruled outside the standing no-metering default, while billing and cost accounting remain banned. Trigger vocabulary follows this codebase's message sources (user prompt, plugin injection with declared form) — the official team-message sender column has no counterpart here.
+
 ## Model Experience
 
 None, as the statistics view renders session data in the browser; nothing here reaches a model request.
@@ -81,7 +85,3 @@ None; this package neither assembles nor sends a provider request.
 - **Totals cover the loaded window, not the whole log** — figures derive from the paged-in event window; a whole-log projection (upstream `dsh-session-stats` pattern) would need a host-side fold.
 - **PTC inner dispatches fold into their parent call** — `tool/code-dispatch` inner calls are not attributed separately; their time sits inside the parent `tool/call` pair's wall interval and their output inside the parent result.
 - **No per-call accordion** — step rows show per-name tool pills and open-call counts; per-call detail rows stay in the Trajectory inspector.
-
-## Dev Note
-
-Absorbed from the official `dsh-experimental-client-ui-stats` line (wave-6 row 8): the per-step facts view is ruled outside the standing no-metering default, while billing and cost accounting remain banned. Trigger vocabulary follows this codebase's message sources (user prompt, plugin injection with declared form) — the official team-message sender column has no counterpart here.

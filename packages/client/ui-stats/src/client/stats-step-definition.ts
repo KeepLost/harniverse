@@ -120,6 +120,10 @@ function unionSpan(spans: readonly { startedAt: number; endedAt: number }[]): nu
   return total + (end - start)
 }
 
+/**
+ * The step Definition: one Context per `step/start`, folding timing, usage,
+ * tool pairs, and retries into one published metrics node.
+ */
 export const statsStepDefinition: ConversationNodeDefinition<StepState> = {
   kind: 'stats-step',
   target: 'stats',

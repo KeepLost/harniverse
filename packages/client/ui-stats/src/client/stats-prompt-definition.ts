@@ -80,6 +80,10 @@ function locationTurn(location: ConversationLocation): number | null {
       : null
 }
 
+/**
+ * The waking-message Definition: one Context per `user/message`, publishing
+ * the trigger facts of what opened or steered a turn.
+ */
 export const statsPromptDefinition: ConversationNodeDefinition<PromptState> = {
   kind: 'stats-prompt',
   target: 'stats',

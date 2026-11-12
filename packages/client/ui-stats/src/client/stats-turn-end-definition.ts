@@ -25,6 +25,10 @@ export interface StatsTurnEndNodeData {
   readonly closeKind: string
 }
 
+/**
+ * The turn-close Definition: one Context per `turn/end`, publishing the close
+ * marker the aggregation uses for interrupted tails and outcome badges.
+ */
 export const statsTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
   kind: 'stats-turn-end',
   target: 'stats',
