@@ -45,6 +45,11 @@ declare module '@deepseek-ai/dsh-jobs' {
   }
 }
 
+/** Structural face of the session-shell service, when the composition carries it. */
+interface SessionShellFace {
+  dispatchTarget(agent: Agent): { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string } | undefined
+}
+
 export const name = 'tool-pwsh'
 export const inject = ['tools', 'shell', 'systemPrompt', 'shellEnv']
 
@@ -367,11 +372,19 @@ export function apply(ctx: Context, config: Config = {}): void {
         ? standingPolicy
         : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
       const workdir = resolveWorkdir(call.workdir, exec)
+      // The session's request-frozen promise: when its stack is this tool's
+      // family, the promised executable is exactly what the model was told
+      // runs, so the call stamps it and the executor never re-resolves.
+      const sessionShell = ctx.get('sessionShell') as SessionShellFace | undefined
+      const target = sessionShell !== undefined && exec.agent !== undefined
+        ? sessionShell.dispatchTarget(exec.agent)
+        : undefined
       const request = {
         command: call.command,
         // Stamped by the family's own tool: the visible tool and the executor
         // family stay aligned on routed (multi-family) hosts.
         family: 'pwsh' as const,
+        ...target?.stack === 'pwsh' ? { shellPath: target.executablePath } : {},
         ...workdir !== undefined ? { workdir } : {},
         ...call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {},
         dshEnv: ctx.shellEnv.collect(exec),

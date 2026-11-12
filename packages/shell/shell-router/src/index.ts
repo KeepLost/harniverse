@@ -5,13 +5,20 @@
  * host's boot-resolved family), so one host serves sessions with different
  * shell selections without duplicate `ctx.shell` registrations.
  *
- * A family mounts only when its shell binary resolves through
- * `ctx.subprocess.resolveExecutable` in the execution world, so availability
- * reflects the world rather than the mount. Family isolation also covers the
- * `settings` service: the executors share one `shell` settings namespace
- * that exists precisely because a host composes exactly one family, so under
- * the router both families run on their composition-entry config (the seam's
- * designed no-settings fallback) and the namespace stays unregistered.
+ * A family mounts only when a shell binary it can serve resolves through
+ * `ctx.subprocess.resolveExecutable` in the execution world — the platform
+ * builtin, or any shell-registry entry routing to that family — so
+ * availability reflects the world rather than the mount. Family isolation
+ * also covers the `settings` service: the executors share one `shell`
+ * settings namespace that exists precisely because a host composes exactly
+ * one family, so under the router both families run on their
+ * composition-entry config (the seam's designed no-settings fallback) and
+ * the namespace stays unregistered.
+ *
+ * Registry entries probe at mount alongside the builtins; the resolved
+ * absolute paths publish through {@link ShellRouter.availability} for the
+ * single session resolver, and unstamped requests carry the default entry's
+ * materialized executable on their spec.
  * @module @deepseek-ai/dsh-shell-router
  */
 
@@ -19,8 +26,21 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
-import { SHELL_BACKEND_ENV, defaultCommandShellPath, resolveShellBackend } from '@deepseek-ai/dsh-shell'
-import type { ShellBackendSelection } from '@deepseek-ai/dsh-shell'
+import {
+  BUILTIN_POSIX_ID,
+  LEGACY_BASH_FAMILY_ID,
+  PLATFORM_DEFAULT_ID,
+  SHELL_BACKEND_ENV,
+  builtinRegistryEntries,
+  registryEntryIndex,
+  resolveShellBackend,
+} from '@deepseek-ai/dsh-shell'
+import type {
+  ShellBackendSelection,
+  ShellEntryStatus,
+  ShellRegistryDocument,
+  ShellRegistryEntry,
+} from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import SandboxBashExecutor from '@deepseek-ai/dsh-bash-sandbox'
@@ -55,12 +75,16 @@ export interface RoutedSpec extends ShellExecSpec {
   [ROUTED_FAMILY]?: ShellBackendSelection
 }
 
-/** Live availability of every family on this host. */
+/** Live availability of every shell family — and registry entry — on this host. */
 export interface ShellAvailability {
   /** Family unstamped requests address. */
   readonly default: ShellBackendSelection
+  /** Registry id of the entry unstamped requests run. */
+  readonly defaultEntry: string
   /** Whether each family's executor mounted successfully. */
   readonly families: Readonly<Record<ShellBackendSelection, boolean>>
+  /** Probe status of every addressable registry entry, builtins first. */
+  readonly entries: readonly ShellEntryStatus[]
 }
 
 /**
@@ -82,10 +106,23 @@ export function resolveDefaultFamily(
   return resolveShellBackend(platform, 'platform-default')
 }
 
+/** The registry document as the router sees it: the service's, else the empty registry. */
+function registryDocument(ctx: Context): ShellRegistryDocument {
+  const service = ctx.get('shellRegistry') as { document(): ShellRegistryDocument } | undefined
+  return service === undefined ? { default: PLATFORM_DEFAULT_ID, entries: [] } : service.document()
+}
+
+/** One probe outcome before availability shape is applied. */
+interface ProbedEntry {
+  status: ShellEntryStatus
+  resolvedPath: string | undefined
+}
+
 /**
  * The multi-family `ctx.shell` provider. Extends the seam so every existing
- * consumer holds; probes each family's shell binary, mounts what resolves in
- * an isolated scope (`shell` for the registration, `settings` for the
+ * consumer holds; probes each servable shell binary (the platform builtins
+ * and every registry entry), mounts each family an available shell routes to
+ * in an isolated scope (`shell` for the registration, `settings` for the
  * shared-namespace exemption), and routes per request.
  */
 export class ShellRouter extends ShellExecutor {
@@ -113,10 +150,23 @@ export class ShellRouter extends ShellExecutor {
   /** Per-family composition entries forwarded at mount; protected for specialized hosts. */
   protected readonly executorConfig: Config['families']
 
+  /** Probe outcomes by entry id; empty until {@link Service.init} settles. */
+  private readonly probed = new Map<string, ProbedEntry>()
+
+  /** The registry entry id unstamped requests run; settled by {@link Service.init}. */
+  private defaultEntryId: string
+
+  /** Whether a config flag or published env pinned the default stack. */
+  private readonly stackPinned: boolean
+
   constructor(ctx: Context, config: Config = {}) {
     super(ctx)
     this.defaultFamily = resolveDefaultFamily(config)
     this.executorConfig = config.families
+    this.stackPinned = config.defaultFamily !== undefined
+      || process.env[SHELL_BACKEND_ENV] === 'bash' || process.env[SHELL_BACKEND_ENV] === 'pwsh'
+    const builtins = builtinRegistryEntries(process.platform)
+    this.defaultEntryId = (this.defaultFamily === 'pwsh' ? builtins.pwsh : builtins.bash).id
   }
 
   /** The effective default family's advertisement; executors are sandboxed alike. */
@@ -125,42 +175,53 @@ export class ShellRouter extends ShellExecutor {
   }
 
   /**
-   * Probe every family, then mount what passed. The effective default family
+   * Probe every addressable shell (platform builtins and registry entries),
+   * then mount each family a probe serves. The effective default family
    * mounts in a settings-visible scope and its executor installs the shared
    * `shell` settings section at host level — the shell card and hot reload
    * behave exactly as on a single-executor host. Every OTHER family isolates
    * `settings` as well: the executors share one namespace, so a second
    * registration would throw; the non-default family runs its composition
-   * config. A family whose shell binary does not resolve — or whose stack
-   * cannot mount — stays unavailable with a warning while the others serve;
-   * a host with none of them cannot boot routed.
+   * config. A family no probed shell routes to — or whose stack cannot
+   * mount — stays unavailable with a warning while the other serves; a host
+   * with neither cannot boot routed.
    */
   protected async [Service.init](): Promise<void> {
     const selections: ShellBackendSelection[] = ['bash', 'pwsh']
-    const probed = new Set<ShellBackendSelection>()
-    await Promise.all(selections.map(async (family) => {
-      const binary = family === 'bash' ? defaultCommandShellPath() : 'pwsh'
+    const registry = registryDocument(this.ctx)
+    const index = registryEntryIndex(process.platform, registry)
+    type ProbeTarget = { id: string; label: string; stack: ShellBackendSelection; path: string }
+    const customTargets: ProbeTarget[] = registry.entries.flatMap((entry: ShellRegistryEntry): ProbeTarget[] => {
+      // The index skips unclassifiable executables (and settings validation
+      // rejects them earlier still); an index miss means nothing to probe.
+      const indexed = index.get(entry.id)
+      return indexed === undefined ? [] : [{ id: indexed.id, label: indexed.label, stack: indexed.stack, path: indexed.path }]
+    })
+    const probeTargets: readonly ProbeTarget[] = [...Object.values(builtinRegistryEntries(process.platform)), ...customTargets]
+    await Promise.all(probeTargets.map(async (target) => {
       try {
-        await this.ctx.subprocess.resolveExecutable(binary)
-        probed.add(family)
+        const resolvedPath = await this.ctx.subprocess.resolveExecutable(target.path)
+        this.probed.set(target.id, { status: { ...target, available: true, resolvedPath }, resolvedPath })
       } catch (error: unknown) {
-        this.ctx.logger.warn(`shell-router: the ${family} shell family is unavailable on this host: ${String(error)}`)
+        this.probed.set(target.id, { status: { ...target, available: false, reason: String(error) }, resolvedPath: undefined })
       }
     }))
+    const serves = (family: ShellBackendSelection): boolean =>
+      [...this.probed.values()].some(probe => probe.status.stack === family && probe.status.available)
     // The probe RANKS, it does not gate: a stripped environment (empty PATH,
     // minimal containers) fails every probe while the families would still
     // mount and serve — exactly like the single-executor hosts this router
     // replaces, whose exec failures surface per command. Only a family that
     // probed AND fails to MOUNT stays unavailable.
-    let effective: ShellBackendSelection | undefined = probed.has(this.defaultFamily)
+    let effective: ShellBackendSelection | undefined = serves(this.defaultFamily)
       ? this.defaultFamily
-      : [...probed][0]
+      : selections.find(serves)
     if (effective === undefined) {
       effective = this.defaultFamily
       this.ctx.logger.warn(`shell-router: no shell binary probed on this host; mounting the "${effective}" family unprobed`)
     }
     for (const family of selections) {
-      if (!probed.has(family) || family === effective) continue
+      if (!serves(family) || family === effective) continue
       await this.mountFamily(family, effective)
     }
     // The effective default mounts last so `effectiveDefault()` settles
@@ -172,6 +233,20 @@ export class ShellRouter extends ShellExecutor {
     if (this.mounted.get(this.defaultFamily) === undefined) {
       this.ctx.logger.warn(`shell-router: default family "${this.defaultFamily}" is unavailable; unstamped requests address "${this.effectiveDefault()}"`)
     }
+    this.defaultEntryId = this.resolveDefaultEntryId(registry)
+  }
+
+  /** The default entry per the single precedence: pin, registry default, builtin. */
+  private resolveDefaultEntryId(registry: ShellRegistryDocument): string {
+    if (!this.stackPinned) {
+      const requested = registry.default === LEGACY_BASH_FAMILY_ID ? BUILTIN_POSIX_ID : registry.default
+      if (requested !== PLATFORM_DEFAULT_ID) {
+        const probe = this.probed.get(requested)
+        if (probe?.status.available === true && this.mounted.has(probe.status.stack)) return requested
+      }
+    }
+    const builtins = builtinRegistryEntries(process.platform)
+    return (this.effectiveDefault() === 'pwsh' ? builtins.pwsh : builtins.bash).id
   }
 
   /** Mount one family in its own scope; only the non-default isolates settings. */
@@ -193,23 +268,38 @@ export class ShellRouter extends ShellExecutor {
   }
 
   /**
-   * Which families this host serves, for the session-level selector.
-   * @returns the effective default family and each family's availability.
+   * Which shells this host serves, for the session-level selector: the
+   * effective default family and entry, family mount status, and every
+   * addressable entry's probe outcome.
+   * @returns the effective defaults and per-shell availability.
    */
   availability(): ShellAvailability {
     return {
       default: this.effectiveDefault(),
+      defaultEntry: this.defaultEntryId,
       families: {
         bash: this.mounted.has('bash'),
         pwsh: this.mounted.has('pwsh'),
       },
+      entries: [...this.probed.values()].map(probe => probe.status),
     }
   }
 
   override resolve(request: ShellExecRequest): RoutedSpec {
     const family = request.family ?? this.effectiveDefault()
     const executor = this.executorFor(family, 'resolve')
-    return Object.assign(executor.resolve(request), { [ROUTED_FAMILY]: family })
+    const spec = Object.assign(executor.resolve(request), { [ROUTED_FAMILY]: family })
+    // One materialization rule: a caller-stamped executable wins; otherwise
+    // the default entry's probed path — never a PATH re-resolution — when the
+    // default entry routes to this family.
+    if (spec.shellPath === undefined && family === this.effectiveDefault()) {
+      const materialized = this.probed.get(this.defaultEntryId)?.resolvedPath
+      if (materialized !== undefined
+        && this.probed.get(this.defaultEntryId)?.status.stack === family) {
+        spec.shellPath = materialized
+      }
+    }
+    return spec
   }
 
   override run(spec: RoutedSpec): Promise<ShellRunResult> {

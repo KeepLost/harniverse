@@ -1,8 +1,8 @@
 /**
- * The shell backend section: the PowerShell / Git Bash radio fieldset over
- * the host `shell-backend` settings namespace. Writes go through the bound
- * settings scope as one `backend` field; the namespace declares
- * `applies: 'restart'`, so the composed shell tool rows follow on the next
+ * The shell default section: the registry-default radio fieldset over the
+ * host `shell-registry` settings namespace. Writes go through the bound
+ * settings scope as one `default` field; the namespace declares
+ * `applies: 'restart'`, so the composed shell stacks follow on the next
  * start — the form itself holds only the draft.
  */
 
@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import type { SettingsScopeSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ShellBackendPreferenceValue, ShellBackendSectionValue } from './decode.ts'
+import type { ShellBackendSectionValue } from './decode.ts'
 import css from './ShellBackendSection.module.css'
 
 /** Registration-side business face for the section. */
@@ -19,7 +19,7 @@ export interface ShellBackendSectionInjected {
     /** Settings scope snapshot bound by the renderer as useScope. */
     scope: SnapshotStore<SettingsScopeSnapshot<ShellBackendSectionValue>>
   }
-  /** Queue the `backend` field write through the bound settings scope. */
+  /** Queue the `default` field write through the bound settings scope. */
   set: (field: string, value: unknown) => Promise<void>
 }
 
@@ -32,10 +32,10 @@ export type ShellBackendSectionProps =
 /** One notice the actions row reports to assistive technology. */
 type Notice = { kind: 'idle' } | { kind: 'saved' } | { kind: 'error'; message: string }
 
-/** Render the Shell backend settings page. */
+/** Render the Shell default settings page. */
 export function ShellBackendSection({ t, useScope, set }: ShellBackendSectionProps) {
   const scope = useScope(snapshot => snapshot)
-  const [draft, setDraft] = useState<ShellBackendPreferenceValue | null>(null)
+  const [draft, setDraft] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [syncedRevision, setSyncedRevision] = useState<number | undefined>(undefined)
   const [busy, setBusy] = useState(false)
@@ -48,7 +48,7 @@ export function ShellBackendSection({ t, useScope, set }: ShellBackendSectionPro
   useEffect(() => {
     if (current === undefined || dirty) return
     if (draft !== null && scope.revision === syncedRevision) return
-    setDraft(current.backend)
+    setDraft(current.default)
     setSyncedRevision(scope.revision)
   }, [current, dirty, draft, scope.revision, syncedRevision])
 
@@ -64,7 +64,7 @@ export function ShellBackendSection({ t, useScope, set }: ShellBackendSectionPro
   // The early return above guarantees `current` is present; before the first
   // adoption the draft falls back to the resolved section, and the disabled
   // props below are the single invocation gate (no in-handler re-guard).
-  const view: ShellBackendPreferenceValue = draft ?? current.backend
+  const view: string = draft ?? current.default
   const disabled = busy || !scope.writable
 
   // The disabled props are the single invocation gate (no in-handler re-guard).
@@ -72,7 +72,7 @@ export function ShellBackendSection({ t, useScope, set }: ShellBackendSectionPro
     setBusy(true)
     setNotice({ kind: 'idle' })
     try {
-      if (view !== current.backend) await set('backend', view)
+      if (view !== current.default) await set('default', view)
       setNotice({ kind: 'saved' })
       setDirty(false)
     } catch (error: unknown) {
@@ -82,9 +82,15 @@ export function ShellBackendSection({ t, useScope, set }: ShellBackendSectionPro
     }
   }
 
-  const options: readonly { value: ShellBackendPreferenceValue; label: string; desc: string }[] = [
-    { value: 'platform-default', label: t('backend.platform-default'), desc: t('backend.platform-defaultDesc') },
-    { value: 'git-bash', label: t('backend.git-bash'), desc: t('backend.git-bashDesc') },
+  const options: readonly { value: string; label: string; desc: string }[] = [
+    { value: 'platform-default', label: t('default.platform-default'), desc: t('default.platform-defaultDesc') },
+    { value: 'posix', label: t('default.posix'), desc: t('default.posixDesc') },
+    { value: 'pwsh', label: t('default.pwsh'), desc: t('default.pwshDesc') },
+    ...current.entries.map(entry => ({
+      value: entry.id,
+      label: entry.label ?? entry.id,
+      desc: entry.path,
+    })),
   ]
 
   return (
@@ -97,7 +103,7 @@ export function ShellBackendSection({ t, useScope, set }: ShellBackendSectionPro
             <label className={css.radioLabel}>
               <input
                 type="radio"
-                name="shell-backend-backend"
+                name="shell-registry-default"
                 checked={view === entry.value}
                 onChange={() => {
                   setDraft(entry.value)
@@ -116,7 +122,7 @@ export function ShellBackendSection({ t, useScope, set }: ShellBackendSectionPro
             {busy ? t('saving') : t('save')}
           </Button>
           <Button variant="ghost" disabled={disabled || !dirty} onClick={() => {
-            setDraft(current.backend)
+            setDraft(current.default)
             setDirty(false)
             setNotice({ kind: 'idle' })
           }}>

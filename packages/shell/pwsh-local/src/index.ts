@@ -226,6 +226,8 @@ export class PwshLocalExecutor extends ShellExecutor {
       ...request.env !== undefined ? { env: request.env } : {},
       ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
       sandboxPolicy: request.sandboxPolicy,
+      // Materialized family executable; absent means the configured pwsh.
+      ...request.shellPath !== undefined ? { shellPath: request.shellPath } : {},
     }
   }
 
@@ -249,10 +251,12 @@ export class PwshLocalExecutor extends ShellExecutor {
    * The pwsh invocation argv for one resolved spec — the argv-level seam a
    * confining subclass wraps through `ctx.sandbox.confine` (the pwsh twin of
    * `dsh-bash-local`'s `runArgv`/`startArgv` hooks; see
-   * `@deepseek-ai/dsh-pwsh-sandbox`).
+   * `@deepseek-ai/dsh-pwsh-sandbox`). A spec-materialized
+   * {@link ShellExecSpec.shellPath} overrides the configured executable and is
+   * never re-resolved through `PATH`.
    */
   protected argv(spec: ShellExecSpec): string[] {
-    return [this.pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${ENCODING_PREAMBLE}${spec.command}`]
+    return [spec.shellPath ?? this.pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${ENCODING_PREAMBLE}${spec.command}`]
   }
 
   /** Map one resolved spec plus its argv onto a fully-specified subprocess spawn. */

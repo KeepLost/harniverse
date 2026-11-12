@@ -166,6 +166,74 @@ async function harness(
   return { api, ctx, cwd }
 }
 
+/** A session-shell double for birth-shell validation over the create path. */
+class CreateStubSessionShell {
+  readonly switches: { entry: string }[] = []
+  constructor(private readonly entries: readonly { id: string; available: boolean }[]) {}
+  effective(): { entryId: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string } {
+    return { entryId: 'posix', label: 'bash', stack: 'bash', executablePath: 'bash' }
+  }
+  defaultEffective(): { entryId: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string } {
+    return { entryId: 'posix', label: 'bash', stack: 'bash', executablePath: 'bash' }
+  }
+  describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean }; entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[] } {
+    return {
+      switchable: true,
+      families: { bash: true, pwsh: true },
+      entries: this.entries.map(entry => ({
+        id: entry.id, label: entry.id, stack: 'bash' as const, available: entry.available,
+        ...(entry.available ? { resolvedPath: `/usr/bin/${entry.id}` } : { reason: 'not found' }),
+      })),
+    }
+  }
+}
+
+describe('session.create with a birth shell choice', () => {
+  it('rejects an unavailable entry before creating anything', async () => {
+    const shell = new CreateStubSessionShell([{ id: 'my-zsh', available: false }])
+    const { api, ctx } = await harness(undefined, undefined, {})
+    ctx.provide('sessionShell', shell as never)
+    const response = await api.sessions.create?.({
+      rpcId: RpcId('cs1'),
+      payload: { shell: 'my-zsh' },
+    })
+    expect(response?.result).toMatchObject({
+      ok: false,
+      error: { code: 'shell-unavailable', message: 'the "my-zsh" shell is unavailable on this host' },
+    })
+    expect(ctx.sessions.list().map(session => session.id)).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('commits the birth shell as one durable change event', async () => {
+    const shell = new CreateStubSessionShell([{ id: 'my-zsh', available: true }])
+    const { api, ctx } = await harness(undefined, undefined, {})
+    ctx.provide('sessionShell', shell as never)
+    const response = await api.sessions.create?.({
+      rpcId: RpcId('cs2'),
+      payload: { shell: 'my-zsh' },
+    })
+    expect(response?.result).toMatchObject({ ok: true, value: { sessionId: expect.any(String) } })
+    const session = ctx.sessions.list()[0]!
+    expect(session.events.filter(event => event.type === 'session-shell/change').map(event => event.data))
+      .toEqual([{ entry: 'my-zsh' }])
+    await ctx.fiber.dispose()
+  })
+
+  it('creates without a shell choice when the host composes no session-shell service', async () => {
+    const { api, ctx } = await harness(undefined, undefined, {})
+    const response = await api.sessions.create?.({
+      rpcId: RpcId('cs3'),
+      payload: { shell: 'my-zsh' },
+    })
+    expect(response?.result).toMatchObject({
+      ok: false,
+      error: { code: 'shell-unavailable', message: 'session shell selection is not configured on this host' },
+    })
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('session.create with an agent profile', () => {
   it('records the resolved profile on the session header', async () => {
     const { api, ctx } = await harness(['standard', 'minimal'])

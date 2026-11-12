@@ -127,7 +127,7 @@ describe('dsh-base bundle', () => {
         : [],
     )
     // The shell stacks gate on `$DSH_SHELL_BACKEND`, published by app boot
-    // from the `shell-backend:` user settings section. Each stack's executor
+    // from the `shell-registry:` user settings section. Each stack's executor
     // and tool rows carry the same flag, inverted between the bash and pwsh
     // twins, so exactly one shell stack mounts per host; an unset value (a
     // tree mounted without the boot bridge) falls back to the platform split.
@@ -158,7 +158,7 @@ describe('dsh-base bundle', () => {
     // The settings namespace the boot bridge reads is registered in the same
     // layer, ahead of both stacks.
     const order = rows.map(row => row.id)
-    const switchboardAt = order.indexOf('shell-backend-settings')
+    const switchboardAt = order.indexOf('shell-registry-settings')
     expect(switchboardAt).toBeGreaterThanOrEqual(0)
     expect(switchboardAt).toBeLessThan(order.indexOf('bash-sandbox'))
     expect(switchboardAt).toBeLessThan(order.indexOf('pwsh-sandbox'))

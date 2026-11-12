@@ -256,36 +256,36 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('routes shell backend section writes into the restart-applied namespace and back', async () => {
+  it('routes shell default section writes into the restart-applied namespace and back', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-shell-backend'))
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
-    await dialog.getByRole('button', { name: 'Shell 后端', exact: true }).click()
-    await dialog.getByRole('radio', { name: 'PowerShell（默认）', exact: true }).waitFor({ timeout: 10_000 })
-    expect(await dialog.getByRole('radio', { name: 'PowerShell（默认）', exact: true }).isChecked()).toBe(true)
+    await dialog.getByRole('button', { name: 'Shell 默认', exact: true }).click()
+    await dialog.getByRole('radio', { name: '跟随平台默认（推荐）', exact: true }).waitFor({ timeout: 10_000 })
+    expect(await dialog.getByRole('radio', { name: '跟随平台默认（推荐）', exact: true }).isChecked()).toBe(true)
 
     // The switch is durable only: the notice states the restart effect.
-    await dialog.getByRole('radio', { name: 'Git Bash', exact: true }).click()
+    await dialog.getByRole('radio', { name: 'POSIX shell', exact: true }).click()
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     await dialog.getByText('已保存，重启后生效。').waitFor({ timeout: 5_000 })
     await expect.poll(() => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
-      .toMatch(/shell-backend:\n\s+backend: git-bash/)
+      .toMatch(/shell-registry:\n\s+default: posix/)
     await page.keyboard.press('Escape')
 
-    // The stored preference reloads as the active draft; restoring the
-    // platform default leaves the document back on the composed default.
+    // The stored default reloads as the active draft; restoring the platform
+    // split leaves the document back on the composed default.
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const reopened = page.getByRole('dialog', { name: '设置' })
     await reopened.waitFor({ timeout: 10_000 })
-    await reopened.getByRole('button', { name: 'Shell 后端', exact: true }).click()
-    await reopened.getByRole('radio', { name: 'Git Bash', exact: true }).waitFor({ timeout: 10_000 })
-    expect(await reopened.getByRole('radio', { name: 'Git Bash', exact: true }).isChecked()).toBe(true)
-    await reopened.getByRole('radio', { name: 'PowerShell（默认）', exact: true }).click()
+    await reopened.getByRole('button', { name: 'Shell 默认', exact: true }).click()
+    await reopened.getByRole('radio', { name: 'POSIX shell', exact: true }).waitFor({ timeout: 10_000 })
+    expect(await reopened.getByRole('radio', { name: 'POSIX shell', exact: true }).isChecked()).toBe(true)
+    await reopened.getByRole('radio', { name: '跟随平台默认（推荐）', exact: true }).click()
     await reopened.getByRole('button', { name: '保存', exact: true }).click()
     await reopened.getByText('已保存，重启后生效。').waitFor({ timeout: 5_000 })
     await expect.poll(() => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
-      .toMatch(/shell-backend:\n\s+backend: platform-default/)
+      .toMatch(/shell-registry:\n\s+default: platform-default/)
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

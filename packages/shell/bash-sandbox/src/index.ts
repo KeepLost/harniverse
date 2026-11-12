@@ -93,7 +93,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       const result = await super.run(spec)
       return { ...result, sandbox: { mode, denied: false } }
     }
-    const confined = await this.confine(spec.command, { ...policy, mode }, spec.signal)
+    const confined = await this.confine(spec.command, { ...policy, mode }, spec.shellPath, spec.signal)
     let result: ShellRunResult
     try {
       result = await this.runArgv(spec, confined.argv)
@@ -118,7 +118,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     const policy = spec.sandboxPolicy as SandboxExecutionPolicy
     const { mode } = policy
     if (mode === 'danger-full-access') return super.start(spec)
-    const confined = await this.confine(spec.command, { ...policy, mode }, spec.signal)
+    const confined = await this.confine(spec.command, { ...policy, mode }, spec.shellPath, spec.signal)
     let proc: ShellProcess
     try {
       proc = this.startArgv(spec, confined.argv)
@@ -169,12 +169,19 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Wrap one shell command via the `ctx.sandbox` provider. Provider errors
    * propagate unchanged; the returned argv is handed directly to the local
    * executor's subprocess path.
-    * @param command - shell source for the confined inner platform shell `-c` invocation.
+   * @param command - shell source for the confined inner shell `-c` invocation.
    * @param policy - resolved confined execution policy.
+   * @param shellPath - spec-materialized executable; absent uses the executor's
+   * configured (or platform-default) shell. Never re-resolved through `PATH`.
    * @returns the provider's exact argv and settlement-classification facts.
    */
-  private async confine(command: string, policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
-    return await this.ctx.sandbox.confine(commandShellArgv(command), policy, signal)
+  private async confine(
+    command: string,
+    policy: SandboxPolicy,
+    shellPath: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<ConfinedArgv> {
+    return await this.ctx.sandbox.confine(commandShellArgv(command, process.platform, shellPath), policy, signal)
   }
 }
 

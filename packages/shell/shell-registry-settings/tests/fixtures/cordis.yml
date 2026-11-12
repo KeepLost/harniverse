@@ -1,5 +1,5 @@
-# REAL-composition fixture for the shell-backend chain: app boot reads the
-# `shell-backend:` user section (seeded by the spec) and publishes
+# REAL-composition fixture for the shell-registry chain: app boot reads the
+# `shell-registry:` user section (seeded by the spec) and publishes
 # `$DSH_SHELL_BACKEND`; both shell stacks carry the symmetric flag pair, so
 # exactly the selected stack mounts. Driven by the package's loader.spec.ts.
 - id: system-prompt
@@ -11,8 +11,8 @@
 - id: settings
   name: '@deepseek-ai/dsh-settings-file'
 
-- id: shell-backend-settings
-  name: '@deepseek-ai/dsh-shell-backend-settings'
+- id: shell-registry-settings
+  name: '@deepseek-ai/dsh-shell-registry-settings'
 
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
