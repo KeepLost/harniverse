@@ -35,11 +35,14 @@ function stubTool(name: string) {
 const entryStatus = (id: string, stack: 'bash' | 'pwsh', available: boolean, resolvedPath?: string, label?: string): ShellEntryStatus =>
   ({ id, label: label ?? id, stack, path: resolvedPath ?? id, available, ...(available ? { resolvedPath: resolvedPath ?? id } : { reason: 'not found' }) })
 
-/** The stub table's builtin pair, labeled the way the real router labels them. */
-const builtinPair = (): readonly ShellEntryStatus[] => [
-  entryStatus('posix', 'bash', true, '/usr/bin/bash', 'bash'),
-  entryStatus('pwsh', 'pwsh', true, '/usr/bin/pwsh', 'pwsh'),
-]
+/** The stub table's builtin pair, mirroring the platform's builtin registry entries. */
+const builtinPair = (): readonly ShellEntryStatus[] => {
+  const builtins = builtinRegistryEntries(process.platform)
+  return [
+    entryStatus('posix', 'bash', true, builtins.bash.path, builtins.bash.label),
+    entryStatus('pwsh', 'pwsh', true, builtins.pwsh.path, builtins.pwsh.label),
+  ]
+}
 
 /**
  * A routed-shell stub: availability seeded directly, no probe and no real
