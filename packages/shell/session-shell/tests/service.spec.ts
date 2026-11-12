@@ -247,13 +247,16 @@ describe('effective resolution', () => {
       session.append('session-shell/change', {} as never)
       syncProjection(ctx, session, before)
       expect(ctx.sessionShell.effective(session).entryId).toBe(platformDefaultEntry)
-      // Raw legacy-family payloads fold through both builtin arms whatever
-      // the platform split (pwsh is the default builtin on win32, so only a
-      // replayed legacy event exercises its fold there).
+      // Raw legacy payloads replayed in one window fold through both builtin
+      // arms whatever the platform split (pwsh is win32's default builtin, so
+      // only a replayed legacy event exercises its fold there); the custom id
+      // lands last and, unregistered on this host, degrades at the resolver.
       session.append('session-shell/change', { family: 'bash' } as never)
       session.append('session-shell/change', { family: 'pwsh' } as never)
-      syncProjection(ctx, session, before + 2)
-      expect(ctx.sessionShell.effective(session).entryId).toBe('pwsh')
+      session.append('session-shell/change', { entry: 'pwsh' })
+      session.append('session-shell/change', { entry: 'my-zsh' })
+      syncProjection(ctx, session, before + 1)
+      expect(ctx.sessionShell.effective(session).entryId).toBe(platformDefaultEntry)
     } finally {
       await ctx.fiber.dispose()
     }
