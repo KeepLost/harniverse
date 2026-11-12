@@ -10,6 +10,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+    - tab "Statistics"
     - tab "Capabilities"
 - text: Render adjacent CJK strong emphasis. {{clock}}
 - button "Copy":

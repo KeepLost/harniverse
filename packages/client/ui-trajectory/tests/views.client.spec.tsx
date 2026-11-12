@@ -107,8 +107,10 @@ function historySnapshot(
   return {
     sessionId: SID,
     views: {
-      get: target => target === 'trajectory' ? trajectory : undefined,
-    },
+      // The snapshot map is declaration-merged by every conversation view;
+      // this trajectory-only fixture narrows the widened generic back.
+      get: (target: string) => target === 'trajectory' ? trajectory : undefined,
+    } as unknown as ConversationSnapshot['views'],
     chat: EMPTY_CHAT_SNAPSHOT,
     nodes,
     turnTimings: new Map(),
