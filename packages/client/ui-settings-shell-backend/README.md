@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The Shell default settings section: the registry-default radio fieldset over the host `shell-registry` settings namespace (`@deepseek-ai/dsh-shell-registry-settings`). Writes go through the bound settings scope as one `default` field; the namespace declares `applies: 'restart'`, so the app boot bridge resolves the stored registry into `$DSH_SHELL_BACKEND` (plus a custom default's executable) and the shell rows re-compose on the next start. The options cover the reserved platform split, the two builtins (`posix`, `pwsh`), and every registered custom entry (labeled with its path); an explicit default is meaningful on every platform.
+The Shell registry settings section: the registry-default radio fieldset plus the custom-entry list over the host `shell-registry` settings namespace (`@deepseek-ai/dsh-shell-registry-settings`). Writes go through the bound settings scope as `default` and `entries` fields; the namespace declares `applies: 'restart'`, so the app boot bridge resolves the stored registry into `$DSH_SHELL_BACKEND` (plus a custom default's executable) and the shell rows re-compose on the next start. The default options cover the reserved platform split, the two builtins (`posix`, `pwsh`), and every registered custom entry (labeled with its path); an explicit default is meaningful on every platform. Custom entries register an id plus an executable (path or PATH name); entry-level probe badges come from the boot host description snapshot, so they report the last start's probes.
 
 ## Composition
 
@@ -17,7 +17,7 @@ The plugin injects `slots`, `locale`, and `settingsScope`. It contributes one en
 ## Section behavior
 
 - The form renders once the namespace resolves; a namespace the gateway does not expose shows the unavailable note instead.
-- Saving writes the `default` field only when the draft differs from the resolved value, and the settled revision is adopted automatically; an external revision while the draft is clean is adopted the same way.
+- Saving writes the `default` field only when the draft differs from the resolved value, and the `entries` field only when the draft list differs structurally; the settled revision is adopted automatically, and an external revision while the draft is clean is adopted the same way.
 - The saved notice states the restart effect — nothing switches live.
 - A refused write reports the server message; a read-only principal sees every control disabled with the read-only note.
 
@@ -32,4 +32,5 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 ## Known Limitations and Deferred Work
 
 - **Restart-applied, not live** — the section edits the durable preference only; the running process keeps its composed shell family until the next start (the namespace declares `applies: 'restart'`).
-- **Entry availability is not probed here** — the form does not verify an executable resolves; a missing installation surfaces through the shell tool on the next start (and the boot probe's warnings), not in this form. Entry CRUD (register/edit/remove custom shells) is deferred: this section edits the default only.
+- **Probe badges are boot-stable** — the badges mirror the boot host description's probes (restart-applied), not a live re-probe; the form itself never verifies an executable resolves. A missing installation surfaces through the badge after the next start and through the shell tool's refusal before that.
+- **Entry edits are add/remove only** — editing an existing entry's id or path in place is remove-then-add; slug/dialect/reserved/duplicate rules are enforced by the namespace validation and surface verbatim as the refused-write notice.

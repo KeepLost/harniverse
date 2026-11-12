@@ -46,12 +46,14 @@ function readyOf(value: ShellBackendSectionValue, revision = 1, writable = true)
 function propsOf(
   scope: ScopeSnapshot,
   set: ShellBackendSectionInjected['set'] = vi.fn(async () => {}),
+  probe?: ShellBackendSectionInjected['probe'],
 ): ShellBackendSectionProps {
   return {
     close: () => {},
     t: tzh(),
     useScope: ((<T,>(select: (snapshot: ScopeSnapshot) => T) => select(scope)) as ShellBackendSectionProps['useScope']),
     set,
+    probe,
   } as unknown as ShellBackendSectionProps
 }
 
@@ -78,7 +80,8 @@ describe('ShellBackendSection', () => {
     }))} />)
     const radio = screen.getByRole<HTMLInputElement>('radio', { name: /my-zsh/ })
     expect(radio.checked).toBe(true)
-    expect(screen.getByText('/opt/homebrew/bin/zsh')).toBeDefined()
+    // The radio desc and the registry entry row both name the executable.
+    expect(screen.getAllByText('/opt/homebrew/bin/zsh').length).toBe(2)
   })
 
   it('shows both options with the platform default active and saving idle', () => {
@@ -190,5 +193,76 @@ describe('ShellBackendSection', () => {
     view.rerender(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }, 5))} />)
     await waitFor(() => { expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.posix']) }).checked).toBe(true) })
     expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(false)
+  })
+
+  describe('custom entry management', () => {
+    const withEntry = readyOf({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/bin/zsh' }] })
+
+    it('adds an entry through the form and saves the entries write', async () => {
+      const set = vi.fn(async () => {})
+      render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
+      fireEvent.change(screen.getByPlaceholderText('my-zsh'), { target: { value: 'nightly-bash' } })
+      fireEvent.change(screen.getByPlaceholderText('/bin/zsh'), { target: { value: '/opt/bash/bin/bash' } })
+      fireEvent.click(screen.getByRole('button', { name: zh['entries.add'] }))
+      fireEvent.click(screen.getByRole('button', { name: zh.save }))
+      await waitFor(() => { expect(screen.getByText(zh.saved)).toBeDefined() })
+      expect(set).toHaveBeenCalledWith('entries', [{ id: 'nightly-bash', path: '/opt/bash/bin/bash', label: '' }])
+    })
+
+    it('removes an entry and saves the shortened list', async () => {
+      const set = vi.fn(async () => {})
+      render(<ShellBackendSection {...propsOf(withEntry, set)} />)
+      fireEvent.click(screen.getByRole('button', { name: zh['entries.remove'] }))
+      fireEvent.click(screen.getByRole('button', { name: zh.save }))
+      await waitFor(() => { expect(screen.getByText(zh.saved)).toBeDefined() })
+      expect(set).toHaveBeenCalledWith('entries', [])
+    })
+
+    it('an empty add draft never leaves the form', () => {
+      const set = vi.fn(async () => {})
+      render(<ShellBackendSection {...propsOf(withEntry, set)} />)
+      fireEvent.click(screen.getByRole('button', { name: zh['entries.add'] }))
+      expect(set).not.toHaveBeenCalled()
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true)
+    })
+
+    it('surfaces a rejected entries write verbatim', async () => {
+      const set = vi.fn(async () => { throw new Error('shell-registry: entry id "X" must be a lowercase slug') })
+      render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
+      fireEvent.change(screen.getByPlaceholderText('my-zsh'), { target: { value: 'X' } })
+      fireEvent.change(screen.getByPlaceholderText('/bin/zsh'), { target: { value: '/bin/zsh' } })
+      fireEvent.click(screen.getByRole('button', { name: zh['entries.add'] }))
+      fireEvent.click(screen.getByRole('button', { name: zh.save }))
+      const rejected = zh.saveFailed.replace('{message}', 'shell-registry: entry id "X" must be a lowercase slug')
+      await waitFor(() => { expect(screen.getByText(rejected)).toBeDefined() })
+    })
+
+    it('renders probe badges from the boot snapshot and none for unknown ids', () => {
+      render(<ShellBackendSection {...propsOf(
+        readyOf({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/bin/zsh' }, { id: 'other', path: '/usr/bin/fish' }] }),
+        undefined,
+        [{ id: 'my-zsh', available: true }, { id: 'gone', available: false }],
+      )} />)
+      expect(screen.getByText(zh['entries.probeOk'])).toBeDefined()
+      expect(screen.queryByText(zh['entries.probeFail'])).toBeNull()
+    })
+
+    it('marks unavailable probes on registered entries', () => {
+      render(<ShellBackendSection {...propsOf(
+        readyOf({ default: 'gone', entries: [{ id: 'gone', path: '/nope/pwsh' }] }),
+        undefined,
+        [{ id: 'gone', available: false }],
+      )} />)
+      expect(screen.getByText(zh['entries.probeFail'])).toBeDefined()
+    })
+
+    it('revert restores the resolved entries alongside the default', () => {
+      render(<ShellBackendSection {...propsOf(withEntry)} />)
+      fireEvent.click(screen.getByRole('button', { name: zh['entries.remove'] }))
+      fireEvent.click(screen.getByRole('button', { name: zh.revert }))
+      // The default radio desc and the entry row path both show the executable.
+      expect(screen.getAllByText('/bin/zsh').length).toBe(2)
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true)
+    })
   })
 })

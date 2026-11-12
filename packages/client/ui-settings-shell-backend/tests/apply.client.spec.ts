@@ -24,8 +24,9 @@ import type { ShellBackendSectionValue } from '../src/client/decode.ts'
 usePinnedBrowserLanguages('zh-CN')
 
 /** Build one client bench with the plugin's service doubles. */
-async function bench() {
+async function bench(connection?: unknown) {
   const ctx = new Context()
+  if (connection !== undefined) ctx.provide('connection', connection)
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
@@ -76,8 +77,11 @@ describe('ui-settings-shell-backend apply', () => {
     const face = injectFace?.() as {
       hooks: { scope: unknown }
       set: (field: string, value: unknown) => Promise<void>
+      probe: readonly { id: string; available: boolean }[] | undefined
     }
     expect(face.hooks.scope).toBe(scope)
+    // No connection service: the probe badges stay absent, not broken.
+    expect(face.probe).toBeUndefined()
     await face.set('default', 'posix')
     expect(setMock).toHaveBeenCalledWith('default', 'posix')
     await ctx.fiber.dispose()
@@ -102,6 +106,26 @@ describe('ui-settings-shell-backend apply', () => {
     await fiber.dispose()
 
     expect(slots.entries('settings.section')).toHaveLength(0)
+  })
+})
+
+describe('boot probe badges', () => {
+  it('mirrors the host description shell entries, and stays absent without a shell block', async () => {
+    const withShell = await bench({
+      hostDescription: { getSnapshot: () => ({ shell: { entries: [{ id: 'my-zsh', available: true }, { id: 'gone', available: false }] } }) },
+    })
+    declareRoot(withShell.slots)
+    await withShell.ctx.plugin({ apply, inject }).await()
+    const withFace = withShell.slots.entries('settings.section')[0]?.inject as () => { probe: unknown }
+    expect(withFace().probe).toEqual([{ id: 'my-zsh', available: true }, { id: 'gone', available: false }])
+
+    const bareHost = await bench({ hostDescription: { getSnapshot: () => ({}) } })
+    declareRoot(bareHost.slots)
+    await bareHost.ctx.plugin({ apply, inject }).await()
+    const bareFace = bareHost.slots.entries('settings.section')[0]?.inject as () => { probe: unknown }
+    expect(bareFace().probe).toBeUndefined()
+    await withShell.ctx.fiber.dispose()
+    await bareHost.ctx.fiber.dispose()
   })
 })
 
