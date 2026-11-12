@@ -54,7 +54,8 @@ describe('stats view registration', () => {
     const views = ctx.get('conversationViews') as ConversationViewRegistry
     const entry = slots.entries('conversation.view')[0]
     expect(entry?.options.id).toBe('stats')
-    expect(entry?.options.label?.()).toBe(en['view.label'])
+    const label = entry?.options.label
+    expect(typeof label === 'function' ? (label as () => string)() : label).toBe(en['view.label'])
     expect(events.entries().map(definition => definition.kind)).toEqual([
       'stats-step', 'stats-prompt', 'stats-turn-end', 'stats-compaction',
     ])
@@ -70,7 +71,7 @@ describe('stats view registration', () => {
     const loadOlder = vi.fn(async () => {
       viewsSnapshot.set('stats', { rows: [2], totals: null })
     })
-    const viewsSnapshot = new Map([['stats', { rows: [], totals: null }]])
+    const viewsSnapshot = new Map<string, { rows: unknown[]; totals: null }>([['stats', { rows: [], totals: null }]])
     const binding = {
       session: {
         getSnapshot: () => ({ views: { get: (target: string) => viewsSnapshot.get(target) } }),
@@ -82,13 +83,14 @@ describe('stats view registration', () => {
     await mount(ctx)
     const entry = slots.entries('conversation.view')[0]
     if (entry?.inject === undefined) throw new Error('missing inject face')
-    const face = entry.inject(SID) as unknown as { loadOlder: () => Promise<boolean> }
+    const injectFace = entry.inject as unknown as (id: SessionId) => { loadOlder: () => Promise<boolean> }
+    const face = injectFace(SID)
     viewsSnapshot.set('stats', { rows: [1], totals: null })
     await expect(face.loadOlder()).resolves.toBe(true)
     loadOlder.mockImplementation(async () => undefined)
     await expect(face.loadOlder()).resolves.toBe(false)
     expect(loadOlder).toHaveBeenCalledTimes(2)
-    expect(() => (entry.inject as unknown as (id: SessionId) => unknown)('missing' as SessionId)).toThrow(/unavailable/)
+    expect(() => injectFace('missing' as SessionId)).toThrow(/unavailable/)
   })
 
   it('registers nothing from the node half', () => {
