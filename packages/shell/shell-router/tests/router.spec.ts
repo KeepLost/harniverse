@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
-import { ShellExecutor } from '@deepseek-ai/dsh-shell'
+import { ShellExecutor, defaultCommandShellPath } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
@@ -139,6 +139,9 @@ async function setupRouter(
   return { ctx, router: ctx.shell as ShellRouter, fake: family => instances.get(family) }
 }
 
+/** The platform's posix builtin executable the probes answer for (bash by PATH, /bin/zsh on darwin). */
+const posixBuiltin = defaultCommandShellPath(process.platform)
+
 describe('default-family resolution', () => {
   it('prefers explicit config over the published flag and the platform default', () => {
     expect(resolveDefaultFamily({ defaultFamily: 'pwsh' }, { DSH_SHELL_BACKEND: 'bash' }, 'linux')).toBe('pwsh')
@@ -236,7 +239,7 @@ describe('registry entries', () => {
   it('probes registry entries alongside the builtins and publishes their status', async () => {
     const { ctx, router } = await setupRegistryRouter(
       { default: 'platform-default', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      ['bash', '/opt/homebrew/bin/zsh'],
+      [posixBuiltin, '/opt/homebrew/bin/zsh'],
     )
     const availability = router.availability()
     expect(availability.entries.find(entry => entry.id === 'my-zsh')).toMatchObject({
@@ -259,7 +262,7 @@ describe('registry entries', () => {
   it('adopts a probed registry default as the default entry and materializes it on unstamped specs', async () => {
     const { ctx, router } = await setupRegistryRouter(
       { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      ['bash', 'pwsh', '/opt/homebrew/bin/zsh'],
+      [posixBuiltin, 'pwsh', '/opt/homebrew/bin/zsh'],
     )
     expect(router.availability().defaultEntry).toBe('my-zsh')
     expect(router.resolve({ command: 'x' }).shellPath).toBe('/opt/homebrew/bin/zsh')
@@ -269,10 +272,10 @@ describe('registry entries', () => {
   it('falls back to the platform builtin when the registry default probes unavailable', async () => {
     const { ctx, router } = await setupRegistryRouter(
       { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      ['bash', 'pwsh'],
+      [posixBuiltin, 'pwsh'],
     )
     expect(router.availability().defaultEntry).toBe('posix')
-    expect(router.resolve({ command: 'x' }).shellPath).toBe('bash')
+    expect(router.resolve({ command: 'x' }).shellPath).toBe(posixBuiltin)
     await ctx.fiber.dispose()
   })
 
@@ -292,7 +295,7 @@ describe('registry entries', () => {
   it('falls back to the platform builtin when the registry default\'s family fails to mount', async () => {
     const { ctx, router } = await setupRegistryRouter(
       { default: 'preview', entries: [{ id: 'preview', path: 'pwsh' }] },
-      ['bash', 'pwsh'],
+      [posixBuiltin, 'pwsh'],
       { pwsh: BrokenFamilyExecutor },
     )
     expect(router.availability().defaultEntry).toBe('posix')
@@ -302,7 +305,7 @@ describe('registry entries', () => {
   it('keeps a caller-stamped executable over the default entry and skips non-default families', async () => {
     const { ctx, router } = await setupRegistryRouter(
       { default: 'platform-default', entries: [] },
-      ['bash', 'pwsh'],
+      [posixBuiltin, 'pwsh'],
     )
     expect(router.resolve({ command: 'x', shellPath: '/custom/zsh' }).shellPath).toBe('/custom/zsh')
     expect(router.resolve({ command: 'x', family: 'pwsh' }).shellPath).toBeUndefined()
@@ -312,7 +315,7 @@ describe('registry entries', () => {
   it('folds a legacy family value as the registry default', async () => {
     const { ctx, router } = await setupRegistryRouter(
       { default: 'bash', entries: [] },
-      ['bash', 'pwsh'],
+      [posixBuiltin, 'pwsh'],
     )
     expect(router.availability().defaultEntry).toBe('posix')
     await ctx.fiber.dispose()
@@ -321,7 +324,7 @@ describe('registry entries', () => {
   it('skips probing an index-missing entry (an unclassifiable document bypassed validation)', async () => {
     const { ctx, router } = await setupRegistryRouter(
       { default: 'platform-default', entries: [{ id: 'fishy', path: '/usr/bin/fish' }, { id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      ['bash', 'pwsh', '/opt/homebrew/bin/zsh'],
+      [posixBuiltin, 'pwsh', '/opt/homebrew/bin/zsh'],
     )
     const ids = router.availability().entries.map(entry => entry.id)
     expect(ids).toContain('my-zsh')
@@ -334,7 +337,7 @@ describe('registry entries', () => {
     try {
       const { ctx, router } = await setupRegistryRouter(
         { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-        ['bash', 'pwsh', '/opt/homebrew/bin/zsh'],
+        [posixBuiltin, 'pwsh', '/opt/homebrew/bin/zsh'],
       )
       expect(router.availability().defaultEntry).toBe('pwsh')
       expect(router.resolve({ command: 'x', family: 'pwsh' }).shellPath).toBe('pwsh')
@@ -349,7 +352,7 @@ describe('mount degradation', () => {
   it('keeps the probed families serving while an unprobed one stays unavailable', async () => {
     const { router } = await setupRouter({}, ['bash'])
     expect(router.availability()).toMatchObject({ default: 'bash', defaultEntry: 'posix', families: { bash: true, pwsh: false } })
-    expect(router.availability().entries.find(entry => entry.id === 'posix')).toMatchObject({ available: true, resolvedPath: 'bash' })
+    expect(router.availability().entries.find(entry => entry.id === 'posix')).toMatchObject({ available: true, resolvedPath: posixBuiltin })
     expect(router.availability().entries.find(entry => entry.id === 'pwsh')?.available).toBe(false)
     await expect(router.run(router.resolve({ command: 'x' }))).resolves.toMatchObject({ stdout: { text: 'bash-ran' } })
   })

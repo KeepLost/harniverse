@@ -16,7 +16,7 @@ import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-ses
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt, { renderContextSections } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
-import { ShellExecutor } from '@deepseek-ai/dsh-shell'
+import { ShellExecutor, builtinRegistryEntries, shellFactText } from '@deepseek-ai/dsh-shell'
 import type { ShellEntryStatus } from '@deepseek-ai/dsh-shell'
 import SessionShellService, { SESSION_SHELL_CONTEXT, SHELL_CHANGE_NOTICE } from '../src/index.ts'
 
@@ -514,9 +514,11 @@ describe('the runtime-context contribution', () => {
     try {
       const sections = renderContextSections(await ctx.systemPrompt.assemble({ agent: agentOf(ctx) }))
       const shell = sections.filter(section => section.name === SESSION_SHELL_CONTEXT)
-      const expected = process.platform === 'win32'
-        ? 'Current shell for commands: pwsh (PowerShell). Run shell commands with the `pwsh` tool; its syntax is PowerShell.'
-        : 'Current shell for commands: bash. Run shell commands with the `bash` tool; its syntax is POSIX shell.'
+      // The fact derives from the builtin registry entry of the platform
+      // split, so the pinned line must follow the host's default shell
+      // (zsh with its absolute path on darwin, PATH-named bash elsewhere).
+      const def = builtinRegistryEntries(process.platform)[process.platform === 'win32' ? 'pwsh' : 'bash']
+      const expected = shellFactText(def.label, def.stack, def.path.includes('/') ? def.path : undefined)
       expect(shell).toEqual([{ name: SESSION_SHELL_CONTEXT, text: expected }])
     } finally {
       await ctx.fiber.dispose()
