@@ -69,12 +69,13 @@ class StubRouter extends ShellExecutor {
       pwsh: this.options.families?.pwsh ?? entries.some(entry => entry.stack === 'pwsh' && entry.available),
     }
     // The fallback default mirrors the platform split the real router
-    // serves (pwsh on win32 when both stacks probe), keeping effective()
-    // platform-stable on every host these specs run on.
+    // serves (pwsh on win32), falling to the POSIX builtin when the split
+    // stack's family does not probe — keeping effective() platform-stable.
     const split: 'bash' | 'pwsh' = process.platform === 'win32' ? 'pwsh' : 'bash'
     const lone = families.pwsh && !families.bash
-    const defaultEntry = this.options.defaultEntry ?? (lone || split === 'pwsh' ? 'pwsh' : 'posix')
-    return { default: lone ? 'pwsh' : split, defaultEntry, families, entries }
+    const followSplit = families[split]
+    const defaultEntry = this.options.defaultEntry ?? (lone || followSplit && split === 'pwsh' ? 'pwsh' : 'posix')
+    return { default: lone ? 'pwsh' : followSplit ? split : 'bash', defaultEntry, families, entries }
   }
 
   resolve(): never { throw new Error('stub router does not execute') }
@@ -389,14 +390,17 @@ describe('switching', () => {
     const ctx = await boot({ entries: builtinPair() })
     try {
       const agent = agentOf(ctx)
-      await expect(ctx.sessionShell.switch(agent, 'bash')).resolves.toBe('posix')
-      // On a POSIX-default host the fold is a same-entry no-op; the pwsh
-      // family name is already a builtin id and switches for real.
+      // The fold targets the POSIX builtin: a same-entry no-op on a
+      // POSIX-default host, a real switch on a pwsh-default one (win32).
+      const folded: string = platformDefaultEntry === 'posix' ? 'posix' : 'pwsh'
+      const other: string = platformDefaultEntry === 'posix' ? 'pwsh' : 'posix'
+      const legacy: 'bash' | 'pwsh' = platformDefaultEntry === 'posix' ? 'bash' : 'pwsh'
+      await expect(ctx.sessionShell.switch(agent, legacy)).resolves.toBe(folded)
       expect(agent.session.events.filter(event => event.type === 'session-shell/change')).toHaveLength(0)
-      await expect(ctx.sessionShell.switch(agent, 'pwsh')).resolves.toBe('pwsh')
-      await expect(ctx.sessionShell.switch(agent, 'bash')).resolves.toBe('posix')
+      await expect(ctx.sessionShell.switch(agent, other)).resolves.toBe(other)
+      await expect(ctx.sessionShell.switch(agent, legacy)).resolves.toBe(folded)
       expect(agent.session.events.filter(event => event.type === 'session-shell/change').map(event => event.data))
-        .toEqual([{ entry: 'pwsh' }, { entry: 'posix' }])
+        .toEqual([{ entry: other }, { entry: folded }])
     } finally {
       await ctx.fiber.dispose()
     }
@@ -534,12 +538,19 @@ describe('the runtime-context contribution', () => {
       const agent = agentOf(ctx)
       await ctx.systemPrompt.assemble({ agent })
       const before = agent.session.events.length
-      await ctx.sessionShell.switch(agent, 'pwsh')
+      // Switch to the away builtin so the notice fires on every platform
+      // (pwsh is the default split on win32, the POSIX builtin elsewhere).
+      const awayStack: 'bash' | 'pwsh' = platformDefaultEntry === 'posix' ? 'pwsh' : 'bash'
+      const awayEntry: string = awayStack === 'pwsh' ? 'pwsh' : 'posix'
+      const defBuiltins = builtinRegistryEntries(process.platform)
+      const fromLabel = (platformDefaultEntry === 'posix' ? defBuiltins.bash : defBuiltins.pwsh).label
+      const awayLabel = (awayStack === 'pwsh' ? defBuiltins.pwsh : defBuiltins.bash).label
+      await ctx.sessionShell.switch(agent, awayEntry)
       syncProjection(ctx, agent.session, before)
       const sections = renderContextSections(await ctx.systemPrompt.assemble({ agent }))
       const text = sections.find(section => section.name === SESSION_SHELL_CONTEXT)!.text
-      expect(text).toContain('Current shell for commands: pwsh (PowerShell).')
-      expect(text).toContain(SHELL_CHANGE_NOTICE.replace('{from}', process.platform === 'win32' ? 'pwsh' : 'bash').replaceAll('{to}', 'pwsh'))
+      expect(text).toContain(`Current shell for commands: ${awayLabel}`)
+      expect(text).toContain(SHELL_CHANGE_NOTICE.replaceAll('{from}', fromLabel).replaceAll('{to}', awayLabel))
       // The notice rides exactly one assembly; the fact alone persists after it.
       const after = renderContextSections(await ctx.systemPrompt.assemble({ agent }))
       expect(after.find(section => section.name === SESSION_SHELL_CONTEXT)!.text).not.toContain('changed from')

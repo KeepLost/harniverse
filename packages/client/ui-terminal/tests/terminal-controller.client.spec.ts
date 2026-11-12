@@ -372,6 +372,14 @@ describe('TerminalPanelController session shell', () => {
     expect(controller.state.getSnapshot().shellSession).toEqual({
       current: 'pwsh', switchable: true, families: { bash: true, pwsh: false }, pending: false,
     })
+
+    // Switching back to the POSIX family settles the stack-level mapping's
+    // other arm: every non-pwsh answer folds to bash.
+    controller.switchSessionShell('bash')
+    await settle()
+    expect(controller.state.getSnapshot().shellSession).toEqual({
+      current: 'bash', switchable: true, families: { bash: true, pwsh: false }, pending: false,
+    })
   })
 
   it('a refused switch republishes pending false, keeps the family, and raises the banner', async () => {

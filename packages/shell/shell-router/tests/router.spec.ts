@@ -142,6 +142,17 @@ async function setupRouter(
 /** The platform's posix builtin executable the probes answer for (bash by PATH, /bin/zsh on darwin). */
 const posixBuiltin = defaultCommandShellPath(process.platform)
 
+/** Run one body under a pinned process.platform (restored after). */
+async function withPlatform(platform: NodeJS.Platform, body: () => Promise<void>): Promise<void> {
+  const real = process.platform
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+  try {
+    await body()
+  } finally {
+    Object.defineProperty(process, 'platform', { value: real, configurable: true })
+  }
+}
+
 describe('default-family resolution', () => {
   it('prefers explicit config over the published flag and the platform default', () => {
     expect(resolveDefaultFamily({ defaultFamily: 'pwsh' }, { DSH_SHELL_BACKEND: 'bash' }, 'linux')).toBe('pwsh')
@@ -270,13 +281,18 @@ describe('registry entries', () => {
   })
 
   it('falls back to the platform builtin when the registry default probes unavailable', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      [posixBuiltin, 'pwsh'],
-    )
-    expect(router.availability().defaultEntry).toBe('posix')
-    expect(router.resolve({ command: 'x' }).shellPath).toBe(posixBuiltin)
-    await ctx.fiber.dispose()
+    await withPlatform('linux', async () => {
+      const { ctx, router } = await setupRegistryRouter(
+        { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
+        ['bash', 'pwsh'],
+      )
+      try {
+        expect(router.availability().defaultEntry).toBe('posix')
+        expect(router.resolve({ command: 'x' }).shellPath).toBe('bash')
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    })
   })
 
   it('probes a PowerShell-class custom entry and adopts it as the default', async () => {
@@ -303,13 +319,18 @@ describe('registry entries', () => {
   })
 
   it('keeps a caller-stamped executable over the default entry and skips non-default families', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'platform-default', entries: [] },
-      [posixBuiltin, 'pwsh'],
-    )
-    expect(router.resolve({ command: 'x', shellPath: '/custom/zsh' }).shellPath).toBe('/custom/zsh')
-    expect(router.resolve({ command: 'x', family: 'pwsh' }).shellPath).toBeUndefined()
-    await ctx.fiber.dispose()
+    await withPlatform('linux', async () => {
+      const { ctx, router } = await setupRegistryRouter(
+        { default: 'platform-default', entries: [] },
+        ['bash', 'pwsh'],
+      )
+      try {
+        expect(router.resolve({ command: 'x', shellPath: '/custom/zsh' }).shellPath).toBe('/custom/zsh')
+        expect(router.resolve({ command: 'x', family: 'pwsh' }).shellPath).toBeUndefined()
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    })
   })
 
   it('folds a legacy family value as the registry default', async () => {
