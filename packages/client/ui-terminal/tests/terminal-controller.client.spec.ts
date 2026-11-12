@@ -384,12 +384,16 @@ describe('TerminalPanelController session shell', () => {
       ],
     })
 
-    // Switching back to the POSIX family settles the stack-level mapping's
-    // other arm: every non-pwsh answer folds to bash.
-    controller.switchSessionShell('bash')
+    // Switching back to the POSIX entry republishes it as current — the
+    // entries the host reported stay untouched by the switch.
+    controller.switchSessionShell('posix')
     await settle()
     expect(controller.state.getSnapshot().shellSession).toEqual({
-      current: 'bash', switchable: true, families: { bash: true, pwsh: false }, pending: false,
+      current: 'posix', switchable: true, pending: false,
+      entries: [
+        { id: 'posix', label: 'bash', stack: 'bash', available: true },
+        { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: false },
+      ],
     })
   })
 
