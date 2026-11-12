@@ -10,6 +10,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+    - tab "Statistics"
     - tab "Capabilities"
 - text: Show the Markdown image policy. {{clock}}
 - button "Copy":

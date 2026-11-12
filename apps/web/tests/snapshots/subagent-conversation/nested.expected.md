@@ -14,6 +14,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+    - tab "Statistics"
     - tab "Capabilities"
 - text: Give one concrete event sourcing example. {{clock}}
 - button "Copy":

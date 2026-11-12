@@ -12,6 +12,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+    - tab "Statistics"
     - tab "Capabilities"
 - img
 - text: plan Plan mode on. Use /plan off to leave.
