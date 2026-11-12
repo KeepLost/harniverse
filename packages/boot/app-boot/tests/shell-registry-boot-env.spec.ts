@@ -49,7 +49,8 @@ describe('applyShellBackendBootEnv', () => {
       + '  default: my-zsh\n'
       + '  entries:\n'
       + '    - id: my-zsh\n'
-      + '      path: /opt/homebrew/bin/zsh\n')
+      + '      path: /opt/homebrew/bin/zsh\n'
+      + '      label: Work zsh\n')
     const env: Record<string, string | undefined> = {}
     applyShellBackendBootEnv({ env, home, platform: 'darwin' })
     expect(env[SHELL_BACKEND_ENV]).toBe('bash')
@@ -76,6 +77,34 @@ describe('applyShellBackendBootEnv', () => {
     const blank: Record<string, string | undefined> = { [SHELL_BACKEND_ENV]: '  ' }
     applyShellBackendBootEnv({ env: blank, home, platform: 'win32' })
     expect(blank[SHELL_BACKEND_ENV]).toBe('pwsh')
+  })
+
+  it('folds a stored legacy bash default to the posix builtin', () => {
+    const home = seededHome('shell-registry:\n  default: bash\n')
+    const env: Record<string, string | undefined> = {}
+    applyShellBackendBootEnv({ env, home, platform: 'linux' })
+    expect(env[SHELL_BACKEND_ENV]).toBe('bash')
+    expect(env[SHELL_DEFAULT_PATH_ENV]).toBeUndefined()
+  })
+
+  it('drops malformed entry rows and a non-array entries field without failing the boot', () => {
+    const home = seededHome('shell-registry:\n'
+      + '  default: my-zsh\n'
+      + '  entries:\n'
+      + '    - id: my-zsh\n'
+      + '      path: /opt/homebrew/bin/zsh\n'
+      + '    - null\n'
+      + '    - 7\n'
+      + '    - id: 9\n'
+      + '      path: /bin/never\n')
+    const env: Record<string, string | undefined> = {}
+    applyShellBackendBootEnv({ env, home, platform: 'darwin' })
+    expect(env[SHELL_DEFAULT_PATH_ENV]).toBe('/opt/homebrew/bin/zsh')
+
+    const stringEntries = seededHome('shell-registry:\n  default: posix\n  entries: oops\n')
+    const env2: Record<string, string | undefined> = {}
+    applyShellBackendBootEnv({ env: env2, home: stringEntries, platform: 'linux' })
+    expect(env2[SHELL_BACKEND_ENV]).toBe('bash')
   })
 
   it('falls back to the platform default on a malformed document', () => {

@@ -65,8 +65,13 @@ class StubRouter extends ShellExecutor {
       bash: this.options.families?.bash ?? entries.some(entry => entry.stack === 'bash' && entry.available),
       pwsh: this.options.families?.pwsh ?? entries.some(entry => entry.stack === 'pwsh' && entry.available),
     }
-    const defaultEntry = this.options.defaultEntry ?? (families.pwsh && !families.bash ? 'pwsh' : 'posix')
-    return { default: families.pwsh && !families.bash ? 'pwsh' : 'bash', defaultEntry, families, entries }
+    // The fallback default mirrors the platform split the real router
+    // serves (pwsh on win32 when both stacks probe), keeping effective()
+    // platform-stable on every host these specs run on.
+    const split: 'bash' | 'pwsh' = process.platform === 'win32' ? 'pwsh' : 'bash'
+    const lone = families.pwsh && !families.bash
+    const defaultEntry = this.options.defaultEntry ?? (lone || split === 'pwsh' ? 'pwsh' : 'posix')
+    return { default: lone ? 'pwsh' : split, defaultEntry, families, entries }
   }
 
   resolve(): never { throw new Error('stub router does not execute') }

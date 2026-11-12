@@ -71,6 +71,16 @@ describe('ShellBackendSection', () => {
     expect(screen.getByText(zh.unavailable)).toBeDefined()
   })
 
+  it('labels an unlabeled custom entry radio with its id and path hint', () => {
+    render(<ShellBackendSection {...propsOf(readyOf({
+      default: 'my-zsh',
+      entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }],
+    }))} />)
+    const radio = screen.getByRole<HTMLInputElement>('radio', { name: /my-zsh/ })
+    expect(radio.checked).toBe(true)
+    expect(screen.getByText('/opt/homebrew/bin/zsh')).toBeDefined()
+  })
+
   it('shows both options with the platform default active and saving idle', () => {
     render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }))} />)
     const pwsh = screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.platform-default']) })
