@@ -247,6 +247,13 @@ describe('effective resolution', () => {
       session.append('session-shell/change', {} as never)
       syncProjection(ctx, session, before)
       expect(ctx.sessionShell.effective(session).entryId).toBe(platformDefaultEntry)
+      // Raw legacy-family payloads fold through both builtin arms whatever
+      // the platform split (pwsh is the default builtin on win32, so only a
+      // replayed legacy event exercises its fold there).
+      session.append('session-shell/change', { family: 'bash' } as never)
+      session.append('session-shell/change', { family: 'pwsh' } as never)
+      syncProjection(ctx, session, before + 2)
+      expect(ctx.sessionShell.effective(session).entryId).toBe('pwsh')
     } finally {
       await ctx.fiber.dispose()
     }
