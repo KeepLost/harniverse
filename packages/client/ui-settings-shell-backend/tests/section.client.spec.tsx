@@ -80,7 +80,8 @@ describe('ShellBackendSection', () => {
     }))} />)
     const radio = screen.getByRole<HTMLInputElement>('radio', { name: /my-zsh/ })
     expect(radio.checked).toBe(true)
-    expect(screen.getByText('/opt/homebrew/bin/zsh')).toBeDefined()
+    // The radio desc and the registry entry row both name the executable.
+    expect(screen.getAllByText('/opt/homebrew/bin/zsh').length).toBe(2)
   })
 
   it('shows both options with the platform default active and saving idle', () => {

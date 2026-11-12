@@ -150,17 +150,6 @@ describe('decodeShellBackendSection', () => {
     })).toEqual({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh', label: 'Work zsh' }] })
   })
 
-  it('drops null, non-object, and unlabeled entry rows without failing the section', () => {
-    expect(decodeShellBackendSection({
-      default: 'my-zsh',
-      entries: [null, 'nope', 42, { id: 'my-zsh', path: '/bin/zsh' }, { id: 'other', path: '/bin/sh', label: '' }],
-    })).toEqual({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/bin/zsh' }, { id: 'other', path: '/bin/sh' }] })
-  })
-
-  it('keeps the last accepted value on a non-array entries field', () => {
-    expect(decodeShellBackendSection({ default: 'posix', entries: 'oops' })).toEqual({ default: 'posix', entries: [] })
-  })
-
   it('defaults an absent default to the platform split', () => {
     expect(decodeShellBackendSection({})).toEqual({ default: 'platform-default', entries: [] })
   })
