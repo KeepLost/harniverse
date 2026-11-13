@@ -124,8 +124,12 @@ export interface DispatchTarget {
   entryId: string
   /** The promised stack — the tool that must serve the call. */
   stack: ShellBackendSelection
-  /** The promised executable — the exact path executions spawn. */
-  executablePath: string
+  /**
+   * The promised executable — the exact path executions spawn — or absent
+   * when the entry never probed and its configured path is a bare name:
+   * the executor then resolves through its own platform knowledge.
+   */
+  executablePath: string | undefined
 }
 
 /**

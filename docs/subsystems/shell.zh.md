@@ -317,7 +317,7 @@ describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean }; e
 
 Types: [Agent](core.md) · [Session](session.md)
 
-Source: [`packages/shell/session-shell/src/index.ts:137`](../../packages/shell/session-shell/src/index.ts)
+Source: [`packages/shell/session-shell/src/index.ts:141`](../../packages/shell/session-shell/src/index.ts)
 
 <a id="ctxshell--shellexecutor-abstract-seam"></a>
 

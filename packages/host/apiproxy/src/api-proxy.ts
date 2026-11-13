@@ -4045,7 +4045,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             entry: effective.entryId,
             label: effective.label,
             stack: effective.stack,
-            executablePath: effective.executablePath,
+            ...effective.executablePath !== undefined ? { executablePath: effective.executablePath } : {},
             ...effective.degraded !== undefined ? { degraded: effective.degraded } : {},
           },
           switchable: described.switchable,
@@ -5585,7 +5585,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // (restart-applied settings, boot-time probing), absent when this
           // host composes no session-shell service.
           ...((): { shell?: {
-            default: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string }
+            default: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath?: string | undefined }
             switchable: boolean
             entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[]
           } } => {
@@ -5599,7 +5599,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                   entry: effective.entryId,
                   label: effective.label,
                   stack: effective.stack,
-                  executablePath: effective.executablePath,
+                  ...effective.executablePath !== undefined ? { executablePath: effective.executablePath } : {},
                 },
                 switchable: described.switchable,
                 entries: described.entries,

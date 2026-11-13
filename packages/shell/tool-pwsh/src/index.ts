@@ -47,7 +47,7 @@ declare module '@deepseek-ai/dsh-jobs' {
 
 /** Structural face of the session-shell service, when the composition carries it. */
 interface SessionShellFace {
-  dispatchTarget(agent: Agent): { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string } | undefined
+  dispatchTarget(agent: Agent): { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string | undefined } | undefined
 }
 
 export const name = 'tool-pwsh'
@@ -384,7 +384,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         // Stamped by the family's own tool: the visible tool and the executor
         // family stay aligned on routed (multi-family) hosts.
         family: 'pwsh' as const,
-        ...target?.stack === 'pwsh' ? { shellPath: target.executablePath } : {},
+        ...target?.stack === 'pwsh' && target.executablePath !== undefined ? { shellPath: target.executablePath } : {},
         ...workdir !== undefined ? { workdir } : {},
         ...call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {},
         dshEnv: ctx.shellEnv.collect(exec),

@@ -83,8 +83,18 @@ const probed = (id: string, stack: 'bash' | 'pwsh', resolvedPath: string): [stri
 describe('resolveEffectiveShell', () => {
   it('resolves the platform default without an override', () => {
     const effective = resolveEffectiveShell({ platform: 'linux', registry: EMPTY, override: null })
-    expect(effective).toMatchObject({ entryId: BUILTIN_POSIX_ID, stack: 'bash', executablePath: 'bash' })
+    expect(effective).toMatchObject({ entryId: BUILTIN_POSIX_ID, stack: 'bash', executablePath: undefined })
     expect(effective.factText).toContain('Current shell for commands: bash.')
+    expect(effective.degraded).toBeUndefined()
+  })
+
+  it('stamps no executable for an unprobed bare-name builtin; the executor resolves', () => {
+    const availability = new Map<string, ShellEntryStatus>([
+      [BUILTIN_PWSH_ID, { id: BUILTIN_PWSH_ID, label: 'pwsh', stack: 'pwsh', path: 'pwsh', available: false, reason: 'not found on PATH' }],
+    ])
+    const effective = resolveEffectiveShell({ platform: 'win32', registry: EMPTY, override: null, availability })
+    expect(effective).toMatchObject({ entryId: BUILTIN_PWSH_ID, stack: 'pwsh' })
+    expect(effective.executablePath).toBeUndefined()
     expect(effective.degraded).toBeUndefined()
   })
 

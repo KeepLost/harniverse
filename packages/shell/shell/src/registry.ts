@@ -79,8 +79,13 @@ export interface EffectiveShell {
   label: string
   /** The stack that executes this shell. */
   stack: ShellBackendSelection
-  /** The executable every execution of this session must spawn. */
-  executablePath: string
+  /**
+   * The materialized executable the dispatch stamps when one exists: the
+   * entry's probed path, or an absolute configured path verbatim. An unprobed
+   * bare PATH-name entry leaves it unset — the owning executor then resolves
+   * through its own platform knowledge (well-known locations, fallbacks).
+   */
+  executablePath: string | undefined
   /** Pinned model-facing fact line announcing this shell. */
   factText: string
   /** Why resolution fell back off the requested target, when it did. */
@@ -247,7 +252,7 @@ export function resolveEffectiveShell(input: ResolveEffectiveShellInput): Effect
       return platformBuiltin
     })()
   const resolved = input.availability?.get(entry.id)
-  const executablePath = resolved?.resolvedPath ?? entry.path
+  const executablePath = resolved?.resolvedPath ?? (isAbsolute(entry.path) ? entry.path : undefined)
   return {
     entryId: entry.id,
     label: entry.label,
