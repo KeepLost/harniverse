@@ -393,6 +393,31 @@ describe('AppFrame', () => {
     expect(frame.style.getPropertyValue('--dsh-frame-right-width')).toBe('360px')
   })
 
+  it('publishes data-short-viewport from visualViewport compression (soft keyboard)', () => {
+    const vv = {
+      height: window.innerHeight,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: vv })
+    try {
+      const { frame } = mountFrame()
+      // Resting viewport: no flag; the listeners are the only update channel.
+      expect(frame.hasAttribute('data-short-viewport')).toBe(false)
+      expect(vv.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function))
+      expect(vv.addEventListener).toHaveBeenCalledWith('scroll', expect.any(Function))
+      const resize = vv.addEventListener.mock.calls.find(([name]) => name === 'resize')![1] as () => void
+      // A 300px deficit (keyboard occupying the lower screen) raises the flag;
+      // the viewport settling back clears it.
+      act(() => { vv.height = window.innerHeight - 300; resize() })
+      expect(frame.hasAttribute('data-short-viewport')).toBe(true)
+      act(() => { vv.height = window.innerHeight; resize() })
+      expect(frame.hasAttribute('data-short-viewport')).toBe(false)
+    } finally {
+      delete (window as { visualViewport?: unknown }).visualViewport
+    }
+  })
+
   it('drag handles disappear for collapsed columns', () => {
     const { frame, instance } = mountFrame()
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)

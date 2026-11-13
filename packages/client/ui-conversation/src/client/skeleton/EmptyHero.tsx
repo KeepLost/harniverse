@@ -1,8 +1,8 @@
-// Hero chrome for the blank-draft phase of ConversationRoot: brand artwork,
-// glow backdrop, and the workspace row. Pure presentation — the resident
-// composer is NOT rendered here (it keeps its own stable tree position in
-// ConversationRoot so the textarea survives the hero → composer flip); CSS
-// positions it over this shell's glow area during the hero phase.
+// Hero chrome for the blank-draft phase of ConversationRoot: brand artwork
+// and title. Pure presentation — the resident composer is NOT rendered here
+// (it keeps its own stable tree position in ConversationRoot so the textarea
+// survives the hero → composer flip); ConversationRoot hosts this shell in
+// the space above the docked composer card (.heroShellHost).
 
 import { useId } from 'react'
 import type { ReactNode, RefObject } from 'react'
@@ -141,12 +141,6 @@ export function HeroShell({ t, children }: HeroShellProps) {
             <span>{t('hero.headline')}</span>
             <span className={css.previewBadge}>{t('hero.preview')}</span>
           </div>
-        </div>
-        <div className={css.body}>
-          {/* The resident composer (ConversationRoot's root-owned scrollport;
-              the workspace row rides the stack above the card) is CSS-centered
-              in that scroll body during hero — see
-              ConversationRoot.module.css [data-phase='hero']. */}
         </div>
       </div>
       {children}
