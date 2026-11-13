@@ -360,33 +360,45 @@
   display: none;
 }
 
-/* Hero phase: the composer stack (hero chrome + workspace row + card) is
-   flex-centered in the column; composer phase docks it at the bottom. Flex,
-   NOT absolute+transform: a transform would make this box the containing
-   block for position:fixed descendants (pickers/modals), shrinking them. */
+/* Hero phase: the composer stack (glow + workspace row + card) docks at the
+   bottom of the column — the same resting seat the active composer uses, so
+   submitting the draft never moves the input. The hero chrome lives in
+   .heroShellHost above. Flex, NOT absolute+transform: a transform would make
+   this box the containing block for position:fixed descendants (pickers/
+   modals), shrinking them. */
 .composerHero {
   position: relative; /* .heroGlow positioning context */
   align-self: center;
   /* figma 75:8208 drew 12 between all three rows; the workspace row now sits
      8 above the card (its margin-top restores 12 under the hero chrome). */
   gap: 8px;
-  /* Foot inside the centered box floats the stack a bit above true center. */
-  padding-bottom: 32px;
   /* Card cap + both clearances: the hero input card lands at exactly the same
      width as the docked composer at every viewport. */
   width: min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);
   z-index: 1;
 }
 
+/* Hero chrome host: grows into the viewport space above the docked card and
+   centers the headline inside itself (HeroShell .root owns its centering).
+   `0` shrink keeps the short-viewport posture simple: the body scrolls and
+   the browser walks the focused textarea above the keyboard. */
+.heroShellHost {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
 /* Blue backdrop ellipse (figma 313:14109), centered on the input card: the
-   card's resting center sits ~92px above the stack bottom (32 foot pad +
-   half of the ~120px two-row card); width tracks the card (glow asset 1051
-   vs design card 776) so blur scales in userSpace with it. z-index -1 keeps
-   it behind the in-flow hero content inside this stacking context. */
+   card's resting center sits ~72px above the stack bottom (the InputBar 8px
+   floor pad + half of the ~128px resting card); width tracks the card (glow
+   asset 1051 vs design card 776) so blur scales in userSpace with it.
+   z-index -1 keeps it behind the in-flow hero content inside this stacking
+   context. */
 .heroGlow {
   position: absolute;
   left: 50%;
-  bottom: 92px;
+  bottom: 72px;
   z-index: -1;
   width: calc(100% * 1051 / 776);
   aspect-ratio: 1051 / 468;
@@ -420,15 +432,10 @@
   display: none;
 }
 
-/* Hero: the composer sits inside the session scroll body; center there so
-   the tree seat matches active (sticky footer) without a Root remount. */
-.root[data-phase='hero'] .scrollBody {
-  justify-content: center;
-  overflow-y: auto;
-}
-
 /* Settling (session replaying, hero/docked unknown): keep the composer seat
-   mounted but invisible so no wrong layout flashes before the phase lands. */
+   mounted but invisible so no wrong layout flashes before the phase lands.
+   Hero now docks the card exactly where the active seat sits, so landing
+   either way moves nothing. */
 .root[data-phase='settling'] .composerSeat {
   visibility: hidden;
 }

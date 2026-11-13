@@ -69,34 +69,6 @@
   white-space: nowrap;
 }
 
-/* Workspace row sits 12px above the input card (figma y80 → y112). The blue
-   glow lives with the owner (ConversationRoot .heroGlow) so it can center on
-   the input card. */
-.body {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-  overflow: visible;
-}
-
-.body > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* Must beat `.body > :not(.glow)` specificity so the open Menu (and its
-   right-hand submenu) paints above the InputBar card. */
-.body > .workspaceRow {
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  /* figma 75:8208 workspace row: px 8 above the card. */
-  padding-left: 8px;
-}
-
 /* One chip, two native actions: name opens the workbench, arrow picks a Workspace. */
 .workspace {
   display: inline-flex;
@@ -176,6 +148,13 @@
 .chevron {
   flex: none;
   color: var(--dsw-alias-label-caption);
+}
+
+/* Phone form (frame data-viewport, ui-layout): the chip's two buttons take
+   the 44px touch floor. */
+:global([data-viewport='phone']) .workspaceName,
+:global([data-viewport='phone']) .workspacePicker {
+  min-height: 44px;
 }
 
 /* Dialog field: 44 tall on the modal's 332 content column, r22, hairline

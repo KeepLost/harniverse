@@ -183,7 +183,6 @@ export function ConversationRoot({
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroGlow className={css.heroGlow} />}
-      {hero && <HeroShell t={t} />}
       {hero && heroWorkspaceRow}
       {zone !== undefined && sessionId !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
@@ -238,6 +237,14 @@ export function ConversationRoot({
         <SessionProvider>
           {renderSlot('conversation.session', {})}
         </SessionProvider>
+        {/* Hero chrome rides above the composer seat and grows into the
+            leftover viewport so the card docks at the bottom exactly where
+            the active composer sits (hero → active never moves the input). */}
+        {hero && (
+          <div className={css.heroShellHost}>
+            <HeroShell t={t} />
+          </div>
+        )}
         {composerSeat}
       </div>
     </div>

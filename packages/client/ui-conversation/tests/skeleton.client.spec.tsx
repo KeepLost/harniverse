@@ -419,6 +419,13 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByText('探索未至之境')).toBeTruthy()
     expect(b.view.getByText('预览版')).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
+    // The headline rides the hero chrome host ABOVE the composer seat, so
+    // the card docks where the active composer rests; the workspace row and
+    // the textarea stay inside the seat.
+    const seat = b.view.container.querySelector('[data-composer-seat]')
+    expect(seat).not.toBeNull()
+    expect(seat?.contains(b.view.container.querySelector('img'))).toBe(false)
+    expect(seat?.contains(b.view.getByRole('button', { name: '选择工作区' }))).toBe(true)
     // The same machine-backed textarea is live in the hero, and the
     // persistence mirror stays bound (ConversationSession mounts chrome-hidden
     // for blank sessions): hero typing reaches the chat store.
