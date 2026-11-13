@@ -7,7 +7,7 @@ Local micro-VM execution-world seed: boots a QEMU `pc`-machine guest that owns i
 ## What this package provides
 
 - `probeWorld(options)` — environment facts (QEMU binary version, effective acceleration, staged assets, sandbox availability) without booting anything.
-- `ensureAssets(options)` — materialize the boot assets from the pinned release when they are missing (see [Assets](#assets)).
+- `ensureAssets(options)` — materialize the boot assets from the pinned release when they are missing (see the Assets section).
 - `openWorld(options)` — boot one world and complete the protocol handshake; returns a `WorldHandle` with `descriptor`, `exit`, `ping(timeoutMs)`, `exec`, `spawn`, `fs`, and `destroy()`.
 - `QemuLocalWorld` — the same world as a Cordis plugin service on `ctx.vm` (`@deepseek-ai/dsh-vm`'s seam): it boots from plugin config, settles before the service is visible, and destroys the world on disposal. The neutral exec/fs/egress vocabulary lives in `@deepseek-ai/dsh-vm`; this package re-exports it.
 - Exec operations — `exec(argv, options)` runs one guest process to completion and collects bounded stdout/stderr; `spawn(argv, options)` returns a streaming handle with `writeStdin`, `closeStdin`, `signal`, `onOutput`, and `exit`. Options cover `env` (full replacement), `cwd`, `pty` (pipes otherwise), `stdin`, `timeoutMs`, and `maxOutputBytes`.
