@@ -45,6 +45,13 @@ try {
     // policy a session with a guest cwd supplies.
     await ctx.fs.writeText(target, 'exec-world round trip\n', undefined, undefined, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     report.fsRoundTrip = await ctx.fs.readText(await ctx.fs.resolve('/workspace/m6-e2e.txt'))
+    // The boot-time host-workspace import: with the marker set, the boot's
+    // anchor pointed at the committed fixture tree, so both of its files must
+    // already sit inside /workspace when the world settles.
+    if (process.env.DSH_VM_HOST_IMPORT_E2E === '1') {
+      report.hostImportRoot = await ctx.fs.readText(await ctx.fs.resolve('/workspace/from-host.txt'))
+      report.hostImportNested = await ctx.fs.readText(await ctx.fs.resolve('/workspace/nested/deep.txt'))
+    }
 
     // The session-cwd mapping: a host cwd under the boot anchor (this
     // driver's launch directory) runs in-world at /workspace/<rel>, and a

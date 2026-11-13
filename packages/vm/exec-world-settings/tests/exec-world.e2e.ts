@@ -42,6 +42,8 @@ interface ExecWorldE2EReport {
   resolvedMode?: string
   cwdMappedPwd?: { code: number | null; pwd: string }
   cwdForeign?: string
+  hostImportRoot?: string
+  hostImportNested?: string
 }
 
 async function runE2E(env: Record<string, string>): Promise<ExecWorldE2EReport> {
@@ -79,6 +81,16 @@ describe.skipIf(!worldAvailable)('exec-world against a real QEMU composition', (
     expect(report.bashKernel).toMatch(/^kernel=\d+\.\d+\.\d+.*-virt/)
     expect(report.cwdMappedPwd).toEqual({ code: 0, pwd: '/workspace/nested' })
     expect(report.cwdForeign).toContain('outside the host workspace root')
+  })
+
+  it('imports the anchored host workspace into /workspace at boot', { timeout: 120_000 }, async () => {
+    const report = await runE2E({
+      DSH_EXEC_WORLD: 'vm',
+      DSH_VM_HOST_IMPORT_E2E: '1',
+      DSH_VM_HOST_WORKSPACE_ROOT: fileURLToPath(new URL('./fixtures/host-workspace', import.meta.url)),
+    })
+    expect(report.hostImportRoot).toBe('host import round trip')
+    expect(report.hostImportNested).toBe('nested')
   })
 
   it('enforces an explicitly pinned confined mode inside the world', { timeout: 120_000 }, async () => {

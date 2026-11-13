@@ -465,7 +465,7 @@ export interface SessionsApi {
    */
   shell?(request: RpcRequest<{ sessionId: SessionId }>):
   Promise<RpcResponse<{
-    current: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string; degraded?: string }
+    current: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath?: string | undefined; degraded?: string }
     switchable: boolean
     entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[]
   }>>

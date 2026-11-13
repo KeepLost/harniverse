@@ -95,6 +95,11 @@ if (mode === 'no-bind') {
           else if (payload.op === 'read') send({ t: 'fs.ok', id: payload.id, d: Buffer.from('x', 'utf8').toString('base64') })
           else if (payload.op === 'list') send({ t: 'fs.ok', id: payload.id, entries: [{ name: 'a', kind: 'file' }] })
           else send({ t: 'fs.ok', id: payload.id })
+        } else if (payload.t === 'workspace.import' || payload.t === 'workspace.export') {
+          // The stub cannot touch virtio-blk images; it acknowledges the
+          // operation the way the guest agent does so the service-level
+          // boot-time import flow completes its unpack step.
+          send({ t: 'workspace.ok', id: payload.id, bytes: 0 })
         } else if (payload.t === 'shutdown') {
           // ignore-shutdown keeps serving: the host must fall back to SIGKILL.
           if (mode === 'ignore-shutdown') continue

@@ -6,7 +6,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -136,6 +136,49 @@ describe('QemuLocalWorld service', () => {
     await ctx.fiber.dispose()
   })
 
+  it('boots a host-workspace import from the env anchor with paired memory', async () => {
+    const recording: { current?: Recording } = {}
+    recordings.push(recording)
+    const importRoot = mkdtempSync(join(tmpdir(), 'dsh-vm-import-root-'))
+    writeFileSync(join(importRoot, 'from-host.txt'), 'host bytes')
+    const ctx = new Context()
+    const argvSeen: string[][] = []
+    const base = stubDeps('', recording)
+    const deps: VmDeps = { ...base, spawn: (argv, options) => {
+      argvSeen.push([...argv])
+      return base.spawn!(argv, options)
+    } }
+    const previous = process.env.DSH_VM_HOST_WORKSPACE_ROOT
+    process.env.DSH_VM_HOST_WORKSPACE_ROOT = importRoot
+    try {
+      const world = new QemuLocalWorld(ctx, { assetsDir: stubAssets(), sandbox: 'off' }, deps)
+      await world.ready
+      // 9 bytes round up to one MiB of payload; the pairing grants 2+256.
+      expect(world.descriptor.memoryMiB).toBe(258)
+      const [qemuArgv] = argvSeen
+      expect(qemuArgv).toContain('-m')
+      expect(qemuArgv![qemuArgv!.indexOf('-m') + 1]).toBe('258')
+      expect(qemuArgv!.some(argument => argument.includes('ws-import.img'))).toBe(true)
+      await world.destroy()
+    } finally {
+      if (previous === undefined) delete process.env.DSH_VM_HOST_WORKSPACE_ROOT
+      else process.env.DSH_VM_HOST_WORKSPACE_ROOT = previous
+      rmSync(importRoot, { recursive: true, force: true })
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps the default memory without an import and honors workspaceImport off', async () => {
+    const recording: { current?: Recording } = {}
+    recordings.push(recording)
+    const ctx = new Context()
+    const world = new QemuLocalWorld(ctx, { assetsDir: stubAssets(), sandbox: 'off', workspaceImport: 'off' }, stubDeps('', recording))
+    await world.ready
+    expect(world.descriptor.memoryMiB).toBe(256)
+    await world.destroy()
+    await ctx.fiber.dispose()
+  })
+
   it('forwards the full seam surface with every config field set', async () => {
     const recording: { current?: Recording } = {}
     recordings.push(recording)
@@ -207,5 +250,26 @@ describe('QemuLocalWorld service', () => {
     const ctx = new Context()
     await expect(ctx.plugin(QemuLocalWorld, { assetsDir: join(tmpdir(), 'dsh-vm-absent-'), readyTimeoutMs: 5_000 })).rejects.toThrow()
     await ctx.fiber.dispose()
+  })
+  it('honors an explicit workspaceImport root with and without a bound', async () => {
+    for (const config of [
+      { assetsDir: stubAssets(), sandbox: 'off' as const, workspaceImport: { root: '' } },
+      { assetsDir: stubAssets(), sandbox: 'off' as const, workspaceImport: { root: '', maxBytes: 1 << 20 } },
+    ]) {
+      const recording: { current?: Recording } = {}
+      recordings.push(recording)
+      const importRoot = mkdtempSync(join(tmpdir(), 'dsh-vm-import-root-'))
+      writeFileSync(join(importRoot, 'from-host.txt'), 'host bytes')
+      const ctx = new Context()
+      try {
+        const world = new QemuLocalWorld(ctx, { ...config, workspaceImport: { ...config.workspaceImport, root: importRoot } }, stubDeps('', recording))
+        await world.ready
+        expect(world.descriptor.memoryMiB).toBe(258)
+        await world.destroy()
+      } finally {
+        rmSync(importRoot, { recursive: true, force: true })
+        await ctx.fiber.dispose()
+      }
+    }
   })
 })

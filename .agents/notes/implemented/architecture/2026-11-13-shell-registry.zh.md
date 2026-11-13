@@ -19,7 +19,7 @@ shell-backend 偏好在词汇上只属于 Windows(`'platform-default' | 'git-bas
 三条硬规则让 X-vs-Y 在结构上不可表达,并在决策发生处执行:
 
 1. **一个事实源**:提示词事实、工具目录限制与执行戳全部派生自 `resolveEffectiveShell`;任何消费方不得自行解析 shell。
-2. **一次物化**:每次 `systemPrompt.assemble` 把会话生效 shell 冻结为派发承诺(所有 assemble 消费面按契约都是模型可见的,因此重冻结总伴随模型看到的文本);`dsh-tool-bash`/`dsh-tool-pwsh` 从该承诺盖章 `shellPath`,执行器原样派生盖章路径——绝不重走 PATH 解析。请求中途的切换因此不能让在途调用跑到该请求未被告知的 shell 上。
+2. **一次物化**:每次 `systemPrompt.assemble` 把会话生效 shell 冻结为派发承诺(所有 assemble 消费面按契约都是模型可见的,因此重冻结总伴随模型看到的文本);`dsh-tool-bash`/`dsh-tool-pwsh` 仅在承诺携带物化可执行文件——条目探测解析出的绝对路径,或绝对路径配置原样——时从该承诺盖章 `shellPath`,执行器原样派生盖章路径,绝不重走 PATH 解析;未探测成功的裸 PATH 名条目不盖章,由所属执行器经自身平台知识解析(`dsh-pwsh-local` 的知名位置与 Windows PowerShell 5.1 兜底),PATH 探测看不到 shell 的宿主因此仍可执行(2026-11-13 回归修复:裸名盖章曾覆盖该解析,使商店版/非 PATH 安装 pwsh 的 Windows 宿主以 `spawn pwsh ENOENT` 失败)。请求中途的切换因此不能让在途调用跑到该请求未被告知的 shell 上。
 3. **解析器内闭门**:孤儿或不可用目标在解析器内部降级为平台内置并报告 `degraded` 原因,事实命名实际运行的 shell;切换到不可用条目拒绝;创建时显式选择不可用条目使创建失败。
 
 事实行按实际可执行文件的 basename 命名(绝不是条目 id)及其语法类,仅对声明绝对路径的条目展示路径,PATH 名内置项因此保持主机稳定文本。切换后的首次组装追加一条钉版本变更通知(`The session shell changed from X to Y; shell commands now run under Y.`);在途请求按其冻结承诺完成。
@@ -41,7 +41,7 @@ shell-backend 偏好在词汇上只属于 Windows(`'platform-default' | 'git-bas
 
 ## Verification
 
-- 单元:解析器(默认/显式/不可用/孤儿/旧值折叠/事实钉版本)、路由器(条目探测、经条目挂载家族、默认条目采纳、env 钉、默认路径盖章)、设置契约(slug/保留/重复/方言/默认校验)、session-shell(生效解析、串行切换、旧词汇、派发承诺冻结与请求中途稳定、变更通知恰好搭载一次组装、按栈限制、孤儿降级)、启动桥(文档形状、覆盖优先、路径发布规则)。
+- 单元:解析器(默认/显式/不可用/孤儿/旧值折叠/事实钉版本/未探测裸名不盖章)、路由器(条目探测、经条目挂载家族、默认条目采纳、env 钉、默认路径盖章)、设置契约(slug/保留/重复/方言/默认校验)、session-shell(生效解析、串行切换、旧词汇、派发承诺冻结与请求中途稳定、变更通知恰好搭载一次组装、按栈限制、孤儿降级)、启动桥(文档形状、覆盖优先、路径发布规则)。
 - REAL 组合:注册表 loader smoke 经真实 Loader 引导 种子文档 → 启动桥 → 旗标对;bundle spec 钉住 XOR 门控;session digest 复核未变。
 - 事实/金夹具:PATH 名主机上的内置事实行逐字节稳定(金夹具不变);web e2e 设置节重定向到 `shell-registry`。
 

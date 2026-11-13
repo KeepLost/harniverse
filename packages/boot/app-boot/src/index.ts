@@ -32,7 +32,7 @@ import {
 } from '@deepseek-ai/dsh-shell'
 import type { ShellRegistryDocument, ShellRegistryEntry } from '@deepseek-ai/dsh-shell'
 import { EXEC_WORLD_ENV, HOST_WORKSPACE_ROOT_ENV, resolveExecWorld, type ExecWorldAvailability, type ExecWorldPreference } from '@deepseek-ai/dsh-vm'
-import { probeWorld } from '@deepseek-ai/dsh-vm-qemu-local'
+import { ensureAssets, probeWorld, resolveHostImportMaxBytes, scanHostWorkspace, type EnsureAssetsResult } from '@deepseek-ai/dsh-vm-qemu-local'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-hmr-coordination'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
@@ -855,6 +855,22 @@ export interface ExecWorldBootEnvOptions {
    * Injected by tests so the degrade path stays verifiable without a provider.
    */
   probe?: () => ExecWorldAvailability
+  /**
+   * Boot-asset materializer the stored-vm path consults when the probe reports
+   * a working QEMU binary without staged assets; defaults to the pinned
+   * release download (`ensureAssets`). Injected by tests so the download path
+   * stays verifiable without network access.
+   */
+  ensureAssets?: () => Promise<EnsureAssetsResult>
+  /**
+   * Host-workspace size pre-scan the stored-vm path consults before composing
+   * the vm family; defaults to the metadata-only `scanHostWorkspace`. A
+   * workspace over the import bound degrades to `local` with one notice —
+   * the app stays startable and the operator can raise the bound or slim the
+   * tree. The explicit-env path never consults it (fail-closed at the
+   * provider instead, the operator's explicit choice).
+   */
+  scanWorkspace?: (root: string) => Promise<number>
   /** Degrade notice writer; defaults to stderr. */
   warn?: (line: string) => void
 }
@@ -894,10 +910,13 @@ function probeQemuWorld(): ExecWorldAvailability {
  * against a settled value. An explicit non-blank env value wins over the
  * document, the same escape-hatch shape as `$DSH_PERMISSION_MODE`; a stored
  * `vm` preference on a host whose provider probe is unhealthy degrades to
- * `local` with one notice line, keeping the app startable.
+ * `local` with one notice line, keeping the app startable. A probe that finds
+ * a working QEMU binary without staged assets first materializes them from
+ * the pinned release (`ensureAssets`) and re-probes; a failed download
+ * degrades with the reason in the notice. Resolves before the env settles.
  * @param options - overrides for testability; defaults act on this process.
  */
-export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): void {
+export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): Promise<void> {
   const env = options.env ?? process.env
   const explicit = env[EXEC_WORLD_ENV]
   if (explicit !== undefined && explicit.trim().length > 0) {
@@ -909,7 +928,34 @@ export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): vo
     env[EXEC_WORLD_ENV] = 'local'
     return
   }
-  const world = resolveExecWorld('vm', (options.probe ?? probeQemuWorld)())
+  const probeFn = options.probe ?? probeQemuWorld
+  const ensure = options.ensureAssets ?? ensureAssets
+  let probe = probeFn()
+  if (!probe.assetsReady && probe.providerVersion !== undefined) {
+    const ensured = await ensure()
+    if (ensured.status === 'unavailable') {
+      (options.warn ?? (line => void process.stderr.write(line)))(
+        `app boot: VM asset download failed (${ensured.reason}); composing the local family\n`,
+      )
+      env[EXEC_WORLD_ENV] = 'local'
+      return
+    }
+    probe = probeFn()
+  }
+  const scan = options.scanWorkspace ?? scanHostWorkspace
+  const world = resolveExecWorld('vm', probe)
+  if (world === 'vm') {
+    const bytes = await scan(process.cwd())
+    const maxBytes = resolveHostImportMaxBytes(undefined)
+    if (bytes > maxBytes) {
+      (options.warn ?? (line => void process.stderr.write(line)))(
+        `app boot: the host workspace carries ${bytes} bytes, over the ${maxBytes}-byte VM import bound `
+          + '(raise $DSH_VM_IMPORT_MAX_BYTES or slim the tree); composing the local family\n',
+      )
+      env[EXEC_WORLD_ENV] = 'local'
+      return
+    }
+  }
   if (world === 'local') {
     (options.warn ?? (line => void process.stderr.write(line)))(
       'app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n',
@@ -920,12 +966,17 @@ export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): vo
 }
 
 /**
- * Record the host workspace root (the launch directory) for the vm world's
- * session-cwd mapping: vm providers translate session cwds under this anchor
- * into the in-world `/workspace` and fail closed on host paths outside it.
+ * Record the host workspace root (default the launch directory) for the vm
+ * world's session-cwd mapping and boot-time import: vm providers translate
+ * session cwds under this anchor into the in-world `/workspace` and fail
+ * closed on host paths outside it. An explicit non-blank
+ * `$DSH_VM_HOST_WORKSPACE_ROOT` wins — the same escape-hatch shape as the
+ * other boot facts.
  * @param env - the environment mapping receiving the anchor.
  */
 function anchorHostWorkspaceRoot(env: Record<string, string | undefined>): void {
+  const explicit = env[HOST_WORKSPACE_ROOT_ENV]?.trim()
+  if (explicit !== undefined && explicit.length > 0) return
   env[HOST_WORKSPACE_ROOT_ENV] = process.cwd()
 }
 
@@ -1039,7 +1090,7 @@ export async function boot(
     applyShellBackendBootEnv()
     // Same shape for the execution world: the capability-family rows' disabled
     // expressions read the settled `$DSH_EXEC_WORLD` (see applyExecWorldBootEnv).
-    applyExecWorldBootEnv()
+    await applyExecWorldBootEnv()
     await ctx.plugin(Loader)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'
