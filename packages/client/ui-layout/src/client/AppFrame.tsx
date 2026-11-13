@@ -267,6 +267,26 @@ export function AppFrame({
     : null)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
+  // The soft keyboard compresses the visual viewport without resizing the
+  // layout viewport, so the resize observer above never sees it; visualViewport
+  // is the only signal (mobile WebKit/Blink). A ≥120px deficit means a keyboard
+  // or system sheet occupies the screen — a smaller threshold would flicker on
+  // browser-chrome drift. Published as data-short-viewport for feature CSS.
+  const [shortViewport, setShortViewport] = useState(false)
+
+  useEffect(() => {
+    const vv = window.visualViewport
+    // jsdom (the GUI test environment) leaves the property undefined.
+    if (vv == null) return
+    const update = (): void => { setShortViewport(window.innerHeight - vv.height >= 120) }
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+    }
+  }, [])
 
   useLayoutEffect(() => {
     actions.setActiveRightAccount(rightAccount)
@@ -435,6 +455,7 @@ export function AppFrame({
         '--dsh-frame-sidebar-drawer-width': `${String(sidebarDrawerWidth)}px`,
       } as React.CSSProperties}
       data-viewport={form}
+      data-short-viewport={shortViewport || undefined}
       data-sidebar-drawer={sidebarDrawer || undefined}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
