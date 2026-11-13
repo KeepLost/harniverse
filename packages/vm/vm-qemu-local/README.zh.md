@@ -7,6 +7,7 @@
 ## 本包提供什么
 
 - `probeWorld(options)`——不启动任何东西，返回环境事实（QEMU 二进制版本、生效加速档、资产是否就绪、沙箱可用性）。
+- `ensureAssets(options)`——资产缺失时从钉住的 release 物化引导资产（见「资产」一节）。
 - `openWorld(options)`——启动一个世界并完成协议握手；返回带 `descriptor`、`exit`、`ping(timeoutMs)`、`exec`、`spawn`、`fs`、`workspace`、`destroy()` 的 `WorldHandle`。
 - `QemuLocalWorld` —— 同一世界作为 `ctx.vm`（`@deepseek-ai/dsh-vm` 的缝隙）上的 Cordis 插件服务：从插件配置启动、在服务可见前结算、处置时销毁世界。中立的 exec/fs/egress 词表住在 `@deepseek-ai/dsh-vm`；本包再导出。
 - Exec 操作——`exec(argv, options)` 运行一个 guest 进程至结束并收集有界的 stdout/stderr；`spawn(argv, options)` 返回流式句柄，带 `writeStdin`、`closeStdin`、`signal`、`onOutput`、`exit`。选项覆盖 `env`（整体替换）、`cwd`、`pty`（否则管道）、`stdin`、`timeoutMs`、`maxOutputBytes`。
@@ -43,6 +44,8 @@ packages/vm/vm-qemu-local/assets/build-rootfs.sh
 ```
 
 脚本下载固定版本的 Alpine 3.20.3 minirootfs 与 `linux-virt` 内核 apk（强制校验摘要；apk 内核与 `virtio_blk` 模块同源成对——virt 内核的块设备驱动是模块而非内建），外加固定版本的 `bash` apk 依赖链（`bash` → `libreadline.so.8` → `libncursesw.so.6`，附 terminfo-base；shell 工具通过世界的 subprocess 缝组合 `bash -c` 与常驻交互 bash，而 busybox 没有 bash applet）、编译静态 musl guest agent（`guest/`）与世界内 Landlock 限制包装器，并把 agent 作为 `/init`、包装器作为 `/bin/dsh-vm-confine`、模块置于 `/lib/modules`、bash 载荷一并打进 initramfs。缺少资产或 QEMU 二进制不可用时，`openWorld` 闭合失败（`AssetsMissingError`、`QemuSpawnError`），e2e 套件自跳过。
+
+资产未就绪时，`ensureAssets` 从钉住的 GitHub release（`vm-assets-v1`）物化它们：源码钉住 release 清单的摘要（`src/release.ts` 的 `ASSETS_MANIFEST_SHA256`），清单钉住每个文件的摘要；下载失败以 `unavailable` 携带原因上报，组合因此能诚实降级。`$DSH_VM_ASSETS_URL` 覆盖 release 基准 URL（镜像必须逐字节一致地提供文件；钉住的摘要仍然生效）；留空则禁用下载。app boot 桥在存储 `vm` 偏好降级前先走这条路径（见 `dsh-app-boot` 的 `applyExecWorldBootEnv`）；`probeWorld` 本身保持纯同步探测。
 
 ## 世界内限制后端
 
