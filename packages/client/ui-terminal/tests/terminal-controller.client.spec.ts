@@ -301,7 +301,14 @@ describe('TerminalPanelController session binding', () => {
 
 describe('TerminalPanelController session shell', () => {
   type SessionsFace = NonNullable<TerminalPanelDeps['sessions']>
-  const shellValue = { current: 'bash' as const, switchable: true, families: { bash: true, pwsh: true } }
+  const shellValue = {
+    current: { entry: 'posix', label: 'bash', stack: 'bash' as const, executablePath: '/usr/bin/bash' },
+    switchable: true,
+    entries: [
+      { id: 'posix', label: 'bash', stack: 'bash' as const, available: true, resolvedPath: '/usr/bin/bash' },
+      { id: 'pwsh', label: 'pwsh', stack: 'pwsh' as const, available: true, resolvedPath: '/usr/bin/pwsh' },
+    ],
+  }
 
   it('loads the session shell capability alongside shells and list', async () => {
     const calls: { sessionId: unknown }[] = []
@@ -316,7 +323,15 @@ describe('TerminalPanelController session shell', () => {
     rpc.on('list', () => [])
     controller.bindSession(session)
     await settle()
-    expect(controller.state.getSnapshot().shellSession).toEqual({ ...shellValue, pending: false })
+    expect(controller.state.getSnapshot().shellSession).toEqual({
+      current: 'posix',
+      switchable: true,
+      entries: [
+        { id: 'posix', label: 'bash', stack: 'bash', available: true },
+        { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: true },
+      ],
+      pending: false,
+    })
     expect(calls).toEqual([{ sessionId: session }])
   })
 
@@ -340,13 +355,18 @@ describe('TerminalPanelController session shell', () => {
 
   it('switches the family through the sessions face and republishes the current one', async () => {
     const switches: { sessionId: unknown; family: unknown }[] = []
-    let current: 'bash' | 'pwsh' = 'bash'
     const switchFace: SessionsFace = {
-      shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: { ...shellValue, families: { bash: true, pwsh: false } } } }),
+      shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: {
+        current: { entry: 'posix', label: 'bash', stack: 'bash' as const, executablePath: '/usr/bin/bash' },
+        switchable: true,
+        entries: [
+          { id: 'posix', label: 'bash', stack: 'bash' as const, available: true, resolvedPath: '/usr/bin/bash' },
+          { id: 'pwsh', label: 'pwsh', stack: 'pwsh' as const, available: false, reason: 'not found' },
+        ],
+      } } }),
       switchShell: async (payload) => {
-        switches.push({ sessionId: payload.sessionId, family: payload.family })
-        current = payload.family === 'pwsh' ? 'pwsh' : 'bash'
-        return { rpcId: RpcId('r2'), result: { ok: true, value: { current } } }
+        switches.push({ sessionId: payload.sessionId, family: payload.entry })
+        return { rpcId: RpcId('r2'), result: { ok: true, value: { current: payload.entry === 'pwsh' ? 'pwsh' : 'posix' } } }
       },
     }
     const { rpc, controller } = rig(switchFace)
@@ -357,7 +377,23 @@ describe('TerminalPanelController session shell', () => {
     await settle()
     expect(switches).toEqual([{ sessionId: session, family: 'pwsh' }])
     expect(controller.state.getSnapshot().shellSession).toEqual({
-      current: 'pwsh', switchable: true, families: { bash: true, pwsh: false }, pending: false,
+      current: 'pwsh', switchable: true, pending: false,
+      entries: [
+        { id: 'posix', label: 'bash', stack: 'bash', available: true },
+        { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: false },
+      ],
+    })
+
+    // Switching back to the POSIX entry republishes it as current — the
+    // entries the host reported stay untouched by the switch.
+    controller.switchSessionShell('posix')
+    await settle()
+    expect(controller.state.getSnapshot().shellSession).toEqual({
+      current: 'posix', switchable: true, pending: false,
+      entries: [
+        { id: 'posix', label: 'bash', stack: 'bash', available: true },
+        { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: false },
+      ],
     })
   })
 
@@ -373,7 +409,15 @@ describe('TerminalPanelController session shell', () => {
     controller.switchSessionShell('pwsh')
     await settle()
     const snapshot = controller.state.getSnapshot()
-    expect(snapshot.shellSession).toEqual({ ...shellValue, pending: false })
+    expect(snapshot.shellSession).toEqual({
+      current: 'posix',
+      switchable: true,
+      entries: [
+        { id: 'posix', label: 'bash', stack: 'bash', available: true },
+        { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: true },
+      ],
+      pending: false,
+    })
     expect(snapshot.error).toBe('family missing')
   })
 
@@ -410,7 +454,14 @@ describe('TerminalPanelController session shell', () => {
         if (served) return { rpcId: RpcId('r1'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'gone', details: {} } } }
         served = true
         await gate
-        return { rpcId: RpcId('r1'), result: { ok: true, value: { current: 'pwsh', switchable: true, families: { bash: true, pwsh: true } } } }
+        return { rpcId: RpcId('r1'), result: { ok: true, value: {
+          current: { entry: 'pwsh', label: 'pwsh', stack: 'pwsh' as const, executablePath: '/usr/bin/pwsh' },
+          switchable: true,
+          entries: [
+            { id: 'posix', label: 'bash', stack: 'bash' as const, available: true, resolvedPath: '/usr/bin/bash' },
+            { id: 'pwsh', label: 'pwsh', stack: 'pwsh' as const, available: true, resolvedPath: '/usr/bin/pwsh' },
+          ],
+        } } }
       },
       switchShell: async () => ({ rpcId: RpcId('r0'), result: { ok: false, error: { code: 'shell-unavailable' as const, message: 'unused', details: {} } } }),
     }
@@ -444,15 +495,15 @@ describe('TerminalPanelController session shell', () => {
     const face: SessionsFace = {
       shell: async () => ({ rpcId: RpcId('r1'), result: { ok: true, value: shellValue } }),
       switchShell: async (payload) => {
-        switches.push(payload.family)
-        return { rpcId: RpcId('r2'), result: { ok: true, value: { current: payload.family } } }
+        switches.push(payload.entry)
+        return { rpcId: RpcId('r2'), result: { ok: true, value: { current: payload.entry } } }
       },
     }
     const loaded = rig(face)
     loaded.rpc.on('list', () => [])
     loaded.controller.bindSession(session)
     await settle()
-    loaded.controller.switchSessionShell('bash')
+    loaded.controller.switchSessionShell('posix')
     expect(switches).toEqual([])
 
     const idle = rig(face)
@@ -957,4 +1008,17 @@ describe('TerminalPanelController holds', () => {
     // The refreshed list no longer reports the terminal running: no new hold.
     expect(hold.opens).toHaveLength(3)
   })
+
+  it('binds without a sessions face and never reads the shell capability', async () => {
+    // A host that exposes no session-shell capability leaves the sessions
+    // face absent entirely: binding still works and publishes no shell state.
+    const bare = rig()
+    bare.rpc.on('list', () => [])
+    bare.controller.bindSession(session)
+    await settle()
+    expect(bare.controller.state.getSnapshot().shellSession).toBeUndefined()
+    bare.controller.switchSessionShell('pwsh')
+    expect(bare.controller.state.getSnapshot().shellSession).toBeUndefined()
+  })
+
 })

@@ -655,10 +655,11 @@ describe('WorkspaceRuntime', () => {
     await Promise.resolve()
     expect(connect).toHaveBeenLastCalledWith(wid('recent-home'))
 
-    // A model-profile-only start routes through the parameterized arm.
+    // A model-profile-only start routes through the parameterized arm
+    // (shell follows as the fourth startSession parameter, unset here).
     workspaces.startSession(undefined, undefined, 'focused')
     await Promise.resolve()
-    expect(connect).toHaveBeenLastCalledWith(wid('recent-home'), undefined, 'focused')
+    expect(connect).toHaveBeenLastCalledWith(wid('recent-home'), undefined, 'focused', undefined)
 
     const emptyCtx = new Context()
     const emptyApi = new FakeApiClient()

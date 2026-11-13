@@ -47,7 +47,7 @@ export interface TerminalPanelInjected {
   /** Create a terminal with the chosen shell path (undefined = default). */
   create: (shellPath: string | undefined) => void
   /** Switch the session's shell family (hosts without the router hide the control). */
-  switchSessionShell: (family: 'bash' | 'pwsh') => void
+  switchSessionShell: (entry: string) => void
   /** Close one terminal (idempotent) and stop rendering it. */
   close: (id: WebTerminalId) => void
   /** Rename one terminal (trimmed, 1–120 characters). */
@@ -355,15 +355,16 @@ function TerminalPanelBody({
             if (shellSession?.switchable !== true) return null
             return (
               <div className={css.familyToggle} role="group" aria-label={t('sessionShell.label')} title={t('sessionShell.hint')}>
-                {(['bash', 'pwsh'] as const).map(family => (
+                {shellSession.entries.map(entry => (
                   <button
-                    key={family}
+                    key={entry.id}
                     type="button"
-                    className={family === shellSession.current ? css.familyActive : css.familyButton}
-                    aria-pressed={family === shellSession.current}
-                    disabled={shellSession.pending || !shellSession.families[family]}
-                    onClick={() => { switchSessionShell(family) }}
-                  >{family}</button>
+                    className={entry.id === shellSession.current ? css.familyActive : css.familyButton}
+                    aria-pressed={entry.id === shellSession.current}
+                    disabled={shellSession.pending || !entry.available}
+                    title={entry.available ? entry.id : t('sessionShell.unavailable', { reason: entry.id })}
+                    onClick={() => { switchSessionShell(entry.id) }}
+                  >{entry.label}</button>
                 ))}
               </div>
             )

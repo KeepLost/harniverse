@@ -222,7 +222,35 @@ function sandboxAgent(
   } as unknown as Agent
 }
 
+/** A session-shell double stamping a frozen promise for the calling agent. */
+class StubSessionShell extends Service {
+  constructor(ctx: Context, private readonly target: { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string } | undefined) {
+    super(ctx, 'sessionShell')
+  }
+
+  dispatchTarget(): { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string } | undefined {
+    return this.target
+  }
+}
+
 describe('bash tool', () => {
+  it('runs the session promise shell verbatim when its stack matches', async () => {
+    const ctx = await setup()
+    await ctx.plugin(StubSessionShell, { entryId: 'my-zsh', stack: 'bash', executablePath: '/bin/sh' })
+    const agent = registerFakeAgent(ctx, 'sess-promise')
+    // /bin/sh prints itself as $0, proving the call ran the promised shell.
+    const result = await call(ctx, 'bash', { command: 'printf %s "$0"', description: 'promise' }, agent)
+    expect(text(result)).toBe('/bin/sh')
+  })
+
+  it('stamps nothing when the promise belongs to the other stack', async () => {
+    const ctx = await setup()
+    await ctx.plugin(StubSessionShell, { entryId: 'pwsh', stack: 'pwsh', executablePath: '/usr/bin/pwsh' })
+    const agent = registerFakeAgent(ctx, 'sess-other-stack')
+    const result = await call(ctx, 'bash', { command: 'printf %s "$0"', description: 'mismatch' }, agent)
+    expect(text(result)).toMatch(/bash|zsh/u)
+  })
+
   it('returns stdout for a successful command', async () => {
     const ctx = await setup()
     const result = await call(ctx, 'bash', { command: 'echo hello', description: 'test command' })

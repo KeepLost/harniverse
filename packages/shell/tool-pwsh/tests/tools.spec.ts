@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve as resolvePath } from 'node:path'
@@ -299,7 +299,34 @@ async function callUntilText(
   throw new Error(`tool output did not include ${JSON.stringify(expected)}; last text ${JSON.stringify(last === undefined ? '' : text(last))}`)
 }
 
+/** A session-shell double stamping a frozen promise for the calling agent. */
+class StubSessionShell extends Service {
+  constructor(ctx: Context, private readonly target: { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string } | undefined) {
+    super(ctx, 'sessionShell')
+  }
+
+  dispatchTarget(): { entryId: string; stack: 'bash' | 'pwsh'; executablePath: string } | undefined {
+    return this.target
+  }
+}
+
 describe('registration', () => {
+  it('runs the session promise shell verbatim when its stack matches', async () => {
+    const { ctx } = await setup()
+    await ctx.plugin(StubSessionShell, { entryId: 'preview', stack: 'pwsh', executablePath: '/bin/sh' })
+    const agent = registerFakeAgent(ctx, 'sess-promise')
+    const result = await call(ctx, 'pwsh', { command: 'Write-Output ok', description: 'promise' }, agent)
+    expect(result.isError).toBe(false)
+  })
+
+  it('stamps nothing when the promise belongs to the other stack', async () => {
+    const { ctx } = await setup()
+    await ctx.plugin(StubSessionShell, { entryId: 'posix', stack: 'bash', executablePath: '/usr/bin/bash' })
+    const agent = registerFakeAgent(ctx, 'sess-other-stack')
+    const result = await call(ctx, 'pwsh', { command: 'Write-Output ok', description: 'mismatch' }, agent)
+    expect(result.isError).toBe(false)
+  })
+
   it('registers the pwsh tool with its prompt section and schema', async () => {
     const { ctx } = await setup()
     const schema = ctx.tools.schemas().find(s => s.name === 'pwsh')

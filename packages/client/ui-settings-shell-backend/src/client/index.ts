@@ -1,10 +1,11 @@
 /**
- * Shell backend settings plugin, browser half: contributes the Settings →
- * Shell 后端 section (`settings.section`) over the host `shell-backend`
- * settings namespace. The section edits the durable `backend` field only;
+ * Shell registry settings plugin, browser half: contributes the Settings →
+ * Shell 默认 section (`settings.section`) over the host `shell-registry`
+ * settings namespace. The section edits the durable `default` and `entries`
+ * fields (probe badges come from the boot host description);
  * the namespace declares `applies: 'restart'`, so the app boot bridge
- * resolves the stored preference into `$DSH_SHELL_BACKEND` and the shell
- * tool rows re-compose on the next start.
+ * resolves the stored registry into `$DSH_SHELL_BACKEND` (plus a custom
+ * default's executable) and the shell rows re-compose on the next start.
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -29,10 +30,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'locale', 'settingsScope']
 
 /**
- * Client plugin body: register the dictionaries and the Shell backend
- * settings section bound to the host `shell-backend` namespace.
+ * Client plugin body: register the dictionaries and the Shell default
+ * settings section bound to the host `shell-registry` namespace.
  * @param ctx - client root context.
  */
+/** Read the host description's boot shell probes, when the face exists. */
+function readEntryProbes(ctx: ClientContext): readonly { id: string; available: boolean }[] | undefined {
+  const connection = ctx.get('connection') as { hostDescription?: { getSnapshot(): { shell?: {
+    entries: readonly { id: string; available: boolean }[]
+  } } | undefined } } | undefined
+  const shell = connection?.hostDescription?.getSnapshot()?.shell
+  return shell === undefined ? undefined : shell.entries.map(entry => ({ id: entry.id, available: entry.available }))
+}
+
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-shell-backend: dictionaries')
 
@@ -51,6 +61,9 @@ export function apply(ctx: ClientContext): void {
     inject: () => ({
       hooks: { scope },
       set: (field: string, value: unknown) => scope.set(field, value),
+      // Boot-stable probe badges from the host description snapshot; the
+      // registry re-probes on the next start, so no live subscription.
+      probe: readEntryProbes(ctx),
     }),
   }, ShellBackendSection))
 }

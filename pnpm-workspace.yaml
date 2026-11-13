@@ -28,6 +28,13 @@ overrides:
   # CVE-2026-93748 (GHSA-ch52-4w7c-c8xp): cacheable-request chain under
   # @electron/get (desktop packaging, dev-only) — force the patched release.
   'http-cache-semantics': '4.3.0'
+  # GHSA-qv5m-9pm6-hqp3 / GHSA-jpvv-r467-5p4w: @hono/node-server 2.0.0–2.1.5
+  # — an unhandled ECONNRESET during an async WebSocket upgrade crashes the
+  # process, and a backslash in the request path is parsed as a separator,
+  # bypassing path-based access control at a reverse proxy; resolved through
+  # @modelcontextprotocol/sdk (mcp-client, ssh, and their transitive
+  # consumers) — pin every resolution inside the vulnerable range to the fix.
+  '@hono/node-server@>=2.0.0 <2.1.6': '2.1.7'
   # GHSA-g3hv-75wg-m249: minimatch 7.0.0–11.0.0 denial of service via
   # globparts amplification; reachable transitively through the
   # electron-builder chain and test tooling — pin every resolution inside

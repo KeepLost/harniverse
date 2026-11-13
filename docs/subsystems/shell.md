@@ -78,6 +78,13 @@ interface ShellExecRequest {
    * executing family stay aligned by construction.
    */
   family?: ShellBackendSelection | undefined
+  /**
+   * Materialized absolute executable for this call's family, stamped by the
+   * calling tool from the session's request-time shell resolution. Executors
+   * spawn exactly this path and never re-resolve through `PATH`, so the shell
+   * the model was told about is the shell that runs.
+   */
+  shellPath?: string | undefined
 }
 ```
 
@@ -111,6 +118,8 @@ interface ShellExecSpec {
   dshEnv?: DshEnvironment | undefined
   /** Resolved sandbox policy; ignored by executors that do not confine. */
   sandboxPolicy: SandboxExecutionPolicy | undefined
+  /** Materialized family executable carried verbatim from {@link ShellExecRequest.shellPath}. */
+  shellPath?: string | undefined
   /** Metering identity carried verbatim from {@link ShellExecRequest.correlation}. */
   correlation?: SubprocessCorrelation | undefined
   /** Resource bounds carried verbatim from {@link ShellExecRequest.limits}. */
@@ -256,42 +265,59 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.sessionShell` — `SessionShellService`
 
-The session-scoped shell family pointer: which family (bash | pwsh) a session's next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.
+The session-scoped shell pointer: which registry entry a session's next model request runs under, with durable switching, request-frozen dispatch promises, per-agent tool restriction swaps, and the runtime-context fact that announces it.
 
 ```ts cordis-catalog
 /**
- * Read one session's effective family without host I/O.
+ * Read one session's effective shell through the single resolver, without
+ * host I/O.
  * @param session - session whose selection is requested.
- * @returns its override, or the host default when none is recorded.
+ * @returns the effective entry, stack, materialized executable, and fact.
  */
-family(session: Session): ShellBackendSelection
+effective(session: Session): EffectiveShell
 
 /**
- * Switch one agent's session to another shell family. Effective at the next
- * model request: the runtime-context snapshot announces the new family and
- * the retired tool leaves that request's catalog. Nothing is torn down —
- * the other family's executors, persistent shells, and background jobs keep
- * running underneath.
+ * The host's default effective shell — no session override — for host-level
+ * reads like the creation drawer's selector.
+ * @returns the default entry, stack, materialized executable, and fact.
+ */
+defaultEffective(): EffectiveShell
+
+/**
+ * The dispatch promise a request froze — the exact executable its tool
+ * calls must stamp, and the stack whose tool must serve them.
+ * @param agent - calling agent whose request promise is read.
+ * @returns the frozen target; undefined before the agent's first freeze
+ * (callers then stamp nothing and the executor default applies).
+ */
+dispatchTarget(agent: Agent): DispatchTarget | undefined
+
+/**
+ * Switch one agent's session to another registry entry. Effective at the
+ * next model request: the runtime-context snapshot announces the new shell
+ * (with an explicit change notice), and the retired stack's tool leaves
+ * that request's catalog. Nothing is torn down — the other stack's
+ * executors, persistent shells, and background jobs keep running
+ * underneath; the in-flight request keeps its frozen promise.
  * @param agent - live agent owning the session.
- * @param family - family to select.
- * @returns the committed family; a same-family request commits nothing.
- * @throws when the family is unavailable on this host, the host composes no
+ * @param entry - registry entry id to select.
+ * @returns the committed entry id; a same-entry request commits nothing.
+ * @throws when the entry is unavailable on this host, the host composes no
  * router, or the agent is no longer live.
  */
-async switch(agent: Agent, family: ShellBackendSelection): Promise<ShellBackendSelection>
+async switch(agent: Agent, entry: string): Promise<string>
 
 /**
  * Host capability read for the switch affordance: whether switching is
- * possible and which families are usable. A single-executor host reports
- * only its boot default.
- * @returns switchability plus per-family availability.
+ * possible and which entries are usable.
+ * @returns switchability plus per-entry availability.
  */
-describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean } }
+describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean }; entries: readonly ShellEntryStatus[] }
 ```
 
 Types: [Agent](core.md) · [Session](session.md)
 
-Source: [`packages/shell/session-shell/src/index.ts:102`](../../packages/shell/session-shell/src/index.ts)
+Source: [`packages/shell/session-shell/src/index.ts:137`](../../packages/shell/session-shell/src/index.ts)
 
 <a id="ctxshell--shellexecutor-abstract-seam"></a>
 
@@ -331,7 +357,7 @@ abstract run(spec: ShellExecSpec): Promise<ShellRunResult>
 abstract start(spec: ShellExecSpec): ShellProcess | Promise<ShellProcess>
 ```
 
-Source: [`packages/shell/shell/src/index.ts:77`](../../packages/shell/shell/src/index.ts)
+Source: [`packages/shell/shell/src/index.ts:97`](../../packages/shell/shell/src/index.ts)
 
 <a id="ctxshellenv--shellenvregistry"></a>
 
@@ -365,4 +391,19 @@ list(): BashEnvVariableInfo[]
 Types: [DshEnvironment](subprocess.md) · [ToolExecution](tools.md)
 
 Source: [`packages/shell/shell-env/src/index.ts:89`](../../packages/shell/shell-env/src/index.ts)
+
+<a id="ctxshellregistry--shellregistryservice"></a>
+
+### `ctx.shellRegistry` — `ShellRegistryService`
+
+In-process source of the resolved shell registry. Consumers — the shell router's entry probing and the session resolver — read document; nothing else re-parses the stored document.
+
+```ts cordis-catalog
+/** The resolved registry document: the default and every registered entry.
+ * @returns the current shell registry document (default id plus entries).
+ */
+document(): ShellRegistryDocument
+```
+
+Source: [`packages/shell/shell-registry-settings/src/index.ts:103`](../../packages/shell/shell-registry-settings/src/index.ts)
 <!-- END GENERATED cordis-surface -->

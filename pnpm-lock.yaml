@@ -6,6 +6,7 @@ settings:
 
 overrides:
   http-cache-semantics: 4.3.0
+  '@hono/node-server@>=2.0.0 <2.1.6': 2.1.7
   minimatch@>=7.0.0 <11.0.1: 11.0.1
   glob@>=9.0.0 <=14.0.1: 14.0.2
   '@deepseek-ai/cosmokit': link:vendor/cosmokit
@@ -310,9 +311,9 @@ importers:
       '@deepseek-ai/dsh-session-shell':
         specifier: workspace:^
         version: link:../../packages/shell/session-shell
-      '@deepseek-ai/dsh-shell-backend-settings':
+      '@deepseek-ai/dsh-shell-registry-settings':
         specifier: workspace:^
-        version: link:../../packages/shell/shell-backend-settings
+        version: link:../../packages/shell/shell-registry-settings
       '@deepseek-ai/dsh-shell-router':
         specifier: workspace:^
         version: link:../../packages/shell/shell-router
@@ -1711,12 +1712,12 @@ importers:
       '@deepseek-ai/dsh-settings-file':
         specifier: workspace:^
         version: link:../../settings/settings-file
-      '@deepseek-ai/dsh-shell-backend-settings':
-        specifier: workspace:^
-        version: link:../../shell/shell-backend-settings
       '@deepseek-ai/dsh-shell-env':
         specifier: workspace:^
         version: link:../../shell/shell-env
+      '@deepseek-ai/dsh-shell-registry-settings':
+        specifier: workspace:^
+        version: link:../../shell/shell-registry-settings
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../skill/skill
@@ -10463,6 +10464,9 @@ importers:
       '@deepseek-ai/dsh-scope':
         specifier: workspace:^
         version: link:../../core/scope
+      '@deepseek-ai/dsh-shell-router':
+        specifier: workspace:^
+        version: link:../shell-router
       zod:
         specifier: ^4.6.6
         version: 4.6.7
@@ -10485,9 +10489,6 @@ importers:
       '@deepseek-ai/dsh-shell':
         specifier: workspace:^
         version: link:../shell
-      '@deepseek-ai/dsh-shell-router':
-        specifier: workspace:^
-        version: link:../shell-router
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
@@ -10512,25 +10513,6 @@ importers:
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:^
         version: link:../../subprocess/subprocess
-
-  packages/shell/shell-backend-settings:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-settings':
-        specifier: workspace:^
-        version: link:../../settings/settings
-      '@deepseek-ai/dsh-shell':
-        specifier: workspace:^
-        version: link:../shell
 
   packages/shell/shell-env:
     dependencies:
@@ -10562,6 +10544,25 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+
+  packages/shell/shell-registry-settings:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
+      '@deepseek-ai/dsh-shell':
+        specifier: workspace:^
+        version: link:../shell
 
   packages/shell/shell-router:
     dependencies:
@@ -14951,8 +14952,8 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@hono/node-server@2.1.5':
-    resolution: {integrity: sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q==}
+  '@hono/node-server@2.1.7':
+    resolution: {integrity: sha512-Wr0E6S+v2Bw9FkpGNP5BQ5QbJvclUa06UVehd65WFZe6XeJwbrKQQ5wPDevc0IC+QyzbO7v3Llh5uo45IZcSnA==}
     engines: {node: '>=20'}
     peerDependencies:
       hono: 4.13.11
@@ -21571,7 +21572,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@hono/node-server@2.1.5(hono@4.13.11)':
+  '@hono/node-server@2.1.7(hono@4.13.11)':
     dependencies:
       hono: 4.13.11
 
@@ -21864,7 +21865,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.0(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 2.1.5(hono@4.13.11)
+      '@hono/node-server': 2.1.7(hono@4.13.11)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5

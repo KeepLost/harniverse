@@ -1,7 +1,7 @@
 /**
  * Session-shell stream invariants: every committed `session-shell/change`
- * carries one of the two families, both at mount-time replay and at live
- * append.
+ * carries an entry id (or a legacy family), both at mount-time replay and at
+ * live append.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -19,11 +19,11 @@ async function setup(): Promise<Context> {
 }
 
 describe('session-shell stream invariants', () => {
-  it('accepts a family change and ignores unrelated events', async () => {
+  it('accepts an entry change and ignores unrelated events', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('ss-invariant-valid'))
     expect(() => {
-      session.append('session-shell/change', { family: 'pwsh' })
+      session.append('session-shell/change', { entry: 'my-zsh' })
       session.append('turn/start', { turn: 1 })
     }).not.toThrow()
     await ctx.fiber.dispose()
@@ -33,20 +33,26 @@ describe('session-shell stream invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('ss-invariant-seeded'))
-    session.append('session-shell/change', { family: 'bash' })
+    session.append('session-shell/change', { family: 'bash' } as never)
     await ctx.plugin(InvariantRegistry, { enabled: true })
     await ctx.plugin(SessionShellInvariant)
     expect(session.events.filter(event => event.type === 'session-shell/change')).toHaveLength(1)
     await ctx.fiber.dispose()
   })
 
-  it('rejects an unknown family before committing it', async () => {
+  it('accepts a legacy family payload and rejects a shapeless one before committing', async () => {
     const ctx = await setup()
-    const session = ctx.sessions.create(SessionId('ss-invariant-invalid'))
+    const session = ctx.sessions.create(SessionId('ss-invariant-legacy'))
     expect(() => {
-      session.append('session-shell/change', { family: 'zsh' } as never)
-    }).toThrow(InvariantError)
-    expect(session.events.filter(event => event.type === 'session-shell/change')).toHaveLength(0)
+      session.append('session-shell/change', { family: 'pwsh' } as never)
+    }).not.toThrow()
     await ctx.fiber.dispose()
+    const rejected = await setup()
+    const target = rejected.sessions.create(SessionId('ss-invariant-invalid'))
+    expect(() => {
+      target.append('session-shell/change', { shell: 7 } as never)
+    }).toThrow(InvariantError)
+    expect(target.events.filter(event => event.type === 'session-shell/change')).toHaveLength(0)
+    await rejected.fiber.dispose()
   })
 })
