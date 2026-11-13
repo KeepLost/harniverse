@@ -24,6 +24,8 @@ export * from './egress.ts'
 export * from './egress-bridge.ts'
 export * from './vm.ts'
 export * from './workspace.ts'
+export * from './assets.ts'
+export * from './release.ts'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import schema from '@deepseek-ai/schemastery'

@@ -32,7 +32,7 @@ import {
 } from '@deepseek-ai/dsh-shell'
 import type { ShellRegistryDocument, ShellRegistryEntry } from '@deepseek-ai/dsh-shell'
 import { EXEC_WORLD_ENV, HOST_WORKSPACE_ROOT_ENV, resolveExecWorld, type ExecWorldAvailability, type ExecWorldPreference } from '@deepseek-ai/dsh-vm'
-import { probeWorld } from '@deepseek-ai/dsh-vm-qemu-local'
+import { ensureAssets, probeWorld, type EnsureAssetsResult } from '@deepseek-ai/dsh-vm-qemu-local'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-hmr-coordination'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
@@ -855,6 +855,13 @@ export interface ExecWorldBootEnvOptions {
    * Injected by tests so the degrade path stays verifiable without a provider.
    */
   probe?: () => ExecWorldAvailability
+  /**
+   * Boot-asset materializer the stored-vm path consults when the probe reports
+   * a working QEMU binary without staged assets; defaults to the pinned
+   * release download (`ensureAssets`). Injected by tests so the download path
+   * stays verifiable without network access.
+   */
+  ensureAssets?: () => Promise<EnsureAssetsResult>
   /** Degrade notice writer; defaults to stderr. */
   warn?: (line: string) => void
 }
@@ -894,10 +901,13 @@ function probeQemuWorld(): ExecWorldAvailability {
  * against a settled value. An explicit non-blank env value wins over the
  * document, the same escape-hatch shape as `$DSH_PERMISSION_MODE`; a stored
  * `vm` preference on a host whose provider probe is unhealthy degrades to
- * `local` with one notice line, keeping the app startable.
+ * `local` with one notice line, keeping the app startable. A probe that finds
+ * a working QEMU binary without staged assets first materializes them from
+ * the pinned release (`ensureAssets`) and re-probes; a failed download
+ * degrades with the reason in the notice. Resolves before the env settles.
  * @param options - overrides for testability; defaults act on this process.
  */
-export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): void {
+export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): Promise<void> {
   const env = options.env ?? process.env
   const explicit = env[EXEC_WORLD_ENV]
   if (explicit !== undefined && explicit.trim().length > 0) {
@@ -909,7 +919,19 @@ export function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): vo
     env[EXEC_WORLD_ENV] = 'local'
     return
   }
-  const world = resolveExecWorld('vm', (options.probe ?? probeQemuWorld)())
+  let probe = (options.probe ?? probeQemuWorld)()
+  if (!probe.assetsReady && probe.providerVersion !== undefined) {
+    const ensured = await (options.ensureAssets ?? ensureAssets)()
+    if (ensured.status === 'unavailable') {
+      (options.warn ?? (line => void process.stderr.write(line)))(
+        `app boot: VM asset download failed (${ensured.reason}); composing the local family\n`,
+      )
+      env[EXEC_WORLD_ENV] = 'local'
+      return
+    }
+    probe = (options.probe ?? probeQemuWorld)()
+  }
+  const world = resolveExecWorld('vm', probe)
   if (world === 'local') {
     (options.warn ?? (line => void process.stderr.write(line)))(
       'app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n',
@@ -1039,7 +1061,7 @@ export async function boot(
     applyShellBackendBootEnv()
     // Same shape for the execution world: the capability-family rows' disabled
     // expressions read the settled `$DSH_EXEC_WORLD` (see applyExecWorldBootEnv).
-    applyExecWorldBootEnv()
+    await applyExecWorldBootEnv()
     await ctx.plugin(Loader)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'
