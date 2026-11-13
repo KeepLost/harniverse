@@ -172,3 +172,28 @@ describe('applyExecWorldBootEnv asset materialization', () => {
     expect(notices).toEqual(['app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n'])
   })
 })
+
+describe('applyExecWorldBootEnv default seams', () => {
+  it('uses the real ensureAssets and the stderr notice writer when none is injected', async () => {
+    vi.stubEnv('DSH_VM_ASSETS_URL', '')
+    vi.stubEnv('DSH_HOME', seededHome('exec-world:\n  world: vm\n'))
+    vi.stubEnv(EXEC_WORLD_ENV, '')
+    const writes: string[] = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk))
+      return true
+    })
+    try {
+      const env: Record<string, string | undefined> = {}
+      await applyExecWorldBootEnv({ env, probe: () => ({ providerVersion: 'QEMU 8.1.3', assetsReady: false }) })
+      expect(env[EXEC_WORLD_ENV]).toBe('local')
+      // Host-dependent middle step: a cold host's real ensureAssets answers
+      // the disabled-env unavailable; a host with staged assets answers
+      // present and the re-probe keeps the unhealthy verdict. Both write one
+      // default-writer notice and degrade.
+      expect(writes.join('')).toMatch(/VM asset download failed \(asset download disabled\)|provider probe is unhealthy/)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})

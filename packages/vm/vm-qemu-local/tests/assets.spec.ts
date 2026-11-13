@@ -227,3 +227,43 @@ async function serveRelease(files: Map<string, Uint8Array>): Promise<{ baseUrl: 
     }),
   }
 }
+
+describe('ensureAssets default resolution', () => {
+  it('evaluates the default assets directory and the disabled env with no explicit options', async () => {
+    vi.stubEnv(ASSETS_URL_ENV, '')
+    const result = await ensureAssets()
+    expect(result.status === 'present'
+      || (result.status === 'unavailable' && result.reason === 'asset download disabled')).toBe(true)
+  })
+
+  it('falls back to the pinned release URL when the env is unset', async () => {
+    vi.unstubAllEnvs()
+    const fetchImpl = vi.fn(async (): Promise<Uint8Array> => { throw new Error('offline lane') })
+    const result = await ensureAssets({ assetsDir: tempAssetsDir(), fetchImpl })
+    assert(result.status === 'unavailable')
+    expect(result.reason).toContain('asset download failed: offline lane')
+  })
+
+  it('keeps an existing file whose digest already matches the manifest', async () => {
+    const assetsDir = tempAssetsDir()
+    const { kernel, initramfs } = bootAssets()
+    writeFileSync(join(assetsDir, 'vmlinuz-virt'), kernel)
+    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
+    const fetchImpl = releaseServer(files)
+    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl })
+    expect(result).toEqual({ status: 'downloaded', assetsDir })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl).not.toHaveBeenCalledWith('https://mirror.invalid/vmlinuz-virt')
+  })
+
+  it('wraps a non-Error throw with its string form', async () => {
+    const assetsDir = tempAssetsDir()
+    const { kernel, initramfs } = bootAssets()
+    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
+    const fetchImpl = vi.fn(async (): Promise<Uint8Array> => { throw 'boom' })
+    void files
+    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl })
+    assert(result.status === 'unavailable')
+    expect(result.reason).toContain('asset download failed: boom')
+  })
+})

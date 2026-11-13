@@ -49,7 +49,11 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(await response.arrayBuffer())
 }
 
-/** Parse `sha256sum` output lines; rejects malformed lines and non-basename entries. */
+/**
+ * Parse `sha256sum` output lines; rejects malformed lines and non-basename entries.
+ * @param text - the manifest file's text, one digest-prefixed line per asset.
+ * @returns the manifest entries in file order.
+ */
 export function parseAssetsManifest(text: string): ManifestEntry[] {
   const entries: ManifestEntry[] = []
   for (const line of text.split('\n')) {

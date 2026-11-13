@@ -919,9 +919,11 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
     env[EXEC_WORLD_ENV] = 'local'
     return
   }
-  let probe = (options.probe ?? probeQemuWorld)()
+  const probeFn = options.probe ?? probeQemuWorld
+  const ensure = options.ensureAssets ?? ensureAssets
+  let probe = probeFn()
   if (!probe.assetsReady && probe.providerVersion !== undefined) {
-    const ensured = await (options.ensureAssets ?? ensureAssets)()
+    const ensured = await ensure()
     if (ensured.status === 'unavailable') {
       (options.warn ?? (line => void process.stderr.write(line)))(
         `app boot: VM asset download failed (${ensured.reason}); composing the local family\n`,
@@ -929,7 +931,7 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
       env[EXEC_WORLD_ENV] = 'local'
       return
     }
-    probe = (options.probe ?? probeQemuWorld)()
+    probe = probeFn()
   }
   const world = resolveExecWorld('vm', probe)
   if (world === 'local') {
