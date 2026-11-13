@@ -268,6 +268,30 @@ describe('applyExecWorldBootEnv anchor precedence', () => {
   })
 })
 
+describe('applyExecWorldBootEnv default notice writers', () => {
+  it('writes the oversize degrade to stderr when no warn is injected', async () => {
+    const writes: string[] = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk))
+      return true
+    })
+    try {
+      const env: Record<string, string | undefined> = {}
+      await applyExecWorldBootEnv({
+        env,
+        home: seededHome('exec-world:\n  world: vm\n'),
+        probe: () => healthy,
+        scanWorkspace: async () => DEFAULT_HOST_IMPORT_MAX_BYTES + 1,
+      })
+      expect(env[EXEC_WORLD_ENV]).toBe('local')
+      expect(writes.join('')).toContain('over the')
+      expect(writes.join('')).toContain('-byte VM import bound')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
 describe('applyExecWorldBootEnv default scan', () => {
   it('scans the real launch directory when no scan is injected', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-exec-world-scan-'))

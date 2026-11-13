@@ -130,16 +130,15 @@ export class QemuLocalWorld extends VmWorld {
     if (config.shutdownTimeoutMs !== undefined) options.shutdownTimeoutMs = config.shutdownTimeoutMs
     if (config.sandbox !== undefined) options.sandbox = config.sandbox
     if (config.egress !== undefined) options.egress = config.egress
+    const importConfig = config.workspaceImport === 'off' ? undefined : config.workspaceImport
     const envRoot = process.env[HOST_WORKSPACE_ROOT_ENV]?.trim()
-    const importRoot = config.workspaceImport === 'off'
-      ? undefined
-      : config.workspaceImport?.root ?? (envRoot !== undefined && envRoot.length > 0 ? envRoot : undefined)
+    const importRoot = importConfig?.root ?? (envRoot !== undefined && envRoot.length > 0 ? envRoot : undefined)
     this.ready = (async () => {
       if (importRoot === undefined) return await openWorld(options, deps)
-      const importOptions = config.workspaceImport === 'off' || config.workspaceImport === undefined
-        ? {}
-        : { ...config.workspaceImport.maxBytes !== undefined ? { maxBytes: config.workspaceImport.maxBytes } : {} }
-      const packed = await packHostWorkspace(importRoot, importOptions)
+      const packed = await packHostWorkspace(
+        importRoot,
+        importConfig?.maxBytes === undefined ? {} : { maxBytes: importConfig.maxBytes },
+      )
       const handle = await openWorld(
         {
           ...options,

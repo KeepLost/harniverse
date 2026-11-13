@@ -251,4 +251,25 @@ describe('QemuLocalWorld service', () => {
     await expect(ctx.plugin(QemuLocalWorld, { assetsDir: join(tmpdir(), 'dsh-vm-absent-'), readyTimeoutMs: 5_000 })).rejects.toThrow()
     await ctx.fiber.dispose()
   })
+  it('honors an explicit workspaceImport root with and without a bound', async () => {
+    for (const config of [
+      { assetsDir: stubAssets(), sandbox: 'off' as const, workspaceImport: { root: '' } },
+      { assetsDir: stubAssets(), sandbox: 'off' as const, workspaceImport: { root: '', maxBytes: 1 << 20 } },
+    ]) {
+      const recording: { current?: Recording } = {}
+      recordings.push(recording)
+      const importRoot = mkdtempSync(join(tmpdir(), 'dsh-vm-import-root-'))
+      writeFileSync(join(importRoot, 'from-host.txt'), 'host bytes')
+      const ctx = new Context()
+      try {
+        const world = new QemuLocalWorld(ctx, { ...config, workspaceImport: { ...config.workspaceImport, root: importRoot } }, stubDeps('', recording))
+        await world.ready
+        expect(world.descriptor.memoryMiB).toBe(258)
+        await world.destroy()
+      } finally {
+        rmSync(importRoot, { recursive: true, force: true })
+        await ctx.fiber.dispose()
+      }
+    }
+  })
 })
