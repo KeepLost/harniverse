@@ -10,8 +10,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { Context, Service } from '@deepseek-ai/cordis'
-import { ShellExecutor, defaultCommandShellPath } from '@deepseek-ai/dsh-shell'
+import { Context } from '@deepseek-ai/cordis'
+import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
@@ -41,14 +41,7 @@ class FakeFamilyExecutor extends ShellExecutor {
 
   resolve(request: ShellExecRequest): ShellExecSpec {
     this.resolved.push(request)
-    return {
-      command: request.command,
-      workdir: '/tmp',
-      timeoutMs: 1000,
-      stdoutMaxBytes: 1024,
-      sandboxPolicy: undefined,
-      ...request.shellPath !== undefined ? { shellPath: request.shellPath } : {},
-    }
+    return { command: request.command, workdir: '/tmp', timeoutMs: 1000, stdoutMaxBytes: 1024, sandboxPolicy: undefined }
   }
 
   async run(spec: ShellExecSpec): Promise<ShellRunResult> {
@@ -139,20 +132,6 @@ async function setupRouter(
   return { ctx, router: ctx.shell as ShellRouter, fake: family => instances.get(family) }
 }
 
-/** The platform's posix builtin executable the probes answer for (bash by PATH, /bin/zsh on darwin). */
-const posixBuiltin = defaultCommandShellPath(process.platform)
-
-/** Run one body under a pinned process.platform (restored after). */
-async function withPlatform(platform: NodeJS.Platform, body: () => Promise<void>): Promise<void> {
-  const real = process.platform
-  Object.defineProperty(process, 'platform', { value: platform, configurable: true })
-  try {
-    await body()
-  } finally {
-    Object.defineProperty(process, 'platform', { value: real, configurable: true })
-  }
-}
-
 describe('default-family resolution', () => {
   it('prefers explicit config over the published flag and the platform default', () => {
     expect(resolveDefaultFamily({ defaultFamily: 'pwsh' }, { DSH_SHELL_BACKEND: 'bash' }, 'linux')).toBe('pwsh')
@@ -209,180 +188,10 @@ describe('per-request family routing', () => {
   })
 })
 
-/** A minimal shell-registry service double the router probes entries through. */
-class FakeRegistryService extends Service {
-  constructor(ctx: Context, private readonly doc: { default: string; entries: { id: string; path: string; label?: string }[] }) {
-    super(ctx, 'shellRegistry')
-  }
-  document(): { default: string; entries: { id: string; path: string; label?: string }[] } { return this.doc }
-}
-
-/**
- * Boot a router over fake families with a registry document and a probe that
- * answers for exactly the given executables.
- */
-async function setupRegistryRouter(
-  doc: { default: string; entries: { id: string; path: string; label?: string }[] },
-  probedPaths: readonly string[],
-  plugins: { bash?: FamilyExecutorPlugin; pwsh?: FamilyExecutorPlugin } = {},
-): Promise<{ ctx: Context; router: ShellRouter }> {
-  const ctx = new Context()
-  await ctx.plugin(PassthroughSandbox)
-  await ctx.plugin(SandboxPolicyService, { mode: 'read-only' })
-  await ctx.plugin(LocalSubprocessRuntime)
-  ;(ctx.subprocess as LocalSubprocessRuntime).internals = { spillDir }
-  vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command: string) => {
-    if (probedPaths.includes(command)) return command
-    throw new Error(`${command} not found`)
-  })
-  await ctx.plugin(FakeRegistryService, doc)
-  class TestRouter extends ShellRouter {
-    protected override readonly familyPlugins = {
-      bash: plugins.bash ?? labeledFake('bash', new Map()),
-      pwsh: plugins.pwsh ?? labeledFake('pwsh', new Map()),
-    }
-  }
-  await ctx.plugin(TestRouter)
-  return { ctx, router: ctx.shell as ShellRouter }
-}
-
-describe('registry entries', () => {
-  it('probes registry entries alongside the builtins and publishes their status', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'platform-default', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      [posixBuiltin, '/opt/homebrew/bin/zsh'],
-    )
-    const availability = router.availability()
-    expect(availability.entries.find(entry => entry.id === 'my-zsh')).toMatchObject({
-      stack: 'bash', available: true, resolvedPath: '/opt/homebrew/bin/zsh',
-    })
-    expect(availability.entries.find(entry => entry.id === 'pwsh')?.available).toBe(false)
-    expect(availability.defaultEntry).toBe('posix')
-    await ctx.fiber.dispose()
-  })
-
-  it('serves a family through a probed registry entry when its builtin probe fails', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'platform-default', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      ['/opt/homebrew/bin/zsh', 'pwsh'],
-    )
-    expect(router.availability().families).toEqual({ bash: true, pwsh: true })
-    await ctx.fiber.dispose()
-  })
-
-  it('adopts a probed registry default as the default entry and materializes it on unstamped specs', async () => {
-    // Registry-default adoption is the unpinned-host path whose default
-    // family follows the platform split: pin the split to the entry's stack
-    // so the semantics hold on pwsh-split platforms too.
-    await withPlatform('linux', async () => {
-      const { ctx, router } = await setupRegistryRouter(
-        { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-        ['bash', 'pwsh', '/opt/homebrew/bin/zsh'],
-      )
-      try {
-        expect(router.availability().defaultEntry).toBe('my-zsh')
-        expect(router.resolve({ command: 'x' }).shellPath).toBe('/opt/homebrew/bin/zsh')
-      } finally {
-        await ctx.fiber.dispose()
-      }
-    })
-  })
-
-  it('falls back to the platform builtin when the registry default probes unavailable', async () => {
-    await withPlatform('linux', async () => {
-      const { ctx, router } = await setupRegistryRouter(
-        { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-        ['bash', 'pwsh'],
-      )
-      try {
-        expect(router.availability().defaultEntry).toBe('posix')
-        expect(router.resolve({ command: 'x' }).shellPath).toBe('bash')
-      } finally {
-        await ctx.fiber.dispose()
-      }
-    })
-  })
-
-  it('probes a PowerShell-class custom entry and adopts it as the default', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'preview', entries: [{ id: 'preview', path: '/usr/local/bin/pwsh-preview', label: 'pwsh preview' }] },
-      ['bash', 'pwsh', '/usr/local/bin/pwsh-preview'],
-    )
-    const availability = router.availability()
-    expect(availability.entries.find(entry => entry.id === 'preview')).toMatchObject({
-      stack: 'pwsh', available: true, label: 'pwsh preview',
-    })
-    expect(availability.defaultEntry).toBe('preview')
-    await ctx.fiber.dispose()
-  })
-
-  it('falls back to the platform builtin when the registry default\'s family fails to mount', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'preview', entries: [{ id: 'preview', path: 'pwsh' }] },
-      [posixBuiltin, 'pwsh'],
-      { pwsh: BrokenFamilyExecutor },
-    )
-    expect(router.availability().defaultEntry).toBe('posix')
-    await ctx.fiber.dispose()
-  })
-
-  it('keeps a caller-stamped executable over the default entry and skips non-default families', async () => {
-    await withPlatform('linux', async () => {
-      const { ctx, router } = await setupRegistryRouter(
-        { default: 'platform-default', entries: [] },
-        ['bash', 'pwsh'],
-      )
-      try {
-        expect(router.resolve({ command: 'x', shellPath: '/custom/zsh' }).shellPath).toBe('/custom/zsh')
-        expect(router.resolve({ command: 'x', family: 'pwsh' }).shellPath).toBeUndefined()
-      } finally {
-        await ctx.fiber.dispose()
-      }
-    })
-  })
-
-  it('folds a legacy family value as the registry default', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'bash', entries: [] },
-      [posixBuiltin, 'pwsh'],
-    )
-    expect(router.availability().defaultEntry).toBe('posix')
-    await ctx.fiber.dispose()
-  })
-
-  it('skips probing an index-missing entry (an unclassifiable document bypassed validation)', async () => {
-    const { ctx, router } = await setupRegistryRouter(
-      { default: 'platform-default', entries: [{ id: 'fishy', path: '/usr/bin/fish' }, { id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-      [posixBuiltin, 'pwsh', '/opt/homebrew/bin/zsh'],
-    )
-    const ids = router.availability().entries.map(entry => entry.id)
-    expect(ids).toContain('my-zsh')
-    expect(ids).not.toContain('fishy')
-    await ctx.fiber.dispose()
-  })
-
-  it('keeps the pinned stack builtin as the default entry under an explicit env pin', async () => {
-    vi.stubEnv('DSH_SHELL_BACKEND', 'pwsh')
-    try {
-      const { ctx, router } = await setupRegistryRouter(
-        { default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }] },
-        [posixBuiltin, 'pwsh', '/opt/homebrew/bin/zsh'],
-      )
-      expect(router.availability().defaultEntry).toBe('pwsh')
-      expect(router.resolve({ command: 'x', family: 'pwsh' }).shellPath).toBe('pwsh')
-      await ctx.fiber.dispose()
-    } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-})
-
 describe('mount degradation', () => {
   it('keeps the probed families serving while an unprobed one stays unavailable', async () => {
     const { router } = await setupRouter({}, ['bash'])
-    expect(router.availability()).toMatchObject({ default: 'bash', defaultEntry: 'posix', families: { bash: true, pwsh: false } })
-    expect(router.availability().entries.find(entry => entry.id === 'posix')).toMatchObject({ available: true, resolvedPath: posixBuiltin })
-    expect(router.availability().entries.find(entry => entry.id === 'pwsh')?.available).toBe(false)
+    expect(router.availability()).toEqual({ default: 'bash', families: { bash: true, pwsh: false } })
     await expect(router.run(router.resolve({ command: 'x' }))).resolves.toMatchObject({ stdout: { text: 'bash-ran' } })
   })
 
@@ -394,12 +203,12 @@ describe('mount degradation', () => {
 
   it('skips a family whose executor mount fails after a passing probe', async () => {
     const { router } = await setupRouter({ pwsh: BrokenFamilyExecutor }, ['bash', 'pwsh'])
-    expect(router.availability()).toMatchObject({ default: 'bash', families: { bash: true, pwsh: false } })
+    expect(router.availability()).toEqual({ default: 'bash', families: { bash: true, pwsh: false } })
   })
 
   it('skips a family that mounts without registering ctx.shell', async () => {
     const { router } = await setupRouter({ pwsh: SilentFamilyPlugin as unknown as FamilyExecutorPlugin }, ['bash', 'pwsh'])
-    expect(router.availability()).toMatchObject({ default: 'bash', families: { bash: true, pwsh: false } })
+    expect(router.availability()).toEqual({ default: 'bash', families: { bash: true, pwsh: false } })
   })
 
   it('routes a foreign untagged spec to the effective default family', async () => {
@@ -413,17 +222,14 @@ describe('mount degradation', () => {
   it('reports the configured default before any family mounts', async () => {
     const ctx = new Context()
     const router = new ShellRouter(ctx, { defaultFamily: 'pwsh' })
-    expect(router.availability()).toMatchObject({ default: 'pwsh', defaultEntry: 'pwsh', families: { bash: false, pwsh: false } })
-    expect(router.availability().entries).toEqual([])
+    expect(router.availability()).toEqual({ default: 'pwsh', families: { bash: false, pwsh: false } })
   })
 
   it('mounts the default family unprobed when the environment probes nothing', async () => {
     const { router } = await setupRouter({}, [], { defaultFamily: 'bash' })
-    expect(router.availability()).toMatchObject({ default: 'bash', families: { bash: true, pwsh: false } })
-    // Nothing probed, so no materialized default executable rides the spec.
-    expect(router.resolve({ command: 'x' }).shellPath).toBeUndefined()
+    expect(router.availability()).toEqual({ default: 'bash', families: { bash: true, pwsh: false } })
     const pwshHost = await setupRouter({}, [], { defaultFamily: 'pwsh' })
-    expect(pwshHost.router.availability()).toMatchObject({ default: 'pwsh', families: { bash: false, pwsh: true } })
+    expect(pwshHost.router.availability()).toEqual({ default: 'pwsh', families: { bash: false, pwsh: true } })
   })
 
   it('fails loud only when no family could mount', async () => {

@@ -148,14 +148,14 @@ export class WorkspaceRuntime implements IWorkspaces {
    * Session while an Agent Profile is not.
    * @returns the reused or newly created session id.
    */
-  async connectWorkspace(workspaceId: WorkspaceId, agentProfile?: string, modelProfile?: string, shell?: string): Promise<SessionId> {
+  async connectWorkspace(workspaceId: WorkspaceId, agentProfile?: string, modelProfile?: string): Promise<SessionId> {
     const manager = this.manager
     const workspace = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
     if (workspace === undefined) throw new Error(`workspaces.connectWorkspace: unknown workspace ${workspaceId}`)
     // Coalesce concurrent connects: a create's summary lands without cwd
     // until the host frame arrives, so a second call inside that window
     // would miss the reuse scan and mint another hidden blank session.
-    const connectKey = `${workspaceId}\0${agentProfile ?? ''}\0${modelProfile ?? ''}\0${shell ?? ''}`
+    const connectKey = `${workspaceId}\0${agentProfile ?? ''}\0${modelProfile ?? ''}`
     const inflight = this.connecting.get(connectKey)
     if (inflight !== undefined) return inflight
     // Reuse requires workspace membership (id in sessionIds AND same
@@ -178,7 +178,6 @@ export class WorkspaceRuntime implements IWorkspaces {
       workspaceId,
       ...agentProfile === undefined ? {} : { agentProfile },
       ...modelProfile === undefined ? {} : { modelProfile },
-      ...shell === undefined ? {} : { shell },
     }).then((id) => {
       if (manager !== this.manager) throw new Error('runtime: machine target changed')
       return id
@@ -249,7 +248,7 @@ export class WorkspaceRuntime implements IWorkspaces {
    * @param workspaceId - explicit target Workspace for scoped actions.
    * @param agentProfile - explicit immutable Agent Profile for the new Session.
    */
-  startSession(workspaceId?: WorkspaceId, agentProfile?: string, modelProfile?: string, shell?: string): void {
+  startSession(workspaceId?: WorkspaceId, agentProfile?: string, modelProfile?: string): void {
     const manager = this.manager
     const workspace = this.list.getSnapshot()
     const current = this.sessions.list.getSnapshot().current
@@ -261,9 +260,9 @@ export class WorkspaceRuntime implements IWorkspaces {
       this.sessions.clear()
       return
     }
-    const connected = agentProfile === undefined && modelProfile === undefined && shell === undefined
+    const connected = agentProfile === undefined && modelProfile === undefined
       ? this.connectWorkspace(target)
-      : this.connectWorkspace(target, agentProfile, modelProfile, shell)
+      : this.connectWorkspace(target, agentProfile, modelProfile)
     void connected.then(
       (sessionId) => { if (manager === this.manager) this.sessions.open(sessionId) },
       (reason: unknown) => { console.warn('new session failed:', reason) },

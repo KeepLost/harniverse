@@ -670,20 +670,11 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'sessionShell',
     pkg: 'session-shell',
-    title: 'Session shell entry pointer',
+    title: 'Session shell family pointer',
     mode: 'core',
     implementations: ['session-shell'],
     consumers: ['tool-bash', 'tool-pwsh'],
-    note: 'The per-session pointer over the routed shell seam: durable entry switching effective at the next model request, per-agent tool retirement of the other stack, and the runtime-context fact that names the exact shell.',
-  },
-  {
-    key: 'shellRegistry',
-    pkg: 'shell-registry-settings',
-    title: 'Shell registry settings owner',
-    mode: 'core',
-    implementations: ['shell-registry-settings'],
-    consumers: ['app-boot', 'shell-router'],
-    note: 'Owns the shell-registry settings namespace: the default entry and every custom registered shell, validated loudly (slug ids, dialect class, probe-able targets) and resolved by exactly one resolver in dsh-shell.',
+    note: 'The per-session pointer over the routed shell seam: durable family switching effective at the next model request, per-agent tool retirement of the inactive family, and the runtime-context fact that announces the family.',
   },
   {
     key: 'shellEnv',

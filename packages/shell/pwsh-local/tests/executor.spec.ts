@@ -201,17 +201,6 @@ describe('spawn construction (pure, every platform)', () => {
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
   })
 
-  it('runs a spec-materialized executable in place of the configured pwsh, never re-resolving it', async () => {
-    const ctx = new Context()
-    const subprocess = new CapturingSubprocessRuntime(ctx)
-    await ctx.plugin(PwshLocalExecutor)
-    const spec = ctx.shell.resolve({ command: '$true', shellPath: '/custom/pwsh' })
-    expect(spec.shellPath).toBe('/custom/pwsh')
-    await ctx.shell.run(spec)
-    expect(subprocess.specs[0]!.argv[0]).toBe('/custom/pwsh')
-    await ctx.fiber.dispose()
-  })
-
   it('refuses the host workdir fallback in a remote execution world', async () => {
     class RemoteWorldRuntime extends CapturingSubprocessRuntime {
       override get locality(): 'local' | 'remote' { return 'remote' }

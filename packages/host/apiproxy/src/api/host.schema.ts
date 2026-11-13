@@ -22,23 +22,6 @@ export const hostDescribeValueSchema = z.object({
   model: z.string().optional(),
   attachedSessions: z.number().int().nonnegative(),
   canOpenPath: z.boolean(),
-  shell: z.object({
-    default: z.object({
-      entry: z.string().min(1),
-      label: z.string().min(1),
-      stack: z.union([z.literal('bash'), z.literal('pwsh')]),
-      executablePath: z.string().min(1),
-    }),
-    switchable: z.boolean(),
-    entries: z.array(z.object({
-      id: z.string().min(1),
-      label: z.string().min(1),
-      stack: z.union([z.literal('bash'), z.literal('pwsh')]),
-      available: z.boolean(),
-      resolvedPath: z.string().optional(),
-      reason: z.string().optional(),
-    })),
-  }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.describe'>>>
 
 /** host.pickDirectory request payload (empty object literal). */

@@ -19,9 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   BrandWordmark,
-  IconChevronDownOutline14,
   IconNewChatOutline16, IconPanelLeftOutline16,
-  Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
@@ -48,14 +46,12 @@ export function SidebarRoot({
   width,
   startSession,
   toggleSidebar,
-  shellChoices,
   t,
   renderSlot,
 }: SidebarRootComponentProps) {
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)
-  const [shellMenuOpen, setShellMenuOpen] = useState(false)
   useEffect(() => {
     if (!collapsed) { setSettled(false); return }
     const timer = window.setTimeout(() => { setSettled(true) }, COLLAPSE_SETTLE_MS)
@@ -162,51 +158,17 @@ export function SidebarRoot({
         {!wide && renderSlot('sidebar.header.status', { wide })}
       </div>
 
-      {/* Expanded, the button carries its own label — tooltip only on the rail.
-          The caret opens the shell menu: New Session with a chosen registry
-          shell (default follows the host's shell-registry default). */}
+      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
       <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
-        <div className={css.newSessionRow}>
-          <button
-            type="button"
-            className={css.newSession}
-            aria-label={t('session.new.label')}
-            onClick={() => { startSession() }}
-          >
-            <IconNewChatOutline16 size={wide ? 14 : 18} />
-            {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
-          </button>
-          {wide && shellChoices !== undefined && shellChoices.length > 0 && (
-            <Menu
-              open={shellMenuOpen}
-              onClose={() => { setShellMenuOpen(false) }}
-              items={[
-                { id: 'platform-default', label: t('session.new.shell.default') },
-                ...shellChoices.map(choice => ({
-                  id: choice.id,
-                  label: choice.label,
-                  ...choice.available ? {} : { disabled: true, disabledReason: t('session.new.shell.unavailable') },
-                })),
-              ]}
-              onSelect={(id) => {
-                setShellMenuOpen(false)
-                startSession(undefined, id === 'platform-default' ? undefined : id)
-              }}
-              portal
-              anchor={(
-                <button
-                  type="button"
-                  className={css.newSessionCaret}
-                  aria-label={t('session.new.shell.aria')}
-                  aria-expanded={shellMenuOpen}
-                  onClick={() => { setShellMenuOpen(v => !v) }}
-                >
-                  <IconChevronDownOutline14 size={14} />
-                </button>
-              )}
-            />
-          )}
-        </div>
+        <button
+          type="button"
+          className={css.newSession}
+          aria-label={t('session.new.label')}
+          onClick={() => { startSession() }}
+        >
+          <IconNewChatOutline16 size={wide ? 14 : 18} />
+          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+        </button>
       </Tooltip>
 
       {/* The browsing region fills the column between the controls and the

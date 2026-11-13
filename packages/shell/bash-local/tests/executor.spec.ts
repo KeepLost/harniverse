@@ -106,21 +106,6 @@ describe('LocalBashExecutor.run', () => {
     expect(result.stdout.text).toBe(process.platform === 'darwin' ? 'zsh' : 'bash')
   })
 
-  it('runs the spec-materialized executable and never re-resolves it through PATH', async () => {
-    const { bash } = await setup()
-    const result = await bash.run(bash.resolve({ command: 'printf %s "$0"', shellPath: '/bin/sh' }))
-    expect(result.stdout.text).toBe('/bin/sh')
-    expect(bash.resolve({ command: 'x', shellPath: '/bin/sh' }).shellPath).toBe('/bin/sh')
-  })
-
-  it('runs a configured command shell over the platform default, and a spec materialization over both', async () => {
-    const { bash } = await setup({ commandShellPath: '/bin/sh' })
-    const configured = await bash.run(bash.resolve({ command: 'printf %s "$0"' }))
-    expect(configured.stdout.text).toBe('/bin/sh')
-    const materialized = await bash.run(bash.resolve({ command: 'printf %s "$0"', shellPath: '/bin/bash' }))
-    expect(materialized.stdout.text).toBe('/bin/bash')
-  })
-
   it('resolves with output and the effective timeout', async () => {
     const { bash } = await setup({ timeoutMs: 5_000 })
     const result = await bash.run(bash.resolve({ command: 'echo hi' }))

@@ -31,24 +31,20 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
         style="display: contents;"
       />
     </div>
-    <div
-      class="newSessionRow"
+    <button
+      aria-label="New session"
+      class="newSession"
+      type="button"
     >
-      <button
-        aria-label="New session"
-        class="newSession"
-        type="button"
-      >
-        <svg
-          data-content="c0ce4dcc"
-          fill="none"
-          height="18"
-          viewBox="0 0 16 16"
-          width="18"
-          xmlns="http://www.w3.org/2000/svg"
-        />
-      </button>
-    </div>
+      <svg
+        data-content="c0ce4dcc"
+        fill="none"
+        height="18"
+        viewBox="0 0 16 16"
+        width="18"
+        xmlns="http://www.w3.org/2000/svg"
+      />
+    </button>
     <div
       class="regionArea"
     >
@@ -131,29 +127,25 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
         />
       </button>
     </div>
-    <div
-      class="newSessionRow"
+    <button
+      aria-label="New session"
+      class="newSession"
+      type="button"
     >
-      <button
-        aria-label="New session"
-        class="newSession"
-        type="button"
+      <svg
+        data-content="c0ce4dcc"
+        fill="none"
+        height="14"
+        viewBox="0 0 16 16"
+        width="14"
+        xmlns="http://www.w3.org/2000/svg"
+      />
+      <span
+        class="newSessionLabel wide"
       >
-        <svg
-          data-content="c0ce4dcc"
-          fill="none"
-          height="14"
-          viewBox="0 0 16 16"
-          width="14"
-          xmlns="http://www.w3.org/2000/svg"
-        />
-        <span
-          class="newSessionLabel wide"
-        >
-          New Session
-        </span>
-      </button>
-    </div>
+        New Session
+      </span>
+    </button>
     <div
       class="regionArea"
     >
@@ -236,29 +228,25 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
         />
       </button>
     </div>
-    <div
-      class="newSessionRow"
+    <button
+      aria-label="新建会话"
+      class="newSession"
+      type="button"
     >
-      <button
-        aria-label="新建会话"
-        class="newSession"
-        type="button"
+      <svg
+        data-content="c0ce4dcc"
+        fill="none"
+        height="14"
+        viewBox="0 0 16 16"
+        width="14"
+        xmlns="http://www.w3.org/2000/svg"
+      />
+      <span
+        class="newSessionLabel wide"
       >
-        <svg
-          data-content="c0ce4dcc"
-          fill="none"
-          height="14"
-          viewBox="0 0 16 16"
-          width="14"
-          xmlns="http://www.w3.org/2000/svg"
-        />
-        <span
-          class="newSessionLabel wide"
-        >
-          新会话
-        </span>
-      </button>
-    </div>
+        新会话
+      </span>
+    </button>
     <div
       class="regionArea"
     >

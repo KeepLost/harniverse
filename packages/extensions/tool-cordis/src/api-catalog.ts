@@ -2752,39 +2752,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'sessionShell',
-    summary: 'The session-scoped shell pointer: which registry entry a session\'s next model request runs under, with durable switching, request-frozen dispatch promises, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
-    description: 'The session-scoped shell pointer: which registry entry a session\'s next model request runs under, with durable switching, request-frozen dispatch promises, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
+    summary: 'The session-scoped shell family pointer: which family (bash | pwsh) a session\'s next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
+    description: 'The session-scoped shell family pointer: which family (bash | pwsh) a session\'s next model request runs under, with durable switching, per-agent tool restriction swaps, and the runtime-context fact that announces it.',
     methods: [
       {
-        signature: 'effective(session: Session): EffectiveShell',
-        description: 'Read one session\'s effective shell through the single resolver, without host I/O.',
+        signature: 'family(session: Session): ShellBackendSelection',
+        description: 'Read one session\'s effective family without host I/O.',
         parameters: [{ name: 'session', description: 'session whose selection is requested.' }],
-        returns: 'the effective entry, stack, materialized executable, and fact.',
+        returns: 'its override, or the host default when none is recorded.',
       },
       {
-        signature: 'defaultEffective(): EffectiveShell',
-        description: 'The host\'s default effective shell — no session override — for host-level reads like the creation drawer\'s selector.',
+        signature: 'async switch(agent: Agent, family: ShellBackendSelection): Promise<ShellBackendSelection>',
+        description: 'Switch one agent\'s session to another shell family. Effective at the next model request: the runtime-context snapshot announces the new family and the retired tool leaves that request\'s catalog. Nothing is torn down — the other family\'s executors, persistent shells, and background jobs keep running underneath.',
+        parameters: [{ name: 'agent', description: 'live agent owning the session.' }, { name: 'family', description: 'family to select.' }],
+        returns: 'the committed family; a same-family request commits nothing.',
+        throws: ['when the family is unavailable on this host, the host composes no router, or the agent is no longer live.'],
+      },
+      {
+        signature: 'describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean } }',
+        description: 'Host capability read for the switch affordance: whether switching is possible and which families are usable. A single-executor host reports only its boot default.',
         parameters: [],
-        returns: 'the default entry, stack, materialized executable, and fact.',
-      },
-      {
-        signature: 'dispatchTarget(agent: Agent): DispatchTarget | undefined',
-        description: 'The dispatch promise a request froze — the exact executable its tool calls must stamp, and the stack whose tool must serve them.',
-        parameters: [{ name: 'agent', description: 'calling agent whose request promise is read.' }],
-        returns: 'the frozen target; undefined before the agent\'s first freeze (callers then stamp nothing and the executor default applies).',
-      },
-      {
-        signature: 'async switch(agent: Agent, entry: string): Promise<string>',
-        description: 'Switch one agent\'s session to another registry entry. Effective at the next model request: the runtime-context snapshot announces the new shell (with an explicit change notice), and the retired stack\'s tool leaves that request\'s catalog. Nothing is torn down — the other stack\'s executors, persistent shells, and background jobs keep running underneath; the in-flight request keeps its frozen promise.',
-        parameters: [{ name: 'agent', description: 'live agent owning the session.' }, { name: 'entry', description: 'registry entry id to select.' }],
-        returns: 'the committed entry id; a same-entry request commits nothing.',
-        throws: ['when the entry is unavailable on this host, the host composes no router, or the agent is no longer live.'],
-      },
-      {
-        signature: 'describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean }; entries: readonly ShellEntryStatus[] }',
-        description: 'Host capability read for the switch affordance: whether switching is possible and which entries are usable.',
-        parameters: [],
-        returns: 'switchability plus per-entry availability.',
+        returns: 'switchability plus per-family availability.',
       },
     ],
   },
@@ -2924,19 +2912,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Enumerate plugin-contributed variables without executing their resolvers.',
         parameters: [],
         returns: 'declarations sorted by environment variable name.',
-      },
-    ],
-  },
-  {
-    key: 'shellRegistry',
-    summary: 'In-process source of the resolved shell registry.',
-    description: 'In-process source of the resolved shell registry. Consumers — the shell router\'s entry probing and the session resolver — read document; nothing else re-parses the stored document.',
-    methods: [
-      {
-        signature: 'document(): ShellRegistryDocument',
-        description: 'The resolved registry document: the default and every registered entry.',
-        parameters: [],
-        returns: 'the current shell registry document (default id plus entries).',
       },
     ],
   },
@@ -5560,10 +5535,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
   },
   {
-    name: 'DispatchTarget',
-    declaration: 'export interface DispatchTarget {\n    entryId: string;\n    stack: ShellBackendSelection;\n    executablePath: string;\n}',
-  },
-  {
     name: 'Domain',
     declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
   },
@@ -5638,10 +5609,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EditGoalRequest',
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
-  },
-  {
-    name: 'EffectiveShell',
-    declaration: 'export interface EffectiveShell {\n    entryId: string;\n    label: string;\n    stack: ShellBackendSelection;\n    executablePath: string;\n    factText: string;\n    degraded?: string;\n}',
   },
   {
     name: 'EgressPolicy',
@@ -7324,16 +7291,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ShellBackendSelection = \'bash\' | \'pwsh\';',
   },
   {
-    name: 'ShellEntryStatus',
-    declaration: 'export interface ShellEntryStatus {\n    id: string;\n    label: string;\n    stack: ShellBackendSelection;\n    path: string;\n    available: boolean;\n    resolvedPath?: string;\n    reason?: string;\n}',
-  },
-  {
     name: 'ShellExecRequest',
-    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n    family?: ShellBackendSelection | undefined;\n    shellPath?: string | undefined;\n}',
+    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n    family?: ShellBackendSelection | undefined;\n}',
   },
   {
     name: 'ShellExecSpec',
-    declaration: 'export interface ShellExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy: SandboxExecutionPolicy | undefined;\n    shellPath?: string | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
+    declaration: 'export interface ShellExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
   },
   {
     name: 'ShellProcess',
@@ -7346,14 +7309,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ShellProcessStatus',
     declaration: 'export type ShellProcessStatus = \'running\' | \'completed\' | \'killed\';',
-  },
-  {
-    name: 'ShellRegistryDocument',
-    declaration: 'export interface ShellRegistryDocument {\n    default: string;\n    entries: readonly ShellRegistryEntry[];\n}',
-  },
-  {
-    name: 'ShellRegistryEntry',
-    declaration: 'export interface ShellRegistryEntry {\n    id: string;\n    path: string;\n    label?: string | undefined;\n}',
   },
   {
     name: 'ShellRunResult',

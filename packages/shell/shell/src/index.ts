@@ -43,31 +43,11 @@ export {
   defaultShellName,
   isZshShell,
 } from './platform.ts'
-export { resolveRegistryDefaultStack, resolveShellBackend, SHELL_BACKEND_ENV, SHELL_DEFAULT_PATH_ENV } from './backend.ts'
+export { resolveShellBackend, SHELL_BACKEND_ENV } from './backend.ts'
 export type {
   ShellBackendPreference,
   ShellBackendSelection,
 } from './backend.ts'
-export {
-  BUILTIN_POSIX_ID,
-  BUILTIN_PWSH_ID,
-  builtinRegistryEntries,
-  classifyShellDialect,
-  LEGACY_BASH_FAMILY_ID,
-  PLATFORM_DEFAULT_ID,
-  registryEntryIndex,
-  RESERVED_ENTRY_IDS,
-  resolveEffectiveShell,
-  shellFactText,
-} from './registry.ts'
-export type {
-  EffectiveShell,
-  ResolveEffectiveShellInput,
-  ShellDialectClass,
-  ShellEntryStatus,
-  ShellRegistryDocument,
-  ShellRegistryEntry,
-} from './registry.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

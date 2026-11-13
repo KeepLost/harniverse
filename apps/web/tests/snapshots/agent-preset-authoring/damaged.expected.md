@@ -19,9 +19,9 @@
     - button "网络代理":
       - img
       - text: 网络代理
-    - button "Shell 默认":
+    - button "Shell 后端":
       - img
-      - text: Shell 默认
+      - text: Shell 后端
     - button "插件":
       - img
       - text: 插件

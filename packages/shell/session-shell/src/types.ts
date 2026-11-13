@@ -5,12 +5,9 @@
 
 /** Payload of one committed `session-shell/change` event. */
 export interface SessionShellChange {
-  /** The complete post-change registry entry id. */
-  entry: string
+  /** The complete post-change shell family. */
+  family: 'bash' | 'pwsh'
 }
 
-/**
- * Projection value of the `sessionShell` key: the recorded entry id (legacy
- * family values fold onto the builtin ids at replay), or null.
- */
-export type SessionShellProjection = string | null
+/** Projection value of the `sessionShell` key: the recorded family, or null. */
+export type SessionShellProjection = 'bash' | 'pwsh' | null

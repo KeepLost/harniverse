@@ -816,13 +816,13 @@ Source: [`packages/session/session-title-llm/src/index.ts:45`](../packages/sessi
 
 ```ts persistence-catalog
 /**
- * Effective shell entry for the session; whole-value payload — the
- * complete post-change entry id, never a bare delta.
+ * Effective shell family for the session; whole-value payload — the
+ * complete post-change family, never a bare delta.
  */
 'session-shell/change': import('./types.ts').SessionShellChange
 ```
 
-Source: [`packages/shell/session-shell/src/index.ts:68`](../packages/shell/session-shell/src/index.ts)
+Source: [`packages/shell/session-shell/src/index.ts:51`](../packages/shell/session-shell/src/index.ts)
 
 ### `step/*`
 

@@ -322,16 +322,16 @@ describe('settings domain', () => {
     const fiber = ctx.plugin({
       inject: ['settings'],
       apply(child: Context) {
-        child.settings.register(settingsNamespace('shell-registry'), z.object({ default: z.string().default('platform-default'), entries: z.array(z.object({ id: z.string(), path: z.string(), label: z.string() })).default([]) }))
+        child.settings.register(settingsNamespace('shell-backend'), z.object({ backend: z.string().default('platform-default') }))
       },
     })
     await fiber
     const api = createApiProxy(ctx, DEFAULTS)
 
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
-      .toEqual(expect.arrayContaining(['shell-registry']))
-    expectOk(await api.settings.update(request({ ns: 'shell-registry', patch: { default: 'posix' } })))
-    expect(ctx.settings.get(settingsNamespace('shell-registry'))).toEqual({ default: 'posix', entries: [] })
+      .toEqual(expect.arrayContaining(['shell-backend']))
+    expectOk(await api.settings.update(request({ ns: 'shell-backend', patch: { backend: 'git-bash' } })))
+    expect(ctx.settings.get(settingsNamespace('shell-backend'))).toEqual({ backend: 'git-bash' })
     await fiber.dispose()
   })
 

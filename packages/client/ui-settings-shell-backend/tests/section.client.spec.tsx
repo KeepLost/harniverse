@@ -46,14 +46,12 @@ function readyOf(value: ShellBackendSectionValue, revision = 1, writable = true)
 function propsOf(
   scope: ScopeSnapshot,
   set: ShellBackendSectionInjected['set'] = vi.fn(async () => {}),
-  probe?: ShellBackendSectionInjected['probe'],
 ): ShellBackendSectionProps {
   return {
     close: () => {},
     t: tzh(),
     useScope: ((<T,>(select: (snapshot: ScopeSnapshot) => T) => select(scope)) as ShellBackendSectionProps['useScope']),
     set,
-    probe,
   } as unknown as ShellBackendSectionProps
 }
 
@@ -73,61 +71,50 @@ describe('ShellBackendSection', () => {
     expect(screen.getByText(zh.unavailable)).toBeDefined()
   })
 
-  it('labels an unlabeled custom entry radio with its id and path hint', () => {
-    render(<ShellBackendSection {...propsOf(readyOf({
-      default: 'my-zsh',
-      entries: [{ id: 'my-zsh', path: '/opt/homebrew/bin/zsh' }],
-    }))} />)
-    const radio = screen.getByRole<HTMLInputElement>('radio', { name: /my-zsh/ })
-    expect(radio.checked).toBe(true)
-    // The radio desc and the registry entry row both name the executable.
-    expect(screen.getAllByText('/opt/homebrew/bin/zsh').length).toBe(2)
-  })
-
   it('shows both options with the platform default active and saving idle', () => {
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }))} />)
-    const pwsh = screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.platform-default']) })
-    const gitBash = screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.posix']) })
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }))} />)
+    const pwsh = screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['backend.platform-default']) })
+    const gitBash = screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['backend.git-bash']) })
     expect(pwsh.checked).toBe(true)
     expect(gitBash.checked).toBe(false)
     expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true)
   })
 
-  it('marks the stored posix preference active on load', () => {
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'posix', entries: [] }))} />)
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.posix']) }).checked).toBe(true)
+  it('marks the stored git-bash preference active on load', () => {
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'git-bash' }))} />)
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['backend.git-bash']) }).checked).toBe(true)
   })
 
   it('disables every control and notes the read-only state when writes are refused', () => {
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }, 1, false))} />)
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }, 1, false))} />)
     expect(screen.getByText(zh.readonly)).toBeDefined()
     for (const radio of screen.getAllByRole('radio')) expect((radio as HTMLInputElement).disabled).toBe(true)
   })
 
   it('saves the switched preference and reports the restart effect', async () => {
     const set = vi.fn(async () => {})
-    const view = render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.posix']) }))
+    const view = render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }), set)} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.git-bash']) }))
     const save = screen.getByRole<HTMLButtonElement>('button', { name: zh.save })
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
 
     await waitFor(() => { expect(screen.getByText(zh.saved)).toBeDefined() })
-    expect(set.mock.calls).toEqual([['default', 'posix']])
+    expect(set.mock.calls).toEqual([['backend', 'git-bash']])
 
     // A settled save adopts the host revision: the draft re-syncs and saving
     // is idle again.
-    const settled = readyOf({ default: 'posix', entries: [] }, 2)
+    const settled = readyOf({ backend: 'git-bash' }, 2)
     view.rerender(<ShellBackendSection {...propsOf(settled, set)} />)
     await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true) })
   })
 
   it('revert restores the resolved preference without writing', () => {
     const set = vi.fn(async () => {})
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'posix', entries: [] }), set)} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.platform-default']) }))
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'git-bash' }), set)} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.platform-default']) }))
     fireEvent.click(screen.getByRole('button', { name: zh.revert }))
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.posix']) }).checked).toBe(true)
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['backend.git-bash']) }).checked).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true)
     expect(set).not.toHaveBeenCalled()
   })
@@ -135,8 +122,8 @@ describe('ShellBackendSection', () => {
   it('shows the busy label while the write is in flight', async () => {
     const pending: (() => void)[] = []
     const set = vi.fn(async () => { await new Promise<void>((resolve) => { pending.push(resolve) }) })
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.posix']) }))
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }), set)} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.git-bash']) }))
     fireEvent.click(screen.getByRole('button', { name: zh.save }))
     await waitFor(() => { expect(screen.getByRole('button', { name: zh.saving })).toBeDefined() })
 
@@ -146,8 +133,8 @@ describe('ShellBackendSection', () => {
 
   it('reports a refused write with the server message', async () => {
     const set = vi.fn(async () => { throw new Error('disk full') })
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.posix']) }))
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }), set)} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.git-bash']) }))
     fireEvent.click(screen.getByRole('button', { name: zh.save }))
     await waitFor(() => { expect(screen.getByText(zh.saveFailed.replace('{message}', 'disk full'))).toBeDefined() })
     expect(screen.queryByText(zh.saved)).toBeNull()
@@ -155,9 +142,9 @@ describe('ShellBackendSection', () => {
 
   it('saves an unchanged draft without writing and still settles', async () => {
     const set = vi.fn(async () => {})
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.posix']) }))
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.platform-default']) }))
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }), set)} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.git-bash']) }))
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.platform-default']) }))
     fireEvent.click(screen.getByRole('button', { name: zh.save }))
     await waitFor(() => { expect(screen.getByText(zh.saved)).toBeDefined() })
     expect(set).not.toHaveBeenCalled()
@@ -165,104 +152,33 @@ describe('ShellBackendSection', () => {
 
   it('reports a refused write with the unknown fallback for empty messages', async () => {
     const set = vi.fn(async () => { throw new Error('') })
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.posix']) }))
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }), set)} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.git-bash']) }))
     fireEvent.click(screen.getByRole('button', { name: zh.save }))
     await waitFor(() => { expect(screen.getByText(zh.saveFailed.replace('{message}', zh.unknownError))).toBeDefined() })
   })
 
   it('stringifies a non-Error rejection in the failure notice', async () => {
     const set = vi.fn(async () => { throw 'gateway closed' })
-    render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.posix']) }))
+    render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }), set)} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.git-bash']) }))
     fireEvent.click(screen.getByRole('button', { name: zh.save }))
     await waitFor(() => { expect(screen.getByText(zh.saveFailed.replace('{message}', 'gateway closed'))).toBeDefined() })
   })
 
   it('adopts an external revision while the draft is clean', async () => {
-    const view = render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }))} />)
-    const external = readyOf({ default: 'posix', entries: [] }, 5)
+    const view = render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }))} />)
+    const external = readyOf({ backend: 'git-bash' }, 5)
     view.rerender(<ShellBackendSection {...propsOf(external)} />)
-    await waitFor(() => { expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.posix']) }).checked).toBe(true) })
+    await waitFor(() => { expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['backend.git-bash']) }).checked).toBe(true) })
     expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true)
   })
 
   it('keeps the dirty draft over an external revision', async () => {
-    const view = render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }))} />)
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['default.posix']) }))
-    view.rerender(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }, 5))} />)
-    await waitFor(() => { expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['default.posix']) }).checked).toBe(true) })
+    const view = render(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }))} />)
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(zh['backend.git-bash']) }))
+    view.rerender(<ShellBackendSection {...propsOf(readyOf({ backend: 'platform-default' }, 5))} />)
+    await waitFor(() => { expect(screen.getByRole<HTMLInputElement>('radio', { name: new RegExp(zh['backend.git-bash']) }).checked).toBe(true) })
     expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(false)
-  })
-
-  describe('custom entry management', () => {
-    const withEntry = readyOf({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/bin/zsh' }] })
-
-    it('adds an entry through the form and saves the entries write', async () => {
-      const set = vi.fn(async () => {})
-      render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-      fireEvent.change(screen.getByPlaceholderText('my-zsh'), { target: { value: 'nightly-bash' } })
-      fireEvent.change(screen.getByPlaceholderText('/bin/zsh'), { target: { value: '/opt/bash/bin/bash' } })
-      fireEvent.click(screen.getByRole('button', { name: zh['entries.add'] }))
-      fireEvent.click(screen.getByRole('button', { name: zh.save }))
-      await waitFor(() => { expect(screen.getByText(zh.saved)).toBeDefined() })
-      expect(set).toHaveBeenCalledWith('entries', [{ id: 'nightly-bash', path: '/opt/bash/bin/bash', label: '' }])
-    })
-
-    it('removes an entry and saves the shortened list', async () => {
-      const set = vi.fn(async () => {})
-      render(<ShellBackendSection {...propsOf(withEntry, set)} />)
-      fireEvent.click(screen.getByRole('button', { name: zh['entries.remove'] }))
-      fireEvent.click(screen.getByRole('button', { name: zh.save }))
-      await waitFor(() => { expect(screen.getByText(zh.saved)).toBeDefined() })
-      expect(set).toHaveBeenCalledWith('entries', [])
-    })
-
-    it('an empty add draft never leaves the form', () => {
-      const set = vi.fn(async () => {})
-      render(<ShellBackendSection {...propsOf(withEntry, set)} />)
-      fireEvent.click(screen.getByRole('button', { name: zh['entries.add'] }))
-      expect(set).not.toHaveBeenCalled()
-      expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true)
-    })
-
-    it('surfaces a rejected entries write verbatim', async () => {
-      const set = vi.fn(async () => { throw new Error('shell-registry: entry id "X" must be a lowercase slug') })
-      render(<ShellBackendSection {...propsOf(readyOf({ default: 'platform-default', entries: [] }), set)} />)
-      fireEvent.change(screen.getByPlaceholderText('my-zsh'), { target: { value: 'X' } })
-      fireEvent.change(screen.getByPlaceholderText('/bin/zsh'), { target: { value: '/bin/zsh' } })
-      fireEvent.click(screen.getByRole('button', { name: zh['entries.add'] }))
-      fireEvent.click(screen.getByRole('button', { name: zh.save }))
-      const rejected = zh.saveFailed.replace('{message}', 'shell-registry: entry id "X" must be a lowercase slug')
-      await waitFor(() => { expect(screen.getByText(rejected)).toBeDefined() })
-    })
-
-    it('renders probe badges from the boot snapshot and none for unknown ids', () => {
-      render(<ShellBackendSection {...propsOf(
-        readyOf({ default: 'my-zsh', entries: [{ id: 'my-zsh', path: '/bin/zsh' }, { id: 'other', path: '/usr/bin/fish' }] }),
-        undefined,
-        [{ id: 'my-zsh', available: true }, { id: 'gone', available: false }],
-      )} />)
-      expect(screen.getByText(zh['entries.probeOk'])).toBeDefined()
-      expect(screen.queryByText(zh['entries.probeFail'])).toBeNull()
-    })
-
-    it('marks unavailable probes on registered entries', () => {
-      render(<ShellBackendSection {...propsOf(
-        readyOf({ default: 'gone', entries: [{ id: 'gone', path: '/nope/pwsh' }] }),
-        undefined,
-        [{ id: 'gone', available: false }],
-      )} />)
-      expect(screen.getByText(zh['entries.probeFail'])).toBeDefined()
-    })
-
-    it('revert restores the resolved entries alongside the default', () => {
-      render(<ShellBackendSection {...propsOf(withEntry)} />)
-      fireEvent.click(screen.getByRole('button', { name: zh['entries.remove'] }))
-      fireEvent.click(screen.getByRole('button', { name: zh.revert }))
-      // The default radio desc and the entry row path both show the executable.
-      expect(screen.getAllByText('/bin/zsh').length).toBe(2)
-      expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.save }).disabled).toBe(true)
-    })
   })
 })

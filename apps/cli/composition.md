@@ -84,8 +84,8 @@ flowchart LR
   cfg --> plugin_dsh_base_fs_vm
   plugin_dsh_base_sandbox_vm["sandbox-vm<br/>@deepseek-ai/dsh-sandbox-vm"]
   cfg --> plugin_dsh_base_sandbox_vm
-  plugin_dsh_base_shell_registry_settings["shell-registry-settings<br/>@deepseek-ai/dsh-shell-registry-settings"]
-  cfg --> plugin_dsh_base_shell_registry_settings
+  plugin_dsh_base_shell_backend_settings["shell-backend-settings<br/>@deepseek-ai/dsh-shell-backend-settings"]
+  cfg --> plugin_dsh_base_shell_backend_settings
   plugin_dsh_base_bash_sandbox["bash-sandbox<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_dsh_base_bash_sandbox
   plugin_dsh_base_pwsh_sandbox["pwsh-sandbox<br/>@deepseek-ai/dsh-pwsh-sandbox"]
@@ -286,7 +286,7 @@ flowchart LR
 | `subprocess-vm` | `@deepseek-ai/dsh-subprocess-vm` |
 | `fs-vm` | `@deepseek-ai/dsh-fs-vm` |
 | `sandbox-vm` | `@deepseek-ai/dsh-sandbox-vm` |
-| `shell-registry-settings` | `@deepseek-ai/dsh-shell-registry-settings` |
+| `shell-backend-settings` | `@deepseek-ai/dsh-shell-backend-settings` |
 | `bash-sandbox` | `@deepseek-ai/dsh-bash-sandbox` |
 | `pwsh-sandbox` | `@deepseek-ai/dsh-pwsh-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |

@@ -70,16 +70,10 @@ export interface Config {
   maxSpillBytes?: number
   /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
-  /**
-   * Explicit POSIX shell executable overriding the platform default (a custom
-   * registry default's path threads here through `$DSH_SHELL_DEFAULT_PATH`).
-   * A per-spec materialized {@link ShellExecSpec.shellPath} still wins.
-   */
-  commandShellPath?: string
 }
 
-/** The shape after schemastery applied the defaults (cwd/commandShellPath have none). */
-type ResolvedConfig = Required<Omit<Config, 'cwd' | 'commandShellPath'>> & Pick<Config, 'cwd' | 'commandShellPath'>
+/** The shape after schemastery applied the defaults (cwd has none). */
+type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
 
 /** Project a settled collect-mode reader into the final CollectedOutput shape. */
 function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
@@ -134,7 +128,6 @@ export class LocalBashExecutor extends ShellExecutor {
     maxOutputBytes: z.number().default(64_000),
     maxSpillBytes: z.number().default(DEFAULT_MAX_SPILL_BYTES),
     graceMs: z.number().default(DEFAULT_GRACE_MS),
-    commandShellPath: z.string(),
   })
 
   /** The currently authoritative config: the settings section, or the composition entry. */
@@ -198,9 +191,6 @@ export class LocalBashExecutor extends ShellExecutor {
       // Metering identity and bounds ride verbatim; absent means unmetered.
       ...request.correlation !== undefined ? { correlation: request.correlation } : {},
       ...request.limits !== undefined ? { limits: request.limits } : {},
-      // Materialized family executable; absent means this executor's
-      // configured (or platform-default) shell.
-      ...request.shellPath !== undefined ? { shellPath: request.shellPath } : {},
     }
   }
 
@@ -269,16 +259,7 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   async run(spec: ShellExecSpec): Promise<ShellRunResult> {
-    return this.runArgv(spec, this.commandArgv(spec))
-  }
-
-  /**
-   * The `-c` argv for one spec's command: the spec's materialized executable
-   * when the calling tool stamped one, else the configured override, else the
-   * platform default. Never re-resolved through `PATH`.
-   */
-  private commandArgv(spec: ShellExecSpec): readonly [string, '-c', string] {
-    return commandShellArgv(spec.command, process.platform, spec.shellPath ?? this.config.commandShellPath)
+    return this.runArgv(spec, commandShellArgv(spec.command))
   }
 
   /**
@@ -309,7 +290,7 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   start(spec: ShellExecSpec): ShellProcess | Promise<ShellProcess> {
-    return this.startArgv(spec, this.commandArgv(spec))
+    return this.startArgv(spec, ['bash', '-c', spec.command])
   }
 
   /**

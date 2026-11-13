@@ -99,26 +99,14 @@ export interface TerminalPanelState {
   readonly shellSession: SessionShellState | undefined
 }
 
-/** One selectable registry entry backing the switch affordance. */
-export interface ShellEntryOption {
-  /** Registry entry id the switch RPC addresses. */
-  readonly id: string
-  /** Display label naming the actual shell. */
-  readonly label: string
-  /** The stack that executes this shell. */
-  readonly stack: 'bash' | 'pwsh'
-  /** Whether the entry probed available on this host. */
-  readonly available: boolean
-}
-
-/** Session shell state backing the switch affordance. */
+/** Session shell family state backing the switch affordance. */
 export interface SessionShellState {
-  /** Registry entry id the next model request runs under. */
-  readonly current: string
+  /** Family the next model request runs under. */
+  readonly current: 'bash' | 'pwsh'
   /** Whether this host serves the router and allows switching. */
   readonly switchable: boolean
-  /** Selectable registry entries for the toggle's rows. */
-  readonly entries: readonly ShellEntryOption[]
+  /** Per-family availability for the toggle's disabled states. */
+  readonly families: { readonly bash: boolean; readonly pwsh: boolean }
   /** Whether a switch call is in flight. */
   readonly pending: boolean
 }
@@ -224,53 +212,26 @@ export class TerminalPanelController {
   }
 
   /**
-   * Switch the session's shell to another registry entry. Purely a pointer
-   * change host-side: the next model request announces the new shell (with a
-   * change notice) and its tool catalog; running terminals and background
-   * jobs are untouched.
-   * @param entry - registry entry id to select.
+   * Switch the session's shell family. Purely a pointer change host-side: the
+   * next model request announces the new family and its tool catalog; running
+   * terminals and background jobs are untouched.
+   * @param family - family to select.
    */
-  switchSessionShell(entry: string): void {
+  switchSessionShell(family: 'bash' | 'pwsh'): void {
     const snapshot = this.state.getSnapshot()
     const sessions = this.deps.sessions
-    const sessionId = snapshot.session
-    if (sessionId === undefined || sessions === undefined) return
+    if (snapshot.session === undefined || sessions === undefined) return
     const shellSession = snapshot.shellSession
-    if (shellSession === undefined || shellSession.pending || shellSession.current === entry) return
+    if (shellSession === undefined || shellSession.pending || shellSession.current === family) return
     this.patchState({ shellSession: { ...shellSession, pending: true } })
-    void sessions.switchShell({ sessionId, entry }).then((response) => {
+    void sessions.switchShell({ sessionId: snapshot.session, family }).then((response) => {
       const latest = this.state.getSnapshot().shellSession
       if (latest === undefined || this.disposed) return
       if (!response.result.ok) {
         this.patchState({ shellSession: { ...latest, pending: false }, error: response.result.error.message })
-        // A refusal can mean the probe table moved under the session; the
-        // affordance re-reads availability instead of trusting stale rows.
-        // The entry guards already proved the face and session; both ride
-        // this closure, so the re-read needs no re-check.
-        this.readShellSession(sessions, sessionId)
         return
       }
       this.patchState({ shellSession: { ...latest, current: response.result.value.current, pending: false } })
-    })
-  }
-
-  /** Re-read the session shell capability without touching the terminal list. */
-  private readShellSession(sessions: NonNullable<TerminalPanelDeps['sessions']>, sessionId: SessionId): void {
-    void sessions.shell({ sessionId }).then((response) => {
-      // A bare `return` here escapes v8 statement coverage; the explicit
-      // undefined keeps the early-out observable.
-      if (!response.result.ok) return undefined
-      if (this.state.getSnapshot().session !== sessionId || this.disposed) return undefined
-      const value = response.result.value
-      this.patchState({ shellSession: {
-        current: value.current.entry,
-        switchable: value.switchable,
-        entries: value.entries.map(entry => ({
-          id: entry.id, label: entry.label, stack: entry.stack, available: entry.available,
-        })),
-        pending: false,
-      } })
-      return undefined
     })
   }
 
@@ -417,7 +378,14 @@ export class TerminalPanelController {
     })
     const sessions = this.deps.sessions
     if (sessions !== undefined) {
-      this.readShellSession(sessions, sessionId)
+      void sessions.shell({ sessionId }).then((response) => {
+        // A bare `return` here escapes v8 statement coverage; the explicit
+        // undefined keeps the early-out observable.
+        if (!response.result.ok) return undefined
+        if (this.state.getSnapshot().session !== sessionId || this.disposed) return undefined
+        this.patchState({ shellSession: { ...response.result.value, pending: false } })
+        return undefined
+      })
     }
     await this.loadList(sessionId)
     if (this.state.getSnapshot().session === sessionId) this.patchState({ ready: true })

@@ -69,16 +69,6 @@ export interface HostApi {
     resourceGovernor?: {
       tier: 'cgroup' | 'rlimit' | 'observe'
     }
-    /**
-     * Shell registry snapshot for creation-time selection: the boot-stable
-     * default and every entry's probe status. Absent when this host composes
-     * no session-shell service.
-     */
-    shell?: {
-      default: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string }
-      switchable: boolean
-      entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[]
-    }
   }>>
 
   /**

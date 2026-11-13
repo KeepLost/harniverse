@@ -819,8 +819,8 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 
 ```ts persistence-catalog
 /**
- * Effective shell entry for the session; whole-value payload — the
- * complete post-change entry id, never a bare delta.
+ * Effective shell family for the session; whole-value payload — the
+ * complete post-change family, never a bare delta.
  */
 'session-shell/change': import('./types.ts').SessionShellChange
 ```

@@ -21,11 +21,7 @@ afterEach(() => {
 // props share; stub them as never-called functions.
 const neverHook = (() => { throw new Error('shell must not read global hooks') }) as never
 
-function mountShell({ collapsed = false, width = 300, shellChoices }: {
-  collapsed?: boolean
-  width?: number
-  shellChoices?: SidebarRootComponentProps['shellChoices']
-} = {}) {
+function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; width?: number } = {}) {
   const startSession = vi.fn()
   const toggleSidebar = vi.fn()
   let regionOwner: SidebarSectionOwnerProps | undefined
@@ -37,7 +33,7 @@ function mountShell({ collapsed = false, width = 300, shellChoices }: {
       collapsed={current.collapsed} width={current.width}
       useSessions={neverHook} useWorkspaces={neverHook}
       useContextMenu={() => ({ getTriggerProps: () => ({}) })}
-      startSession={startSession} toggleSidebar={toggleSidebar} shellChoices={shellChoices} t={t}
+      startSession={startSession} toggleSidebar={toggleSidebar} t={t}
       renderSlot={((
         key: string,
         owner: SidebarFooterActionOwnerProps | SidebarSectionOwnerProps | SidebarSettingsOwnerProps,
@@ -124,29 +120,4 @@ describe('SidebarRoot shell', () => {
     expect(b.regionOwner().wide).toBe(false)
     expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
   })
-  it('opens the shell menu from the New Session caret and starts with the chosen entry', () => {
-    const { startSession } = mountShell({
-      shellChoices: [
-        { id: 'zsh-nightly', label: 'zsh (nightly)', stack: 'bash', available: true },
-        { id: 'pwsh-preview', label: 'pwsh (preview)', stack: 'pwsh', available: false },
-      ],
-    })
-    fireEvent.click(screen.getByRole('button', { name: en['session.new.shell.aria'] }))
-    // The default row inherits the host's shell-registry default.
-    fireEvent.click(screen.getByRole('menuitem', { name: en['session.new.shell.default'] }))
-    expect(startSession).toHaveBeenCalledWith(undefined, undefined)
-
-    fireEvent.click(screen.getByRole('button', { name: en['session.new.shell.aria'] }))
-    const preview = screen.getByRole('menuitem', { name: 'pwsh (preview)' })
-    expect((preview as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(screen.getByRole('menuitem', { name: 'zsh (nightly)' }))
-    expect(startSession).toHaveBeenLastCalledWith(undefined, 'zsh-nightly')
-
-    // Escape closes the menu without starting anything (the onClose path).
-    fireEvent.click(screen.getByRole('button', { name: en['session.new.shell.aria'] }))
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(startSession).toHaveBeenCalledTimes(2)
-  })
-
 })

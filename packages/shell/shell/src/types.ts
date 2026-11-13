@@ -93,13 +93,6 @@ export interface ShellExecRequest {
    * executing family stay aligned by construction.
    */
   family?: ShellBackendSelection | undefined
-  /**
-   * Materialized absolute executable for this call's family, stamped by the
-   * calling tool from the session's request-time shell resolution. Executors
-   * spawn exactly this path and never re-resolve through `PATH`, so the shell
-   * the model was told about is the shell that runs.
-   */
-  shellPath?: string | undefined
 }
 
 /**
@@ -131,8 +124,6 @@ export interface ShellExecSpec {
   dshEnv?: DshEnvironment | undefined
   /** Resolved sandbox policy; ignored by executors that do not confine. */
   sandboxPolicy: SandboxExecutionPolicy | undefined
-  /** Materialized family executable carried verbatim from {@link ShellExecRequest.shellPath}. */
-  shellPath?: string | undefined
   /** Metering identity carried verbatim from {@link ShellExecRequest.correlation}. */
   correlation?: SubprocessCorrelation | undefined
   /** Resource bounds carried verbatim from {@link ShellExecRequest.limits}. */

@@ -579,12 +579,6 @@ export interface Config {
   maxSpillBytes?: number
   /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
-  /**
-   * Explicit POSIX shell executable overriding the platform default (a custom
-   * registry default's path threads here through `$DSH_SHELL_DEFAULT_PATH`).
-   * A per-spec materialized {@link ShellExecSpec.shellPath} still wins.
-   */
-  commandShellPath?: string
 }
 ```
 
@@ -2957,6 +2951,24 @@ export interface Config {
 
 来源：[`packages/settings/settings-file/src/index.ts:21`](../packages/settings/settings-file/src/index.ts)
 
+<a id="deepseek-aidsh-shell-backend-settings"></a>
+
+## `@deepseek-ai/dsh-shell-backend-settings`
+
+需要：`settings`
+
+```ts config-catalog
+/** Stored shell-backend settings; every field is optional over the schema defaults. */
+export interface ShellBackendSettings {
+  /** Shell family the host composes on Windows; inert elsewhere. */
+  backend?: ShellBackendPreference
+}
+```
+
+依赖：[`ShellBackendPreference`](../packages/shell/shell/src/index.ts)
+
+来源：[`packages/shell/shell-backend-settings/src/index.ts:20`](../packages/shell/shell-backend-settings/src/index.ts)
+
 <a id="deepseek-aidsh-shell-env"></a>
 
 ## `@deepseek-ai/dsh-shell-env`
@@ -2970,36 +2982,6 @@ export interface Config {
 ```
 
 来源：[`packages/shell/shell-env/src/index.ts:29`](../packages/shell/shell-env/src/index.ts)
-
-<a id="deepseek-aidsh-shell-registry-settings"></a>
-
-## `@deepseek-ai/dsh-shell-registry-settings`
-
-需要：`settings`
-
-```ts config-catalog
-/** Stored shell-registry settings; every field is optional over the schema defaults. */
-export interface ShellRegistrySettings {
-  /** Registry default: the reserved platform split, a builtin id, or one entry id. */
-  default: string
-  /** User-registered shell entries. */
-  entries: StoredShellRegistryEntry[]
-}
-
-/** One stored entry as the settings schema types it (schemastery nulls absent optionals). */
-export interface StoredShellRegistryEntry {
-  /** Stable selector; slug-unique, never a builtin id or the reserved default. */
-  id: string
-  /** Executable path or PATH name; materialized by probing when available. */
-  path: string
-  /** User-facing label; null means the executable's basename. */
-  label?: string | null
-}
-```
-
-来源：[`packages/shell/shell-registry-settings/src/index.ts:39`](../packages/shell/shell-registry-settings/src/index.ts)
-
-
 
 <a id="deepseek-aidsh-shell-router"></a>
 

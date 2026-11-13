@@ -13,15 +13,10 @@ export function defaultCommandShellPath(platform: NodeJS.Platform = process.plat
  * Build the direct argv for one-shot command execution without an intermediate shell.
  * @param command - Command text passed to the shell's `-c` option.
  * @param platform - Node platform identifier; defaults to the current host.
- * @param shellPath - Materialized executable override; absent uses the platform default.
  * @returns The executable and arguments for direct spawning.
  */
-export function commandShellArgv(
-  command: string,
-  platform: NodeJS.Platform = process.platform,
-  shellPath?: string,
-): readonly [string, '-c', string] {
-  return [shellPath ?? defaultCommandShellPath(platform), '-c', command]
+export function commandShellArgv(command: string, platform: NodeJS.Platform = process.platform): readonly [string, '-c', string] {
+  return [defaultCommandShellPath(platform), '-c', command]
 }
 
 /**

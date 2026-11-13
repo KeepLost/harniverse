@@ -25,64 +25,39 @@ function request<P>(payload: P): RpcRequest<P> {
   return { rpcId: RpcId(`fr-${String(nextRpc++)}`), payload }
 }
 
-/** One scripted registry entry row the stub serves. */
-const entry = (id: string, stack: 'bash' | 'pwsh', available: boolean) => ({
-  id, label: id, stack, available, ...(available ? { resolvedPath: `/usr/bin/${id}` } : { reason: 'not found' }),
-})
-
 /** Stub service answering a scripted capability and recording switches. */
 class StubSessionShell extends Service {
-  readonly switches: { sessionId: SessionId; entry: string }[] = []
+  readonly switches: { sessionId: SessionId; family: 'bash' | 'pwsh' }[] = []
 
   constructor(
     ctx: Context,
-    private readonly capability: {
-      switchable: boolean
-      entries: ReturnType<typeof entry>[]
-      current?: { entryId: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string }
-    },
+    private readonly capability: { switchable: boolean; families: { bash: boolean; pwsh: boolean }; current?: 'bash' | 'pwsh' },
   ) {
     super(ctx, 'sessionShell')
   }
 
-  effective(): { entryId: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string } {
-    return this.capability.current ?? { entryId: 'posix', label: 'bash', stack: 'bash', executablePath: '/usr/bin/bash' }
+  family(): 'bash' | 'pwsh' {
+    return this.capability.current ?? 'bash'
   }
 
-  defaultEffective(): { entryId: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string } {
-    return { entryId: 'posix', label: 'bash', stack: 'bash', executablePath: '/usr/bin/bash' }
+  describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean } } {
+    return this.capability
   }
 
-  describe(): { switchable: boolean; families: { bash: boolean; pwsh: boolean }; entries: ReturnType<typeof entry>[] } {
-    return {
-      switchable: this.capability.switchable,
-      families: {
-        bash: this.capability.entries.some(row => row.stack === 'bash' && row.available),
-        pwsh: this.capability.entries.some(row => row.stack === 'pwsh' && row.available),
-      },
-      entries: this.capability.entries,
-    }
-  }
-
-  async switch(agent: Agent, target: string): Promise<string> {
+  async switch(agent: Agent, family: 'bash' | 'pwsh'): Promise<'bash' | 'pwsh'> {
     if (!this.capability.switchable) {
       throw new Error('session-shell: this host composes a single shell executor; switching requires the shell router')
     }
-    const row = this.capability.entries.find(candidate => candidate.id === target)
-    if (row === undefined || !row.available) {
-      throw new Error(`session-shell: the "${target}" shell is unavailable on this host`)
+    if (!this.capability.families[family]) {
+      throw new Error(`session-shell: the ${family} shell family is unavailable on this host`)
     }
-    this.switches.push({ sessionId: agent.session.id, entry: target })
-    this.capability.current = { entryId: target, label: target, stack: row.stack, executablePath: `/usr/bin/${target}` }
-    return target
+    this.switches.push({ sessionId: agent.session.id, family })
+    this.capability.current = family
+    return family
   }
 }
 
-async function composed(capability?: {
-  switchable: boolean
-  entries: ReturnType<typeof entry>[]
-  current?: { entryId: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string }
-}): Promise<Context> {
+async function composed(capability?: { switchable: boolean; families: { bash: boolean; pwsh: boolean }; current?: 'bash' | 'pwsh' }): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
@@ -114,19 +89,15 @@ function liveAgent(ctx: Context, id: string): Agent {
 const api = (ctx: Context) => createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
 describe('sessions.shell', () => {
-  it('answers the effective shell and full availability on a routed host', async () => {
-    const ctx = await composed({ switchable: true, entries: [entry('posix', 'bash', true), entry('pwsh', 'pwsh', false)] })
+  it('answers the effective family and full availability on a routed host', async () => {
+    const ctx = await composed({ switchable: true, families: { bash: true, pwsh: false }, current: 'bash' })
     try {
       const agent = liveAgent(ctx, 'session-shell-read')
       const proxy = api(ctx)
       const response = await proxy.sessions.shell?.(request({ sessionId: agent.session.id }))
       expect(response?.result).toEqual({
         ok: true,
-        value: {
-          current: { entry: 'posix', label: 'bash', stack: 'bash', executablePath: '/usr/bin/bash' },
-          switchable: true,
-          entries: [entry('posix', 'bash', true), entry('pwsh', 'pwsh', false)],
-        },
+        value: { current: 'bash', switchable: true, families: { bash: true, pwsh: false } },
       })
     } finally {
       await ctx.fiber.dispose()
@@ -134,17 +105,13 @@ describe('sessions.shell', () => {
   })
 
   it('answers the platform default with switchable false when the host composes no router', async () => {
-    const ctx = await composed({ switchable: false, entries: [entry('posix', 'bash', true), entry('pwsh', 'pwsh', false)] })
+    const ctx = await composed({ switchable: false, families: { bash: true, pwsh: false }, current: 'bash' })
     try {
       const agent = liveAgent(ctx, 'session-shell-single')
       const response = await api(ctx).sessions.shell?.(request({ sessionId: agent.session.id }))
       expect(response?.result).toEqual({
         ok: true,
-        value: {
-          current: { entry: 'posix', label: 'bash', stack: 'bash', executablePath: '/usr/bin/bash' },
-          switchable: false,
-          entries: [entry('posix', 'bash', true), entry('pwsh', 'pwsh', false)],
-        },
+        value: { current: 'bash', switchable: false, families: { bash: true, pwsh: false } },
       })
     } finally {
       await ctx.fiber.dispose()
@@ -167,36 +134,31 @@ describe('sessions.shell', () => {
 })
 
 describe('sessions.switchShell', () => {
-  it('switches through the service and answers the committed entry', async () => {
-    const ctx = await composed({ switchable: true, entries: [entry('posix', 'bash', true), entry('pwsh', 'pwsh', true)] })
+  it('switches through the service and answers the committed family', async () => {
+    const ctx = await composed({ switchable: true, families: { bash: true, pwsh: true }, current: 'bash' })
     try {
       const agent = liveAgent(ctx, 'session-shell-switch')
       const proxy = api(ctx)
-      const switched = await proxy.sessions.switchShell?.(request({ sessionId: agent.session.id, entry: 'pwsh' })
-        ?? { rpcId: RpcId('x'), payload: { sessionId: agent.session.id, entry: 'pwsh' } })
+      const switched = await proxy.sessions.switchShell?.(request({ sessionId: agent.session.id, family: 'pwsh' }))
       expect(switched?.result).toEqual({ ok: true, value: { current: 'pwsh' } })
       const after = await proxy.sessions.shell?.(request({ sessionId: agent.session.id }))
       expect(after?.result).toEqual({
         ok: true,
-        value: {
-          current: { entry: 'pwsh', label: 'pwsh', stack: 'pwsh', executablePath: '/usr/bin/pwsh' },
-          switchable: true,
-          entries: [entry('posix', 'bash', true), entry('pwsh', 'pwsh', true)],
-        },
+        value: { current: 'pwsh', switchable: true, families: { bash: true, pwsh: true } },
       })
     } finally {
       await ctx.fiber.dispose()
     }
   })
 
-  it('maps a refused entry to shell-unavailable with the service message', async () => {
-    const ctx = await composed({ switchable: true, entries: [entry('posix', 'bash', true), entry('pwsh', 'pwsh', false)] })
+  it('maps a refused family to shell-unavailable with the service message', async () => {
+    const ctx = await composed({ switchable: true, families: { bash: true, pwsh: false }, current: 'bash' })
     try {
       const agent = liveAgent(ctx, 'session-shell-pwsh-missing')
-      const refused = await api(ctx).sessions.switchShell?.(request({ sessionId: agent.session.id, entry: 'pwsh' }))
+      const refused = await api(ctx).sessions.switchShell?.(request({ sessionId: agent.session.id, family: 'pwsh' }))
       expect(refused?.result).toEqual({
         ok: false,
-        error: { code: 'shell-unavailable', message: 'session-shell: the "pwsh" shell is unavailable on this host', details: {} },
+        error: { code: 'shell-unavailable', message: 'session-shell: the pwsh shell family is unavailable on this host', details: {} },
       })
     } finally {
       await ctx.fiber.dispose()

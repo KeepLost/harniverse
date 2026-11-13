@@ -234,10 +234,7 @@ flowchart LR
   pkg_shell_router["shell-router"]
   pkg_tool_pwsh["tool-pwsh"]
   pkg_session_shell["session-shell"]
-  svc_sessionShell["ctx.sessionShell<br/>Session shell entry pointer"]
-  pkg_shell_registry_settings["shell-registry-settings"]
-  svc_shellRegistry["ctx.shellRegistry<br/>Shell registry settings owner"]
-  pkg_app_boot["app-boot"]
+  svc_sessionShell["ctx.sessionShell<br/>Session shell family pointer"]
   pkg_shell_env["shell-env"]
   svc_shellEnv["ctx.shellEnv<br/>Managed bash environment registry"]
   pkg_terminal["terminal"]
@@ -297,6 +294,7 @@ flowchart LR
   svc_clientModules["ctx.clientModules<br/>Client plugin graph host"]
   pkg_hmr_coordination["hmr-coordination"]
   svc_hmrCoordination["ctx.hmrCoordination<br/>Coordinated boot-layer config reloads"]
+  pkg_app_boot["app-boot"]
   pkg_workflow["workflow"]
   svc_workflowEngine["ctx.workflowEngine<br/>Workflow script engine"]
   pkg_workflow_worker_thread["workflow-worker-thread"]
@@ -413,7 +411,6 @@ flowchart LR
   pkg_settings_file --> svc_settings
   pkg_shell --> svc_shell
   pkg_shell_env --> svc_shellEnv
-  pkg_shell_registry_settings --> svc_shellRegistry
   pkg_shell_router --> svc_shell
   pkg_skill --> svc_skills
   pkg_skill_badge --> svc_skills
@@ -569,8 +566,6 @@ flowchart LR
   svc_shell --> pkg_tool_pwsh
   svc_shellEnv --> pkg_tool_bash
   svc_shellEnv --> pkg_tool_pwsh
-  svc_shellRegistry --> pkg_app_boot
-  svc_shellRegistry --> pkg_shell_router
   svc_skills --> pkg_tool_skill
   svc_speech --> pkg_host_apiproxy
   svc_speech --> pkg_speech_settings
@@ -714,8 +709,7 @@ flowchart LR
 | `ctx.browserController` | `seam` | [`api-browser-controller`](../packages/api/browser-controller) | [`api-browser-controller`](../packages/api/browser-controller) | - | - | The browser controller runs a real Chromium process per Session over the subprocess spawn seam and drives it through the Chrome DevTools Protocol, so panel page traffic leaves the HOST network position (scrubbed environment, throwaway profile, operator-owned navigation policy, never model-visible); pages reach browser panels as screencast image frames through the gateway browser/* Remote endpoints and the apiproxy events.browser SSE stream. |
 | `ctx.governor` | `seam` | [`governor`](../packages/monitor/governor) | [`governor`](../packages/monitor/governor) | [`tool-bash`](../packages/shell/tool-bash), [`client-ui-governor`](../packages/client/ui-governor) | - | The governor meters correlated shell/terminal spawns from /proc (plus ss TCP attribution), enforces the global memory budget in tiers (cgroup-v2, prlimit plus watchdog, observe), and arbitrates shared-pool session quotas; the bash tool stamps correlations and merges breach facts into result meta, and the board consumes the governor Remote. |
 | `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local), [`shell-router`](../packages/shell/shell-router) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
-| `ctx.sessionShell` | `core` | [`session-shell`](../packages/shell/session-shell) | [`session-shell`](../packages/shell/session-shell) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | The per-session pointer over the routed shell seam: durable entry switching effective at the next model request, per-agent tool retirement of the other stack, and the runtime-context fact that names the exact shell. |
-| `ctx.shellRegistry` | `core` | [`shell-registry-settings`](../packages/shell/shell-registry-settings) | [`shell-registry-settings`](../packages/shell/shell-registry-settings) | [`app-boot`](../packages/boot/app-boot), [`shell-router`](../packages/shell/shell-router) | - | Owns the shell-registry settings namespace: the default entry and every custom registered shell, validated loudly (slug ids, dialect class, probe-able targets) and resolved by exactly one resolver in dsh-shell. |
+| `ctx.sessionShell` | `core` | [`session-shell`](../packages/shell/session-shell) | [`session-shell`](../packages/shell/session-shell) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | The per-session pointer over the routed shell seam: durable family switching effective at the next model request, per-agent tool retirement of the inactive family, and the runtime-context fact that announces the family. |
 | `ctx.shellEnv` | `core` | [`shell-env`](../packages/shell/shell-env) | - | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | Plugins declare effect-scoped DSH_* facts; each shell tool collects one trusted snapshot per execution and its executor rebuilds the namespace. |
 | `ctx.terminals` | `seam` | [`terminal`](../packages/terminal/terminal) | [`terminal-bash`](../packages/terminal/terminal-bash) | [`tool-terminal`](../packages/terminal/tool-terminal) | - | The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-terminal exposes the owner-scoped model tools. |
 | `ctx.sandbox` | `seam` | [`sandbox`](../packages/sandbox/sandbox) | [`sandbox-local`](../packages/sandbox/sandbox-local), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash) | - | Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement. |

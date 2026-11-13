@@ -107,7 +107,6 @@ export const sessionCreateRequestSchema = z.object({
   sessionId: sessionIdSchema.optional(),
   agentProfile: z.string().optional(),
   modelProfile: z.string().min(1).optional(),
-  shell: z.string().min(1).optional(),
 }).refine(
   payload => payload.workspaceId === undefined || payload.cwd === undefined,
   { message: 'session.create accepts workspaceId or cwd, not both' },
@@ -363,27 +362,8 @@ export const sessionSelectModelProfileValueSchema = z.object({
   selected: modelSelectionSchema.optional(),
 }) as unknown as z.ZodType<Wire<ResponseValue<'session.selectModelProfile'>>>
 
-/** The two shell stacks a shell-routed host serves. */
+/** The two shell families a shell-routed host serves. */
 export const shellFamilySchema = z.union([z.literal('bash'), z.literal('pwsh')])
-
-/** One probe-status row of the shell registry a routed host serves. */
-export const shellEntryStatusSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  stack: shellFamilySchema,
-  available: z.boolean(),
-  resolvedPath: z.string().optional(),
-  reason: z.string().optional(),
-})
-
-/** The effective shell a session runs: id, real label, stack, and executable. */
-export const shellEffectiveSchema = z.object({
-  entry: z.string().min(1),
-  label: z.string().min(1),
-  stack: shellFamilySchema,
-  executablePath: z.string().min(1),
-  degraded: z.string().optional(),
-})
 
 /** session.shell request payload. */
 export const sessionShellRequestSchema = z.object({
@@ -392,20 +372,20 @@ export const sessionShellRequestSchema = z.object({
 
 /** session.shell response value. */
 export const sessionShellValueSchema = z.object({
-  current: shellEffectiveSchema,
+  current: shellFamilySchema,
   switchable: z.boolean(),
-  entries: z.array(shellEntryStatusSchema),
+  families: z.object({ bash: z.boolean(), pwsh: z.boolean() }),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.shell'>>>
 
-/** session.switchShell request payload; legacy family values fold onto the builtins. */
+/** session.switchShell request payload. */
 export const sessionSwitchShellRequestSchema = z.object({
   sessionId: sessionIdSchema,
-  entry: z.string().min(1),
+  family: shellFamilySchema,
 }) satisfies z.ZodType<Wire<RequestPayload<'session.switchShell'>>>
 
 /** session.switchShell response value. */
 export const sessionSwitchShellValueSchema = z.object({
-  current: z.string().min(1),
+  current: shellFamilySchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.switchShell'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */

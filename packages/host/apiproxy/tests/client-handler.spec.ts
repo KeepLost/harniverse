@@ -1310,16 +1310,11 @@ describe('model target and profile selection', () => {
     const api = scriptedApi({
       sessions: {
         shell: record('session.shell', r => ok(r, {
-          current: r.payload.sessionId === 's-1'
-            ? { entry: 'posix', label: 'bash', stack: 'bash' as const, executablePath: '/usr/bin/bash' }
-            : { entry: 'pwsh', label: 'pwsh', stack: 'pwsh' as const, executablePath: '/usr/bin/pwsh' },
+          current: r.payload.sessionId === 's-1' ? 'bash' : 'pwsh',
           switchable: true,
-          entries: [
-            { id: 'posix', label: 'bash', stack: 'bash' as const, available: true, resolvedPath: '/usr/bin/bash' },
-            { id: 'pwsh', label: 'pwsh', stack: 'pwsh' as const, available: true, resolvedPath: '/usr/bin/pwsh' },
-          ],
+          families: { bash: true, pwsh: true },
         })),
-        switchShell: record('session.switchShell', r => ok(r, { current: r.payload.entry })),
+        switchShell: record('session.switchShell', r => ok(r, { current: r.payload.family })),
       },
     })
     const c = client(api)
@@ -1328,21 +1323,14 @@ describe('model target and profile selection', () => {
     const shell = await c.sessions.shell({ sessionId: sid('s-1') })
     expect(shell.result).toEqual({
       ok: true,
-      value: {
-        current: { entry: 'posix', label: 'bash', stack: 'bash', executablePath: '/usr/bin/bash' },
-        switchable: true,
-        entries: [
-          { id: 'posix', label: 'bash', stack: 'bash', available: true, resolvedPath: '/usr/bin/bash' },
-          { id: 'pwsh', label: 'pwsh', stack: 'pwsh', available: true, resolvedPath: '/usr/bin/pwsh' },
-        ],
-      },
+      value: { current: 'bash', switchable: true, families: { bash: true, pwsh: true } },
     })
-    const switched = await c.sessions.switchShell({ sessionId: sid('s-1'), entry: 'pwsh' })
+    const switched = await c.sessions.switchShell({ sessionId: sid('s-1'), family: 'pwsh' })
     expect(switched.result).toEqual({ ok: true, value: { current: 'pwsh' } })
 
     expect(seen.map(call => call.method)).toEqual(['session.shell', 'session.switchShell'])
     expect(seen[0]?.payload).toEqual({ sessionId: 's-1' })
-    expect(seen[1]?.payload).toEqual({ sessionId: 's-1', entry: 'pwsh' })
+    expect(seen[1]?.payload).toEqual({ sessionId: 's-1', family: 'pwsh' })
   })
 
   it('reports shell faces as shell-unavailable when the host session omits the optional methods', async () => {
@@ -1353,7 +1341,7 @@ describe('model target and profile selection', () => {
       ok: false,
       error: { code: 'shell-unavailable', message: 'session shell is unavailable', details: {} },
     })
-    const switched = await c.sessions.switchShell({ sessionId: sid('s-1'), entry: 'pwsh' })
+    const switched = await c.sessions.switchShell({ sessionId: sid('s-1'), family: 'pwsh' })
     expect(switched.result).toEqual({
       ok: false,
       error: { code: 'shell-unavailable', message: 'session shell switching is unavailable', details: {} },
