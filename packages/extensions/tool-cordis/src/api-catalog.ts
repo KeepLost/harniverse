@@ -5561,7 +5561,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DispatchTarget',
-    declaration: 'export interface DispatchTarget {\n    entryId: string;\n    stack: ShellBackendSelection;\n    executablePath: string;\n}',
+    declaration: 'export interface DispatchTarget {\n    entryId: string;\n    stack: ShellBackendSelection;\n    executablePath: string | undefined;\n}',
   },
   {
     name: 'Domain',
@@ -5641,7 +5641,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EffectiveShell',
-    declaration: 'export interface EffectiveShell {\n    entryId: string;\n    label: string;\n    stack: ShellBackendSelection;\n    executablePath: string;\n    factText: string;\n    degraded?: string;\n}',
+    declaration: 'export interface EffectiveShell {\n    entryId: string;\n    label: string;\n    stack: ShellBackendSelection;\n    executablePath: string | undefined;\n    factText: string;\n    degraded?: string;\n}',
   },
   {
     name: 'EgressPolicy',

@@ -75,7 +75,7 @@ export interface HostApi {
      * no session-shell service.
      */
     shell?: {
-      default: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath: string }
+      default: { entry: string; label: string; stack: 'bash' | 'pwsh'; executablePath?: string | undefined }
       switchable: boolean
       entries: readonly { id: string; label: string; stack: 'bash' | 'pwsh'; available: boolean; resolvedPath?: string; reason?: string }[]
     }

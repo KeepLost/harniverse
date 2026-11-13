@@ -27,7 +27,9 @@ export const hostDescribeValueSchema = z.object({
       entry: z.string().min(1),
       label: z.string().min(1),
       stack: z.union([z.literal('bash'), z.literal('pwsh')]),
-      executablePath: z.string().min(1),
+      // Absent when the entry never probed and its configured path is a bare
+      // name — the executor then resolves through its own platform knowledge.
+      executablePath: z.string().min(1).optional(),
     }),
     switchable: z.boolean(),
     entries: z.array(z.object({
