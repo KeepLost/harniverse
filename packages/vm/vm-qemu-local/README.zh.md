@@ -8,11 +8,12 @@
 
 - `probeWorld(options)`——不启动任何东西，返回环境事实（QEMU 二进制版本、生效加速档、资产是否就绪、沙箱可用性）。
 - `ensureAssets(options)`——资产缺失时从钉住的 release 物化引导资产（见「资产」一节）。
+- `packHostWorkspace(root, options?)` / `scanHostWorkspace(root)`——把锚定的宿主目录遍历为一份 v0 工作区 tar（确定性顺序、仅文件与目录、symlink 跳过并计数），或仅求字节和；上限（`maxBytes`、env `$DSH_VM_IMPORT_MAX_BYTES`、默认 256 MiB）超限即点名双尺寸闭合失败。`importMemoryMiB(payloadBytes, configured)` 让 guest 内存与载荷配对。
 - `openWorld(options)`——启动一个世界并完成协议握手；返回带 `descriptor`、`exit`、`ping(timeoutMs)`、`exec`、`spawn`、`fs`、`workspace`、`destroy()` 的 `WorldHandle`。
 - `QemuLocalWorld` —— 同一世界作为 `ctx.vm`（`@deepseek-ai/dsh-vm` 的缝隙）上的 Cordis 插件服务：从插件配置启动、在服务可见前结算、处置时销毁世界。中立的 exec/fs/egress 词表住在 `@deepseek-ai/dsh-vm`；本包再导出。
 - Exec 操作——`exec(argv, options)` 运行一个 guest 进程至结束并收集有界的 stdout/stderr；`spawn(argv, options)` 返回流式句柄，带 `writeStdin`、`closeStdin`、`signal`、`onOutput`、`exit`。选项覆盖 `env`（整体替换）、`cwd`、`pty`（否则管道）、`stdin`、`timeoutMs`、`maxOutputBytes`。
 - 文件系统操作——`world.fs` 提供八操作集（`readFile`、`writeFile`、`stat`、`list`、`mkdir`、`unlink`、`rmdir`、`rename`），guest errno 映射为 Node 风格代码（`GuestFsError`）。
-- Workspace 数据面——`openWorld({ workspace: { import: tar } })` 暂存快照镜像；`world.workspace.import()` 把它解包进 guest 的 `/workspace`，`world.workspace.export()` 把该目录打包成宿主侧 tar 返回，`diffWorkspaceTars`/`applyWorkspaceDiff` 负责派生与应用文件级 diff。批量载荷走两块 virtio-blk 镜像（TCG 实测数十 MiB/s），不占控制 UART。
+- Workspace 数据面——`openWorld({ workspace: { import: tar } })` 暂存快照镜像；`world.workspace.import()` 把它解包进 guest 的 `/workspace`，`world.workspace.export()` 把该目录打包成宿主侧 tar 返回，`diffWorkspaceTars`/`applyWorkspaceDiff` 负责派生与应用文件级 diff。批量载荷走两块 virtio-blk 镜像（TCG 实测数十 MiB/s），不占控制 UART。作为插件（`QemuLocalWorld`），非空 `$DSH_VM_HOST_WORKSPACE_ROOT`（或 `workspaceImport.root`；`'off'` 禁用）在 boot 时把该宿主目录导入 `/workspace`——打包、限量、世界 settle 前解包，guest 内存随载荷放大；v0 语义为每次引导一次导入、会话中途不传播。
 - Guest egress 面——`openWorld({ egress: 'ask' })`（插件配置 `egress`，默认 `'deny'`）打开世界的 guest 可见代理：携带 `origin`（见 `ExecOptions`）的 exec 获得自己的 SOCKS5 guest 回环监听，并以 `ALL_PROXY`/`all_proxy`（`socks5h://127.0.0.1:<port>`）通告给子进程；每个 CONNECT 以 `egress.open {id, host, port, origin}` 询问宿主。宿主查询注册在该 origin 下的审批者（`world.egress.register(origin, approver)`；`@deepseek-ai/dsh-subprocess-vm` provider 把审批卡挂在那里），回答 `egress.opened`/`egress.denied`，并以 base64 的 `egress.write`/`egress.data` 双向中继直到 `egress.end`/`egress.close`。没有注册审批者——或处于 `'deny'` 档——时一切拨号拒绝（`EgressDeniedError`）；默认即拒绝，无需主动开启。直连宿主 API `world.egress.open(host, port, origin?)` 走同一道门。
 - 沙箱硬化——当资产目录里有 `qemu-wrap`（在带 C 编译器的 Linux 上构建）时，`openWorld` 经由它监管 QEMU：Landlock 规则集让整个文件系统只读、仅一个 scratch 目录可写，叠加 rlimits 与 root 宿主上的 uid 65534 降权（`descriptor.sandboxed`）。
 - 帧编解码器（`encodeFrame`、`FrameReader`）、协议常量（`PROTOCOL_VERSION`）与 QEMU argv 规划器（`buildQemuArgv`）作为公开 API，供后续 provider 复用。
@@ -91,7 +92,7 @@ packages/vm/vm-qemu-local/assets/build-rootfs.sh
 
 - **控制 UART 上的批量传输依旧慢且是设计使然**——exec 输出与 fs 读取 TCG 实测约 0.2 MiB/s（fs 写约 0.05 MiB/s，见 [MEASUREMENTS.md](MEASUREMENTS.md)）；批量载荷现在走 workspace 数据面（`world.workspace`，数十 MiB/s）。exec stdout/stderr 仍走控制通道。
 - **Workspace 快照是 v0 朴素形态**——确定性 ustar，只含文件与目录；符号链接、硬链接、0755/0644 之外的权限与 mtime 不随行（导入文件取固定默认值）。guest 侧增量导出（基于清单的 diff）延后；宿主从全量导出派生 diff。
-- **每次引导一份导入载荷、同时只跑一笔传输**——导入镜像在 spawn 前暂存、引导期间不可变；会话中途重新导入需要重新引导。并发传输答 `busy`。
+- **每次引导一份导入载荷、同时只跑一笔传输**——导入镜像在 spawn 前暂存、引导期间不可变；会话中途重新导入需要重新引导，启动后的宿主侧改动永不进入运行中的世界。并发传输答 `busy`。
 - **Workspace 大小受 guest 内存约束**——`/workspace` 活在 guest 的 ramfs 根里；100 MiB 载荷需要调高 `memoryMiB`（e2e 用 512），导出镜像默认 1 GiB 上限（`exportCapacityBytes`），与包装器单文件 rlimit 对齐。
 - **`pc` 机型而非 `microvm`**——`microvm` 机型只路由第一个 ISA 串口，无法承载 ttyS1 控制通道；回归 microvm 是延后工作，测量记录见[种子决策](../../../.agents/notes/implemented/architecture/2026-11-01-vm-execution-world-qemu-local-seed.md)。virtio-serial 端口 cdev 在旧 6.6.49 内核锁上实测持续 ENXIO；现行 6.6.142 锁已内建 `VIRTIO_CONSOLE`，下次控制面变更前值得重测。
 - **资产靠构建而非内置**——没有 QEMU 或 Rust musl 工具链的 CI lane 不跑 VM 测试（套件自跳过）；内核锁住在带版本的 `linux-virt` apk URL 上，上游会清旧包——URL 失效需要重锁。资产分发方案是未来工作。

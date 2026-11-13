@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyExecWorldBootEnv, EXEC_WORLD_ENV } from '../src/index.ts'
 import type { EnsureAssetsResult } from '@deepseek-ai/dsh-vm-qemu-local'
+import { DEFAULT_HOST_IMPORT_MAX_BYTES } from '@deepseek-ai/dsh-vm-qemu-local'
 import { HOST_WORKSPACE_ROOT_ENV } from '@deepseek-ai/dsh-vm'
 import type { ExecWorldAvailability } from '@deepseek-ai/dsh-vm'
 
@@ -35,7 +36,7 @@ describe('applyExecWorldBootEnv', () => {
   it('publishes vm for a stored vm preference with a healthy provider', async () => {
     const env: Record<string, string | undefined> = {}
     const notices: string[] = []
-    await applyExecWorldBootEnv({ env, home: seededHome('exec-world:\n  world: vm\n'), probe: () => healthy, warn: line => notices.push(line) })
+    await applyExecWorldBootEnv({ env, home: seededHome('exec-world:\n  world: vm\n'), probe: () => healthy, scanWorkspace: async () => 0, warn: line => notices.push(line) })
     expect(env[EXEC_WORLD_ENV]).toBe('vm')
     expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe(process.cwd())
     expect(notices).toEqual([])
@@ -60,7 +61,7 @@ describe('applyExecWorldBootEnv', () => {
     expect(explicitVm[EXEC_WORLD_ENV]).toBe('vm')
     expect(explicitVm[HOST_WORKSPACE_ROOT_ENV]).toBe(process.cwd())
     const blank: Record<string, string | undefined> = { [EXEC_WORLD_ENV]: '  ' }
-    await applyExecWorldBootEnv({ env: blank, home, probe: () => healthy })
+    await applyExecWorldBootEnv({ env: blank, home, probe: () => healthy, scanWorkspace: async () => 0 })
     expect(blank[EXEC_WORLD_ENV]).toBe('vm')
   })
 
@@ -118,6 +119,7 @@ describe('applyExecWorldBootEnv asset materialization', () => {
       home: seededHome('exec-world:\n  world: vm\n'),
       probe: () => ({ providerVersion: 'QEMU 8.1.3', assetsReady }),
       ensureAssets: ensure,
+      scanWorkspace: async () => 0,
       warn: line => notices.push(line),
     })
     expect(ensure).toHaveBeenCalledTimes(1)
@@ -194,6 +196,119 @@ describe('applyExecWorldBootEnv default seams', () => {
       expect(writes.join('')).toMatch(/VM asset download failed \(asset download disabled\)|provider probe is unhealthy/)
     } finally {
       spy.mockRestore()
+    }
+  })
+})
+
+describe('applyExecWorldBootEnv host-workspace pre-scan', () => {
+  it('composes vm when the anchor stays under the import bound', async () => {
+    const env: Record<string, string | undefined> = {}
+    const notices: string[] = []
+    await applyExecWorldBootEnv({
+      env,
+      home: seededHome('exec-world:\n  world: vm\n'),
+      probe: () => healthy,
+      scanWorkspace: async () => 1024,
+      warn: line => notices.push(line),
+    })
+    expect(env[EXEC_WORLD_ENV]).toBe('vm')
+    expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe(process.cwd())
+    expect(notices).toEqual([])
+  })
+
+  it('degrades with both sizes named when the workspace passes the bound', async () => {
+    const env: Record<string, string | undefined> = {}
+    const notices: string[] = []
+    const scanned: string[] = []
+    await applyExecWorldBootEnv({
+      env,
+      home: seededHome('exec-world:\n  world: vm\n'),
+      probe: () => healthy,
+      scanWorkspace: async (root) => {
+        scanned.push(root)
+        return DEFAULT_HOST_IMPORT_MAX_BYTES + 1
+      },
+      warn: line => notices.push(line),
+    })
+    expect(scanned).toEqual([process.cwd()])
+    expect(env[EXEC_WORLD_ENV]).toBe('local')
+    expect(env[HOST_WORKSPACE_ROOT_ENV]).toBeUndefined()
+    expect(notices).toEqual([
+      `app boot: the host workspace carries ${DEFAULT_HOST_IMPORT_MAX_BYTES + 1} bytes, over the `
+        + `${DEFAULT_HOST_IMPORT_MAX_BYTES}-byte VM import bound (raise $DSH_VM_IMPORT_MAX_BYTES or slim the tree); composing the local family\n`,
+    ])
+  })
+
+  it('never scans on the explicit-env path', async () => {
+    const env: Record<string, string | undefined> = { [EXEC_WORLD_ENV]: 'vm' }
+    const scan = vi.fn()
+    await applyExecWorldBootEnv({ env, home: seededHome(), scanWorkspace: scan })
+    expect(scan).not.toHaveBeenCalled()
+    expect(env[EXEC_WORLD_ENV]).toBe('vm')
+  })
+})
+
+describe('applyExecWorldBootEnv anchor precedence', () => {
+  it('keeps an explicit anchor over the launch directory', async () => {
+    const env: Record<string, string | undefined> = {
+      [EXEC_WORLD_ENV]: 'vm',
+      [HOST_WORKSPACE_ROOT_ENV]: '/explicit/anchor',
+    }
+    await applyExecWorldBootEnv({ env, home: seededHome(), scanWorkspace: async () => 0 })
+    expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe('/explicit/anchor')
+  })
+
+  it('re-anchors a blank explicit value to the launch directory', async () => {
+    const env: Record<string, string | undefined> = {
+      [EXEC_WORLD_ENV]: 'vm',
+      [HOST_WORKSPACE_ROOT_ENV]: '  ',
+    }
+    await applyExecWorldBootEnv({ env, home: seededHome(), scanWorkspace: async () => 0 })
+    expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe(process.cwd())
+  })
+})
+
+describe('applyExecWorldBootEnv default notice writers', () => {
+  it('writes the oversize degrade to stderr when no warn is injected', async () => {
+    const writes: string[] = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk))
+      return true
+    })
+    try {
+      const env: Record<string, string | undefined> = {}
+      await applyExecWorldBootEnv({
+        env,
+        home: seededHome('exec-world:\n  world: vm\n'),
+        probe: () => healthy,
+        scanWorkspace: async () => DEFAULT_HOST_IMPORT_MAX_BYTES + 1,
+      })
+      expect(env[EXEC_WORLD_ENV]).toBe('local')
+      expect(writes.join('')).toContain('over the')
+      expect(writes.join('')).toContain('-byte VM import bound')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+describe('applyExecWorldBootEnv default scan', () => {
+  it('scans the real launch directory when no scan is injected', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-exec-world-scan-'))
+    writeFileSync(join(dir, 'payload.txt'), '0123456789')
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir)
+    try {
+      const env: Record<string, string | undefined> = {}
+      await applyExecWorldBootEnv({
+        env,
+        home: seededHome('exec-world:\n  world: vm\n'),
+        probe: () => healthy,
+      })
+      expect(env[EXEC_WORLD_ENV]).toBe('vm')
+      expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe(dir)
+    } finally {
+      cwdSpy.mockRestore()
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
