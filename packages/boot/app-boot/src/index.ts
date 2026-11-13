@@ -942,9 +942,10 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
     }
     probe = probeFn()
   }
+  const scan = options.scanWorkspace ?? scanHostWorkspace
   const world = resolveExecWorld('vm', probe)
   if (world === 'vm') {
-    const bytes = await (options.scanWorkspace ?? scanHostWorkspace)(process.cwd())
+    const bytes = await scan(process.cwd())
     const maxBytes = resolveHostImportMaxBytes(undefined)
     if (bytes > maxBytes) {
       (options.warn ?? (line => void process.stderr.write(line)))(

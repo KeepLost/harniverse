@@ -267,3 +267,24 @@ describe('applyExecWorldBootEnv anchor precedence', () => {
     expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe(process.cwd())
   })
 })
+
+describe('applyExecWorldBootEnv default scan', () => {
+  it('scans the real launch directory when no scan is injected', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-exec-world-scan-'))
+    writeFileSync(join(dir, 'payload.txt'), '0123456789')
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir)
+    try {
+      const env: Record<string, string | undefined> = {}
+      await applyExecWorldBootEnv({
+        env,
+        home: seededHome('exec-world:\n  world: vm\n'),
+        probe: () => healthy,
+      })
+      expect(env[EXEC_WORLD_ENV]).toBe('vm')
+      expect(env[HOST_WORKSPACE_ROOT_ENV]).toBe(dir)
+    } finally {
+      cwdSpy.mockRestore()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

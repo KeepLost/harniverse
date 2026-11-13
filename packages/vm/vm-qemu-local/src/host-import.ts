@@ -33,7 +33,12 @@ export interface HostImportPayload {
   skippedIrregular: number
 }
 
-/** Resolve the effective bound: explicit option, then the env override, then the default. */
+/**
+ * Resolve the effective bound: explicit option, then the env override, then the default.
+ * @param option - an explicit per-call bound, when the caller carries one.
+ * @param env - the environment holding the override; defaults to the process environment.
+ * @returns the effective byte bound for this import.
+ */
 export function resolveHostImportMaxBytes(option?: number, env: NodeJS.ProcessEnv = process.env): number {
   if (option !== undefined) return option
   const raw = env[HOST_IMPORT_MAX_BYTES_ENV]?.trim()
