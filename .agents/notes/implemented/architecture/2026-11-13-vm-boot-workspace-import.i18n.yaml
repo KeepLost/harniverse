@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-13-vm-boot-workspace-import.md
+2026-11-13-vm-boot-workspace-import.md: b18f54f518aff6c26ccaff679e74d3eb3f5c962c
+2026-11-13-vm-boot-workspace-import.zh.md: ce3a89d9e17cbe5a30877ec010339328de7007f1

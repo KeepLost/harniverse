@@ -26,14 +26,17 @@ export * from './vm.ts'
 export * from './workspace.ts'
 export * from './assets.ts'
 export * from './release.ts'
+export * from './host-import.ts'
+export * from './errors-host-import.ts'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import schema from '@deepseek-ai/schemastery'
-import { VmWorld } from '@deepseek-ai/dsh-vm'
+import { HOST_WORKSPACE_ROOT_ENV, VmWorld } from '@deepseek-ai/dsh-vm'
 import type { CollectExecOptions, EgressPolicy, ExecHandle, ExecOptions, ExecResult } from '@deepseek-ai/dsh-vm'
 import { openWorld } from './vm.ts'
 import type { OpenWorldOptions, VmDeps, WorldDescriptor, WorldExit, WorldHandle } from './vm.ts'
 import type { VmWorldFs } from '@deepseek-ai/dsh-vm'
+import { importMemoryMiB, packHostWorkspace } from './host-import.ts'
 
 /** Deployment-owned boot facts for one QEMU world; no model argument selects these. */
 export interface Config {
@@ -58,6 +61,22 @@ export interface Config {
    * `deny` (the default) refuses every guest egress dial outright.
    */
   egress?: 'ask' | 'deny'
+  /**
+   * Boot-time import of the anchored host workspace into the guest's
+   * `/workspace`: `root` defaults to `$DSH_VM_HOST_WORKSPACE_ROOT` (the boot
+   * bridge's launch directory), `maxBytes` bounds the payload (env override
+   * `$DSH_VM_IMPORT_MAX_BYTES`, default 256 MiB), and `'off'` disables the
+   * import. Guest memory scales with the payload — two bytes of headroom per
+   * payload byte plus the 256 MiB baseline — whenever the operator's
+   * `memoryMiB` is lower. v0 semantics: one import per boot, no mid-session
+   * propagation, symlinks skipped.
+   */
+  workspaceImport?: {
+    /** Host directory the import packs; default a non-blank `$DSH_VM_HOST_WORKSPACE_ROOT`. */
+    root?: string
+    /** Bound on the summed file bytes; default `$DSH_VM_IMPORT_MAX_BYTES`, else 256 MiB. */
+    maxBytes?: number
+  } | 'off'
 }
 
 /** An egress origin registered before the world settled, awaiting its live binding. */
@@ -86,6 +105,13 @@ export class QemuLocalWorld extends VmWorld {
     shutdownTimeoutMs: schema.number().default(5_000),
     sandbox: schema.union(['auto', 'off']).default('auto'),
     egress: schema.union(['ask', 'deny']).default('deny'),
+    workspaceImport: schema.union([
+      schema.const('off'),
+      schema.object({
+        root: schema.string(),
+        maxBytes: schema.number(),
+      }),
+    ]),
   })
   /** Boot settlement: resolves with the world handle or fails the plugin. */
   readonly ready: Promise<WorldHandle>
@@ -104,7 +130,29 @@ export class QemuLocalWorld extends VmWorld {
     if (config.shutdownTimeoutMs !== undefined) options.shutdownTimeoutMs = config.shutdownTimeoutMs
     if (config.sandbox !== undefined) options.sandbox = config.sandbox
     if (config.egress !== undefined) options.egress = config.egress
-    this.ready = openWorld(options, deps)
+    const envRoot = process.env[HOST_WORKSPACE_ROOT_ENV]?.trim()
+    const importRoot = config.workspaceImport === 'off'
+      ? undefined
+      : config.workspaceImport?.root ?? (envRoot !== undefined && envRoot.length > 0 ? envRoot : undefined)
+    this.ready = (async () => {
+      if (importRoot === undefined) return await openWorld(options, deps)
+      const importOptions = config.workspaceImport === 'off' || config.workspaceImport === undefined
+        ? {}
+        : { ...config.workspaceImport.maxBytes !== undefined ? { maxBytes: config.workspaceImport.maxBytes } : {} }
+      const packed = await packHostWorkspace(importRoot, importOptions)
+      const handle = await openWorld(
+        {
+          ...options,
+          memoryMiB: importMemoryMiB(packed.bytes, options.memoryMiB ?? 256),
+          workspace: { import: packed.tar },
+        },
+        deps,
+      )
+      // Staging attaches the image; the unpack is what fills /workspace, so
+      // the world settles only with the import actually in place.
+      await handle.workspace.import()
+      return handle
+    })()
     void this.ready.then((handle) => {
       this.handle = handle
       for (const entry of this.pendingOrigins.values()) {

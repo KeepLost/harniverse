@@ -4332,10 +4332,26 @@ export interface Config {
    * `deny` (the default) refuses every guest egress dial outright.
    */
   egress?: 'ask' | 'deny'
+  /**
+   * Boot-time import of the anchored host workspace into the guest's
+   * `/workspace`: `root` defaults to `$DSH_VM_HOST_WORKSPACE_ROOT` (the boot
+   * bridge's launch directory), `maxBytes` bounds the payload (env override
+   * `$DSH_VM_IMPORT_MAX_BYTES`, default 256 MiB), and `'off'` disables the
+   * import. Guest memory scales with the payload — two bytes of headroom per
+   * payload byte plus the 256 MiB baseline — whenever the operator's
+   * `memoryMiB` is lower. v0 semantics: one import per boot, no mid-session
+   * propagation, symlinks skipped.
+   */
+  workspaceImport?: {
+    /** Host directory the import packs; default a non-blank `$DSH_VM_HOST_WORKSPACE_ROOT`. */
+    root?: string
+    /** Bound on the summed file bytes; default `$DSH_VM_IMPORT_MAX_BYTES`, else 256 MiB. */
+    maxBytes?: number
+  } | 'off'
 }
 ```
 
-Source: [`packages/vm/vm-qemu-local/src/index.ts:39`](../packages/vm/vm-qemu-local/src/index.ts)
+Source: [`packages/vm/vm-qemu-local/src/index.ts:42`](../packages/vm/vm-qemu-local/src/index.ts)
 
 <a id="deepseek-aidsh-web"></a>
 

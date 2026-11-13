@@ -32,7 +32,7 @@ import {
 } from '@deepseek-ai/dsh-shell'
 import type { ShellRegistryDocument, ShellRegistryEntry } from '@deepseek-ai/dsh-shell'
 import { EXEC_WORLD_ENV, HOST_WORKSPACE_ROOT_ENV, resolveExecWorld, type ExecWorldAvailability, type ExecWorldPreference } from '@deepseek-ai/dsh-vm'
-import { ensureAssets, probeWorld, type EnsureAssetsResult } from '@deepseek-ai/dsh-vm-qemu-local'
+import { ensureAssets, probeWorld, resolveHostImportMaxBytes, scanHostWorkspace, type EnsureAssetsResult } from '@deepseek-ai/dsh-vm-qemu-local'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-hmr-coordination'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
@@ -862,6 +862,15 @@ export interface ExecWorldBootEnvOptions {
    * stays verifiable without network access.
    */
   ensureAssets?: () => Promise<EnsureAssetsResult>
+  /**
+   * Host-workspace size pre-scan the stored-vm path consults before composing
+   * the vm family; defaults to the metadata-only `scanHostWorkspace`. A
+   * workspace over the import bound degrades to `local` with one notice —
+   * the app stays startable and the operator can raise the bound or slim the
+   * tree. The explicit-env path never consults it (fail-closed at the
+   * provider instead, the operator's explicit choice).
+   */
+  scanWorkspace?: (root: string) => Promise<number>
   /** Degrade notice writer; defaults to stderr. */
   warn?: (line: string) => void
 }
@@ -934,6 +943,18 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
     probe = probeFn()
   }
   const world = resolveExecWorld('vm', probe)
+  if (world === 'vm') {
+    const bytes = await (options.scanWorkspace ?? scanHostWorkspace)(process.cwd())
+    const maxBytes = resolveHostImportMaxBytes(undefined)
+    if (bytes > maxBytes) {
+      (options.warn ?? (line => void process.stderr.write(line)))(
+        `app boot: the host workspace carries ${bytes} bytes, over the ${maxBytes}-byte VM import bound `
+          + '(raise $DSH_VM_IMPORT_MAX_BYTES or slim the tree); composing the local family\n',
+      )
+      env[EXEC_WORLD_ENV] = 'local'
+      return
+    }
+  }
   if (world === 'local') {
     (options.warn ?? (line => void process.stderr.write(line)))(
       'app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n',
@@ -944,12 +965,17 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
 }
 
 /**
- * Record the host workspace root (the launch directory) for the vm world's
- * session-cwd mapping: vm providers translate session cwds under this anchor
- * into the in-world `/workspace` and fail closed on host paths outside it.
+ * Record the host workspace root (default the launch directory) for the vm
+ * world's session-cwd mapping and boot-time import: vm providers translate
+ * session cwds under this anchor into the in-world `/workspace` and fail
+ * closed on host paths outside it. An explicit non-blank
+ * `$DSH_VM_HOST_WORKSPACE_ROOT` wins — the same escape-hatch shape as the
+ * other boot facts.
  * @param env - the environment mapping receiving the anchor.
  */
 function anchorHostWorkspaceRoot(env: Record<string, string | undefined>): void {
+  const explicit = env[HOST_WORKSPACE_ROOT_ENV]?.trim()
+  if (explicit !== undefined && explicit.length > 0) return
   env[HOST_WORKSPACE_ROOT_ENV] = process.cwd()
 }
 
