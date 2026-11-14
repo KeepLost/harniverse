@@ -28,6 +28,10 @@
 
 启动的命令应使用经过清理的环境变量，移除名称匹配 `*KEY*`、`*SECRET*`、`*TOKEN*` 或 `*PASSWORD*` 的项，防止 harness 凭证通过命令输出、`env` 或 spill 文件泄漏。临时文件和 spill 文件应放在权限为 0700 的私有目录中，使用随机文件名，并以独占且仅所有者可访问的方式打开（`'wx'`、`0o600`）；可预测且全局可读的路径会引发符号链接竞态和信息泄露。
 
+## 插件入口只导出 Loader 会加载的东西
+
+入口要么是函数插件（`name`/`inject`/`Config`/`apply`），要么是服务插件（默认导出的类），绝不混用；除供其他包继承或抛出的 Service Definition 与错误类之外，不得导出任何值——入口上的值是可静态导入的 API，会在不经过 Loader 行的情况下求值模块。辅助函数留在内部模块；其他包通过 `ctx` 服务触达行为。[`verify-plugin-entry-exports`](../scripts/verify-plugin-entry-exports.ts) 强制此规则；门禁之前的导出是 [`plugin-entry-existing-exports.ts`](../scripts/plugin-entry-existing-exports.ts) 中的基线化债务，新增基线行需要领域所有者确认。
+
 ## 用 unlink 删除链接形态的路径
 
 可能是符号链接或 Windows junction 的路径，应先用 `lstatSync().isSymbolicLink()` 判断，再用 `unlinkSync` 删除：unlink 只删除链接本身并拒绝真实目录，因此绝不会跟随链接进入其目标。Windows 上对 junction 调用 `rmSync(link)` 会抛 `ERR_FS_EISDIR`；递归删除可能穿过 junction 进入其目标。真实目录才使用带 `recursive` 的 `rmSync`。
