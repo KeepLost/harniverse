@@ -37,9 +37,21 @@ export const REQUEST_BODY_TOO_LARGE_CODE = 'REQUEST_BODY_TOO_LARGE'
  * @returns true when the detail identifies a request-body size rejection.
  */
 export function isRequestBodyTooLargeError(detail: string): boolean {
+  return isRequestBodyTooLargeWording(detail)
+    || /\b413\b/.test(detail)
+}
+
+/**
+ * The wording-only half of {@link isRequestBodyTooLargeError}, without the bare
+ * `413` status test. Classification that already reads a leading HTTP status
+ * separately uses this so a status quoted inside a body cannot win over the
+ * response's own status.
+ * @param detail - provider error code/status/message text joined into one string.
+ * @returns true when the detail's wording names a request-body size rejection.
+ */
+export function isRequestBodyTooLargeWording(detail: string): boolean {
   return /\bfailed to buffer the request body\b/i.test(detail)
     || /\b(?:request (?:body|entity)|payload) too large\b/i.test(detail)
-    || /\b413\b/.test(detail)
 }
 
 /** Canonical provider-neutral code for an exhausted account quota or balance. */
