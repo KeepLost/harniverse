@@ -29,3 +29,15 @@ throw new ArchiveError('archive entry is missing', 'ARCHIVE_ENTRY_NOT_FOUND')
 - 继承它:每个拥有包或领域一个 `*Error` 类,各自维护稳定码表(`dsh-fs` 的 `FsError`/`FS_*`、`dsh-tools` 的 `ToolArgsError`/`INVALID_ARGS`……)。
 - Re-export 它:`@deepseek-ai/dsh-llm` 保持历史导入路径可用。
 - 永不解析 `message` 来路由失败;按 `code` 分支。
+
+## 模型体验(Model Experience)
+
+间接生效:每个继承的 `*Error` 类让工具主体抛出的失败在 `tool/result` 上记录 `{ name, code }`,重试策略与客户端表面按其路由,而非解析消息文本。
+
+#### KV 缓存效应
+
+无;基类从不进入模型请求或响应。
+
+## 已知限制与后续工作(Known Limitations and Deferred Work)
+
+- **`name` 持久化需要字面量固定** —— 构造器中省略 `this.name = '…'` 的子类会退回 `new.target.name`,压缩器可能重命名它;持久化进工具结果的子类应固定字符串字面量。

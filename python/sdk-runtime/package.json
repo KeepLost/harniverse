@@ -30,6 +30,7 @@
     "@deepseek-ai/dsh-control-channel": "workspace:^",
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:^",
     "@deepseek-ai/dsh-credentials": "workspace:^",
+    "@deepseek-ai/dsh-error": "workspace:^",
     "@deepseek-ai/dsh-environment": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-fs-codec": "workspace:^",

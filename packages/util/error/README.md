@@ -29,3 +29,15 @@ The base previously lived in `@deepseek-ai/dsh-llm`, which sits above packages s
 - Extend it: one `*Error` class per owning package or domain, each with its own stable code vocabulary (`FsError`/`FS_*` in `dsh-fs`, `ToolArgsError`/`INVALID_ARGS` in `dsh-tools`, …).
 - Re-export it: `@deepseek-ai/dsh-llm` keeps the historical import path working.
 - Never parse `message` to route a failure; branch on `code`.
+
+## Model Experience
+
+Indirectly, through every extending `*Error` class: a failure a tool body throws records `{ name, code }` on `tool/result`, which retry policy and the client surface route on instead of parsing messages.
+
+#### KV Cache effect
+
+None; the base class never appears in a model request or response.
+
+## Known Limitations and Deferred Work
+
+- **`name` persistence needs literal pinning** — a subclass whose constructor omits `this.name = '…'` falls back to `new.target.name`, which a minifying bundler can rename; subclasses persisted in tool results should pin a string literal.

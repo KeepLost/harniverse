@@ -7187,6 +7187,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:^
         version: link:../../attachment/attachment
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:^
+        version: link:../../util/error
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../fs
@@ -13528,6 +13531,9 @@ importers:
       '@deepseek-ai/dsh-environment':
         specifier: workspace:^
         version: link:../../packages/preset/environment
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:^
+        version: link:../../packages/util/error
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs
