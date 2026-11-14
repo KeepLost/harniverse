@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-14-wave7-immediate-absorb-batch.md
+2026-11-14-wave7-immediate-absorb-batch.md: d5b8491fd2154041636a0cadaa02cd8f0734765a
+2026-11-14-wave7-immediate-absorb-batch.zh.md: b9799846e687659f32f64f1f581f5736535b824f

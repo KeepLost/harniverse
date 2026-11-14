@@ -546,7 +546,7 @@ abstract moveFile( source: FsTarget, destination: FsTarget, options: { hunks?: r
 
 Types: [SandboxExecutionPolicy](sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:122`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:123`](../../packages/fs/fs/src/index.ts)
 
 <a id="fs-events"></a>
 
@@ -569,7 +569,7 @@ Single-slot decision for FileSystem.deleteFile; the first returned guard wins. C
 'fs/delete-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:82`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:83`](../../packages/fs/fs/src/index.ts)
 
 <a id="fsedit-intent--waterfall"></a>
 
@@ -588,7 +588,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:74`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:75`](../../packages/fs/fs/src/index.ts)
 
 <a id="fsobserved--emit"></a>
 
@@ -609,7 +609,7 @@ Record an authoritative positive or negative observation. Listeners must be sync
 'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
 ```
 
-Source: [`packages/fs/fs/src/index.ts:92`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:93`](../../packages/fs/fs/src/index.ts)
 
 <a id="fswrite-intent--waterfall"></a>
 
@@ -629,7 +629,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
 ```
 
-Source: [`packages/fs/fs/src/index.ts:66`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:67`](../../packages/fs/fs/src/index.ts)
 <!-- END GENERATED cordis-surface -->
 
 <a id="patch-syntax-records"></a>

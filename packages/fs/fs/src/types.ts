@@ -225,6 +225,7 @@ export const FS_ERROR_CODES = [
   'FS_UNMAPPABLE',
   'FS_PATCH_MISMATCH',
   'FS_SAME_TARGET',
+  'FS_ALREADY_EXISTS',
 ] as const
 
 /** One machine-routable filesystem failure code from FS_ERROR_CODES. */
@@ -241,6 +242,9 @@ export class FsError extends HarnessError {
 
   constructor(message: string, code: FsErrorCode, options?: ErrorOptions) {
     super(message, code, options)
+    // A string literal, not the class name: `name` persists in tool results and
+    // a bundler may rename the constructor.
+    this.name = 'FsError'
     this.code = code
   }
 }

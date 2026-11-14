@@ -5,7 +5,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ReadResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-fs'
 import type { FsTextEncoding } from '@deepseek-ai/dsh-fs'
@@ -38,14 +38,14 @@ interface ReadInput {
 
 function parsePositiveInteger(value: number, name: string): number {
   if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1) {
-    throw new Error(`${name} must be a positive integer`)
+    throw new ToolArgsError([`${name} must be a positive integer`])
   }
   return value
 }
 
 function parseNonNegativeInteger(value: number, name: string): number {
   if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative integer`)
+    throw new ToolArgsError([`${name} must be a non-negative integer`])
   }
   return value
 }
@@ -60,13 +60,13 @@ export function parseReadArgs(
   args: { file_path: string; offset?: number; limit?: number; line_byte_offset?: number; encoding?: string },
   maxLimit: number,
 ): ReadInput {
-  if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
+  if (args.file_path.trim().length === 0) throw new ToolArgsError(['file_path must be a non-empty string'])
   const offset = args.offset === undefined ? 1 : parsePositiveInteger(args.offset, 'offset')
   const limit = args.limit === undefined ? maxLimit : parsePositiveInteger(args.limit, 'limit')
   const lineByteOffset = args.line_byte_offset === undefined
     ? 0
     : parseNonNegativeInteger(args.line_byte_offset, 'line_byte_offset')
-  if (limit > maxLimit) throw new Error(`limit must be less than or equal to ${maxLimit}`)
+  if (limit > maxLimit) throw new ToolArgsError([`limit must be less than or equal to ${maxLimit}`])
   const encoding = args.encoding === undefined ? undefined : validateEncodingName(args.encoding)
   return { filePath: args.file_path, offset, limit, lineByteOffset, ...encoding === undefined ? {} : { encoding } }
 }
@@ -75,8 +75,8 @@ export function parseReadArgs(
 function validateEncodingName(name: string): string {
   if (!encodingExists(name)) {
     const suggestions = suggestEncodings(name)
-    throw new Error(`encoding must be a known encoding name (got ${JSON.stringify(name)})`
-      + (suggestions.length > 0 ? `; near matches: ${suggestions.join(', ')}` : ''))
+    throw new ToolArgsError([`encoding must be a known encoding name (got ${JSON.stringify(name)})`
+      + (suggestions.length > 0 ? `; near matches: ${suggestions.join(', ')}` : '')])
   }
   return name
 }

@@ -1,25 +1,13 @@
 /**
- * Harness error base with a stable machine-routable code and chained cause.
- * Package errors extend it so tool results and replay can retain failure class.
+ * LLM failure codes and helpers over the shared Harness error base. The base
+ * class lives in `@deepseek-ai/dsh-error` and is re-exported here, so both
+ * import paths name the same class.
  * @module @deepseek-ai/dsh-llm/error
  */
 
-/**
- * Base class for all harness errors. Carries a `code` (stable, programmatic —
- * e.g. `NO_ADAPTER`, `INVALID_ARGS`, `INVARIANT`) distinct from the
- * human-readable `message`, and supports `cause` chaining via the standard
- * `ErrorOptions`. `name` defaults to the subclass constructor name.
- */
-export class HarnessError extends Error {
-  /** Stable machine-routable failure class (e.g. `RATE_LIMIT`); route on this, never by parsing `message`. */
-  readonly code: string
+import { HarnessError } from '@deepseek-ai/dsh-error'
 
-  constructor(message: string, code: string, options?: ErrorOptions) {
-    super(message, options)
-    this.code = code
-    this.name = new.target.name
-  }
-}
+export { HarnessError }
 
 /** Canonical provider-neutral code for a model request rejected because its context window was exceeded. */
 export const CONTEXT_WINDOW_EXCEEDED_CODE = 'CONTEXT_WINDOW_EXCEEDED'
@@ -37,9 +25,21 @@ export const REQUEST_BODY_TOO_LARGE_CODE = 'REQUEST_BODY_TOO_LARGE'
  * @returns true when the detail identifies a request-body size rejection.
  */
 export function isRequestBodyTooLargeError(detail: string): boolean {
+  return isRequestBodyTooLargeWording(detail)
+    || /\b413\b/.test(detail)
+}
+
+/**
+ * The wording-only half of {@link isRequestBodyTooLargeError}, without the bare
+ * `413` status test. Classification that already reads a leading HTTP status
+ * separately uses this so a status quoted inside a body cannot win over the
+ * response's own status.
+ * @param detail - provider error code/status/message text joined into one string.
+ * @returns true when the detail's wording names a request-body size rejection.
+ */
+export function isRequestBodyTooLargeWording(detail: string): boolean {
   return /\bfailed to buffer the request body\b/i.test(detail)
     || /\b(?:request (?:body|entity)|payload) too large\b/i.test(detail)
-    || /\b413\b/.test(detail)
 }
 
 /** Canonical provider-neutral code for an exhausted account quota or balance. */
