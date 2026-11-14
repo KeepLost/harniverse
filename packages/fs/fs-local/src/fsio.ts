@@ -72,7 +72,7 @@ async function readFileAbortable(absolutePath: string, displayPath: string, verb
   try {
     return await readFile(absolutePath, signal ? { signal } : {})
   } catch (error: unknown) {
-    /* v8 ignore next 2 -- a non-abort rejection needs a permission fault after a successful stat; POSIX covers it. */
+    /* v8 ignore next 3 -- a non-abort rejection needs a permission fault after a successful stat; POSIX covers it. */
     if (isAbortError(error)) throw new FsError(`${verb} aborted`, 'FS_ABORTED')
     throw fsErrorFromErrno(verb, displayPath, error)
   }
