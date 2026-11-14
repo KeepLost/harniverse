@@ -677,7 +677,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:811`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:822`](../../packages/core/tools/src/index.ts)
 
 <a id="mcpmanagement-events"></a>
 
