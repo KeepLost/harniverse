@@ -241,6 +241,9 @@ export class FsError extends HarnessError {
 
   constructor(message: string, code: FsErrorCode, options?: ErrorOptions) {
     super(message, code, options)
+    // A string literal, not the class name: `name` persists in tool results and
+    // a bundler may rename the constructor.
+    this.name = 'FsError'
     this.code = code
   }
 }

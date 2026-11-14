@@ -33,6 +33,7 @@ export {
   FsTargetKey,
   FsVersion,
 } from './types.ts'
+export { fsErrorFromErrno } from './errno.ts'
 export type {
   FsDeleteOutcome,
   FsEditOutcome,

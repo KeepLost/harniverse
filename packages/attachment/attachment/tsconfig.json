@@ -6,6 +6,7 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../util/brand" },
+    { "path": "../../util/error" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

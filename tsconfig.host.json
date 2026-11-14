@@ -141,6 +141,7 @@
     { "path": "./vendor/hmr" },
     { "path": "./vendor/logger-console" },
     { "path": "./packages/util/brand" },
+    { "path": "./packages/util/error" },
     { "path": "./packages/util/deque" },
     { "path": "./packages/util/file-drag" },
     { "path": "./packages/util/workspace-path" },

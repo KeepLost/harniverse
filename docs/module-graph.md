@@ -11,6 +11,7 @@ flowchart TD
     pkg_atomic_write["atomic-write"]
     pkg_brand["brand"]
     pkg_deque["deque"]
+    pkg_error["error"]
     pkg_home_paths["home-paths"]
     pkg_http_proxy["http-proxy"]
     pkg_identity["identity"]
@@ -466,6 +467,7 @@ flowchart TD
   pkg_atomic_write --> pkg_invariants
   pkg_brand --> pkg_invariants
   pkg_deque --> pkg_invariants
+  pkg_error --> pkg_invariants
   pkg_home_paths --> pkg_invariants
   pkg_http_proxy --> pkg_invariants
   pkg_identity --> pkg_invariants
@@ -513,6 +515,7 @@ flowchart TD
   pkg_typert_registry --> pkg_invariants
   pkg_vm --> pkg_invariants
   pkg_attachment --> pkg_brand
+  pkg_attachment --> pkg_error
   pkg_attachment --> pkg_invariants
   pkg_authentication --> pkg_brand
   pkg_authentication --> pkg_invariants
@@ -550,6 +553,7 @@ flowchart TD
   pkg_vm_qemu_local --> pkg_vm
   pkg_llm --> pkg_attachment
   pkg_llm --> pkg_brand
+  pkg_llm --> pkg_error
   pkg_llm --> pkg_invariants
   pkg_llm --> pkg_timeout
   pkg_api_gateway --> pkg_client_connection
@@ -2259,6 +2263,7 @@ flowchart TD
 | [`atomic-write`](../packages/util/atomic-write) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`brand`](../packages/util/brand) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`deque`](../packages/util/deque) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`error`](../packages/util/error) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`home-paths`](../packages/util/home-paths) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`http-proxy`](../packages/util/http-proxy) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`identity`](../packages/util/identity) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2305,7 +2310,7 @@ flowchart TD
 | [`typert-protocol`](../packages/typert/protocol) | `typert` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`typert-registry`](../packages/typert/registry) | `typert` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`vm`](../packages/vm/vm) | `vm` | [`invariants`](../packages/runtime-diagnostics/invariants) |
-| [`attachment`](../packages/attachment/attachment) | `attachment` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`attachment`](../packages/attachment/attachment) | `attachment` | [`brand`](../packages/util/brand), [`error`](../packages/util/error), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`authentication`](../packages/auth/authentication) | `auth` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-connection`](../packages/client/connection) | `client` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`global-rules`](../packages/context/global-rules) | `context` | [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2322,7 +2327,7 @@ flowchart TD
 | [`chat-adapter-fake`](../packages/test-support/chat-adapter-fake) | `test-support` | [`chat-adapter`](../packages/chat/chat-adapter), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`typert-loader`](../packages/typert/loader) | `typert` | [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-registry`](../packages/typert/registry) |
 | [`vm-qemu-local`](../packages/vm/vm-qemu-local) | `vm` | [`invariants`](../packages/runtime-diagnostics/invariants), [`vm`](../packages/vm/vm) |
-| [`llm`](../packages/llm/llm) | `llm` | [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`timeout`](../packages/util/timeout) |
+| [`llm`](../packages/llm/llm) | `llm` | [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`error`](../packages/util/error), [`invariants`](../packages/runtime-diagnostics/invariants), [`timeout`](../packages/util/timeout) |
 | [`api-gateway`](../packages/api/gateway) | `api` | [`client-connection`](../packages/client/connection), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-registry`](../packages/typert/registry) |
 | [`attachment-local`](../packages/attachment/attachment-local) | `attachment` | [`attachment`](../packages/attachment/attachment), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`authentication-local`](../packages/auth/authentication-local) | `auth` | [`authentication`](../packages/auth/authentication), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants) |
