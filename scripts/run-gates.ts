@@ -235,6 +235,7 @@ export function gatesForMode(selected: Mode): Gate[] {
     case 'check-all':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
+        pnpmScript('plugin-entry-exports', 'verify-plugin-entry-exports', { label: 'plugin entry exports' }),
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test:unit', {

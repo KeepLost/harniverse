@@ -28,6 +28,10 @@ A user-supplied listener that throws must not reject the promise it runs inside 
 
 Spawned commands get a scrubbed env (drop `*KEY*`/`*SECRET*`/`*TOKEN*`/`*PASSWORD*`) so harness credentials cannot leak into output, `env`, or spill files. Temp/spill files use a private (0700) dir, random names, and exclusive owner-only opens (`'wx'`, `0o600`) — predictable world-readable paths invite symlink races and disclosure.
 
+## A plugin entry exports what the Loader loads
+
+An entry is a function plugin (`name`/`inject`/`Config`/`apply`) or a service plugin (default-exported class), never mixed; beyond Service Definition and error classes other packages extend or throw, it exports no value — a value on the entry is importable API that evaluates the module without its Loader row. Keep helpers in internal modules; other packages reach behavior through a `ctx` service. [`verify-plugin-entry-exports`](../scripts/verify-plugin-entry-exports.ts) enforces this; pre-gate exports are baselined debt in [`plugin-entry-existing-exports.ts`](../scripts/plugin-entry-existing-exports.ts), and a new baseline line needs the domain owner's confirmation.
+
 ## Unlink link-shaped paths
 
 A path that may be a symlink or Windows junction is removed with `lstatSync().isSymbolicLink()` then `unlinkSync`: unlink deletes only the link and refuses a real directory, so it never follows the link into its target. Windows `rmSync(link)` throws `ERR_FS_EISDIR` on a junction; recursive deletion may descend through one into its target. Reserve recursive `rmSync` for known real directories.
