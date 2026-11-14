@@ -87,6 +87,8 @@ export function apply(ctx: Context): void {
     name: 'schedule_list',
     description: 'List scheduled tasks owned by this session, earliest first.',
     parameters: {},
+    // Listing reads the session's schedule snapshot; it mutates nothing and consumes no cursor.
+    isConcurrencySafe: () => true,
     output: {
       schema: {
         type: 'object',
