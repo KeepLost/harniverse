@@ -384,6 +384,83 @@ describe('extension-less paths', () => {
   })
 })
 
+describe('typed failure codes', () => {
+  /** Store class whose saveImage rejects with the given attachment code; the tool must classify at its boundary. */
+  function failingStore(code: string, storeMessage: string) {
+    return class FailingStore extends AttachmentStore {
+      readonly imageLimits: ImageAttachmentLimits = Object.freeze({
+        maxImageBytes: 1024,
+        maxImagesPerMessage: 1,
+        maxMessageImageBytes: 1024,
+        maxImagePixels: 100,
+        mediaTypes: Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const),
+      })
+
+      validateImage(_input: SaveImageAttachment): Promise<void> {
+        return Promise.resolve()
+      }
+
+      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+        throw new AttachmentError(storeMessage, code)
+      }
+
+      readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
+        throw new Error('unreachable in this test')
+      }
+    }
+  }
+
+  it.each([
+    ['IMAGE_TOO_MANY_PIXELS', 'Image exceeds the configured decoded-pixel limit.', 'exceeds the 100-pixel decoded-size limit; downscale the image and read the smaller copy'],
+    ['IMAGE_TOO_LARGE', 'Image exceeds the configured byte limit.', "cannot be stored within the deployment's byte limits; downscale the image and read the smaller copy"],
+    ['IMAGES_TOO_LARGE', 'Image batch exceeds the configured aggregate image-byte limit.', "cannot be stored within the deployment's byte limits; downscale the image and read the smaller copy"],
+    ['UNSUPPORTED_IMAGE_TYPE', 'Image type image/png is not accepted by this deployment.', 'images are not accepted by this deployment'],
+    ['INVALID_IMAGE', 'Unsupported or malformed image data.', 'do not decode as a supported PNG/JPEG/WebP/GIF image'],
+    ['IMAGE_TYPE_MISMATCH', 'Declared image type does not match its bytes.', 'the .png extension declares image/png, but the bytes use a different image format'],
+  ])('enriches an %s refusal while keeping its attachment code', async (code, storeMessage, remedy) => {
+    await writeFile(join(dir, 'red.png'), PNG_1X1)
+    const ctx = await setup({ attachments: false })
+    await ctx.plugin(failingStore(code, storeMessage))
+    const result = await readImage(ctx, { file_path: 'red.png' }, agentOn('vision-model'))
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('cannot read ')
+    expect(text(result)).toContain(remedy)
+    expect(result.error?.info).toEqual({ name: 'AttachmentError', code })
+  })
+
+  it('passes a store failure without a remedy through unchanged', async () => {
+    await writeFile(join(dir, 'red.png'), PNG_1X1)
+    const ctx = await setup({ attachments: false })
+    await ctx.plugin(failingStore('ATTACHMENT_WRITE_FAILED', 'Unable to persist attachment bytes.'))
+    const result = await readImage(ctx, { file_path: 'red.png' }, agentOn('vision-model'))
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('Unable to persist attachment bytes.')
+    expect(result.error?.info).toEqual({ name: 'AttachmentError', code: 'ATTACHMENT_WRITE_FAILED' })
+  })
+
+  it('records the typed class and code for each tool-owned refusal', async () => {
+    await writeFile(join(dir, 'red.png'), PNG_1X1)
+    const ctx = await setup()
+
+    const empty = await readImage(ctx, { file_path: '  ' }, agentOn('vision-model'))
+    expect(empty.error?.info).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
+
+    const badExtension = await readImage(ctx, { file_path: 'notes.txt' }, agentOn('vision-model'))
+    expect(badExtension.error?.info).toEqual({ name: 'ImageInputError', code: 'IMAGE_UNSUPPORTED_FORMAT' })
+
+    const wrongModel = await readImage(ctx, { file_path: 'red.png' }, agentOn('text-model'))
+    expect(wrongModel.error?.info).toEqual({ name: 'ImageInputError', code: 'IMAGE_UNSUPPORTED_MODEL' })
+
+    const defensive = await setup({ attachments: false })
+    applyReadImageTool(defensive)
+    const noService = await readImage(defensive, { file_path: 'red.png' }, agentOn('vision-model'))
+    expect(noService.error?.info).toEqual({ name: 'ToolContextUnavailableError', code: 'TOOL_CONTEXT_UNAVAILABLE' })
+
+    const noAgent = await readImage(ctx, { file_path: 'red.png' })
+    expect(noAgent.error?.info).toEqual({ name: 'ToolContextUnavailableError', code: 'TOOL_CONTEXT_UNAVAILABLE' })
+  })
+})
+
 describe('strict image-modality gate', () => {
   it('accepts an exact visual route even when the advisory model catalog omits it', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)

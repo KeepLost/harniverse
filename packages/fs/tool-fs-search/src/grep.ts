@@ -12,7 +12,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { RetainedItems } from '@deepseek-ai/dsh-output-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
@@ -66,14 +66,14 @@ export interface GrepInput {
  * group is fine — `*.{ts,tsx}` is one glob with alternation, not a list.
  */
 function validateInclude(include: string): void {
-  if (include.trim().length === 0) throw new Error('include must be a non-empty glob when given')
-  if (include.startsWith('!')) throw new Error('include must be a positive glob filter; negated patterns ("!…") are not supported')
+  if (include.trim().length === 0) throw new ToolArgsError(['include must be a non-empty glob when given'])
+  if (include.startsWith('!')) throw new ToolArgsError(['include must be a positive glob filter; negated patterns ("!…") are not supported'])
   let braceDepth = 0
   for (const char of include) {
     if (char === '{') braceDepth++
     else if (char === '}') braceDepth = Math.max(0, braceDepth - 1)
     else if (char === ',' && braceDepth === 0) {
-      throw new Error('include must be one glob, not a comma-separated list (use {a,b} alternation instead)')
+      throw new ToolArgsError(['include must be one glob, not a comma-separated list (use {a,b} alternation instead)'])
     }
   }
 }
@@ -90,8 +90,8 @@ function validateInclude(include: string): void {
  * @returns the accepted input; an empty `include` becomes `undefined`.
  */
 export function parseGrepArgs(args: { pattern: string; path?: string; include?: string }): GrepInput {
-  if (args.pattern.length === 0) throw new Error('pattern must be a non-empty string')
-  if (args.path !== undefined && args.path.trim().length === 0) throw new Error('path must be a non-empty string when given')
+  if (args.pattern.length === 0) throw new ToolArgsError(['pattern must be a non-empty string'])
+  if (args.path !== undefined && args.path.trim().length === 0) throw new ToolArgsError(['path must be a non-empty string when given'])
   const include = args.include === '' ? undefined : args.include
   if (include !== undefined) validateInclude(include)
   return {
