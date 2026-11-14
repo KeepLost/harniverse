@@ -8,7 +8,7 @@
  * @module dsh-llm-pi-ai/stream
  */
 
-import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, isRequestBodyTooLargeError, LlmError, QUOTA_EXCEEDED_CODE, REQUEST_BODY_TOO_LARGE_CODE } from '@deepseek-ai/dsh-llm'
+import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, isRequestBodyTooLargeWording, LlmError, QUOTA_EXCEEDED_CODE, REQUEST_BODY_TOO_LARGE_CODE } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, ReasoningBlock, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai'
 import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
@@ -36,13 +36,21 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 // wrapper a bare `terminated`, so we are left pattern-matching terse words here.
 // If pi-ai ever forwards the original Error (or a fetch/dispatcher hook that lets
 // us capture the cause ourselves), classify on `code`/`cause` instead of text.
+//
+// pi-ai's SDK-backed providers render an HTTP failure as `<status> <body>`, and
+// the body can quote another hop's status, such as a gateway 500 that embeds its
+// upstream's 401. When a message leads with a status, the status rules below
+// read only that status; wording rules still scan the whole message.
+const LEADING_HTTP_STATUS = /^[45]\d\d\b/
+
 function classifyPiAiError(message: string): string {
-  if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
+  const statusSource = LEADING_HTTP_STATUS.exec(message)?.[0] ?? message
+  if (/\b(?:401|403)\b/.test(statusSource)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
-  if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
-  if (isRequestBodyTooLargeError(message)) return REQUEST_BODY_TOO_LARGE_CODE
-  if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
-  if (/\b5\d\d\b/.test(message)) return 'SERVER'
+  if (/\b429\b/.test(statusSource) || /rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  if (/\b413\b/.test(statusSource) || isRequestBodyTooLargeWording(message)) return REQUEST_BODY_TOO_LARGE_CODE
+  if (/\b400\b/.test(statusSource) || /invalid.?request/i.test(message)) return 'INVALID_REQUEST'
+  if (/\b5\d\d\b/.test(statusSource)) return 'SERVER'
   if (/\btime(?:d)?\s*out\b|timeout/i.test(message)) return 'TIMEOUT'
   // A stream truncated before the provider's terminal event: each pi-ai provider
   // throws its own wording when the wire closes mid-response without a terminal
