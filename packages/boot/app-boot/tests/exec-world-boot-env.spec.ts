@@ -106,13 +106,13 @@ describe('applyExecWorldBootEnv', () => {
 describe('applyExecWorldBootEnv asset materialization', () => {
   const qemuOnly: ExecWorldAvailability = { providerVersion: 'QEMU 8.1.3', assetsReady: false }
 
-  it('materializes assets for a stored vm preference and composes vm after the re-probe', async () => {
+  it('re-probes after locally built assets report present and composes vm', async () => {
     const env: Record<string, string | undefined> = {}
     const notices: string[] = []
     let assetsReady = false
     const ensure = vi.fn(async (): Promise<EnsureAssetsResult> => {
       assetsReady = true
-      return { status: 'downloaded', assetsDir: '/staged' }
+      return { status: 'present', assetsDir: '/staged' }
     })
     await applyExecWorldBootEnv({
       env,
@@ -128,10 +128,10 @@ describe('applyExecWorldBootEnv asset materialization', () => {
     expect(notices).toEqual([])
   })
 
-  it('degrades with the reason when the download reports unavailable', async () => {
+  it('degrades with the reason when the assets report unavailable', async () => {
     const env: Record<string, string | undefined> = {}
     const notices: string[] = []
-    const ensure = vi.fn(async (): Promise<EnsureAssetsResult> => ({ status: 'unavailable', reason: 'HTTP 503', assetsDir: '/staged' }))
+    const ensure = vi.fn(async (): Promise<EnsureAssetsResult> => ({ status: 'unavailable', reason: 'assets not built', assetsDir: '/staged' }))
     await applyExecWorldBootEnv({
       env,
       home: seededHome('exec-world:\n  world: vm\n'),
@@ -140,7 +140,22 @@ describe('applyExecWorldBootEnv asset materialization', () => {
       warn: line => notices.push(line),
     })
     expect(env[EXEC_WORLD_ENV]).toBe('local')
-    expect(notices).toEqual(['app boot: VM asset download failed (HTTP 503); composing the local family\n'])
+    expect(notices).toEqual(['app boot: VM assets unavailable (assets not built); composing the local family\n'])
+  })
+
+  it('degrades with the rebuild hint when the assets report stale', async () => {
+    const env: Record<string, string | undefined> = {}
+    const notices: string[] = []
+    const ensure = vi.fn(async (): Promise<EnsureAssetsResult> => ({ status: 'stale', reason: 'asset sources changed since the last build', assetsDir: '/staged' }))
+    await applyExecWorldBootEnv({
+      env,
+      home: seededHome('exec-world:\n  world: vm\n'),
+      probe: () => qemuOnly,
+      ensureAssets: ensure,
+      warn: line => notices.push(line),
+    })
+    expect(env[EXEC_WORLD_ENV]).toBe('local')
+    expect(notices).toEqual(['app boot: VM assets stale (asset sources changed since the last build); composing the local family\n'])
   })
 
   it('does not attempt a download when the QEMU binary itself is missing', async () => {
@@ -159,10 +174,10 @@ describe('applyExecWorldBootEnv asset materialization', () => {
     expect(notices).toEqual(['app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n'])
   })
 
-  it('degrades on the generic notice when the re-probe stays unhealthy after a download', async () => {
+  it('degrades on the generic notice when the re-probe stays unhealthy after assets report present', async () => {
     const env: Record<string, string | undefined> = {}
     const notices: string[] = []
-    const ensure = vi.fn(async (): Promise<EnsureAssetsResult> => ({ status: 'downloaded', assetsDir: '/staged' }))
+    const ensure = vi.fn(async (): Promise<EnsureAssetsResult> => ({ status: 'present', assetsDir: '/staged' }))
     await applyExecWorldBootEnv({
       env,
       home: seededHome('exec-world:\n  world: vm\n'),
@@ -177,7 +192,6 @@ describe('applyExecWorldBootEnv asset materialization', () => {
 
 describe('applyExecWorldBootEnv default seams', () => {
   it('uses the real ensureAssets and the stderr notice writer when none is injected', async () => {
-    vi.stubEnv('DSH_VM_ASSETS_URL', '')
     vi.stubEnv('DSH_HOME', seededHome('exec-world:\n  world: vm\n'))
     vi.stubEnv(EXEC_WORLD_ENV, '')
     const writes: string[] = []
@@ -189,11 +203,11 @@ describe('applyExecWorldBootEnv default seams', () => {
       const env: Record<string, string | undefined> = {}
       await applyExecWorldBootEnv({ env, probe: () => ({ providerVersion: 'QEMU 8.1.3', assetsReady: false }) })
       expect(env[EXEC_WORLD_ENV]).toBe('local')
-      // Host-dependent middle step: a cold host's real ensureAssets answers
-      // the disabled-env unavailable; a host with staged assets answers
-      // present and the re-probe keeps the unhealthy verdict. Both write one
-      // default-writer notice and degrade.
-      expect(writes.join('')).toMatch(/VM asset download failed \(asset download disabled\)|provider probe is unhealthy/)
+      // Host-dependent middle step: a host without built assets answers the
+      // not-built unavailable; one with pre-marker assets answers stale; one
+      // with fresh assets answers present and the re-probe keeps the
+      // unhealthy verdict. All write one default-writer notice and degrade.
+      expect(writes.join('')).toMatch(/VM assets (unavailable|stale) \(|provider probe is unhealthy/)
     } finally {
       spy.mockRestore()
     }

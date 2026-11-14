@@ -11,6 +11,9 @@
     "directory": "packages/vm/vm-qemu-local"
   },
   "type": "module",
+  "scripts": {
+    "assets:build": "bash assets/build-rootfs.sh"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

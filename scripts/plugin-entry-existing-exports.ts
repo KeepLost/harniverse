@@ -769,10 +769,6 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS: Readonly<Record<string, readonly str
     'setApprovalPolicy',
   ],
   '@deepseek-ai/dsh-vm-qemu-local': [
-    'ASSETS_MANIFEST_NAME',
-    'ASSETS_MANIFEST_SHA256',
-    'ASSETS_RELEASE_BASE_URL',
-    'ASSETS_URL_ENV',
     'DEFAULT_EGRESS_CONNECT_TIMEOUT_MS',
     'DEFAULT_EXPORT_CAPACITY_BYTES',
     'DEFAULT_HOST_IMPORT_MAX_BYTES',
@@ -810,7 +806,6 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS: Readonly<Record<string, readonly str
     'openWorld',
     'packHostWorkspace',
     'packWorkspaceTar',
-    'parseAssetsManifest',
     'parseGuestMessage',
     'parseQemuVersion',
     'probeWorld',

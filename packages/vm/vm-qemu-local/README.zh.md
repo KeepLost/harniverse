@@ -46,7 +46,7 @@ packages/vm/vm-qemu-local/assets/build-rootfs.sh
 
 脚本下载固定版本的 Alpine 3.20.3 minirootfs 与 `linux-virt` 内核 apk（强制校验摘要；apk 内核与 `virtio_blk` 模块同源成对——virt 内核的块设备驱动是模块而非内建），外加固定版本的 `bash` apk 依赖链（`bash` → `libreadline.so.8` → `libncursesw.so.6`，附 terminfo-base；shell 工具通过世界的 subprocess 缝组合 `bash -c` 与常驻交互 bash，而 busybox 没有 bash applet）、编译静态 musl guest agent（`guest/`）与世界内 Landlock 限制包装器，并把 agent 作为 `/init`、包装器作为 `/bin/dsh-vm-confine`、模块置于 `/lib/modules`、bash 载荷一并打进 initramfs。缺少资产或 QEMU 二进制不可用时，`openWorld` 闭合失败（`AssetsMissingError`、`QemuSpawnError`），e2e 套件自跳过。
 
-资产未就绪时，`ensureAssets` 从钉住的 GitHub release（`vm-assets-v1`）物化它们：源码钉住 release 清单的摘要（`src/release.ts` 的 `ASSETS_MANIFEST_SHA256`），清单钉住每个文件的摘要；下载失败以 `unavailable` 携带原因上报，组合因此能诚实降级。`$DSH_VM_ASSETS_URL` 覆盖 release 基准 URL（镜像必须逐字节一致地提供文件；钉住的摘要仍然生效）；留空则禁用下载。app boot 桥在存储 `vm` 偏好降级前先走这条路径（见 `dsh-app-boot` 的 `applyExecWorldBootEnv`）；`probeWorld` 本身保持纯同步探测。
+资产一律本地构建——运行时什么都不下载。构建产物存在且 `assets-source.sha256` 标记（由构建写入，摘要覆盖构建脚本、guest 清单与 guest 源码，与 `computeAssetsSourceDigest` 互为镜像）仍与当前源码一致时，`ensureAssets` 报告 `present`，未变更的构建因此可跨版本复用；资产缺失报告 `unavailable`、源码变动报告 `stale`，原因里都带上构建命令。构建是用户的显式动作——`pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build`，需要带 `x86_64-unknown-linux-musl` target 的 Rust 工具链——沙箱始终保持可选：没有它，存储的 `vm` 偏好以一行提示降级到 `local` 家族（见 `dsh-app-boot` 的 `applyExecWorldBootEnv`）；`probeWorld` 本身保持纯同步探测。
 
 ## 世界内限制后端
 
