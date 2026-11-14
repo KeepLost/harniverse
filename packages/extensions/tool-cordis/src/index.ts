@@ -47,6 +47,8 @@ export function apply(ctx: Context): void {
       + 'method for cordis_inspect_query from its result. Do not guess names or treat an Inspect method as a business '
       + 'Service that Plugin code can call.',
     parameters: {},
+    // Listing reads the synchronized manifest snapshot; it mutates no Cordis state.
+    isConcurrencySafe: () => true,
     output: {
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
@@ -75,6 +77,8 @@ export function apply(ctx: Context): void {
       method: { type: 'string', required: true, description: 'Exact method name declared by the Provider manifest.' },
       input: { type: 'json', description: 'Optional query input; it must satisfy the method input schema.' },
     },
+    // A read-only Inspect query; providers declare no mutating methods.
+    isConcurrencySafe: () => true,
     output: {
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
