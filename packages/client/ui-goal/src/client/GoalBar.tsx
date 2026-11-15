@@ -132,20 +132,6 @@ export function GoalBar({ goal, onEdit, onPause, onResume, onClear, t }: GoalBar
         <span className={css.objective}>{goal.objective}</span>
         {actionError !== null && <span className={css.error} role="alert">{actionError}</span>}
         <div className={css.actions}>
-          {goal.phase === 'active' && (
-            <Tooltip label={t('action.pause')} side="bottom" delayMs={500}>
-              <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onPause) }} aria-label={t('action.pause')}>
-                <IconPauseOutline16 size={14} />
-              </button>
-            </Tooltip>
-          )}
-          {goal.phase === 'paused' && (
-            <Tooltip label={t('action.resume')} side="bottom" delayMs={500}>
-              <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onResume) }} aria-label={t('action.resume')}>
-                <IconPlayOutline16 size={14} />
-              </button>
-            </Tooltip>
-          )}
           <Tooltip label={t('action.edit')} side="bottom" delayMs={500}>
             <button
               type="button"
@@ -162,6 +148,20 @@ export function GoalBar({ goal, onEdit, onPause, onResume, onClear, t }: GoalBar
               <IconTrashOutline16 size={14} />
             </button>
           </Tooltip>
+          {goal.phase === 'active' && (
+            <Tooltip label={t('action.pause')} side="bottom" delayMs={500}>
+              <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onPause) }} aria-label={t('action.pause')}>
+                <IconPauseOutline16 size={14} />
+              </button>
+            </Tooltip>
+          )}
+          {goal.phase === 'paused' && (
+            <Tooltip label={t('action.resume')} side="bottom" delayMs={500}>
+              <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onResume) }} aria-label={t('action.resume')}>
+                <IconPlayOutline16 size={14} />
+              </button>
+            </Tooltip>
+          )}
         </div>
       </div>
     </div>
