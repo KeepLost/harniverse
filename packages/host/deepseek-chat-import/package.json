@@ -24,7 +24,7 @@
     },
     "./types": {
       "types": "./lib/types/types.d.ts",
-      "default": "./lib/types.js"
+      "default": "./lib/types/types.js"
     },
     "./typert": {
       "types": "./lib/typert.host.d.ts",
@@ -40,7 +40,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types.js",
+    "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
