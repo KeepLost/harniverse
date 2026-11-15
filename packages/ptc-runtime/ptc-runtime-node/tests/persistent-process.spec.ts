@@ -1,4 +1,4 @@
-import { Duplex, PassThrough } from 'node:stream'
+import { PassThrough } from 'node:stream'
 import { setImmediate } from 'node:timers/promises'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { createProcessRpc } from '../src/rpc.ts'
@@ -7,12 +7,10 @@ import type { ProgramProcess } from '../src/process.ts'
 import { decodePtcJsonWire, encodePtcJsonWire } from '../src/json-wire.ts'
 import type { ProgramBootData, HostMethods, ProgramMethods } from '../src/protocol.ts'
 import { rawPeer } from './raw-peer.ts'
+import { duplexPair } from './duplex-pair.ts'
 
 async function setup(limit = 4096, chdir: (cwd: string) => void = () => {}, programFormat: 'repl' | 'script' = 'repl') {
-  const first = new PassThrough()
-  const second = new PassThrough()
-  const child = Duplex.from({ readable: first, writable: second })
-  const host = Duplex.from({ readable: second, writable: first })
+  const [child, host] = duplexPair()
   child.on('error', () => {})
   host.on('error', () => {})
   const state: ProgramProcess = { env: { FIXTURE_SECRET: 'test', PATH: '/native' }, stdout: { write: () => true }, stderr: { write: () => true }, chdir }

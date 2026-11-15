@@ -1,17 +1,14 @@
 import type { PtcProgramFormat } from '@deepseek-ai/dsh-ptc-runtime'
-import { Duplex, PassThrough } from 'node:stream'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { createProcessRpc } from '../src/rpc.ts'
 import { runNodeMain, type ProgramProcess } from '../src/process.ts'
 import type { HostMethods, ProgramBootData, ProgramMethods } from '../src/protocol.ts'
 import { decodePtcJsonWire, encodePtcJsonWire } from '../src/json-wire.ts'
+import { duplexPair } from './duplex-pair.ts'
 
 function endpoints() {
-  const first = new PassThrough()
-  const second = new PassThrough()
-  const child = Duplex.from({ readable: first, writable: second })
-  const host = Duplex.from({ readable: second, writable: first })
+  const [child, host] = duplexPair()
   child.on('error', () => {})
   host.on('error', () => {})
   onTestFinished(() => { child.destroy(); host.destroy() })

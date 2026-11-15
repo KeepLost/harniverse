@@ -9,7 +9,10 @@ import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from
 import { decodePtcJsonWire, encodePtcJsonWire, snapshotPtcJsonValue } from './json-wire.ts'
 
 const CapturedError = Error
-const isNativeError = types.isNativeError
+// The engine floor (node 22.19) lacks Error.isError; the wrapper keeps the
+// deprecation on this one line.
+// oxlint-disable-next-line typescript/no-deprecated
+const isNativeError = (error: unknown): error is Error => types.isNativeError(error)
 const capturedObjectCreate = Object.create
 const capturedObjectDefineProperty = Object.defineProperty
 

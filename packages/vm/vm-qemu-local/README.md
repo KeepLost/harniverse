@@ -41,8 +41,17 @@ await world.destroy()                      // 'clean' (guest poweroff) or 'kille
 `openWorld` needs `vmlinuz-virt` and `initramfs.cpio.gz` in the assets directory (default `.cache/assets` inside this package; override with `options.assetsDir`). Build them with:
 
 ```sh
-packages/vm/vm-qemu-local/assets/build-rootfs.sh
+# one-time toolchain prerequisites
+rustup target add x86_64-unknown-linux-musl   # Rust musl target (guest agent)
+sudo apt-get install musl-tools cpio          # linker + initramfs packer (or your distro's equivalent)
+cc --version                                  # optional: builds qemu-wrap; without it openWorld reports sandboxed: false
+
+# the build (either form)
+pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build
+bash packages/vm/vm-qemu-local/assets/build-rootfs.sh          # direct form; accepts an output dir argument
 ```
+
+The build refuses to start when `cargo` is missing and names the missing tool on stdout; it never runs at app boot. Rebuilds are incremental: pinned Alpine inputs stay cached under `.cache/downloads/` (drop the pinned files there for offline rebuilds — digests still enforced), `cargo` reuses its target dir, and unchanged output is left in place. The CI lane `VM Assets Build` (`.github/workflows/vm-assets-build.yml`) runs the same build on VM-package changes and re-verifies the marker; it never publishes anything.
 
 Assets build locally — nothing is downloaded at runtime. `ensureAssets` reports `present` when the built boot assets exist and their `assets-source.sha256` marker (written by the build, digesting the build scripts, the guest manifest, and the guest sources — mirrored by `computeAssetsSourceDigest`) still matches the current sources, so unchanged builds are reused across versions; missing assets report `unavailable` and changed sources report `stale`, each carrying the build command as the remedy. Building is the user's explicit call — `pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build`, which needs a Rust toolchain with the `x86_64-unknown-linux-musl` target — and the sandbox stays optional: without it a stored `vm` preference degrades to the `local` family with one notice line (see `dsh-app-boot`'s `applyExecWorldBootEnv`); `probeWorld` itself stays a pure sync probe.
 
