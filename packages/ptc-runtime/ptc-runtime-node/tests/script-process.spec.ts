@@ -10,7 +10,8 @@ it.each([false, true])('preserves binding error identity and imported realm sema
       const {types} = await import('node:util');
       let failure;
       try { await tools.fail({}) } catch (error) {
-        failure = [error instanceof ToolCallError, error instanceof Error, error.name, error.toolName, error.message, types.isNativeError(error)];
+        failure = [error instanceof ToolCallError, error instanceof Error, error.name, error.toolName, error.message, // oxlint-disable-next-line typescript/no-deprecated -- engine floor node 22.19 lacks Error.isError
+        types.isNativeError(error)];
       }
       ({array: [Array.isArray(array), array instanceof Array], failure})
     `,
