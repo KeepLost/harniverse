@@ -33,11 +33,11 @@
   - button "To-dos 1 completed · 1 in progress"
 - img
 - text: Ongoing Goal Keep the composer context panels aligned
-- button "Pause goal":
-  - img
 - button "Edit goal":
   - img
 - button "Clear goal":
+  - img
+- button "Pause goal":
   - img
 - button "2 queued messages"
 - textbox "Cmd/Ctrl+Enter steers all queued messages"
