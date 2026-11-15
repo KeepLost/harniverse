@@ -39,6 +39,7 @@ import { ApiKeyInput } from './ApiKeyInput.tsx'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { deriveKeyRef, messageOf, protocolChoices } from './store.ts'
+import { protocolNeedsKey } from './protocol-rules.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -393,10 +394,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
     const defaultContextWindow = getPath(fallback, ['defaultContextWindow'])
     const defaultMaxTokens = getPath(fallback, ['maxTokens'])
+    const routeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
+    const keyRequired = props.credentialRequired === true || protocolNeedsKey(routeApi)
     const savedCredential = keyState?.configured === true && keyState.source === 'file' && !keyLocked
     const keyPlaceholder = keyLocked
       ? t('keyEnvLocked')
-      : props.credentialRequired === true
+      : keyRequired
         ? t('keyPlaceholder')
         : t('keyPlaceholderFallback').replace('{hint}', keyRef)
     /** The tri-state hint under the key field: what supplies this credential right now. */
@@ -429,7 +432,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             aria-label={t('keyInput')}
             aria-invalid={shownKeyFailure !== undefined}
             aria-describedby={credentialHint === undefined ? undefined : `${props.provider}-credential-hint`}
-            required={props.credentialRequired === true}
+            required={keyRequired}
             autoFocus={props.autoFocusCredential === true}
             disabled={disabled || keyLocked}
             onChange={(event) => {

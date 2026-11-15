@@ -31,6 +31,7 @@ import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import type { ModelDraft } from './ModelListEditor.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
+import { protocolNeedsKey } from './protocol-rules.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -108,7 +109,11 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   // bad row is named by its position here too. Capacities have route-level
   // fallbacks; what a route cannot default is at least one model.
   const modelFailure = validateDeepSeekModels(models)
-  const keyFailure = apiKeyFailure(keyDraft)
+  // A blank key is a legal choice only where the protocol can authenticate
+  // without one; a key the protocol requires is a requirement still to meet,
+  // not a fault.
+  const keyMissing = protocolNeedsKey(protocol) && keyDraft.trim().length === 0
+  const keyFailure = keyMissing ? 'keyRequired' as const : apiKeyFailure(keyDraft)
   // The typed key with paste whitespace removed. A blank field yields an empty
   // string, which the create path reads as "no key supplied" — a route may
   // legitimately authenticate through the provider's own ambient discovery.
@@ -265,6 +270,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           value={keyDraft}
           placeholder={t('keyPlaceholder')}
           aria-label={t('keyInput')}
+          required={protocolNeedsKey(protocol)}
           disabled={disabled}
           onChange={(event) => { setKeyDraft(event.target.value) }}
         />
@@ -273,7 +279,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
             through the provider's own ambient discovery or OAuth. */}
         {keyFailure === undefined
           ? null
-          : <p className={styles['error']}>{t(keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure)}</p>}
+          : <p className={styles[keyMissing ? 'advancedHint' : 'error']}>{t(keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure)}</p>}
       </div>
       <ModelListEditor
         models={models}

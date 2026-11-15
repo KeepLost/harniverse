@@ -277,3 +277,18 @@ describe('ModelCapabilities', () => {
     expect(screen.queryByLabelText(t('modelDefaultEffort'))).toBeNull()
   })
 })
+
+describe('protocol-narrowed levels', () => {
+  it('offers only the four Gemini levels, each locked to its own name, with no Off', () => {
+    const { patch, view } = mount({}, 'google-generative-ai')
+
+    fireEvent.click(view.getByText(t('modelReasoning')))
+    const enabled = lastPatch(patch)['reasoningEfforts']
+    expect(enabled).toEqual({ minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' })
+
+    const wire = view.getByLabelText(`${t('modelEffortWire')} medium`) as HTMLInputElement
+    expect(wire.disabled).toBe(true)
+    expect(view.queryByText('off')).toBeNull()
+    expect(view.queryByText('xhigh')).toBeNull()
+  })
+})

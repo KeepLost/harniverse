@@ -42,6 +42,7 @@ import { catalogModels } from './catalog.ts'
  */
 const LISTABLE_PROTOCOLS: ReadonlySet<string> = new Set([
   'anthropic-messages',
+  'google-generative-ai',
   'openai-completions',
   'openai-responses',
 ])
@@ -51,6 +52,9 @@ const ANTHROPIC_VERSION = '2023-06-01'
 
 /** Largest model-list page accepted by Anthropic's public endpoint. */
 const ANTHROPIC_MODEL_LIMIT = 1000
+
+/** Largest model-list page accepted by the Gemini API; discovery reads one page and does not follow `nextPageToken`. */
+const GEMINI_MODEL_LIMIT = 1000
 
 /**
  * How many listing pages one interrogation follows. The Anthropic endpoint
@@ -126,6 +130,9 @@ function label(...candidates: readonly unknown[]): string | undefined {
  */
 function listingUrl(baseURL: string, api: string, lastId?: string): string {
   const base = baseURL.replace(/\/+$/, '')
+  // Gemini's `baseURL` already carries the API version, so it lists at its own
+  // `/models` with a page size; it never paginates through this build.
+  if (api === 'google-generative-ai') return `${base}/models?pageSize=${String(GEMINI_MODEL_LIMIT)}`
   if (api !== 'anthropic-messages') return `${base}/models`
   const root = base.endsWith('/v1') ? base.slice(0, -3) : base
   const query = lastId === undefined
@@ -248,6 +255,52 @@ function readListing(body: unknown): { models: LlmDiscoveredModel[]; hasMore: bo
   }
 }
 
+/** One entry of a Gemini `GET /models` reply. */
+interface GeminiListingEntry {
+  name?: unknown
+  displayName?: unknown
+  inputTokenLimit?: unknown
+  outputTokenLimit?: unknown
+  supportedGenerationMethods?: unknown
+}
+
+/**
+ * Read a Gemini model-listing reply. Each entry's `name` is a resource name
+ * such as `models/gemini-2.5-pro`; the request id is that name without the
+ * `models/` prefix, because pi-ai's Gemini protocol sends the bare id. Entries
+ * that declare generation methods without `generateContent`, such as embedding
+ * models, cannot serve a conversation and are skipped. One page only: this
+ * build does not follow `nextPageToken`.
+ * @param body - the parsed reply of one listing page.
+ * @returns the page's rows with no continuation.
+ */
+function readGeminiListing(body: unknown): { models: LlmDiscoveredModel[]; hasMore: false; lastId: undefined } {
+  const listed = (body as { models?: unknown } | null)?.models
+  if (!Array.isArray(listed)) {
+    throw new LlmError(
+      'the endpoint\'s model listing has no "models" array; enter this provider\'s models by hand',
+      'DISCOVERY_FAILED',
+    )
+  }
+  const models: LlmDiscoveredModel[] = []
+  for (const raw of listed as readonly unknown[]) {
+    const entry = raw as GeminiListingEntry | null
+    const methods = entry?.supportedGenerationMethods
+    if (Array.isArray(methods) && !methods.includes('generateContent')) continue
+    const id = label(entry?.name)?.replace(/^models\//u, '')
+    if (id === undefined || id.length === 0) continue
+    const contextWindow = capacity(entry?.inputTokenLimit)
+    const maxTokens = capacity(entry?.outputTokenLimit)
+    models.push({
+      id,
+      name: label(entry?.displayName) ?? id,
+      ...contextWindow === undefined ? {} : { contextWindow },
+      ...maxTokens === undefined ? {} : { maxTokens },
+    })
+  }
+  return { models, hasMore: false, lastId: undefined }
+}
+
 /**
  * Accept one probe key, or refuse it before the header is built. Without this
  * the `fetch` below would throw a ByteString `TypeError` that this function's
@@ -358,6 +411,8 @@ export async function discoverModels(
       headers.set('anthropic-version', ANTHROPIC_VERSION)
       if (credential?.authMode === 'bearer') headers.set('authorization', `Bearer ${credential.value}`)
       else if (credential !== undefined) headers.set('x-api-key', credential.value)
+    } else if (api === 'google-generative-ai') {
+      if (credential !== undefined) headers.set('x-goog-api-key', credential.value)
     } else if (credential !== undefined) {
       headers.set('authorization', `Bearer ${credential.value}`)
     }
@@ -398,7 +453,7 @@ export async function discoverModels(
       throw error
     }
     try {
-      return readListing(JSON.parse(text))
+      return api === 'google-generative-ai' ? readGeminiListing(JSON.parse(text)) : readListing(JSON.parse(text))
     } catch (error: unknown) {
       if (error instanceof LlmError) throw error
       throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
