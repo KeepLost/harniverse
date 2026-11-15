@@ -1020,7 +1020,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'abstract describe(ref: CredentialRef): Promise<CredentialInfo>',
         description: 'Describe one reference for configuration surfaces without exposing the value.',
         parameters: [{ name: 'ref', description: 'the reference to describe.' }],
-        returns: 'configured state, supplying source, and writability.',
+        returns: 'configured state, supplying source, writability, and an optional masked preview of a stored value.',
       },
       {
         signature: 'abstract set(ref: CredentialRef, value: string): Promise<void>',
@@ -1031,6 +1031,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'abstract unset(ref: CredentialRef): Promise<void>',
         description: 'Remove one reference from the provider-managed writable source; removing an absent reference is a no-op. Rejects while a read-only source shadows the reference, like set.',
         parameters: [{ name: 'ref', description: 'the reference to remove.' }],
+      },
+    ],
+  },
+  {
+    key: 'deepseekChatImport',
+    summary: 'Serves the export upload route and the limits the browser checks first.',
+    description: 'Serves the export upload route and the limits the browser checks first.',
+    methods: [
+      {
+        signature: 'uploadRoute(request: Request): Promise<Response>',
+        description: 'The upload route the API proxy carrier serves at UPLOAD_PATH: one `harniverse.operate`-gated POST carries the complete archive, which is buffered in memory, imported, and released when the import ends. The answer streams `application/x-ndjson` progress lines and one outcome line.',
+        parameters: [{ name: 'request', description: 'the raw carrier request with the archive body.' }],
+        returns: 'the streaming NDJSON response.',
+      },
+      {
+        signature: '@Remote({ exportName: \'limits\', requiredCapability: \'harniverse.operate\' }) limits(signal?: AbortSignal): DeepseekChatImportLimits',
+        description: 'Report the limits the browser checks before uploading.',
+        parameters: [{ name: 'signal', description: 'Client cancellation or Remote withdrawal.' }],
+        returns: 'the largest accepted archive size.',
       },
     ],
   },
@@ -2198,7 +2217,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'registerWritableRoot(session: Session, directory: string): () => void',
-        description: 'Permit writes under one directory in this Session\'s future workspace-write operations. The calling context owns the effect; disposal removes only this registration. Other grants to the directory remain effective. Existing operations and persistent processes retain their resolved permissions. Grants are runtime-only and must be registered again after resume or fork. On Windows the grants authorize extra directories only through the fs write/edit tool checks; the process provider refuses additional roots, and no per-directory SIDs or ACL entries are mutated.',
+        description: 'Permit writes under one directory in this Session\'s future workspace-write operations. The calling context owns the effect; disposal removes only this registration. Other grants to the directory remain effective. Existing operations and persistent processes retain their resolved permissions. Grants are runtime-only and must be registered again after resume or fork. On Windows the grants authorize extra directories only through the fs `write`/`edit` tool checks; the process provider refuses additional roots, and no per-directory SIDs or ACL entries are mutated.',
         parameters: [{ name: 'session', description: 'exact live Session receiving the grant; other Sessions and agentless calls are unaffected.' }, { name: 'directory', description: 'absolute execution-world directory; the enforcing host checks existence and rejects symlinked grants.' }],
         returns: 'the exact Cordis effect disposer for this registration.',
         throws: ['when the directory is relative or contains a NUL byte.'],
@@ -2353,6 +2372,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'options', description: 'source bytes or path, authorized destination workspace, and optional target/posture.' }],
         returns: 'the imported session\'s identity and lossy-mapping counts.',
         throws: ['{@link ImportConflictError} when the archive identity already exists; {@link ForeignLogError} when the artifact cannot be decoded, parsed, or mapped, or its version is `current` (native logs restore, not import) or unknown; `TypeError` for an invalid posture or destination; and an `Error` when the backend cannot preserve the source artifact beside the mapped session.'],
+      },
+      {
+        signature: 'async settleConverted(options: SettleConvertedEventsOptions): Promise<ImportedSession>',
+        description: 'Settle one already-converted foreign conversation as an archival session.\n\nThe additive entry for converters that are not official-log readers (the DeepSeek chat export): identity stays content-derived under the conversation\'s lineage prefix, so re-importing the same conversation is a conflict and a grown one continues through `session.continueArchive` — the same discipline as official artifacts, with no resumable-write path.',
+        parameters: [{ name: 'options', description: 'the converter\'s output: contiguous seed events from seq 0 without an `import/record` marker or `session/end-seed` boundary, the exact source bytes to retain, the destination, and display facts.' }],
+        returns: 'the imported session\'s identity and event counts.',
+        throws: ['{@link ImportConflictError} when the archive identity already exists; `TypeError` for an invalid destination or empty event list.'],
       },
     ],
   },
@@ -5528,7 +5554,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CredentialInfo',
-    declaration: 'export interface CredentialInfo {\n    configured: boolean;\n    source?: string;\n    writable: boolean;\n}',
+    declaration: 'export interface CredentialInfo {\n    configured: boolean;\n    source?: string;\n    writable: boolean;\n    masked?: string;\n}',
   },
   {
     name: 'CredentialRef',
@@ -5928,11 +5954,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ImportedSession',
-    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly format: ImportedSessionFormat;\n    readonly artifactName: string;\n    readonly sourceSessionId: string;\n    readonly title?: string;\n    readonly mappedEvents: number;\n    readonly skippedEvents: number;\n}',
+    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly format: ImportedSessionFormat | string;\n    readonly artifactName: string;\n    readonly sourceSessionId: string;\n    readonly title?: string;\n    readonly mappedEvents: number;\n    readonly skippedEvents: number;\n}',
   },
   {
     name: 'ImportedSessionFormat',
-    declaration: 'export type ImportedSessionFormat = \'official-v1\' | \'official-v2\' | \'official-v3\' | \'official-v4\';',
+    declaration: 'export type ImportedSessionFormat = \'official-v1\' | \'official-v2\' | \'official-v3\' | \'official-v4\' | \'deepseek-chat-v3\';',
   },
   {
     name: 'ImportForeignSessionOptions',
@@ -7321,6 +7347,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SettingsUpdateSource',
     declaration: 'export type SettingsUpdateSource = \'update\' | \'provider\';',
+  },
+  {
+    name: 'SettleConvertedEventsOptions',
+    declaration: 'export interface SettleConvertedEventsOptions {\n    readonly format: string;\n    readonly sourceSessionId: string;\n    readonly sourceText: string;\n    readonly title?: string;\n    readonly events: readonly SessionEvent[];\n    readonly artifact: Uint8Array;\n    readonly cwd: string;\n}',
   },
   {
     name: 'SharedConnection',

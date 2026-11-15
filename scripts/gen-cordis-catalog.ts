@@ -109,6 +109,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   workingDirectory: 'session.md',
   worktrees: 'workspace.md',
   sessions: 'session.md',
+  deepseekChatImport: 'persistence.md',
   sessionImport: 'persistence.md',
   ssh: 'ssh.md',
   vm: 'vm.md',
@@ -712,6 +713,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Partial',
   'Pick',
   'Promise',
+  'Request',
   'RequestInit',
   'Record',
   'Readonly',
@@ -724,6 +726,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  DeepseekChatImportLimits: 'the export upload limits are owned by packages/host/deepseek-chat-import/README.md',
+  SettleConvertedEventsOptions: 'the converted-events settle contract is owned by packages/session/session-import/README.md',
   CreatedWorktree: 'the worktree creation contract is owned by packages/workspace/worktree/README.md',
   CreateWorktreeRequest: 'the worktree creation contract is owned by packages/workspace/worktree/README.md',
   HarniverseMux: 'the chat client event stream is owned by packages/chat/chat-harniverse-client/README.md',
