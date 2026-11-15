@@ -351,7 +351,7 @@ async function createFile(
   const sandboxPolicy = policy.resolve(exec)
   const target = await resolveTarget(ctx, path, exec.signal)
   if (await ctx.fs.stat(target, exec.signal) !== undefined) {
-    throw new Error(`File already exists at: ${target.displayPath}. Cannot overwrite files using command \`create\`.`)
+    throw new FsError(`File already exists at: ${target.displayPath}. Cannot overwrite files using command \`create\`.`, 'FS_ALREADY_EXISTS')
   }
   const intent = await ctx.waterfall(
     'fs/write-intent',

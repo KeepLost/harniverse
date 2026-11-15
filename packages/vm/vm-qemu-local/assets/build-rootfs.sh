@@ -123,5 +123,17 @@ if [[ $(uname -s) == Linux ]]; then
   fi
 fi
 
+# Reuse marker: digest every source input (build scripts, guest manifest, and
+# guest sources) so unchanged builds carry across versions and changed sources
+# report stale through ensureAssets. Must mirror computeAssetsSourceDigest in
+# src/assets.ts: sorted relative paths, one "<sha256>  <path>" line each.
+source_digest="$(
+  cd "$package_dir" && {
+    printf '%s\n' assets/build-rootfs.sh assets/qemu-wrap.c guest/Cargo.lock guest/Cargo.toml
+    find guest/src -type f
+  } | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1
+)"
+printf '%s\n' "$source_digest" > "${out_dir}/assets-source.sha256"
+
 echo "build-rootfs: assets ready in ${out_dir}"
 ls -l "${out_dir}"

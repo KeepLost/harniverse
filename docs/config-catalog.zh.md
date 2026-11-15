@@ -4884,6 +4884,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-cmdline`（[`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts)）
 - `@deepseek-ai/dsh-control-channel`（[`packages/subprocess/control-channel/src/index.ts`](../packages/subprocess/control-channel/src/index.ts)）
 - `@deepseek-ai/dsh-deque`（[`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts)）
+- `@deepseek-ai/dsh-error`（[`packages/util/error/src/index.ts`](../packages/util/error/src/index.ts)）
 - `@deepseek-ai/dsh-execution-descriptor`（[`packages/sandbox/execution-descriptor/src/index.ts`](../packages/sandbox/execution-descriptor/src/index.ts)）
 - `@deepseek-ai/dsh-fs-codec`（[`packages/fs/fs-codec/src/index.ts`](../packages/fs/fs-codec/src/index.ts)）
 - `@deepseek-ai/dsh-fs-patch`（[`packages/fs/fs-patch/src/index.ts`](../packages/fs/fs-patch/src/index.ts)）

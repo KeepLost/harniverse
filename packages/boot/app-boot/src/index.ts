@@ -911,9 +911,10 @@ function probeQemuWorld(): ExecWorldAvailability {
  * document, the same escape-hatch shape as `$DSH_PERMISSION_MODE`; a stored
  * `vm` preference on a host whose provider probe is unhealthy degrades to
  * `local` with one notice line, keeping the app startable. A probe that finds
- * a working QEMU binary without staged assets first materializes them from
- * the pinned release (`ensureAssets`) and re-probes; a failed download
- * degrades with the reason in the notice. Resolves before the env settles.
+ * a working QEMU binary without built assets checks them once
+ * (`ensureAssets`); missing or stale assets degrade with the reason and the
+ * build command in the notice — the sandbox stays an optional, locally built
+ * world and never blocks the app. Resolves before the env settles.
  * @param options - overrides for testability; defaults act on this process.
  */
 export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {}): Promise<void> {
@@ -928,15 +929,19 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
     env[EXEC_WORLD_ENV] = 'local'
     return
   }
+  const warn = options.warn ?? (line => void process.stderr.write(line))
   const probeFn = options.probe ?? probeQemuWorld
   const ensure = options.ensureAssets ?? ensureAssets
   let probe = probeFn()
   if (!probe.assetsReady && probe.providerVersion !== undefined) {
     const ensured = await ensure()
     if (ensured.status === 'unavailable') {
-      (options.warn ?? (line => void process.stderr.write(line)))(
-        `app boot: VM asset download failed (${ensured.reason}); composing the local family\n`,
-      )
+      warn(`app boot: VM assets unavailable (${ensured.reason}); composing the local family\n`)
+      env[EXEC_WORLD_ENV] = 'local'
+      return
+    }
+    if (ensured.status === 'stale') {
+      warn(`app boot: VM assets stale (${ensured.reason}); composing the local family\n`)
       env[EXEC_WORLD_ENV] = 'local'
       return
     }
@@ -948,7 +953,7 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
     const bytes = await scan(process.cwd())
     const maxBytes = resolveHostImportMaxBytes(undefined)
     if (bytes > maxBytes) {
-      (options.warn ?? (line => void process.stderr.write(line)))(
+      warn(
         `app boot: the host workspace carries ${bytes} bytes, over the ${maxBytes}-byte VM import bound `
           + '(raise $DSH_VM_IMPORT_MAX_BYTES or slim the tree); composing the local family\n',
       )
@@ -957,9 +962,7 @@ export async function applyExecWorldBootEnv(options: ExecWorldBootEnvOptions = {
     }
   }
   if (world === 'local') {
-    (options.warn ?? (line => void process.stderr.write(line)))(
-      'app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n',
-    )
+    warn('app boot: exec-world prefers vm but the VM provider probe is unhealthy; composing the local family\n')
   }
   env[EXEC_WORLD_ENV] = world
   if (world === 'vm') anchorHostWorkspaceRoot(env)

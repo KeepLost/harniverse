@@ -1338,6 +1338,9 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
         version: link:../../util/brand
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:^
+        version: link:../../util/error
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -7184,6 +7187,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:^
         version: link:../../attachment/attachment
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:^
+        version: link:../../util/error
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../fs
@@ -8448,9 +8454,9 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
         version: link:../../util/brand
-      '@deepseek-ai/dsh-identity':
+      '@deepseek-ai/dsh-error':
         specifier: workspace:^
-        version: link:../../util/identity
+        version: link:../../util/error
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -12649,6 +12655,15 @@ importers:
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
 
+  packages/util/error:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
   packages/util/file-drag:
     dependencies:
       mime:
@@ -13516,6 +13531,9 @@ importers:
       '@deepseek-ai/dsh-environment':
         specifier: workspace:^
         version: link:../../packages/preset/environment
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:^
+        version: link:../../packages/util/error
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs

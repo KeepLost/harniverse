@@ -257,6 +257,14 @@ describe('registration', () => {
     expect(glob?.description).toContain('sampled across top-level entries')
   })
 
+  it('declares glob and grep concurrency-safe', async () => {
+    const { ctx } = await setup()
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('glob-safe'), name: 'glob', arguments: { pattern: '*.ts' } }))
+      .toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('grep-safe'), name: 'grep', arguments: { pattern: 'needle' } }))
+      .toEqual({ kind: 'parallel' })
+  })
+
   it('stays pending until ctx.subprocess exists (inject)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

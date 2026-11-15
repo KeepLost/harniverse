@@ -1,24 +1,12 @@
-/** Release-asset materialization: the manifest trust chain and the download path. */
-import { strict as assert } from 'node:assert'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+/** Locally built assets: presence, the source-digest reuse marker, and no network. */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ensureAssets, parseAssetsManifest } from '../src/assets.ts'
-import { ASSETS_MANIFEST_NAME, ASSETS_URL_ENV } from '../src/release.ts'
-
-// The pinned manifest digest is release state; tests substitute their own pin
-// so synthetic manifests can verify through the same chain.
-const pin = vi.hoisted(() => ({ digest: 'unpinned-test-digest' }))
-vi.mock('../src/release.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/release.ts')>()
-  return { ...actual, get ASSETS_MANIFEST_SHA256() { return pin.digest } }
-})
+import { afterEach, describe, expect, it } from 'vitest'
+import { computeAssetsSourceDigest, ensureAssets, ASSETS_SOURCE_DIGEST_NAME } from '../src/assets.ts'
 
 const dirs: string[] = []
 afterEach(() => {
-  vi.unstubAllEnvs()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -28,242 +16,120 @@ function tempAssetsDir(): string {
   return dir
 }
 
-function sha256hex(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex')
+function stageBootAssets(dir: string): void {
+  writeFileSync(join(dir, 'vmlinuz-virt'), 'kernel')
+  writeFileSync(join(dir, 'initramfs.cpio.gz'), 'initramfs')
 }
 
-function bootAssets(): { kernel: Uint8Array; initramfs: Uint8Array } {
-  return { kernel: new Uint8Array([1, 2, 3]), initramfs: new Uint8Array([4, 5]) }
+function stageMarker(dir: string, digest: string): void {
+  writeFileSync(join(dir, ASSETS_SOURCE_DIGEST_NAME), `${digest}\n`)
 }
 
-/** Build a release file table: assets plus a pinned manifest over exactly those entries. */
-function releaseOf(files: Record<string, Uint8Array>): Map<string, Uint8Array> {
-  const manifestText = Object.entries(files).map(([name, body]) => `${sha256hex(body)}  ${name}`).join('\n') + '\n'
-  const manifest = new TextEncoder().encode(manifestText)
-  pin.digest = sha256hex(manifest)
-  return new Map(Object.entries({ ...files, [ASSETS_MANIFEST_NAME]: manifest }))
+/** A synthetic package root carrying the digest inputs: build scripts plus the guest sources. */
+function syntheticPackageRoot(files: Record<string, string> = {
+  'assets/build-rootfs.sh': '#!/usr/bin/env bash\n',
+  'assets/qemu-wrap.c': 'int main(void) { return 0; }\n',
+  'guest/Cargo.toml': '[package]\nname = "dsh-vm-guest-agent"\n',
+  'guest/Cargo.lock': 'version = 4\n',
+  'guest/src/main.rs': 'fn main() {}\n',
+}): string {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-vm-src-'))
+  dirs.push(root)
+  for (const [rel, body] of Object.entries(files)) {
+    const target = join(root, rel)
+    mkdirSync(join(target, '..'), { recursive: true })
+    writeFileSync(target, body)
+  }
+  return root
 }
 
-/** A release server over a file table, as an injectable fetcher. */
-function releaseServer(files: Map<string, Uint8Array>, log?: (url: string) => void) {
-  return vi.fn(async (url: string): Promise<Uint8Array> => {
-    log?.(url)
-    const name = url.split('/').pop() ?? ''
-    const body = files.get(name)
-    if (body === undefined) throw new Error(`HTTP 404 for ${url}`)
-    return body
-  })
-}
-
-describe('parseAssetsManifest', () => {
-  it('parses sha256sum lines and skips blank ones', () => {
-    const entries = parseAssetsManifest(`${'a'.repeat(64)}  vmlinuz-virt\n\n${'b'.repeat(64)}\tqemu-wrap\n`)
-    expect(entries).toEqual([
-      { digest: 'a'.repeat(64), name: 'vmlinuz-virt' },
-      { digest: 'b'.repeat(64), name: 'qemu-wrap' },
-    ])
+describe('computeAssetsSourceDigest', () => {
+  it('is stable across repeated walks of the same tree', () => {
+    const root = syntheticPackageRoot()
+    expect(computeAssetsSourceDigest(root)).toBe(computeAssetsSourceDigest(root))
   })
 
-  it('rejects malformed lines and path entries', () => {
-    expect(() => parseAssetsManifest('not-a-digest  file')).toThrow('malformed manifest line')
-    expect(() => parseAssetsManifest(`${'a'.repeat(64)}  ../escape`)).toThrow('malformed manifest line')
+  it('changes when any source input changes', () => {
+    const root = syntheticPackageRoot()
+    const before = computeAssetsSourceDigest(root)
+    writeFileSync(join(root, 'guest/src/main.rs'), 'fn main() { changed }\n')
+    expect(computeAssetsSourceDigest(root)).not.toBe(before)
+  })
+
+  it('covers nested guest sources and the build scripts', () => {
+    const root = syntheticPackageRoot({
+      'assets/build-rootfs.sh': 'x\n',
+      'assets/qemu-wrap.c': 'y\n',
+      'guest/Cargo.toml': 'z\n',
+      'guest/Cargo.lock': 'w\n',
+      'guest/src/deep/nested.rs': 'nested\n',
+    })
+    const base = syntheticPackageRoot()
+    expect(computeAssetsSourceDigest(root)).not.toBe(computeAssetsSourceDigest(base))
   })
 })
 
 describe('ensureAssets', () => {
-  it('reports present without network when both boot assets exist', async () => {
-    const assetsDir = tempAssetsDir()
-    writeFileSync(join(assetsDir, 'vmlinuz-virt'), 'k')
-    writeFileSync(join(assetsDir, 'initramfs.cpio.gz'), 'i')
-    const fetchImpl = vi.fn()
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl })
-    expect(result).toEqual({ status: 'present', assetsDir })
-    expect(fetchImpl).not.toHaveBeenCalled()
-  })
-
-  it('downloads missing files and verifies them through the manifest chain', async () => {
-    const assetsDir = tempAssetsDir()
-    const { kernel, initramfs } = bootAssets()
-    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/rel/', fetchImpl: releaseServer(files) })
-    expect(result).toEqual({ status: 'downloaded', assetsDir })
-    expect(readFileSync(join(assetsDir, 'vmlinuz-virt'))).toEqual(Buffer.from(kernel))
-    expect(readFileSync(join(assetsDir, 'initramfs.cpio.gz'))).toEqual(Buffer.from(initramfs))
-    expect(existsSync(join(assetsDir, 'vmlinuz-virt.partial'))).toBe(false)
-  })
-
-  it('re-downloads an existing file whose digest no longer matches once the manifest is fetched', async () => {
-    const assetsDir = tempAssetsDir()
-    const { kernel, initramfs } = bootAssets()
-    writeFileSync(join(assetsDir, 'vmlinuz-virt'), 'stale')
-    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl: releaseServer(files) })
-    expect(result).toEqual({ status: 'downloaded', assetsDir })
-    expect(readFileSync(join(assetsDir, 'vmlinuz-virt'))).toEqual(Buffer.from(kernel))
-    expect(readFileSync(join(assetsDir, 'initramfs.cpio.gz'))).toEqual(Buffer.from(initramfs))
-  })
-
-  it('uses a non-blank env base URL over the default release', async () => {
-    const assetsDir = tempAssetsDir()
-    const { kernel, initramfs } = bootAssets()
-    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
-    const fetchImpl = releaseServer(files)
-    vi.stubEnv(ASSETS_URL_ENV, 'https://mirror.example/rel/')
-    const result = await ensureAssets({ assetsDir, fetchImpl })
-    expect(result).toEqual({ status: 'downloaded', assetsDir })
-    expect(fetchImpl).toHaveBeenCalledWith('https://mirror.example/rel/vmlinuz-virt')
-  })
-
-  it('reports unavailable when the env URL is explicitly blank or the option disables', async () => {
-    const assetsDir = tempAssetsDir()
-    vi.stubEnv(ASSETS_URL_ENV, '  ')
-    expect(await ensureAssets({ assetsDir })).toEqual({ status: 'unavailable', reason: 'asset download disabled', assetsDir })
-    expect(await ensureAssets({ assetsDir, baseUrl: false })).toEqual({ status: 'unavailable', reason: 'asset download disabled', assetsDir })
-  })
-
-  it('rejects a manifest whose digest does not match the pinned release', async () => {
-    const assetsDir = tempAssetsDir()
-    const manifest = new TextEncoder().encode(`${'a'.repeat(64)}  vmlinuz-virt\n`)
-    pin.digest = '0'.repeat(64)
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl: releaseServer(new Map([[ASSETS_MANIFEST_NAME, manifest]])) })
-    expect(result).toEqual({ status: 'unavailable', reason: 'release manifest digest mismatch', assetsDir })
-  })
-
-  it('rejects an asset body whose digest does not match the manifest, leaving no partial file', async () => {
-    const assetsDir = tempAssetsDir()
-    const kernel = new Uint8Array([1])
-    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': new Uint8Array([4]) })
-    files.set('vmlinuz-virt', new Uint8Array([9, 9]))
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl: releaseServer(files) })
-    expect(result).toEqual({ status: 'unavailable', reason: 'asset digest mismatch: vmlinuz-virt', assetsDir })
-    expect(existsSync(join(assetsDir, 'vmlinuz-virt'))).toBe(false)
-    expect(existsSync(join(assetsDir, 'vmlinuz-virt.partial'))).toBe(false)
-  })
-
-  it('reports unavailable when the manifest omits the boot assets', async () => {
-    const assetsDir = tempAssetsDir()
-    const files = releaseOf({ 'qemu-wrap': new Uint8Array([7]) })
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl: releaseServer(files) })
-    expect(result).toEqual({ status: 'unavailable', reason: 'release manifest does not list the boot assets', assetsDir })
-    expect(readFileSync(join(assetsDir, 'qemu-wrap'))).toEqual(Buffer.from(new Uint8Array([7])))
-  })
-
-  it('wraps fetch failures as unavailable with the reason', async () => {
-    const assetsDir = tempAssetsDir()
-    const files = releaseOf({ 'vmlinuz-virt': new Uint8Array([1]), 'initramfs.cpio.gz': new Uint8Array([2]) })
-    const fetchImpl = vi.fn(async (url: string): Promise<Uint8Array> => {
-      if (url.endsWith(ASSETS_MANIFEST_NAME)) return files.get(ASSETS_MANIFEST_NAME)!
-      throw new Error('HTTP 503')
+  it('reports present when both boot assets exist and the marker matches the source digest', async () => {
+    const dir = tempAssetsDir()
+    stageBootAssets(dir)
+    stageMarker(dir, 'feedface')
+    await expect(ensureAssets({ assetsDir: dir, sourceDigest: () => 'feedface' })).resolves.toEqual({
+      status: 'present',
+      assetsDir: dir,
     })
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl })
-    assert(result.status === 'unavailable')
-    expect(result.reason).toContain('asset download failed')
   })
 
-  it('wraps malformed manifest lines as unavailable', async () => {
-    const assetsDir = tempAssetsDir()
-    const manifest = new TextEncoder().encode('not-a-manifest\n')
-    pin.digest = sha256hex(manifest)
-    const files = new Map<string, Uint8Array>([[ASSETS_MANIFEST_NAME, manifest]])
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl: releaseServer(files) })
-    assert(result.status === 'unavailable')
-    expect(result.reason).toContain('malformed manifest line')
+  it('reports unavailable with the build hint when the boot assets were never built', async () => {
+    const dir = tempAssetsDir()
+    stageMarker(dir, 'feedface')
+    const result = await ensureAssets({ assetsDir: dir, sourceDigest: () => 'feedface' })
+    expect(result.status).toBe('unavailable')
+    assertReason(result, /assets:build/)
+  })
+
+  it('reports unavailable when only one boot asset exists', async () => {
+    const dir = tempAssetsDir()
+    writeFileSync(join(dir, 'vmlinuz-virt'), 'kernel')
+    stageMarker(dir, 'feedface')
+    const result = await ensureAssets({ assetsDir: dir, sourceDigest: () => 'feedface' })
+    expect(result.status).toBe('unavailable')
+  })
+
+  it('reports stale when the marker disagrees with the current source digest', async () => {
+    const dir = tempAssetsDir()
+    stageBootAssets(dir)
+    stageMarker(dir, 'old-digest')
+    const result = await ensureAssets({ assetsDir: dir, sourceDigest: () => 'new-digest' })
+    expect(result).toEqual({
+      status: 'stale',
+      reason: 'asset sources changed since the last build; rebuild with assets:build',
+      assetsDir: dir,
+    })
+  })
+
+  it('reports stale when pre-marker assets exist without the digest file', async () => {
+    const dir = tempAssetsDir()
+    stageBootAssets(dir)
+    const result = await ensureAssets({ assetsDir: dir, sourceDigest: () => 'new-digest' })
+    expect(result).toEqual({
+      status: 'stale',
+      reason: 'assets predate the source-digest marker; rebuild with assets:build',
+      assetsDir: dir,
+    })
   })
 })
-
-describe('ensureAssets over the default fetcher', () => {
-  it('downloads through global fetch from a live local release server', async () => {
-    const assetsDir = tempAssetsDir()
-    const { kernel, initramfs } = bootAssets()
-    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
-    const server = await serveRelease(files)
-    try {
-      const result = await ensureAssets({ assetsDir, baseUrl: server.baseUrl })
-      expect(result).toEqual({ status: 'downloaded', assetsDir })
-      expect(readFileSync(join(assetsDir, 'vmlinuz-virt'))).toEqual(Buffer.from(kernel))
-    } finally {
-      await server.close()
-    }
-  })
-
-  it('reports unavailable when the server answers a non-ok status', async () => {
-    const assetsDir = tempAssetsDir()
-    const files = releaseOf({ 'vmlinuz-virt': new Uint8Array([1]), 'initramfs.cpio.gz': new Uint8Array([2]) })
-    files.delete('initramfs.cpio.gz')
-    const server = await serveRelease(files)
-    try {
-      const result = await ensureAssets({ assetsDir, baseUrl: server.baseUrl })
-      assert(result.status === 'unavailable')
-      expect(result.reason).toContain('HTTP 404')
-    } finally {
-      await server.close()
-    }
-  })
-})
-
-/** A one-off HTTP server exposing a release file table at its base URL. */
-async function serveRelease(files: Map<string, Uint8Array>): Promise<{ baseUrl: string; close(): Promise<void> }> {
-  const { createServer } = await import('node:http')
-  const server = createServer((request, response) => {
-    const name = (request.url ?? '').split('/').pop() ?? ''
-    const body = files.get(name)
-    if (body === undefined) {
-      response.statusCode = 404
-      response.end()
-      return
-    }
-    response.end(body)
-  })
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  const address = server.address()
-  if (address === null || typeof address === 'string') throw new Error('no server address')
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error === undefined) resolve()
-        else reject(error)
-      })
-    }),
-  }
-}
 
 describe('ensureAssets default resolution', () => {
-  it('evaluates the default assets directory and the disabled env with no explicit options', async () => {
-    vi.stubEnv(ASSETS_URL_ENV, '')
-    const result = await ensureAssets()
-    expect(result.status === 'present'
-      || (result.status === 'unavailable' && result.reason === 'asset download disabled')).toBe(true)
-  })
-
-  it('falls back to the pinned release URL when the env is unset', async () => {
-    vi.unstubAllEnvs()
-    const fetchImpl = vi.fn(async (): Promise<Uint8Array> => { throw new Error('offline lane') })
-    const result = await ensureAssets({ assetsDir: tempAssetsDir(), fetchImpl })
-    assert(result.status === 'unavailable')
-    expect(result.reason).toContain('asset download failed: offline lane')
-  })
-
-  it('keeps an existing file whose digest already matches the manifest', async () => {
-    const assetsDir = tempAssetsDir()
-    const { kernel, initramfs } = bootAssets()
-    writeFileSync(join(assetsDir, 'vmlinuz-virt'), kernel)
-    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
-    const fetchImpl = releaseServer(files)
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl })
-    expect(result).toEqual({ status: 'downloaded', assetsDir })
-    expect(fetchImpl).toHaveBeenCalledTimes(2)
-    expect(fetchImpl).not.toHaveBeenCalledWith('https://mirror.invalid/vmlinuz-virt')
-  })
-
-  it('wraps a non-Error throw with its string form', async () => {
-    const assetsDir = tempAssetsDir()
-    const { kernel, initramfs } = bootAssets()
-    const files = releaseOf({ 'vmlinuz-virt': kernel, 'initramfs.cpio.gz': initramfs })
-    const fetchImpl = vi.fn(async (): Promise<Uint8Array> => { throw 'boom' })
-    void files
-    const result = await ensureAssets({ assetsDir, baseUrl: 'https://mirror.invalid/', fetchImpl })
-    assert(result.status === 'unavailable')
-    expect(result.reason).toContain('asset download failed: boom')
+  it('walks the real package sources when no digest is injected', async () => {
+    const dir = tempAssetsDir()
+    stageBootAssets(dir)
+    stageMarker(dir, computeAssetsSourceDigest(join(import.meta.dirname, '..')))
+    await expect(ensureAssets({ assetsDir: dir })).resolves.toEqual({ status: 'present', assetsDir: dir })
   })
 })
+
+function assertReason(result: { status: string; reason?: string }, pattern: RegExp): void {
+  expect(result.status === 'unavailable' || result.status === 'stale').toBe(true)
+  expect(result.reason ?? '').toMatch(pattern)
+}

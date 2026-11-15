@@ -520,6 +520,17 @@ export class ToolNotFoundError extends HarnessError {
   }
 }
 
+/** Thrown when a tool body lacks a service or route its contract requires. */
+export class ToolContextUnavailableError extends HarnessError {
+  /**
+   * @param message - model-facing refusal naming what is missing and the remedy.
+   */
+  constructor(message: string) {
+    super(message, 'TOOL_CONTEXT_UNAVAILABLE')
+    this.name = 'ToolContextUnavailableError'
+  }
+}
+
 /** Thrown when a tool body or post-policy value violates its declared output. */
 export class ToolOutputError extends HarnessError {
   /** Schema/value violations in validation order. */

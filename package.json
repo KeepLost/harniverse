@@ -164,7 +164,8 @@
     "web:container": "tsx scripts/container-web-tls.ts",
     "web:container:trust": "tsx scripts/container-web-tls.ts --trust-host",
     "website:build": "pnpm run docs:build",
-    "website:dev": "pnpm run docs:dev"
+    "website:dev": "pnpm run docs:dev",
+    "verify-plugin-entry-exports": "tsx scripts/verify-plugin-entry-exports.ts"
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "0.25.1",

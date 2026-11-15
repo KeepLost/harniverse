@@ -47,6 +47,21 @@ function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
 }
 
 describe('MCP resource tools', () => {
+  it('declares the three resource tools concurrency-safe', async () => {
+    const ctx = await setup()
+    const owner = {} as Agent
+    const request = vi.fn<McpResourceProvider['request']>().mockResolvedValue({ contents: [] })
+    ctx.mcpResources.register('docs', { request }, { visible: key => key === owner })
+    for (const [name, args] of [
+      ['list_mcp_resources', { server: 'docs' }],
+      ['list_mcp_resource_templates', { server: 'docs' }],
+      ['read_mcp_resource', { server: 'docs', uri: 'docs://a' }],
+    ] as const) {
+      expect(ctx.tools.executionMode({ signal: new AbortController().signal, callId: CallId(`${name}-safe`), name, arguments: args, ...{ agent: owner } }))
+        .toEqual({ kind: 'parallel' })
+    }
+  })
+
   it('checks visibility with the caller key before invoking the provider', async () => {
     const ctx = await setup()
     const owner = {} as Agent

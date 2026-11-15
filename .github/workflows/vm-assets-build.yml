@@ -1,0 +1,68 @@
+# Build and verify the VM world boot assets (kernel, initramfs, host wrapper)
+# for `@deepseek-ai/dsh-vm-qemu-local`. The assets are never published: this
+# lane proves the local build works and its source-digest marker is sound.
+# `assets/build-rootfs.sh` writes the marker; `computeAssetsSourceDigest` in
+# `packages/vm/vm-qemu-local/src/assets.ts` mirrors its pipeline.
+name: VM Assets Build
+
+on:
+  pull_request:
+    paths:
+      - 'packages/vm/vm-qemu-local/**'
+      - '.github/workflows/vm-assets-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build assets
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Report toolchain
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq musl-tools cpio
+
+      - name: Build world assets
+        run: bash packages/vm/vm-qemu-local/assets/build-rootfs.sh vm-assets-out
+
+      - name: Verify the source-digest marker
+        run: |
+          cd packages/vm/vm-qemu-local
+          expected="$(
+            {
+              printf '%s\n' assets/build-rootfs.sh assets/qemu-wrap.c guest/Cargo.lock guest/Cargo.toml
+              find guest/src -type f
+            } | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1
+          )"
+          marker="$(tr -d '[:space:]' < ../../../vm-assets-out/assets-source.sha256)"
+          [[ "$marker" == "$expected" ]] || { echo "source-digest marker mismatch: $marker != $expected" >&2; exit 1; }
+
+      - name: Verify the boot assets exist
+        run: |
+          test -s vm-assets-out/vmlinuz-virt
+          test -s vm-assets-out/initramfs.cpio.gz
+          test -s vm-assets-out/qemu-wrap
+
+      - name: Upload assets artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vm-assets
+          path: vm-assets-out/*
+          if-no-files-found: error
+          retention-days: 7

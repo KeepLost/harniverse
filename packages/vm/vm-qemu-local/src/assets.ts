@@ -1,124 +1,90 @@
 /**
- * Release distribution of the world assets: one GitHub Release holds the
- * built kernel, initramfs, and host wrapper next to an `assets-manifest.sha256`
- * in `sha256sum` format. The source pins the manifest digest; the manifest
- * pins every file digest; a custom `$DSH_VM_ASSETS_URL` mirror must serve
- * byte-identical files, because the pinned digest still applies.
+ * Locally built world assets: the kernel, initramfs, and host wrapper come
+ * from `assets/build-rootfs.sh` on this host — never from a download. The
+ * build writes an `assets-source.sha256` marker digesting every source input;
+ * {@link ensureAssets} recomputes that digest so unchanged builds are reused
+ * across versions and source changes report `stale` until rebuilt.
  * @module @deepseek-ai/dsh-vm-qemu-local
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { ASSETS_MANIFEST_NAME, ASSETS_MANIFEST_SHA256, ASSETS_RELEASE_BASE_URL, ASSETS_URL_ENV } from './release.ts'
-import { defaultAssetsDir } from './qemu.ts'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { defaultAssetsDir, findPackageRoot } from './qemu.ts'
 
 /** Options steering {@link ensureAssets}; every field defaults to this host. */
 export interface EnsureAssetsOptions {
   /** Directory receiving the assets; default the package's staged assets. */
   assetsDir?: string
-  /**
-   * Release base URL serving the manifest and the files. Default: a non-blank
-   * `$DSH_VM_ASSETS_URL` wins, a blank one disables downloading, and an unset
-   * one falls back to the pinned release. `false` always disables.
-   */
-  baseUrl?: string | false
-  /** Byte fetcher for the manifest and asset bodies; default global `fetch`. */
-  fetchImpl?: (url: string) => Promise<Uint8Array>
+  /** Source-digest computation override; default walks this package's sources. */
+  sourceDigest?: () => string
 }
 
-/** Outcome of one {@link ensureAssets} run; `unavailable` carries the reason the caller degrades on. */
+/** Outcome of one {@link ensureAssets} run; `stale` and `unavailable` carry the reason the caller degrades on. */
 export type EnsureAssetsResult =
-  | { status: 'present' | 'downloaded'; assetsDir: string }
-  | { status: 'unavailable'; reason: string; assetsDir: string }
+  | { status: 'present'; assetsDir: string }
+  | { status: 'stale' | 'unavailable'; reason: string; assetsDir: string }
 
-/** One `sha256sum`-format manifest line: a file basename and its digest. */
-interface ManifestEntry {
-  name: string
-  digest: string
-}
+/** Filename holding the source-digest marker inside the assets directory. */
+export const ASSETS_SOURCE_DIGEST_NAME = 'assets-source.sha256'
+
+/** Fixed source inputs of the digest, relative to the package root, beside `guest/src/`. */
+const SOURCE_INPUTS = ['assets/build-rootfs.sh', 'assets/qemu-wrap.c', 'guest/Cargo.lock', 'guest/Cargo.toml'] as const
+
+const moduleDir = dirname(fileURLToPath(import.meta.url))
 
 function sha256hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-async function fetchBytes(url: string): Promise<Uint8Array> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(600_000) })
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
-  return new Uint8Array(await response.arrayBuffer())
-}
-
-/**
- * Parse `sha256sum` output lines; rejects malformed lines and non-basename entries.
- * @param text - the manifest file's text, one digest-prefixed line per asset.
- * @returns the manifest entries in file order.
- */
-export function parseAssetsManifest(text: string): ManifestEntry[] {
-  const entries: ManifestEntry[] = []
-  for (const line of text.split('\n')) {
-    if (line.length === 0) continue
-    const match = /^([0-9a-f]{64})[ \t]+(\S+)$/.exec(line)
-    const [, digest, name] = match ?? []
-    if (digest === undefined || name === undefined || name.includes('/')) {
-      throw new Error(`malformed manifest line: ${line}`)
-    }
-    entries.push({ digest, name })
+/** Collect every file under `dir` as package-root-relative POSIX-style paths. */
+function walkFiles(root: string, relDir: string): string[] {
+  const entries: string[] = []
+  for (const name of readdirSync(join(root, relDir))) {
+    const rel = `${relDir}/${name}`
+    if (statSync(join(root, rel)).isDirectory()) entries.push(...walkFiles(root, rel))
+    else entries.push(rel)
   }
   return entries
 }
 
 /**
- * Materialize the boot assets: present files pass through, missing ones are
- * downloaded from the release and digest-verified through the manifest chain.
- * Network and verification failures report `unavailable` with the reason
- * instead of throwing, so boot composition can degrade honestly.
- * @param options - assets directory, release base URL, and fetcher overrides.
+ * Digest every asset source input — the build scripts, the guest manifest,
+ * and the guest sources — into one SHA-256, matching the pipeline
+ * `assets/build-rootfs.sh` uses when it writes the marker.
+ * @param packageRoot - the `dsh-vm-qemu-local` package root to digest.
+ * @returns the lowercase hex digest of the sorted per-file digest lines.
+ */
+export function computeAssetsSourceDigest(packageRoot: string): string {
+  const rels = [...SOURCE_INPUTS, ...walkFiles(packageRoot, 'guest/src')].sort()
+  const lines = rels.map(rel => `${sha256hex(readFileSync(join(packageRoot, rel)))}  ${rel}\n`).join('')
+  return sha256hex(new TextEncoder().encode(lines))
+}
+
+/**
+ * Check the locally built boot assets: present files pass through when the
+ * source-digest marker matches the current sources; missing files report
+ * `unavailable` and changed sources report `stale`, each with the build
+ * command as the remedy, so boot composition can degrade honestly. Building
+ * is the user's explicit call (`pnpm --filter @deepseek-ai/dsh-vm-qemu-local
+ * assets:build`, needs a Rust musl toolchain); nothing is ever downloaded.
+ * @param options - assets directory and source-digest overrides.
  * @returns the outcome for the caller's degrade-or-proceed decision.
  */
+// oxlint-disable-next-line typescript/require-await -- the boot seam awaits this call; the local check itself is synchronous.
 export async function ensureAssets(options: EnsureAssetsOptions = {}): Promise<EnsureAssetsResult> {
   const assetsDir = options.assetsDir ?? defaultAssetsDir()
-  if (existsSync(join(assetsDir, 'vmlinuz-virt')) && existsSync(join(assetsDir, 'initramfs.cpio.gz'))) {
-    return { status: 'present', assetsDir }
+  if (!existsSync(join(assetsDir, 'vmlinuz-virt')) || !existsSync(join(assetsDir, 'initramfs.cpio.gz'))) {
+    return { status: 'unavailable', reason: 'assets not built; run pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build', assetsDir }
   }
-  const envRaw = process.env[ASSETS_URL_ENV]
-  const baseUrl = options.baseUrl !== undefined
-    ? options.baseUrl
-    : envRaw === undefined
-      ? ASSETS_RELEASE_BASE_URL
-      : envRaw.trim().length === 0 ? false : envRaw.trim()
-  if (baseUrl === false) {
-    return { status: 'unavailable', reason: 'asset download disabled', assetsDir }
+  const markerPath = join(assetsDir, ASSETS_SOURCE_DIGEST_NAME)
+  if (!existsSync(markerPath)) {
+    return { status: 'stale', reason: 'assets predate the source-digest marker; rebuild with assets:build', assetsDir }
   }
-  const fetchImpl = options.fetchImpl ?? fetchBytes
-  try {
-    const manifest = await fetchImpl(`${baseUrl}${ASSETS_MANIFEST_NAME}`)
-    if (sha256hex(manifest) !== ASSETS_MANIFEST_SHA256) {
-      return { status: 'unavailable', reason: 'release manifest digest mismatch', assetsDir }
-    }
-    const entries = parseAssetsManifest(new TextDecoder().decode(manifest))
-    mkdirSync(assetsDir, { recursive: true })
-    for (const entry of entries) {
-      const target = join(assetsDir, entry.name)
-      if (existsSync(target) && sha256hex(await readFile(target)) === entry.digest) continue
-      const body = await fetchImpl(`${baseUrl}${entry.name}`)
-      const staging = join(assetsDir, `${entry.name}.partial`)
-      try {
-        if (sha256hex(body) !== entry.digest) {
-          return { status: 'unavailable', reason: `asset digest mismatch: ${entry.name}`, assetsDir }
-        }
-        writeFileSync(staging, body)
-        renameSync(staging, target)
-      } finally {
-        rmSync(staging, { force: true })
-      }
-    }
-    if (!existsSync(join(assetsDir, 'vmlinuz-virt')) || !existsSync(join(assetsDir, 'initramfs.cpio.gz'))) {
-      return { status: 'unavailable', reason: 'release manifest does not list the boot assets', assetsDir }
-    }
-    return { status: 'downloaded', assetsDir }
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    return { status: 'unavailable', reason: `asset download failed: ${reason}`, assetsDir }
+  const digest = (options.sourceDigest ?? (() => computeAssetsSourceDigest(findPackageRoot(moduleDir))))()
+  if (readFileSync(markerPath, 'utf8').trim() !== digest) {
+    return { status: 'stale', reason: 'asset sources changed since the last build; rebuild with assets:build', assetsDir }
   }
+  return { status: 'present', assetsDir }
 }

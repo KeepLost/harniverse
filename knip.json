@@ -435,6 +435,11 @@
         "src/**/*.ts"
       ]
     },
+    "packages/util/error": {
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
     "packages/util/deque": {
       "entry": [
         "tests/**/*.spec.ts"

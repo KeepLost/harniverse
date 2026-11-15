@@ -9,6 +9,7 @@
   ],
   "references": [
     { "path": "../../util/identity" },
+    { "path": "../../util/error" },
     {
       "path": "../../../vendor/cosmokit"
     },

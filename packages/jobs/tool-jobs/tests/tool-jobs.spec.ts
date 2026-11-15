@@ -502,6 +502,14 @@ describe('tool-owned UI presentation (presentCall)', () => {
     expect(ctx.tools.get('job_kill')?.presentCall?.({ job_id: 'subagent-2' }))
       .toEqual({ card: 'generic', title: 'Kill background job subagent-2', kind: 'execute', rawInput: 'subagent-2' })
   })
+
+  it('declares job_list concurrency-safe while job_output stays exclusive', async () => {
+    const { ctx } = await setup()
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('job-list-safe'), name: 'job_list', arguments: {} }))
+      .toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('job-output-exclusive'), name: 'job_output', arguments: { job_id: 'j1' } }))
+      .toEqual({ kind: 'exclusive' })
+  })
 })
 
 describe('completion notices across scoped mounts', () => {

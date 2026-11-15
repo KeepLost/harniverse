@@ -835,8 +835,29 @@ describe('mapStopReason / mapUsage', () => {
     }))).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
   })
 
+  it('classifies by the leading HTTP status when one is present', () => {
+    // pi-ai's SDK providers render an HTTP failure as `<status> <body>`, and the
+    // body can quote another hop's status: a gateway 500 embedding its upstream
+    // 401 must classify as the gateway's 500, not an auth failure.
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: '500 {"error":{"origin":"upstream","message":"upstream returned an error response: User not found.","type":"upstream_error","upstream":{"provider":"custom","status":401,"body":{"error":{"type":"<nil>","message":"User not found."}}}}}',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: '502 {"error":{"message":"upstream status 400"}}' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: '400 {"error":{"message":"upstream returned 429 Too Many Requests"}}' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: '404 {"error":{"message":"upstream status 403"}}' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'PI_AI_ERROR' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: '429 Too Many Requests: slow down' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
+  })
+
   it.each([
-    'other side closed',
     'HTTP2 request did not get a response',
     'WebSocket closed unexpectedly',
     // undici flattens a mid-stream socket drop to this bare word (its SocketError

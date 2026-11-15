@@ -20,6 +20,7 @@ type ToolName = 'schedule_create' | 'schedule_list' | 'schedule_update' | 'sched
 
 interface ToolExecute {
   execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown>
+  isConcurrencySafe?: (args: unknown) => boolean
 }
 
 async function harness(): Promise<{ test: Harness; cleanup: () => Promise<void> }> {
@@ -91,6 +92,18 @@ afterEach(() => {
 })
 
 describe('tool-scheduler unit composition', () => {
+  it('declares schedule_list concurrency-safe; the mutating tools stay exclusive', async () => {
+    const { test, cleanup } = await harness()
+    try {
+      expect(test.definitions.schedule_list.isConcurrencySafe?.({})).toBe(true)
+      expect(test.definitions.schedule_create.isConcurrencySafe).toBeUndefined()
+      expect(test.definitions.schedule_update.isConcurrencySafe).toBeUndefined()
+      expect(test.definitions.schedule_delete.isConcurrencySafe).toBeUndefined()
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('schedule_create anchors recurrence and rejects ambiguous timing', async () => {
     const { test, cleanup } = await harness()
     try {

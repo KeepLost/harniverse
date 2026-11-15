@@ -346,6 +346,8 @@ export function apply(ctx: Context, config: Config): void {
     name: 'job_list',
     description: 'List your shell and terminal background jobs (running and finished) with their ids, kinds, and statuses. Subagent Sessions are managed separately and do not appear here.',
     parameters: {},
+    // Listing reads a status snapshot and consumes no output cursor or completion notice.
+    isConcurrencySafe: () => true,
     output: {
       schema: { type: 'array', items: PUBLIC_TASK_SCHEMA },
       render: (_args, jobs) => [{
