@@ -203,6 +203,20 @@ function renderDocument(text: string | undefined, ref: CredentialRef, value: str
   return document.toString()
 }
 
+/**
+ * Keep the provider identifier and five leading/four trailing key code points
+ * only when at least eight key code points stay hidden; otherwise mask all.
+ * @param value - stored credential, with an optional identifier ending at the first hyphen or underscore.
+ * @returns a same-length code-point preview without the full credential.
+ */
+function maskCredential(value: string): string {
+  const chars = Array.from(value)
+  const providerEnd = chars.findIndex(char => char === '-' || char === '_') + 1
+  const hidden = chars.length - providerEnd - 5 - 4
+  return hidden < 8 ? '•'.repeat(chars.length)
+    : `${chars.slice(0, providerEnd + 5).join('')}${'•'.repeat(hidden)}${chars.slice(-4).join('')}`
+}
+
 /** File-backed credentials provider (`$DSH_HOME/.credentials.yaml`). */
 export class LocalCredentialProvider extends CredentialProvider {
   /* jscpd:ignore-start -- deliberate config-surface and lifecycle symmetry with
@@ -324,7 +338,7 @@ export class LocalCredentialProvider extends CredentialProvider {
       return Promise.resolve({ configured: true, source: 'env', writable: false })
     }
     const stored = this.values.get(ref)
-    if (stored !== undefined) return Promise.resolve({ configured: true, source: 'file', writable: true })
+    if (stored !== undefined) return Promise.resolve({ configured: true, source: 'file', writable: true, masked: maskCredential(stored) })
     const fallback = this.dotenvFallback(ref)
     if (fallback !== undefined) return Promise.resolve({ configured: true, source: fallback.source, writable: true })
     return Promise.resolve({ configured: false, writable: true })

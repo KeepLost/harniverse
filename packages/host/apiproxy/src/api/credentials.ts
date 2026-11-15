@@ -17,14 +17,21 @@ export interface CredentialView {
   source?: string
   /** Whether `credentials.set`/`credentials.unset` can affect this reference. */
   writable: boolean
+  /** Same-length masked preview of the stored value; present when the writable layer supplies it. */
+  masked?: string
 }
+
+/** Upper bound on references one describe batch may carry. */
+export const CREDENTIALS_DESCRIBE_MAX_REFS = 64
 
 /** Credentials-domain unary methods (the map keys credentials.* of RpcMethodMap). */
 export interface CredentialsApi {
   /**
-   * Describe the named references (batch): configured state, winning source,
-   * and writability — never values. An invalid reference name is a
-   * `bad-request`; an unknown-but-valid one describes as unconfigured.
+   * Describe the named references (batch of at most
+   * {@link CREDENTIALS_DESCRIBE_MAX_REFS}): configured state, winning source,
+   * writability, and an optional masked preview — never values. An invalid
+   * reference name is a `bad-request`; an unknown-but-valid one describes as
+   * unconfigured.
    */
   describe(request: RpcRequest<{ refs: string[] }>): Promise<RpcResponse<{ credentials: Record<string, CredentialView> }>>
 

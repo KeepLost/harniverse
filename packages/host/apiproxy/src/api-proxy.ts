@@ -129,6 +129,7 @@ import type {} from '@deepseek-ai/dsh-skill'
 import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsDescriptor, SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { CREDENTIALS_DESCRIBE_MAX_REFS } from './api/index.ts'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import type { CallId, MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -5942,12 +5943,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async describe(request) {
         const credentials = ctx.get('credentials')
         if (credentials === undefined) return err(request, credentialsAbsent())
+        if (request.payload.refs.length > CREDENTIALS_DESCRIBE_MAX_REFS) {
+          return err(request, {
+            code: 'bad-request',
+            message: `credentials.describe accepts at most ${CREDENTIALS_DESCRIBE_MAX_REFS} references per batch`,
+            details: { issues: [] },
+          })
+        }
         const entries = await Promise.all(request.payload.refs.map(async (ref) => {
           const info = await credentials.describe(credentialRef(ref))
           const view: CredentialView = {
             configured: info.configured,
             ...info.source === undefined ? {} : { source: info.source },
             writable: info.writable,
+            ...info.masked === undefined ? {} : { masked: info.masked },
           }
           return [ref, view] as const
         }))
