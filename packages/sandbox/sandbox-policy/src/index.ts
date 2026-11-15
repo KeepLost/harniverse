@@ -219,7 +219,6 @@ export class SandboxPolicyService extends Service {
         if (registrations.size === 0) this.writableRootRegistrations.delete(session)
       }
     }, 'sandboxPolicy.registerWritableRoot()')
-    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup preserves the exact Cordis effect disposer
     return dispose
   }
 
