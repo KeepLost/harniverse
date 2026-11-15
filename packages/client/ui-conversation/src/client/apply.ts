@@ -49,6 +49,7 @@ import { ConversationSession, ConversationSessionHeader } from './skeleton/Conve
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
+import { registerFenceLayers } from './fence/register.ts'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 import {
   CONVERSATION_SETTINGS_NAMESPACE, DEFAULT_LINK_DESTINATION, LINK_DESTINATION_FIELD,
@@ -215,6 +216,7 @@ export function apply(ctx: Context): void {
 
   registerConversationNodes(ctx)
   registerChatNodeRenderers(ctx)
+  registerFenceLayers(ctx)
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')
 

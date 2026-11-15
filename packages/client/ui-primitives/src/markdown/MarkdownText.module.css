@@ -295,3 +295,9 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* The delegate's fence seat spaces the fence among its siblings, so the
+   delegate's blocks carry no margins of their own. */
+.fenceSeat {
+  margin: 12px 0;
+}

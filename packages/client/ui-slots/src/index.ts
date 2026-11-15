@@ -294,6 +294,13 @@ export interface ChainRenderOpts {
 export interface HocRenderOpts {
   /** Innermost content wrapped by the slot's entries. */
   children?: ReactNode
+  /**
+   * Dispatch key: entries registered with exactly this `key` join the
+   * wildcard entries (registered without `key`); within one `id` the
+   * exact-key entry replaces the wildcard one. Omitted, only wildcard
+   * entries apply.
+   */
+  entryKey?: string
 }
 
 /**
@@ -817,6 +824,11 @@ export type KindOptions<
       }
         : SlotMap[K]['kind'] extends 'hoc' ? {
           id: string
+          /**
+           * Dispatch key: this layer applies to renders whose `entryKey`
+           * matches, beside the wildcard layers registered without a key.
+           */
+          key?: string
           /** Nesting position: ascending, default 0; the lowest order is the outermost layer. */
           order?: number
           /** Cell shadowing rank (ascending, default 0, lowest renders; same id + same priority throws — see {@link SlotCore.register}). */
@@ -1267,7 +1279,12 @@ export class SlotCore {
       case 'list':
       case 'hoc': {
         if (options.id === undefined) throw new Error(`${spec.kind} slot "${options.name}" requires options.id`)
-        const occupant = rec.entries.find(e => e.options.id === options.id && (e.options.priority ?? 0) === priority)
+        // A hoc layer's cell pairs its id with its dispatch key, so a keyed
+        // layer and a wildcard of the same id coexist as alternatives.
+        const sameCell = spec.kind === 'hoc'
+          ? (e: StoredEntry) => e.options.id === options.id && e.options.key === options.key
+          : (e: StoredEntry) => e.options.id === options.id
+        const occupant = rec.entries.find(e => sameCell(e) && (e.options.priority ?? 0) === priority)
         if (occupant) {
           throw new Error(`${spec.kind} slot "${options.name}" already has an entry with id "${options.id}" ${occupantHint(occupant)}`)
         }
@@ -1399,8 +1416,12 @@ export class SlotCore {
     const seenCells = new Set<string | undefined>()
     for (const entry of rec.entries) {
       if (this.abdicated.has(entry)) continue
-      // Single-kind entries all share the one undefined cell.
-      const cell = kind === 'keyed' ? entry.options.key : kind === 'list' || kind === 'hoc' ? entry.options.id : undefined
+      // Single-kind entries all share the one undefined cell; a hoc entry's
+      // cell is its id paired with its dispatch key, so a keyed layer and a
+      // wildcard of the same id stay alternatives rather than shadowing.
+      const cell = kind === 'keyed' ? entry.options.key
+        : kind === 'list' ? entry.options.id
+          : kind === 'hoc' ? `${String(entry.options.id)}\0${entry.options.key ?? ''}` : undefined
       if (seenCells.has(cell)) continue
       seenCells.add(cell)
       heads.push(entry)

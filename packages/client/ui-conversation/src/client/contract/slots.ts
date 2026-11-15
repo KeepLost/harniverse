@@ -10,7 +10,7 @@ import type {
   ConversationTurnDataMap, ObservableSnapshot, PendingInteraction, PendingWait, SessionId,
   ToolCallBlock, TurnLocation, WorkspaceId,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownDelegateFenceInfo, MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { HostDescription, MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -198,6 +198,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * message event).
      */
     'conversation.chat.assistant.meta': { kind: 'single'; scope: 'session'; owner: AssistantMetaOwnerProps }
+    /**
+     * Language-keyed layers around one Markdown fence in the chat flow; the
+     * content is the plain code block, so a language without a layer renders
+     * as code. Declared by the assistant-step entry; layers dispatch on the
+     * fence's lowercased language word through the hoc `entryKey`.
+     */
+    'conversation.chat.markdown.fence': {
+      kind: 'hoc'
+      scope: 'session'
+      owner: MarkdownDelegateFenceInfo
+    }
     // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
     // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
@@ -480,10 +491,11 @@ export interface AssistantMetaOwnerProps {
 export type ChatUserSeatViewProps = ChatNodeViewProps<'user'>
   & PropsRenderSlots<'conversation.chat.user.images'>
 
-/** Full props of the assistant-step chat renderer that declares the assistant-images, reasoning-body, and assistant-meta seats. */
+/** Full props of the assistant-step chat renderer that declares the assistant-images, reasoning-body, assistant-meta, and fence seats. */
 export type AssistantSeatViewProps = ChatNodeViewProps<'assistant-step'>
   & PropsRenderSlots<
     'conversation.chat.assistant.images' | 'conversation.chat.reasoning.body' | 'conversation.chat.assistant.meta'
+    | 'conversation.chat.markdown.fence'
   >
 
 /** Owner currency of the details panel's Tool output renderer. */

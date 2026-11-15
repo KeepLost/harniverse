@@ -96,3 +96,46 @@
 .plain {
   color: var(--dsw-alias-label-primary);
 }
+
+/* Diff fences paint full-bleed rows with the DiffBlock family's meaning colors:
+   removed on the error token, added on the success token. */
+.diffFence {
+  padding: 8px 0 16px;
+}
+
+.diffLine {
+  display: inline-block;
+  width: 100%;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+.diffAdd {
+  background: color-mix(in oklab, var(--dsw-alias-state-success-primary) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-success-primary);
+}
+
+.diffDel {
+  background: color-mix(in oklab, var(--dsw-alias-state-error-primary) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-state-error-primary);
+}
+
+.diffMarker {
+  margin-inline-end: 1ch;
+}
+
+.diffAdd .diffMarker {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.diffDel .diffMarker {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.diffHunk {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.diffMeta {
+  color: var(--dsw-alias-label-tertiary);
+}

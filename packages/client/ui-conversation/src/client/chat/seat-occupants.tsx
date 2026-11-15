@@ -11,6 +11,8 @@ import { AssistantNodeView } from './AssistantNodeView.tsx'
 import { UserMessageNodeView } from './MessageItem.tsx'
 import css from './ReasoningRow.module.css'
 import type { FileActions } from '@deepseek-ai/dsh-client-ui-file-actions/client'
+import { FenceCodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownDelegateFenceInfo } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ImageActionsFor, ImageLightboxActionLabels } from '@deepseek-ai/dsh-client-ui-attachment'
 
 /** The file-actions inject face this seat's registration declares; members stay optional for standalone renders. */
@@ -83,7 +85,7 @@ export const UserMessageSeatView = memo(function UserMessageSeatView(
  * this key, and the bound renders survive the inner memo.
  */
 export const AssistantSeatView = memo(function AssistantSeatView(
-  { renderSlot, ...rest }: AssistantSeatViewProps,
+  { renderSlot, t, ...rest }: AssistantSeatViewProps,
 ) {
   const renderImages = useCallback(
     (owner: ChatImagesOwnerProps) => renderSlot('conversation.chat.assistant.images', owner),
@@ -97,7 +99,32 @@ export const AssistantSeatView = memo(function AssistantSeatView(
     (owner: AssistantMetaOwnerProps) => renderSlot('conversation.chat.assistant.meta', owner),
     [renderSlot],
   )
+  const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
+  // Every fence dispatches by language; the content is the plain code block,
+  // so a language without a layer renders as code without diff rows.
+  const renderFence = useCallback(
+    (owner: MarkdownDelegateFenceInfo) => renderSlot('conversation.chat.markdown.fence', owner, {
+      entryKey: owner.lang,
+      children: (
+        <FenceCodeBlock
+          lang={owner.lang}
+          code={owner.code}
+          streaming={owner.streaming}
+          labels={codeLabels}
+          diff={false}
+        />
+      ),
+    }),
+    [renderSlot, codeLabels],
+  )
   return (
-    <AssistantNodeView {...rest} renderImages={renderImages} renderBody={renderBody} renderMeta={renderMeta} />
+    <AssistantNodeView
+      {...rest}
+      t={t}
+      renderImages={renderImages}
+      renderBody={renderBody}
+      renderMeta={renderMeta}
+      renderFence={renderFence}
+    />
   )
 })
