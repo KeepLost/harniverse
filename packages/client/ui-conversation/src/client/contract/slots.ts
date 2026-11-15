@@ -204,11 +204,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * as code. Declared by the assistant-step entry; layers dispatch on the
      * fence's lowercased language word through the hoc `entryKey`.
      */
-    'conversation.chat.markdown.fence': {
-      kind: 'hoc'
-      scope: 'session'
-      owner: MarkdownDelegateFenceInfo
-    }
+    'conversation.chat.markdown.fence': { kind: 'hoc'; scope: 'session'; owner: MarkdownDelegateFenceInfo }
     // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
     // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
