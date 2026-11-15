@@ -50,25 +50,23 @@ it('refuses reuse under another policy until the owner has been released', async
 })
 
 // Windows ACL rejects additional roots; its refusal is covered by sandbox-local's runner tests.
-it.skipIf(process.platform === 'win32')('requires release before changing a retained environment\'s additional writable roots', async () => {
+it.skipIf(process.platform === 'win32')('keeps a retained environment on its launch-time directory grants until release', async () => {
   const { root, cwd, runtime, owner, run } = await setup('workspace-write')
   const extra = join(root, 'extra')
   await mkdir(extra)
   expect((await run('var retained = 7; retained')).value).toBe(7)
-  const spec = runtime.resolve({
+  // A later grant no longer refuses reuse: the retained process keeps the
+  // launch-time set, and only a released-and-recreated environment picks the
+  // new roots up.
+  const granted = runtime.resolve({
     program: 'typeof retained',
     bindings: [],
     stateOwner: owner,
     sandboxPolicy: { mode: 'workspace-write', workspaceRoot: cwd, additionalWritableRoots: [extra] },
   })
-  await expect(runtime.run(spec)).rejects.toThrow('release the retained environment')
-  expect((await run('retained')).value).toBe(7)
+  expect((await runtime.run(granted)).value).toBe('number')
   await runtime.release(owner)
-  expect((await runtime.run(spec)).value).toBe('undefined')
-  const sameRoots = runtime.resolve({ ...spec, program: 'var second = 8; second', sandboxPolicy: { mode: 'workspace-write', workspaceRoot: cwd, additionalWritableRoots: [extra, extra] } })
-  expect((await runtime.run(sameRoots)).value).toBe(8)
-  const changed = runtime.resolve({ ...spec, sandboxPolicy: { mode: 'workspace-write', workspaceRoot: cwd, additionalWritableRoots: [cwd] } })
-  await expect(runtime.run(changed)).rejects.toThrow('release the retained environment')
+  expect((await runtime.run(granted)).value).toBe('undefined')
 })
 
 it('fails closed when confinement is unavailable without spawning Node', async () => {
