@@ -4906,4 +4906,5 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-typert-protocol` ([`packages/typert/protocol/src/index.ts`](../packages/typert/protocol/src/index.ts))
 - `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
 - `@deepseek-ai/dsh-util-file-drag` ([`packages/util/file-drag/src/index.ts`](../packages/util/file-drag/src/index.ts))
+- `@deepseek-ai/dsh-util-ripgrep` ([`packages/util/ripgrep/src/index.ts`](../packages/util/ripgrep/src/index.ts))
 - `@deepseek-ai/dsh-util-workspace-path` ([`packages/util/workspace-path/src/index.ts`](../packages/util/workspace-path/src/index.ts))

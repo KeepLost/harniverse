@@ -1534,6 +1534,7 @@ function inspectionError(error: WorkspaceInspectorError, workspaceId: string, pa
     case 'workspace-file-binary':
     case 'workspace-file-preview-unsupported':
     case 'workspace-file-too-large':
+    case 'workspace-search-failed':
     case 'workspace-entry-stalled':
     case 'workspace-root-stalled':
       return {
@@ -5427,7 +5428,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
         try {
-          return ok(request, await searchWorkspaceFiles(workspace.path, query, signal, {
+          return ok(request, await searchWorkspaceFiles(ctx.get('subprocess'), workspace.path, query, signal, {
             ...(include === undefined ? {} : { include }),
             ...(exclude === undefined ? {} : { exclude }),
           }))

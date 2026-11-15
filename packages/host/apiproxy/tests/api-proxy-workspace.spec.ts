@@ -16,6 +16,7 @@ import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import type { DirectoryPickerCapability } from '@deepseek-ai/dsh-host-directory-picker'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { HostFrame, WorkspaceId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -87,9 +88,12 @@ async function harness(
   extras: {
     openPath?: (path: string, signal: AbortSignal) => Promise<void>
     canOpenPath?: () => boolean
+    /** Omit the local subprocess service (a test registers its own). */
+    localSubprocess?: boolean
   } = {},
 ) {
   const ctx = new Context()
+  if (extras.localSubprocess !== false) await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserQuestionService)
@@ -382,7 +386,7 @@ describe('workspace.create', () => {
 
 describe('workspace file inspection', () => {
   it('refuses host-path inspection while the execution world is remote', async () => {
-    const { api, ctx, root } = await harness()
+    const { api, ctx, root } = await harness(realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))), { kind: 'native', pick: async () => null, pickFile: async () => null }, { localSubprocess: false })
     await ctx.plugin(RemoteWorldRuntime)
     const project = stageDir(root, 'gated')
     writeFileSync(join(project, 'README.md'), 'gated')

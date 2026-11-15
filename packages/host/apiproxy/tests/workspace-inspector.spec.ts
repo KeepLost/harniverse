@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process'
+import { Context } from '@deepseek-ai/cordis'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { open, type FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodeForWrite } from '@deepseek-ai/dsh-fs-codec'
 import {
   WORKSPACE_BINARY_BYTE_LIMIT,
@@ -29,6 +31,11 @@ import {
 
 const execFileAsync = promisify(execFile)
 
+// The search engine runs the packaged ripgrep through the real local
+// subprocess runtime — the same seam production compositions use.
+let subprocess: LocalSubprocessRuntime
+let runtimeCtx: Context | undefined
+
 // `readWorkspaceFile` resolves the machine's host priors itself. On Windows those
 // come from GetACP/GetOEMCP (never from LC_ALL), so the tests pin the priors here
 // instead of leaking the runner's code page into the decoded result.
@@ -44,6 +51,16 @@ const GBK_HOST_PRIORS = { localeCharset: 'gbk', localeLanguage: 'zh', localeTerr
 beforeEach(() => {
   hostPriorsMock.mockReset()
   hostPriorsMock.mockResolvedValue({})
+})
+
+beforeAll(async () => {
+  runtimeCtx = new Context()
+  await runtimeCtx.plugin(LocalSubprocessRuntime).await()
+  subprocess = runtimeCtx.get('subprocess') as LocalSubprocessRuntime
+})
+
+afterAll(async () => {
+  await runtimeCtx?.fiber.dispose()
 })
 
 function tempWorkspace(): string {
@@ -108,7 +125,7 @@ describe('workspace file inspection', () => {
     writeFileSync(join(nested, 'Workbench.tsx'), 'export {}')
     symlinkSync(root, join(nested, 'loop'), 'dir')
 
-    const result = await searchWorkspaceFiles(root, 'workbench', new AbortController().signal)
+    const result = await searchWorkspaceFiles(subprocess, root, 'workbench', new AbortController().signal)
 
     expect(result).toEqual({
       entries: [{ name: 'Workbench.tsx', path: 'src/Workbench.tsx', kind: 'file' }],
@@ -126,21 +143,48 @@ describe('workspace file inspection', () => {
     writeFileSync(join(root, 'tests', 'main.py'), '')
     writeFileSync(join(root, 'dist', 'main.py'), '')
 
-    const defaults = await searchWorkspaceFiles(root, 'main', new AbortController().signal, {
+    const defaults = await searchWorkspaceFiles(subprocess, root, 'main', new AbortController().signal, {
       include: ['*.py'],
     })
     expect(defaults.entries.map(entry => entry.path)).toEqual(['src/main.py', 'tests/main.py'])
 
-    const explicit = await searchWorkspaceFiles(root, 'main', new AbortController().signal, {
+    const explicit = await searchWorkspaceFiles(subprocess, root, 'main', new AbortController().signal, {
       include: ['*.py'],
       exclude: ['tests/'],
     })
     expect(explicit.entries.map(entry => entry.path)).toEqual(['dist/main.py', 'src/main.py'])
 
-    const anchored = await searchWorkspaceFiles(root, 'main', new AbortController().signal, {
+    const anchored = await searchWorkspaceFiles(subprocess, root, 'main', new AbortController().signal, {
       include: ['src/**'],
     })
     expect(anchored.entries.map(entry => entry.path)).toEqual(['src/main.py', 'src/main.ts'])
+  })
+
+  it('honors a workspace .gitignore natively through the packaged ripgrep engine', async () => {
+    const root = tempWorkspace()
+    // rg applies .gitignore inside git repositories; a plain `.ignore` would
+    // apply anywhere, but gitignore is the rule users actually author.
+    await execFileAsync('git', ['-C', root, 'init'])
+    mkdirSync(join(root, 'generated'))
+    writeFileSync(join(root, '.gitignore'), 'generated/\n')
+    writeFileSync(join(root, 'generated', 'needle.ts'), '')
+    writeFileSync(join(root, 'kept-needle.ts'), '')
+
+    const result = await searchWorkspaceFiles(subprocess, root, 'needle', new AbortController().signal)
+
+    expect(result.entries.map(entry => entry.path)).toEqual(['kept-needle.ts'])
+    expect(result.truncated).toBe(false)
+  })
+
+  it('skips hidden entries with the ripgrep engine defaults', async () => {
+    const root = tempWorkspace()
+    mkdirSync(join(root, '.config'))
+    writeFileSync(join(root, '.config', 'needle.json'), '')
+    writeFileSync(join(root, 'visible-needle.json'), '')
+
+    const result = await searchWorkspaceFiles(subprocess, root, 'needle', new AbortController().signal)
+
+    expect(result.entries.map(entry => entry.path)).toEqual(['visible-needle.json'])
   })
 
   it('bounds recursive file-name search results', async () => {
@@ -149,7 +193,7 @@ describe('workspace file inspection', () => {
       writeFileSync(join(root, `match-${index}.txt`), '')
     }
 
-    const result = await searchWorkspaceFiles(root, 'match-', new AbortController().signal)
+    const result = await searchWorkspaceFiles(subprocess, root, 'match-', new AbortController().signal)
 
     expect(result.entries).toHaveLength(WORKSPACE_FILE_SEARCH_RESULT_LIMIT)
     expect(result.truncated).toBe(true)
@@ -162,7 +206,7 @@ describe('workspace file inspection', () => {
         writeFileSync(join(root, `entry-${index}.txt`), '')
       }
 
-      const result = await searchWorkspaceFiles(root, 'missing', new AbortController().signal)
+      const result = await searchWorkspaceFiles(subprocess, root, 'missing', new AbortController().signal)
 
       expect(result).toEqual({ entries: [], truncated: true })
     } finally {
@@ -1192,7 +1236,7 @@ describe('workspace entry classification and short reads', () => {
 
     // The first directory consumes the whole budget, so the queued sibling is
     // reported as truncated instead of scanned.
-    const found = await searchWorkspaceFiles(root, 'late', new AbortController().signal, { exclude: [] })
+    const found = await searchWorkspaceFiles(subprocess, root, 'late', new AbortController().signal, { exclude: [] })
     expect(found.truncated).toBe(true)
     expect(found.entries).toEqual([])
   })

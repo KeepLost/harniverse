@@ -65,6 +65,8 @@ export interface RpcErrorDetailsMap {
   'workspace-file-binary': { workspaceId: string; path: string }
   'workspace-file-preview-unsupported': { workspaceId: string; path: string }
   'workspace-file-too-large': { workspaceId: string; path: string }
+  /** The ripgrep-backed workspace file search could not run or exited abnormally. */
+  'workspace-search-failed': { workspaceId: string; path: string }
   /** One filesystem inspection operation exceeded the watchdog bound and was abandoned. */
   'workspace-entry-stalled': { workspaceId: string; path: string }
   /** The workspace root's breaker is open: repeated stalls paused its operations. */
@@ -242,6 +244,7 @@ export type RpcErrorCode = keyof RpcErrorDetailsMap
  * and {@link rpcErrorSchema} branch parity at runtime.
  */
 export const RPC_ERROR_CODES = [
+  'workspace-search-failed',
   'workspace-entry-stalled',
   'workspace-root-stalled',
   'authentication-principal-mismatch',
