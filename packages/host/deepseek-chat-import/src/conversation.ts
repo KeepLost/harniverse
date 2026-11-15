@@ -212,7 +212,7 @@ class LogBuilder {
       for (const [callIndex, call] of calls.entries()) {
         this.add({
           type: 'tool/result',
-          data: { turn, step, message: toolResult(this.id(), call) },
+          data: { turn, step, message: toolResult(call) },
           surfaceOp: 'append',
           // oxlint-disable-next-line typescript/no-non-null-assertion -- one call seq per call
           sourceEventSeqs: [callSeqs[callIndex]!],
@@ -425,8 +425,8 @@ function assistantMessage(content: ContentBlock[]): AssistantMessage {
   return createAssistantMessage({ content, source: IMPORTED_MODEL_SOURCE })
 }
 
-function toolResult(id: string, call: PendingCall): ToolResultMessage {
-  return createToolResultMessage({ callId: CallId(id), content: [...call.result], isError: call.isError })
+function toolResult(call: PendingCall): ToolResultMessage {
+  return createToolResultMessage({ callId: call.block.id, content: [...call.result], isError: call.isError })
 }
 
 function searchCall(id: string, fragment: Extract<KnownFragment, { type: 'TOOL_SEARCH' }>): PendingCall | undefined {
