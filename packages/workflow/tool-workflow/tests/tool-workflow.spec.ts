@@ -352,9 +352,9 @@ describe('dsh-tool-workflow', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
     const append = session.append.bind(session)
-    session.append = ((type: Parameters<Session['append']>[0], data: never) => {
+    session.append = ((type: string, data: never) => {
       if (type === failedType) throw new Error(`injected ${failedType} failure`)
-      return append(type, data)
+      return (append as (event: string, payload: never) => unknown)(type, data)
     }) as Session['append']
 
     const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })

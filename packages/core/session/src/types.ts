@@ -490,3 +490,23 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     surfaceOp?: SurfaceOp
   } : object)
 }[T]
+
+/**
+ * One positional event call proposed for append, without assigned sequence or
+ * time. The third member is the {@link SurfaceIntent} (required for surface
+ * events, forbidden for log-only ones); append reads only surface metadata
+ * from it, so an already-logged {@link SessionEvent} may be passed unchanged.
+ */
+export type SessionEventInput = {
+  [K in SessionEventType]: readonly [
+    type: K,
+    data: SessionEventMap[K],
+    ...opts: K extends SurfaceEventType ? [opts: SurfaceIntent | SessionEventSurfaceOptions] : [],
+  ]
+}[SessionEventType]
+
+/** Surface metadata as read from an append input's options member — the two fields an event carries. */
+export type SessionEventSurfaceOptions = {
+  sourceEventSeqs?: number[]
+  surfaceOp?: SurfaceOp
+}

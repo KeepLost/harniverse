@@ -14,7 +14,7 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
-import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionHistorySource, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventInput, SessionEventMap, SessionEventSurfaceOptions, SessionEventType, SessionHeader, SessionHistorySource, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { deriveEventMessage, SurfaceManager } from './surface.ts'
 import type { SessionMessageProjection, SessionSurface } from './surface.ts'
@@ -676,6 +676,19 @@ export class Session {
   }
 
   /**
+   * During a tuple-array append's publication, the member being delivered to
+   * `session/event` observers right now; undefined at every other time.
+   * Observers use it to tell which batch member they are seeing, since each
+   * is delivered only after the complete batch has entered the log.
+   */
+  get currentBatchPublication(): SessionEvent | undefined {
+    return this.batchPublication
+  }
+
+  /** The member currently delivered to batch observers; set only inside {@link #appendEvents}. */
+  private batchPublication: SessionEvent | undefined
+
+  /**
    * Append one typed event to the log and synchronously notify observers via
    * the store-owned, module-private publication hooks. The hot path never blocks
    * on I/O — persistence plugins buffer asynchronously. Once the event enters
@@ -714,37 +727,19 @@ export class Session {
     type: T,
     data: SessionEventMap[T],
     ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
-  ): SessionEvent<T> {
-    const surfaceOpts: SurfaceIntent | undefined = opts[0]
-    const surfaceMetadata = {
-      ...surfaceOpts?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: surfaceOpts.sourceEventSeqs },
-      ...surfaceOpts?.surfaceOp === undefined ? {} : { surfaceOp: surfaceOpts.surfaceOp },
-    }
-    const dataSnapshot = snapshotJsonValue(data)
-    if (dataSnapshot === undefined) {
-      throw new Error(`session event "${type}" carries non-JSON-serializable data`)
-    }
-    assertSupportedRequestHeader(type, dataSnapshot, `session event "${type}"`)
-    const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
-    if (surfaceMetadataSnapshot === undefined) {
-      throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
-    }
-    const entry = attachments.get(this)
-    if (entry === null) {
-      throw new Error(`session "${this.id}" cannot append outside a SessionStore`)
-    }
-    if (entry?.appending) {
-      throw new Error('session append cannot reenter while another append is being published')
-    }
-    const event = deepFreeze({
-      type,
-      seq: this.baseSeq + this.log.length,
-      time: Date.now(),
-      data: dataSnapshot,
-      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
-    } as unknown as SessionEvent<T>)
-    this.surfaceManager.validateNext(event as SessionEvent)
-
+  ): SessionEvent<T>
+  append(inputs: readonly SessionEventInput[]): readonly SessionEvent[]
+  append(
+    type: SessionEventType | readonly SessionEventInput[],
+    data?: SessionEventMap[SessionEventType],
+    ...opts: [opts?: SurfaceIntent]
+  ): SessionEvent | readonly SessionEvent[] {
+    if (typeof type !== 'string') return this.#appendEvents(type)
+    const snapshot = this.#snapshotAppend(type, data, opts[0], `session event "${type}"`)
+    // Payload getters can detach the Session while the snapshots are read.
+    const entry = this.appendEntry()
+    const event = this.#createAppendEvent(snapshot, this.baseSeq + this.log.length)
+    this.surfaceManager.validateNext(event)
     if (entry !== undefined) entry.appending = true
     try {
       let callbacks: SessionCallback[] | undefined
@@ -752,18 +747,127 @@ export class Session {
       if (entry !== undefined) {
         callbacks = collectSessionCallbacks(entry.emitCtx, [entry.carrier, 'session/event', ...callbackArgs])
       }
-      this.log.push(event as SessionEvent)
+      this.log.push(event)
       this.eventsSnapshot = undefined
       if (callbacks !== undefined && entry !== undefined) {
         invokeContainedSessionObservers(entry.emitCtx, 'session/event', entry.id, callbackArgs, callbacks)
       }
-      return event
     } finally {
       if (entry !== undefined) {
         entry.appending = false
         if (entry.detachRequested && !entry.announcing) entry.detach()
       }
     }
+    return event
+  }
+
+  /**
+   * Validate and append consecutive events together: every member is validated
+   * before any enters the log, sequences are assigned after all payload
+   * snapshots are read, and observers see each member only after the complete
+   * batch — log and surface — is committed.
+   * @param inputs - event payloads and surface intents in commit order.
+   * @returns immutable committed events in the same order.
+   * @throws before changing the log if any member is empty (a sparse array
+   * names the index), not losslessly JSON-serializable, or fails surface or
+   * header validation.
+   */
+  #appendEvents(inputs: readonly SessionEventInput[]): readonly SessionEvent[] {
+    this.appendEntry()
+    if (inputs.length === 0) return []
+    const snapshots = Array.from({ length: inputs.length }, (_, index) => {
+      const input = inputs.at(index)
+      if (input === undefined) throw new Error(`session batch has an empty member at index ${index}`)
+      const [type, data, surfaceOpts] = input
+      return this.#snapshotAppend(type, data, surfaceOpts, `session batch member ${index} ("${type}")`)
+    })
+    // A payload getter may append to or detach the Session while the snapshots are read.
+    const entry = this.appendEntry()
+    const startSeq = this.baseSeq + this.log.length
+    const events = snapshots.map((snapshot, index) => this.#createAppendEvent(snapshot, startSeq + index))
+    const acceptSurface = this.surfaceManager.prepareBatch(events)
+    if (entry !== undefined) entry.appending = true
+    try {
+      const publications = entry === undefined ? [] : events.map((event) => {
+        const args: unknown[] = [this, event]
+        const callbacks = collectSessionCallbacks(entry.emitCtx, [entry.carrier, 'session/event', ...args])
+        return { args, callbacks }
+      })
+      for (const event of events) this.log.push(event)
+      this.eventsSnapshot = undefined
+      acceptSurface()
+      if (entry !== undefined) {
+        for (const [index, { args, callbacks }] of publications.entries()) {
+          this.batchPublication = events[index]
+          invokeContainedSessionObservers(entry.emitCtx, 'session/event', entry.id, args, callbacks)
+        }
+      }
+    } finally {
+      this.batchPublication = undefined
+      if (entry !== undefined) {
+        entry.appending = false
+        if (entry.detachRequested && !entry.announcing) entry.detach()
+      }
+    }
+    return events
+  }
+
+  /**
+   * Snapshot one append candidate's payload and surface metadata. Surface
+   * metadata is read as the two documented fields only, so an already-logged
+   * event may serve as the options object unchanged.
+   * @param label - error-message prefix naming the call site.
+   */
+  #snapshotAppend(
+    type: SessionEventType,
+    data: unknown,
+    surfaceOpts: SessionEventSurfaceOptions | undefined,
+    label: string,
+  ) {
+    const surfaceMetadata = {
+      ...surfaceOpts?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: surfaceOpts.sourceEventSeqs },
+      ...surfaceOpts?.surfaceOp === undefined ? {} : { surfaceOp: surfaceOpts.surfaceOp },
+    }
+    const dataSnapshot = snapshotJsonValue(data)
+    if (dataSnapshot === undefined) {
+      throw new Error(`${label} carries non-JSON-serializable data`)
+    }
+    assertSupportedRequestHeader(type, dataSnapshot, label)
+    const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
+    if (surfaceMetadataSnapshot === undefined) {
+      throw new Error(`${label} carries non-JSON-serializable surface metadata`)
+    }
+    return { type, data: dataSnapshot, surfaceMetadata: surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown } }
+  }
+
+  /** Freeze one snapshotted candidate as a log event at the given sequence. */
+  #createAppendEvent(
+    snapshot: { type: SessionEventType; data: unknown; surfaceMetadata: { surfaceOp?: unknown; sourceEventSeqs?: unknown } },
+    seq: number,
+  ): SessionEvent {
+    return deepFreeze({
+      type: snapshot.type,
+      seq,
+      time: Date.now(),
+      data: snapshot.data,
+      ...snapshot.surfaceMetadata,
+    } as unknown as SessionEvent)
+  }
+
+  /**
+   * Admission for append paths: store-owned Sessions refuse appends outside
+   * their SessionStore, and no append may reenter an open publication.
+   * @returns the current store attachment, or undefined for an independent Session.
+   */
+  private appendEntry(): SessionEntry | undefined {
+    const entry = attachments.get(this)
+    if (entry === null) {
+      throw new Error(`session "${this.id}" cannot append outside a SessionStore`)
+    }
+    if (entry?.appending) {
+      throw new Error('session append cannot reenter while another append is being published')
+    }
+    return entry
   }
 
   /** Cached fold of the request-header events — see {@link requestHeader}. */
