@@ -1368,6 +1368,28 @@ export interface Config {
 
 来源：[`packages/host/apiproxy/src/index.ts:47`](../packages/host/apiproxy/src/index.ts)
 
+<a id="deepseek-aidsh-host-deepseek-chat-import"></a>
+
+## `@deepseek-ai/dsh-host-deepseek-chat-import`
+
+Requires: `sessionImport` · `workspaceRegistry`
+
+```ts config-catalog
+/** Deployment limits of the importer. */
+export interface Config {
+  /** Most Sessions one import writes, choosing the conversations the export index lists as most recently updated. */
+  maxSessions: number
+  /** Largest export archive, in bytes, one upload may carry; the whole archive is held in memory while it is imported. */
+  maxUploadBytes: number
+  /** Largest declared uncompressed size, in bytes, of one archive entry; larger entries are not decompressed. */
+  maxEntryBytes: number
+  /** Largest UTF-8 size, in bytes, of an imported title, matching the session-title service's limit of the composition. */
+  maxTitleBytes: number
+}
+```
+
+Source: [`packages/host/deepseek-chat-import/src/index.ts:38`](../packages/host/deepseek-chat-import/src/index.ts)
+
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`

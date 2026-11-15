@@ -403,6 +403,7 @@
     { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/host/frontend-static" },
     { "path": "./packages/host/plugin-inventory" },
+    { "path": "./packages/host/deepseek-chat-import" },
     { "path": "./packages/host/official-session-import" },
     { "path": "./packages/host/skin-library" },
     { "path": "./packages/host/capability-management" },

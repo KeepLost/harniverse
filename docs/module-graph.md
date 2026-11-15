@@ -292,6 +292,7 @@ flowchart TD
   subgraph group_host["packages/host"]
     pkg_host_apiproxy["host-apiproxy"]
     pkg_host_capability_management["host-capability-management"]
+    pkg_host_deepseek_chat_import["host-deepseek-chat-import"]
     pkg_host_directory_picker["host-directory-picker"]
     pkg_host_directory_picker_auto["host-directory-picker-auto"]
     pkg_host_directory_picker_browse["host-directory-picker-browse"]
@@ -1569,6 +1570,18 @@ flowchart TD
   pkg_host_capability_management --> pkg_subagent
   pkg_host_capability_management --> pkg_tools
   pkg_host_capability_management --> pkg_typert_protocol
+  pkg_host_deepseek_chat_import --> pkg_attachment
+  pkg_host_deepseek_chat_import --> pkg_brand
+  pkg_host_deepseek_chat_import --> pkg_invariants
+  pkg_host_deepseek_chat_import --> pkg_llm
+  pkg_host_deepseek_chat_import --> pkg_session
+  pkg_host_deepseek_chat_import --> pkg_session_import
+  pkg_host_deepseek_chat_import --> pkg_session_title
+  pkg_host_deepseek_chat_import --> pkg_tool_web
+  pkg_host_deepseek_chat_import --> pkg_tools
+  pkg_host_deepseek_chat_import --> pkg_typert_protocol
+  pkg_host_deepseek_chat_import --> pkg_web
+  pkg_host_deepseek_chat_import --> pkg_workspace
   pkg_workspace_file_write --> pkg_agent_loop
   pkg_workspace_file_write --> pkg_fs
   pkg_workspace_file_write --> pkg_fs_codec
@@ -2523,6 +2536,7 @@ flowchart TD
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`agent-presets`](../packages/preset/agent-presets), [`app-boot`](../packages/boot/app-boot), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`invariants`](../packages/runtime-diagnostics/invariants), [`permission-presets`](../packages/interaction/permission-presets), [`subprocess`](../packages/subprocess/subprocess), [`supervision`](../packages/interaction/supervision), [`util-ripgrep`](../packages/util/ripgrep) |
 | [`host-capability-management`](../packages/host/capability-management) | `host` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`capabilities`](../packages/capability/capabilities), [`invariants`](../packages/runtime-diagnostics/invariants), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`skill`](../packages/skill/skill), [`skill-filesystem`](../packages/skill/skill-filesystem), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
+| [`host-deepseek-chat-import`](../packages/host/deepseek-chat-import) | `host` | [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-import`](../packages/session/session-import), [`session-title`](../packages/session/session-title), [`tool-web`](../packages/web/tool-web), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`web`](../packages/web/web), [`workspace`](../packages/workspace/workspace) |
 | [`workspace-file-write`](../packages/host/workspace-file-write) | `host` | [`agent-loop`](../packages/core/agent-loop), [`fs`](../packages/fs/fs), [`fs-codec`](../packages/fs/fs-codec), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`storage`](../packages/storage/storage), [`storage-domain`](../packages/storage/storage-domain), [`storage-json`](../packages/storage/storage-json), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`mcp-client`](../packages/mcp/mcp-client) | `mcp` | [`capabilities`](../packages/capability/capabilities), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`mcp-resources`](../packages/mcp/mcp-resources), [`scope`](../packages/core/scope), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`plugin-diagnostics-cordis`](../packages/runtime-diagnostics/plugin-diagnostics-cordis) | `runtime-diagnostics` | [`agent-presets`](../packages/preset/agent-presets), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`invariants`](../packages/runtime-diagnostics/invariants), [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) |
