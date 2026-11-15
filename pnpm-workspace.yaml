@@ -98,9 +98,10 @@ overrides:
   # release across every resolution.
   fast-uri@3: 3.1.9
   # GHSA-5r4p-p66f-jhc7 (CVE-2026-111757): hono < 4.13.11 DoS via
-  # crafted multipart boundary — transitive under @modelcontextprotocol/sdk
-  # and @hono/node-server; force the patched release.
-  'hono@4': '4.13.11'
+  # crafted multipart boundary; and the 2026-11 advisory family hitting
+  # hono <= 4.13.15 (five open dependabot alerts) — transitive under
+  # @modelcontextprotocol/sdk and @hono/node-server; force the patched release.
+  'hono@4': '4.13.16'
   # Hold every js-yaml resolution on the v4 line: v5 removes the `Type`
   # class that vendored cordis-plugin-include needs for `!!js` tags. Verified
   # again against the cordis 4.1.0 vendor sync (include 1.1.0 still constructs
@@ -210,7 +211,7 @@ minimumReleaseAgeExclude:
   - node-addon-require-builtin@0.1.4
   - http-cache-semantics@4.3.0
   - '@modelcontextprotocol/sdk@1.32.0'
-  - hono@4.13.11
+  - hono@4.13.16
   - vite@8.1.6
 
 patchedDependencies:
