@@ -46,6 +46,10 @@ const WORKSPACE_CLOSURE = [
   'packages/core/session',
   'packages/core/scope',
   'packages/llm/llm',
+  // dsh-llm re-exports the dependency-free error base and declares it as a
+  // peer; without the local tarball npm resolves it from the registry and
+  // fails ERESOLVE on unreleased lines.
+  'packages/util/error',
   'packages/typert/protocol',
   'packages/auth/authentication',
   'packages/attachment/attachment',

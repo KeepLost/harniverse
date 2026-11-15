@@ -7,13 +7,16 @@
 import type { WorkbenchPreviewKind } from './stores.ts'
 
 const BINARY_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'pdf', 'png', 'svg', 'webp'])
-const LANGUAGE_BY_EXTENSION: Readonly<Record<string, string>> = {
+// A Map, not an object literal: an extension equal to an Object.prototype key
+// (`constructor`, `__proto__`) must miss instead of resolving the inherited
+// member, or a so-named file classifies as code with a non-string language.
+const LANGUAGE_BY_EXTENSION: ReadonlyMap<string, string> = new Map(Object.entries({
   c: 'c', cc: 'cpp', cpp: 'cpp', css: 'css', go: 'go', h: 'c', hpp: 'cpp',
   java: 'java', js: 'javascript', json: 'json', jsonc: 'jsonc', jsx: 'jsx',
   kt: 'kotlin', mjs: 'javascript', php: 'php', py: 'python', rb: 'ruby', rs: 'rust',
   scss: 'scss', sh: 'bash', sql: 'sql', swift: 'swift', toml: 'toml', ts: 'typescript',
   tsx: 'tsx', vue: 'vue', xml: 'xml', yaml: 'yaml', yml: 'yaml', zsh: 'bash',
-}
+}))
 
 function extension(path: string): string {
   /* v8 ignore next -- split always returns at least one element, including for an empty string. */
@@ -35,7 +38,7 @@ export function previewType(path: string): { kind: WorkbenchPreviewKind; languag
   if (ext === 'tsv') return { kind: 'tsv' }
   if (ext === 'pdf') return { kind: 'pdf' }
   if (BINARY_EXTENSIONS.has(ext)) return { kind: 'image' }
-  const language = LANGUAGE_BY_EXTENSION[ext]
+  const language = LANGUAGE_BY_EXTENSION.get(ext)
   return language === undefined ? { kind: 'text' } : { kind: 'code', language }
 }
 

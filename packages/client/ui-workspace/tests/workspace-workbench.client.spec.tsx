@@ -922,6 +922,13 @@ describe('workspace preview helpers', () => {
     expect(previewType('NOTICE')).toEqual({ kind: 'text' })
   })
 
+  it('classifies prototype-key filenames as plain text, not code', () => {
+    expect(previewType('notes.constructor')).toEqual({ kind: 'text' })
+    expect(previewType('__proto__')).toEqual({ kind: 'text' })
+    expect(previewType('schema.toString')).toEqual({ kind: 'text' })
+    expect(previewType('X.CONSTRUCTOR')).toEqual({ kind: 'text' })
+  })
+
   it('parses quoted CSV cells and reports row or column clipping', () => {
     expect(parseCsvPreview('name,note\nalpha,"one, two"\nbeta,"a ""quote"""')).toEqual({
       rows: [['name', 'note'], ['alpha', 'one, two'], ['beta', 'a "quote"']],
