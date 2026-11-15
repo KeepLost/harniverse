@@ -61,6 +61,12 @@ describe('GoalBar', () => {
     expect(actions.onClear).toHaveBeenCalledTimes(1)
   })
 
+  it('orders the constant verbs edit and clear before the phase verb, so their seats never shift', () => {
+    render(<GoalBar goal={makeGoal()} {...makeActions()} t={t} />)
+    const names = screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))
+    expect(names).toEqual(['编辑目标', '清除目标', '暂停目标'])
+  })
+
   it('single-flights rapid clear clicks and hides the committed goal before its projection catches up', async () => {
     const actions = makeActions()
     let resolveClear!: (result: GoalActionResult) => void
