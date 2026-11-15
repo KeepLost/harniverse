@@ -146,7 +146,10 @@ describe('createUploadRoute', () => {
         return new Promise((_resolve, reject) => {
           signal.addEventListener('abort', () => {
             stopped.resolve(undefined)
-            reject(seen.length === 2 ? new ExportSourceError('busy', 'late reason') : signal.reason)
+            // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- rejects with the caller's cancellation reason
+            reject(seen.length === 2
+              ? new ExportSourceError('busy', 'late reason')
+              : signal.reason)
           }, { once: true })
         })
       },
