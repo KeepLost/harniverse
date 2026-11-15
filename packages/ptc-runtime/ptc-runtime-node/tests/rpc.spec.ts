@@ -1,13 +1,11 @@
-import { Duplex, PassThrough } from 'node:stream'
+import { Duplex } from 'node:stream'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { createProcessRpc } from '../src/rpc.ts'
 import { rawPeer } from './raw-peer.ts'
+import { duplexPair } from './duplex-pair.ts'
 
 function endpoints() {
-  const inbound = new PassThrough()
-  const outbound = new PassThrough()
-  const local = Duplex.from({ readable: inbound, writable: outbound })
-  const remote = Duplex.from({ readable: outbound, writable: inbound })
+  const [local, remote] = duplexPair()
   local.on('error', () => {})
   remote.on('error', () => {})
   onTestFinished(() => { local.destroy(); remote.destroy() })

@@ -3,7 +3,6 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Duplex, PassThrough } from 'node:stream'
 import { registerHooks } from 'node:module'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { createProgramEvaluator } from '../src/evaluators/index.ts'
@@ -13,6 +12,7 @@ import { decodePtcJsonWire } from '../src/json-wire.ts'
 import { runNodeMain } from '../src/process.ts'
 import { runPersistentMain } from '../src/persistent-process.ts'
 import type { HostMethods, ProgramMethods } from '../src/protocol.ts'
+import { duplexPair } from './duplex-pair.ts'
 
 type EvaluationResult = Parameters<Parameters<ProgramEvaluator['evaluate']>[1]>[0]
 const formats = ['function-body', 'script', 'repl'] as const
@@ -483,10 +483,7 @@ it('retains import filenames for identical async-function bodies compiled in dif
 })
 
 async function runner(handler: ProgramImportHandler, retained = false, format: PtcProgramFormat = 'script', retainsState = true) {
-  const first = new PassThrough()
-  const second = new PassThrough()
-  const child = Duplex.from({ readable: first, writable: second })
-  const host = Duplex.from({ readable: second, writable: first })
+  const [child, host] = duplexPair()
   child.on('error', () => {})
   host.on('error', () => {})
   const state = { env: {}, stdout: { write: () => true }, stderr: { write: () => true }, chdir() {} }

@@ -41,8 +41,17 @@ await world.destroy()                      // 'clean' (guest poweroff) or 'kille
 `openWorld` 需要资产目录（默认本包 `.cache/assets`，可用 `options.assetsDir` 覆盖）中的 `vmlinuz-virt` 与 `initramfs.cpio.gz`。构建方式：
 
 ```sh
-packages/vm/vm-qemu-local/assets/build-rootfs.sh
+# one-time toolchain prerequisites
+rustup target add x86_64-unknown-linux-musl   # Rust musl target (guest agent)
+sudo apt-get install musl-tools cpio          # linker + initramfs packer (or your distro's equivalent)
+cc --version                                  # optional: builds qemu-wrap; without it openWorld reports sandboxed: false
+
+# the build (either form)
+pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build
+bash packages/vm/vm-qemu-local/assets/build-rootfs.sh          # direct form; accepts an output dir argument
 ```
+
+块内注释：前置一栏是 Rust musl target（guest agent 用）、链接器与 initramfs 打包器（或所用发行版的等价包），`cc` 为可选项——编译 `qemu-wrap`，没有它 `openWorld` 报 `sandboxed: false`；构建一栏两种形式等价，直接形式可接一个输出目录参数。构建在缺少 `cargo` 时拒绝启动并在 stdout 指名缺的工具；应用启动路径永不构建。重建是增量的：钉住的 Alpine 输入缓存在 `.cache/downloads/`（离线重建可把钉住文件放进去——摘要仍然强制校验），`cargo` 复用其 target 目录，未变更的产物原样保留。CI 道 `VM Assets Build`（`.github/workflows/vm-assets-build.yml`）在 VM 包变更时跑同一构建并复核标记；它不发布任何东西。
 
 脚本下载固定版本的 Alpine 3.20.3 minirootfs 与 `linux-virt` 内核 apk（强制校验摘要；apk 内核与 `virtio_blk` 模块同源成对——virt 内核的块设备驱动是模块而非内建），外加固定版本的 `bash` apk 依赖链（`bash` → `libreadline.so.8` → `libncursesw.so.6`，附 terminfo-base；shell 工具通过世界的 subprocess 缝组合 `bash -c` 与常驻交互 bash，而 busybox 没有 bash applet）、编译静态 musl guest agent（`guest/`）与世界内 Landlock 限制包装器，并把 agent 作为 `/init`、包装器作为 `/bin/dsh-vm-confine`、模块置于 `/lib/modules`、bash 载荷一并打进 initramfs。缺少资产或 QEMU 二进制不可用时，`openWorld` 闭合失败（`AssetsMissingError`、`QemuSpawnError`），e2e 套件自跳过。
 

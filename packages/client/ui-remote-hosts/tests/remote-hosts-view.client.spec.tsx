@@ -398,9 +398,9 @@ describe('RemoteHostsView', () => {
   ] as const)('labels the %s lifecycle state and refreshes while it is pending', async (state, label) => {
     const callbacks: TimerHandler[] = []
     const originalInterval = globalThis.setInterval
-    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout, ...args) => {
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout) => {
       if (timeout === 1_000) callbacks.push(handler)
-      return originalInterval(handler, timeout, ...args)
+      return originalInterval(handler, timeout)
     })
     const { face, view } = mount({}, [host({ state })])
     await waitFor(() => { expect(screen.getByText(label)).toBeTruthy() })
@@ -417,9 +417,9 @@ describe('RemoteHostsView', () => {
   it('shows connection feedback immediately and renders deployment progress from the next poll', async () => {
     const callbacks: TimerHandler[] = []
     const originalInterval = globalThis.setInterval
-    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout, ...args) => {
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout) => {
       if (timeout === 1_000) callbacks.push(handler)
-      return originalInterval(handler, timeout, ...args)
+      return originalInterval(handler, timeout)
     })
     let releaseConnect!: (result: RemoteResult<RemoteHostView>) => void
     const progress: RemoteHostProgress = { phase: 'uploading', current: 1, total: 2 }
@@ -485,9 +485,9 @@ describe('RemoteHostsView', () => {
   it('ignores a roster rejection that settles after a newer refresh has taken over', async () => {
     const callbacks: TimerHandler[] = []
     const originalInterval = globalThis.setInterval
-    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout, ...args) => {
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, timeout) => {
       if (timeout === 1_000) callbacks.push(handler)
-      return originalInterval(handler, timeout, ...args)
+      return originalInterval(handler, timeout)
     })
     const stale = Promise.withResolvers<never>()
     const list = vi.fn()

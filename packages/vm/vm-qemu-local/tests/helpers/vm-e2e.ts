@@ -58,7 +58,7 @@ export async function bootRawWorld(readyTimeoutMs = 20_000): Promise<RawWorld> {
   const waiters: { resolve: (payload: string) => void; reject: (error: Error) => void }[] = []
   let closed = false
   socket.on('data', (chunk) => {
-    for (const payload of reader.push(chunk)) {
+    for (const payload of reader.push(Buffer.from(chunk))) {
       const waiter = waiters.shift()
       if (waiter !== undefined) waiter.resolve(payload)
       else pending.push(payload)

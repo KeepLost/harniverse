@@ -6,14 +6,14 @@ import { serveSftp, type FixtureFile } from './sftp-fixture.ts'
 import { serveForwarding } from './forwarding-fixture.ts'
 
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey
-  .export({ type: 'pkcs1', format: 'pem' }).toString()
+  .export({ type: 'pkcs1', format: 'pem' })
 const parsed = utils.parseKey(hostKey)
 if (parsed instanceof Error || Array.isArray(parsed)) throw new Error('Fixture host key invalid')
 export const fingerprint = `SHA256:${createHash('sha256').update(parsed.getPublicSSH()).digest('base64url').replaceAll('-', '+').replaceAll('_', '/')}`
 
 const identity = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey
-export const privateKey = identity.export({ type: 'pkcs1', format: 'pem' }).toString()
-export const encryptedKey = identity.export({ type: 'pkcs1', format: 'pem', cipher: 'aes-256-cbc', passphrase: 'fixture-passphrase' }).toString()
+export const privateKey = identity.export({ type: 'pkcs1', format: 'pem' })
+export const encryptedKey = identity.export({ type: 'pkcs1', format: 'pem', cipher: 'aes-256-cbc', passphrase: 'fixture-passphrase' })
 function parseIdentity(): ParsedKey {
   const key = utils.parseKey(privateKey)
   if (key instanceof Error || Array.isArray(key)) throw new Error('Fixture identity invalid')

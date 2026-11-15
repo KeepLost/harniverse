@@ -21,7 +21,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     },
     stat: async (...args: Parameters<typeof actual.stat>) => {
       const info = await actual.stat(...args)
-      if (failures.emulatePrivatePosixMode && typeof info.mode === 'number') info.mode &= ~0o077
+      if (failures.emulatePrivatePosixMode && info !== undefined && typeof info.mode === 'number') info.mode &= ~0o077
       return info
     },
   }

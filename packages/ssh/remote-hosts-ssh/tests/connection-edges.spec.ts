@@ -61,7 +61,7 @@ function internals(transport: SshTransport): Internals {
 
 it.each(['socket', 'client'] as const)('closes the transport after a fatal %s error', async (source) => {
   const transport = new SshTransport(limits)
-  internals(transport)[source].emit('error', new Error('fixture error'))
+  ;(internals(transport)[source] as EventEmitter).emit('error', new Error('fixture error'))
   await transport.closed
   expect(transport.signal.aborted).toBe(true)
 })
