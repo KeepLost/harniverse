@@ -68,4 +68,6 @@
     - button "导入所选（0）" [disabled]
     - text: 上传会话文件
     - button "选择文件"
-    - text: 也可以直接上传官方的 session.vN.jsonl 或 session.vN.jsonl.zstd 文件。
+    - text: 也可以直接上传官方的 session.vN.jsonl 或 session.vN.jsonl.zstd 文件。 导入 DeepSeek 聊天记录导出
+    - button "选择导出 ZIP"
+    - text: chat.deepseek.com 的 deepseek_data-*.zip；会作为归档会话导入所选工作区。

@@ -13,7 +13,7 @@ export type ImportedSessionFormat = 'official-v1' | 'official-v2' | 'official-v3
 /** Provenance of one imported archival session, folded from its `import/record` marker. */
 export interface SessionImportProjection {
   /** The provenance label the archive was mapped from (an official generation or a DeepSeek chat export). */
-  readonly format: ImportedSessionFormat | string
+  readonly format: string
   /** The official session's own id, when the marker records it. */
   readonly sourceSessionId?: string
   /** The official session's working directory, kept as provenance only. */

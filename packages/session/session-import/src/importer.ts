@@ -73,7 +73,7 @@ export interface ImportedSession {
   /** The persisted archival session's id. */
   readonly sessionId: SessionId
   /** Provenance label that was mapped (an official generation or a converter marker). */
-  readonly format: ImportedSessionFormat | string
+  readonly format: string
   /** The retained source artifact's base name, beside the mapped session. */
   readonly artifactName: string
   /** The foreign session's own id. */
@@ -244,7 +244,7 @@ export class SessionImport extends Service {
           if (event.type !== 'import/record' || event.seq !== 0) return state
           const { format, sessionId, cwd } = event.data.source
           return {
-            format: format as ImportedSessionFormat | string,
+            format,
             ...sessionId === undefined ? {} : { sourceSessionId: sessionId },
             ...cwd === undefined ? {} : { sourceCwd: cwd },
           }
@@ -431,7 +431,7 @@ export class SessionImport extends Service {
     cwd: string
     supervisionMode: SupervisionMode
     sourceCwd: string | undefined
-    format: ImportedSessionFormat | string
+    format: string
     title: string | undefined
     sourceSessionId: string
     mappedEvents: number
