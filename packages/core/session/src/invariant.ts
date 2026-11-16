@@ -198,6 +198,18 @@ function applyTransition(trace: SessionTrace, transition: SessionTraceTransition
   }
 }
 
+/**
+ * Virtually apply staged-but-unpublished transitions so a later member of one
+ * append batch validates against the batch's earlier members. The committed
+ * trace and its pending-call set stay untouched.
+ */
+function projectTrace(trace: SessionTrace, pending: readonly SessionTraceTransition[]): SessionTrace {
+  if (pending.length === 0) return trace
+  const projected: SessionTrace = { ...trace, pendingCalls: new Set(trace.pendingCalls) }
+  for (const transition of pending) applyTransition(projected, transition)
+  return projected
+}
+
 /** Install the session contribution into its child registration fiber. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   const traces = new WeakMap<Session, SessionTrace>()
@@ -206,6 +218,8 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     trace: SessionTrace
     transition: SessionTraceTransition
   }>()
+  /** Per-trace staged transitions in collect order; drained at publication, pruned on sequence discontinuity. */
+  const pendingByTrace = new WeakMap<SessionTrace, SessionTraceTransition[]>()
 
   const freshTrace = (): SessionTrace => ({
     lastSeq: -1,
@@ -240,15 +254,31 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     }
     stagedTransitions.delete(event)
     applyTransition(staged.trace, staged.transition)
+    const pending = pendingByTrace.get(staged.trace)
+    /* v8 ignore next 3 -- publication follows staging; the pending list stays present unless an abandoned collect pruned it */
+    if (pending !== undefined) {
+      const index = pending.indexOf(staged.transition)
+      /* v8 ignore next -- every staged transition publishes or is pruned */
+      if (index >= 0) pending.splice(index, 1)
+    }
   }, { global: true })
 
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
     const trace = traceFor(session)
-    const transition = validateEvent(trace, event, fail)
+    let pending = pendingByTrace.get(trace) ?? []
+    if (event.seq !== trace.lastSeq + pending.length + 1) {
+      // Staged transitions from an abandoned collect never consumed sequence
+      // numbers; a candidate that does not continue the staged run re-bases
+      // the virtual fold on the committed trace.
+      pending = []
+    }
+    const transition = validateEvent(projectTrace(trace, pending), event, fail)
     // A later dispatch listener may veto. Validation is pure, so abandoning
     // this weakly keyed transition does not advance or retain the session.
+    pending.push(transition)
+    pendingByTrace.set(trace, pending)
     stagedTransitions.set(event, { session, trace, transition })
   }, { global: true })
 }, { inject: ['sessions'] })

@@ -61,6 +61,7 @@ export function registerChatNodeRenderers(ctx: Context): void {
       'conversation.chat.assistant.images': { kind: 'single', scope: 'session' },
       'conversation.chat.reasoning.body': { kind: 'single', scope: 'session' },
       'conversation.chat.assistant.meta': { kind: 'single', scope: 'session' },
+      'conversation.chat.markdown.fence': { kind: 'hoc', scope: 'session' },
     },
   }, AssistantSeatView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({

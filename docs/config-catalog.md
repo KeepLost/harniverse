@@ -1365,6 +1365,28 @@ export interface Config {
 
 Source: [`packages/host/apiproxy/src/index.ts:47`](../packages/host/apiproxy/src/index.ts)
 
+<a id="deepseek-aidsh-host-deepseek-chat-import"></a>
+
+## `@deepseek-ai/dsh-host-deepseek-chat-import`
+
+Requires: `sessionImport` · `workspaceRegistry`
+
+```ts config-catalog
+/** Deployment limits of the importer. */
+export interface Config {
+  /** Most Sessions one import writes, choosing the conversations the export index lists as most recently updated. */
+  maxSessions: number
+  /** Largest export archive, in bytes, one upload may carry; the whole archive is held in memory while it is imported. */
+  maxUploadBytes: number
+  /** Largest declared uncompressed size, in bytes, of one archive entry; larger entries are not decompressed. */
+  maxEntryBytes: number
+  /** Largest UTF-8 size, in bytes, of an imported title, matching the session-title service's limit of the composition. */
+  maxTitleBytes: number
+}
+```
+
+Source: [`packages/host/deepseek-chat-import/src/index.ts:38`](../packages/host/deepseek-chat-import/src/index.ts)
+
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
@@ -1413,7 +1435,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/official-session-import/src/index.ts:35`](../packages/host/official-session-import/src/index.ts)
+Source: [`packages/host/official-session-import/src/index.ts:36`](../packages/host/official-session-import/src/index.ts)
 
 <a id="deepseek-aidsh-host-skin-library"></a>
 
@@ -2685,7 +2707,7 @@ export interface Config {
 
 Depends on: [`SandboxMode`](subsystems/sandbox.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:86`](../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 <a id="deepseek-aidsh-sdk-jsonrpc-server"></a>
 
@@ -4906,4 +4928,5 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-typert-protocol` ([`packages/typert/protocol/src/index.ts`](../packages/typert/protocol/src/index.ts))
 - `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
 - `@deepseek-ai/dsh-util-file-drag` ([`packages/util/file-drag/src/index.ts`](../packages/util/file-drag/src/index.ts))
+- `@deepseek-ai/dsh-util-ripgrep` ([`packages/util/ripgrep/src/index.ts`](../packages/util/ripgrep/src/index.ts))
 - `@deepseek-ai/dsh-util-workspace-path` ([`packages/util/workspace-path/src/index.ts`](../packages/util/workspace-path/src/index.ts))

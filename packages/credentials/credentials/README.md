@@ -20,7 +20,7 @@ declare const ctx: Context
 
 const ref = credentialRef('DEEPSEEK_API_KEY')            // POSIX shell identifier, branded
 const hit = await ctx.credentials.resolve(ref)           // { value, source } | undefined
-const info = await ctx.credentials.describe(ref)         // { configured, source?, writable } — never the value
+const info = await ctx.credentials.describe(ref)         // { configured, source?, writable, masked? } — never the value
 await ctx.credentials.set(ref, 'sk-…')                   // rejects while a read-only source shadows the ref
 await ctx.credentials.unset(ref)                         // no-op when absent; same shadowing rule
 ```

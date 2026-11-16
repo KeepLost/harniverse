@@ -26,7 +26,8 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import type { SupervisionMode } from '@deepseek-ai/dsh-supervision'
 import { z } from 'zod'
 import {
-  assertNotResumable, classifyForeignSessionFormatVersion, importedSessionIdFor, importLineageOf, parseImportPosture,
+  assertNotResumable, classifyForeignSessionFormatVersion, DEFAULT_IMPORT_SUPERVISION_MODE,
+  importedSessionIdFor, importLineageOf, parseImportPosture,
 } from './contract.ts'
 import { SESSION_IMPORT_PLUGIN } from './continuation.ts'
 import { ForeignLogError, parseForeignSessionLog, type ForeignSessionLog } from './foreign.ts'
@@ -49,12 +50,30 @@ export interface ImportForeignSessionOptions {
   readonly posture?: { readonly supervisionMode: SupervisionMode }
 }
 
+/** One converted conversation to settle: the additive entry for non-official converters. */
+export interface SettleConvertedEventsOptions {
+  /** Format label recorded on the marker, such as `deepseek-chat-v3`. */
+  readonly format: string
+  /** The foreign conversation's own id; the archive lineage derives from it. */
+  readonly sourceSessionId: string
+  /** Canonical text the archive identity digests, so equal content yields equal ids. */
+  readonly sourceText: string
+  /** Optional display title. */
+  readonly title?: string
+  /** Converted seed events, contiguous from seq 0, without a marker or end-seed boundary. */
+  readonly events: readonly SessionEvent[]
+  /** Exact source bytes retained beside the mapped log. */
+  readonly artifact: Uint8Array
+  /** Authorized destination workspace, resolved by the calling consumer. */
+  readonly cwd: string
+}
+
 /** The settled result of one completed import. */
 export interface ImportedSession {
   /** The persisted archival session's id. */
   readonly sessionId: SessionId
-  /** The classified foreign generation that was mapped. */
-  readonly format: ImportedSessionFormat
+  /** Provenance label that was mapped (an official generation or a converter marker). */
+  readonly format: string
   /** The retained source artifact's base name, beside the mapped session. */
   readonly artifactName: string
   /** The foreign session's own id. */
@@ -315,12 +334,132 @@ export class SessionImport extends Service {
       }),
     }
     const events: SessionEvent[] = scheduleImportEvents(marker, [...mapping.events, tail])
+    return await this.persistSettled({
+      sessionId,
+      createdAt,
+      marker,
+      events,
+      bytes: prepared.bytes,
+      artifactName,
+      cwd: options.cwd,
+      supervisionMode: posture.supervisionMode,
+      sourceCwd: log.header.cwd,
+      format: prepared.format,
+      title: mappedTitle(mapping),
+      sourceSessionId: log.header.id,
+      mappedEvents: mapping.events.length,
+      skippedEvents: mapping.skipped,
+    })
+  }
 
+  /**
+   * Settle one already-converted foreign conversation as an archival session.
+   *
+   * The additive entry for converters that are not official-log readers (the
+   * DeepSeek chat export): identity stays content-derived under the
+   * conversation's lineage prefix, so re-importing the same conversation is a
+   * conflict and a grown one continues through `session.continueArchive` —
+   * the same discipline as official artifacts, with no resumable-write path.
+   * @param options - the converter's output: contiguous seed events from seq
+   * 0 without an `import/record` marker or `session/end-seed` boundary, the
+   * exact source bytes to retain, the destination, and display facts.
+   * @returns the imported session's identity and event counts.
+   * @throws {@link ImportConflictError} when the archive identity already
+   * exists; `TypeError` for an invalid destination or empty event list.
+   */
+  async settleConverted(options: SettleConvertedEventsOptions): Promise<ImportedSession> {
+    if (!isAbsolute(options.cwd)) throw new TypeError('settleConverted requires an absolute destination workspace')
+    const first = options.events[0]
+    if (first === undefined) throw new TypeError('settleConverted requires at least one event')
+    const persistence: SessionPersistence = this.ctx.sessionPersistence
+    const sessionId = importedSessionIdFor(options.sourceSessionId, options.sourceText)
+    if ((await persistence.list()).some(existing => existing.id === sessionId)) {
+      throw new ImportConflictError(sessionId)
+    }
+    const createdAt = first.time
+    const artifactName = artifactNameFor(sessionId, false)
+    const marker: PendingImportEvent = {
+      type: 'import/record',
+      time: createdAt,
+      data: {
+        source: { format: options.format, artifactName, sessionId: options.sourceSessionId },
+        posture: { supervisionMode: DEFAULT_IMPORT_SUPERVISION_MODE },
+      },
+    }
+    const tail: PendingImportEvent = {
+      type: 'user/message',
+      /* v8 ignore next -- the entry rejects an empty event list before this tail is built */
+      time: options.events.at(-1)?.time ?? createdAt,
+      surfaceOp: 'append',
+      data: createUserMessage({
+        source: { kind: 'plugin', plugin: SESSION_IMPORT_PLUGIN },
+        content: [{ type: 'text', text: `Imported archival history from ${options.format}, session ${JSON.stringify(options.sourceSessionId)}. Unsupported history was mapped lossily; the original bytes are retained in ${artifactName}. This session cannot execute.` }],
+      }),
+    }
+    const events: SessionEvent[] = scheduleImportEvents(marker, [...options.events, tail])
+    return await this.persistSettled({
+      sessionId,
+      createdAt,
+      marker,
+      events,
+      bytes: options.artifact,
+      artifactName,
+      cwd: options.cwd,
+      supervisionMode: DEFAULT_IMPORT_SUPERVISION_MODE,
+      sourceCwd: undefined,
+      format: options.format,
+      title: options.title,
+      sourceSessionId: options.sourceSessionId,
+      mappedEvents: options.events.length,
+      skippedEvents: 0,
+    })
+  }
+
+  /**
+   * Persist one settled archival import: the marker and tail notice are
+   * scheduled around the converted events, the exact source bytes are
+   * retained beside the mapped log under exclusive directory ownership, and
+   * a failure rolls the durable write back. Shared by the official-artifact
+   * and converted-events entries.
+   * @param settled - identity, display facts, and the destination.
+   * @returns the imported session summary.
+   */
+  private async persistSettled(settled: {
+    sessionId: SessionId
+    createdAt: number
+    marker: PendingImportEvent
+    events: readonly SessionEvent[]
+    bytes: Uint8Array
+    artifactName: string
+    cwd: string
+    supervisionMode: SupervisionMode
+    sourceCwd: string | undefined
+    format: string
+    title: string | undefined
+    sourceSessionId: string
+    mappedEvents: number
+    skippedEvents: number
+  }): Promise<ImportedSession> {
+    const persistence: SessionPersistence = this.ctx.sessionPersistence
+    const base = settled.marker.data as ImportRecordEventData
+    const marker = {
+      type: 'import/record' as const,
+      time: settled.marker.time,
+      data: {
+        ...base,
+        source: {
+          ...base.source,
+          ...settled.sourceCwd === undefined ? {} : { cwd: settled.sourceCwd },
+        },
+        posture: { supervisionMode: settled.supervisionMode },
+      },
+    } satisfies PendingImportEvent
+    const events = scheduleImportEvents(marker, settled.events.slice(1))
     const header: SessionHeader = {
       version: SESSION_FORMAT_VERSION,
-      id: sessionId,
-      createdAt,
-      cwd: options.cwd,
+      id: settled.sessionId,
+      createdAt: settled.createdAt,
+      cwd: settled.cwd,
     }
     const location = persistence.locate(header)
     if (location === undefined) {
@@ -328,7 +467,7 @@ export class SessionImport extends Service {
     }
 
     // Validate the complete native fold while still detached and unpublished.
-    Session.create(sessionId, events, header)
+    Session.create(settled.sessionId, events, header)
     const artifactDir = dirname(location.path)
     await mkdir(dirname(artifactDir), { recursive: true, mode: 0o700 })
     // Exclusive directory ownership prevents a failed contender from removing
@@ -336,35 +475,34 @@ export class SessionImport extends Service {
     try {
       await mkdir(artifactDir, { mode: 0o700 })
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new ImportConflictError(sessionId)
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new ImportConflictError(settled.sessionId)
       throw error
     }
     let created = false
     try {
-      const source = await open(join(artifactDir, artifactName), 'wx', 0o600)
-      try { await source.writeFile(prepared.bytes); await source.sync() } finally { await source.close() }
+      const source = await open(join(artifactDir, settled.artifactName), 'wx', 0o600)
+      try { await source.write(settled.bytes); await source.sync() } finally { await source.close() }
       await syncDirectory(artifactDir)
       await syncDirectory(dirname(artifactDir))
       await persistence.create(header)
       created = true
-      await persistence.append(sessionId, events)
+      await persistence.append(settled.sessionId, events)
     } catch (error) {
       // If rollback fails, retain the source beside any surviving mapped log.
-      if (created) await persistence.delete(sessionId)
+      if (created) await persistence.delete(settled.sessionId)
       await rm(artifactDir, { recursive: true, force: true })
       throw error
     }
     this.ctx.emit('session/imported', header)
 
-    const title = mappedTitle(mapping)
     return {
-      sessionId,
-      format: prepared.format,
-      artifactName,
-      sourceSessionId: log.header.id,
-      ...title === undefined ? {} : { title },
-      mappedEvents: mapping.events.length,
-      skippedEvents: mapping.skipped,
+      sessionId: settled.sessionId,
+      format: settled.format,
+      artifactName: settled.artifactName,
+      sourceSessionId: settled.sourceSessionId,
+      ...settled.title === undefined ? {} : { title: settled.title },
+      mappedEvents: settled.mappedEvents,
+      skippedEvents: settled.skippedEvents,
     }
   }
 }

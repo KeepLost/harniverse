@@ -35,9 +35,11 @@ import {
   DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
 } from './DeepSeekModelsEditor.tsx'
 import { apiKeyFailure } from './apiKey.ts'
+import { ApiKeyInput } from './ApiKeyInput.tsx'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { deriveKeyRef, messageOf, protocolChoices } from './store.ts'
+import { protocolNeedsKey } from './protocol-rules.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -146,6 +148,29 @@ function refFor(namespace: SettingsNamespaceView, path: readonly string[], provi
   return typeof named === 'string' && named.length > 0 ? named : deriveKeyRef(provider)
 }
 
+/** Tri-state copy under the key field: what supplies this credential right now. */
+function credentialHintOf(
+  t: ProviderEditorProps['t'],
+  state: CredentialView | undefined,
+  draft: string | { ref: string; removed?: boolean },
+  saved: boolean,
+  required: boolean,
+  keyRef: string,
+): string | undefined {
+  if (required) return undefined
+  const text = typeof draft === 'string' ? draft : ''
+  if (text.length > 0) return saved ? t('keyReplacePending') : undefined
+  if (typeof draft === 'object') {
+    return draft.removed ? t('keyRemoveApplied') : t('keyRemovePendingEnvironment').replace('{hint}', keyRef)
+  }
+  if (state === undefined) return t('keyFallbackUnchecked')
+  if (state.configured) {
+    if (saved) return t('keySaved')
+    return state.source === 'env' ? t('keyFallbackDetected').replace('{hint}', keyRef) : t('keyFallbackDetected')
+  }
+  return t('keyFallbackMissing').replace('{hint}', keyRef)
+}
+
 /**
  * Render one provider's editing card.
  * @param props - the addressed profile plus wire faces and copy.
@@ -154,7 +179,7 @@ function refFor(namespace: SettingsNamespaceView, path: readonly string[], provi
 export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const { namespace, settingsPath, api, t } = props
   const [draft, setDraft] = useState<Record<string, unknown>>(() => draftAt(namespace, settingsPath))
-  const [keyDraft, setKeyDraft] = useState('')
+  const [keyDraft, setKeyDraft] = useState<string | { ref: string; removed?: boolean }>('')
   const [keyState, setKeyState] = useState<CredentialView | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
@@ -213,14 +238,15 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // The model list is validated by the same per-row checker for both families,
   // so a bad row is named by its position rather than by a blanket message.
   const modelFailure = validateDeepSeekModels(getPath(draft, ['models']))
-  const keyFailure = apiKeyFailure(keyDraft)
+  const keyText = typeof keyDraft === 'string' ? keyDraft : ''
+  const keyFailure = apiKeyFailure(keyText)
   // What a probe or a write must carry: the typed key with paste whitespace
   // removed. A blank field yields an empty string, which both call sites read
   // as "no key supplied" rather than as a key — that is how a card whose
   // provider already has a stored key is edited without re-entering it.
-  const keyValue = keyDraft.trim()
+  const keyValue = keyText.trim()
   const credentialRequiredFailure = props.credentialRequired === true
-    && keyDraft.length > 0 && keyValue.length === 0
+    && keyText.length > 0 && keyValue.length === 0
     ? 'keyRequired' as const
     : undefined
   const shownKeyFailure = credentialRequiredFailure ?? keyFailure
@@ -285,6 +311,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       : materializesNativeProfile
         ? [{ op: 'set', path: [...settingsPath], value: {} }]
         : pathOps(settingsPath, committedOriginal, next)
+    if (typeof keyDraft === 'object' && keyDraft.removed !== true) {
+      const removed = await api.credentials.unset({ ref: keyDraft.ref })
+      if (!removed.result.ok) return removed.result.error.message
+      // A later settings failure cannot restore a secret that was deleted.
+      setKeyDraft({ ...keyDraft, removed: true })
+    }
     if (ops.length > 0) {
       const response = await api.settings.mutate({ ns, ops, expectedRevision })
       if (!response.result.ok) {
@@ -362,11 +394,16 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
     const defaultContextWindow = getPath(fallback, ['defaultContextWindow'])
     const defaultMaxTokens = getPath(fallback, ['maxTokens'])
+    const routeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
+    const keyRequired = props.credentialRequired === true || protocolNeedsKey(routeApi)
+    const savedCredential = keyState?.configured === true && keyState.source === 'file' && !keyLocked
     const keyPlaceholder = keyLocked
       ? t('keyEnvLocked')
-      : keyState?.configured === true && props.credentialRequired !== true
-        ? t('keyStored')
-        : family === 'pi-ai' ? t('keyPlaceholderNative') : t('keyPlaceholder')
+      : keyRequired
+        ? t('keyPlaceholder')
+        : t('keyPlaceholderFallback').replace('{hint}', keyRef)
+    /** The tri-state hint under the key field: what supplies this credential right now. */
+    const credentialHint = credentialHintOf(t, keyState, keyDraft, savedCredential, props.credentialRequired === true, keyRef)
     /** What both family editors take: the rows, whose layer owns them, and the two writes. */
     const catalogProps = {
       models,
@@ -382,19 +419,39 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       <>
         <div className={styles['field']}>
           <span className={styles['fieldLabel']}>{t('keyInput')}</span>
-          <input
-            className={styles['input']}
-            type="password"
-            autoComplete="new-password"
-            value={keyDraft}
+          <ApiKeyInput
+            t={t}
+            value={keyText}
+            {...keyDraft === '' && savedCredential ? {
+              saved: {
+                masked: keyState.masked ?? '',
+                clear: () => { setKeyDraft({ ref: keyRef }); setFailure(undefined) },
+              },
+            } : {}}
             placeholder={keyPlaceholder}
             aria-label={t('keyInput')}
             aria-invalid={shownKeyFailure !== undefined}
-            required={props.credentialRequired === true}
+            aria-describedby={credentialHint === undefined ? undefined : `${props.provider}-credential-hint`}
+            required={keyRequired}
             autoFocus={props.autoFocusCredential === true}
             disabled={disabled || keyLocked}
-            onChange={(event) => { setKeyDraft(event.target.value) }}
+            onChange={(event) => {
+              // Clearing the text of a saved key stages its removal (a
+              // writable store); typing anything else replaces it wholesale.
+              setKeyDraft(event.target.value === '' && savedCredential
+                ? { ref: keyRef }
+                : event.target.value)
+              setFailure(undefined)
+            }}
           />
+          {credentialHint === undefined ? null : (
+            <p
+              id={`${props.provider}-credential-hint`}
+              className={styles[typeof keyDraft === 'object' || keyState?.configured === false ? 'notice' : keyText.length > 0 || keyState === undefined ? 'advancedHint' : 'savedNotice']}
+            >
+              {credentialHint}
+            </p>
+          )}
           {shownKeyFailure === undefined ? null : <p className={styles['error']}>{t(shownKeyFailure)}</p>}
         </div>
         {props.credentialOnly === true ? null : <details className={styles['customized']}>

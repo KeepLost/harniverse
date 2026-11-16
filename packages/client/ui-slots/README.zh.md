@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Slot 注册表纯核心、slot 终端设计：SlotMap 与 SlotFactoryMap 声明合并、SlotCore 上普通 slot 的 `register` 组合 API 与可复用组件工厂（Component Factory）的 `registerFactory` API、五 share 组件 props 类型家族、store seat 类型家族，以及 renderer 安装约定。只使用 React 类型；该包不依赖 React，也不依赖 Cordis。五种 kind 覆盖全部组合形态：`single`（单一占用者）、`list`（有序条目）、`keyed`（按键分发）、`chain`（条目自行选举）、`hoc`（条目围绕 owner 的 `children` 嵌套）。
+Slot 注册表纯核心、slot 终端设计：SlotMap 与 SlotFactoryMap 声明合并、SlotCore 上普通 slot 的 `register` 组合 API 与可复用组件工厂（Component Factory）的 `registerFactory` API、五 share 组件 props 类型家族、store seat 类型家族，以及 renderer 安装约定。只使用 React 类型；该包不依赖 React，也不依赖 Cordis。五种 kind 覆盖全部组合形态：`single`（单一占用者）、`list`（有序条目）、`keyed`（按键分发）、`chain`（条目自行选举）、`hoc`（条目围绕 owner 的 `children` 嵌套；条目可携带派发 `key`，渲染时给出 `entryKey`——精确匹配的条目与通配条目并列生效，且同一 `id` 内精确匹配的条目取代该 id 的通配条目，每个 (host, slot, entryKey) 只编译一条链）。
 
 一次 `register({ name, children?, store?, inject?, ...kind }, Component)` 调用会向已声明 slot 贡献一个组件，同时声明子 slot（声明 = 渲染授权 = 运行时规范，三者共用一张表）、store seat 以及注册方的业务表层。组件会在调用点依据 `ComposedProps` 接受类型检查；该类型是四个 share 的交集，每个 share 都从各自的唯一真源派生：
 

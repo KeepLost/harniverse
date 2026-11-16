@@ -1,0 +1,214 @@
+/** resolveRgPath/spawnRipgrep/readRipgrepLines against the real local subprocess seam. */
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { Readable } from 'node:stream'
+import { tmpdir } from 'node:os'
+import { join, parse } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { readRipgrepLines, resolveRgPath, spawnRipgrep } from '../src/index.ts'
+
+let ctx: Context
+let subprocess: LocalSubprocessRuntime
+
+beforeAll(async () => {
+  ctx = new Context()
+  await ctx.plugin(LocalSubprocessRuntime).await()
+  subprocess = ctx.get('subprocess') as LocalSubprocessRuntime
+})
+
+afterAll(async () => {
+  await ctx.fiber.dispose()
+})
+
+function tempWorkspace(): string {
+  return mkdtempSync(join(tmpdir(), 'dsh-util-ripgrep-'))
+}
+
+describe('resolveRgPath', () => {
+  it('resolves the packaged executable once per process', async () => {
+    const path = await resolveRgPath()
+    expect(path.length).toBeGreaterThan(0)
+    expect(await resolveRgPath()).toBe(path)
+  })
+
+  it('uses an existing win32 sidecar beside a single-file runtime', async () => {
+    const { dir, name } = parse(process.execPath)
+    const sidecar = join(dir, `${name}-rg.exe`)
+    writeFileSync(sidecar, '')
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    Object.defineProperty(process, 'pkg', { value: true, configurable: true })
+    try {
+      vi.resetModules()
+      const fresh = await import('../src/index.ts')
+      const resolved = await fresh.resolveRgPath()
+      expect(resolved).toBe(sidecar)
+    } finally {
+      delete (process as { pkg?: boolean }).pkg
+      if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
+      rmSync(sidecar, { force: true })
+      vi.resetModules()
+    }
+  })
+
+  it('resolves the plain dependency sidecar on a flipped non-win32 host', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    try {
+      vi.resetModules()
+      const fresh = await import('../src/index.ts')
+      const resolved = await fresh.resolveRgPath()
+      expect(resolved.length).toBeGreaterThan(0)
+      expect(resolved.endsWith('-rg.exe')).toBe(false)
+    } finally {
+      if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
+      vi.resetModules()
+    }
+  })
+
+  it('unpackages the dependency path under Electron', async () => {
+    const versions = process.versions as { electron?: string }
+    const electron = Object.getOwnPropertyDescriptor(versions, 'electron')
+    Object.defineProperty(versions, 'electron', { value: '33.0.0', configurable: true })
+    try {
+      vi.resetModules()
+      const fresh = await import('../src/index.ts')
+      const resolved = await fresh.resolveRgPath()
+      expect(resolved).not.toContain('asar')
+    } finally {
+      if (electron === undefined) delete versions.electron
+      else Object.defineProperty(versions, 'electron', electron)
+      vi.resetModules()
+    }
+  })
+})
+
+describe('readRipgrepLines', () => {
+  it('streams NUL-separated file paths in order and completes cleanly', async () => {
+    const root = tempWorkspace()
+    try {
+      writeFileSync(join(root, 'a.txt'), '')
+      writeFileSync(join(root, 'b.txt'), '')
+      const handle = await spawnRipgrep(subprocess, {
+        argv: ['--files', '--sort=path', '--null', '--path-separator=/'],
+        cwd: root,
+        stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 1024 } },
+        graceMs: 5000,
+        signal: new AbortController().signal,
+      })
+      const paths: string[] = []
+      const { outcome, stopped } = await readRipgrepLines(handle, '\0', (path) => {
+        paths.push(path)
+        return true
+      })
+      expect(paths).toEqual(['a.txt', 'b.txt'])
+      expect(stopped).toBe(false)
+      expect(outcome.exitCode).toBe(0)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('terminates the process early when the consumer returns false', async () => {
+    const root = tempWorkspace()
+    try {
+      for (const name of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(root, name), '')
+      const handle = await spawnRipgrep(subprocess, {
+        argv: ['--files', '--sort=path', '--null', '--path-separator=/'],
+        cwd: root,
+        stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 1024 } },
+        graceMs: 5000,
+        signal: new AbortController().signal,
+      })
+      const seen: string[] = []
+      const { stopped } = await readRipgrepLines(handle, '\0', (path) => {
+        seen.push(path)
+        return false
+      })
+      expect(seen).toEqual(['a.txt'])
+      expect(stopped).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores records emitted after the consumer stops', async () => {
+    const events: string[] = ['first\0', 'second\0', 'third\0']
+    let terminated = false
+    const stdout = new Readable({
+      read() {
+        const next = events.shift()
+        if (next === undefined) this.push(null)
+        else this.push(next)
+      },
+    })
+    const outcome = { status: 'exited', exitCode: 0, signal: null } as const
+    const handle = {
+      stdout,
+      done: Promise.resolve(outcome),
+      waitForExit: async () => undefined,
+      terminate: () => { terminated = true },
+    }
+    const seen: string[] = []
+    const { stopped } = await readRipgrepLines(handle as never, '\0', (line) => {
+      seen.push(line)
+      return seen.length < 1
+    })
+    expect(seen).toEqual(['first'])
+    expect(stopped).toBe(true)
+    expect(terminated).toBe(true)
+  })
+
+  it('reads newline-separated records for text output', async () => {
+    const root = tempWorkspace()
+    try {
+      writeFileSync(join(root, 'only.txt'), '')
+      const handle = await spawnRipgrep(subprocess, {
+        argv: ['--files', '--sort=path'],
+        cwd: root,
+        stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 1024 } },
+        graceMs: 5000,
+        signal: new AbortController().signal,
+      })
+      const lines: string[] = []
+      const { outcome } = await readRipgrepLines(handle, '\n', (line) => {
+        lines.push(line)
+        return true
+      })
+      expect(lines).toEqual(['only.txt'])
+      expect(outcome.exitCode).toBe(0)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects when stdout is not piped', async () => {
+    const handle = await spawnRipgrep(subprocess, {
+      argv: ['--files'],
+      cwd: '.',
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: { maxBytes: 1024 } },
+      graceMs: 5000,
+      signal: new AbortController().signal,
+    })
+    await expect(readRipgrepLines(handle, '\n', () => true)).rejects.toThrow('ripgrep requires piped stdout')
+  })
+
+  it('propagates a consumer failure after the process settles', async () => {
+    const root = tempWorkspace()
+    try {
+      writeFileSync(join(root, 'a.txt'), '')
+      const handle = await spawnRipgrep(subprocess, {
+        argv: ['--files', '--sort=path', '--null'],
+        cwd: root,
+        stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 1024 } },
+        graceMs: 5000,
+        signal: new AbortController().signal,
+      })
+      await expect(readRipgrepLines(handle, '\0', () => { throw new Error('consumer failed') }))
+        .rejects.toThrow('consumer failed')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

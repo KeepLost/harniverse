@@ -28,6 +28,12 @@
 
 运行时切换是在对应会话日志中追加的一条 `sandbox/mode` 事件。`effective = explicit grant ?? fold(events) ?? deployment default`，因此覆盖会通过回放跨重启保留，两个会话也绝不会看到彼此状态。工作区标识无需另一条事件：创建时记录的不可变 `SessionHeader.cwd` 是该会话每次调用使用的根。该事件仍只进入日志；在下一次请求前，归属方会将当前事实贡献给运行时上下文快照。
 
+## 注册会话的可写目录
+
+插件通过自己的持有上下文调用 `ctx.sandboxPolicy.registerWritableRoot(session, directory)`，把一个物理绝对目录加入该存活会话的 `workspace-write` 权限。方法返回确切的 Cordis effect disposer；插件卸载或显式释放只移除该次注册。重复注册与已配置的授权彼此独立。把会话级插件挂到 Agent 的上下文之下，其 effect 也会随 Agent 一并结束。授权前先在执行主机上准备好目录；与已配置根目录相同的路径检查会逐一生效。
+
+注册与释放只影响后续的策略解析和下一个模型请求记录的上下文。其他会话与无会话调用不会得到该授权。授权不随会话历史保存或继承；恢复或分叉出的会话需要重新注册。已解析的操作与常驻进程保留其原有权限，包括注册已被移除的目录。要使用当前授权需启动新进程。`read-only` 保持只读，且在 Windows 上额外目录只经 fs `write`/`edit` 工具检查生效——进程提供者拒绝额外根目录，也不改动任何按目录的 SID 或 ACL 条目。
+
 ## 模型体验
 
 ### 当前文件沙箱策略
@@ -64,6 +70,6 @@ Current DSH file policy: danger-full-access. The DSH file sandbox does not restr
 
 ## 已知限制与暂缓事项
 
-- **每个会话只有一个主要工作区根目录**：策略解析 `SessionHeader.cwd`；额外可写根目录不属于 `SandboxExecutionPolicy`。
+- **每个会话只有一个主要工作区根目录**：策略解析 `SessionHeader.cwd`；额外可写目录经 `additionalWritableRoots` 携带，绝无第二个工作区根。
 - **仅限文件操作模式**：`SandboxMode` 管控文件操作；网络和进程策略不在其词汇中，因此这里没有限制它们的旋钮。
 - **有意概述临时区域**：强制执行后端会授予不同的平台临时区域，这些区域在策略解析后才会选定，因此无法在当前上下文中如实枚举。

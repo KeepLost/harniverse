@@ -21,7 +21,7 @@ function marker(format = 'official-v3', artifactName = 'source.jsonl'): SessionE
     seq: 0,
     time: 0,
     data: { source: { format, artifactName }, posture: { supervisionMode: 'supervised' } },
-  } as SessionEvent
+  }
 }
 
 function turnStart(seq: number): SessionEvent {

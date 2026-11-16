@@ -2,11 +2,13 @@ import { memo, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import type { ChatNodeViewProps, TurnTailOwnerProps } from '../contract/slots.ts'
 import type { AssistantMetaOwnerProps, ChatImagesOwnerProps, ReasoningBodyOwnerProps } from '../contract/slots.ts'
+import type { MarkdownDelegateFenceInfo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 
 /** Streaming, settled, and interrupted Assistant states share one keyed renderer instance. */
 export const AssistantNodeView = memo(function AssistantNodeView({
-  node, useTurnData, openFile, loadImage, fileMentions, externalLinks, renderImages, renderBody, renderMeta, t,
+  node, useTurnData, openFile, loadImage, fileMentions, externalLinks, renderImages, renderBody, renderMeta,
+  renderFence, t,
 }: ChatNodeViewProps<'assistant-step'> & {
   /** Seat-bound gallery renderer; supplied by the assistant-step seat bridge. */
   renderImages?: ((owner: ChatImagesOwnerProps) => ReactNode) | undefined
@@ -14,6 +16,8 @@ export const AssistantNodeView = memo(function AssistantNodeView({
   renderBody?: ((owner: ReasoningBodyOwnerProps) => ReactNode) | undefined
   /** Seat-bound meta renderer; supplied by the assistant-step seat bridge. */
   renderMeta?: ((owner: AssistantMetaOwnerProps) => ReactNode) | undefined
+  /** Seat-bound fence renderer; supplied by the assistant-step seat bridge. */
+  renderFence?: ((owner: MarkdownDelegateFenceInfo) => ReactNode) | undefined
 }) {
   const data = node.data
   const turn = node.location.kind === 'turn' || node.location.kind === 'step'
@@ -41,6 +45,7 @@ export const AssistantNodeView = memo(function AssistantNodeView({
       renderImages={renderImages}
       renderBody={renderBody}
       renderMeta={renderMeta}
+      renderFence={renderFence}
       t={t}
     />
   )

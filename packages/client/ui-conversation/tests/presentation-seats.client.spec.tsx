@@ -17,6 +17,7 @@ import type { AssistantMetaOwnerProps, ChatImagesOwnerProps } from '../src/clien
 import type { ChatNode } from '../src/client/contract/chat-nodes.ts'
 import { NS, en, zh } from '../src/client/locales.ts'
 import { registerChatNodeRenderers } from '../src/client/chat/register-node-renderers.ts'
+import { registerFenceLayers } from '../src/client/fence/register.ts'
 import { AssistantMetaDefault, ChatImagesDefault, ReasoningBodyDefault, UserMessageSeatView } from '../src/client/chat/seat-occupants.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { AssistantSeatView } from '../src/client/chat/seat-occupants.tsx'
@@ -189,6 +190,36 @@ describe('assistant node seat threads', () => {
     expect(keys).toContain('conversation.chat.assistant.images')
   })
 
+  it('dispatches every fence through the markdown-fence seat by language', () => {
+    const dispatches: Array<{ key: string; entryKey: string | undefined }> = []
+    const node = {
+      kind: 'assistant-step',
+      key: 'assistant:3',
+      anchorSeq: 3,
+      location: { kind: 'step', turn: { turn: 1 }, step: { step: 3 } },
+      visibility: 'visible',
+      data: {
+        status: 'settled',
+        blocks: [{ kind: 'text', text: '```diff\n-only\n+next\n```' }],
+        finalNode: undefined,
+      },
+    } as never as Parameters<typeof AssistantSeatView>[0]['node']
+    render(
+      <AssistantSeatView
+        {...seatStubs}
+        node={node}
+        loadImage={() => Promise.resolve('blob:n')}
+        renderSlot={((key: string, _owner: object, opts: { entryKey?: string }) => {
+          dispatches.push({ key, entryKey: opts?.entryKey })
+          return <mark>{`fence:${String(opts?.entryKey)}`}</mark>
+        }) as never}
+        t={t}
+      />,
+    )
+    expect(dispatches).toEqual([{ key: 'conversation.chat.markdown.fence', entryKey: 'diff' }])
+    expect(screen.getByText('fence:diff')).toBeTruthy()
+  })
+
   it('routes the provenance line through the declared meta seat', () => {
     const owners: AssistantMetaOwnerProps[] = []
     const node = {
@@ -337,7 +368,7 @@ describe('registry wiring', () => {
     ;(ctx.get('locale') as LocaleRuntime).register(NS, { zh, en })
     const fiber = ctx.plugin({
       inject: ['slots'],
-      apply: (inner) => { registerChatNodeRenderers(inner) },
+      apply: (inner) => { registerChatNodeRenderers(inner); registerFenceLayers(inner) },
     })
     await fiber.await()
     return { ctx, slots, fiber }
@@ -388,5 +419,20 @@ describe('registry wiring', () => {
     await fiber.dispose()
     expect(slots.entriesOfSlot('conversation.chat.user.images')).toHaveLength(0)
     expect(slots.entriesOfSlot('conversation.chat.node')).toHaveLength(0)
+    expect(slots.entriesOfSlot('conversation.chat.markdown.fence')).toHaveLength(0)
+  })
+
+  it('declares the fence seat and registers the built-in language layers', async () => {
+    const { slots } = await bench()
+    const layers = slots.entriesOfSlot('conversation.chat.markdown.fence')
+    const keyed = layers.map(entry => ({
+      key: (entry.options as { key?: string }).key,
+      id: (entry.options as { id: string }).id,
+    }))
+    expect(keyed).toEqual([
+      { key: 'math', id: '@deepseek-ai/dsh-client-ui-conversation/fence/math' },
+      { key: 'diff', id: '@deepseek-ai/dsh-client-ui-conversation/fence/diff' },
+      { key: 'patch', id: '@deepseek-ai/dsh-client-ui-conversation/fence/diff' },
+    ])
   })
 })

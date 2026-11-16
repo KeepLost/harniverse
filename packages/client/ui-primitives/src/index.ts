@@ -43,6 +43,11 @@ export type { TerminalBlockProps, TerminalBlockLabels } from './TerminalBlock.ts
 export { ReadBlock, DEFAULT_READ_MAX_LINES } from './ReadBlock.tsx'
 export type { ReadBlockProps, ReadBlockLine } from './ReadBlock.tsx'
 export { DiffBlock, DEFAULT_DIFF_MAX_LINES } from './DiffBlock.tsx'
+export { FenceCodeBlock, FenceMathBlock } from './markdown/FenceBlocks.tsx'
+export type { FenceCodeBlockProps } from './markdown/FenceBlocks.tsx'
+export { isDiffFenceLanguage, parseDiffFence } from './markdown/diff-fence.ts'
+export type { MarkdownDelegateFenceInfo } from './markdown/render.tsx'
+export type { DiffFence, DiffRow } from './markdown/diff-fence.ts'
 export type { DiffBlockProps, DiffHunk } from './DiffBlock.tsx'
 export { SearchBlock, DEFAULT_SEARCH_MAX_LINES } from './SearchBlock.tsx'
 export type {

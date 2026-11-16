@@ -5,7 +5,7 @@
  * latest batch's outcomes with a way into each imported archive. The section
  * rescans whenever the targeted machine changes.
  */
-import { useEffect, useId, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Button, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { OfficialImportResult, OfficialSessionCandidate } from '@deepseek-ai/dsh-api-remotes/client'
@@ -61,6 +61,65 @@ export function SessionImportSection(props: SessionImportSectionProps) {
   const state = useStore(snapshot => snapshot)
   const uploadHint = useId()
   const picker = useRef<HTMLInputElement>(null)
+  const chatHint = useId()
+  const chatPicker = useRef<HTMLInputElement>(null)
+  const [chatProgress, setChatProgress] = useState<{ done: number; total: number } | null>(null)
+  const [chatOutcome, setChatOutcome] = useState<string | null>(null)
+
+  /** Stream one DeepSeek export ZIP through the NDJSON upload route, then rescan. */
+  const importChatExport = async (file: File): Promise<void> => {
+    setChatOutcome(null)
+    if (target.kind !== 'workspace') {
+      setChatOutcome(t('chat.needWorkspace'))
+      return
+    }
+    setChatProgress({ done: 0, total: 0 })
+    try {
+      const base = new URL(document.baseURI)
+      const response = await fetch(new URL(`api/deepseek-chat-import/archive?workspaceId=${encodeURIComponent(target.workspaceId)}`, base), {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: file,
+      })
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let pending = ''
+      const summary = { text: null as string | null }
+      const handleLine = (text: string): void => {
+        if (text.length === 0) return
+        const line = JSON.parse(text) as {
+          type: string
+          done?: number
+          total?: number
+          outcome?: { ok: boolean; value?: { sessionIds: string[]; skipped: unknown[] }; error?: { message: string } }
+        }
+        if (line.type === 'progress') setChatProgress({ done: line.done ?? 0, total: line.total ?? 0 })
+        if (line.type === 'outcome') {
+          const outcome = line.outcome
+          summary.text = outcome !== undefined && outcome.ok
+            ? t('chat.done', { count: outcome.value?.sessionIds.length ?? 0, skipped: outcome.value?.skipped.length ?? 0 })
+            : t('chat.failed', { message: outcome?.error?.message ?? `HTTP ${String(response.status)}` })
+        }
+      }
+      if (reader !== undefined) {
+        for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+          pending += decoder.decode(chunk.value, { stream: true })
+          let end: number
+          while ((end = pending.indexOf('\n')) !== -1) {
+            handleLine(pending.slice(0, end))
+            pending = pending.slice(end + 1)
+          }
+        }
+      }
+      handleLine(pending)
+      setChatOutcome(summary.text ?? t('chat.failed', { message: 'the response ended without an outcome' }))
+    } catch (error) {
+      setChatOutcome(t('chat.failed', { message: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setChatProgress(null)
+      void scan()
+    }
+  }
   const rowIds = useId()
   const workspaces = useWorkspaces(list => list.items)
   const machine = useMachine(target => target.kind === 'host' ? 'host' : `remote:${target.id}`)
@@ -187,6 +246,39 @@ export function SessionImportSection(props: SessionImportSectionProps) {
           </Button>
         </div>
         <span id={uploadHint} className={css.meta}>{t('upload.hint')}</span>
+      </div>
+      <div className={css.field}>
+        <span className={css.label}>{t('chat.label')}</span>
+        <div className={css.toolbar}>
+          <input
+            ref={chatPicker}
+            type="file"
+            hidden
+            accept=".zip"
+            aria-label={t('chat.label')}
+            aria-describedby={chatHint}
+            disabled={chatProgress !== null}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              event.currentTarget.value = ''
+              if (file !== undefined) void importChatExport(file)
+            }}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            aria-describedby={chatHint}
+            disabled={chatProgress !== null}
+            onClick={() => { (chatPicker.current as HTMLInputElement).click() }}
+          >
+            {t('chat.choose')}
+          </Button>
+          {chatProgress === null ? null : (
+            <span className={css.meta} role="status">{t('chat.progress', chatProgress)}</span>
+          )}
+        </div>
+        <span id={chatHint} className={css.meta}>{t('chat.hint')}</span>
+        {chatOutcome === null ? null : <p className={css.meta} role="status">{chatOutcome}</p>}
       </div>
       {state.uploadError === null ? null : <p className={css.error} role="alert">{state.uploadError}</p>}
       {state.results.length === 0

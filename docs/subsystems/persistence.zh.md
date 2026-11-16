@@ -277,6 +277,33 @@ interface SessionPersistenceSnapshot {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxdeepseekchatimport--deepseekchatimportservice"></a>
+
+### `ctx.deepseekChatImport` — `DeepseekChatImportService`
+
+Serves the export upload route and the limits the browser checks first.
+
+```ts cordis-catalog
+/**
+ * The upload route the API proxy carrier serves at {@link UPLOAD_PATH}:
+ * one `harniverse.operate`-gated POST carries the complete archive, which is
+ * buffered in memory, imported, and released when the import ends. The
+ * answer streams `application/x-ndjson` progress lines and one outcome line.
+ * @param request - the raw carrier request with the archive body.
+ * @returns the streaming NDJSON response.
+ */
+uploadRoute(request: Request): Promise<Response>
+
+/**
+ * Report the limits the browser checks before uploading.
+ * @param signal - Client cancellation or Remote withdrawal.
+ * @returns the largest accepted archive size.
+ */
+@Remote({ exportName: 'limits', requiredCapability: 'harniverse.operate' }) limits(signal?: AbortSignal): DeepseekChatImportLimits
+```
+
+Source: [`packages/host/deepseek-chat-import/src/index.ts:57`](../../packages/host/deepseek-chat-import/src/index.ts)
+
 <a id="ctxsessionimport--sessionimport"></a>
 
 ### `ctx.sessionImport` — `SessionImport`
@@ -305,9 +332,26 @@ describe(artifact: Uint8Array): ForeignArtifactSummary
  * beside the mapped session.
  */
 async import(options: ImportForeignSessionOptions): Promise<ImportedSession>
+
+/**
+ * Settle one already-converted foreign conversation as an archival session.
+ *
+ * The additive entry for converters that are not official-log readers (the
+ * DeepSeek chat export): identity stays content-derived under the
+ * conversation's lineage prefix, so re-importing the same conversation is a
+ * conflict and a grown one continues through `session.continueArchive` —
+ * the same discipline as official artifacts, with no resumable-write path.
+ * @param options - the converter's output: contiguous seed events from seq
+ * 0 without an `import/record` marker or `session/end-seed` boundary, the
+ * exact source bytes to retain, the destination, and display facts.
+ * @returns the imported session's identity and event counts.
+ * @throws {@link ImportConflictError} when the archive identity already
+ * exists; `TypeError` for an invalid destination or empty event list.
+ */
+async settleConverted(options: SettleConvertedEventsOptions): Promise<ImportedSession>
 ```
 
-Source: [`packages/session/session-import/src/importer.ts:206`](../../packages/session/session-import/src/importer.ts)
+Source: [`packages/session/session-import/src/importer.ts:225`](../../packages/session/session-import/src/importer.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 

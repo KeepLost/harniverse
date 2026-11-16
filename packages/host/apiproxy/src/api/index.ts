@@ -94,6 +94,7 @@ export type {
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
 export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
 export type { CredentialsApi, CredentialView } from './credentials.ts'
+export { CREDENTIALS_DESCRIBE_MAX_REFS } from './credentials.ts'
 export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
 export type { DownloadsApi } from './downloads.ts'
 export type { ApiApi, ApiContractDescription, ApiMethodDescription, RpcMethodStability } from './contract.ts'

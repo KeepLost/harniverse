@@ -388,6 +388,59 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     source: 'packages/client/ui-conversation/src/client/contract/slots.ts:97',
   },
   {
+    key: 'conversation.chat.markdown.fence',
+    kind: 'hoc',
+    scope: 'session',
+    summary: 'Language-keyed layers around one Markdown fence in the chat flow; the content is the plain code block, so a language without a layer renders as code.',
+    doc: 'Language-keyed layers around one Markdown fence in the chat flow; the\ncontent is the plain code block, so a language without a layer renders\nas code. Declared by the assistant-step entry; layers dispatch on the\nfence\'s lowercased language word through the hoc `entryKey`.',
+    registerOptions: [
+      {
+        name: 'id',
+        requirement: 'required',
+        type: 'string',
+        doc: 'Your layer key. A fresh id adds a layer; reusing a shipped id replaces that layer. Your component may omit `children`, which replaces everything inside the layer.',
+      },
+      {
+        name: 'key',
+        requirement: 'optional',
+        type: 'string',
+        doc: 'Dispatch key this layer serves; omitted, it serves every dispatch. Within one id, an exact-key layer replaces the wildcard layer for that key.',
+      },
+      {
+        name: 'order',
+        requirement: 'optional',
+        type: 'number',
+        doc: 'Nesting position, ascending (default 0); the lowest order is the outermost layer. Render the `children` prop at most once.',
+      },
+    ],
+    ownerProps: [
+      '/**\n * One Markdown code fence whose language is final, as a\n * {@link MarkdownRenderContext.renderCode} delegate receives it.\n */\nexport interface MarkdownDelegateFenceInfo {\n  /**\n   * The info string\'s language word, cut at its first character outside\n   * letters, digits, `_`, and `-`, then lowercased (`c++` yields `c`).\n   */\n  readonly lang: string\n  /** The fence body without its closing newline. */\n  readonly code: string\n  /** The surrounding document is still streaming, so `code` may still change. */\n  readonly streaming: boolean\n  /** The info string after the language word, as the author wrote it; absent when the fence names only a language. */\n  readonly meta?: string | undefined\n}',
+    ],
+    ownerPropsReferences: [],
+    standardProps: [
+      'useSessions: SnapshotSelectorHook<SessionListState>',
+      'useWorkspaces: SnapshotSelectorHook<import(\'./contract/workspaces.ts\').WorkspaceListState>',
+      'useContextMenu: UseContextMenu',
+      'useSession: SnapshotSelectorHook<ConversationSnapshot>',
+      'sessionId: SessionId',
+      'useProjection: UseProjection',
+      'useInput: SnapshotSelectorHook<InputState>',
+      'inputActions: InputActions',
+    ],
+    keyDomain: '',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'conversation.chat.node\' (client-ui-conversation), so it exists while that entry is mounted',
+    occupants: [
+      'client-ui-conversation MathFenceLayer id \'@deepseek-ai/dsh-client-ui-conversation/fence/math\' key \'math\'',
+      'client-ui-conversation DiffFenceLayer id \'@deepseek-ai/dsh-client-ui-conversation/fence/diff\' key \'diff\'',
+      'client-ui-conversation DiffFenceLayer id \'@deepseek-ai/dsh-client-ui-conversation/fence/diff\' key \'patch\'',
+    ],
+    replaceRisk: 'none',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.chat.markdown.fence\', () => ctx.slots.register(\n      { name: \'conversation.chat.markdown.fence\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:207',
+  },
+  {
     key: 'conversation.chat.node',
     kind: 'keyed',
     scope: 'session',
@@ -628,7 +681,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.composer.bar\', () => ctx.slots.register(\n      { name: \'conversation.composer.bar\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:256',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:263',
   },
   {
     key: 'conversation.composer.dock',
@@ -682,7 +735,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.composer.dock\', () => ctx.slots.register(\n      { name: \'conversation.composer.dock\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:225',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:232',
   },
   {
     key: 'conversation.details.tool',
@@ -990,7 +1043,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.dock\', () => ctx.slots.register(\n      { name: \'conversation.input.dock\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:216',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:223',
   },
   {
     key: 'conversation.input.left',
@@ -1044,7 +1097,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.left\', () => ctx.slots.register(\n      { name: \'conversation.input.left\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:234',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:241',
   },
   {
     key: 'conversation.input.model',
@@ -1076,7 +1129,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.model\', () => ctx.slots.register(\n      { name: \'conversation.input.model\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:280',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:287',
   },
   {
     key: 'conversation.input.overlay',
@@ -1158,7 +1211,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.plan\', () => ctx.slots.register(\n      { name: \'conversation.input.plan\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:266',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:273',
   },
   {
     key: 'conversation.input.right',
@@ -1210,7 +1263,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.right\', () => ctx.slots.register(\n      { name: \'conversation.input.right\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:242',
+    source: 'packages/client/ui-conversation/src/client/contract/slots.ts:249',
   },
   {
     key: 'conversation.session',

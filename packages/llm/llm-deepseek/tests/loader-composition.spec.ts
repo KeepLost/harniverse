@@ -143,7 +143,7 @@ describe('llm-deepseek real dynamic composition', () => {
     const home = root!
     await boot.ctx.get('credentials')!.set(KEY_REF, 'stored-by-ui')
     expect(await boot.ctx.get('credentials')!.describe(KEY_REF))
-      .toEqual({ configured: true, source: 'file', writable: true })
+      .toEqual({ configured: true, source: 'file', writable: true, masked: '••••••••••••' })
     await assemble(boot.ctx, { model: 'deepseek-flash', messages: [] })
     expect(first.headers[0]?.authorization).toBe('Bearer stored-by-ui')
     await boot.ctx.fiber.dispose()
@@ -155,7 +155,7 @@ describe('llm-deepseek real dynamic composition', () => {
     // The stored key is still the provider's own writable file entry — not a
     // read-only launch override, which is what hoisting it would have made it.
     expect(await credentials.resolve(KEY_REF)).toEqual({ value: 'stored-by-ui', source: 'file' })
-    expect(await credentials.describe(KEY_REF)).toEqual({ configured: true, source: 'file', writable: true })
+    expect(await credentials.describe(KEY_REF)).toEqual({ configured: true, source: 'file', writable: true, masked: '••••••••••••' })
     // Rotation still works after the restart, and the next request uses it.
     await credentials.set(KEY_REF, 'rotated-after-restart')
     await assemble(restarted.ctx, { model: 'deepseek-flash', messages: [] })

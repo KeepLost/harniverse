@@ -913,3 +913,47 @@
   font-size: 13px;
   color: var(--dsw-alias-label-primary);
 }
+
+.keyInput {
+  position: relative;
+}
+
+.savedKeyInput .input::placeholder {
+  color: var(--dsw-alias-label-primary);
+  opacity: 1;
+}
+
+.keyInputFilled {
+  padding-right: 40px;
+}
+
+.keyToggle {
+  position: absolute;
+  inset: 1px 1px 1px auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .keyToggle:hover:not(:disabled) {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.keyToggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.keyToggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

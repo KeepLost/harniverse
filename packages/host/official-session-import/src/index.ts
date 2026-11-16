@@ -21,6 +21,7 @@ import type { Workspace } from '@deepseek-ai/dsh-workspace'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
 import { discoverOfficialLogs, resolveSourceId } from './discovery.ts'
+import type { OfficialSessionFormat } from './types.ts'
 import type {
   OfficialImportOutcome, OfficialImportResult, OfficialImportTarget, OfficialSessionCandidate,
   OfficialSessionScan, OfficialSessionUnreadable,
@@ -120,7 +121,7 @@ export class OfficialSessionImport extends TypertRemoteService {
     const items = described.map(({ sourceId, path, sizeBytes, summary }): OfficialSessionCandidate => ({
       sourceId,
       path,
-      format: summary.format,
+      format: summary.format as OfficialSessionFormat,
       sourceSessionId: summary.sourceSessionId,
       ...summary.sourceCwd === undefined ? {} : { sourceCwd: summary.sourceCwd },
       ...summary.title === undefined ? {} : { title: summary.title },

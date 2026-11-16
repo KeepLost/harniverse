@@ -1,0 +1,69 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../api/browser-controller"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.host.json"
+    },
+    {
+      "path": "../../api/terminal-controller"
+    },
+    {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session/session-import"
+    },
+    {
+      "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../session/session-title"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../typert/registry"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../web/tool-web"
+    },
+    {
+      "path": "../../web/web"
+    },
+    {
+      "path": "../../workspace/workspace"
+    }
+  ]
+}

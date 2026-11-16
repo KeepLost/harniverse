@@ -534,6 +534,23 @@ describe('descriptor-root platform arms', () => {
       })
   })
 
+  it('lists a directory through its real path off Linux', async () => {
+    const root = tempWorkspace()
+    mkdirSync(join(root, 'folder'))
+    writeFileSync(join(root, 'README.md'), 'hello')
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+
+    // Off Linux the directory is read at its contained path and revalidated
+    // after the walk, with no descriptor filesystem involved.
+    await expect(listWorkspaceFiles(root, '.', new AbortController().signal))
+      .resolves.toMatchObject({
+        entries: [
+          { name: 'folder', kind: 'directory' },
+          { name: 'README.md', kind: 'file' },
+        ],
+      })
+  })
+
   it('runs Git against the descriptor root', async () => {
     const root = stubGit({ status: { stdout: '## main\0' } })
     mkdirSync(join(root, '.git'))

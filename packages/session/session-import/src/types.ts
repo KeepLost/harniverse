@@ -9,6 +9,7 @@
 
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SupervisionMode } from '@deepseek-ai/dsh-supervision'
+
 import type { ImportedSessionFormat } from './projection.ts'
 
 export type { ImportedSessionFormat, SessionImportProjection } from './projection.ts'
@@ -29,8 +30,8 @@ export type ForeignSessionFormat = 'current' | ImportedSessionFormat | 'unknown'
 export interface ImportRecordEventData {
   /** The foreign log this session was mapped from. */
   readonly source: {
-    /** Foreign format classification of the source header's version field. */
-    readonly format: ImportedSessionFormat
+    /** Provenance label of the source: an official generation or a converter's marker such as `deepseek-chat-v3`. */
+    readonly format: string
     /** Name of the preserved source artifact stored beside the mapped session. */
     readonly artifactName: string
     /** The foreign session's own id; absent on archives imported before it was recorded. */

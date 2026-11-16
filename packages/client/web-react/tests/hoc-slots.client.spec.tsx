@@ -180,6 +180,36 @@ describe('hoc slots', () => {
     expect(core.entriesOfSlot('spec.hoc').map(entry => entry.options.id)).toEqual(['outer', 'inner'])
   })
 
+  it('dispatches keyed layers beside wildcards, the exact key replacing its id wildcard', async () => {
+    const core = new SlotCore()
+    let setDispatch: (key: string | undefined) => void = () => {}
+    const view = mount(core, (renderSlot) => {
+      const [entryKey, set] = useState<string | undefined>(undefined)
+      setDispatch = set
+      return renderSlot('spec.hoc', { tone: 'x' }, { ...entryKey === undefined ? {} : { entryKey }, children: <Content /> })
+    })
+    // No layers yet: the content renders unchanged whatever the dispatch key.
+    expect(view.getByTestId('content')).toBeTruthy()
+
+    core.register({ name: 'spec.hoc', id: 'wrap', key: 'math' }, layer('math-of-wrap') as never)
+    core.register({ name: 'spec.hoc', id: 'wrap' }, layer('wild-of-wrap') as never)
+    core.register({ name: 'spec.hoc', id: 'ambient' }, layer('ambient') as never)
+    await flush()
+
+    // The dispatch key is still undefined: only wildcard layers apply.
+    expect(view.container.querySelector('section[data-layer="wild-of-wrap"]')).toBeTruthy()
+    expect(view.container.querySelector('section[data-layer="ambient"]')).toBeTruthy()
+    expect(view.container.querySelector('section[data-layer="math-of-wrap"]')).toBeNull()
+
+    // Dispatching entryKey 'math': the exact-key layer replaces its own id's
+    // wildcard, while the unrelated wildcard still applies.
+    act(() => { setDispatch('math') })
+    expect(view.container.querySelector('section[data-layer="math-of-wrap"]')).toBeTruthy()
+    expect(view.container.querySelector('section[data-layer="wild-of-wrap"]')).toBeNull()
+    expect(view.container.querySelector('section[data-layer="ambient"]')).toBeTruthy()
+    expect(view.getByTestId('content')).toBeTruthy()
+  })
+
   it('renders its layers around nothing when the owner omits children', async () => {
     const core = new SlotCore()
     const view = mount(core, renderSlot => renderSlot('spec.hoc', { tone: 'calm' }))
