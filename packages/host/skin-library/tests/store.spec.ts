@@ -56,7 +56,7 @@ describe('packs', () => {
     const { dir, store } = await library()
     expect(await store.listPacks()).toEqual({ skins: [], rejected: [] })
     expect(await store.listWallpapers()).toEqual([])
-    expect(await store.readWallpaper('a'.repeat(64))).toBeUndefined()
+    expect(await store.readWallpaperBytes('a'.repeat(64))).toBeUndefined()
     expect(await store.removePack('nothing')).toBe(false)
     expect(await store.removeWallpaper('a'.repeat(64))).toBe(false)
     await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -160,7 +160,7 @@ describe('wallpapers', () => {
       expect((await stat(join(dir, 'wallpapers'))).mode & 0o777).toBe(0o700)
     }
     expect(await readdir(join(dir, 'wallpapers'))).toEqual([`${hash}.png`])
-    expect(await store.readWallpaper(hash)).toEqual({ mime: 'image/png', contentBase64: bytes.toString('base64') })
+    expect(await store.readWallpaperBytes(hash)).toEqual({ mime: 'image/png', bytes })
   })
 
   it('answers identical bytes with the existing entry and keeps its first-upload time', async () => {
@@ -225,8 +225,8 @@ describe('wallpapers', () => {
     await store.putWallpaper(webp, 'image/webp')
     expect((await readdir(join(dir, 'wallpapers'))).map(name => name.split('.')[1]).sort()).toEqual(['jpg', 'webp'])
     expect((await store.listWallpapers()).map(entry => entry.mime).sort()).toEqual(['image/jpeg', 'image/webp'])
-    expect(await store.readWallpaper(wallpaperHash(jpeg))).toMatchObject({ mime: 'image/jpeg' })
-    expect(await store.readWallpaper(wallpaperHash(webp))).toMatchObject({ mime: 'image/webp' })
+    expect(await store.readWallpaperBytes(wallpaperHash(jpeg))).toMatchObject({ mime: 'image/jpeg' })
+    expect(await store.readWallpaperBytes(wallpaperHash(webp))).toMatchObject({ mime: 'image/webp' })
     expect(await store.removeWallpaper(wallpaperHash(jpeg))).toBe(true)
     expect(await store.removeWallpaper(wallpaperHash(jpeg))).toBe(false)
     expect(await store.removeWallpaper('NOT-A-HASH')).toBe(false)
@@ -239,27 +239,27 @@ describe('wallpapers', () => {
     const bytes = image('tamper')
     const hash = wallpaperHash(bytes)
     await store.putWallpaper(bytes, 'image/png')
-    expect(await store.readWallpaper(hash)).toBeDefined()
+    expect(await store.readWallpaperBytes(hash)).toBeDefined()
     await writeFile(join(dir, 'wallpapers', `${hash}.png`), image('different'))
-    expect(await store.readWallpaper(hash)).toBeUndefined()
+    expect(await store.readWallpaperBytes(hash)).toBeUndefined()
 
     const notAnImage = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')
     const svgHash = wallpaperHash(notAnImage)
     await writeFile(join(dir, 'wallpapers', `${svgHash}.png`), notAnImage)
-    expect(await store.readWallpaper(svgHash)).toBeUndefined()
+    expect(await store.readWallpaperBytes(svgHash)).toBeUndefined()
 
     const huge = 'b'.repeat(64)
     await writeFile(join(dir, 'wallpapers', `${huge}.png`), '')
     await truncate(join(dir, 'wallpapers', `${huge}.png`), MAX_WALLPAPER_BYTES + 1)
-    expect(await store.readWallpaper(huge)).toBeUndefined()
+    expect(await store.readWallpaperBytes(huge)).toBeUndefined()
   })
 
   it('rejects malformed and unknown addresses without touching the disk', async () => {
     const { store } = await library()
     for (const hash of ['', 'abc', 'A'.repeat(64), `../${'a'.repeat(61)}`, `${'a'.repeat(64)}.png`]) {
-      expect(await store.readWallpaper(hash), hash).toBeUndefined()
+      expect(await store.readWallpaperBytes(hash), hash).toBeUndefined()
     }
-    expect(await store.readWallpaper('c'.repeat(64))).toBeUndefined()
+    expect(await store.readWallpaperBytes('c'.repeat(64))).toBeUndefined()
   })
 
   it('ignores files that are not stored wallpapers when scanning', async () => {

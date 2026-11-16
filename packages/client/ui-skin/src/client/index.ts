@@ -74,6 +74,15 @@ export function apply(ctx: ClientContext): void {
     locale: ctx.locale,
     environment: browserEnvironment(),
     urls: { create: blob => URL.createObjectURL(blob), revoke: (url) => { URL.revokeObjectURL(url) } },
+    readWallpaper: async (hash) => {
+      try {
+        const response = await fetch(`/skins/wallpapers/${hash}`, { credentials: 'same-origin' })
+        return response.ok ? await response.blob() : undefined
+      } catch {
+        // A transport failure is a missing wallpaper for this render; the next acquire retries.
+        return undefined
+      }
+    },
     readBase64: readAsBase64,
     readText: readAsText,
     download: downloadText,

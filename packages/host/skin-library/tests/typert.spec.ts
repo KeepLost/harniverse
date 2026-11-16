@@ -45,11 +45,10 @@ it('generates the skinLibrary contract with observe and administer gating and st
     await writeFile(module, source)
     const loaded = await import(/* @vite-ignore */ pathToFileURL(module).href) as { TYPERT_REMOTE: { descriptors: Descriptor[] } }
     const methods = new Map(loaded.TYPERT_REMOTE.descriptors.map(descriptor => [descriptor.method, descriptor]))
-    expect([...methods.keys()].sort()).toEqual(['importPack', 'list', 'putWallpaper', 'readWallpaper', 'removePack', 'removeWallpaper'])
+    expect([...methods.keys()].sort()).toEqual(['importPack', 'list', 'putWallpaper', 'removePack', 'removeWallpaper'])
     const capabilities = Object.fromEntries([...methods].map(([name, descriptor]) => [name, descriptor.requiredCapability]))
     expect(capabilities).toEqual({
       list: 'harniverse.observe',
-      readWallpaper: 'harniverse.observe',
       importPack: 'harniverse.administer',
       removePack: 'harniverse.administer',
       putWallpaper: 'harniverse.administer',
@@ -75,12 +74,6 @@ it('generates the skinLibrary contract with observe and administer gating and st
     }).success).toBe(true)
     expect(snapshot.safeParse({ skins: [{ ...SKIN, colorScheme: 'sepia' }], wallpapers: [], rejected: [], limits: { maxPackBytes: 1, maxWallpaperBytes: 2, maxWallpapers: 3 } }).success).toBe(false)
     expect(snapshot.safeParse({ skins: [], wallpapers: [{ ...WALLPAPER, mime: 'image/gif' }], rejected: [], limits: { maxPackBytes: 1, maxWallpaperBytes: 2, maxWallpapers: 3 } }).success).toBe(false)
-
-    const read = methods.get('readWallpaper')!
-    expect(read.parameters.map(parameter => parameter.name)).toEqual(['hash'])
-    expect(read.result.schema.safeParse({ mime: 'image/webp', contentBase64: 'AAAA' }).success).toBe(true)
-    expect(read.result.schema.safeParse(undefined).success).toBe(true)
-    expect(read.result.schema.safeParse({ mime: 'image/svg+xml', contentBase64: 'AAAA' }).success).toBe(false)
 
     const imported = methods.get('importPack')!
     expect(imported.parameters.map(parameter => parameter.name)).toEqual(['text'])

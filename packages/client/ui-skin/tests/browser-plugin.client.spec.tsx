@@ -53,12 +53,16 @@ async function bench(options: { list?: ReturnType<typeof ok<ReturnType<typeof sn
   disposers.push(() => runtime.dispose())
   const remote = {
     list: vi.fn(async () => options.list ?? ok(snapshot())),
-    readWallpaper: vi.fn(async () => ok({ mime: 'image/png' as const, contentBase64: 'AAAA' })),
     importPack: vi.fn(),
     removePack: vi.fn(async () => ok(true)),
     putWallpaper: vi.fn(),
     removeWallpaper: vi.fn(async () => ok(true)),
   }
+  const fetchWallpaper = vi.fn(async (input: string | URL | Request): Promise<Response> =>
+    (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url) === `/skins/wallpapers/${HASH_A}`
+      ? new Response(new Blob(['AAAA'], { type: 'image/png' }), { status: 200 })
+      : new Response('not found', { status: 404 }))
+  vi.stubGlobal('fetch', fetchWallpaper)
   const skinScope = stubSettingsScope<SkinSettings>()
   skinScope.publish({ status: 'ready', value: SETTINGS, writable: true })
   runtime.provide('remote', {})
@@ -77,7 +81,7 @@ async function bench(options: { list?: ReturnType<typeof ok<ReturnType<typeof sn
   })
   await waitFor(() => { expect(remote.list).toHaveBeenCalled() })
   await act(async () => {})
-  return { runtime, remote, skinScope, theme, locale, plugin }
+  return { runtime, remote, fetchWallpaper, skinScope, theme, locale, plugin }
 }
 
 describe('ui-skin apply', () => {
@@ -159,10 +163,22 @@ describe('ui-skin apply', () => {
     const tokens = b.theme.getTheme().active.tokens
     expect(tokens['--dsw-surface-pane']).toBe('color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent)')
     expect(tokens['--dsw-material-panel-filter']).toBe('blur(16px) saturate(1.4)')
-    expect(b.remote.readWallpaper).toHaveBeenCalledWith(HASH_A)
+    expect(b.fetchWallpaper).toHaveBeenCalledWith(`/skins/wallpapers/${HASH_A}`, { credentials: 'same-origin' })
     await b.plugin.dispose()
     expect(b.theme.getTheme().active.tokens['--dsw-surface-pane']).toBeUndefined()
     await waitFor(() => { expect(revoked).toEqual(['blob:wallpaper-1']) })
+  })
+
+  it('treats a failed wallpaper transport as a missing wallpaper, without minting a URL', async () => {
+    const b = await bench()
+    const rejecting = vi.fn(async (_input: string | URL | Request): Promise<Response> => { throw new TypeError('network down') })
+    vi.stubGlobal('fetch', rejecting)
+    act(() => { b.skinScope.publish({ value: { ...SETTINGS, wallpaper: HASH_A } }) })
+    b.runtime.renderSlot('shell.backdrop', {})
+    await vi.waitFor(() => { expect(rejecting).toHaveBeenCalled() })
+    await act(async () => {})
+    expect(created).toEqual([])
+    expect(revoked).toEqual([])
   })
 
   it('draws a skin gradient as the backdrop while that skin is selected', async () => {
@@ -171,7 +187,7 @@ describe('ui-skin apply', () => {
     expect(backdrop.container.querySelector('[data-backdrop]')).toBeNull()
     act(() => { b.theme.setTheme('skin:abyss') })
     await waitFor(() => { expect(backdrop.container.querySelector('[data-backdrop="gradient"]')).not.toBeNull() })
-    expect(b.remote.readWallpaper).not.toHaveBeenCalled()
+    expect(b.fetchWallpaper).not.toHaveBeenCalled()
   })
 
   it('follows the operating system’s reduced-transparency request live', async () => {

@@ -109,11 +109,20 @@ interface WebPluginRecord {
   clientPath: string
 }
 
-interface BootstrapArtifact {
+/** One wire artifact with its encodings: the bootstrap aggregates and each plugin bundle. */
+interface EncodedArtifact {
   plain: Buffer
   gzip: Buffer | undefined
   br: Buffer | undefined
 }
+
+/**
+ * Plugin-bundle artifacts retained per `${id}\0${rev}`. The rev is the
+ * bundle's content hash, so one entry always describes exactly the bytes on
+ * disk; HMR rebuilds land under a fresh key. Bounded FIFO eviction keeps the
+ * working set (every registered bundle plus recent HMR generations) resident.
+ */
+const BUNDLE_ARTIFACT_LIMIT = 96
 
 /** Narrow an unknown parsed JSON value to the `dsh.client` declaration, throwing on malformed fields. */
 function parseDshClient(pkgName: string, value: unknown): DshClientDeclaration | undefined {
@@ -219,7 +228,8 @@ export class ClientModuleRegistry extends Service {
   private readonly rebuildListeners = new Set<(id: string, rev: string) => void>()
   private readonly graphListeners = new Set<() => void>()
   private readonly dirty = new Set<string>()
-  private readonly bootstrapArtifacts = new Map<string, BootstrapArtifact>()
+  private readonly bootstrapArtifacts = new Map<string, EncodedArtifact>()
+  private readonly bundleArtifacts = new Map<string, EncodedArtifact>()
   private readonly resolvePkgJson: (spec: string) => string
   private flushQueued = false
   private composed: WebBootGraph
@@ -350,12 +360,12 @@ export class ClientModuleRegistry extends Service {
     // The wire encodings fill asynchronously: compressing the concatenated
     // bootstrap on the main thread blocked composition start for tens of
     // seconds, so until an encoding lands the route serves the plain body.
-    const criticalArtifact: BootstrapArtifact = { plain: criticalPlain, gzip: undefined, br: undefined }
-    const deferredArtifact: BootstrapArtifact = { plain: deferredPlain, gzip: undefined, br: undefined }
+    const criticalArtifact: EncodedArtifact = { plain: criticalPlain, gzip: undefined, br: undefined }
+    const deferredArtifact: EncodedArtifact = { plain: deferredPlain, gzip: undefined, br: undefined }
     this.bootstrapArtifacts.set(rev, criticalArtifact)
     this.bootstrapArtifacts.set(`${rev}:deferred`, deferredArtifact)
-    this.fillEncoding(rev, criticalArtifact)
-    this.fillEncoding(`${rev}:deferred`, deferredArtifact)
+    this.fillEncoding(this.bootstrapArtifacts, rev, criticalArtifact)
+    this.fillEncoding(this.bootstrapArtifacts, `${rev}:deferred`, deferredArtifact)
     while (this.bootstrapArtifacts.size > 4) {
       const oldest = this.bootstrapArtifacts.keys().next().value
       if (oldest === undefined) break
@@ -370,15 +380,16 @@ export class ClientModuleRegistry extends Service {
   }
 
   /** Fill one artifact's wire encodings off the main thread. */
-  private fillEncoding(key: string, artifact: BootstrapArtifact): void {
+  private fillEncoding(artifacts: Map<string, EncodedArtifact>, key: string, artifact: EncodedArtifact): void {
     const settle = (kind: 'br' | 'gzip', error: Error | null, body?: Buffer): void => {
       if (error !== null || body === undefined) {
         this.ctx.logger.warn(`client-modules: bootstrap ${kind} compression failed; the route keeps serving the plain body (${String(error ?? 'no output')})`)
         return
       }
       /* v8 ignore next 2 -- a fill can only land after its key changed when two
-         compositions raced the same rev through eviction; the stale body is dropped. */
-      if (this.bootstrapArtifacts.get(key) !== artifact) return
+         compositions or a bundle-cache eviction raced the same rev; the stale
+         body is dropped. */
+      if (artifacts.get(key) !== artifact) return
       artifact[kind] = body
     }
     brotliCompress(artifact.plain, (error, body) => { settle('br', error, body) })
@@ -537,27 +548,81 @@ export class ClientModuleRegistry extends Service {
     const bundleSuffix = '/client.js'
     const isSourceMap = pathname.startsWith(prefix) && pathname.endsWith(mapSuffix)
     const suffix = isSourceMap ? mapSuffix : bundleSuffix
-    const clientPath = pathname.startsWith(prefix) && pathname.endsWith(suffix)
-      ? this.clientPath(pathname.slice(prefix.length, -suffix.length))
+    const record = pathname.startsWith(prefix) && pathname.endsWith(suffix)
+      ? this.table.get(pathname.slice(prefix.length, -suffix.length))
       : undefined
-    const path = clientPath === undefined ? undefined : `${clientPath}${isSourceMap ? '.map' : ''}`
-    if (path === undefined) {
+    if (record === undefined) {
       res.writeHead(404)
       res.end()
       return
     }
+    if (isSourceMap) {
+      try {
+        const body = await readFile(`${record.clientPath}.map`)
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-cache',
+        })
+        res.end(body)
+      } catch {
+        // Registered but unreadable (bundle not built yet): loud 404 beats a silent SPA-fallback HTML page.
+        res.writeHead(404)
+        res.end()
+      }
+      return
+    }
     try {
-      const body = await readFile(path)
+      const artifact = await this.bundleArtifact(record)
+      const encodings = (req.headers['accept-encoding'] ?? '').split(',')
+        .map(encoding => encoding.trim().split(';')[0])
+      // Undefined encodings until the background fill lands: the request then
+      // falls through to the plain body with no content-encoding header.
+      const body = encodings.includes('br') && artifact.br !== undefined
+        ? artifact.br
+        : encodings.includes('gzip') && artifact.gzip !== undefined
+          ? artifact.gzip
+          : artifact.plain
+      const encoding = body === artifact.br ? 'br' as const : body === artifact.gzip ? 'gzip' as const : undefined
+      // The graph row's URL carries the bundle's content hash; a matching rev
+      // makes the response content-addressed and permanently cacheable. A
+      // missing or stale rev (manual fetch, HMR mid-flight) stays revalidated.
+      const immutable = url.searchParams.get('rev') === record.entry.rev
       res.writeHead(200, {
-        'content-type': isSourceMap ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
-        'cache-control': 'no-cache',
+        'content-type': 'text/javascript; charset=utf-8',
+        'cache-control': immutable ? 'private, max-age=31536000, immutable' : 'no-cache',
+        'content-length': String(body.byteLength),
+        'vary': 'accept-encoding',
+        ...(encoding === undefined ? {} : { 'content-encoding': encoding }),
       })
-      res.end(body)
+      res.end(req.method === 'HEAD' ? undefined : body)
     } catch {
       // Registered but unreadable (bundle not built yet): loud 404 beats a silent SPA-fallback HTML page.
       res.writeHead(404)
       res.end()
     }
+  }
+
+  /**
+   * One bundle's wire artifact: the disk bytes under the record's rev, with
+   * encodings filled off the main thread and the entry retained for later
+   * requests (FIFO-bounded across bundle and HMR generations).
+   * @param record - the bundle's composed table row.
+   * @returns the artifact whose `plain` body matches the disk bytes.
+   */
+  private async bundleArtifact(record: WebPluginRecord): Promise<EncodedArtifact> {
+    const key = `${record.entry.id}\0${record.entry.rev}`
+    const cached = this.bundleArtifacts.get(key)
+    if (cached !== undefined) return cached
+    const artifact: EncodedArtifact = { plain: await readFile(record.clientPath), gzip: undefined, br: undefined }
+    this.bundleArtifacts.delete(key)
+    this.bundleArtifacts.set(key, artifact)
+    while (this.bundleArtifacts.size > BUNDLE_ARTIFACT_LIMIT) {
+      const oldest = this.bundleArtifacts.keys().next().value
+      if (oldest === undefined) break
+      this.bundleArtifacts.delete(oldest)
+    }
+    this.fillEncoding(this.bundleArtifacts, key, artifact)
+    return artifact
   }
 }
 
