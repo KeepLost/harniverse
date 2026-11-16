@@ -387,7 +387,10 @@ export class SessionImport extends Service {
       },
     }
     const tail: PendingImportEvent = {
-      type: 'user/message', time: options.events.at(-1)?.time ?? createdAt, surfaceOp: 'append',
+      type: 'user/message',
+      /* v8 ignore next -- the entry rejects an empty event list before this tail is built */
+      time: options.events.at(-1)?.time ?? createdAt,
+      surfaceOp: 'append',
       data: createUserMessage({
         source: { kind: 'plugin', plugin: SESSION_IMPORT_PLUGIN },
         content: [{ type: 'text', text: `Imported archival history from ${options.format}, session ${JSON.stringify(options.sourceSessionId)}. Unsupported history was mapped lossily; the original bytes are retained in ${artifactName}. This session cannot execute.` }],
@@ -442,8 +445,6 @@ export class SessionImport extends Service {
     const marker = {
       type: 'import/record' as const,
       time: settled.marker.time,
-      ...settled.marker.surfaceOp === undefined ? {} : { surfaceOp: settled.marker.surfaceOp },
-      ...settled.marker.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: settled.marker.sourceEventSeqs },
       data: {
         ...base,
         source: {

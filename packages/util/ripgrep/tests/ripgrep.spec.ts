@@ -1,5 +1,6 @@
 /** resolveRgPath/spawnRipgrep/readRipgrepLines against the real local subprocess seam. */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { Readable } from 'node:stream'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -115,6 +116,33 @@ describe('readRipgrepLines', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('ignores records emitted after the consumer stops', async () => {
+    const events: string[] = ['first\0', 'second\0', 'third\0']
+    let terminated = false
+    const stdout = new Readable({
+      read() {
+        const next = events.shift()
+        if (next === undefined) this.push(null)
+        else this.push(next)
+      },
+    })
+    const outcome = { status: 'exited', exitCode: 0, signal: null } as const
+    const handle = {
+      stdout,
+      done: Promise.resolve(outcome),
+      waitForExit: async () => undefined,
+      terminate: () => { terminated = true },
+    }
+    const seen: string[] = []
+    const { stopped } = await readRipgrepLines(handle as never, '\0', (line) => {
+      seen.push(line)
+      return seen.length < 1
+    })
+    expect(seen).toEqual(['first'])
+    expect(stopped).toBe(true)
+    expect(terminated).toBe(true)
   })
 
   it('reads newline-separated records for text output', async () => {

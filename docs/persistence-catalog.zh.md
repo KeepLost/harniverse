@@ -545,7 +545,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'import/record': ImportRecordEventData
 ```
 
-来源：[`packages/session/session-import/src/types.ts:58`](../packages/session/session-import/src/types.ts)
+来源：[`packages/session/session-import/src/types.ts:59`](../packages/session/session-import/src/types.ts)
 
 ### `llm/*`
 

@@ -7,7 +7,7 @@
 
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createToolResultMessage, createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventInput } from '@deepseek-ai/dsh-session'
 
@@ -88,6 +88,55 @@ describe('multiple Session appends', () => {
     ])
     expect(nodes).toEqual([1])
     expect(session.deriveMessages()).toEqual([replacement])
+  })
+
+  it('replaces a committed event from a later batch', () => {
+    const session = Session.create(SessionId('replace-committed'))
+    session.append([['user/message', message('original'), { surfaceOp: 'append' }]])
+    const replacement = message('replacement')
+    session.append([
+      ['user/message', replacement, { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] }],
+    ])
+    expect(session.surface.nodes).toEqual([1])
+    expect(session.deriveMessages()).toEqual([replacement])
+  })
+
+  it('validates a committed tool-result rewrite against resident history', () => {
+    const session = Session.create(SessionId('toolresult-committed'))
+    const original = { turn: 1, step: 1, message: createToolResultMessage({
+      callId: CallId('call-1'), content: [{ type: 'text', text: 'result' }], isError: false,
+    }) }
+    session.append([
+      ['turn/start', { turn: 1 }],
+      ['tool/result', original, { surfaceOp: 'append' }],
+    ])
+    const block = original.message.content[0]
+    const rewritten = {
+      ...original,
+      message: freezeMessage({ ...original.message, content: [{ ...block, content: 'edited' }] as unknown as [typeof block] }),
+    }
+    session.append([
+      ['tool/result', rewritten, { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] }],
+    ])
+    expect(session.surface.nodes).toEqual([2])
+  })
+
+  it('validates a same-batch tool-result rewrite against the batch member', () => {
+    const session = Session.create(SessionId('toolresult-batch'))
+    const original = { turn: 1, step: 1, message: createToolResultMessage({
+      callId: CallId('call-1'), content: [{ type: 'text', text: 'result' }], isError: false,
+    }) }
+    const block = original.message.content[0]
+    const rewritten = {
+      ...original,
+      message: freezeMessage({ ...original.message, content: [{ ...block, content: 'edited' }] as unknown as [typeof block] }),
+    }
+    session.append([
+      ['turn/start', { turn: 1 }],
+      ['tool/result', original, { surfaceOp: 'append' }],
+      ['tool/result', rewritten, { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] }],
+    ])
+    expect(session.surface.nodes).toEqual([2])
   })
 
   it('rejects non-JSON data before publishing any member', () => {

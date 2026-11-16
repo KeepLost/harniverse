@@ -255,9 +255,10 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     stagedTransitions.delete(event)
     applyTransition(staged.trace, staged.transition)
     const pending = pendingByTrace.get(staged.trace)
+    /* v8 ignore next 3 -- publication follows staging; the pending list stays present unless an abandoned collect pruned it */
     if (pending !== undefined) {
       const index = pending.indexOf(staged.transition)
-      /* v8 ignore next -- publication follows staging; every staged transition publishes or is pruned */
+      /* v8 ignore next -- every staged transition publishes or is pruned */
       if (index >= 0) pending.splice(index, 1)
     }
   }, { global: true })

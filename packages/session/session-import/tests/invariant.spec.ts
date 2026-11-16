@@ -37,7 +37,7 @@ describe('session-import invariants', () => {
 
   it('rejects unclassified formats, empty artifact names, and unknown modes', async () => {
     const { session } = await setup()
-    expect(() => session.append('import/record', record('current' as never, 'a.jsonl')))
+    expect(() => session.append('import/record', record('current', 'a.jsonl')))
       .toThrow(/must name a classified foreign generation/)
     expect(() => session.append('import/record', record('official-v3', '')))
       .toThrow(/artifactName must be a non-empty string/)
