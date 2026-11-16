@@ -91,9 +91,12 @@ flowchart LR
   pkg_settings_file["settings-file"]
   pkg_apiproxy["apiproxy"]
   pkg_mcp_user_config["mcp-user-config"]
+  pkg_deepseek_chat_import["deepseek-chat-import"]
+  svc_deepseekChatImport["ctx.deepseekChatImport<br/>DeepSeek chat export import"]
   pkg_session_import["session-import"]
   svc_sessionImport["ctx.sessionImport<br/>Foreign-session archival import"]
   pkg_host_official_session_import["host-official-session-import"]
+  pkg_host_deepseek_chat_import["host-deepseek-chat-import"]
   pkg_mcp_resources["mcp-resources"]
   svc_mcpResources["ctx.mcpResources<br/>Scoped MCP resource seam"]
   svc_mcpConnections["ctx.mcpConnections<br/>Host-shared MCP connection seam"]
@@ -342,6 +345,7 @@ flowchart LR
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
   pkg_credentials --> svc_credentials
   pkg_credentials_local --> svc_credentials
+  pkg_deepseek_chat_import --> svc_deepseekChatImport
   pkg_directory_picker --> svc_directoryPicker
   pkg_directory_picker_browse --> svc_directoryPicker
   pkg_directory_picker_native --> svc_directoryPicker
@@ -486,6 +490,7 @@ flowchart LR
   svc_credentials --> pkg_apiproxy
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
+  svc_deepseekChatImport --> pkg_apiproxy
   svc_directoryPicker --> pkg_apiproxy
   svc_dynamicCordisRunner --> pkg_tool_cordis
   svc_fileReferences --> pkg_client_ui_reference
@@ -533,6 +538,7 @@ flowchart LR
   svc_sessionImport --> pkg_agent_loop
   svc_sessionImport --> pkg_client_connection
   svc_sessionImport --> pkg_host_apiproxy
+  svc_sessionImport --> pkg_host_deepseek_chat_import
   svc_sessionImport --> pkg_host_official_session_import
   svc_sessionPersistence --> pkg_agent_loop
   svc_sessionPersistence --> pkg_hooks_claude_code
@@ -666,7 +672,8 @@ flowchart LR
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
-| `ctx.sessionImport` | `seam` | [`session-import`](../packages/session/session-import) | [`session-import`](../packages/session/session-import) | [`agent-loop`](../packages/core/agent-loop), [`client-connection`](../packages/client/connection), [`host-official-session-import`](../packages/host/official-session-import), [`host-apiproxy`](../packages/host/apiproxy) | - | The runtime maps official v1-v4 logs (plain or Zstandard-framed) lossily into content-addressed archival native sessions with the source artifact retained beside them; the agent loop honors the contract resume guard so imported history never executes, the HTTP route and the official-session Remote import through it, and the API proxy continues an archive into a new session from its continuation seed. |
+| `ctx.deepseekChatImport` | `seam` | `deepseek-chat-import` | `deepseek-chat-import` | `apiproxy` | - | The Remote owns the single import slot and the upload budgets; the API proxy serves its fixed NDJSON archive route; each conversation settles through the session-import converted-events entry. |
+| `ctx.sessionImport` | `seam` | [`session-import`](../packages/session/session-import) | [`session-import`](../packages/session/session-import) | [`agent-loop`](../packages/core/agent-loop), [`client-connection`](../packages/client/connection), [`host-official-session-import`](../packages/host/official-session-import), [`host-deepseek-chat-import`](../packages/host/deepseek-chat-import), [`host-apiproxy`](../packages/host/apiproxy) | - | The runtime maps official v1-v4 logs (plain or Zstandard-framed) lossily into content-addressed archival native sessions with the source artifact retained beside them, and its converted-events entry settles DeepSeek chat exports the same way; the agent loop honors the contract resume guard so imported history never executes, the HTTP route and the official-session Remote import through it, the chat-export Remote streams an uploaded ZIP through the same entry, and the API proxy continues an archive into a new session from its continuation seed. |
 | `ctx.mcpResources` | `seam` | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-client`](../packages/mcp/mcp-client) | - | Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list. |
 | `ctx.mcpConnections` | `seam` | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client) | [`mcp-client`](../packages/mcp/mcp-client), [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | One host-global owner plugin per configured server holds the live connection and reconnect policy; preset consumers mount registrar children that expose scoped tools while the registry tracks generations so no consumer ever sees a half-applied fleet. |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
