@@ -1449,7 +1449,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/skin-library/src/index.ts:31`](../packages/host/skin-library/src/index.ts)
+Source: [`packages/host/skin-library/src/index.ts:32`](../packages/host/skin-library/src/index.ts)
 
 <a id="deepseek-aidsh-host-webserver"></a>
 
