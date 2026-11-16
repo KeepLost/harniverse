@@ -4,6 +4,8 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
+import type { Zippable } from 'fflate'
+import { damagedZip } from './helpers/zip.ts'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { ImportConflictError } from '@deepseek-ai/dsh-session-import'
@@ -44,7 +46,7 @@ function chat(id: string, leafAt: number, title: string | null = `title ${id}`, 
 }
 
 function zipOf(conversations: readonly unknown[], index: readonly { id: string; inserted_at: string; updated_at: string }[],
-  extra: Record<string, Uint8Array> = {}): Uint8Array {
+  extra: Zippable = {}): Uint8Array {
   return zipSync({
     'manifest.json': strToU8(JSON.stringify({ export_format_version: 3 })),
     'chat_session_index.json': strToU8(JSON.stringify(index)),
@@ -62,6 +64,7 @@ function deps(options: {
   fail?: string[]
   createId?: () => string
   attachments?: DeepseekChatImportDependencies['attachments']
+  warn?: (message: string) => void
 }): { deps: DeepseekChatImportDependencies; recorded: Recorded[] } {
   const recorded: Recorded[] = []
   let counter = 0
@@ -81,7 +84,7 @@ function deps(options: {
     },
     workspaceRegistered: () => true,
     createId: options.createId ?? (() => `id-${String(counter++)}`),
-    warn: () => undefined,
+    warn: options.warn ?? (() => undefined),
     ...options.attachments === undefined ? {} : { attachments: options.attachments },
   }
   return { deps: d, recorded }
@@ -117,6 +120,74 @@ describe('importDeepseekChatExport', () => {
     const { result } = await run(d, archive, { ...LIMITS, maxSessions: 2 })
     expect(result.sessionIds).toHaveLength(2)
     expect(result.omittedByLimit).toBe(1)
+  })
+
+  it('rejects the whole import when the index carries an invalid timestamp', async () => {
+    const { deps: d } = deps({})
+    const archive = zipOf([chat('a', 1)], [{ id: 'a', inserted_at: 'yesterday', updated_at: at(1) }])
+    await expect(run(d, archive)).rejects.toMatchObject({ reason: 'missing-index' })
+  })
+
+  it('skips a chosen conversation whose entry fails to inflate and imports the next older one', async () => {
+    const { deps: d, recorded } = deps({})
+    const archive = damagedZip({
+      'manifest.json': strToU8(JSON.stringify({ export_format_version: 3 })),
+      'chat_session_index.json': strToU8(JSON.stringify([indexRow('newest', 9), indexRow('older', 5)])),
+      'chat_sessions/older.json': strToU8(JSON.stringify(chat('older', 5))),
+      'chat_sessions/newest.json': strToU8(JSON.stringify(chat('newest', 9))),
+    }, 'chat_sessions/newest.json')
+    const { result } = await run(d, archive)
+    expect(result.sessionIds).toHaveLength(1)
+    expect(result.skipped).toHaveLength(1)
+    expect(result.skipped[0]?.conversationId).toBe('newest')
+    expect(recorded.map(entry => entry.sourceSessionId)).toEqual(['older'])
+  })
+
+  it('pulls an omitted conversation through the retry path when a chosen file is absent', async () => {
+    const { deps: d, recorded } = deps({})
+    const index = [indexRow('newest', 9), indexRow('mid', 5), indexRow('oldest', 1)]
+    const archive = zipOf([chat('mid', 5), chat('oldest', 1)], index)
+    const { result } = await run(d, archive, { ...LIMITS, maxSessions: 2 })
+    expect(result.sessionIds).toHaveLength(2)
+    expect(result.omittedByLimit).toBe(0)
+    expect(result.skipped).toHaveLength(1)
+    expect(result.skipped[0]?.conversationId).toBe('newest')
+    expect(recorded.map(entry => entry.sourceSessionId).sort()).toEqual(['mid', 'oldest'])
+  })
+
+  it('keeps replacing until a retry conversation settles', async () => {
+    const { deps: d, recorded } = deps({})
+    const index = [indexRow('newest', 9), indexRow('mid', 5), indexRow('corrupt', 3), indexRow('absent', 1)]
+    const archive = zipSync({
+      'manifest.json': strToU8(JSON.stringify({ export_format_version: 3 })),
+      'chat_session_index.json': strToU8(JSON.stringify(index)),
+      'chat_sessions/mid.json': strToU8(JSON.stringify(chat('mid', 5))),
+      'chat_sessions/corrupt.json': strToU8('{"id": '),
+    })
+    const { result } = await run(d, archive, { ...LIMITS, maxSessions: 2 })
+    expect(recorded.map(entry => entry.sourceSessionId)).toEqual(['mid'])
+    expect(result.sessionIds).toHaveLength(1)
+    const reasons = new Map(result.skipped.map(skip => [skip.conversationId, skip.reason]))
+    expect(reasons.get('newest')).toContain('no file for this conversation')
+    expect(reasons.get('corrupt')).toBeTruthy()
+    expect(reasons.get('absent')).toContain('is not in the export')
+  })
+
+  it('ignores oversized entries that are not chosen conversations', async () => {
+    const { deps: d, recorded } = deps({})
+    const big = strToU8('x'.repeat(LIMITS.maxEntryBytes + 1))
+    const index = [indexRow('a', 5), indexRow('b', 1), indexRow('ghost', 0)]
+    const archive = zipSync({
+      'manifest.json': strToU8(JSON.stringify({ export_format_version: 3 })),
+      'chat_session_index.json': strToU8(JSON.stringify(index)),
+      'chat_sessions/a.json': strToU8(JSON.stringify(chat('a', 5))),
+      'chat_sessions/b.json': strToU8(JSON.stringify(chat('b', 1))),
+      'chat_sessions/ghost.json': [big, { level: 0 }],
+      'chat_sessions/x_files/big.bin': [big, { level: 0 }],
+    })
+    const { result } = await run(d, archive, { ...LIMITS, maxSessions: 2 })
+    expect(recorded.map(entry => entry.sourceSessionId).sort()).toEqual(['a', 'b'])
+    expect(result.skipped).toEqual([])
   })
 
   it('replaces a conversation whose settle conflicts with the next older one', async () => {
@@ -155,6 +226,73 @@ describe('importDeepseekChatExport', () => {
     expect(result.sessionIds).toHaveLength(1)
   })
 
+  it('reports a settle failure as a skipped conversation', async () => {
+    const { deps: d, recorded } = deps({ fail: ['only'] })
+    const archive = zipOf([chat('only', 1)], [indexRow('only', 1)])
+    const { result } = await run(d, archive)
+    expect(recorded).toEqual([])
+    expect(result.sessionIds).toEqual([])
+    expect(result.skipped[0]?.reason).toContain('settle refused only')
+  })
+
+  it('stores the images of a retry conversation through its own image pass', async () => {
+    const saved: Array<{ name?: string }> = []
+    const attachments: NonNullable<DeepseekChatImportDependencies['attachments']> = {
+      async saveImage(input) {
+        saved.push({ ...input.name === undefined ? {} : { name: input.name } })
+        return { attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`), mediaType: input.mediaType, bytes: input.data.byteLength } as ImageAttachmentRef
+      },
+    }
+    const { deps: d, recorded } = deps({ attachments })
+    const withChart = {
+      id: 'oldest', title: null, inserted_at: at(0),
+      messages: [{
+        id: 1, parent_id: null, role: 'USER', status: 'FINISHED', inserted_at: at(0),
+        fragments: [{ type: 'FILE', files: [
+          { id: 'f1', file_name: 'chart.png', file_size: 4, is_image: true,
+            export_path: 'chat_sessions/oldest_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_chart.png' },
+        ] }],
+      }],
+    }
+    const index = [indexRow('newest', 9), indexRow('mid', 5), indexRow('oldest', 1)]
+    const archive = zipOf([chat('mid', 5), withChart], index, {
+      'chat_sessions/oldest_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_chart.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    })
+    const { result } = await run(d, archive, { ...LIMITS, maxSessions: 2 })
+    expect(recorded.map(entry => entry.sourceSessionId).sort()).toEqual(['mid', 'oldest'])
+    expect(saved).toEqual([{ name: 'chart.png' }])
+    expect(result.sessionIds).toHaveLength(2)
+  })
+
+  it('keeps an oversized image of a chosen conversation as a synthetic file card', async () => {
+    const saved: Array<{ name?: string }> = []
+    const attachments: NonNullable<DeepseekChatImportDependencies['attachments']> = {
+      async saveImage(input) {
+        saved.push({ ...input.name === undefined ? {} : { name: input.name } })
+        return { attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`), mediaType: input.mediaType, bytes: input.data.byteLength } as ImageAttachmentRef
+      },
+    }
+    const warnings: string[] = []
+    const { deps: d } = deps({ attachments, warn: message => warnings.push(message) })
+    const file = {
+      id: 'c1', title: null, inserted_at: at(0),
+      messages: [{
+        id: 1, parent_id: null, role: 'USER', status: 'FINISHED', inserted_at: at(0),
+        fragments: [{ type: 'FILE', files: [
+          { id: 'f1', file_name: 'huge.png', file_size: LIMITS.maxEntryBytes + 1, is_image: true,
+            export_path: 'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_huge.png' },
+        ] }],
+      }],
+    }
+    const archive = zipOf([file], [indexRow('c1', 1)], {
+      'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_huge.png': [strToU8('x'.repeat(LIMITS.maxEntryBytes + 1)), { level: 0 }],
+    })
+    const { result } = await run(d, archive)
+    expect(result.sessionIds).toHaveLength(1)
+    expect(saved).toEqual([])
+    expect(warnings).toHaveLength(1)
+  })
+
   it('stores image entries of chosen conversations and blocks an unsupported image type', async () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
     const saved: Array<{ name?: string }> = []
@@ -174,6 +312,11 @@ describe('importDeepseekChatExport', () => {
             export_path: 'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_chart.png' },
           { id: 'f2', file_name: 'raw.tiff', file_size: 8, is_image: true,
             export_path: 'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_raw.tiff' },
+          { id: 'f3', file_name: 'notes.txt', file_size: 3, is_image: false,
+            export_path: 'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_notes.txt' },
+          { id: 'f4', file_name: 'inline.png', file_size: 4, is_image: true, export_path: null },
+          { id: 'f5', file_name: 'gone.png', file_size: 4, is_image: true,
+            export_path: 'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_gone.png' },
         ] }],
       }],
     }
@@ -199,6 +342,127 @@ describe('importDeepseekChatExport', () => {
     const { deps: d } = deps({})
     const archive = build(JSON.stringify([indexRow('x', 1)]))
     await expect(run(d, archive)).rejects.toMatchObject({ reason })
+  })
+
+  it('dedupes an index that lists one conversation twice', async () => {
+    const { deps: d } = deps({})
+    const archive = zipOf([chat('a', 5), chat('b', 1)], [indexRow('a', 5), indexRow('a', 3), indexRow('b', 1)])
+    const { result } = await run(d, archive)
+    expect(result.conversationCount).toBe(2)
+    expect(result.sessionIds).toHaveLength(2)
+  })
+
+  it('keeps an image whose storage fails as a synthetic file card', async () => {
+    const warnings: string[] = []
+    const attachments: NonNullable<DeepseekChatImportDependencies['attachments']> = {
+      async saveImage() { throw new Error('attachment store offline') },
+    }
+    const { deps: d } = deps({ attachments, warn: message => warnings.push(message) })
+    const file = {
+      id: 'c1', title: null, inserted_at: at(0),
+      messages: [{
+        id: 1, parent_id: null, role: 'USER', status: 'FINISHED', inserted_at: at(0),
+        fragments: [{ type: 'FILE', files: [
+          { id: 'f1', file_name: 'chart.png', file_size: 4, is_image: true,
+            export_path: 'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_chart.png' },
+        ] }],
+      }],
+    }
+    const archive = zipOf([file], [indexRow('c1', 1)], {
+      'chat_sessions/c1_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_chart.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    })
+    const { result } = await run(d, archive)
+    expect(result.sessionIds).toHaveLength(1)
+    expect(warnings).toHaveLength(1)
+  })
+
+  it('ignores oversized image entries outside the chosen conversations', async () => {
+    const saved: Array<{ name?: string }> = []
+    const attachments: NonNullable<DeepseekChatImportDependencies['attachments']> = {
+      async saveImage(input) {
+        saved.push({ ...input.name === undefined ? {} : { name: input.name } })
+        return { attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`), mediaType: input.mediaType, bytes: input.data.byteLength } as ImageAttachmentRef
+      },
+    }
+    const { deps: d } = deps({ attachments })
+    const big = strToU8('x'.repeat(LIMITS.maxEntryBytes + 1))
+    const index = [indexRow('a', 5), indexRow('b', 1), indexRow('ghost', 0)]
+    const archive = zipOf([chat('a', 5), chat('b', 1)], index, {
+      'chat_sessions/ghost_files/f81d4fae-7dec-11d0-a765-00a0c91e6bf6_huge.png': [big, { level: 0 }],
+      'junk/huge.png': [big, { level: 0 }],
+    })
+    const { result } = await run(d, archive, { ...LIMITS, maxSessions: 2 })
+    expect(result.sessionIds).toHaveLength(2)
+    expect(saved).toEqual([])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('refuses the whole import when a metadata entry is damaged', async () => {
+    const { deps: d } = deps({})
+    const archive = damagedZip({
+      'manifest.json': strToU8(JSON.stringify({ export_format_version: 3 })),
+      'chat_sessions/a.json': strToU8(JSON.stringify(chat('a', 1))),
+    }, 'chat_session_index.json')
+    await expect(run(d, archive)).rejects.toMatchObject({ reason: 'missing-index' })
+  })
+
+  it('orders equal update stamps by insertion and then by id', async () => {
+    const { deps: d } = deps({})
+    const row = (id: string, inserted: number) => ({ id, inserted_at: at(inserted), updated_at: at(5) })
+    const index = [row('delta', 3), row('alpha', 3), row('charlie', 7), row('bravo', 3)]
+    const archive = zipOf([chat('alpha', 5), chat('bravo', 5), chat('charlie', 5), chat('delta', 5)], index)
+    const { result } = await run(d, archive)
+    expect(result.sessionIds).toHaveLength(4)
+    expect(result.conversationCount).toBe(4)
+  })
+
+  it('skips a conversation file that is valid JSON but no export session', async () => {
+    const { deps: d } = deps({})
+    const index = [indexRow('bad', 5), indexRow('good', 1)]
+    const archive = zipSync({
+      'manifest.json': strToU8(JSON.stringify({ export_format_version: 3 })),
+      'chat_session_index.json': strToU8(JSON.stringify(index)),
+      'chat_sessions/bad.json': strToU8('{}'),
+      'chat_sessions/good.json': strToU8(JSON.stringify(chat('good', 1))),
+    })
+    const { result } = await run(d, archive)
+    expect(result.skipped).toHaveLength(1)
+    expect(result.skipped[0]?.conversationId).toBe('bad')
+    expect(result.skipped[0]?.reason).toContain('invalid conversation file')
+    expect(result.sessionIds).toHaveLength(1)
+  })
+
+  it('skips a Session whose workspace membership fails to record', async () => {
+    const { deps: d } = deps({})
+    const failing: DeepseekChatImportWorkspace = {
+      id: 'ws-1', path: WORKSPACE_PATH, attachSession: async () => { throw new Error('registry closed') },
+    }
+    const archive = zipOf([chat('a', 1)], [indexRow('a', 1)])
+    const result = await importDeepseekChatExport(d, { archive, workspace: failing, limits: LIMITS,
+      onProgress: () => undefined }, new AbortController().signal)
+    expect(result.sessionIds).toEqual([])
+    expect(result.skipped[0]?.reason).toContain('not added to the workspace')
+  })
+
+  it('treats a workspace directory that cannot be read as removed', async () => {
+    const { deps: d } = deps({})
+    const gone: DeepseekChatImportWorkspace = { id: 'ws-1', path: join(WORKSPACE_PATH, 'missing'), attachSession: async () => undefined }
+    const archive = zipOf([chat('a', 1)], [indexRow('a', 1)])
+    await expect(importDeepseekChatExport(d, { archive, workspace: gone, limits: LIMITS, onProgress: () => undefined },
+      new AbortController().signal))
+      .rejects.toMatchObject({ reason: 'workspace-not-found' })
+  })
+
+  it('reports a settle rejection that is not an Error instance', async () => {
+    const d: DeepseekChatImportDependencies = {
+      sessionImport: { async settleConverted() { throw 'plain refusal' } },
+      workspaceRegistered: () => true,
+      createId: () => 'x',
+      warn: () => undefined,
+    }
+    const archive = zipOf([chat('a', 1)], [indexRow('a', 1)])
+    const { result } = await run(d, archive)
+    expect(result.skipped[0]?.reason).toBe('plain refusal')
   })
 
   it('refuses an unsupported export version and an empty index', async () => {
