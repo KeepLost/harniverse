@@ -84,7 +84,7 @@ export function SessionImportSection(props: SessionImportSectionProps) {
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
       let pending = ''
-      let summary: string | null = null
+      const summary = { text: null as string | null }
       const handleLine = (text: string): void => {
         if (text.length === 0) return
         const line = JSON.parse(text) as {
@@ -96,7 +96,7 @@ export function SessionImportSection(props: SessionImportSectionProps) {
         if (line.type === 'progress') setChatProgress({ done: line.done ?? 0, total: line.total ?? 0 })
         if (line.type === 'outcome') {
           const outcome = line.outcome
-          summary = outcome !== undefined && outcome.ok
+          summary.text = outcome !== undefined && outcome.ok
             ? t('chat.done', { count: outcome.value?.sessionIds.length ?? 0, skipped: outcome.value?.skipped.length ?? 0 })
             : t('chat.failed', { message: outcome?.error?.message ?? `HTTP ${String(response.status)}` })
         }
@@ -112,7 +112,7 @@ export function SessionImportSection(props: SessionImportSectionProps) {
         }
       }
       handleLine(pending)
-      setChatOutcome(summary ?? t('chat.failed', { message: 'the response ended without an outcome' }))
+      setChatOutcome(summary.text ?? t('chat.failed', { message: 'the response ended without an outcome' }))
     } catch (error) {
       setChatOutcome(t('chat.failed', { message: error instanceof Error ? error.message : String(error) }))
     } finally {

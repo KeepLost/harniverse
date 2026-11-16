@@ -35,6 +35,19 @@ describe('parseDiffFence', () => {
     expect(del?.body).toBe('const gone = 2')
   })
 
+  it('leaves a file section without an extension untokenized', () => {
+    const fence = parseDiffFence([
+      'diff --git a/Makefile b/Makefile',
+      'index 0000001..0000002 100644',
+      '--- a/Makefile',
+      '+++ b/Makefile',
+      '@@ -1 +1 @@',
+      '-all:',
+      '+all: build',
+    ].join('\n'))
+    expect(fence.languages.get(0)).toBeUndefined()
+  })
+
   it('ends a hunk by its header budget, so a following file header is chrome again', () => {
     const fence = parseDiffFence([
       '--- a/x.py',

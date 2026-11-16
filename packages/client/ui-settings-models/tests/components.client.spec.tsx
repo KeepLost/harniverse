@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Section, setup-card, and hand-written editor behavior over a scripted wire face. */
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -1082,6 +1082,30 @@ describe('ModelsSection', () => {
     expect(editorKey.disabled).toBe(true)
     fireEvent.keyDown(editorKey, { key: 'Backspace' })
     expect(mounted.unset).not.toHaveBeenCalled()
+  })
+
+  it('blocks copying or cutting a saved key mask but not a draft', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe('sk-••••••••••') })
+    fireEvent.copy(editorKey)
+    expect(editorKey).toHaveProperty('value', '')
+    // The mask itself must never reach a clipboard.
+    const copyEvent = createEvent.copy(editorKey)
+    fireEvent(editorKey, copyEvent)
+    expect(copyEvent.defaultPrevented).toBe(true)
+    const cutEvent = createEvent.cut(editorKey)
+    fireEvent(editorKey, cutEvent)
+    expect(cutEvent.defaultPrevented).toBe(true)
+    // A typed draft copies freely.
+    fireEvent.change(editorKey, { target: { value: 'sk-draft' } })
+    const draftCopy = createEvent.copy(editorKey)
+    fireEvent(editorKey, draftCopy)
+    expect(draftCopy.defaultPrevented).toBe(false)
+    const draftCut = createEvent.cut(editorKey)
+    fireEvent(editorKey, draftCut)
+    expect(draftCut.defaultPrevented).toBe(false)
   })
 
   it('reveals only the typed draft, never a saved key', async () => {

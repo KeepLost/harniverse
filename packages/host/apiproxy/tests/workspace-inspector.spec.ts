@@ -118,6 +118,54 @@ describe('workspace file inspection', () => {
     expect(Buffer.byteLength(result.content)).toBeLessThanOrEqual(1024 * 1024)
   })
 
+  it('fails closed when the subprocess provider is absent', async () => {
+    const root = tempWorkspace()
+    await expect(searchWorkspaceFiles(undefined, root, 'anything', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-search-failed' })
+  })
+
+  it('wraps a search process that fails to launch', async () => {
+    const root = tempWorkspace()
+    const failing: Pick<typeof subprocess, 'spawn'> = {
+      spawn() { throw new Error('spawn refused') },
+    }
+    await expect(searchWorkspaceFiles(failing, root, 'anything', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-search-failed', message: 'workspace file search could not run: spawn refused' })
+    const raw: Pick<typeof subprocess, 'spawn'> = {
+      spawn() { throw 'detached' },
+    }
+    await expect(searchWorkspaceFiles(raw, root, 'anything', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-search-failed', message: 'workspace file search could not run' })
+  })
+
+  /** A runtime whose spawns run a Node script instead of ripgrep, keeping the spec's stdio shape. */
+  function nodeRuntime(script: string, dropStderr = false): Pick<typeof subprocess, 'spawn'> {
+    return {
+      // The rewritten argv replaces the executable entirely; stdio stays as the caller declared.
+      spawn: (spec) => {
+        const rewritten: typeof spec = { ...spec, argv: [process.execPath, '-e', script] }
+        const muted: typeof spec = { ...rewritten, stdio: { ...spec.stdio, stderr: 'inherit' as const } }
+        return subprocess.spawn(dropStderr ? muted : rewritten)
+      },
+    }
+  }
+
+  it('classifies a search process that dies or exits with an unexpected code', async () => {
+    const root = tempWorkspace()
+    await expect(searchWorkspaceFiles(nodeRuntime('process.exit(3)'), root, 'a', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-search-failed', message: 'workspace file search exited with code 3 and signal null' })
+    await expect(searchWorkspaceFiles(nodeRuntime('console.error("boom"); process.exit(3)'), root, 'a', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-search-failed', message: 'workspace file search exited with code 3 and signal null: boom' })
+    await expect(searchWorkspaceFiles(nodeRuntime('process.kill(process.pid, "SIGKILL")'), root, 'a', new AbortController().signal))
+      .rejects.toMatchObject({ code: 'workspace-search-failed', message: 'workspace file search exited with code null and signal SIGKILL' })
+  })
+
+  it('searches without collected stderr and reports an untruncated result', async () => {
+    const root = tempWorkspace()
+    await expect(searchWorkspaceFiles(nodeRuntime('process.exit(0)', true), root, 'a', new AbortController().signal))
+      .resolves.toMatchObject({ entries: [], truncated: false })
+  })
+
   it('searches nested regular-file names without following symlinks', async () => {
     const root = tempWorkspace()
     const nested = join(root, 'src')

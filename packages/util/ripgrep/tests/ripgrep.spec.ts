@@ -1,8 +1,8 @@
 /** resolveRgPath/spawnRipgrep/readRipgrepLines against the real local subprocess seam. */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { join, parse } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { readRipgrepLines, resolveRgPath, spawnRipgrep } from '../src/index.ts'
@@ -29,6 +29,42 @@ describe('resolveRgPath', () => {
     const path = await resolveRgPath()
     expect(path.length).toBeGreaterThan(0)
     expect(await resolveRgPath()).toBe(path)
+  })
+
+  it('uses an existing win32 sidecar beside a single-file runtime', async () => {
+    const { dir, name } = parse(process.execPath)
+    const sidecar = join(dir, `${name}-rg.exe`)
+    writeFileSync(sidecar, '')
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    Object.defineProperty(process, 'pkg', { value: true, configurable: true })
+    try {
+      vi.resetModules()
+      const fresh = await import('../src/index.ts')
+      const resolved = await fresh.resolveRgPath()
+      expect(resolved).toBe(sidecar)
+    } finally {
+      delete (process as { pkg?: boolean }).pkg
+      if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
+      rmSync(sidecar, { force: true })
+      vi.resetModules()
+    }
+  })
+
+  it('unpackages the dependency path under Electron', async () => {
+    const versions = process.versions as { electron?: string }
+    const electron = Object.getOwnPropertyDescriptor(versions, 'electron')
+    Object.defineProperty(versions, 'electron', { value: '33.0.0', configurable: true })
+    try {
+      vi.resetModules()
+      const fresh = await import('../src/index.ts')
+      const resolved = await fresh.resolveRgPath()
+      expect(resolved).not.toContain('asar')
+    } finally {
+      if (electron === undefined) delete versions.electron
+      else Object.defineProperty(versions, 'electron', electron)
+      vi.resetModules()
+    }
   })
 })
 

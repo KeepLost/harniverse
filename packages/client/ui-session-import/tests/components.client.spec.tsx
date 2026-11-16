@@ -169,6 +169,124 @@ describe('SessionImportSection', () => {
     expect(m.face.importFile).toHaveBeenCalledWith(file, { kind: 'source-cwd' }, 64 * 1024 * 1024)
   })
 
+  it('streams a chat export upload as NDJSON and reports the outcome', async () => {
+    const body = [
+      '{"type":"progress","done":0,"total":2}',
+      '{"type":"progress"}',
+      '{"type":"progress","done":1,"total":2}',
+      '{"type":"outcome","outcome":{"ok":true,"value":{"sessionIds":["s1","s2"],"skipped":[]}}}',
+    ].join('\n') + '\n'
+    const fetchMock = vi.fn(async () => new Response(body, { headers: { 'content-type': 'application/x-ndjson' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const m = mountSection({ workspaces: [{ workspaceId: 'w-1', title: '项目一' }] })
+    act(() => { m.instance.actions.setTarget({ kind: 'workspace', workspaceId: 'w-1' }) })
+    const input = screen.getByLabelText(zh['chat.label']) as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'deepseek_data-2026.zip')] } })
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(url.href).toMatch(/api\/deepseek-chat-import\/archive\?workspaceId=w-1$/)
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/octet-stream')
+    await waitFor(() => { expect(screen.getByText('已导入 2 个会话；跳过 0 个。')).toBeTruthy() })
+    // The import rescans the machine once the stream ends.
+    await waitFor(() => { expect(m.face.scan).toHaveBeenCalledTimes(2) })
+    vi.unstubAllGlobals()
+  })
+
+  it('demands a workspace target before a chat export upload', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    mountSection()
+    const input = screen.getByLabelText(zh['chat.label']) as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'deepseek_data-2026.zip')] } })
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByText(zh['chat.needWorkspace'])).toBeTruthy()
+    vi.unstubAllGlobals()
+  })
+
+  it('reports a failed chat export outcome and a stream that ends early', async () => {
+    const failing = new Response(
+      '{"type":"outcome","outcome":{"ok":false,"error":{"reason":"busy","message":"another import is running"}}}\n',
+    )
+    const fetchMock = vi.fn(async () => failing)
+    vi.stubGlobal('fetch', fetchMock)
+    const m = mountSection({ workspaces: [{ workspaceId: 'w-1', title: '项目一' }] })
+    act(() => { m.instance.actions.setTarget({ kind: 'workspace', workspaceId: 'w-1' }) })
+    const input = screen.getByLabelText(zh['chat.label']) as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'a.zip')] } })
+    })
+    await waitFor(() => { expect(screen.getByText('导入失败：another import is running')).toBeTruthy() })
+    vi.unstubAllGlobals()
+
+    const truncated = vi.fn(async () => new Response('{"type":"progress","done":0,"total":1}\n'))
+    vi.stubGlobal('fetch', truncated)
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'b.zip')] } })
+    })
+    await waitFor(() => { expect(screen.getByText('导入失败：the response ended without an outcome')).toBeTruthy() })
+    vi.unstubAllGlobals()
+  })
+
+  it('reports a chat export upload whose fetch rejects', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down') }))
+    const m = mountSection({ workspaces: [{ workspaceId: 'w-1', title: '项目一' }] })
+    act(() => { m.instance.actions.setTarget({ kind: 'workspace', workspaceId: 'w-1' }) })
+    const input = screen.getByLabelText(zh['chat.label']) as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'a.zip')] } })
+    })
+    await waitFor(() => { expect(screen.getByText('导入失败：network down')).toBeTruthy() })
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back when the chat outcome lines omit counts and messages', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"type":"outcome","outcome":{"ok":true}}\n')))
+    const m = mountSection({ workspaces: [{ workspaceId: 'w-1', title: '项目一' }] })
+    act(() => { m.instance.actions.setTarget({ kind: 'workspace', workspaceId: 'w-1' }) })
+    const input = screen.getByLabelText(zh['chat.label']) as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'a.zip')] } })
+    })
+    await waitFor(() => { expect(screen.getByText('已导入 0 个会话；跳过 0 个。')).toBeTruthy() })
+    vi.unstubAllGlobals()
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"type":"outcome","outcome":{"ok":false}}\n')))
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'b.zip')] } })
+    })
+    await waitFor(() => { expect(screen.getByText('导入失败：HTTP 200')).toBeTruthy() })
+    // A change without files starts nothing.
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [] } })
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('reports a chat export failure thrown as a non-Error value', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw 'proxy unreachable' }))
+    const m = mountSection({ workspaces: [{ workspaceId: 'w-1', title: '项目一' }] })
+    act(() => { m.instance.actions.setTarget({ kind: 'workspace', workspaceId: 'w-1' }) })
+    const input = screen.getByLabelText(zh['chat.label']) as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['zip'], 'a.zip')] } })
+    })
+    await waitFor(() => { expect(screen.getByText('导入失败：proxy unreachable')).toBeTruthy() })
+    vi.unstubAllGlobals()
+  })
+
+  it('opens the chat export picker from its choose button', () => {
+    const open = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
+    mountSection()
+    fireEvent.click(screen.getByRole('button', { name: zh['chat.choose'] }))
+    expect(open).toHaveBeenCalledOnce()
+    expect((open.mock.contexts[0] as HTMLInputElement).type).toBe('file')
+  })
+
   it('opens the file picker from the choose-file button, described by the upload hint', () => {
     const open = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
     mountSection()

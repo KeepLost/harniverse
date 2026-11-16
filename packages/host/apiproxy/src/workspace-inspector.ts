@@ -329,7 +329,6 @@ async function readDirectoryEntries(
   path: string,
   limit: number,
   signal: AbortSignal,
-  detectOverflow = true,
   canonicalRoot?: string,
 ): Promise<{ entries: Dirent[]; truncated: boolean }> {
   const target = await containedPath(root, path, signal, canonicalRoot)
@@ -342,7 +341,7 @@ async function readDirectoryEntries(
     const readTarget = descriptorPath ? `/dev/fd/${handle.fd}` : target
     directory = await opendir(readTarget)
     const entries: Dirent[] = []
-    const readLimit = limit + (detectOverflow ? 1 : 0)
+    const readLimit = limit + 1
     let exhausted = false
     while (entries.length < readLimit) {
       signal.throwIfAborted()
@@ -356,7 +355,7 @@ async function readDirectoryEntries(
     if (!descriptorPath) {
       await openedPathInfo(root, path, target, handle, signal, 'directory', canonicalRoot)
     }
-    const truncated = !exhausted && (detectOverflow ? entries.length > limit : entries.length === limit)
+    const truncated = !exhausted && entries.length > limit
     return { entries: entries.slice(0, limit), truncated }
   } catch (error: unknown) {
     signal.throwIfAborted()
@@ -451,7 +450,7 @@ export async function listWorkspaceFiles(
 ): Promise<{ path: string; entries: WorkspaceFileEntry[]; truncated: boolean }> {
   return guard.run(root, path, signal, async () => {
     const canonicalRoot = await canonicalRootOf(root, signal)
-    const result = await readDirectoryEntries(root, path, WORKSPACE_DIRECTORY_ENTRY_LIMIT, signal, true, canonicalRoot)
+    const result = await readDirectoryEntries(root, path, WORKSPACE_DIRECTORY_ENTRY_LIMIT, signal, canonicalRoot)
     signal.throwIfAborted()
     result.entries.sort((left, right) => {
       const leftDirectory = left.isDirectory() ? 0 : 1
