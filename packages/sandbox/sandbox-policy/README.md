@@ -28,6 +28,12 @@ The optional `./invariant` companion rejects a forged durable `sandbox/mode` eve
 
 A runtime switch is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event stays log-only; before the next request, the owner contributes the current fact to the runtime-context snapshot.
 
+## Registering a session's writable directory
+
+A plugin calls `ctx.sandboxPolicy.registerWritableRoot(session, directory)` through its owning context to add one physical absolute directory to that live Session's `workspace-write` permissions. The method returns the exact Cordis effect disposer; plugin unload or explicit disposal removes only that registration. Duplicate registrations and configured grants remain independent. Mount session-specific plugins under the Agent's context so their effects also end with the Agent. Prepare the directory on the execution host before granting it; the same path checks as configured roots apply.
+
+Registration and disposal affect subsequent policy resolutions and the next model request's logged context. Other Sessions and agentless calls receive no such grant. Grants are not saved or inherited through Session history; a resumed or forked Session needs its own registration. Already-resolved operations and persistent processes keep their original permissions, including directories whose registration has been removed. Start a new process to use the current grants. `read-only` remains read-only, and on Windows the grants authorize extra directories only through the fs `write`/`edit` tool checks — the process provider refuses additional roots, and no per-directory SIDs or ACL entries are mutated.
+
 ## Model Experience
 
 ### Current file sandbox policy
@@ -61,12 +67,6 @@ One concise durable context message on the first request and each effective poli
 #### KV Cache effect
 
 The stable system prompt remains byte-identical across mode changes. A changed context snapshot — complete or partial — is appended after retained history, preserving the prior cached prefix; subsequent unchanged requests reuse that retained snapshot.
-
-## Registering a session's writable directory
-
-A plugin calls `ctx.sandboxPolicy.registerWritableRoot(session, directory)` through its owning context to add one physical absolute directory to that live Session's `workspace-write` permissions. The method returns the exact Cordis effect disposer; plugin unload or explicit disposal removes only that registration. Duplicate registrations and configured grants remain independent. Mount session-specific plugins under the Agent's context so their effects also end with the Agent. Prepare the directory on the execution host before granting it; the same path checks as configured roots apply.
-
-Registration and disposal affect subsequent policy resolutions and the next model request's logged context. Other Sessions and agentless calls receive no such grant. Grants are not saved or inherited through Session history; a resumed or forked Session needs its own registration. Already-resolved operations and persistent processes keep their original permissions, including directories whose registration has been removed. Start a new process to use the current grants. `read-only` remains read-only, and on Windows the grants authorize extra directories only through the fs `write`/`edit` tool checks — the process provider refuses additional roots, and no per-directory SIDs or ACL entries are mutated.
 
 ## Known Limitations and Deferred Work
 

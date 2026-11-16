@@ -509,6 +509,13 @@ declare class Session {
   /** The next event's sequence number — the window base plus the log length (the contiguity contract). */
   get seq(): number;
   /**
+   * During a tuple-array append's publication, the member being delivered to
+   * `session/event` observers right now; undefined at every other time.
+   * Observers use it to tell which batch member they are seeing, since each
+   * is delivered only after the complete batch has entered the log.
+   */
+  get currentBatchPublication(): SessionEvent | undefined;
+  /**
    * Append one typed event to the log and synchronously notify observers via
    * the store-owned, module-private publication hooks. The hot path never blocks
    * on I/O — persistence plugins buffer asynchronously. Once the event enters
@@ -548,6 +555,23 @@ declare class Session {
     data: SessionEventMap[T],
     ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
   ): SessionEvent<T>;
+  /**
+   * Append a whole batch of typed events as one publication: every member is
+   * validated and snapshotted first, then the complete batch enters the log
+   * and its members are delivered to `session/event` observers in order, under
+   * a single publication envelope ({@link currentBatchPublication} names the
+   * member in flight). A rejected member rejects the whole batch before the
+   * log changes.
+   * @param inputs - the batch, in log order.
+   * @returns the logged events, in input order.
+   */
+  append(inputs: readonly SessionEventInput[]): readonly SessionEvent[];
+  /** Implementation signature of the two `append` overloads above. */
+  append(
+    type: SessionEventType | readonly SessionEventInput[],
+    data?: SessionEventMap[SessionEventType],
+    ...opts: [opts?: SurfaceIntent]
+  ): SessionEvent | readonly SessionEvent[];
   /**
    * The {@link EpochHeader} in force after the log's last header event — the
    * header the NEXT request will be compared against — or undefined before

@@ -42,6 +42,8 @@ interface CredentialInfo {
   source?: string
   /** Whether {@link CredentialProvider.set} would currently succeed for this reference. */
   writable: boolean
+  /** Provider-generated masked preview of the stored value; absent unless the writable layer supplies the value. */
+  masked?: string
 }
 ```
 

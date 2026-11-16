@@ -12,6 +12,14 @@ Packaged ripgrep resolution and subprocess streaming helpers for the Harness —
 
 Consumers: the workspace file search (host `apiproxy`). The `grep`/`glob` model tools keep their own bounded-collect runner in `dsh-tool-fs-search`, which owns the model-facing schema and spill semantics; unifying the two runners is deferred until their exit-classification contracts converge.
 
+## Model Experience
+
+Indirectly, through the workspace file search: no ripgrep output, path, or exit code appears in a model request; the search surface reports only the filtered entries and its truncation flag.
+
+#### KV Cache effect
+
+None; the helper never appears in a model request or response.
+
 ## Known Limitations and Deferred Work
 
 - No system-`rg` fallback and no remote execution: the helper resolves only the packaged binary and spawns it through the caller's subprocess provider, which must be co-located with the filesystem being searched.

@@ -11,6 +11,14 @@
 - 每个会话经纯读取器转换(`conversation.ts`:按 `current_message_id` 选分支,THINK/RESPONSE/SEARCH/OPEN 片段映射为步骤,`web_search`/`web_fetch` 工具调用重放),再经 `session-import` 的 `settleConverted` 入口落账:`deepseek-chat-v3` 标记、会话 lineage 前缀下的内容派生身份(因此重复导入同一会话报告为已导入,更新过的会话经 `session.continueArchive` 续接)、映射日志旁的源保留,以及永不恢复执行的归档姿态。
 - 「会话导入」设置区新增导出入口:文件字段加上该区既有工作区目标;源目录目标会先提示选择工作区。
 
+## 模型体验
+
+间接经导入的 Session 生效:导入期间没有任何导出内容进入模型请求;模型只在后续任务打开或引用已落盘 Session 时才会看到它。
+
+#### KV 缓存效应
+
+无;导入绝不进入模型请求。导入 Session 的消息只在该 Session 后续被使用时才加入上下文。
+
 ## 已知限制与待办
 
 - 导入期间整个归档驻留内存;上传上限即其约束。

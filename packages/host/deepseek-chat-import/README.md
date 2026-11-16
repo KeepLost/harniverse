@@ -11,6 +11,14 @@ Imports a DeepSeek chat export (chat.deepseek.com `deepseek_data-*.zip`) uploade
 - Each conversation converts through the pure reader (`conversation.ts`: branch selection by `current_message_id`, THINK/RESPONSE/SEARCH/OPEN fragments into steps, `web_search`/`web_fetch` tool-call replay) and settles through `session-import`'s `settleConverted` entry: the `deepseek-chat-v3` marker, content-derived identity under the conversation's lineage prefix (so re-importing the same conversation reports as already imported and a grown one continues through `session.continueArchive`), source retention beside the mapped log, and the never-resumable archival posture.
 - The 会话导入 settings section gains the export entry: a file field plus the section's existing workspace target; a source-cwd target asks for a workspace first.
 
+## Model Experience
+
+Indirectly, through the imported Sessions: no export content enters a model request during the import; the model sees a settled Session only when a later task opens or references it.
+
+#### KV Cache effect
+
+None; imports never enter a model request. An imported Session's messages join the context only when that Session itself is later used.
+
 ## Known Limitations and Deferred Work
 
 - The whole archive is held in memory while it is imported; the upload ceiling bounds it.

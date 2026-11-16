@@ -728,7 +728,18 @@ export class Session {
     data: SessionEventMap[T],
     ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
   ): SessionEvent<T>
+  /**
+   * Append a whole batch of typed events as one publication: every member is
+   * validated and snapshotted first, then the complete batch enters the log
+   * and its members are delivered to `session/event` observers in order, under
+   * a single publication envelope ({@link currentBatchPublication} names the
+   * member in flight). A rejected member rejects the whole batch before the
+   * log changes.
+   * @param inputs - the batch, in log order.
+   * @returns the logged events, in input order.
+   */
   append(inputs: readonly SessionEventInput[]): readonly SessionEvent[]
+  /** Implementation signature of the two `append` overloads above. */
   append(
     type: SessionEventType | readonly SessionEventInput[],
     data?: SessionEventMap[SessionEventType],

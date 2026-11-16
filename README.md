@@ -56,7 +56,7 @@ pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace build:native
 pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build
 ```
 
-The Landlock binaries are git-ignored and rebuilt per architecture. When they are absent, the confinement probe reports `unusable`, the runner chain falls back to its next rung, and a spawn with no usable rung fails closed instead of running unconstrained. The VM image build downloads only digest-pinned inputs and caches them under `packages/vm/vm-qemu-local/.cache/downloads/` for incremental offline rebuilds; without the image the VM sandbox reports `assets not built` with the same rebuild command.
+The Landlock binaries are git-ignored and rebuilt per architecture. When they are absent, the confinement probe reports `unusable`, the runner chain falls back to its next rung, and a spawn with no usable rung fails closed instead of running unconstrained. The VM image build downloads only digest-pinned inputs and caches them under the package's `.cache/downloads/` directory for incremental offline rebuilds; without the image the VM sandbox reports `assets not built` with the same rebuild command.
 
 ### 3. Start the Web UI
 
