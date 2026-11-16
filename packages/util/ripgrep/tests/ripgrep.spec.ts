@@ -52,6 +52,21 @@ describe('resolveRgPath', () => {
     }
   })
 
+  it('resolves the plain dependency sidecar on a flipped non-win32 host', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    try {
+      vi.resetModules()
+      const fresh = await import('../src/index.ts')
+      const resolved = await fresh.resolveRgPath()
+      expect(resolved.length).toBeGreaterThan(0)
+      expect(resolved.endsWith('-rg.exe')).toBe(false)
+    } finally {
+      if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
+      vi.resetModules()
+    }
+  })
+
   it('unpackages the dependency path under Electron', async () => {
     const versions = process.versions as { electron?: string }
     const electron = Object.getOwnPropertyDescriptor(versions, 'electron')
