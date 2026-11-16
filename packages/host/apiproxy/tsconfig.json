@@ -93,16 +93,10 @@
       "path": "../../mcp/mcp-user-config"
     },
     {
-      "path": "../../web/web"
-    },
-    {
       "path": "../../preset/agent-presets"
     },
     {
       "path": "../../runtime-diagnostics/invariants"
-    },
-    {
-      "path": "../../session-query/session-query"
     },
     {
       "path": "../../session-query/session-query"
@@ -145,6 +139,12 @@
     },
     {
       "path": "../../util/native-command"
+    },
+    {
+      "path": "../../util/ripgrep"
+    },
+    {
+      "path": "../../web/web"
     },
     {
       "path": "../../workspace/workspace"

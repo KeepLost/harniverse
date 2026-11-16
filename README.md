@@ -43,6 +43,21 @@ pnpm run build
 
 The build produces the Host, Client, and Web frontend artifacts used by the source launcher. Keep this checkout: the commands below run Harniverse through its root `pnpm dsh` script.
 
+### Build the Rust sandbox components
+
+`pnpm run build` does not produce the Rust confinement layers. They are separate per-architecture builds and stay optional until a workspace sandbox needs them:
+
+```sh
+# Landlock process sandbox: linux-x64 and linux-arm64 (Debian/Ubuntu: apt-get install musl-tools)
+pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace build:ts
+pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace build:native
+
+# QEMU micro-VM sandbox image: needs the Rust toolchain (cargo) plus curl, tar, gzip, cpio, and sha256sum
+pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build
+```
+
+The Landlock binaries are git-ignored and rebuilt per architecture. When they are absent, the confinement probe reports `unusable`, the runner chain falls back to its next rung, and a spawn with no usable rung fails closed instead of running unconstrained. The VM image build downloads only digest-pinned inputs and caches them under the package's `.cache/downloads/` directory for incremental offline rebuilds; without the image the VM sandbox reports `assets not built` with the same rebuild command.
+
 ### 3. Start the Web UI
 
 In terminal A, from the Harniverse checkout:

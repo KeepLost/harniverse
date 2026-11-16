@@ -13,6 +13,7 @@ import type { ReactNode } from 'react'
 import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDraft } from './ModelListEditor.tsx'
 import type { en } from './locales.ts'
+import { protocolReasoningLevels } from './protocol-rules.ts'
 import styles from './ModelsSection.module.css'
 
 /** Every pi-ai thinking level, in escalation order. */
@@ -109,6 +110,9 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
     : ''
   const kwargs = kwargsOf(model)
   const dispatchable = props.api === 'openai-completions'
+  // A protocol the wire narrows (Gemini) offers only its levels, each sent
+  // under its own name: no Off row, no fixed wire text.
+  const reasoning = protocolReasoningLevels(props.api, LEVELS)
 
   /** Rewrite the efforts dict from the checkbox set and wire texts. */
   const writeEfforts = (next: Record<string, string | null>): void => {
@@ -197,7 +201,9 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
               patch({ reasoningEfforts: undefined, defaultReasoningEffort: undefined })
               return
             }
-            writeEfforts({ off: null, medium: 'medium', high: 'high' })
+            writeEfforts(reasoning.levelsOnly
+              ? Object.fromEntries(reasoning.levels.map(level => [level, level]))
+              : { off: null, medium: 'medium', high: 'high' })
           }}
         />
         {t('modelReasoning')}
@@ -207,7 +213,7 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
           <div className={styles['capabilityBlock']}>
             <span className={styles['modelFieldLabel']}>{t('modelEfforts')}</span>
             <div className={styles['effortGrid']}>
-              {LEVELS.map((level) => {
+              {reasoning.levels.map((level) => {
                 const on = level in efforts
                 return (
                   <div key={level} className={styles['effortRow']}>
@@ -228,7 +234,7 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
                           value={typeof efforts[level] === 'string' ? efforts[level] : ''}
                           placeholder={level === 'off' ? t('modelEffortOffDefault') : level}
                           aria-label={`${t('modelEffortWire')} ${level}`}
-                          disabled={disabled}
+                          disabled={disabled || reasoning.levelsOnly}
                           onChange={(event) => { setWire(level, event.target.value) }}
                         />
                       )

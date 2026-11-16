@@ -67,7 +67,8 @@
       - button "删除 Acme Gateway (acme-gateway)": 删除
       - text: Acme Gateway acme-gateway API 密钥
       - textbox "API 密钥":
-        - /placeholder: 输入 API 密钥，或留空使用环境认证
+        - /placeholder: 留空使用环境认证（ACME_GATEWAY_API_KEY）
+      - paragraph: 未检测到环境变量。请填写 API 密钥，或设置环境变量 ACME_GATEWAY_API_KEY。
       - group:
         - text: 自定义设置 显示名称
         - textbox "显示名称":
@@ -83,6 +84,7 @@
           - option "openai-completions" [selected]
           - option "openai-responses"
           - option "anthropic-messages"
+          - option "google-generative-ai"
         - region "模型目录":
           - text: 模型目录 已自定义模型目录
           - button "恢复默认模型"

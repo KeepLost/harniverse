@@ -20,12 +20,13 @@ import {
   wrapBlockChildren,
 } from './render.tsx'
 import type {
-  MarkdownCodeLabels, MarkdownExternalLinks, MarkdownFileMentions, MarkdownRenderContext, ReferenceTargets,
+  MarkdownCodeLabels, MarkdownDelegateFenceInfo, MarkdownExternalLinks, MarkdownFileMentions,
+  MarkdownRenderContext, ReferenceTargets,
 } from './render.tsx'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-export type { MarkdownCodeLabels, MarkdownExternalLinks, MarkdownFileMentions } from './render.tsx'
+export type { MarkdownCodeLabels, MarkdownDelegateFenceInfo, MarkdownExternalLinks, MarkdownFileMentions } from './render.tsx'
 
 /** One settled full render: parse with math, resolve references, append the footnote section. */
 function renderSettled(
@@ -33,6 +34,7 @@ function renderSettled(
   codeLabels: MarkdownCodeLabels | undefined,
   fileMentions: MarkdownFileMentions | undefined,
   externalLinks: MarkdownExternalLinks | undefined,
+  renderCode: MarkdownRenderContext['renderCode'],
 ): ReactNode[] {
   const root = parseGfmWithMath(text)
   const targets = createReferenceTargets()
@@ -40,6 +42,7 @@ function renderSettled(
   const context: MarkdownRenderContext = {
     streaming: false,
     codeLabels,
+    renderCode,
     fileMentions,
     ...(externalLinks === undefined ? {} : { externalLinks }),
     targets,
@@ -72,7 +75,10 @@ class StreamingRenderer {
   private lastRendered: ReactNode[] = []
 
   /** @param codeLabels - Fence copy labels baked into cached elements; the owner replaces the renderer when they change. */
-  constructor(private readonly codeLabels: MarkdownCodeLabels | undefined) {}
+  constructor(
+    private readonly codeLabels: MarkdownCodeLabels | undefined,
+    private readonly renderCode: MarkdownRenderContext['renderCode'],
+  ) {}
 
   /**
    * Render the current accumulated text. Idempotent per text value, so React
@@ -105,6 +111,7 @@ class StreamingRenderer {
       const frozenContext: MarkdownRenderContext = {
         streaming: true,
         codeLabels: this.codeLabels,
+        renderCode: this.renderCode,
         fileMentions: undefined,
         targets: frameTargets,
         footnoteOrder: this.frozenFootnoteOrder,
@@ -123,6 +130,7 @@ class StreamingRenderer {
     const tailContext: MarkdownRenderContext = {
       streaming: true,
       codeLabels: this.codeLabels,
+      renderCode: this.renderCode,
       fileMentions: undefined,
       targets: frameTargets,
       footnoteOrder: [...this.frozenFootnoteOrder],
@@ -160,26 +168,34 @@ class StreamingRenderer {
  * images render directly.
  */
 export const MarkdownText = memo(function MarkdownText({
-  text, streaming = false, codeLabels, fileMentions, externalLinks,
+  text, streaming = false, codeLabels, fileMentions, externalLinks, renderCode,
 }: {
   text: string
   streaming?: boolean
   codeLabels?: MarkdownCodeLabels | undefined
   fileMentions?: MarkdownFileMentions | undefined
   externalLinks?: MarkdownExternalLinks | undefined
+  /**
+   * Fence delegate: renders every fence whose language is final, including
+   * `diff` and `math`; absent, the built-in code and math blocks render.
+   * Like `codeLabels`, a change replaces the renderer (cached elements keep
+   * the delegate they were built with).
+   */
+  renderCode?: ((fence: MarkdownDelegateFenceInfo) => ReactNode) | undefined
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
-  const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
+  const streamKeyRef = useRef<string | undefined>(undefined)
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
-      return renderSettled(text, codeLabels, fileMentions, externalLinks)
+      return renderSettled(text, codeLabels, fileMentions, externalLinks, renderCode)
     }
-    if (streamRef.current === null || streamLabelsRef.current !== codeLabels) {
-      streamRef.current = new StreamingRenderer(codeLabels)
-      streamLabelsRef.current = codeLabels
+    const streamKey = `${codeLabels === undefined ? '' : JSON.stringify(codeLabels)}|${String(renderCode)}`
+    if (streamRef.current === null || streamKeyRef.current !== streamKey) {
+      streamRef.current = new StreamingRenderer(codeLabels, renderCode)
+      streamKeyRef.current = streamKey
     }
     return streamRef.current.render(text)
-  }, [text, streaming, codeLabels, fileMentions, externalLinks])
+  }, [text, streaming, codeLabels, fileMentions, externalLinks, renderCode])
   return <div className={css.markdown}>{children}</div>
 })

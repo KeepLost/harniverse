@@ -202,7 +202,7 @@ describe('the real workspace surface', () => {
     expect(entries.length).toBeGreaterThan(30)
     for (const entry of entries) {
       expect(entry.summary, `${entry.key} has no summary`).not.toBe('')
-      expect(['single', 'list', 'keyed', 'chain']).toContain(entry.kind)
+      expect(['single', 'list', 'keyed', 'chain', 'hoc']).toContain(entry.kind)
       expect(['root', 'session', 'session-maybe']).toContain(entry.scope)
     }
     // The frame root is the canonical trap: occupied by the shipped app frame,

@@ -8,12 +8,12 @@
  */
 
 /** An official DeepSeek Harness session generation this build imports lossily. */
-export type ImportedSessionFormat = 'official-v1' | 'official-v2' | 'official-v3' | 'official-v4'
+export type ImportedSessionFormat = 'official-v1' | 'official-v2' | 'official-v3' | 'official-v4' | 'deepseek-chat-v3'
 
 /** Provenance of one imported archival session, folded from its `import/record` marker. */
 export interface SessionImportProjection {
-  /** The official generation the archive was mapped from. */
-  readonly format: ImportedSessionFormat
+  /** The provenance label the archive was mapped from (an official generation or a DeepSeek chat export). */
+  readonly format: string
   /** The official session's own id, when the marker records it. */
   readonly sourceSessionId?: string
   /** The official session's working directory, kept as provenance only. */

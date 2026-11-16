@@ -1191,34 +1191,48 @@ function hocLayer(
 
 /**
  * Compose a hoc slot's live layers, lowest `order` outermost. Winners arrive
- * in ledger order (priority first), so nesting re-sorts by `order`. Each layer
- * adds exactly one Component; with no layer the result renders the owner's
- * content directly.
+ * in ledger order (priority first), so nesting re-sorts by `order`. An
+ * `entryKey` dispatch keeps the exact-key layers and the wildcards, and within
+ * one `id` the exact-key layer replaces that id's wildcard. Each layer adds
+ * exactly one Component; with no layer the result renders the owner's content
+ * directly.
  * @param host - registry host owning the ledger.
  * @param slotKey - the hoc slot.
  * @param spec - its live declaration.
+ * @param entryKey - dispatch key the layers were registered for, if any.
  * @returns the composed render function; its layer Components are the layer set's identity.
  */
-function composeHocLayers(host: SlotRendererHost, slotKey: string, spec: SlotSpec<SlotEntryDef>): RenderHocInner {
-  const layers = [...host.entriesOfSlot(slotKey)].sort((a, b) => (a.options.order ?? 0) - (b.options.order ?? 0))
+function composeHocLayers(
+  host: SlotRendererHost,
+  slotKey: string,
+  spec: SlotSpec<SlotEntryDef>,
+  entryKey: string | undefined,
+): RenderHocInner {
+  const winners = host.entriesOfSlot(slotKey)
+  const applicable = winners.filter(entry => entry.options.key === undefined || entry.options.key === entryKey)
+  const exactIds = new Set(applicable.filter(entry => entry.options.key !== undefined).map(entry => String(entry.options.id)))
+  const layers = applicable
+    .filter(entry => entry.options.key !== undefined || !exactIds.has(String(entry.options.id)))
+    .sort((a, b) => (a.options.order ?? 0) - (b.options.order ?? 0))
   return layers.reduceRight<RenderHocInner>((renderInner, entry) => {
     const Layer = hocLayer(host, slotKey, spec, entry, renderInner)
     return (owner, children) => <Layer owner={owner}>{children}</Layer>
   }, renderHocContent)
 }
 
-/** Hoc dispatch: recomposes only when the slot's ledger version or declaration changes. */
-function HocOutlet({ slotKey, spec, ownerProps, children }: {
+/** Hoc dispatch: one compiled chain per (host, slot, entryKey); recomposes only when that identity or the ledger changes. */
+function HocOutlet({ slotKey, spec, ownerProps, children, entryKey }: {
   slotKey: string
   spec: SlotSpec<SlotEntryDef>
   ownerProps: object
   children: ReactNode
+  entryKey: string | undefined
 }) {
   const host = useHost()
   const version = host.getVersion(slotKey)
   // `version` keys the ledger read inside composeHocLayers; a new layer set yields new layer Components and remounts
   // the content.
-  const renderLayers = useMemo(() => composeHocLayers(host, slotKey, spec), [host, slotKey, spec, version])
+  const renderLayers = useMemo(() => composeHocLayers(host, slotKey, spec, entryKey), [host, slotKey, spec, version, entryKey])
   if (renderLayers === renderHocContent) return children
   return <HocOutletBoundary>{renderLayers(ownerProps, children)}</HocOutletBoundary>
 }
@@ -1281,7 +1295,11 @@ function renderOutletContent(
     throw new SlotAssemblyError(`strict session slot '${slotKey}' rendered without a scope binding`)
   }
   if (spec.kind === 'hoc') {
-    return <HocOutlet slotKey={slotKey} spec={spec} ownerProps={ownerProps}>{opts?.children ?? null}</HocOutlet>
+    return (
+      <HocOutlet slotKey={slotKey} spec={spec} ownerProps={ownerProps} entryKey={opts?.entryKey}>
+        {opts?.children ?? null}
+      </HocOutlet>
+    )
   }
   const entries = host.entriesOf(slotKey)
   const slotInjected = cachedSlotInject(spec.inject)

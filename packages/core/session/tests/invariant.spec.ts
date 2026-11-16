@@ -499,4 +499,37 @@ describe('session-log invariants', () => {
       turn: 2,
     })).not.toThrow()
   })
+
+  it('folds staged batch members when validating a later member of one append', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create(SessionId('batch-fold'))
+    expect(() => {
+      session.append([
+        ['turn/start', { turn: 1 }],
+        ['step/start', { turn: 1, step: 1 }],
+        ['step/end', { turn: 1, step: 1 }],
+        ['turn/end', { turn: 1, reason: { kind: 'completed' } }],
+      ])
+    }).not.toThrow()
+  })
+
+  it('re-bases the virtual fold after an abandoned staging never publishes', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create(SessionId('abandoned-staging'))
+    // A dispatch listener registered after the companion's stages a transition,
+    // then vetoes the collect: the append aborts before the log changes, and
+    // the staged transition never publishes.
+    const disposeVeto = ctx.on('internal/dispatch', (_mode: unknown, eventName: string, args: unknown[]) => {
+      if (eventName !== 'session/event') return
+      const event = args[1] as { seq: number }
+      if (event.seq === 0) throw new Error('veto')
+    })
+    expect(() => session.append('turn/start', { turn: 1 })).toThrow('veto')
+    disposeVeto()
+    expect(session.seq).toBe(0)
+    // The abandoned staging must not advance the virtual fold: the next
+    // candidate continues from the committed trace instead.
+    expect(() => session.append('turn/start', { turn: 1 })).not.toThrow()
+    expect(() => session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })).not.toThrow()
+  })
 })

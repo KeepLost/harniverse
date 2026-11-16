@@ -32,7 +32,7 @@ const OUT = 'packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
 const SOURCE_GLOBS = ['packages/*/*/src/**/*.ts', 'packages/*/*/src/**/*.tsx']
 
 /** Slot cardinalities the contract allows. */
-const KINDS = ['single', 'list', 'keyed', 'chain'] as const
+const KINDS = ['single', 'list', 'keyed', 'chain', 'hoc'] as const
 /** Slot data scopes the contract allows. */
 const SCOPES = ['root', 'session', 'session-maybe'] as const
 
@@ -78,6 +78,11 @@ const REGISTER_OPTIONS: Readonly<Record<(typeof KINDS)[number], readonly OptionD
   ],
   chain: [
     { name: 'select', requirement: 'required', type: '(owner) => unknown | null', doc: 'Pure routing selector. Entries are tried in ascending order; the first non-null result wins and arrives as the component\'s `matched` prop. All-null falls through to the owner\'s fallback.' },
+  ],
+  hoc: [
+    { name: 'id', requirement: 'required', type: 'string', doc: 'Your layer key. A fresh id adds a layer; reusing a shipped id replaces that layer. Your component may omit `children`, which replaces everything inside the layer.' },
+    { name: 'key', requirement: 'optional', type: 'string', doc: 'Dispatch key this layer serves; omitted, it serves every dispatch. Within one id, an exact-key layer replaces the wildcard layer for that key.' },
+    { name: 'order', requirement: 'optional', type: 'number', doc: 'Nesting position, ascending (default 0); the lowest order is the outermost layer. Render the `children` prop at most once.' },
   ],
 }
 

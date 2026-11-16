@@ -51,6 +51,8 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/util/file-drag': { kind: 'none', reason: 'Pure filename derivation registers nothing model-facing.' },
   'packages/util/workspace-path': { kind: 'none', reason: 'Pure path derivation registers nothing model-facing.' },
   'packages/util/error': { kind: 'indirect', reason: 'The base class only names a failure taxonomy; extending tool-body errors record their { name, code } on tool results.' },
+  'packages/util/ripgrep': { kind: 'indirect', reason: 'The helper resolves and streams the packaged binary; the workspace file search owns every model-visible consequence.' },
+  'packages/host/deepseek-chat-import': { kind: 'indirect', reason: 'The importer settles uploads as ordinary stored Sessions; only a later task that opens one renders its content.' },
   'packages/attachment/attachment': { kind: 'indirect', reason: 'The storage seam delegates model request rendering to provider adapters.' },
   'packages/attachment/attachment-local': { kind: 'indirect', reason: 'The local backend delegates model request rendering to provider adapters.' },
   'packages/context/global-rules': { kind: 'indirect', reason: 'The service only edits the harness-home AGENTS.md; the agent-instructions baseline chain renders that file into model context.' },

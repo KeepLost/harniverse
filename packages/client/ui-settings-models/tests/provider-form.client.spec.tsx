@@ -754,6 +754,33 @@ describe('endpoint interrogation', () => {
     expect(endpointRow.textContent).not.toContain(en.sourceCatalog)
   })
 
+  it('requires a key once the route declares the Gemini protocol', () => {
+    const scripted = scriptedFace()
+    render(
+      <CustomProviderCard
+        taken={[]} protocols={[...PROTOCOLS, 'google-generative-ai']} revision={7} api={scripted.face as never}
+        writeFence={writeFence} isCurrent={isCurrent} acceptResponse={acceptResponse}
+        acceptSettingsView={acceptSettingsView}
+        t={t} readOnly={false} onClose={vi.fn()}
+      />,
+    )
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    expect(key.required).toBe(false)
+    expect(buttonNamed(en.create).disabled).toBe(true)
+
+    // Filling the endpoint alone leaves the unmet key gate, and the Gemini
+    // requirement reads as a hint, not a fault.
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1beta' } })
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'gem' } })
+    fireEvent.change(screen.getByLabelText(en.customApi), { target: { value: 'google-generative-ai' } })
+    expect(key.required).toBe(true)
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(screen.getByText(en.keyRequired)).toBeTruthy()
+
+    fireEvent.change(key, { target: { value: 'gem-key' } })
+    expect(screen.queryByText(en.keyRequired)).toBeNull()
+  })
+
   it('keeps the create card asking only once it has an endpoint', () => {
     // A provider being declared has no route yet, so the endpoint is the only
     // thing an interrogation could go on.

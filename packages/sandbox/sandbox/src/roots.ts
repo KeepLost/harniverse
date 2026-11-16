@@ -15,7 +15,7 @@
 
 import { realpathSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { resolve } from 'node:path'
+import { relative } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { SandboxExecutionPolicy } from './index.ts'
 
@@ -27,7 +27,7 @@ export class SandboxInvalidRootError extends HarnessError {
   }
 }
 
-/** Reject mutable path aliases before they can redirect an explicit grant. */
+/** Resolve existing directories, rejecting aliases that differ under the host's path comparison. */
 function additionalRoot(path: string): string {
   let physical: string
   let directory: boolean
@@ -38,7 +38,7 @@ function additionalRoot(path: string): string {
     throw new SandboxInvalidRootError(path, `cannot read the directory: ${String(error)}`)
   }
   if (!directory) throw new SandboxInvalidRootError(path, 'expected an existing directory')
-  if (physical !== resolve(path)) {
+  if (relative(path, physical) !== '') {
     throw new SandboxInvalidRootError(path, `use the physical directory path ${JSON.stringify(physical)}; symlinked grants are not supported`)
   }
   return physical

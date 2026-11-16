@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Section, setup-card, and hand-written editor behavior over a scripted wire face. */
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -211,7 +211,7 @@ function scriptedFace(overrides: {
       describe: vi.fn((payload: { refs: string[] }) => Promise.resolve(ok({
         credentials: Object.fromEntries(payload.refs.map(ref => [ref, {
           configured: ref === 'OPENAI_API_KEY',
-          ...ref === 'OPENAI_API_KEY' ? { source: 'file' } : {},
+          ...ref === 'OPENAI_API_KEY' ? { source: 'file', masked: 'sk-••••••••••' } : {},
           writable: true,
         }])),
       }))),
@@ -1052,12 +1052,167 @@ describe('ModelsSection', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
+  it('stages a saved-key removal on Backspace and applies it through unset before settings', async () => {
+    const { unset, mutate } = await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe('sk-••••••••••') })
+    // Backspace on the mask does not edit text: it stages the whole removal.
+    fireEvent.keyDown(editorKey, { key: 'Backspace' })
+    expect(editorKey.value).toBe('')
+    expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', 'OPENAI_API_KEY'))).toBeTruthy()
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(unset).toHaveBeenCalledWith({ ref: 'OPENAI_API_KEY' }) })
+    // A pure credential removal touches no settings document.
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('refuses deletion of an environment-provided key by locking the input', async () => {
+    const mounted = await mountSection()
+    // The same reference answered by the read-only launch environment.
+    mounted.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
+      Promise.resolve(ok({
+        credentials: Object.fromEntries(payload.refs.map(ref => [ref, ref === 'OPENAI_API_KEY'
+          ? { configured: true, source: 'env', writable: false }
+          : { configured: false, writable: true }])),
+      })))
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe(en.keyEnvLocked) })
+    expect(editorKey.disabled).toBe(true)
+    fireEvent.keyDown(editorKey, { key: 'Backspace' })
+    expect(mounted.unset).not.toHaveBeenCalled()
+  })
+
+  it('reports the applied removal and non-env fallbacks in the key hint', async () => {
+    const mounted = await mountSection()
+    mounted.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
+      Promise.resolve(ok({
+        credentials: Object.fromEntries(payload.refs.map(ref => [ref, ref === 'OPENAI_API_KEY'
+          ? { configured: true, source: 'vault', writable: false }
+          : { configured: false, writable: true }])),
+      })))
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(screen.getByText(en.keyFallbackDetected)).toBeTruthy() })
+    // Reopen with a writable saved file key, then apply a staged removal.
+    mounted.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
+      Promise.resolve(ok({
+        credentials: Object.fromEntries(payload.refs.map(ref => [ref, ref === 'OPENAI_API_KEY'
+          ? { configured: true, source: 'file', writable: true, masked: 'sk-••••••••••' }
+          : { configured: false, writable: true }])),
+      })))
+    cleanup()
+    const second = await mountSection({ mutate: vi.fn(() => Promise.resolve(fail('settings-refused', 'later'))) })
+    second.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
+      Promise.resolve(ok({
+        credentials: Object.fromEntries(payload.refs.map(ref => [ref, ref === 'OPENAI_API_KEY'
+          ? { configured: true, source: 'file', writable: true, masked: 'sk-••••••••••' }
+          : { configured: false, writable: true }])),
+      })))
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe('sk-••••••••••') })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://changed.example' } })
+    fireEvent.keyDown(editorKey, { key: 'Backspace' })
+    fireEvent.click(screen.getByText(en.apply))
+    // The unset landed; the later settings write fails, leaving the applied hint.
+    await waitFor(() => { expect(second.unset).toHaveBeenCalledWith({ ref: 'OPENAI_API_KEY' }) })
+    await waitFor(() => { expect(screen.getByText(en.keyRemoveApplied)).toBeTruthy() })
+    expect(screen.getByText('settings-refused')).toBeTruthy()
+  })
+
+  it('shows an empty mask for a saved key whose provider sends none', async () => {
+    const mounted = await mountSection()
+    mounted.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
+      Promise.resolve(ok({
+        credentials: Object.fromEntries(payload.refs.map(ref => [ref, ref === 'OPENAI_API_KEY'
+          ? { configured: true, source: 'file', writable: true }
+          : { configured: false, writable: true }])),
+      })))
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe('') })
+    expect(editorKey.value).toBe('')
+    // Clearing through the saved-key control stages the removal like Backspace.
+    fireEvent.keyDown(editorKey, { key: 'Delete' })
+    expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', 'OPENAI_API_KEY'))).toBeTruthy()
+    // Emptying the typed text stages the same removal; other text replaces it.
+    fireEvent.change(editorKey, { target: { value: 'sk-fresh' } })
+    expect(editorKey.value).toBe('sk-fresh')
+    fireEvent.change(editorKey, { target: { value: '' } })
+    expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', 'OPENAI_API_KEY'))).toBeTruthy()
+  })
+
+  it('blocks copying or cutting a saved key mask but not a draft', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe('sk-••••••••••') })
+    fireEvent.copy(editorKey)
+    expect(editorKey).toHaveProperty('value', '')
+    // The mask itself must never reach a clipboard.
+    const copyEvent = createEvent.copy(editorKey)
+    fireEvent(editorKey, copyEvent)
+    expect(copyEvent.defaultPrevented).toBe(true)
+    const cutEvent = createEvent.cut(editorKey)
+    fireEvent(editorKey, cutEvent)
+    expect(cutEvent.defaultPrevented).toBe(true)
+    // A typed draft copies freely.
+    fireEvent.change(editorKey, { target: { value: 'sk-draft' } })
+    const draftCopy = createEvent.copy(editorKey)
+    fireEvent(editorKey, draftCopy)
+    expect(draftCopy.defaultPrevented).toBe(false)
+    const draftCut = createEvent.cut(editorKey)
+    fireEvent(editorKey, draftCut)
+    expect(draftCut.defaultPrevented).toBe(false)
+  })
+
+  it('reveals only the typed draft, never a saved key', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe('sk-••••••••••') })
+    // A saved mask offers no reveal control: nothing readable is in the field.
+    expect(screen.queryByRole('button', { name: en.keyReveal })).toBeNull()
+    fireEvent.change(editorKey, { target: { value: 'sk-typed-draft' } })
+    expect(editorKey.type).toBe('password')
+    fireEvent.click(screen.getByRole('button', { name: en.keyReveal }))
+    expect(editorKey.type).toBe('text')
+    fireEvent.click(screen.getByRole('button', { name: en.keyHide }))
+    expect(editorKey.type).toBe('password')
+  })
+
+  it('keeps a failed removal visible without losing the staged state', async () => {
+    const unset = vi.fn(() => Promise.resolve(fail('shadowed', 'credential-rejected')))
+    const scripted = scriptedFace({ unset })
+    scripted.face.credentials.describe.mockImplementation((payload: { refs: string[] }) =>
+      Promise.resolve(ok({
+        credentials: Object.fromEntries(payload.refs.map(ref => [ref, ref === 'OPENAI_API_KEY'
+          ? { configured: true, source: 'file', writable: true, masked: 'sk-••••••••••' }
+          : { configured: false, writable: true }])),
+      })))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
+    const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(editorKey.placeholder).toBe('sk-••••••••••') })
+    fireEvent.keyDown(editorKey, { key: 'Delete' })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(screen.getByText('shadowed')).toBeTruthy() })
+    // The staged removal survives the failure: retry unsets again.
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(unset).toHaveBeenCalledTimes(2) })
+  })
+
   it('edits a pi-ai profile with the curated fields only', async () => {
     const { mutate } = await mountSection()
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
-    // The configured credential shows as the stored placeholder.
+    // The configured credential shows as the host-side mask, with the
+    // saved-key hint naming what it is.
     const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    await waitFor(() => { expect(editorKey.placeholder).toBe(en.keyStored) })
+    await waitFor(() => { expect(editorKey.placeholder).toBe('sk-••••••••••') })
+    expect(screen.getByText(en.keySaved)).toBeTruthy()
+    expect(editorKey.getAttribute('aria-describedby')).toBe('openai-credential-hint')
     // pi-ai carries Base URL too: the stored override shows as the value and
     // the effective profile endpoint as its placeholder source.
     fireEvent.click(screen.getByText(en.customized))
@@ -1086,7 +1241,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.customized))
     expect(screen.getByLabelText<HTMLInputElement>(en.baseUrl).placeholder).toBe(en.baseUrlDefault)
     const addKey = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    expect(addKey.placeholder).toBe(en.keyPlaceholderNative)
+    expect(addKey.placeholder).toBe(en.keyPlaceholderFallback.replace('{hint}', 'ANTHROPIC_API_KEY'))
     fireEvent.change(addKey, { target: { value: 'sk-ant' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -1194,7 +1349,7 @@ describe('ModelsSection', () => {
         t={t}
       />)
       const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-      expect(key.placeholder).toBe(en.keyPlaceholder)
+      expect(key.placeholder).toBe(en.keyPlaceholderFallback.replace('{hint}', 'DEEPSEEK_API_KEY'))
       await new Promise(resolve => setTimeout(resolve, 10))
       expect(unhandled).not.toHaveBeenCalled()
     } finally {
@@ -1257,7 +1412,7 @@ describe('ModelsSection', () => {
     face.credentials.describe.mockImplementation(() => Promise.resolve(fail('down', 'internal')) as never)
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    expect(editorKey.placeholder).toBe(en.keyPlaceholderNative)
+    expect(editorKey.placeholder).toBe(en.keyPlaceholderFallback.replace('{hint}', 'OPENAI_API_KEY'))
     fireEvent.change(editorKey, { target: { value: 'sk-live' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })

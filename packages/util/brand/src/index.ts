@@ -25,3 +25,12 @@ declare const BRAND: unique symbol
 
 /** A string carrying a compile-time-only brand `B`. */
 export type Branded<B extends string> = string & { readonly [BRAND]: B }
+
+/**
+ * Brand one string value as `T` with no runtime effect.
+ * @param value - the plain or already-branded string.
+ * @returns the same value typed `T`.
+ */
+export function brandString<T extends Branded<string>>(value: string | T): T {
+  return value as T
+}

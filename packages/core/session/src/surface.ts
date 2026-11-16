@@ -483,6 +483,36 @@ export class SurfaceManager implements SessionSurface {
     }
   }
 
+  /**
+   * Validate a contiguous run of candidates together — every member's surface
+   * transition planned and checked before any is admitted — and return the
+   * acceptance that commits all planned transitions at once. Seq resolution
+   * consults the batch first, so a replacement may shadow an earlier batch
+   * member that is not in the log yet.
+   * @param events - candidate events assigned consecutive sequences starting
+   * at the current log tail.
+   * @returns the acceptance; calling it applies every plan to the committed
+   * surface and advances the fold to the batch's last member.
+   */
+  prepareBatch(events: readonly SessionEvent[]): () => void {
+    if (this._lastProcessedSeq < this.baseSeq + this.log.length - 1) this._processDelta()
+    const start = this.baseSeq + this.log.length
+    const lastProcessedSeq = start + events.length - 1
+    const eventAt = (seq: number): SessionEvent | undefined =>
+      seq >= start ? events[seq - start] : this.eventAt(seq)
+    const state: SurfaceFoldState = { nodes: [...this._state.nodes], replaceGeneration: this._state.replaceGeneration }
+    const plans = events.map((event, index) => {
+      const plan = planSurfaceEvent(state, event, start + index, eventAt, this.baseSeq)
+      applySurfacePlan(state, plan)
+      return plan
+    })
+    return () => {
+      for (const plan of plans) applySurfacePlan(this._state, plan)
+      this._lastProcessedSeq = lastProcessedSeq
+      this._pendingPlan = undefined
+    }
+  }
+
   /** Monotonic count of folded positional replacements. */
   get replaceGeneration(): number {
     if (this._lastProcessedSeq < this.baseSeq + this.log.length - 1) this._processDelta()

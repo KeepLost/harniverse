@@ -43,6 +43,21 @@ pnpm run build
 
 构建会生成源码启动器所需的 Host、Client 和 Web 前端产物。请保留该 checkout；后续命令通过仓库根目录的 `pnpm dsh` 脚本运行 Harniverse。
 
+### 构建 Rust 沙箱组件
+
+`pnpm run build` 不会生成 Rust 隔离层。它们是独立的按架构构建，在某个工作区沙箱需要之前保持可选：
+
+```sh
+# Landlock process sandbox: linux-x64 and linux-arm64 (Debian/Ubuntu: apt-get install musl-tools)
+pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace build:ts
+pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace build:native
+
+# QEMU micro-VM sandbox image: needs the Rust toolchain (cargo) plus curl, tar, gzip, cpio, and sha256sum
+pnpm --filter @deepseek-ai/dsh-vm-qemu-local assets:build
+```
+
+Landlock 二进制按架构本地构建且被 git 忽略。缺失时隔离探测报告 `unusable`，运行链回退到下一档；没有任何可用档时直接拒绝生成（fail closed），绝不无约束运行。VM 镜像构建只下载摘要固定的输入，并缓存在 `packages/vm/vm-qemu-local/.cache/downloads/` 以支持增量的离线重建；镜像缺失时 VM 沙箱报告 `assets not built`，并附上同一条重建命令。
+
 ### 3. 启动 Web UI
 
 在终端 A 中进入 Harniverse checkout 并运行：

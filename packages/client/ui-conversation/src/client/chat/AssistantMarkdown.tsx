@@ -13,7 +13,7 @@ import { Fragment, memo, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import type { AssistantBlock, AssistantProvenanceView } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownDelegateFenceInfo, MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
 import type {
   AssistantMetaOwnerProps, ChatImagesOwnerProps, ChatViewSlotProps, ReasoningBodyOwnerProps,
@@ -41,6 +41,8 @@ export interface AssistantMarkdownProps {
   renderBody?: ((owner: ReasoningBodyOwnerProps) => ReactNode) | undefined
   /** Seat-bound meta renderer for the provenance line; omitted renders the plain ids. */
   renderMeta?: ((owner: AssistantMetaOwnerProps) => ReactNode) | undefined
+  /** Seat-bound fence renderer; omitted renders the built-in code and math blocks. */
+  renderFence?: ((owner: MarkdownDelegateFenceInfo) => ReactNode) | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -48,7 +50,7 @@ export interface AssistantMarkdownProps {
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
   blocks, streaming, interrupted, loadImage, mentions, externalLinks, provenance, renderImages, renderBody,
-  renderMeta, t,
+  renderMeta, renderFence, t,
 }: AssistantMarkdownProps) {
   const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   // Stable per locale revision (t identity changes on switch): a fresh object
@@ -76,6 +78,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
             codeLabels={codeLabels}
             fileMentions={mentions}
             externalLinks={externalLinks}
+            renderCode={renderFence}
           />,
         )
         break

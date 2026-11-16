@@ -594,6 +594,7 @@
     }
   ],
   "errorCodes": [
+    "workspace-search-failed",
     "workspace-entry-stalled",
     "workspace-root-stalled",
     "authentication-principal-mismatch",

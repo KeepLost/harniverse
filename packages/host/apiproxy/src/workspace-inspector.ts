@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process'
+import { readRipgrepLines, spawnRipgrep } from '@deepseek-ai/dsh-util-ripgrep'
+import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { constants, type Dirent, type Stats } from 'node:fs'
 import { open, opendir, realpath, stat, type FileHandle } from 'node:fs/promises'
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { hostPriors, sniffAndDecode, utf8BoundaryEnd } from '@deepseek-ai/dsh-fs-codec'
-import {
-  compileGlobFilter, WORKSPACE_SEARCH_DEFAULT_EXCLUDES,
-} from './api/workspace-glob.ts'
+import { WORKSPACE_SEARCH_DEFAULT_EXCLUDES } from './api/workspace-glob.ts'
 
 /** Maximum immediate children returned by one directory listing. */
 export const WORKSPACE_DIRECTORY_ENTRY_LIMIT = 2_000
@@ -34,6 +34,7 @@ type WorkspaceInspectorErrorCode =
   | 'workspace-file-binary'
   | 'workspace-file-preview-unsupported'
   | 'workspace-file-too-large'
+  | 'workspace-search-failed'
   | 'workspace-entry-stalled'
   | 'workspace-root-stalled'
   | 'workspace-git-not-repository'
@@ -328,7 +329,6 @@ async function readDirectoryEntries(
   path: string,
   limit: number,
   signal: AbortSignal,
-  detectOverflow = true,
   canonicalRoot?: string,
 ): Promise<{ entries: Dirent[]; truncated: boolean }> {
   const target = await containedPath(root, path, signal, canonicalRoot)
@@ -341,7 +341,7 @@ async function readDirectoryEntries(
     const readTarget = descriptorPath ? `/dev/fd/${handle.fd}` : target
     directory = await opendir(readTarget)
     const entries: Dirent[] = []
-    const readLimit = limit + (detectOverflow ? 1 : 0)
+    const readLimit = limit + 1
     let exhausted = false
     while (entries.length < readLimit) {
       signal.throwIfAborted()
@@ -355,7 +355,7 @@ async function readDirectoryEntries(
     if (!descriptorPath) {
       await openedPathInfo(root, path, target, handle, signal, 'directory', canonicalRoot)
     }
-    const truncated = !exhausted && (detectOverflow ? entries.length > limit : entries.length === limit)
+    const truncated = !exhausted && entries.length > limit
     return { entries: entries.slice(0, limit), truncated }
   } catch (error: unknown) {
     signal.throwIfAborted()
@@ -450,7 +450,7 @@ export async function listWorkspaceFiles(
 ): Promise<{ path: string; entries: WorkspaceFileEntry[]; truncated: boolean }> {
   return guard.run(root, path, signal, async () => {
     const canonicalRoot = await canonicalRootOf(root, signal)
-    const result = await readDirectoryEntries(root, path, WORKSPACE_DIRECTORY_ENTRY_LIMIT, signal, true, canonicalRoot)
+    const result = await readDirectoryEntries(root, path, WORKSPACE_DIRECTORY_ENTRY_LIMIT, signal, canonicalRoot)
     signal.throwIfAborted()
     result.entries.sort((left, right) => {
       const leftDirectory = left.isDirectory() ? 0 : 1
@@ -466,8 +466,20 @@ export async function listWorkspaceFiles(
   })
 }
 
+/** Terminate-escalation grace (ms) for the search process. */
+const WORKSPACE_SEARCH_GRACE_MS = 5_000
+/** Byte cap on the retained search-process stderr diagnostic tail. */
+const WORKSPACE_SEARCH_STDERR_MAX_BYTES = 4_096
+
 /**
  * Search regular-file names recursively without following symbolic links.
+ *
+ * The engine is the packaged ripgrep through the subprocess provider: ignore
+ * files (`.gitignore`, `.ignore`, …) and hidden entries are honored natively,
+ * and the old dependency/build-output skips ride as negated globs. Caller
+ * excludes replace those defaults rather than adding to them. Exit code 2
+ * (a read failure partway) keeps the partial result and reports truncation.
+ * @param subprocess - the composed process spawner, co-located with the filesystem.
  * @param root - registered canonical Workspace root.
  * @param query - case-insensitive file-name substring.
  * @param signal - caller cancellation signal.
@@ -477,6 +489,7 @@ export async function listWorkspaceFiles(
  * @returns bounded matching files and whether either search limit was reached.
  */
 export async function searchWorkspaceFiles(
+  subprocess: Pick<SubprocessRuntime, 'spawn'> | undefined,
   root: string,
   query: string,
   signal: AbortSignal,
@@ -484,51 +497,63 @@ export async function searchWorkspaceFiles(
   guard: WorkspaceStallGuard = sharedStallGuard,
 ): Promise<{ entries: WorkspaceFileEntry[]; truncated: boolean }> {
   return guard.run(root, '.', signal, async () => {
+    if (subprocess === undefined) {
+      throw new WorkspaceInspectorError('workspace-search-failed', 'workspace file search requires the subprocess provider')
+    }
     const canonicalRoot = await canonicalRootOf(root, signal)
     const needle = query.trim().toLowerCase()
     // Caller excludes replace the defaults rather than adding to them: a user who
     // writes an exclude list is scoping the search deliberately, and a hidden
     // extra list would make `dist/**` unsearchable with no way to opt out.
-    const include = compileGlobFilter(filters.include, 'pass')
-    const exclude = compileGlobFilter(
-      filters.exclude === undefined || filters.exclude.length === 0
-        ? WORKSPACE_SEARCH_DEFAULT_EXCLUDES
-        : filters.exclude,
-      'reject',
-    )
-    const directories = ['.']
+    const excludeSource = filters.exclude === undefined || filters.exclude.length === 0
+      ? WORKSPACE_SEARCH_DEFAULT_EXCLUDES
+      : filters.exclude
+    const argv = [
+      '--files', '--sort=path', '--null', '--path-separator=/',
+      ...(filters.include ?? []).map(pattern => `--glob=${pattern}`),
+      ...excludeSource.map(pattern => `--glob=!${pattern}`),
+    ]
     const entries: WorkspaceFileEntry[] = []
-    let scanned = 0
-    let directoryIndex = 0
-    while (directoryIndex < directories.length) {
-      const path = directories[directoryIndex++] as string
-      // A directory that fills the remaining budget reports itself truncated and
-      // returns below, so the budget is still positive on every entry here.
-      const remaining = WORKSPACE_FILE_SEARCH_SCAN_LIMIT - scanned
-      const result = await readDirectoryEntries(root, path, remaining, signal, false, canonicalRoot)
-      result.entries.sort((left, right) => left.name.localeCompare(right.name))
-      for (const child of result.entries) {
-        signal.throwIfAborted()
-        scanned++
-        const childPath = path === '.' ? child.name : `${path}/${child.name}`
-        if (child.isDirectory()) {
-          // Prune here rather than at match time: an excluded tree must not cost
-          // scan budget, and an anchored include list makes the rest unreachable.
-          if (exclude.matchesDirectory(childPath) || !include.mayContainMatch(childPath)) continue
-          directories.push(childPath)
-        } else if (
-          child.isFile()
-          && child.name.toLowerCase().includes(needle)
-          && include.matches(childPath)
-          && !exclude.matches(childPath)
-        ) {
-          entries.push({ name: child.name, path: childPath, kind: 'file' })
-          if (entries.length >= WORKSPACE_FILE_SEARCH_RESULT_LIMIT) return { entries, truncated: true }
+    let listed = 0
+    let run
+    let stderr = ''
+    try {
+      const handle = await spawnRipgrep(subprocess, {
+        argv,
+        cwd: canonicalRoot,
+        stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: WORKSPACE_SEARCH_STDERR_MAX_BYTES } },
+        graceMs: WORKSPACE_SEARCH_GRACE_MS,
+        signal,
+      })
+      run = await readRipgrepLines(handle, '\0', (path) => {
+        if (entries.length >= WORKSPACE_FILE_SEARCH_RESULT_LIMIT || listed >= WORKSPACE_FILE_SEARCH_SCAN_LIMIT) return false
+        listed += 1
+        const name = path.slice(path.lastIndexOf('/') + 1)
+        if (name.toLowerCase().includes(needle)) {
+          entries.push({ name, path, kind: 'file' })
+          if (entries.length >= WORKSPACE_FILE_SEARCH_RESULT_LIMIT) return false
         }
-      }
-      if (result.truncated) return { entries, truncated: true }
+        return true
+      })
+      stderr = handle.collected.stderr?.readFrom(0).text.trim() ?? ''
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      throw new WorkspaceInspectorError(
+        'workspace-search-failed',
+        `workspace file search could not run${error instanceof Error ? `: ${error.message}` : ''}`,
+      )
     }
-    return { entries, truncated: false }
+    const { outcome, stopped } = run
+    signal.throwIfAborted()
+    if (!stopped && (outcome.signal !== null || (outcome.exitCode !== 0 && outcome.exitCode !== 1 && outcome.exitCode !== 2))) {
+      throw new WorkspaceInspectorError(
+        'workspace-search-failed',
+        `workspace file search exited with code ${outcome.exitCode} and signal ${outcome.signal}${stderr.length > 0 ? `: ${stderr}` : ''}`,
+      )
+    }
+    // A budget filled exactly is reported truncated: whether more files exist
+    // beyond it was never asked, so "complete" would overclaim.
+    return { entries, truncated: stopped || outcome.exitCode === 2 || listed >= WORKSPACE_FILE_SEARCH_SCAN_LIMIT }
   })
 }
 

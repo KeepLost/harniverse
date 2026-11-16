@@ -35,6 +35,24 @@ export interface MarkdownCodeLabels {
   copiedLabel?: string | undefined
 }
 
+/**
+ * One Markdown code fence whose language is final, as a
+ * {@link MarkdownRenderContext.renderCode} delegate receives it.
+ */
+export interface MarkdownDelegateFenceInfo {
+  /**
+   * The info string's language word, cut at its first character outside
+   * letters, digits, `_`, and `-`, then lowercased (`c++` yields `c`).
+   */
+  readonly lang: string
+  /** The fence body without its closing newline. */
+  readonly code: string
+  /** The surrounding document is still streaming, so `code` may still change. */
+  readonly streaming: boolean
+  /** The info string after the language word, as the author wrote it; absent when the fence names only a language. */
+  readonly meta?: string | undefined
+}
+
 function sanitizeUrl(url: string): string {
   try {
     switch (new URL(url).protocol) {
@@ -136,6 +154,12 @@ export interface MarkdownExternalLinks {
 export interface MarkdownRenderContext {
   /** Streaming arm: fences render plain and TeX stays literal. */
   readonly streaming: boolean
+  /**
+   * Owner-supplied renderer for one fence whose language is final. Absent,
+   * the document renders fences with its built-in code and math blocks;
+   * present, the owner renders every such fence, including `diff` and `math`.
+   */
+  readonly renderCode?: ((fence: MarkdownDelegateFenceInfo) => ReactNode) | undefined
   /** Localized fence copy-button labels. */
   readonly codeLabels: MarkdownCodeLabels | undefined
   /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
@@ -340,6 +364,18 @@ function renderCode(node: Md.Code, key: Key, context: MarkdownRenderContext): Re
   // The replaced pipeline recovered the grammar id from the hast class with
   // /language-([\w-]+)/, which truncates at the first non-word character.
   const lang = language === undefined ? undefined : /^[\w-]+/.exec(language)?.[0]
+  if (context.renderCode !== undefined && lang !== undefined) {
+    return (
+      <div key={key} className={css.fenceSeat}>
+        {context.renderCode({
+          lang: lang.toLowerCase(),
+          code: node.value,
+          streaming: context.streaming,
+          ...(node.meta === undefined || node.meta === null ? {} : { meta: node.meta }),
+        })}
+      </div>
+    )
+  }
   if (!context.streaming && lang === 'math') {
     // ```math fences render as display TeX once settled (rehype-katex parity);
     // its text extraction saw the code block's trailing newline.

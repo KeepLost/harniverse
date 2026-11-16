@@ -74,7 +74,29 @@ describe('layering and reads', () => {
     const ctx = await boot({ path, watch: false })
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'plain', source: 'file' })
     expect(await ctx.credentials.resolve(OTHER)).toEqual({ value: 'with space', source: 'file' })
-    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true })
+    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true, masked: '•••••' })
+  })
+
+  it('masks a stored value with same length, keeping prefix and tail only when enough stays hidden', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_TEST: sk-ant-api-03-abcdefghijklmnopqrstuvwxyz0123456789\n')
+    const ctx = await boot({ path, watch: false })
+    const info = await ctx.credentials.describe(KEY)
+    expect(info.masked?.startsWith('sk-ant')).toBe(true)
+    expect(info.masked?.endsWith('6789')).toBe(true)
+    expect(info.masked?.length).toBe('sk-ant-api-03-abcdefghijklmnopqrstuvwxyz0123456789'.length)
+    expect(info.masked).not.toContain('abcdef')
+  })
+
+  it('masks a short stored value completely rather than revealing its parts', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_TEST: short\n')
+    const ctx = await boot({ path, watch: false })
+    expect(await ctx.credentials.describe(KEY)).toEqual({
+      configured: true, source: 'file', writable: true, masked: '•••••',
+    })
   })
 
   it('lets a non-empty process environment win read-only over the file', async () => {
@@ -94,7 +116,7 @@ describe('layering and reads', () => {
     const ctx = await boot({ path, watch: false })
     vi.stubEnv('DSH_CRED_TEST', '')
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
-    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true })
+    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true, masked: '••••••' })
   })
 
   it('fails boot loud when the document exists but cannot be read', async () => {
@@ -132,7 +154,7 @@ describe('layer ladder', () => {
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
     // A key sitting in the user's .env does not make the stored one
     // unwritable.
-    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true })
+    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true, masked: '••••••' })
     await expect(ctx.credentials.set(KEY, 'rotated')).resolves.toBeUndefined()
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'rotated', source: 'file' })
   })
@@ -308,7 +330,7 @@ describe('document writes', () => {
     const reread = await boot({ path, watch: false })
     expect(await reread.credentials.resolve(KEY)).toEqual({ value: multiLine, source: 'file' })
     expect(await reread.credentials.resolve(OTHER)).toEqual({ value: mixedQuotes, source: 'file' })
-    expect(await reread.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true })
+    expect(await reread.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true, masked: 'line •••••••• two' })
   })
 
   it('unsets only the owning entry, with its own annotation, and keeps an absent unset silent', async () => {

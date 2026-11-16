@@ -43,6 +43,8 @@ export interface CredentialInfo {
   source?: string
   /** Whether {@link CredentialProvider.set} would currently succeed for this reference. */
   writable: boolean
+  /** Provider-generated masked preview of the stored value; absent unless the writable layer supplies the value. */
+  masked?: string
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -76,7 +78,8 @@ export abstract class CredentialProvider extends Service {
    * Describe one reference for configuration surfaces without exposing the
    * value.
    * @param ref - the reference to describe.
-   * @returns configured state, supplying source, and writability.
+   * @returns configured state, supplying source, writability, and an optional
+   * masked preview of a stored value.
    */
   abstract describe(ref: CredentialRef): Promise<CredentialInfo>
 

@@ -42,6 +42,8 @@ interface CredentialInfo {
   source?: string
   /** Whether {@link CredentialProvider.set} would currently succeed for this reference. */
   writable: boolean
+  /** Provider-generated masked preview of the stored value; absent unless the writable layer supplies the value. */
+  masked?: string
 }
 ```
 
@@ -78,7 +80,8 @@ abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>
  * Describe one reference for configuration surfaces without exposing the
  * value.
  * @param ref - the reference to describe.
- * @returns configured state, supplying source, and writability.
+ * @returns configured state, supplying source, writability, and an optional
+ * masked preview of a stored value.
  */
 abstract describe(ref: CredentialRef): Promise<CredentialInfo>
 
@@ -101,7 +104,7 @@ abstract set(ref: CredentialRef, value: string): Promise<void>
 abstract unset(ref: CredentialRef): Promise<void>
 ```
 
-Source: [`packages/credentials/credentials/src/index.ts:60`](../../packages/credentials/credentials/src/index.ts)
+Source: [`packages/credentials/credentials/src/index.ts:62`](../../packages/credentials/credentials/src/index.ts)
 
 <a id="credentials-events"></a>
 

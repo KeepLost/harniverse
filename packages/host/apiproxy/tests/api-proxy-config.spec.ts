@@ -112,8 +112,12 @@ class MemoryCredentials extends CredentialProvider {
 
   describe(ref: CredentialRef): Promise<CredentialInfo> {
     if (this.shadowed.has(ref)) return Promise.resolve({ configured: true, source: 'env', writable: false })
-    const configured = this.values.has(ref)
-    return Promise.resolve({ configured, ...configured ? { source: 'file' } : {}, writable: true })
+    const stored = this.values.get(ref)
+    return Promise.resolve({
+      configured: stored !== undefined,
+      ...stored === undefined ? {} : { source: 'file', masked: '•'.repeat(Array.from(stored).length) },
+      writable: true,
+    })
   }
 
   set(ref: CredentialRef, value: string): Promise<void> {
@@ -767,7 +771,9 @@ describe('credentials domain', () => {
     const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
       expectOk(await api.credentials.set(request({ ref: 'OPENAI_API_KEY', value: 'sk-secret' })))
       const after = expectOk(await api.credentials.describe(request({ refs: ['OPENAI_API_KEY'] })))
-      expect(after.credentials).toEqual({ OPENAI_API_KEY: { configured: true, source: 'file', writable: true } })
+      expect(after.credentials).toEqual({
+        OPENAI_API_KEY: { configured: true, source: 'file', writable: true, masked: '•'.repeat('sk-secret'.length) },
+      })
       expect(JSON.stringify(after)).not.toContain('sk-secret')
       expectOk(await api.credentials.unset(request({ ref: 'OPENAI_API_KEY' })))
     })
@@ -775,6 +781,27 @@ describe('credentials domain', () => {
       { type: 'host/remote-event', event: 'credentials/updated', args: ['OPENAI_API_KEY'] },
       { type: 'host/remote-event', event: 'credentials/updated', args: ['OPENAI_API_KEY'] },
     ])
+  })
+
+  it('describes a value-free masked preview of the stored layer', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const value = 'sk-ant-api-03-abcdefghijklmnopqrstuvwxyz0123456789'
+    expectOk(await api.credentials.set(request({ ref: 'ANTHROPIC_API_KEY', value })))
+    const described = expectOk(await api.credentials.describe(request({ refs: ['ANTHROPIC_API_KEY'] })))
+    const masked = described.credentials['ANTHROPIC_API_KEY']?.masked
+    expect(masked?.length).toBe(value.length)
+    expect(JSON.stringify(described)).not.toContain(value)
+    expectOk(await api.credentials.unset(request({ ref: 'ANTHROPIC_API_KEY' })))
+  })
+
+  it('refuses a describe batch beyond the fan-out bound', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const refs = Array.from({ length: 65 }, (_, index) => `REF_${index}`)
+    const error = expectErr(await api.credentials.describe(request({ refs })))
+    expect(error.code).toBe('bad-request')
+    expect(error.message).toContain('at most 64')
   })
 
   it('maps a shadowed write onto credential-rejected for set and unset alike', async () => {
