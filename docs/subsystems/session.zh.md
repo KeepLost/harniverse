@@ -1088,5 +1088,5 @@ One archival import settled durably. The session is persisted but not attached i
 
 Types: [SessionHeader](persistence.md)
 
-Source: [`packages/session/session-import/src/types.ts:71`](../../packages/session/session-import/src/types.ts)
+Source: [`packages/session/session-import/src/types.ts:72`](../../packages/session/session-import/src/types.ts)
 <!-- END GENERATED cordis-surface -->

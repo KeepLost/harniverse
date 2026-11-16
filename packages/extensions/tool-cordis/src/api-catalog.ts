@@ -5954,7 +5954,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ImportedSession',
-    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly format: ImportedSessionFormat | string;\n    readonly artifactName: string;\n    readonly sourceSessionId: string;\n    readonly title?: string;\n    readonly mappedEvents: number;\n    readonly skippedEvents: number;\n}',
+    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly format: string;\n    readonly artifactName: string;\n    readonly sourceSessionId: string;\n    readonly title?: string;\n    readonly mappedEvents: number;\n    readonly skippedEvents: number;\n}',
   },
   {
     name: 'ImportedSessionFormat',
