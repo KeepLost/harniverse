@@ -147,6 +147,10 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The invariant companion shares one bundler chunk with the entry; Node must resolve it.
   '@deepseek-ai/dsh-chat-adapter': ['lib/key-*.js'],
   '@deepseek-ai/dsh-chat-harniverse-client': ['lib/endpoints-*.js'],
+  // The hook-protocol invariant validates hook/config against the portable
+  // event vocabulary, so its companion shares the session-layer chunk with
+  // the entry bundle; Node must resolve it.
+  '@deepseek-ai/dsh-hook-protocol': ['lib/session-layer-*.js'],
   '@deepseek-ai/dsh-web-app': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-headless': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
