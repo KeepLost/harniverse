@@ -365,6 +365,9 @@ importers:
       '@deepseek-ai/dsh-tool-goal':
         specifier: workspace:^
         version: link:../../packages/goal/tool-goal
+      '@deepseek-ai/dsh-tool-hooks':
+        specifier: workspace:^
+        version: link:../../packages/hooks/tool-hooks
       '@deepseek-ai/dsh-tool-jobs':
         specifier: workspace:^
         version: link:../../packages/jobs/tool-jobs
