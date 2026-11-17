@@ -264,6 +264,9 @@
 - id: tool-session-query
   name: '@deepseek-ai/dsh-tool-session-query'
 
+- id: tool-hooks
+  name: '@deepseek-ai/dsh-tool-hooks'
+
 - id: tool-session-delivery
   name: '@deepseek-ai/dsh-tool-session-delivery'
 

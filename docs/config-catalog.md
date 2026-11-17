@@ -3835,6 +3835,22 @@ export interface Config {
 
 Source: [`packages/goal/tool-goal/src/index.ts:26`](../packages/goal/tool-goal/src/index.ts)
 
+<a id="deepseek-aidsh-tool-hooks"></a>
+
+## `@deepseek-ai/dsh-tool-hooks`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Deployment-owned bound on how many hooks one workspace file may carry. */
+export interface Config {
+  /** Maximum total hook groups (managed plus foreign) kept in the file. Defaults to 256. */
+  maxHooks?: number
+}
+```
+
+Source: [`packages/hooks/tool-hooks/src/index.ts:44`](../packages/hooks/tool-hooks/src/index.ts)
+
 <a id="deepseek-aidsh-tool-jobs"></a>
 
 ## `@deepseek-ai/dsh-tool-jobs`

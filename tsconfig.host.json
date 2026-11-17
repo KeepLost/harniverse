@@ -391,6 +391,7 @@
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude-code" },
     { "path": "./packages/hooks/hooks-codex" },
+    { "path": "./packages/hooks/tool-hooks" },
     { "path": "./packages/mcp/mcp-client" },
     { "path": "./packages/mcp/mcp-resources" },
     { "path": "./packages/mcp/mcp-user-config" },

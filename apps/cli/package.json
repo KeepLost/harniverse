@@ -67,6 +67,7 @@
     "@deepseek-ai/dsh-session-query": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-session-shell": "workspace:^",
+    "@deepseek-ai/dsh-shell-registry-settings": "workspace:^",
     "@deepseek-ai/dsh-shell-router": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-skill-filesystem": "workspace:^",
@@ -84,6 +85,7 @@
     "@deepseek-ai/dsh-tool-fs": "workspace:^",
     "@deepseek-ai/dsh-tool-fs-search": "workspace:^",
     "@deepseek-ai/dsh-tool-goal": "workspace:^",
+    "@deepseek-ai/dsh-tool-hooks": "workspace:^",
     "@deepseek-ai/dsh-tool-jobs": "workspace:^",
     "@deepseek-ai/dsh-tool-present": "workspace:^",
     "@deepseek-ai/dsh-tool-pwsh": "workspace:^",
@@ -107,8 +109,7 @@
     "@deepseek-ai/dsh-worktree": "workspace:^",
     "commander": "^15.0.0",
     "js-yaml": "^4.3.1",
-    "node-addon-require-builtin": "^0.1.4",
-    "@deepseek-ai/dsh-shell-registry-settings": "workspace:^"
+    "node-addon-require-builtin": "^0.1.4"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",

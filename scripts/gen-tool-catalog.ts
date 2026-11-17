@@ -62,6 +62,7 @@ import * as ToolScheduler from '@deepseek-ai/dsh-tool-scheduler'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
+import * as ToolHooks from '@deepseek-ai/dsh-tool-hooks'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import SessionDelivery, {
   type SessionDeliveryReceipt,
@@ -578,6 +579,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
       })
       await ctx.plugin(ToolSkill)
     },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-hooks',
+    dir: 'tool-hooks',
+    source: 'packages/hooks/tool-hooks/src/index.ts',
+    requires: ['ctx.tools', 'a calling Agent for the session workspace'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolHooks)
+    },
+    note:
+      'The workspace hook tools manage the Claude-Code-dialect project file the hooks bridge re-reads at every event, so installs and removals apply mid-session from the next matching event while the model sees only plain names, events, matchers, and a simple JSON action contract.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-session-delivery',
