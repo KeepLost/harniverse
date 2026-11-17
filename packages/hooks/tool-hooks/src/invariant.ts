@@ -15,9 +15,10 @@ export const name = 'tool-hooks-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the tools serialize their mutations on one hook file
- * through exclusive tool dispatch, and the file's consumers re-read it per
- * event, so no cross-event relationship outlives a single call.
+ * No runtime invariant: the tools serialize their mutations on each scope's
+ * store through exclusive tool dispatch, file consumers re-read per event, and
+ * the session layer's `hook/config` relations belong to
+ * `@deepseek-ai/dsh-hook-protocol`, which declares the event.
  */
 const install: InvariantInstaller = () => {}
 

@@ -35,7 +35,7 @@ const config: Config = {
     projectDir: .
 ```
 
-存在 `configPath` 时，配置在加载时解析一次，并完整替代自动发现；相对路径根据进程启动 cwd 解析。省略它时，桥接会在每个事件开始时发现并解析新的来源快照。来源按 `user`、`project`、`plugin`、`policy` 顺序运行；不存在的可选文件会被忽略，坏来源只会记录警告并跳过，不会禁用健康来源。没有 `discovery` 对象时，shipped 默认读取 `$DSH_HOME/hooks/claude-code.json`（回退到 `~/.dsh`）以及当前会话 cwd 下的 `.dsh/hooks/claude-code.json`。提供 `discovery` 时，只覆盖其中明确命名的层；显式空数组会禁用该层的默认值。project 路径相对于当前会话 cwd，其他相对路径必须配置 `discovery.root`，项目路径绝不会以 `process.cwd()` 作为回退。事件执行期间不会重新读取来源，文件修改在下一个事件生效。
+存在 `configPath` 时，配置在加载时解析一次，并完整替代自动发现；相对路径根据进程启动 cwd 解析。省略它时，桥接会在每个事件开始时发现并解析新的来源快照。会话持有的 hook（`hook/config` 事件，每个事件现折）按特异性序 `session` → `user` → `project` → `plugin` → `policy` 先于一切文件源运行；显式 `configPath` 只覆盖文件发现，从不覆盖会话层。文件之内，来源按 `user`、`project`、`plugin`、`policy` 顺序运行；不存在的可选文件会被忽略，坏来源只会记录警告并跳过，不会禁用健康来源。没有 `discovery` 对象时，shipped 默认读取 `$DSH_HOME/hooks/claude-code.json`（回退到 `~/.dsh`）以及当前会话 cwd 下的 `.dsh/hooks/claude-code.json`。提供 `discovery` 时，只覆盖其中明确命名的层；显式空数组会禁用该层的默认值。project 路径相对于当前会话 cwd，其他相对路径必须配置 `discovery.root`，项目路径绝不会以 `process.cwd()` 作为回退。事件执行期间不会重新读取来源，文件修改在下一个事件生效。
 
 只运行已启用的 shell 形式 `type: 'command'` hook；`disabled: true` 或 `enabled: false` 会省略 group 或 hook，`http`／`mcp_tool`／`prompt`／`agent` hook 会被解析并跳过，同时记录警告。读取／解析失败会被隔离，包括实际消费 matcher 的事件所带的无效 matcher 正则。没有每 hook `timeout` 的 hook 会使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟，即 CC 默认值）。自动发现不提供信任、哈希或审批层；只应对信任其 hook 命令的 root 启用。
 

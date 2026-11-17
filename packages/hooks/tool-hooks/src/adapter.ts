@@ -8,8 +8,10 @@
  *
  * The source is a self-contained plain-JavaScript string so the same bytes work
  * from `src/` in development, from `lib/` in a build, and in every deployment:
- * the tool writes it beside the hook file (content-hash guarded) and points the
- * bridge-visible command at it with absolute, quoted paths.
+ * the tool installs it once under the harness home (content-hash guarded) and
+ * every managed invocation routes there — file-held entries name their config
+ * file and hook on the argv, session-held entries pass the real command inline
+ * after `--run`.
  *
  * @module @deepseek-ai/dsh-tool-hooks/adapter
  */
@@ -26,31 +28,35 @@ function fail(message) {
   process.exit(1)
 }
 
-const configPath = process.argv[2]
-const hookName = process.argv[3]
-if (typeof configPath !== 'string' || typeof hookName !== 'string') fail('usage: node adapter.mjs <configPath> <hookName>')
-
 let run
-try {
-  const raw = JSON.parse(readFileSync(configPath, 'utf8'))
-  const map = raw && typeof raw === 'object' && !Array.isArray(raw) && raw.hooks && typeof raw.hooks === 'object' && !Array.isArray(raw.hooks) ? raw.hooks : raw
-  const events = map && typeof map === 'object' ? Object.values(map) : []
-  search: for (const groups of events) {
-    if (!Array.isArray(groups)) continue
-    for (const group of groups) {
-      if (!group || typeof group !== 'object' || Array.isArray(group) || group.name !== hookName || !Array.isArray(group.hooks)) continue
-      for (const hook of group.hooks) {
-        if (hook && typeof hook === 'object' && !Array.isArray(hook) && typeof hook.run === 'string') {
-          run = hook.run
-          break search
+if (process.argv[2] === '--run') {
+  run = process.argv[3]
+  if (typeof run !== 'string' || run.length === 0) fail('usage: node adapter.mjs --run <command>')
+} else {
+  const configPath = process.argv[2]
+  const hookName = process.argv[3]
+  if (typeof configPath !== 'string' || typeof hookName !== 'string') fail('usage: node adapter.mjs <configPath> <hookName> | --run <command>')
+  try {
+    const raw = JSON.parse(readFileSync(configPath, 'utf8'))
+    const map = raw && typeof raw === 'object' && !Array.isArray(raw) && raw.hooks && typeof raw.hooks === 'object' && !Array.isArray(raw.hooks) ? raw.hooks : raw
+    const events = map && typeof map === 'object' ? Object.values(map) : []
+    search: for (const groups of events) {
+      if (!Array.isArray(groups)) continue
+      for (const group of groups) {
+        if (!group || typeof group !== 'object' || Array.isArray(group) || group.name !== hookName || !Array.isArray(group.hooks)) continue
+        for (const hook of group.hooks) {
+          if (hook && typeof hook === 'object' && !Array.isArray(hook) && typeof hook.run === 'string') {
+            run = hook.run
+            break search
+          }
         }
       }
     }
+    if (run === undefined) fail('no managed hook named ' + hookName + ' in ' + configPath)
+  } catch (error) {
+    fail('cannot read ' + configPath + ': ' + (error && error.message ? error.message : String(error)))
   }
-} catch (error) {
-  fail('cannot read ' + configPath + ': ' + (error && error.message ? error.message : String(error)))
 }
-if (run === undefined) fail('no managed hook named ' + hookName + ' in ' + configPath)
 
 let payload = ''
 process.stdin.setEncoding('utf8')
@@ -97,7 +103,7 @@ process.stdin.on('end', function () {
 })
 `
 
-/** Write the adapter script beside the hook file unless the identical bytes are already there.
+/** Write the adapter script under the harness home unless the identical bytes are already there.
  * @param adapterPath - absolute destination of the generated adapter script.
  */
 export function installAdapter(adapterPath: string): void {
@@ -121,6 +127,6 @@ export function bridgeCommand(adapterPath: string, configPath: string, name: str
 }
 
 /** Double-quote one argument for both POSIX shells and Windows cmd/pwsh invocation. */
-function shellQuote(value: string): string {
-  return `"${value.replaceAll('"', '\\"')}"`
+export function shellQuote(value: string): string {
+  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
 }

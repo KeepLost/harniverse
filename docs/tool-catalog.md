@@ -1451,7 +1451,7 @@ Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/
 
 ### `hook_add`
 
-Install a workspace hook: a shell command that runs automatically at a lifecycle point and can gate, enrich, or observe the agent — for example, ask the user before every bash call, or log each web fetch. Takes effect from the next matching event; every run is recorded in the session log. List with hook_list, remove with hook_remove.
+Install a hook: a shell command that runs automatically at a lifecycle point and can gate, enrich, or observe the agent — for example, ask the user before every bash call, or log each web fetch. Scope selects where it lives: session (this conversation, inherited by subagents, supervised mode required), workspace (every session in this directory), or global (every session for this user); the default is session. Takes effect from the next matching event; every run is recorded in the session log. List with hook_list, remove with hook_remove.
 
 ```json
 {
@@ -1459,7 +1459,7 @@ Install a workspace hook: a shell command that runs automatically at a lifecycle
   "properties": {
     "name": {
       "type": "string",
-      "description": "Stable identifier for this hook, unique in the workspace. hook_list shows it; hook_remove uses it."
+      "description": "Stable identifier for this hook, unique within its scope. hook_list shows it; hook_remove uses it."
     },
     "event": {
       "type": "string",
@@ -1472,6 +1472,15 @@ Install a workspace hook: a shell command that runs automatically at a lifecycle
         "stop",
         "subagent_start",
         "subagent_stop"
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "description": "Where the hook lives: \"session\" follows only this conversation (inherited by its subagents; changing session hooks requires supervised mode); \"workspace\" is shared by every session opened in this workspace directory; \"global\" is shared by every session for this user. Defaults to \"session\".",
+      "enum": [
+        "session",
+        "workspace",
+        "global"
       ]
     },
     "matcher": {
@@ -1499,7 +1508,7 @@ Source: [`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/
 
 ### `hook_list`
 
-List this workspace's hooks: name, event, matcher, command, and timeout. Names shaped like 'pre_tool#1' are hand-written entries the tools did not install; remove and reinstall them to manage them through the tools.
+List every hook by scope — session (this conversation; 'changeable' reports whether supervised mode allows changes), workspace, and global. Names shaped like 'pre_tool#1' are hand-written file entries the tools did not install; remove and reinstall them to manage them through the tools.
 
 ```json
 {
@@ -1512,7 +1521,7 @@ Source: [`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/
 
 ### `hook_remove`
 
-Remove one workspace hook by the name hook_list shows. Takes effect from the next matching event; an already-running invocation is unaffected.
+Remove one hook by the name hook_list shows, within one scope (default session; session removal requires supervised mode). Takes effect from the next matching event; an already-running invocation is unaffected.
 
 ```json
 {
@@ -1521,6 +1530,15 @@ Remove one workspace hook by the name hook_list shows. Takes effect from the nex
     "name": {
       "type": "string",
       "description": "The hook to remove, exactly as hook_list names it."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Which scope to remove from; the name is resolved within that scope alone. Defaults to \"session\".",
+      "enum": [
+        "session",
+        "workspace",
+        "global"
+      ]
     }
   },
   "required": [

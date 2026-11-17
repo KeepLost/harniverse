@@ -1,57 +1,32 @@
 /**
- * Persistence for model-managed hooks over the Claude-Code-dialect project-layer
- * hook file. The model-facing surface never exposes the file: this module owns
- * the dialect shape (event names, matcher groups, one command hook per managed
- * entry, an embedded stable name) and preserves any foreign keys it did not write.
+ * Persistence for model-managed hooks over the Claude-Code-dialect hook files.
+ * The model-facing surface never exposes the files: this module owns the
+ * dialect shape (event names, matcher groups, one command hook per managed
+ * entry, an embedded stable name) and preserves any foreign keys it did not
+ * write. One store serves one file target — the workspace layer's project file
+ * or the global layer's home file; the session layer lives in the session log
+ * (see `@deepseek-ai/dsh-hook-protocol/session-layer`).
  *
  * @module @deepseek-ai/dsh-tool-hooks/store
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { PORTABLE_TO_CLAUDE_CODE as CC_EVENT, SESSION_MATCHER_EVENTS as MATCHER_EVENTS, type PortableHookEvent } from '@deepseek-ai/dsh-hook-protocol'
 
-/** Directory components of the project-layer hook file, relative to the session workspace. */
+export { PORTABLE_TO_CLAUDE_CODE as CC_EVENT, SESSION_MATCHER_EVENTS as MATCHER_EVENTS } from '@deepseek-ai/dsh-hook-protocol'
+export type { PortableHookEvent as HookEvent } from '@deepseek-ai/dsh-hook-protocol'
+
+/** Directory components of the workspace-layer hook file, relative to the session workspace. */
 export const HOOKS_DIR_PARTS = ['.dsh', 'hooks'] as const
 
-/** The Claude-Code-dialect project-layer filename the bridge discovers per event. */
+/** The Claude-Code-dialect filename the bridge discovers per event. */
 export const HOOKS_FILENAME = 'claude-code.json'
-
-/** The generated adapter script the bridge-visible command invokes. */
-export const ADAPTER_FILENAME = 'tool-hooks-adapter.mjs'
-
-/** Model-facing event identifiers, in disclosure order. */
-export type HookEvent =
-  | 'pre_tool'
-  | 'post_tool'
-  | 'prompt_submit'
-  | 'session_start'
-  | 'stop'
-  | 'subagent_start'
-  | 'subagent_stop'
-
-/** Every model-facing event and its Claude-Code dialect event name. */
-export const CC_EVENT: Readonly<Record<HookEvent, string>> = {
-  pre_tool: 'PreToolUse',
-  post_tool: 'PostToolUse',
-  prompt_submit: 'UserPromptSubmit',
-  session_start: 'SessionStart',
-  stop: 'Stop',
-  subagent_start: 'SubagentStart',
-  subagent_stop: 'SubagentStop',
-}
-
-/** Dialect event name back to the model-facing identifier. */
-export const MODEL_EVENT: Readonly<Record<string, HookEvent>> = Object.fromEntries(
-  Object.entries(CC_EVENT).map(([model, cc]) => [cc, model as HookEvent]),
-)
-
-/** Events whose dialect group carries a matcher (the others discard it). */
-export const MATCHER_EVENTS: readonly HookEvent[] = ['pre_tool', 'post_tool', 'session_start', 'subagent_start', 'subagent_stop']
 
 /** One managed hook as the model sees it. */
 export interface HookEntry {
   readonly name: string
-  readonly event: HookEvent
+  readonly event: PortableHookEvent
   readonly matcher?: string
   readonly command: string
   readonly timeoutSeconds?: number
@@ -59,12 +34,10 @@ export interface HookEntry {
   readonly managed: boolean
 }
 
-/** A parsed hook file plus the absolute paths the tool operates on. */
+/** A parsed hook file plus the absolute path the tool operates on. */
 export interface HookStore {
   /** Absolute path of the dialect hook file. */
   readonly configPath: string
-  /** Absolute path of the generated adapter script beside it. */
-  readonly adapterPath: string
   /** Parsed JSON root (never an array or primitive). */
   root: Record<string, unknown>
   /** True when the root itself is the event map; false when it nests under `hooks`. */
@@ -76,13 +49,12 @@ function eventMap(store: HookStore): Record<string, unknown> {
   return store.bare ? store.root : store.root.hooks as Record<string, unknown>
 }
 
-/** Read the hook file for one session workspace; a missing file reads as empty.
- * @param cwd - the session workspace directory holding the `.dsh/hooks` tree.
- * @returns the parsed store plus the absolute paths the tool operates on.
+/** Read one hook file target; a missing file reads as empty.
+ * @param configDir - the directory holding the dialect hook file.
+ * @returns the parsed store plus the absolute path the tool operates on.
  */
-export function openStore(cwd: string): HookStore {
-  const configPath = resolve(cwd, ...HOOKS_DIR_PARTS, HOOKS_FILENAME)
-  const adapterPath = resolve(cwd, ...HOOKS_DIR_PARTS, ADAPTER_FILENAME)
+export function openStore(configDir: string): HookStore {
+  const configPath = resolve(configDir, HOOKS_FILENAME)
   let raw: unknown
   try {
     raw = JSON.parse(readFileSync(configPath, 'utf8'))
@@ -90,14 +62,22 @@ export function openStore(cwd: string): HookStore {
     if (!isMissingFile(error)) {
       throw new Error(`the existing hooks file is not valid JSON (${configPath}): ${String(error)}`)
     }
-    return { configPath, adapterPath, root: {}, bare: true }
+    return { configPath, root: {}, bare: true }
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error(`the existing hooks file is not a JSON object (${configPath})`)
   }
   const root = raw as Record<string, unknown>
   const bare = typeof root.hooks !== 'object' || root.hooks === null || Array.isArray(root.hooks)
-  return { configPath, adapterPath, root, bare }
+  return { configPath, root, bare }
+}
+
+/** The workspace-layer hook directory inside one session workspace.
+ * @param cwd - the session workspace directory.
+ * @returns the directory holding the project-layer dialect hook file.
+ */
+export function workspaceHooksDir(cwd: string): string {
+  return resolve(cwd, ...HOOKS_DIR_PARTS)
 }
 
 /** List every hook group in the file: managed entries by name, foreign entries by positional id.
@@ -107,7 +87,7 @@ export function openStore(cwd: string): HookStore {
 export function listEntries(store: HookStore): HookEntry[] {
   const map = eventMap(store)
   const entries: HookEntry[] = []
-  for (const [modelEvent, ccEvent] of Object.entries(CC_EVENT) as [HookEvent, string][]) {
+  for (const [modelEvent, ccEvent] of Object.entries(CC_EVENT) as [PortableHookEvent, string][]) {
     const candidate: unknown = map[ccEvent]
     if (!Array.isArray(candidate)) continue
     const groups: unknown[] = candidate
@@ -122,7 +102,7 @@ export function listEntries(store: HookStore): HookEntry[] {
 }
 
 /** Build one list entry from a raw dialect group, or undefined for an unusable shape. */
-function entryOf(event: HookEvent, group: unknown, ordinal: number): HookEntry | undefined {
+function entryOf(event: PortableHookEvent, group: unknown, ordinal: number): HookEntry | undefined {
   if (typeof group !== 'object' || group === null || Array.isArray(group)) return undefined
   const record = group as Record<string, unknown>
   if (isDisabled(record)) return undefined
@@ -184,7 +164,7 @@ export function addEntry(store: HookStore, entry: Omit<HookEntry, 'managed'>, br
  */
 export function removeEntry(store: HookStore, name: string): HookEntry | undefined {
   const map = eventMap(store)
-  for (const [modelEvent, ccEvent] of Object.entries(CC_EVENT) as [HookEvent, string][]) {
+  for (const [modelEvent, ccEvent] of Object.entries(CC_EVENT) as [PortableHookEvent, string][]) {
     const candidate: unknown = map[ccEvent]
     if (!Array.isArray(candidate)) continue
     const groups: unknown[] = candidate

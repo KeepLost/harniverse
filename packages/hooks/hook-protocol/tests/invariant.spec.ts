@@ -116,3 +116,47 @@ describe('hook-protocol invariants', () => {
       .toThrow(/no matching hook\/invoked/)
   })
 })
+
+describe('hook/config session-layer invariants', () => {
+  it('accepts a valid snapshot and a delegation seed as the first event', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    expect(() => session.append('hook/config', {
+      hooks: [{ name: 'a', event: 'pre_tool' as const, matcher: 'x', command: 'c', timeoutSec: 2 }],
+      source: 'delegation',
+    })).not.toThrow()
+    expect(() => session.append('hook/config', { hooks: [] })).not.toThrow()
+  })
+
+  it.each([
+    [{ hooks: 'nope' as never }, /hooks must be an array/],
+    [{ hooks: [{ name: '', event: 'pre_tool', command: 'c' }] }, /name must be a non-empty string/],
+    [{ hooks: [{ name: 'a', event: 'pre_tool', command: 'c' }, { name: 'a', event: 'stop', command: 'c' }] }, /duplicate name/],
+    [{ hooks: [{ name: 'a', event: 'nope', command: 'c' }] }, /unknown event/],
+    [{ hooks: [{ name: 'a', event: 'pre_tool', command: '' }] }, /command must be a non-empty string/],
+    [{ hooks: [{ name: 'a', event: 'pre_tool', command: 'c', matcher: 3 as never }] }, /matcher must be a string/],
+    [{ hooks: [{ name: 'a', event: 'pre_tool', command: 'c', timeoutSec: 0 }] }, /timeoutSec must be a positive integer/],
+  ])('rejects malformed hook/config %#', async (data, message) => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    expect(() => session.append('hook/config', data as never)).toThrow(message)
+  })
+
+  it('rejects a delegation seed after the session already carries a snapshot', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('hook/config', { hooks: [] })
+    expect(() => session.append('hook/config', { hooks: [], source: 'delegation' }))
+      .toThrow(/delegation seed is only legal/)
+  })
+
+  it('flags a late delegation seed when replaying an existing session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create()
+    session.append('hook/config', { hooks: [] })
+    session.append('hook/config', { hooks: [], source: 'delegation' })
+    await ctx.plugin(InvariantRegistry)
+    await expect(ctx.plugin(HookInvariant).then(() => undefined)).rejects.toThrow(/delegation seed is only legal/)
+  })
+})
