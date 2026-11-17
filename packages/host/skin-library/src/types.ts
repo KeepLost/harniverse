@@ -127,10 +127,3 @@ export type PutWallpaperResult =
     readonly status: 'rejected'
     readonly reason: WallpaperRejectionReason
   }
-
-/** Bytes of one stored wallpaper. */
-export interface WallpaperContent {
-  readonly mime: WallpaperMime
-  /** The exact stored bytes, base64-encoded. */
-  readonly contentBase64: string
-}

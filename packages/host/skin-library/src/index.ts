@@ -7,6 +7,7 @@
  * @module @deepseek-ai/dsh-host-skin-library
  */
 
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -21,9 +22,9 @@ import { MAX_PACK_BYTES, parseSkinPack } from './pack.ts'
 import { UI_SKIN_NAMESPACE, UiSkinSettingsSchema } from './settings.ts'
 import { SkinStore } from './store.ts'
 import type {
-  ImportPackResult, PutWallpaperResult, SkinDefinition, SkinLibraryLimits, SkinLibrarySnapshot, WallpaperContent,
+  ImportPackResult, PutWallpaperResult, SkinDefinition, SkinLibraryLimits, SkinLibrarySnapshot,
 } from './types.ts'
-import { MAX_WALLPAPERS, MAX_WALLPAPER_BYTES, decodeWallpaper } from './wallpaper.ts'
+import { MAX_WALLPAPERS, MAX_WALLPAPER_BYTES, WALLPAPER_HASH_PATTERN, decodeWallpaper } from './wallpaper.ts'
 
 export type * from './types.ts'
 
@@ -31,6 +32,11 @@ export type * from './types.ts'
 export interface Config {
   /** Absolute library directory holding `packs/` and `wallpapers/`; created on first write. */
   dir: string
+}
+
+/** The Connection admission gate the wallpaper route sits behind (structural: no cross-tree dependency). */
+interface ConnectionGate {
+  authorizeHttpRequest(req: IncomingMessage, res: ServerResponse, requiredCapability: 'harniverse.observe'): Promise<boolean>
 }
 
 const SKIN_SETTINGS_NAMESPACE = settingsNamespace(UI_SKIN_NAMESPACE)
@@ -64,6 +70,13 @@ export class SkinLibrary extends TypertRemoteService {
         'skin-library: initial skin bootstrap',
       )
     })
+    ctx.inject(['webServer', 'connection'], (httpCtx) => {
+      const connection = httpCtx.get('connection') as unknown as ConnectionGate
+      httpCtx.effect(
+        () => httpCtx.webServer.register({ kind: 'prefix', path: '/skins/wallpapers', handler: this.serveWallpaper(connection) }),
+        'skin-library: wallpaper route',
+      )
+    })
   }
 
   /** Embed the active skin's colour tokens when the stored theme preference names a resolvable skin. */
@@ -87,13 +100,36 @@ export class SkinLibrary extends TypertRemoteService {
   }
 
   /**
-   * Read one stored wallpaper.
-   * @param hash - the wallpaper's content address (lowercase hex SHA-256).
-   * @returns its kind and base64 bytes, or `undefined` when none intact is stored under `hash`.
+   * The wallpaper download route: bytes served from the page authority's
+   * library under their content address, so the browser caches them
+   * permanently (the hash pins the exact bytes; a replaced wallpaper gets a
+   * new hash and therefore a new URL).
+   * @param connection - the Connection admission gate.
+   * @returns the registered `/skins/wallpapers` route handler.
    */
-  @Remote({ exportName: 'readWallpaper', requiredCapability: 'harniverse.observe' })
-  async readWallpaper(hash: string): Promise<WallpaperContent | undefined> {
-    return await this.store.readWallpaper(hash)
+  private serveWallpaper(connection: ConnectionGate) {
+    return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405)
+        res.end()
+        return
+      }
+      if (!await connection.authorizeHttpRequest(req, res, 'harniverse.observe')) return
+      /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
+      const hash = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname.slice('/skins/wallpapers/'.length))
+      const stored = WALLPAPER_HASH_PATTERN.test(hash) ? await this.store.readWallpaperBytes(hash) : undefined
+      if (stored === undefined) {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+      res.writeHead(200, {
+        'content-type': stored.mime,
+        'content-length': String(stored.bytes.byteLength),
+        'cache-control': 'private, max-age=31536000, immutable',
+      })
+      res.end(req.method === 'HEAD' ? undefined : stored.bytes)
+    }
   }
 
   /**
@@ -133,7 +169,7 @@ export class SkinLibrary extends TypertRemoteService {
 
   /**
    * Delete a stored wallpaper. A `ui-skin.wallpaper` setting that names it is
-   * left as is; the client renders no wallpaper when `readWallpaper` finds none.
+   * left as is; the client renders no wallpaper when the route finds none.
    * @param hash - the wallpaper's content address.
    * @returns whether a file was removed.
    */

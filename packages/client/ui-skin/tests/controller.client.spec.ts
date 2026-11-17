@@ -319,7 +319,7 @@ describe('SkinController disposal', () => {
     expect(b.theme.layer).toBeDefined()
     expect(b.scope.listenerCount()).toBe(1)
     expect(b.environment.listeners.size).toBe(1)
-    b.remote.readWallpaper.mockResolvedValue(ok({ mime: 'image/png', contentBase64: 'AAAA' }))
+    b.deps.readWallpaper.mockResolvedValue(new Blob(['AAAA'], { type: 'image/png' }))
     expect(await b.controller.acquireWallpaper('h')).toBe('blob:wp')
     b.controller.dispose()
     await vi.waitFor(() => { expect(b.deps.urls.revoke).toHaveBeenCalledExactlyOnceWith('blob:wp') })

@@ -1276,7 +1276,7 @@ export interface Config {
 
 Depends on: [`HookConfigDiscovery`](../packages/hooks/hook-protocol/src/index.ts)
 
-来源：[`packages/hooks/hooks-claude-code/src/index.ts:50`](../packages/hooks/hooks-claude-code/src/index.ts)
+来源：[`packages/hooks/hooks-claude-code/src/index.ts:54`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 <a id="deepseek-aidsh-hooks-codex"></a>
 
@@ -3842,6 +3842,22 @@ export interface Config {
 ```
 
 来源：[`packages/goal/tool-goal/src/index.ts:26`](../packages/goal/tool-goal/src/index.ts)
+
+<a id="deepseek-aidsh-tool-hooks"></a>
+
+## `@deepseek-ai/dsh-tool-hooks`
+
+需要：`tools`
+
+```ts config-catalog
+/** Deployment-owned bounds on how many hooks each scope's store may carry. */
+export interface Config {
+  /** Maximum total hook groups (managed plus foreign) kept in one scope's store. Defaults to 256. */
+  maxHooks?: number
+}
+```
+
+来源：[`packages/hooks/tool-hooks/src/index.ts:69`](../packages/hooks/tool-hooks/src/index.ts)
 
 <a id="deepseek-aidsh-tool-jobs"></a>
 

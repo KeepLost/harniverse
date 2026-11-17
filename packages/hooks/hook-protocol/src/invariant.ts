@@ -3,9 +3,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { PORTABLE_TO_CLAUDE_CODE } from './session-layer.ts'
+import type { SessionHookSpec } from './session-layer.ts'
 import type {} from './types.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-hook-protocol'
+
+const PORTABLE_EVENTS = new Set(Object.keys(PORTABLE_TO_CLAUDE_CODE))
 
 /** Cordis companion plugin name. */
 export const name = 'hook-protocol-invariant'
@@ -20,11 +24,37 @@ interface HookTransition {
 interface HookTrace {
   openTurn: number | null
   pending: Map<string, number>
+  hookConfigSeen: boolean
 }
 
 /** Correlation key shared by an invoked/result pair. */
 function hookKey(data: { turn: number; point: string; handlerId: string }): string {
   return `${data.turn}\0${data.point}\0${data.handlerId}`
+}
+
+/** Validate one `hook/config` snapshot against the session-layer data relations. */
+function validateHookConfig(trace: HookTrace, event: SessionEvent, fail: InvariantFailure): void {
+  if (event.type !== 'hook/config') return
+  const { hooks, source } = event.data
+  if (source === 'delegation' && trace.hookConfigSeen) {
+    fail('hook/config delegation seed is only legal as the session\'s first hook/config event')
+  }
+  if (!Array.isArray(hooks)) {
+    return fail('hook/config hooks must be an array')
+  }
+  const names = new Set<string>()
+  for (const spec of hooks) {
+    const candidate: SessionHookSpec = spec
+    if (typeof candidate.name !== 'string' || candidate.name.length === 0) fail('hook/config entry name must be a non-empty string')
+    if (names.has(candidate.name)) fail(`hook/config carries duplicate name ${JSON.stringify(candidate.name)}`)
+    names.add(candidate.name)
+    if (!PORTABLE_EVENTS.has(candidate.event)) fail(`hook/config entry ${JSON.stringify(candidate.name)} carries unknown event ${JSON.stringify(candidate.event)}`)
+    if (typeof candidate.command !== 'string' || candidate.command.length === 0) fail(`hook/config entry ${JSON.stringify(candidate.name)} command must be a non-empty string`)
+    if (candidate.matcher !== undefined && typeof candidate.matcher !== 'string') fail(`hook/config entry ${JSON.stringify(candidate.name)} matcher must be a string when set`)
+    if (candidate.timeoutSec !== undefined && (!Number.isInteger(candidate.timeoutSec) || candidate.timeoutSec < 1)) {
+      fail(`hook/config entry ${JSON.stringify(candidate.name)} timeoutSec must be a positive integer when set`)
+    }
+  }
 }
 
 /** Validate one hook event against committed pending invocations. */
@@ -72,11 +102,13 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   const traces = new WeakMap<Session, HookTrace>()
   const staged = new WeakMap<SessionEvent, { session: Session; transition: HookTransition }>()
   const seed = (session: Session): HookTrace => {
-    const trace: HookTrace = { openTurn: null, pending: new Map() }
+    const trace: HookTrace = { openTurn: null, pending: new Map(), hookConfigSeen: false }
     traces.set(session, trace)
     for (const event of session.events) {
       if (event.type === 'turn/start') trace.openTurn = event.data.turn
       else if (event.type === 'turn/end') trace.openTurn = null
+      validateHookConfig(trace, event, fail)
+      if (event.type === 'hook/config') trace.hookConfigSeen = true
       const transition = validateHookEvent(trace, event, fail)
       if (transition !== undefined) applyHookTransition(trace.pending, transition)
     }
@@ -96,7 +128,10 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       trace.openTurn = null
       return
     }
-    if (event.type !== 'hook/invoked' && event.type !== 'hook/result') return
+    if (event.type !== 'hook/invoked' && event.type !== 'hook/result') {
+      if (event.type === 'hook/config') trace.hookConfigSeen = true
+      return
+    }
     const candidate = staged.get(event)
     /* v8 ignore next -- internal/dispatch stages every hook invocation/result event */
     if (candidate === undefined || candidate.session !== session) return fail('hook event published without pre-commit validation')
@@ -106,6 +141,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
+    validateHookConfig(traceFor(session), event, fail)
     const transition = validateHookEvent(traceFor(session), event, fail)
     if (transition !== undefined) staged.set(event, { session, transition })
   }, { global: true })

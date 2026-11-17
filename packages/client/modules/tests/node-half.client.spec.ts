@@ -329,6 +329,154 @@ describe('client bundle activation', () => {
     expect(body.toString('utf8')).toContain('compress-failed')
   })
 
+
+  it('serves a registered bundle compressed with rev-keyed immutable caching', async () => {
+    const packageName = '@fixture/compressed-bundle'
+    const clientPath = writePackage(packageName, { dsh: { client: { platform: 'web', immediately: true } } })
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'window.__ModuleLoader__.load({id:"compressed-bundle",factory:()=>({})})\n')
+    const { service, route } = constructWithRoute([packageName])
+    const entry = service.graph().entries.find(row => row.id === packageName)
+    if (entry === undefined) throw new Error('expected a graph row for the package')
+    const read = async (acceptEncoding: string | undefined, query = `?rev=${entry.rev}`): Promise<{
+      status: number
+      headers: Record<string, string | undefined>
+      body: Buffer
+    }> => {
+      let status = 0
+      let headers: Record<string, string> | undefined
+      let body = Buffer.alloc(0)
+      const response = {
+        writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
+          status = nextStatus
+          headers = nextHeaders
+          return response
+        },
+        end(chunk?: Uint8Array) {
+          body = chunk === undefined ? Buffer.alloc(0) : Buffer.from(chunk)
+          return response
+        },
+      } as unknown as ServerResponse
+      await route.handler({
+        method: 'GET',
+        url: `/plugins/${packageName}/client.js${query}`,
+        headers: acceptEncoding === undefined ? {} : { 'accept-encoding': acceptEncoding },
+      } as IncomingMessage, response)
+      if (headers === undefined) throw new Error('expected response headers')
+      return { status, headers, body }
+    }
+
+    // The brotli body lands when the background fill completes.
+    const br = await vi.waitFor(async () => {
+      const next = await read('gzip, deflate, br')
+      expect(next.headers['content-encoding']).toBe('br')
+      return next
+    }, { interval: 10 })
+    expect(br.status).toBe(200)
+    expect(br.headers).toMatchObject({
+      'cache-control': 'private, max-age=31536000, immutable',
+      'content-type': 'text/javascript; charset=utf-8',
+      'vary': 'accept-encoding',
+    })
+    expect(brotliDecompressSync(br.body).toString('utf8')).toContain('compressed-bundle')
+
+    const gzipped = await read('gzip')
+    expect(gzipped.headers['content-encoding']).toBe('gzip')
+    expect(gunzipSync(gzipped.body).toString('utf8')).toContain('compressed-bundle')
+
+    const identity = await read(undefined)
+    expect(identity.headers['content-encoding']).toBeUndefined()
+    expect(identity.body.toString('utf8')).toContain('compressed-bundle')
+
+    // A stale or missing rev keeps the response revalidated, never immutable.
+    expect((await read('br', `?rev=${'0'.repeat(12)}`)).headers['cache-control']).toBe('no-cache')
+    expect((await read('br', '')).headers['cache-control']).toBe('no-cache')
+  })
+
+  it('answers a bundle HEAD with headers and no body', async () => {
+    const packageName = '@fixture/head-bundle'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const { service, route } = constructWithRoute([packageName])
+    const entry = service.graph().entries.find(row => row.id === packageName)
+    if (entry === undefined) throw new Error('expected a graph row for the package')
+    let status = 0
+    let headers: Record<string, string> | undefined
+    let body: Buffer | undefined
+    const response = {
+      writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
+        status = nextStatus
+        headers = nextHeaders
+        return response
+      },
+      end(chunk?: Uint8Array) {
+        body = chunk === undefined ? undefined : Buffer.from(chunk)
+        return response
+      },
+    } as unknown as ServerResponse
+    await route.handler({
+      method: 'HEAD', url: `/plugins/${packageName}/client.js?rev=${entry.rev}`, headers: {},
+    } as IncomingMessage, response)
+    expect(status).toBe(200)
+    expect(headers?.['cache-control']).toBe('private, max-age=31536000, immutable')
+    expect(body).toBeUndefined()
+  })
+
+  it('keeps serving the plain bundle body when its encodings fail to compress', async () => {
+    compression.fail = new Error('disk full')
+    const packageName = '@fixture/bundle-compress-failed'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const { route } = constructWithRoute([packageName])
+    let status = 0
+    let headers: Record<string, string> | undefined
+    let body = Buffer.alloc(0)
+    const response = {
+      writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
+        status = nextStatus
+        headers = nextHeaders
+        return response
+      },
+      end(chunk?: Uint8Array) {
+        body = chunk === undefined ? Buffer.alloc(0) : Buffer.from(chunk)
+        return response
+      },
+    } as unknown as ServerResponse
+    await vi.waitFor(async () => {
+      await route.handler({
+        method: 'GET', url: `/plugins/${packageName}/client.js`, headers: { 'accept-encoding': 'br, gzip' },
+      } as IncomingMessage, response)
+      expect(status).toBe(200)
+    })
+    if (headers === undefined) throw new Error('expected response headers')
+    expect(headers['content-encoding']).toBeUndefined()
+    expect(body.toString('utf8')).toContain('module.exports')
+  })
+
+  it('answers 404 for an unknown plugin resource', async () => {
+    const packageName = '@fixture/known-bundle'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const { route } = constructWithRoute([packageName])
+    for (const url of ['/plugins/@fixture/unknown/client.js', '/plugins/events']) {
+      let status = 0
+      const response = {
+        writeHead(nextStatus: number) {
+          status = nextStatus
+          return response
+        },
+        end() {
+          return response
+        },
+      } as unknown as ServerResponse
+      await route.handler({ method: 'GET', url } as IncomingMessage, response)
+      expect(status, url).toBe(404)
+    }
+  })
+
   it('does not serve a client bundle before Connection admission', async () => {
     const packageName = '@fixture/protected-bundle'
     const clientPath = writePackage(packageName)

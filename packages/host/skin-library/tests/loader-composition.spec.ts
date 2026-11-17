@@ -54,12 +54,16 @@ interface Composition {
   readonly root: string
   readonly library: string
   readonly service: SkinLibrary
+  /** Base URL of the composed web server, for real HTTP route assertions. */
+  readonly origin: string
   /** The stand-in `ui-theme` scope; updating it models the user selecting a theme. */
   readonly theme: SettingsScope<{ preference: string }> | undefined
 }
 
 let root: string | undefined
 let context: Context | undefined
+/** Whether the Connection stand-in admits wallpaper downloads; flipped by the admission test. */
+let admitWallpapers = true
 
 afterEach(async () => {
   await context?.fiber.dispose()
@@ -69,6 +73,7 @@ afterEach(async () => {
 })
 
 async function boot(options: { preference?: string; full?: boolean } = {}): Promise<Composition> {
+  admitWallpapers = true
   const full = options.full ?? true
   root = await mkdtemp(join(tmpdir(), 'dsh-skin-composition-'))
   const library = join(root, 'skins')
@@ -81,6 +86,24 @@ async function boot(options: { preference?: string; full?: boolean } = {}): Prom
     apply(ctx: Context) {
       ctx.inject(['settings'], (settingsCtx) => {
         theme = settingsCtx.settings.register(THEME, z.object({ preference: z.string().default('system') }))
+      })
+    },
+  }
+  // Stand-in for the Connection service: the wallpaper route's admission gate.
+  const connectionSection = {
+    name: 'test-connection-section',
+    apply(ctx: Context) {
+      ctx.provide('connection', {
+        authorizeHttpRequest: async (
+          _req: unknown,
+          res: { writeHead(status: number): unknown; end(body?: string): unknown },
+          _capability: unknown,
+        ) => {
+          if (admitWallpapers) return true
+          res.writeHead(403)
+          res.end('forbidden')
+          return false
+        },
       })
     },
   }
@@ -98,6 +121,7 @@ async function boot(options: { preference?: string; full?: boolean } = {}): Prom
         "    host: '127.0.0.1'",
         '    port: 0',
         '- name: test-ui-theme-section',
+        '- name: test-connection-section',
       ]
       : [],
     '- id: skin-library',
@@ -116,6 +140,7 @@ async function boot(options: { preference?: string; full?: boolean } = {}): Prom
     ['@deepseek-ai/dsh-settings-file', FileSettingsProvider],
     ['@deepseek-ai/dsh-host-webserver', WebServer],
     ['test-ui-theme-section', themeSection],
+    ['test-connection-section', connectionSection],
     ['@deepseek-ai/dsh-host-skin-library', SkinLibrary],
   ])
   ctx.loader.internal = {
@@ -127,7 +152,10 @@ async function boot(options: { preference?: string; full?: boolean } = {}): Prom
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
-  return { ctx, root, library, service: ctx.get('skinLibrary') as SkinLibrary, theme }
+  const service = ctx.get('skinLibrary') as SkinLibrary
+  const port = ctx.get('webServer')?.port
+  const origin = port === undefined ? '' : `http://127.0.0.1:${String(port)}`
+  return { ctx, root, library, service, origin, theme }
 }
 
 function renderIndex(ctx: Context): string {
@@ -181,7 +209,7 @@ describe('skin-library real composition', () => {
   })
 
   it('serves the catalog and manages packs and wallpapers through the Remote methods', async () => {
-    const { library, service } = await boot()
+    const { library, service, origin } = await boot()
     const first = await service.list()
     expect(first.skins.map(skin => skin.id)).toEqual(BUILTIN_SKINS.map(skin => skin.id))
     expect(first.limits).toEqual({ maxPackBytes: 262144, maxWallpaperBytes: 8388608, maxWallpapers: 24 })
@@ -210,12 +238,16 @@ describe('skin-library real composition', () => {
     expect(await service.putWallpaper('not base64!')).toEqual({ status: 'rejected', reason: 'invalid-encoding' })
     expect(await service.putWallpaper(Buffer.from('<svg/>').toString('base64'))).toEqual({ status: 'rejected', reason: 'unsupported-type' })
     expect((await service.list()).wallpapers.map(wallpaper => wallpaper.hash)).toEqual([hash])
-    expect(await service.readWallpaper(hash)).toEqual({ mime: 'image/png', contentBase64: PNG.toString('base64') })
+    const stored = await fetch(`${origin}/skins/wallpapers/${hash}`)
+    expect(stored.status).toBe(200)
+    expect(stored.headers.get('content-type')).toBe('image/png')
+    expect(stored.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
+    expect(Buffer.from(await stored.arrayBuffer())).toEqual(PNG)
     expect(await readFile(join(library, 'wallpapers', `${hash}.png`))).toEqual(PNG)
-    expect(await service.readWallpaper('0'.repeat(64))).toBeUndefined()
+    expect((await fetch(`${origin}/skins/wallpapers/${'0'.repeat(64)}`)).status).toBe(404)
     expect(await service.removeWallpaper(hash)).toBe(true)
     expect(await service.removeWallpaper(hash)).toBe(false)
-    expect(await service.readWallpaper(hash)).toBeUndefined()
+    expect((await fetch(`${origin}/skins/wallpapers/${hash}`)).status).toBe(404)
   })
 
   it('gates the Remote methods behind observe and administer capabilities', async () => {
@@ -223,12 +255,38 @@ describe('skin-library real composition', () => {
     const gates = Object.fromEntries(remoteMethods(service).map(marker => [marker.exportName ?? marker.method, marker.requiredCapability]))
     expect(gates).toEqual({
       list: 'harniverse.observe',
-      readWallpaper: 'harniverse.observe',
       importPack: 'harniverse.administer',
       removePack: 'harniverse.administer',
       putWallpaper: 'harniverse.administer',
       removeWallpaper: 'harniverse.administer',
     })
+  })
+
+  it('serves wallpapers over HTTP with immutable content-addressed caching', async () => {
+    const { service, origin } = await boot()
+    const hash = wallpaperHash(PNG)
+    expect(await service.putWallpaper(PNG.toString('base64'))).toMatchObject({ status: 'stored' })
+
+    const head = await fetch(`${origin}/skins/wallpapers/${hash}`, { method: 'HEAD' })
+    expect(head.status).toBe(200)
+    expect(head.headers.get('content-length')).toBe(String(PNG.length))
+    expect(await head.arrayBuffer()).toEqual(new ArrayBuffer(0))
+
+    // A non-hex or truncated address is a plain miss, never a store read.
+    expect((await fetch(`${origin}/skins/wallpapers/not-a-hash`)).status).toBe(404)
+    expect((await fetch(`${origin}/skins/wallpapers`)).status).toBe(404)
+    expect((await fetch(`${origin}/skins/wallpapers/${hash}/extra`)).status).toBe(404)
+
+    const denied = await fetch(`${origin}/skins/wallpapers/${hash}`, { method: 'POST' })
+    expect(denied.status).toBe(405)
+  })
+
+  it('admits wallpaper downloads through the Connection gate', async () => {
+    const { service, origin } = await boot()
+    const hash = wallpaperHash(PNG)
+    expect(await service.putWallpaper(PNG.toString('base64'))).toMatchObject({ status: 'stored' })
+    admitWallpapers = false
+    expect((await fetch(`${origin}/skins/wallpapers/${hash}`)).status).toBe(403)
   })
 
   it('releases the settings section and the index tap when its fiber is disposed (HMR safety)', async () => {

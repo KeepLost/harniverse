@@ -96,6 +96,7 @@ export interface Bench {
   locale: { active: 'zh' | 'en' }
   remote: { [K in keyof SkinLibraryRemote]: Mock<SkinLibraryRemote[K]> }
   deps: SkinDeps & {
+    readWallpaper: Mock<SkinDeps['readWallpaper']>
     urls: { create: Mock<SkinDeps['urls']['create']>; revoke: Mock<SkinDeps['urls']['revoke']> }
     readBase64: Mock<SkinDeps['readBase64']>
     readText: Mock<SkinDeps['readText']>
@@ -112,7 +113,6 @@ export function makeBench(options: BenchOptions = {}): Bench {
   const locale = { active: options.locale ?? 'zh' }
   const remote = {
     list: vi.fn<SkinLibraryRemote['list']>(async () => options.list ?? ok(snapshot())),
-    readWallpaper: vi.fn<SkinLibraryRemote['readWallpaper']>(async () => ok(undefined)),
     importPack: vi.fn<SkinLibraryRemote['importPack']>(async () => ok({ status: 'imported', skin: snapshot().skins[0]! })),
     removePack: vi.fn<SkinLibraryRemote['removePack']>(async () => ok(true)),
     putWallpaper: vi.fn<SkinLibraryRemote['putWallpaper']>(async () => ok({ status: 'stored', wallpaper: snapshot().wallpapers[0]! })),
@@ -124,6 +124,7 @@ export function makeBench(options: BenchOptions = {}): Bench {
     scope: scope.scope,
     locale: { getLocale: () => locale },
     environment,
+    readWallpaper: vi.fn<SkinDeps['readWallpaper']>(async () => undefined),
     urls: { create: vi.fn(() => 'blob:wp'), revoke: vi.fn() },
     readBase64: vi.fn(async () => 'AAAA'),
     readText: vi.fn(async () => '{"pack":true}'),

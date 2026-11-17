@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { WallpaperContent } from '@deepseek-ai/dsh-api-remotes/client'
 import { WallpaperUrlCache, type ReadWallpaper } from '../src/client/wallpapers.ts'
 
-const PNG: WallpaperContent = { mime: 'image/png', contentBase64: btoa('\u0089PNG') }
+const PNG: Blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' })
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -24,7 +23,7 @@ function bench(read: ReadWallpaper) {
   return { cache: new WallpaperUrlCache(read, urls), urls, created }
 }
 
-const found: ReadWallpaper = () => Promise.resolve({ ok: true, value: PNG })
+const found: ReadWallpaper = () => Promise.resolve(PNG)
 
 describe('WallpaperUrlCache', () => {
   it('turns the stored bytes into one typed object URL shared by every holder', async () => {
@@ -59,16 +58,15 @@ describe('WallpaperUrlCache', () => {
     expect(await b.cache.acquire('h')).toBe('blob:wallpaper-2')
   })
 
-  it('answers undefined for a missing, refused, or malformed wallpaper', async () => {
-    expect(await bench(() => Promise.resolve({ ok: true, value: undefined })).cache.acquire('h')).toBeUndefined()
-    expect(await bench(() => Promise.resolve({ ok: false })).cache.acquire('h')).toBeUndefined()
-    const malformed = bench(() => Promise.resolve({ ok: true, value: { mime: 'image/png', contentBase64: '!!!' } }))
-    expect(await malformed.cache.acquire('h')).toBeUndefined()
-    expect(malformed.urls.create).not.toHaveBeenCalled()
+  it('answers undefined for a missing or unreadable wallpaper', async () => {
+    expect(await bench(() => Promise.resolve(undefined)).cache.acquire('h')).toBeUndefined()
+    const missing = bench(() => Promise.resolve(undefined))
+    expect(await missing.cache.acquire('h')).toBeUndefined()
+    expect(missing.urls.create).not.toHaveBeenCalled()
     // Releasing an entry that holds no URL revokes nothing.
-    malformed.cache.release('h')
+    missing.cache.release('h')
     await Promise.resolve()
-    expect(malformed.urls.revoke).not.toHaveBeenCalled()
+    expect(missing.urls.revoke).not.toHaveBeenCalled()
   })
 
   it('never mints a URL for a fetch whose last holder already left', async () => {
@@ -76,7 +74,7 @@ describe('WallpaperUrlCache', () => {
     const b = bench(() => pending.promise)
     const url = b.cache.acquire('h')
     b.cache.release('h')
-    pending.resolve({ ok: true, value: PNG })
+    pending.resolve(PNG)
     expect(await url).toBeUndefined()
     expect(b.urls.create).not.toHaveBeenCalled()
   })
@@ -86,13 +84,13 @@ describe('WallpaperUrlCache', () => {
     let calls = 0
     const b = bench(() => {
       calls += 1
-      return calls === 1 ? Promise.resolve({ ok: true, value: PNG }) : pending.promise
+      return calls === 1 ? Promise.resolve(PNG) : pending.promise
     })
     await b.cache.acquire('live')
     const late = b.cache.acquire('late')
     b.cache.dispose()
     await vi.waitFor(() => { expect(b.urls.revoke).toHaveBeenCalledExactlyOnceWith('blob:wallpaper-1') })
-    pending.resolve({ ok: true, value: PNG })
+    pending.resolve(PNG)
     expect(await late).toBeUndefined()
     expect(await b.cache.acquire('after')).toBeUndefined()
     expect(b.urls.create).toHaveBeenCalledOnce()

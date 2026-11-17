@@ -27,5 +27,16 @@ export { mergeHookOutputs } from './merge.ts'
 export type { MergedDecision, MergedHookOutcome } from './merge.ts'
 export { appendHookInvoked, appendHookResult, DEFAULT_STDERR_SUMMARY_MAX_CHARS, summarizeStderr } from './events.ts'
 export type { HookInvocation, HookResultRecord } from './events.ts'
+export {
+  claudeCodeSessionGroups,
+  foldSessionHooks,
+  homeHookAdapterPath,
+  HOME_ADAPTER_FILENAME,
+  inlineAdapterCommand,
+  MATCHER_EVENTS as SESSION_MATCHER_EVENTS,
+  PORTABLE_TO_CLAUDE_CODE,
+  quoteHookCommandArgument,
+} from './session-layer.ts'
+export type { PortableHookEvent, SessionHookSpec } from './session-layer.ts'
 export { createDetachedRuns } from './detached.ts'
 export type { DetachedRuns } from './detached.ts'

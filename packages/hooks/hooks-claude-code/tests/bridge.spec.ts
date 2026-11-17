@@ -15,7 +15,8 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
-import type { HookConfigDiscovery } from '@deepseek-ai/dsh-hook-protocol'
+import { homeHookAdapterPath, type HookConfigDiscovery } from '@deepseek-ai/dsh-hook-protocol'
+import { installAdapter } from '../../tool-hooks/src/adapter.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -638,5 +639,32 @@ describe('hooks-claude-code bridge — load resilience', () => {
     expect(unwrapped.name).toBe('hooks-claude-code')
     expect(unwrapped.inject).toEqual(['shell'])
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+describe('hooks-claude-code bridge — session layer', () => {
+  it('runs session-held hooks ahead of file hooks and orders their injected context first', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-hooks-home-'))
+    dirs.push(home)
+    const priorHome = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    try {
+      const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'printf "%s" "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"UserPromptSubmit\\",\\"additionalContext\\":\\"from the file layer\\"}}"' }] }] })
+      installAdapter(homeHookAdapterPath())
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await harness(dir, adapter)
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.session.append('hook/config', { hooks: [{ name: 'session-first', event: 'prompt_submit', command: 'printf "%s" "{\\"context\\":\\"from the session layer\\"}"' }] })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      const request = JSON.stringify(adapter.requests[0]!.messages)
+      const sessionIdx = request.indexOf('from the session layer')
+      const fileIdx = request.indexOf('from the file layer')
+      expect(sessionIdx).toBeGreaterThan(-1)
+      expect(fileIdx).toBeGreaterThan(sessionIdx)
+    } finally {
+      if (priorHome === undefined) Reflect.deleteProperty(process.env, 'DSH_HOME')
+      else process.env.DSH_HOME = priorHome
+    }
   })
 })

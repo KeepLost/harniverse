@@ -2,7 +2,8 @@
  * Bridge for unmodified Claude Code command hooks on harness interception
  * extension points. It supports SessionStart, prompt/tool pre/post, Stop, and subagent
  * start/stop. It owns Claude payloads, environment, substitution, and decision
- * mapping; shared execution and parsing live in `dsh-hook-protocol`.
+ * mapping; shared execution and parsing live in `dsh-hook-protocol`. Hooks held
+ * in the session log (`hook/config`) run ahead of every discovered file source.
  * `updatedInput` is logged and warned but not honored. Bespoke behavior should
  * use typed native plugins on the same extension points; see the
  * [hook-bridges Agent Note](../../../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md).
@@ -23,10 +24,13 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  claudeCodeSessionGroups,
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
   discoverHookConfigSources,
+  foldSessionHooks,
+  homeHookAdapterPath,
   matchesMatcher,
   mergeHookOutputs,
   readHookConfigSnapshot,
@@ -212,10 +216,18 @@ export function apply(ctx: Context, config: Config): void {
     opts: { agent?: Agent; turn?: number; readonly signal: AbortSignal },
   ): Promise<MergedHookOutcome> {
     /* jscpd:ignore-start -- both dialects select explicit or per-event source groups identically. */
-    const groups: readonly MatcherGroup[] = config.configPath !== undefined
+    const fileGroups: readonly MatcherGroup[] = config.configPath !== undefined
       ? parsed[point] ?? []
       : discoveredConfig(opts.agent?.session.header.cwd)[point] ?? []
     /* jscpd:ignore-end */
+    // The session-held layer runs FIRST — the specificity order
+    // session → user → project → plugin → policy — ahead of every file source.
+    // An explicit configPath overrides file discovery only, never the session.
+    const sessionGroups = claudeCodeSessionGroups(
+      foldSessionHooks(opts.agent?.session.events ?? []),
+      homeHookAdapterPath(),
+    )[point] ?? []
+    const groups: readonly MatcherGroup[] = [...sessionGroups, ...fileGroups]
     const outputs: HookOutput[] = []
     // Run the hook in the agent's session workspace (the `session/new` cwd on the session
     // header), not the executor or entry-point process's launch dir.

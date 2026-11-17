@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-18-hook-scopes-session-layer.md
+2026-11-18-hook-scopes-session-layer.md: 93c61cac5467a9d8a11604f375163154e71b036f
+2026-11-18-hook-scopes-session-layer.zh.md: 46f8926b1de6b845636b371bccdc82cc2b97463a

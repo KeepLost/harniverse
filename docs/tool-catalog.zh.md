@@ -37,6 +37,7 @@
 | `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_inspect` | `ctx.tools`、`ctx.systemPrompt`、`ctx.compactionHistory`、`a calling Agent for Session identity` | `tool/call`、`tool/result` | - | 随附工具只搜索调用方 live Session 中已提交的 summary checkpoint。展开输出把恢复历史视为不可信内容，并应用配置的深度与确定性 token 估算 cap。 |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
+| `@deepseek-ai/dsh-tool-hooks` | `hook_add`、`hook_list`、`hook_remove` | `ctx.tools`、`a calling Agent for the session workspace` | `tool/call`、`tool/result` | - | hook 工具管理三个作用域——session（桥在每个事件前折的 `hook/config`，仅限 supervised 模式，由子代理继承）、workspace（项目文件）与 global（home 文件）——因此安装与移除在会话中途自下一个匹配事件起生效，而模型只看到平实的名称、事件、匹配器和简单的 JSON 动作契约。 |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`、`session_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
 | `@deepseek-ai/dsh-tool-session-query` | `session_find`、`session_inspect`、`session_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这些只读工具区分标题/时间发现、内容命中、统一会话检查、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。 |
 | `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`、`child_profile_list`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent` | 本次采集对应交付的 continuable spawn-backed `subagent`，以及 Standard、Code 和 Cordis 的 Child Profile 管理工具。Base 不包含 Profile 工具，Minimal 不包含委派；自定义组合可以用不同名称和后台策略加载绑定提供方的实例。 |
@@ -1448,6 +1449,112 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 ```
 
 来源：[`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
+
+<a id="deepseek-aidsh-tool-hooks"></a>
+
+## `@deepseek-ai/dsh-tool-hooks`
+
+### `hook_add`
+
+安装一个 hook:一条在生命周期节点自动运行、可对智能体进行门控、增强或观察的 shell 命令——例如,在每次 bash 调用前询问用户,或记录每次 web 抓取。作用域决定它存放的位置:session(仅本会话,由子代理继承,需要 supervised 模式)、workspace(此目录下的所有会话)或 global(此用户的所有会话);默认为 session。自下一个匹配事件起生效;每次运行都记入会话日志。用 hook_list 列出、hook_remove 移除。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Stable identifier for this hook, unique within its scope. hook_list shows it; hook_remove uses it."
+    },
+    "event": {
+      "type": "string",
+      "description": "When the command runs: pre_tool and post_tool surround each tool call; prompt_submit fires on every submitted user prompt; session_start runs once when the session opens; stop runs when the agent finishes a turn; subagent_start and subagent_stop run when a subagent opens or closes.",
+      "enum": [
+        "pre_tool",
+        "post_tool",
+        "prompt_submit",
+        "session_start",
+        "stop",
+        "subagent_start",
+        "subagent_stop"
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "description": "Where the hook lives: \"session\" follows only this conversation (inherited by its subagents; changing session hooks requires supervised mode); \"workspace\" is shared by every session opened in this workspace directory; \"global\" is shared by every session for this user. Defaults to \"session\".",
+      "enum": [
+        "session",
+        "workspace",
+        "global"
+      ]
+    },
+    "matcher": {
+      "type": "string",
+      "description": "Unanchored regex tested against the subject: the tool name (pre_tool/post_tool), the session-start source (\"startup\" or \"resume\"), or the subagent type. Omit to run on everything. Not valid for prompt_submit or stop."
+    },
+    "command": {
+      "type": "string",
+      "description": "Shell command, run in the session workspace with the event details as JSON on stdin: session_id, cwd, hook_event_name, plus tool_name/tool_input/tool_use_id (tool events), prompt (prompt_submit), tool_response (post_tool), or source (session_start). To only observe and log, print nothing or plain text. To act, exit 0 and print one JSON object: {\"action\":\"deny\",\"reason\":\"why\"} blocks the call or prompt; {\"action\":\"ask\",\"reason\":\"why\"} asks the user to approve first (pre_tool only); {\"action\":\"allow\"} permits it (pre_tool only); {\"context\":\"text\"} injects text into the conversation (session_start, prompt_submit, post_tool). A non-zero exit also blocks, with stderr as the reason."
+    },
+    "timeout_seconds": {
+      "type": "number",
+      "description": "Kill the command after this many seconds (1 through 600). Defaults to 600."
+    }
+  },
+  "required": [
+    "name",
+    "event",
+    "command"
+  ]
+}
+```
+
+来源：[`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/src/index.ts)
+
+### `hook_list`
+
+按作用域列出全部 hook——session(本会话;'changeable' 报告 supervised 模式当前是否允许改动)、workspace 与 global。形如 'pre_tool#1' 的名称是这些工具未安装的手写文件条目;先移除再重装即可改由这些工具管理。
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+来源：[`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/src/index.ts)
+
+### `hook_remove`
+
+按 hook_list 显示的名称在一个作用域内移除一个 hook(默认 session;移除会话级 hook 需要 supervised 模式)。自下一个匹配事件起生效;已在运行的调用不受影响。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The hook to remove, exactly as hook_list names it."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Which scope to remove from; the name is resolved within that scope alone. Defaults to \"session\".",
+      "enum": [
+        "session",
+        "workspace",
+        "global"
+      ]
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+来源：[`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/src/index.ts)
+
+hook 工具管理三个作用域——session(桥在每个事件前折的 `hook/config`,仅限 supervised 模式,由子代理继承)、workspace(项目文件)与 global(home 文件)——因此安装与移除在会话中途自下一个匹配事件起生效,而模型只看到平实的名称、事件、匹配器和简单的 JSON 动作契约。
 
 <a id="deepseek-aidsh-tool-session-delivery"></a>
 
