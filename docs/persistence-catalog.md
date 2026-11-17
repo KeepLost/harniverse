@@ -449,6 +449,28 @@ Source: [`packages/monitor/governor/src/index.ts:56`](../packages/monitor/govern
 
 ### `hook/*`
 
+<a id="hookconfig--log-only"></a>
+
+#### `hook/config` — log-only
+
+```ts persistence-catalog
+/**
+ * The session's complete managed hook set — log-only (like `hook/invoked`;
+ * NOT a {@link SurfaceEventType}, carries no `surfaceOp`): the LAST such
+ * event is the session's effective set, so folds survive replay and
+ * compaction with no external store. `source: 'delegation'` marks a set
+ * seeded from the delegating parent at subagent start; it is only legal as
+ * the session's first `hook/config` event.
+ */
+'hook/config': {
+  hooks: SessionHookSpec[]
+  /** Marks a seed inherited from the delegating parent. */
+  source?: 'delegation'
+}
+```
+
+Source: [`packages/hooks/hook-protocol/src/session-layer.ts:72`](../packages/hooks/hook-protocol/src/session-layer.ts)
+
 <a id="hookinvoked--log-only"></a>
 
 #### `hook/invoked` — log-only

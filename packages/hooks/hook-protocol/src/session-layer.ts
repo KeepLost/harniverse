@@ -99,7 +99,10 @@ export function homeHookAdapterPath(): string {
   return dshHomePath('hooks', HOME_ADAPTER_FILENAME)
 }
 
-/** Double-quote one command argument for POSIX shells and Windows cmd/pwsh alike. */
+/** Double-quote one command argument for POSIX shells and Windows cmd/pwsh alike.
+ * @param value - the raw argument to embed in a shell command line.
+ * @returns the double-quoted, backslash-escaped argument.
+ */
 export function quoteHookCommandArgument(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
 }

@@ -126,7 +126,10 @@ export function bridgeCommand(adapterPath: string, configPath: string, name: str
   return `node ${shellQuote(adapterPath)} ${shellQuote(configPath)} ${shellQuote(name)}`
 }
 
-/** Double-quote one argument for both POSIX shells and Windows cmd/pwsh invocation. */
+/** Double-quote one argument for both POSIX shells and Windows cmd/pwsh invocation.
+ * @param value - the raw argument to embed in a shell command line.
+ * @returns the double-quoted, backslash-escaped argument.
+ */
 export function shellQuote(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
 }
