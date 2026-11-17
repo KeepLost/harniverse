@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-client-ui-skin/controller
  */
 import type {
-  ImportPackResult, PutWallpaperResult, SkinLibrarySnapshot, WallpaperContent,
+  ImportPackResult, PutWallpaperResult, SkinLibrarySnapshot,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, shallowEqual, type SettingsScope, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { LocaleId } from '@deepseek-ai/dsh-client-locale/client'
@@ -23,7 +23,7 @@ import { normalizeSettings, type SkinSettings } from './settings.ts'
 import {
   activeSkinOf, canWrite, INITIAL_VIEW, isForcedOpaque, resolveBackdrop, type LibraryView, type SkinView,
 } from './view.ts'
-import { WallpaperUrlCache, type ObjectUrls } from './wallpapers.ts'
+import { WallpaperUrlCache, type ObjectUrls, type ReadWallpaper } from './wallpapers.ts'
 import { SettingsWriter } from './writer.ts'
 
 /** One Remote call's answer, as the generated `RemoteResult` shapes it. */
@@ -34,7 +34,6 @@ export type RemoteOutcome<T> =
 /** The `skinLibrary` Remote namespace as this package calls it. */
 export interface SkinLibraryRemote {
   list(): Promise<RemoteOutcome<SkinLibrarySnapshot>>
-  readWallpaper(hash: string): Promise<RemoteOutcome<WallpaperContent | undefined>>
   importPack(text: string): Promise<RemoteOutcome<ImportPackResult>>
   removePack(id: string): Promise<RemoteOutcome<boolean>>
   putWallpaper(contentBase64: string): Promise<RemoteOutcome<PutWallpaperResult>>
@@ -63,6 +62,7 @@ export interface SkinDeps {
   locale: LocaleFace
   environment: EnvironmentSource
   urls: ObjectUrls
+  readWallpaper: ReadWallpaper
   readBase64: (file: Blob) => Promise<string>
   readText: (file: Blob) => Promise<string>
   download: (fileName: string, text: string) => void
@@ -111,7 +111,7 @@ export class SkinController {
   constructor(private readonly deps: SkinDeps) {
     this.registry = new SkinThemeRegistry(definition => deps.theme.register(definition), deps.warn)
     this.writer = new SettingsWriter(deps.scope, () => { this.sync() })
-    this.wallpapers = new WallpaperUrlCache(hash => deps.remote.readWallpaper(hash), deps.urls)
+    this.wallpapers = new WallpaperUrlCache(deps.readWallpaper, deps.urls)
   }
 
   /**

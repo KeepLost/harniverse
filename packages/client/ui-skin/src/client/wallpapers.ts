@@ -1,17 +1,15 @@
 /**
- * Wallpaper object URLs. A stored wallpaper is fetched as base64, turned into
- * a Blob, and exposed through an object URL that lives exactly as long as some
- * view holds it: references are counted per hash, the URL is revoked when the
- * last holder lets go (or when the cache is disposed), and a fetch that
- * completes after its last holder left never leaves a URL behind.
+ * Wallpaper object URLs. A stored wallpaper is fetched over its
+ * content-addressed HTTP route and exposed through an object URL that lives
+ * exactly as long as some view holds it: references are counted per hash, the
+ * URL is revoked when the last holder lets go (or when the cache is disposed),
+ * and a fetch that completes after its last holder left never leaves a URL
+ * behind.
  * @module @deepseek-ai/dsh-client-ui-skin/wallpapers
  */
-import type { WallpaperContent } from '@deepseek-ai/dsh-api-remotes/client'
 
-/** The `readWallpaper` Remote call as the cache needs it. */
-export type ReadWallpaper = (hash: string) => Promise<
-  { readonly ok: true; readonly value: WallpaperContent | undefined } | { readonly ok: false }
->
+/** The wallpaper route read as the cache needs it; resolves `undefined` for a missing or unreadable wallpaper and never rejects. */
+export type ReadWallpaper = (hash: string) => Promise<Blob | undefined>
 
 /** Object-URL factory, injectable so specs observe the lifecycle. */
 export interface ObjectUrls {
@@ -22,17 +20,6 @@ export interface ObjectUrls {
 interface Entry {
   refs: number
   url: Promise<string | undefined>
-}
-
-/** Decode standard base64 to bytes; undefined when the text is not base64. */
-function decode(base64: string): Uint8Array<ArrayBuffer> | undefined {
-  try {
-    const binary = atob(base64)
-    return Uint8Array.from(binary, character => character.charCodeAt(0))
-  } catch {
-    // The Host serves valid base64; a malformed answer is treated as a missing wallpaper.
-    return undefined
-  }
 }
 
 /** Reference-counted wallpaper object URLs. */
@@ -89,11 +76,9 @@ export class WallpaperUrlCache {
   }
 
   private async load(hash: string, entry: Entry): Promise<string | undefined> {
-    const result = await this.read(hash)
+    const blob = await this.read(hash)
     // Nobody holds the wallpaper any more (or the cache closed): do not mint a URL nobody will revoke.
     if (this.entries.get(hash) !== entry) return undefined
-    if (!result.ok || result.value === undefined) return undefined
-    const bytes = decode(result.value.contentBase64)
-    return bytes === undefined ? undefined : this.urls.create(new Blob([bytes], { type: result.value.mime }))
+    return blob === undefined ? undefined : this.urls.create(blob)
   }
 }

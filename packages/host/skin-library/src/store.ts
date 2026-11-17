@@ -21,7 +21,7 @@ import { mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } f
 import { basename, dirname, join } from 'node:path'
 import { MAX_PACK_BYTES, SKIN_ID_PATTERN, parseSkinPack, serializeSkinPack } from './pack.ts'
 import type {
-  PutWallpaperResult, SkinDefinition, SkinPackRejection, WallpaperContent, WallpaperEntry, WallpaperMime,
+  PutWallpaperResult, SkinDefinition, SkinPackRejection, WallpaperEntry, WallpaperMime,
 } from './types.ts'
 import {
   MAX_WALLPAPERS, MAX_WALLPAPER_BYTES, WALLPAPER_EXTENSIONS, WALLPAPER_HASH_PATTERN, WALLPAPER_MIMES,
@@ -237,14 +237,14 @@ export class SkinStore {
    * @param hash - the content address.
    * @returns the bytes, or `undefined` when none intact is stored under `hash`.
    */
-  async readWallpaper(hash: string): Promise<WallpaperContent | undefined> {
+  async readWallpaperBytes(hash: string): Promise<{ readonly mime: WallpaperMime; readonly bytes: Buffer } | undefined> {
     if (!WALLPAPER_HASH_PATTERN.test(hash)) return undefined
     for (const mime of WALLPAPER_MIMES) {
       const bytes = await readBounded(this.wallpaperPath(hash, mime), MAX_WALLPAPER_BYTES)
       if (bytes === undefined) continue
       if (bytes === 'too-large') return undefined
       const intact = wallpaperHash(bytes) === hash && sniffWallpaperMime(bytes) === mime
-      return intact ? { mime, contentBase64: bytes.toString('base64') } : undefined
+      return intact ? { mime, bytes } : undefined
     }
     return undefined
   }

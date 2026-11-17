@@ -76,7 +76,6 @@ export type {
   SkinName,
   SkinPackRejection,
   SkinSource,
-  WallpaperContent,
   WallpaperEntry,
   WallpaperMime,
   WallpaperRejectionReason,

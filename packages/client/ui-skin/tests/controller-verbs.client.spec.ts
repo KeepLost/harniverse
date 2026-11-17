@@ -157,7 +157,7 @@ describe('SkinController pack verbs', () => {
 describe('SkinController wallpaper URLs', () => {
   it('hands out and revokes object URLs through acquire and release', async () => {
     const b = await started()
-    b.remote.readWallpaper.mockResolvedValue(ok({ mime: 'image/webp', contentBase64: 'AAAA' }))
+    b.deps.readWallpaper.mockResolvedValue(new Blob(['AAAA'], { type: 'image/webp' }))
     expect(await b.controller.acquireWallpaper(HASH_A)).toBe('blob:wp')
     b.controller.releaseWallpaper(HASH_A)
     await Promise.resolve()

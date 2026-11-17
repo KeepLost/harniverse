@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向浏览器的 Remote 皮肤目录、壁纸存储、`ui-skin` 设置分区与插件加载前的皮肤引导。`SkinLibrary` 注册 `skinLibrary` 服务，并发布六个生成的直连 Remote：由 `harniverse.observe` 保护的 `list` 与 `readWallpaper`，以及由 `harniverse.administer` 保护的 `importPack`、`removePack`、`putWallpaper` 与 `removeWallpaper`。每次调用都在客户端当前指向的机器上执行，因此远程主机经同一个 web-app 行提供它自己的皮肤库。该服务只提供 Remote，不声明同进程的 Cordis `Context` 合并。负载类型位于 `./types`；Typert 生成 `./typert` 与 `./remote` 暴露的 Host 与 Client Remote 工件，客户端经 [`api-remotes`](../../api/remotes/README.md) 消费它们。
+面向浏览器的 Remote 皮肤目录、壁纸存储、`ui-skin` 设置分区与插件加载前的皮肤引导。`SkinLibrary` 注册 `skinLibrary` 服务，并发布五个生成的直连 Remote：由 `harniverse.observe` 保护的 `list`，以及由 `harniverse.administer` 保护的 `importPack`、`removePack`、`putWallpaper` 与 `removeWallpaper`。壁纸字节经专用路由 `GET /skins/wallpapers/<sha256>`（同样要求 `harniverse.observe`）下发，浏览器因此按内容地址缓存，而不必每次加载都重新拉取 base64。每次调用都在客户端当前指向的机器上执行，因此远程主机经同一个 web-app 行提供它自己的皮肤库。该服务只提供 Remote，不声明同进程的 Cordis `Context` 合并。负载类型位于 `./types`；Typert 生成 `./typert` 与 `./remote` 暴露的 Host 与 Client Remote 工件，客户端经 [`api-remotes`](../../api/remotes/README.md) 消费它们。
 
 ## 目录
 
@@ -93,7 +93,7 @@
 
 ## 壁纸
 
-壁纸字节只经由 Remote RPC 通道以 base64 编码传输，没有单独的 HTTP 路由。`putWallpaper(contentBase64)` 先在解码前限制编码长度，要求规范的带填充 base64，把解码后大小限制在 8 MiB，并依据文件签名判断类型（PNG、JPEG 或 WebP；从不依据声明的类型或文件名，也绝不接受 SVG、GIF 或 AVIF）。它返回 `stored`、相同字节此前已存储时的 `existing`，或带 `invalid-encoding`、`too-large`、`unsupported-type`、`limit-reached`（24 张壁纸）之一的 `rejected`。内容地址是字节的小写十六进制 SHA-256。`readWallpaper(hash)` 在确认已存字节仍能哈希到所请求的地址、且仍带有所存类型的签名后，返回 `{ mime, contentBase64 }`；条目未知、格式错误或已损坏时返回 `undefined`。删除壁纸不会改动引用它的 `ui-skin.wallpaper` 设置；`readWallpaper` 找不到时，客户端不显示壁纸。
+上传经由 Remote RPC 通道；下载经由 `GET /skins/wallpapers/<sha256>`，以 `private, max-age=31536000, immutable` 缓存头提供已存字节——哈希固定了确切的字节，替换壁纸会得到新地址也就是新 URL，回访页面直接从缓存重绘而无需请求。`putWallpaper(contentBase64)` 先在解码前限制编码长度，要求规范的带填充 base64，把解码后大小限制在 8 MiB，并依据文件签名判断类型（PNG、JPEG 或 WebP；从不依据声明的类型或文件名，也绝不接受 SVG、GIF 或 AVIF）。它返回 `stored`、相同字节此前已存储时的 `existing`，或带 `invalid-encoding`、`too-large`、`unsupported-type`、`limit-reached`（24 张壁纸）之一的 `rejected`。内容地址是字节的小写十六进制 SHA-256。下载会确认已存字节仍能哈希到所请求的地址、且仍带有所存类型的签名；条目未知、格式错误或已损坏时返回 `404`。该路由与插件 bundle 路由一样位于 Connection 信任栅栏之后，并要求 `harniverse.observe` 主体。删除壁纸不会改动引用它的 `ui-skin.wallpaper` 设置；该路由找不到时，客户端不显示壁纸。
 
 ## 设置与引导
 
