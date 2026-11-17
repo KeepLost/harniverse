@@ -35,6 +35,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_inspect` | `ctx.tools`, `ctx.systemPrompt`, `ctx.compactionHistory`, `a calling Agent for Session identity` | `tool/call`, `tool/result` | - | The shipped tools search only committed summary checkpoints in the calling live Session. Expansion output treats recovered history as untrusted and applies configured depth and deterministic token-estimate caps. |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
+| `@deepseek-ai/dsh-tool-hooks` | `hook_add`, `hook_list`, `hook_remove` | `ctx.tools`, `a calling Agent for the session workspace` | `tool/call`, `tool/result` | - | The workspace hook tools manage the Claude-Code-dialect project file the hooks bridge re-reads at every event, so installs and removals apply mid-session from the next matching event while the model sees only plain names, events, matchers, and a simple JSON action contract. |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`, `session_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
 | `@deepseek-ai/dsh-tool-session-query` | `session_find`, `session_inspect`, `session_search` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
 | `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`, `child_profile_list`, `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent` | This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names. |
@@ -1443,6 +1444,94 @@ Load the full instructions for an available skill. Call this with the exact skil
 ```
 
 Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
+
+<a id="deepseek-aidsh-tool-hooks"></a>
+
+## `@deepseek-ai/dsh-tool-hooks`
+
+### `hook_add`
+
+Install a workspace hook: a shell command that runs automatically at a lifecycle point and can gate, enrich, or observe the agent — for example, ask the user before every bash call, or log each web fetch. Takes effect from the next matching event; every run is recorded in the session log. List with hook_list, remove with hook_remove.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Stable identifier for this hook, unique in the workspace. hook_list shows it; hook_remove uses it."
+    },
+    "event": {
+      "type": "string",
+      "description": "When the command runs: pre_tool and post_tool surround each tool call; prompt_submit fires on every submitted user prompt; session_start runs once when the session opens; stop runs when the agent finishes a turn; subagent_start and subagent_stop run when a subagent opens or closes.",
+      "enum": [
+        "pre_tool",
+        "post_tool",
+        "prompt_submit",
+        "session_start",
+        "stop",
+        "subagent_start",
+        "subagent_stop"
+      ]
+    },
+    "matcher": {
+      "type": "string",
+      "description": "Unanchored regex tested against the subject: the tool name (pre_tool/post_tool), the session-start source (\"startup\" or \"resume\"), or the subagent type. Omit to run on everything. Not valid for prompt_submit or stop."
+    },
+    "command": {
+      "type": "string",
+      "description": "Shell command, run in the session workspace with the event details as JSON on stdin: session_id, cwd, hook_event_name, plus tool_name/tool_input/tool_use_id (tool events), prompt (prompt_submit), tool_response (post_tool), or source (session_start). To only observe and log, print nothing or plain text. To act, exit 0 and print one JSON object: {\"action\":\"deny\",\"reason\":\"why\"} blocks the call or prompt; {\"action\":\"ask\",\"reason\":\"why\"} asks the user to approve first (pre_tool only); {\"action\":\"allow\"} permits it (pre_tool only); {\"context\":\"text\"} injects text into the conversation (session_start, prompt_submit, post_tool). A non-zero exit also blocks, with stderr as the reason."
+    },
+    "timeout_seconds": {
+      "type": "number",
+      "description": "Kill the command after this many seconds (1 through 600). Defaults to 600."
+    }
+  },
+  "required": [
+    "name",
+    "event",
+    "command"
+  ]
+}
+```
+
+Source: [`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/src/index.ts)
+
+### `hook_list`
+
+List this workspace's hooks: name, event, matcher, command, and timeout. Names shaped like 'pre_tool#1' are hand-written entries the tools did not install; remove and reinstall them to manage them through the tools.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/src/index.ts)
+
+### `hook_remove`
+
+Remove one workspace hook by the name hook_list shows. Takes effect from the next matching event; an already-running invocation is unaffected.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The hook to remove, exactly as hook_list names it."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+Source: [`packages/hooks/tool-hooks/src/index.ts`](../packages/hooks/tool-hooks/src/index.ts)
+
+The workspace hook tools manage the Claude-Code-dialect project file the hooks bridge re-reads at every event, so installs and removals apply mid-session from the next matching event while the model sees only plain names, events, matchers, and a simple JSON action contract.
 
 <a id="deepseek-aidsh-tool-session-delivery"></a>
 
