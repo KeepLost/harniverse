@@ -97,7 +97,9 @@ process.stdin.on('end', function () {
 })
 `
 
-/** Write the adapter script beside the hook file unless the identical bytes are already there. */
+/** Write the adapter script beside the hook file unless the identical bytes are already there.
+ * @param adapterPath - absolute destination of the generated adapter script.
+ */
 export function installAdapter(adapterPath: string): void {
   try {
     if (readFileSync(adapterPath, 'utf8') === ADAPTER_SOURCE) return
@@ -108,7 +110,12 @@ export function installAdapter(adapterPath: string): void {
   writeFileSync(adapterPath, ADAPTER_SOURCE, 'utf8')
 }
 
-/** The bridge-visible command that routes one managed hook through the adapter. */
+/** The bridge-visible command that routes one managed hook through the adapter.
+ * @param adapterPath - absolute path of the generated adapter script.
+ * @param configPath - absolute path of the dialect hook file the adapter reads.
+ * @param name - the managed hook's stable name to look up.
+ * @returns the shell command the bridge executes.
+ */
 export function bridgeCommand(adapterPath: string, configPath: string, name: string): string {
   return `node ${shellQuote(adapterPath)} ${shellQuote(configPath)} ${shellQuote(name)}`
 }

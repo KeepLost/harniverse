@@ -76,7 +76,10 @@ function eventMap(store: HookStore): Record<string, unknown> {
   return store.bare ? store.root : store.root.hooks as Record<string, unknown>
 }
 
-/** Read the hook file for one session workspace; a missing file reads as empty. */
+/** Read the hook file for one session workspace; a missing file reads as empty.
+ * @param cwd - the session workspace directory holding the `.dsh/hooks` tree.
+ * @returns the parsed store plus the absolute paths the tool operates on.
+ */
 export function openStore(cwd: string): HookStore {
   const configPath = resolve(cwd, ...HOOKS_DIR_PARTS, HOOKS_FILENAME)
   const adapterPath = resolve(cwd, ...HOOKS_DIR_PARTS, ADAPTER_FILENAME)
@@ -97,7 +100,10 @@ export function openStore(cwd: string): HookStore {
   return { configPath, adapterPath, root, bare }
 }
 
-/** List every hook group in the file: managed entries by name, foreign entries by positional id. */
+/** List every hook group in the file: managed entries by name, foreign entries by positional id.
+ * @param store - the opened hook file.
+ * @returns every usable group in disclosure order.
+ */
 export function listEntries(store: HookStore): HookEntry[] {
   const map = eventMap(store)
   const entries: HookEntry[] = []
@@ -143,7 +149,11 @@ function entryOf(event: HookEvent, group: unknown, ordinal: number): HookEntry |
   }
 }
 
-/** Append one managed group to the store; rejects duplicate names outright. */
+/** Append one managed group to the store; rejects duplicate names outright.
+ * @param store - the opened hook file to mutate.
+ * @param entry - the managed hook to append.
+ * @param bridgeCommand - the adapter-routed command the bridge will execute.
+ */
 export function addEntry(store: HookStore, entry: Omit<HookEntry, 'managed'>, bridgeCommand: string): void {
   const map = eventMap(store)
   const existing = listEntries(store)
@@ -167,7 +177,11 @@ export function addEntry(store: HookStore, entry: Omit<HookEntry, 'managed'>, br
   map[ccEvent] = groups
 }
 
-/** Remove one group by its listed name (managed name or positional id); returns the removed entry or undefined. */
+/** Remove one group by its listed name (managed name or positional id); returns the removed entry or undefined.
+ * @param store - the opened hook file to mutate.
+ * @param name - the listed name identifying the group.
+ * @returns the removed entry, or undefined when no listed hook carries the name.
+ */
 export function removeEntry(store: HookStore, name: string): HookEntry | undefined {
   const map = eventMap(store)
   for (const [modelEvent, ccEvent] of Object.entries(CC_EVENT) as [HookEvent, string][]) {
@@ -189,7 +203,9 @@ export function removeEntry(store: HookStore, name: string): HookEntry | undefin
   return undefined
 }
 
-/** Atomically write the store back to disk, creating the directory when absent. */
+/** Atomically write the store back to disk, creating the directory when absent.
+ * @param store - the mutated store to persist.
+ */
 export function writeStore(store: HookStore): void {
   const text = `${JSON.stringify(store.root, null, 2)}\n`
   mkdirSync(dirname(store.configPath), { recursive: true })
