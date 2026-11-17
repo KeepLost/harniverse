@@ -22,3 +22,39 @@ const config: Config = {
 - 需要 `ctx.tools`;每次调用都需要有工作区目录的 agent 支撑会话。
 - `hook_add`/`hook_remove` 为独占(重写文件);`hook_list` 并发安全。
 - 由 `standard`、`cordis`、`code` 三个 agent 预设挂载(与已挂载 Claude-Code 桥的预设相同)。`maxHooks` 限制单个工作区文件保留的 hook 组总数——受管加手写——默认 256。
+
+## Model Experience
+
+### Tool schemas
+
+#### What the model sees
+
+The model sees the [three generated workspace-hook schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-hooks): `hook_add`, `hook_remove`, and the read-only `hook_list` contract. An install carries a stable `name`, one of seven plain `event` values, an optional regex `matcher`, the `command`, and an optional `timeout_seconds`; no file paths or dialect terms appear anywhere.
+
+#### Token effect
+
+Three fixed schemas are sent on each request while the plugin is mounted.
+
+#### KV Cache effect
+
+Prefix-stable while tool visibility and definitions are unchanged.
+
+### Tool results
+
+#### What the model sees
+
+Each call returns one JSON document: the added or removed hook's view plus the effect note (`runs from the next matching event; an in-flight invocation is unaffected`), or the full hook list. Failures are plain-text reasons the model can act on, such as `a hook named "x" already exists; remove it first with hook_remove`.
+
+#### Token effect
+
+Results are small fixed-shape documents; `maxHooks` bounds how large a listing can grow.
+
+#### KV Cache effect
+
+Append-only result text follows the reusable request prefix and does not invalidate earlier cache entries.
+
+## Known Limitations and Deferred Work
+
+- 受管条目经适配器为每次 hook 调用增加一个 `node` 进程;手写方言条目原样运行、零开销。
+- 这些工具只管理项目层文件;用户层 hook 来源不进 `hook_list`,对其配置的事件继续生效。
+- hook 命令经宿主 shell 服务的引号规则执行;内嵌双引号的路径仍是病态情形,手写 hook 本就如此。
