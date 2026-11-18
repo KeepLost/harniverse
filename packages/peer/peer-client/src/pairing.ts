@@ -185,10 +185,9 @@ async function postJson(
  * @returns the error's constructor name, or the fixed label.
  */
 function failureName(error: unknown, label: string): string {
-  if (error instanceof Error) return error.name
-  // fetch failures are Error instances; the label names the impossible.
-  /* v8 ignore next */
-  return label
+  // fetch failures are Error instances; the label names the impossible throw.
+  /* v8 ignore next -- non-Error transport throws are unreachable through Node fetch */
+  return error instanceof Error ? error.name : label
 }
 
 /** Wrap one fetch with a per-call timeout.
