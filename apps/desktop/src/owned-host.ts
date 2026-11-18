@@ -42,10 +42,10 @@ function enrollment(value: unknown): value is Enrollment {
   const optional = ['expiresAt', 'idleTimeoutMs', 'lastUsedAt']
   return required.every(key => Object.hasOwn(grant, key)) && Object.keys(grant).every(key => [...required, ...optional].includes(key))
     && text(grant.id, 128) && text(grant.name, 256) && grant.kind === 'device' && count(grant.revision) && grant.revision > 0
-    && Array.isArray(grant.capabilities) && grant.capabilities.length <= 4 && grant.capabilities.length > 0
+    && Array.isArray(grant.capabilities) && grant.capabilities.length <= 5 && grant.capabilities.length > 0
     && new Set(grant.capabilities).size === grant.capabilities.length
     && grant.capabilities.every((value: unknown) => typeof value === 'string'
-      && ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize'].includes(value))
+      && ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize', 'harniverse.peer'].includes(value))
     && typeof grant.createdAt === 'string' && Number.isFinite(Date.parse(grant.createdAt))
     && (grant.expiresAt === undefined || typeof grant.expiresAt === 'string' && Number.isFinite(Date.parse(grant.expiresAt)))
     && (grant.lastUsedAt === undefined || typeof grant.lastUsedAt === 'string' && Number.isFinite(Date.parse(grant.lastUsedAt)))
