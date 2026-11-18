@@ -19,6 +19,16 @@
 
 runner 组合 `remote-hosts-ssh`,使 `--ssh-host` 使用与 remote-hosts 协调器相同的传输拨号,主机记录读自 profile 家的 `remote-hosts.json`。
 
+## 验证
+
+在仓库根目录:
+
+```sh
+node_modules/.bin/vitest run packages/bundle/peer-app
+node_modules/.bin/tsc -p packages/bundle/peer-app/tsconfig.json --noEmit --incremental false --composite false
+node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
+```
+
 ## Model Experience
 
 无:该应用不注册任何工具、提示或 Session 事件;一次操作后即退出。
@@ -31,13 +41,3 @@ runner 组合 `remote-hosts-ssh`,使 `--ssh-host` 使用与 remote-hosts 协调�
 
 - `peer invite` 经本地注册表文件写邀请;服务实例通过其注册表 watcher 观察变更,因此已停止的实例必须先启动才能兑换邀请。
 - 此处没有邀请列举或撤销命令;`dsh auth code list` 与 `dsh auth code revoke` 对所有邀请类别拥有这些操作。
-
-## 验证
-
-在仓库根目录:
-
-```sh
-node_modules/.bin/vitest run packages/bundle/peer-app
-node_modules/.bin/tsc -p packages/bundle/peer-app/tsconfig.json --noEmit --incremental false --composite false
-node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
-```

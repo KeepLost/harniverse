@@ -14,6 +14,16 @@ The initiating side of instance pairing: the per-home P-256 signing identity, th
 
 Each stage reports a closed reason: `TRANSPORT_FAILED`, `ENROLLMENT_REJECTED`, `REDEEM_REJECTED`, `HELLO_REJECTED`, `IDENTITY_MISMATCH`, `STORE_FAILED`. The origin must be HTTPS or loopback HTTP, matching the invitation codec's rule.
 
+## Verification
+
+From the repository root:
+
+```sh
+node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
+node_modules/.bin/tsc -p packages/peer/peer-client/tsconfig.json --noEmit --incremental false --composite false
+node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-client
+```
+
 ## Model Experience
 
 None, as this library registers no tools, prompts, or Session events; the initiating surface reaches models through the future delegation and messaging packages.
@@ -26,13 +36,3 @@ None; the package assembles no model input.
 
 - Idempotent re-pairing reuses the recorded Grant; if the target revoked it, the exchange fails and the operator must re-invite after removing the stale target record.
 - The Access Token is process-memory only; a live-channel plugin owns renewal across long-lived connections later.
-
-## Verification
-
-From the repository root:
-
-```sh
-node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
-node_modules/.bin/tsc -p packages/peer/peer-client/tsconfig.json --noEmit --incremental false --composite false
-node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-client
-```

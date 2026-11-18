@@ -20,6 +20,16 @@
 
 `peer/paired(record: PeerRecord)` 与 `peer/removed(record: PeerRecord)` 仅在服务进程内、于存储提交之后发出。包 invariant 断言每个发出的变更都反映在存储文件中。
 
+## 验证
+
+在仓库根目录:
+
+```sh
+node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
+node_modules/.bin/tsc -p packages/peer/peer-host/tsconfig.json --noEmit --incremental false --composite false
+node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
+```
+
 ## Model Experience
 
 无:该插件不注册任何工具、提示或 Session 事件;已配对面通过未来的委派与消息包到达模型。
@@ -32,13 +42,3 @@
 
 - Remote 看不到调用方 principal,因此 peer 记录信任"邀请持有链 + 注册表名字唯一性",而未把 grant id 绑进记录;未来的挑战签名 hello 会以密码学方式绑定调用密钥。
 - 面的加宽与收窄是记录编辑,不是新的 Grant 能力;尚无面向面变更的审批流。
-
-## 验证
-
-在仓库根目录:
-
-```sh
-node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
-node_modules/.bin/tsc -p packages/peer/peer-host/tsconfig.json --noEmit --incremental false --composite false
-node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
-```

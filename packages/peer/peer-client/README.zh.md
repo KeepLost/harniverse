@@ -14,6 +14,16 @@
 
 各阶段报告封闭原因:`TRANSPORT_FAILED`、`ENROLLMENT_REJECTED`、`REDEEM_REJECTED`、`HELLO_REJECTED`、`IDENTITY_MISMATCH`、`STORE_FAILED`。origin 必须是 HTTPS 或环回 HTTP,与邀请编解码的规则一致。
 
+## 验证
+
+在仓库根目录:
+
+```sh
+node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
+node_modules/.bin/tsc -p packages/peer/peer-client/tsconfig.json --noEmit --incremental false --composite false
+node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-client
+```
+
 ## Model Experience
 
 无:该库不注册任何工具、提示或 Session 事件;发起面通过未来的委派与消息包到达模型。
@@ -26,13 +36,3 @@
 
 - 幂等重配对复用已记录的 Grant;若目标已撤销它,交换失败,操作者需在删除陈旧目标记录后重新邀请。
 - Access Token 仅存进程内存;未来的活通道插件负责长连接上的续期。
-
-## 验证
-
-在仓库根目录:
-
-```sh
-node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
-node_modules/.bin/tsc -p packages/peer/peer-client/tsconfig.json --noEmit --incremental false --composite false
-node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-client
-```

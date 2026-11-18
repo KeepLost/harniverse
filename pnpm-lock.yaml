@@ -2343,6 +2343,9 @@ importers:
       '@deepseek-ai/dsh-message-feedback':
         specifier: workspace:^
         version: link:../../feedback/message-feedback
+      '@deepseek-ai/dsh-peer-host':
+        specifier: workspace:^
+        version: link:../../peer/peer-host
       '@deepseek-ai/dsh-plugin-diagnostics':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/plugin-diagnostics

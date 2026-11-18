@@ -20,6 +20,16 @@ The accepting side of instance pairing: the capability-gated `peer/hello` Remote
 
 `peer/paired(record: PeerRecord)` and `peer/removed(record: PeerRecord)` are emitted in the serving process only, after the store commit. The package invariant asserts each emitted transition is reflected in the store file.
 
+## Verification
+
+From the repository root:
+
+```sh
+node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
+node_modules/.bin/tsc -p packages/peer/peer-host/tsconfig.json --noEmit --incremental false --composite false
+node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
+```
+
 ## Model Experience
 
 None, as this plugin registers no tools, prompts, or Session events; the paired surface reaches models through the future delegation and messaging packages.
@@ -32,13 +42,3 @@ None; the plugin assembles no model input.
 
 - The Remote cannot see the calling principal, so the peer record trusts the invitation-possession chain plus registry name-uniqueness instead of binding the grant id into the record; a future challenge-signature hello binds the calling key cryptographically.
 - Surface widening and narrowing are record edits, not new Grant capabilities; no approval flow exists for surface changes yet.
-
-## Verification
-
-From the repository root:
-
-```sh
-node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
-node_modules/.bin/tsc -p packages/peer/peer-host/tsconfig.json --noEmit --incremental false --composite false
-node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
-```

@@ -19,6 +19,16 @@ Invitations require an existing owner Grant in the target registry (the bootstra
 
 The runner composes `remote-hosts-ssh` so `--ssh-host` dials the same transport the remote-hosts coordinator uses, reading host records from the profile home's `remote-hosts.json`.
 
+## Verification
+
+From the repository root:
+
+```sh
+node_modules/.bin/vitest run packages/bundle/peer-app
+node_modules/.bin/tsc -p packages/bundle/peer-app/tsconfig.json --noEmit --incremental false --composite false
+node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
+```
+
 ## Model Experience
 
 None, as this app registers no tools, prompts, or Session events; it exits after one operation.
@@ -31,13 +41,3 @@ None; the app assembles no model input.
 
 - `peer invite` writes invitations through the local registry file; the serving instance observes them through its registry watcher, so a stopped instance must be started before the invitation is redeemed.
 - No invitation listing or revocation commands here; `dsh auth code list` and `dsh auth code revoke` own those operations for every invitation kind.
-
-## Verification
-
-From the repository root:
-
-```sh
-node_modules/.bin/vitest run packages/bundle/peer-app
-node_modules/.bin/tsc -p packages/bundle/peer-app/tsconfig.json --noEmit --incremental false --composite false
-node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
-```

@@ -12,6 +12,16 @@ Each DSH home mints one `instance.json` on first peer use — `{ version, instan
 
 `encodePeerInvite(payload)` produces the single-paste `dsh-peer://<base64url>` URI; `decodePeerInvite(uri)` validates the complete shape — version, lowercase-UUID id, bounded display name, an origin that is HTTPS or loopback HTTP, a `dshi1_` token, and an optional base64 SHA-256 TLS fingerprint — rejecting closed reasons `INVALID_URI` and `INVALID_PAYLOAD`. `peerGrantName(instanceId)` derives the registry-unique `peer-<instanceId>` name and `instanceIdOfGrantName` reads it back; the shared display-name bound is `isDisplayName`.
 
+## Verification
+
+From the repository root:
+
+```sh
+node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
+node_modules/.bin/tsc -p packages/peer/peer-protocol/tsconfig.json --noEmit --incremental false --composite false
+node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-protocol
+```
+
 ## Model Experience
 
 None, as this library registers no tools, prompts, or Session events; pairing surfaces belong to the host and client packages.
@@ -24,13 +34,3 @@ None; the package assembles no model input.
 
 - The identity document carries no key material; a future key-rotation path replaces the initiator key through revoke-and-re-pair rather than extending this format.
 - TLS fingerprint pinning is carried by the payload but not yet enforced by a transport; direct HTTPS today relies on Node trust roots.
-
-## Verification
-
-From the repository root:
-
-```sh
-node_modules/.bin/vitest run --config packages/peer/vitest.config.ts
-node_modules/.bin/tsc -p packages/peer/peer-protocol/tsconfig.json --noEmit --incremental false --composite false
-node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-protocol
-```

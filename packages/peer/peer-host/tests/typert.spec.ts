@@ -1,8 +1,9 @@
 /** Strict Remote contract generation for the peer namespace. */
 
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { WorkspaceAnalyzer, FaceModelEmitter } from '@deepseek-ai/dsh-typert-generator'
 import { expect, it } from 'vitest'
@@ -23,9 +24,14 @@ it('generates one executable strict Remote schema for peer/hello with the pairin
     const face = workspace.faces[0]!
     const artifact = new FaceModelEmitter(face).emit('@deepseek-ai/dsh-peer-host')
     expect(artifact.remote, JSON.stringify(face.packages.map(pkg => ({ name: pkg.name, invocations: pkg.invocations })))).toBeDefined()
-    await symlink(join(root, 'packages/typert/generator/node_modules'), join(temp, 'node_modules'), 'junction')
+    // The emitted module imports `zod` bare; point it at the generator's copy by file URL instead of a node_modules
+    // link, which Windows junction resolution does not honour from a temp directory.
+    const zodDir = dirname(createRequire(join(root, 'packages/typert/generator/package.json')).resolve('zod/package.json'))
+    const zod = pathToFileURL(join(zodDir, 'index.js')).href
+    const source = artifact.remote!.js.replace(/from 'zod'/g, `from '${zod}'`)
+    expect(source).toContain(zod)
     const module = join(temp, 'peer.mjs')
-    await writeFile(module, artifact.remote!.js)
+    await writeFile(module, source)
     const { TYPERT_REMOTE } = await import(/* @vite-ignore */ pathToFileURL(module).href) as {
       TYPERT_REMOTE: { descriptors: Array<{
         method: string

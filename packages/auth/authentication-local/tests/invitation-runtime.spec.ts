@@ -76,7 +76,7 @@ describe('invitation redemption admission', () => {
       capabilities: ['harniverse.peer'], kind: 'peer', ttlMs: 60_000,
     }, { dshHome })
     const request = await ctx.authentication.requestEnrollment({ name: 'peer-3f2a8f9e-1111-4222-8333-444455556666', kind: 'peer', publicKey: publicKey() })
-    if (request.kind !== 'accepted') throw new Error(`enrollment rejected: ${String(request.reason)}`)
+    if (request.kind !== 'accepted') throw new Error(`enrollment rejected: ${request.reason}`)
     const decision = await ctx.authentication.redeemEnrollmentInvitation(request.value.id, invitation.token, PEER)
     expect(decision.kind).toBe('accepted')
     if (decision.kind !== 'accepted') return
@@ -94,7 +94,7 @@ describe('invitation redemption admission', () => {
       capabilities: ['harniverse.observe'], kind: 'device', ttlMs: 60_000,
     }, { dshHome })
     const request = await ctx.authentication.requestEnrollment({ name: 'Laptop', kind: 'device', publicKey: publicKey() })
-    if (request.kind !== 'accepted') throw new Error(`enrollment rejected: ${String(request.reason)}`)
+    if (request.kind !== 'accepted') throw new Error(`enrollment rejected: ${request.reason}`)
     const decision = await ctx.authentication.redeemEnrollmentInvitation(request.value.id, invitation.token, PEER)
     expect(decision.kind).toBe('accepted')
     if (decision.kind !== 'accepted') return
@@ -105,7 +105,7 @@ describe('invitation redemption admission', () => {
     const pending = await ctx.authentication.requestEnrollment({
       name: 'peer-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', kind: 'peer', publicKey: publicKey(),
     })
-    if (pending.kind !== 'accepted') throw new Error(`enrollment rejected: ${String(pending.reason)}`)
+    if (pending.kind !== 'accepted') throw new Error(`enrollment rejected: ${pending.reason}`)
     const approved = await registry.approveEnrollmentRequest(pending.value.id, { capabilities: ['harniverse.peer'] }, { dshHome })
     expect(approved.kind).toBe('api-client')
   })
