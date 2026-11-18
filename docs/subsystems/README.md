@@ -37,7 +37,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [terminal.md](terminal.md) | persistent terminal ids, backend/session contracts, send readiness, bounded reads, and owner-visible snapshots |
 | [sandbox.md](sandbox.md) | per-session policy resolution and the process-confinement seam: file-effect modes, execution/provider policies, `ConfinedArgv`, enforcement and fail-closed errors |
 | [ssh.md](ssh.md) | the SSH provider family: deployment-owned OpenSSH connection, TLS-authenticated forwarded streams, remote helper lease and cleanup ownership |
-| [peer.md](peer.md) | instance pairing: home-anchored identity, the invitation codec, and the capability-gated accepting host |
+| [peer.md](peer.md) | instance pairing and delegation: home-anchored identity, proofs, and the capability-gated peer Remotes |
 | [vm.md](vm.md) | the execution-world seam: world-neutral `ExecOptions`/`ExecResult`/`ExecHandle` vocabulary, the eight world-fs operations, egress approval, and the QEMU world provider |
 | [terminal-controller.md](terminal-controller.md) | the browser-terminal Remote: identity and screen frames, attachment control, window holds and shell discovery |
 | [browser-controller.md](browser-controller.md) | the host-browser Remote: session-scoped Chromium ownership, navigation policy, screencast frames and input dispatch over CDP |

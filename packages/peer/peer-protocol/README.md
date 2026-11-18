@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Shared peer vocabulary: the `dsh-peer:` invitation codec, the home-anchored instance identity, the closed error vocabulary, and the grant-name convention. A pure library — no plugin, no Config, no registration — consumed by [dsh-peer-host](../peer-host/README.md), [dsh-peer-client](../peer-client/README.md), and [dsh-peer-app](../../bundle/peer-app/README.md).
+Shared peer vocabulary: the `dsh-peer:` invitation codec, the home-anchored instance identity, the hello and request proofs, the closed error vocabulary, and the grant-name convention. A pure library — no plugin, no Config, no registration — consumed by [dsh-peer-host](../peer-host/README.md), [dsh-peer-client](../peer-client/README.md), and [dsh-peer-app](../../bundle/peer-app/README.md).
 
 ## Instance identity
 
@@ -11,6 +11,10 @@ Each DSH home mints one `instance.json` on first peer use — `{ version, instan
 ## Invitation codec
 
 `encodePeerInvite(payload)` produces the single-paste `dsh-peer://<base64url>` URI; `decodePeerInvite(uri)` validates the complete shape — version, lowercase-UUID id, bounded display name, an origin that is HTTPS or loopback HTTP, a `dshi1_` token, and an optional base64 SHA-256 TLS fingerprint — rejecting closed reasons `INVALID_URI` and `INVALID_PAYLOAD`. `peerGrantName(instanceId)` derives the registry-unique `peer-<instanceId>` name and `instanceIdOfGrantName` reads it back; the shared display-name bound is `isDisplayName`.
+
+## Proofs
+
+Two canonical signatures bind Remote calls to the initiator's P-256 identity key. The hello proof covers `peerHelloMessage(instanceId, challenge)` — the single-use nonce minted by `peer/challenge` — so the accepting instance pins `identityPublicKey` into the paired record at first pairing and verifies every later hello against the pinned key (`IDENTITY_MISMATCH` otherwise). The request proof covers `peerRequestMessage(instanceId, timestamp)`; `verifyPeerRequestProof` checks shape, the `PEER_PROOF_SKEW_MS` clock window, and the signature against the pinned key before any delegate, follow-up, or enumeration call runs. `verifyPeerSignature` is the shared base64url-SPKI ECDSA/SHA-256 verifier both proofs use.
 
 ## Verification
 

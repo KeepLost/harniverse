@@ -3,3 +3,16 @@ export type * from './types.ts'
 export { type PeerKeyMaterial, ensurePeerIdentityKey, peerIdentityKeyPath } from './keys.ts'
 export { findPeerTarget, parsePeerTarget, peerTargetsPath, readPeerTargets, writePeerTargets } from './targets.ts'
 export { type PairOptions, pairWithPeer } from './pairing.ts'
+export {
+  type PeerCallIdentity,
+  type PeerCallOptions,
+  accessFor,
+  callPeerRemote,
+  provenHello,
+  requestProofFor,
+  runPeerDelegate,
+  runPeerFollowup,
+  runPeerSessions,
+  validateRunResult,
+  validateSessionSummaries,
+} from './remote.ts'

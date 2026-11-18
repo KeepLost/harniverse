@@ -2,19 +2,25 @@
 
 English | [中文](README.zh.md)
 
-The accepting side of instance pairing: the capability-gated `peer/hello` Remote and the paired-peer store. `PeerHost` is the default-exported `TypertRemoteService` at `ctx.peerHost`, wire namespace `peer`, composed in the web-app bundle. Required injections: none — the store and identity files under the resolved home are the only state.
+The accepting side of instance pairing: the capability-gated `peer/*` Remotes — challenge/hello pairing with pinned identity keys, plus delegated sessions, follow-up delivery, and per-peer enumeration — and the paired-peer store. `PeerHost` is the default-exported `TypertRemoteService` at `ctx.peerHost`, wire namespace `peer`, composed in the web-app bundle. Injections: none required — agent registry, presets, and model services resolve through `ctx.get` and delegation fails closed with `SESSION_BUSY` when the composition ships none.
 
 ## Remote surface
 
 | Method | Wire arguments | Capability | Result |
 | --- | --- | --- | --- |
-| `hello(identity)` | `{ identity: PeerHelloInput }` | `harniverse.peer` | `PeerHello` |
+| `challenge()` | `{}` | `harniverse.peer` | `{ challenge }` |
+| `hello(request)` | `{ request: PeerHelloRequest }` | `harniverse.peer` | `PeerHello` |
+| `delegate(request)` | `{ request: PeerDelegateRequest }` | `harniverse.peer` | `PeerRunResult` |
+| `followup(request)` | `{ request: PeerFollowupRequest }` | `harniverse.peer` | `PeerRunResult` |
+| `sessions(request)` | `{ request: PeerSessionsRequest }` | `harniverse.peer` | `{ sessions: PeerSessionSummary[] }` |
 
-`hello` validates the self-asserted initiator identity, reads this home's `instance.json` (never minting — a home that never invited answers `CORRUPT_INSTANCE`), commits or refreshes the peer record, and answers with this instance's identity plus the approved surface. The first record for an id emits `peer/paired`; a revoked record rejects `HELLO_REJECTED`. Every call refuses `PEER_UNAVAILABLE_VM` inside a VM execution world, and the web-app composition disables the row entirely under `$DSH_EXEC_WORLD === 'vm'`, so real-sandbox instances never pair.
+`challenge` mints one single-use nonce (five-minute TTL, bounded outstanding set). `hello` verifies the initiator's signature over `(instanceId, challenge)`, pins the base64url SPKI `identityPublicKey` into the record at first pairing, and verifies every later hello against the pinned key — a different key answers `IDENTITY_MISMATCH`, a spent or unknown nonce `CHALLENGE_EXPIRED`. Records without a pinned key (pre-proof era) pin on their first proof-bearing hello. The first record for an id emits `peer/paired`; a revoked record rejects `HELLO_REJECTED`. Every call refuses `PEER_UNAVAILABLE_VM` inside a VM execution world, and the web-app composition disables the row entirely under `$DSH_EXEC_WORLD === 'vm'`, so real-sandbox instances never pair.
 
-## Store
+`delegate`, `followup`, and `sessions` authenticate the caller's timestamp-windowed request proof against the pinned key, then gate on the matching `PeerSurface` field (`SURFACE_DENIED` otherwise). `delegate` composes one `peer-<uuid>` session with `origin: 'peer'` and a working directory resolved under `peer-work/<instanceId>/` (relative paths only; escapes reject `INVALID_PAYLOAD`), delivers the prompt through the agent inbox, and awaits turn settlement up to the requested budget — settling returns the concatenated assistant text and end reason, expiring returns `state: 'running'` with the session id. `followup` delivers the next FIFO turn into a session the same caller owns (`SESSION_NOT_FOUND` otherwise), cold-resuming it when no agent is resident. `sessions` lists that caller's entries with live `running`/`idle`/`ended` state. Closed failures ride the wire as `RemoteError` code `peer-failed` with `details.reason` carrying the peer reason verbatim.
 
-`peers.json` under the home is the authority: strict-shape validation, insertion-order records, atomic owner-only writes through `writePeerStore`. The `peer/paired` and `peer/removed` events are live-process observations; out-of-band CLI mutations do not emit them. `removePeer(instanceId)` deletes one record and emits `peer/removed`; the packaged CLI revokes the matching grant separately.
+## Stores
+
+`peers.json` under the home is the authority for paired peers: strict-shape validation, insertion-order records, atomic owner-only writes through `writePeerStore`. `peer-sessions.json` holds the delegated-session registry the same way. The `peer/paired` and `peer/removed` events are live-process observations; out-of-band CLI mutations do not emit them. `removePeer(instanceId)` deletes one record, drops that peer's registry entries, closes its resident agents from true idle, and emits `peer/removed`; the packaged CLI revokes the matching grant separately.
 
 ## Events
 
@@ -32,13 +38,14 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
 
 ## Model Experience
 
-None, as this plugin registers no tools, prompts, or Session events; the paired surface reaches models through the future delegation and messaging packages.
+Delegated sessions run real agent turns on this instance under the caller's prompt; the model sees one ordinary user turn per delivered prompt inside the delegated session's own log, exactly as a local prompt of the same text. The accepting instance's own sessions never see peer prompts, so their token usage and cache behavior are unchanged.
 
 #### KV Cache effect
 
-None; the plugin assembles no model input.
+None for local sessions; each delegated session carries its own conversation and cache prefix, so a peer turn never reuses or evicts a local session's prefix.
 
 ## Known Limitations and Deferred Work
 
-- The Remote cannot see the calling principal, so the peer record trusts the invitation-possession chain plus registry name-uniqueness instead of binding the grant id into the record; a future challenge-signature hello binds the calling key cryptographically.
+- Request proofs carry a timestamp window, not a server nonce; a capture-replayed call inside `PEER_PROOF_SKEW_MS` would be admitted. The pairing hello keeps the full single-use challenge; per-call nonces await a sessioned channel.
+- `removePeer` closes a busy delegated agent only from true idle; a running turn finishes before its session record disappears.
 - Surface widening and narrowing are record edits, not new Grant capabilities; no approval flow exists for surface changes yet.

@@ -40,17 +40,23 @@ it('generates one executable strict Remote schema for peer/hello with the pairin
       }> }
     }
     const methods = TYPERT_REMOTE.descriptors
-    expect(methods.map(method => method.method)).toEqual(['hello'])
-    expect(methods[0]!.requiredCapability).toBe('harniverse.peer')
-    const identity = methods[0]!.parameters[0]!.codec.schema
-    expect(identity.safeParse({
-      instanceId: '3f2a8f9e-1111-4222-8333-444455556666',
-      displayName: 'Laptop',
-      platform: 'darwin',
-      arch: 'arm64',
-      version: '1.0.0-rc.3',
+    expect(methods.map(method => method.method)).toEqual(['challenge', 'delegate', 'followup', 'hello', 'sessions'])
+    expect(methods.every(method => method.requiredCapability === 'harniverse.peer')).toBe(true)
+    const hello = methods.find(method => method.method === 'hello')!
+    const schema = hello.parameters[0]!.codec.schema
+    expect(schema.safeParse({
+      challenge: 'nonce',
+      identity: {
+        instanceId: '3f2a8f9e-1111-4222-8333-444455556666',
+        displayName: 'Laptop',
+        platform: 'darwin',
+        arch: 'arm64',
+        version: '1.0.0-rc.3',
+      },
+      proof: { publicKey: 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE', signature: 'MEUCIQD' },
     }).success).toBe(true)
-    expect(identity.safeParse({ instanceId: 'nope' }).success).toBe(false)
+    expect(schema.safeParse({ challenge: 'nonce' }).success).toBe(false)
+    expect(schema.safeParse({ identity: { instanceId: 'nope' } }).success).toBe(false)
   } finally {
     await rm(temp, { recursive: true, force: true })
   }

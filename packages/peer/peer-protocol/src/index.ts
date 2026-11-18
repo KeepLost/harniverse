@@ -1,6 +1,14 @@
-/** Shared peer vocabulary: invite codec, home-anchored identity, closed errors, and naming conventions. */
+/** Shared peer vocabulary: invite codec, home-anchored identity, proofs, closed errors, and naming conventions. */
 export type * from './types.ts'
 export { PeerError, type PeerErrorReason } from './errors.ts'
+export {
+  PEER_CHALLENGE_TTL_MS,
+  PEER_PROOF_SKEW_MS,
+  peerHelloMessage,
+  peerRequestMessage,
+  verifyPeerRequestProof,
+  verifyPeerSignature,
+} from './proof.ts'
 export {
   DEFAULT_INVITE_TTL_MS,
   FULL_PEER_SURFACE,

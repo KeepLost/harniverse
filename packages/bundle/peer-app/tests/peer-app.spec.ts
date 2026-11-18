@@ -47,7 +47,7 @@ interface InvocationResult { code: number; out: string; err: string }
 /** Boot the two production plugins through Loader; a stub remote-hosts-ssh satisfies the runner injection. */
 async function invoke(args: string[], dshHome: string, overrides: Record<string, object> = {}): Promise<InvocationResult> {
   const fixture = await temporary('dsh-peer-app-loader-')
-  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs']
+  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile']
   await writeFile(join(fixture, 'cordis.yml'), [
     '- id: remote-hosts-ssh',
     '  name: remote-hosts-ssh',
@@ -102,6 +102,62 @@ interface ServingTarget {
   invite: TargetInvite
 }
 
+/** A deterministic agent registry standing in for the real loop in CLI e2e runs. */
+class SettlingAgentRegistry extends Service {
+  /** Created entries by session id. */
+  readonly entries = new Map<string, { status: 'idle' | 'running'; followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => void; whenIdle: () => Promise<void>; session: { id: string; seq: number; events: Array<{ type: string; seq: number; data: unknown }>; eventsFrom: (from: number) => Array<{ type: string; data: unknown }> } }>()
+
+  constructor(ctx: Context) {
+    super(ctx, 'agents')
+  }
+
+  get(id: string) {
+    return this.entries.get(id)
+  }
+
+  async create(options: { sessionId: string; meta: { cwd: string; origin?: string }; setup: (ctx: Context) => Promise<void> }) {
+    const events: Array<{ type: string; seq: number; data: unknown }> = []
+    const session = {
+      id: options.sessionId,
+      events,
+      get seq() { return events.length },
+      eventsFrom: (from: number) => events.filter(event => event.seq >= from),
+    }
+    let idle: Promise<void> = Promise.resolve()
+    const entry = {
+      status: 'idle' as 'idle' | 'running',
+      session,
+      whenIdle: () => idle,
+      followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => {
+        const prompt = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
+        entry.status = 'running'
+        idle = new Promise((resolve) => {
+          setTimeout(() => {
+            const turn = 1 + events.filter(event => event.type === 'turn/end').length
+            events.push({ type: 'turn/start', seq: events.length, data: { turn } })
+            events.push({ type: 'user/message', seq: events.length, data: message })
+            events.push({ type: 'assistant/message', seq: events.length, data: { turn, step: 1, message: { content: [{ type: 'text', text: `echo: ${prompt}` }] } } })
+            events.push({ type: 'turn/end', seq: events.length, data: { turn, reason: { kind: 'completed' } } })
+            entry.status = 'idle'
+            resolve()
+          }, 10)
+        })
+      },
+    }
+    this.entries.set(options.sessionId, entry)
+    return { agent: entry }
+  }
+
+  async resume(options: { resumeSessionId: string }) {
+    if (!this.entries.has(options.resumeSessionId)) throw new Error('no persisted session')
+    return { agent: this.entries.get(options.resumeSessionId)! }
+  }
+
+  async closeIfIdle(id: string) {
+    return this.entries.delete(id) ? 'closed' : 'not-found'
+  }
+}
+
 /** Boot the accepting stack once and expose its origin plus a bootstrapped owner. */
 async function servingTarget(): Promise<ServingTarget> {
   const home = await temporary('peer-app-target-')
@@ -114,6 +170,7 @@ async function servingTarget(): Promise<ServingTarget> {
     { id: 'authentication', name: 'authentication', config: { dshHome: home, watch: false } },
     { id: 'webserver', name: 'webserver', inject: ['authentication'], config: { host: '127.0.0.1', port: 0 } },
     { id: 'peer-host', name: 'peer-host', config: { dshHome: home } },
+    { id: 'agents', name: 'agents' },
     { id: 'typert', name: 'typert' },
     { id: 'gateway', name: 'gateway' },
     { id: 'connection', name: 'connection' },
@@ -123,6 +180,7 @@ async function servingTarget(): Promise<ServingTarget> {
   ctx.loader.internal = { version: 'v2', async import(specifier: string) {
     const modules: Record<string, object> = {
       authentication: Authentication, webserver: WebServer, 'peer-host': PeerHost,
+      agents: { default: SettlingAgentRegistry },
       typert: Typert, gateway: Gateway, connection: Connection,
     }
     const module = modules[specifier]
@@ -168,6 +226,31 @@ it('invites and pairs two homes end to end through the CLI composition', async (
   const forgotten = await invoke(['forget', target.identity.instanceId], initiator)
   expect(forgotten.code).toBe(0)
   expect(await readFile(join(initiator, 'peer-targets.json'), 'utf8')).toContain('"targets":[]')
+})
+
+it('runs, sends, and lists delegated sessions through the CLI composition', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  const uri = inviteUri(invited.out)
+  const initiator = await temporary('peer-app-initiator-')
+  const added = await invoke(['add', uri, '--timeout', '20000'], initiator)
+  expect(added.code).toBe(0)
+  const targetId = target.identity.instanceId
+  const run = await invoke(['run', targetId, 'summarize', 'the', 'tree', '--timeout', '10000'], initiator)
+  expect(run.code).toBe(0)
+  expect(run.out).toContain('session\t')
+  expect(run.out).toContain('echo: summarize the tree')
+  const sessionId = run.out.split('\n')[0]!.split('\t')[1]!
+  const sessions = await invoke(['sessions', targetId], initiator)
+  expect(sessions.code).toBe(0)
+  expect(sessions.out).toContain(sessionId)
+  expect(sessions.out).toContain('summarize the tree')
+  const sent = await invoke(['send', targetId, sessionId, 'thanks', '--timeout', '10000'], initiator)
+  expect(sent.code).toBe(0)
+  expect(sent.out).toContain('echo: thanks')
+  const unknown = await invoke(['run', '01234567-89ab-cdef-0123-456789abcdef', 'nope'], initiator)
+  expect(unknown.code).toBe(1)
+  expect(unknown.err).toContain('RECORD_NOT_FOUND')
 })
 
 it('rejects an invalid lifetime and prints help for a bare command', async () => {

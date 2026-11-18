@@ -543,10 +543,6 @@ flowchart TD
   pkg_host_plugin_inventory --> pkg_invariants
   pkg_host_plugin_inventory --> pkg_plugin_diagnostics
   pkg_host_plugin_inventory --> pkg_typert_protocol
-  pkg_peer_host --> pkg_home_paths
-  pkg_peer_host --> pkg_invariants
-  pkg_peer_host --> pkg_peer_protocol
-  pkg_peer_host --> pkg_typert_protocol
   pkg_settings --> pkg_brand
   pkg_settings --> pkg_invariants
   pkg_speech_openai --> pkg_invariants
@@ -991,6 +987,15 @@ flowchart TD
   pkg_lsp_stdio --> pkg_lsp
   pkg_lsp_stdio --> pkg_subprocess
   pkg_lsp_stdio --> pkg_timeout
+  pkg_peer_host --> pkg_agent
+  pkg_peer_host --> pkg_agent_presets
+  pkg_peer_host --> pkg_home_paths
+  pkg_peer_host --> pkg_invariants
+  pkg_peer_host --> pkg_llm
+  pkg_peer_host --> pkg_model_policy
+  pkg_peer_host --> pkg_peer_protocol
+  pkg_peer_host --> pkg_session
+  pkg_peer_host --> pkg_typert_protocol
   pkg_ptc_runtime_node --> pkg_fs
   pkg_ptc_runtime_node --> pkg_invariants
   pkg_ptc_runtime_node --> pkg_llm
@@ -2361,7 +2366,6 @@ flowchart TD
 | [`credentials`](../packages/credentials/credentials) | `credentials` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-frontend-static`](../packages/host/frontend-static) | `host` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics), [`typert-protocol`](../packages/typert/protocol) |
-| [`peer-host`](../packages/peer/peer-host) | `peer` | [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`peer-protocol`](../packages/peer/peer-protocol), [`typert-protocol`](../packages/typert/protocol) |
 | [`settings`](../packages/settings/settings) | `settings` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`speech-openai`](../packages/speech/speech-openai) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`speech`](../packages/speech/speech) |
 | [`speech-sensevoice`](../packages/speech/speech-sensevoice) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`speech`](../packages/speech/speech) |
@@ -2470,6 +2474,7 @@ flowchart TD
 | [`supervision`](../packages/interaction/supervision) | `interaction` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt) |
 | [`jobs-local`](../packages/jobs/jobs-local) | `jobs` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`jobs`](../packages/jobs/jobs), [`scope`](../packages/core/scope), [`timeout`](../packages/util/timeout), [`workspace`](../packages/workspace/workspace) |
 | [`lsp-stdio`](../packages/lsp/lsp-stdio) | `lsp` | [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`peer-host`](../packages/peer/peer-host) | `peer` | [`agent`](../packages/core/agent), [`agent-presets`](../packages/preset/agent-presets), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`model-policy`](../packages/core/model-policy), [`peer-protocol`](../packages/peer/peer-protocol), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol) |
 | [`ptc-runtime-node`](../packages/ptc-runtime/ptc-runtime-node) | `ptc-runtime` | [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`ptc-runtime-python`](../packages/ptc-runtime/ptc-runtime-python) | `ptc-runtime` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`session-title-llm`](../packages/session/session-title-llm) | `session` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`model-policy`](../packages/core/model-policy), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`timeout`](../packages/util/timeout) |

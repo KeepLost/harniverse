@@ -21,7 +21,16 @@ import {
   peerInstanceId,
   validateOrigin,
 } from '@deepseek-ai/dsh-peer-protocol'
-import { pairWithPeer, readPeerTargets, writePeerTargets } from '@deepseek-ai/dsh-peer-client'
+import type { PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
+import {
+  ensurePeerIdentityKey,
+  pairWithPeer,
+  readPeerTargets,
+  runPeerDelegate,
+  runPeerFollowup,
+  runPeerSessions,
+  writePeerTargets,
+} from '@deepseek-ai/dsh-peer-client'
 import { findPeer, readPeerStore, writePeerStore } from '@deepseek-ai/dsh-peer-host'
 import { HostRegistry } from '@deepseek-ai/dsh-remote-hosts'
 import type { RemoteHostSshAuthentication, RemoteHostSshConnection, RemoteHostSshForward } from '@deepseek-ai/dsh-remote-hosts-ssh'
@@ -45,6 +54,7 @@ export const Config: z<Config> = z.object({
   operation: z.union([
     z.const('invite'), z.const('add'), z.const('list'),
     z.const('remove'), z.const('targets'), z.const('forget'),
+    z.const('run'), z.const('send'), z.const('sessions'),
   ]).required(),
   uri: z.string(),
   endpoint: z.string(),
@@ -54,6 +64,10 @@ export const Config: z<Config> = z.object({
   sshHost: z.string(),
   instanceId: z.string(),
   timeoutMs: z.natural(),
+  prompt: z.string(),
+  sessionId: z.string(),
+  cwd: z.string(),
+  profile: z.string(),
   dshHome: z.string(),
 })
 
@@ -165,8 +179,108 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       internals.stdout.write(`forgot\t${id}\n`)
       break
     }
+    case 'run': {
+      const target = await resolveTarget(config)
+      const identity = await ensureInstanceIdentity(home)
+      const key = await ensurePeerIdentityKey(home)
+      const result = await withTransport(ctx, home, target, origin => runPeerDelegate(
+        { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
+        { instanceId: identity.instanceId, key },
+        required(config.prompt, config.operation, 'a prompt'),
+        { ...(config.cwd !== undefined && { cwd: config.cwd }), ...(config.profile !== undefined && { profile: config.profile }),
+          ...(config.timeoutMs !== undefined && { timeoutMs: settleBudget(config.timeoutMs) }) },
+      ))
+      writeRunResult(result)
+      break
+    }
+    case 'send': {
+      const target = await resolveTarget(config)
+      const identity = await ensureInstanceIdentity(home)
+      const key = await ensurePeerIdentityKey(home)
+      const sessionId = required(config.sessionId, config.operation, 'a session id')
+      const result = await withTransport(ctx, home, target, origin => runPeerFollowup(
+        { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
+        { instanceId: identity.instanceId, key },
+        sessionId,
+        required(config.prompt, config.operation, 'a prompt'),
+        config.timeoutMs !== undefined ? settleBudget(config.timeoutMs) : undefined,
+      ))
+      writeRunResult(result)
+      break
+    }
+    case 'sessions': {
+      const target = await resolveTarget(config)
+      const identity = await ensureInstanceIdentity(home)
+      const key = await ensurePeerIdentityKey(home)
+      const sessions = await withTransport(ctx, home, target, origin => runPeerSessions(
+        { target, home, origin },
+        { instanceId: identity.instanceId, key },
+      ))
+      for (const entry of sessions) {
+        internals.stdout.write(`${entry.sessionId}\t${entry.state}\t${entry.lastActivityAt}\t${entry.label}\n`)
+      }
+      break
+    }
   }
   exit(0)
+}
+
+/** Resolve the paired target record one delegation operation addresses.
+ * @param config - runner configuration naming the target instance.
+ * @returns the stored active target record.
+ */
+async function resolveTarget(config: Config): Promise<PeerTarget> {
+  const id = peerInstanceId(required(config.instanceId, config.operation, 'an instance id'))
+  const target = (await readPeerTargets(required(config.dshHome, config.operation, 'a Harness home')))
+    .find(entry => entry.targetInstanceId === id && entry.status === 'active')
+  if (target === undefined) throw new PeerError('RECORD_NOT_FOUND', 'no active pairing target')
+  return target
+}
+
+/** Run one origin-resolved operation directly or through the recorded SSH forward.
+ * @param ctx - app context carrying the SSH provider.
+ * @param home - initiator Harness home.
+ * @param target - stored target record naming the transport.
+ * @param body - operation to run against the resolved origin.
+ * @returns the operation's result.
+ */
+async function withTransport<T>(
+  ctx: Context,
+  home: string,
+  target: PeerTarget,
+  body: (origin: string) => Promise<T>,
+): Promise<T> {
+  if (target.transport.kind === 'direct') return await body(target.endpoint.origin)
+  const tunnel = await openSshForward(ctx, home, target.transport.host, target.endpoint.origin)
+  try {
+    return await body(`http://127.0.0.1:${String(tunnel.port)}`)
+  } finally {
+    await tunnel.close()
+  }
+}
+
+/** Print one delegation run result as tab-separated fields plus the settled reply body.
+ * @param result - run result from the target.
+ */
+function writeRunResult(result: Awaited<ReturnType<typeof runPeerDelegate>>): void {
+  internals.stdout.write(`session\t${result.sessionId}\t${result.state}${result.endReason !== undefined ? `\t${result.endReason}` : ''}\n`)
+  if (result.reply !== undefined) internals.stdout.write(`${result.reply}\n`)
+}
+
+/** Bound one per-call transport timeout so long settlement budgets stay usable.
+ * @param value - CLI-provided timeout in milliseconds.
+ * @returns the per-call timeout.
+ */
+function boundCallTimeout(value: number): number {
+  return Math.min(Math.max(value, 1_000), 120_000)
+}
+
+/** Derive the settlement-wait budget from the CLI timeout.
+ * @param value - CLI-provided timeout in milliseconds.
+ * @returns the delegation settlement budget.
+ */
+function settleBudget(value: number): number {
+  return Math.min(value, 900_000)
 }
 
 /**

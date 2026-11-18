@@ -37,7 +37,7 @@ export interface SessionRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
-  origin: 'subagent' | null
+  origin: 'subagent' | 'peer' | null
   /** Stable identity assigned when this log is materialized. */
   incarnation: string
   /** Monotonic log-change token incremented in each mutating transaction. */

@@ -16,6 +16,11 @@ export type PeerErrorReason =
   | 'HELLO_REJECTED'
   | 'IDENTITY_MISMATCH'
   | 'UNSUPPORTED_CREDENTIALS'
+  | 'CHALLENGE_EXPIRED'
+  | 'INVALID_PROOF'
+  | 'SURFACE_DENIED'
+  | 'SESSION_NOT_FOUND'
+  | 'SESSION_BUSY'
 
 /** One carrier-level peer failure with a closed reason and no secret material. */
 export class PeerError extends Error {

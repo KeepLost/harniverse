@@ -14,7 +14,7 @@ export const inject = ['cmdlineArgs']
 export const PEER_STARTUP_SERVICE = 'peerStartup'
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions'
 
 /** One parsed peer pairing invocation. */
 export interface PeerStartupValues {
@@ -36,6 +36,14 @@ export interface PeerStartupValues {
   instanceId?: string
   /** Per-request timeout in milliseconds for `add`. */
   timeoutMs?: number
+  /** Delegation prompt words for `run` and `send`. */
+  prompt?: string
+  /** Session id targeted by `send`. */
+  sessionId?: string
+  /** Working directory relative to the peer root for `run`. */
+  cwd?: string
+  /** Agent profile id for `run`. */
+  profile?: string
 }
 
 /**
@@ -91,6 +99,35 @@ function peerCommand(ctx: Context): Command {
     .description('forget one pairing target record')
     .argument('<instance-id>')
     .action((instanceId: string) => { publish('forget', { instanceId }) })
+  program.command('run')
+    .description('start one delegated session on a paired target and await its reply')
+    .argument('<instance-id>', 'paired target instance id')
+    .argument('<prompt...>', 'initial prompt words')
+    .option('--cwd <path>', 'working directory relative to the peer root')
+    .option('--profile <id>', 'agent profile id to compose the session with')
+    .option('--timeout <ms>', 'settlement-wait budget in milliseconds', (value: string) => Number(value), 600000)
+    .action((instanceId: string, prompt: string[], options: { cwd?: string; profile?: string; timeout: number }) => {
+      publish('run', {
+        instanceId,
+        prompt: prompt.join(' '),
+        ...(options.cwd !== undefined && { cwd: options.cwd }),
+        ...(options.profile !== undefined && { profile: options.profile }),
+        timeoutMs: options.timeout,
+      })
+    })
+  program.command('send')
+    .description('deliver the next turn into one delegated session')
+    .argument('<instance-id>', 'paired target instance id')
+    .argument('<session-id>', 'delegated session id')
+    .argument('<prompt...>', 'follow-up prompt words')
+    .option('--timeout <ms>', 'settlement-wait budget in milliseconds', (value: string) => Number(value), 600000)
+    .action((instanceId: string, sessionId: string, prompt: string[], options: { timeout: number }) => {
+      publish('send', { instanceId, sessionId, prompt: prompt.join(' '), timeoutMs: options.timeout })
+    })
+  program.command('sessions')
+    .description("list this instance's delegated sessions on a paired target")
+    .argument('<instance-id>', 'paired target instance id')
+    .action((instanceId: string) => { publish('sessions', { instanceId }) })
   program.action(() => { program.help() })
   return program
 }

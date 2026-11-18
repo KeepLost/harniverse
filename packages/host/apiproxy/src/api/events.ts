@@ -265,7 +265,7 @@ export type HostFrame =
     sessionId: SessionId
     blank: boolean
     parentSessionId?: SessionId
-    origin?: 'subagent'
+    origin?: 'subagent' | 'peer'
     cwd?: string
     agentProfile?: string
   }

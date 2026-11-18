@@ -1,6 +1,5 @@
 /** Pairing orchestration: enroll, redeem the invitation, exchange, and verify `peer/hello`. */
 
-import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { GrantAccess } from '@deepseek-ai/dsh-sdk-client'
 import {
@@ -11,6 +10,7 @@ import {
 } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerErrorReason, PeerHello, PeerInvitePayload, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
 import { ensurePeerIdentityKey } from './keys.ts'
+import { provenHello } from './remote.ts'
 import { findPeerTarget, readPeerTargets, writePeerTargets } from './targets.ts'
 import type { PeerPairingResult } from './types.ts'
 
@@ -67,13 +67,13 @@ export async function pairWithPeer(options: PairOptions): Promise<PeerPairingRes
 
   const access = new GrantAccess({ origin: options.origin, grantId,
     signChallenge: payload => key.signChallenge(payload), fetch: fetchImpl })
-  const hello = await peerHello(access, options.origin, {
+  const hello = validateHello(await provenHello(access, options.origin, {
     instanceId: identity.instanceId,
     displayName: identity.displayName,
     platform: identity.platform,
     arch: identity.arch,
     version: CLIENT_VERSION,
-  })
+  }, key))
   if (hello.instanceId !== invite.instanceId) throw new PeerError('IDENTITY_MISMATCH')
 
   const target: PeerTarget = {
@@ -91,33 +91,10 @@ export async function pairWithPeer(options: PairOptions): Promise<PeerPairingRes
   return { hello, grantId, target }
 }
 
-/** Call `peer/hello` through the authenticated Connection RPC envelope.
- * @param access - the target's Grant-backed transport.
- * @param origin - exact target origin.
- * @param identity - the initiator's self-asserted identity.
- * @returns the target's validated readback.
+/** Validate one hello readback value.
+ * @param value - untrusted wire value.
+ * @returns the validated readback.
  */
-async function peerHello(access: GrantAccess, origin: string, identity: Record<string, string>): Promise<PeerHello> {
-  const rpcId = randomUUID()
-  const response = await access.fetch(`${origin}/api/peer/hello`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type: 'client-request', rpcId, method: 'peer/hello', payload: { args: { identity } } }),
-  })
-  if (!response.ok) throw new PeerError('HELLO_REJECTED', `HTTP ${String(response.status)}`)
-  let body: unknown
-  try {
-    body = await response.json()
-  } catch {
-    throw new PeerError('HELLO_REJECTED', 'non-JSON response')
-  }
-  const record = body as { type?: unknown; rpcId?: unknown; result?: { ok?: unknown; value?: unknown } }
-  if (record.type !== 'server-response' || record.rpcId !== rpcId || record.result?.ok !== true) {
-    throw new PeerError('HELLO_REJECTED')
-  }
-  return validateHello(record.result.value)
-}
-
 /** Validate one hello readback value.
  * @param value - untrusted wire value.
  * @returns the validated readback.
