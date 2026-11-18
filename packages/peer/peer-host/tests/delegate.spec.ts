@@ -390,7 +390,7 @@ it('maps an unwritable peer working directory onto the closed reason', async () 
 it('reports running when the claim landed but the turn stays outstanding', async () => {
   const { host, key, registry } = await rig()
   registry.halfSettle = true
-  const result = await host.delegate({ proof: proofFor(key), prompt: 'p', timeoutMs: 5000 })
+  const result = await host.delegate({ proof: proofFor(key), prompt: 'p', timeoutMs: 500 })
   expect(result.state).toBe('running')
   expect(result.reply).toBeUndefined()
 })
