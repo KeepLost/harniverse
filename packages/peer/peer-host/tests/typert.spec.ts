@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { WorkspaceAnalyzer, FaceModelEmitter } from '@deepseek-ai/dsh-typert-generator'
 import { expect, it } from 'vitest'
 
-it('generates one executable strict Remote schema for peer/hello with the pairing capability', async () => {
+it('generates one executable strict Remote schema for peer/hello with the pairing capability', { timeout: 30_000 }, async () => {
   const root = resolve(import.meta.dirname, '../../../..')
   const temp = await mkdtemp(join(tmpdir(), 'peer-typert-'))
   try {

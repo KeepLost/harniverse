@@ -269,6 +269,7 @@ function isSupportedCapability(value: unknown): boolean {
     || value === 'harniverse.operate'
     || value === 'harniverse.administer'
     || value === 'harniverse.authorize'
+    || value === 'harniverse.peer'
 }
 
 function requireStrictCodec(pkgName: string, value: unknown, subject: string): void {
