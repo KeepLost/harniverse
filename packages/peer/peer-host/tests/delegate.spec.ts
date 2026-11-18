@@ -43,6 +43,10 @@ class FakeAgentRegistry extends Service {
   halfSettle = false
   /** When set, `get` reports no resident agent while `resume` still succeeds. */
   hideGet = false
+  /** When set, settle emits a reasoning-only step so the reply stays empty. */
+  reasoningOnly = false
+  /** When set, the setup context carries no agent facet. */
+  setupAgent = true
   closed: string[] = []
 
   constructor(ctx: Context) {
@@ -60,7 +64,9 @@ class FakeAgentRegistry extends Service {
   }) {
     if (this.createFails) throw new Error('registry refused')
     this.createOptions.push(options)
-    await options.setup({ agent: { session: { id: options.sessionId } } } as unknown as Context)
+    await options.setup((this.setupAgent
+      ? { agent: { session: { id: options.sessionId } } }
+      : { agent: undefined }) as unknown as Context)
     this.metas.set(options.sessionId, options.meta)
     const events: Array<{ type: string; seq: number; data: unknown }> = []
     const session = {
@@ -87,7 +93,10 @@ class FakeAgentRegistry extends Service {
               entry.status = 'running'
               return
             }
-            events.push({ type: 'assistant/message', seq: events.length, data: { turn, step: 1, message: { content: [{ type: 'text', text: `done: ${prompt}` }] } } })
+            const content = this.reasoningOnly
+              ? [{ type: 'reasoning', text: 'thinking' }]
+              : [{ type: 'text', text: `done: ${prompt}` }]
+            events.push({ type: 'assistant/message', seq: events.length, data: { turn, step: 1, message: { content } } })
             events.push({ type: 'turn/end', seq: events.length, data: { turn, reason: { kind: 'completed' } } })
             entry.status = 'idle'
             resolve()
@@ -154,7 +163,7 @@ class FakeDefaultModel extends Service {
  */
 async function rig(
   surface: { delegate: boolean; message: boolean; list: boolean } = { delegate: true, message: true, list: true },
-  extras: { presets?: boolean; defaultModel?: boolean; agents?: boolean } = {},
+  extras: { presets?: boolean; defaultModel?: boolean; modelPolicy?: boolean; agents?: boolean } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'peer-delegate-'))
   directories.push(root)
@@ -164,6 +173,7 @@ async function rig(
   if (extras.agents !== false) await ctx.plugin(FakeAgentRegistry)
   if (extras.presets === true) await ctx.plugin(FakePresets)
   if (extras.defaultModel === true) await ctx.plugin(FakeDefaultModel)
+  if (extras.modelPolicy === true) await ctx.plugin(FakeModelPolicy)
   await ctx.plugin(PeerHost, { dshHome: root })
   const key = identityKey()
   const record: PeerRecord = {
@@ -317,6 +327,32 @@ it('rejects unknown and revoked callers on every request family', async () => {
     .rejects.toThrowError(/INVALID_PAYLOAD/)
 })
 
+it('labels sessions by first line, empties reasoning-only replies, and resumes under a default model', async () => {
+  const multiline = await rig()
+  const long = await multiline.host.delegate({ proof: proofFor(multiline.key), prompt: `${'x'.repeat(100)}\nsecond` })
+  const sessions = await readPeerSessions(multiline.root)
+  expect(sessions.find(entry => entry.sessionId === long.sessionId)!.label).toBe('x'.repeat(64))
+  multiline.registry.reasoningOnly = true
+  const quiet = await multiline.host.delegate({ proof: proofFor(multiline.key), prompt: 'think quietly' })
+  expect(quiet).toMatchObject({ state: 'settled' })
+  expect(quiet.reply).toBeUndefined()
+  expect(quiet.endReason).toBe('completed')
+  const modelled = await rig(undefined, { defaultModel: true, modelPolicy: true })
+  modelled.registry.setupAgent = false
+  const seeded = await modelled.host.delegate({ proof: proofFor(modelled.key), prompt: 'p' })
+  modelled.registry.setupAgent = true
+  modelled.registry.hideGet = true
+  modelled.registry.setupAgent = false
+  const resumed = await modelled.host.followup({ proof: proofFor(modelled.key), sessionId: seeded.sessionId, prompt: 'q' })
+  expect(resumed.reply).toBe('done: q')
+  modelled.registry.hideGet = false
+  const states = await modelled.host.sessions({ proof: proofFor(modelled.key) })
+  expect(states.sessions.find(entry => entry.sessionId === seeded.sessionId)!.state).toBe('idle')
+  modelled.registry.entries.get(seeded.sessionId)!.status = 'running'
+  const active = await modelled.host.sessions({ proof: proofFor(modelled.key) })
+  expect(active.sessions.find(entry => entry.sessionId === seeded.sessionId)!.state).toBe('running')
+})
+
 it('drops registry entries for peers with no live agents on removal', async () => {
   const { root, host, key, registry } = await rig()
   await host.delegate({ proof: proofFor(key), prompt: 'p' })
@@ -331,13 +367,16 @@ it('drops registry entries for peers with no live agents on removal', async () =
 })
 
 it('composes delegated sessions through presets and the deployment default model', async () => {
-  const { host, key, registry, presets } = await rig(undefined, { presets: true, defaultModel: true })
+  const { host, key, registry, presets } = await rig(undefined, { presets: true, defaultModel: true, modelPolicy: true })
+  registry.setupAgent = false
   await host.delegate({ proof: proofFor(key), prompt: 'p', profile: 'standard' })
+  registry.setupAgent = true
+  await host.delegate({ proof: proofFor(key), prompt: 'p' })
   expect(registry.createOptions[0]).toMatchObject({
     meta: { origin: 'peer', agentProfile: 'standard' },
     agentOptions: { provider: 'deepseek', model: 'test-model' },
   })
-  expect(presets!.mounted).toHaveLength(1)
+  expect(presets!.mounted[0]).toContain('standard')
   await expect(host.delegate({ proof: proofFor(key), prompt: 'p', profile: 'missing' })).rejects.toThrowError(/INVALID_PAYLOAD/)
 })
 

@@ -134,6 +134,12 @@ it('maps wire reasons, messages, statuses, and bodies onto the closed vocabulary
   const narrated = { body: { type: 'server-response', rpcId: 'x', result: { ok: false, error: { code: 'internal', message: 'peer: SESSION_BUSY' } } } }
   await expect(runPeerFollowup({ ...options, fetch: scripted([...exchange, narrated]) }, identity, runResult.sessionId, 'p')).rejects.toThrowError(/SESSION_BUSY/)
   const unmatched = { body: { type: 'server-response', rpcId: 'x', result: { ok: false, error: { code: 'internal', message: 'something else' } } } }
+  const messageless = { body: { type: 'server-response', rpcId: 'x', result: { ok: false, error: { code: 'internal' } } } }
+  const messagelessFetch = scripted([...exchange, messageless])
+  await expect(runPeerFollowup({ ...options, fetch: messagelessFetch, timeoutMs: 5_000 }, identity, runResult.sessionId, 'p')).rejects.toThrowError(/TRANSPORT_FAILED/)
+  const defaultTimeoutFetch = scripted([...exchange, unmatched])
+  await expect(runPeerSessions({ target, home: root, origin: target.endpoint.origin, fetch: defaultTimeoutFetch }, identity))
+    .rejects.toThrowError(/TRANSPORT_FAILED/)
   const unmatchedFetch = scripted([...exchange, unmatched])
   await expect(runPeerSessions({ ...options, fetch: unmatchedFetch }, identity)).rejects.toThrowError(/TRANSPORT_FAILED/)
   await expect(runPeerDelegate({ ...options, fetch: scripted([...exchange, { status: 500, body: {} }]) }, identity, 'p')).rejects.toThrowError(/TRANSPORT_FAILED/)

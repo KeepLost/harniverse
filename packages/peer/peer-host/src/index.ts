@@ -91,9 +91,9 @@ export class PeerHost extends TypertRemoteService {
     try {
       return await body()
     } catch (error) {
-      if (error instanceof PeerError) throw new RemoteError('peer-failed', error.message, { reason: error.reason })
-      /* v8 ignore next -- every body failure maps onto PeerError; the passthrough guards internal defects */
-      throw error
+      /* v8 ignore next 2 -- every body failure maps onto PeerError; the passthrough guards internal defects */
+      if (!(error instanceof PeerError)) throw error
+      throw new RemoteError('peer-failed', error.message, { reason: error.reason })
     }
   }
 

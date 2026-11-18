@@ -271,6 +271,9 @@ it('runs delegated sessions with options, budgets, and continued turns', async (
   const resumed = await invoke(['send', targetId, sessionId, 'thanks', '--timeout', '10000'], initiator)
   expect(resumed.code).toBe(0)
   expect(resumed.out).toContain('echo: thanks')
+  const defaultBudget = await invoke(['send', targetId, sessionId, 'again'], initiator)
+  expect(defaultBudget.code).toBe(0)
+  expect(defaultBudget.out).toContain('echo: again')
 })
 
 it('rejects an invalid lifetime and prints help for a bare command', async () => {
@@ -351,6 +354,23 @@ it('covers the direct runner paths for missing fields and default lifetimes', as
   const defaultTtl = await invokeDirect({ operation: 'invite', dshHome: home, endpoint: 'https://build.example.org:8443' })
   expect(defaultTtl.code).toBe(1)
   expect(defaultTtl.err).toContain('first active Grant')
+  await writeFile(join(home, 'peer-targets.json'), JSON.stringify({
+    version: 1,
+    targets: [{
+      targetInstanceId: '3f2a8f9e-1111-4222-8333-444455556666',
+      displayName: 'Unreachable', endpoint: { origin: 'http://127.0.0.1:1' },
+      transport: { kind: 'direct' }, grantName: 'peer-3f2a8f9e-1111-4222-8333-444455556666',
+      grantId: 'gone', status: 'active', addedAt: '2026-01-01T00:00:00.000Z',
+    }],
+  }))
+  const sendWithoutBudget = await invokeDirect({
+    operation: 'send', dshHome: home,
+    instanceId: '3f2a8f9e-1111-4222-8333-444455556666',
+    sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef',
+    prompt: 'p',
+  })
+  expect(sendWithoutBudget.code).toBe(1)
+  expect(sendWithoutBudget.err).not.toContain('RECORD_NOT_FOUND')
 })
 
 it('pairs through a stubbed SSH forward to a live target', async () => {

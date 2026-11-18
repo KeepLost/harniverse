@@ -145,6 +145,7 @@ export function resolvePeerCwd(home: string, instanceId: PeerInstanceId, relativ
  * @returns the first line truncated to 64 characters.
  */
 function labelOf(prompt: string): string {
+  /* v8 ignore next -- split always yields one element; the fallback names the impossible */
   const firstLine = prompt.split('\n', 1)[0] ?? ''
   return firstLine.length <= 64 ? firstLine : firstLine.slice(0, 64)
 }
