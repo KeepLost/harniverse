@@ -65,6 +65,51 @@ async function pendingEnrollment(dshHome: string, name: string, kind: 'device' |
 }
 
 describe('invitation redemption admission', () => {
+
+  it('redeems a peer-kind invitation into an api-client Grant with the pairing capability', async () => {
+    const dshHome = await home()
+    const ctx = await boot(dshHome)
+    const owner = await import('../src/grant-registry.ts').then(module =>
+      module.createAuthenticationClientGrant({ name: 'owner', publicKey: publicKey(), capabilities: [...OWNER_CAPS] }, { dshHome }))
+    void owner
+    const invitation = await issueEnrollmentInvitation({
+      capabilities: ['harniverse.peer'], kind: 'peer', ttlMs: 60_000,
+    }, { dshHome })
+    const request = await ctx.authentication.requestEnrollment({ name: 'peer-3f2a8f9e-1111-4222-8333-444455556666', kind: 'peer', publicKey: publicKey() })
+    if (request.kind !== 'accepted') throw new Error(`enrollment rejected: ${request.reason}`)
+    const decision = await ctx.authentication.redeemEnrollmentInvitation(request.value.id, invitation.token, PEER)
+    expect(decision.kind).toBe('accepted')
+    if (decision.kind !== 'accepted') return
+    const grants = await import('../src/grant-registry.ts').then(module => module.listAuthenticationGrants({ dshHome }))
+    const grant = grants.find(entry => entry.id === decision.value.grantId)
+    expect(grant).toMatchObject({ name: 'peer-3f2a8f9e-1111-4222-8333-444455556666', kind: 'api-client', capabilities: ['harniverse.peer'] })
+  })
+
+  it('redeems a device-kind invitation into a device Grant and rejects revoking an unknown invitation', async () => {
+    const dshHome = await home()
+    const ctx = await boot(dshHome)
+    const registry = await import('../src/grant-registry.ts')
+    await registry.createAuthenticationClientGrant({ name: 'owner', publicKey: publicKey(), capabilities: [...OWNER_CAPS] }, { dshHome })
+    const invitation = await registry.issueEnrollmentInvitation({
+      capabilities: ['harniverse.observe'], kind: 'device', ttlMs: 60_000,
+    }, { dshHome })
+    const request = await ctx.authentication.requestEnrollment({ name: 'Laptop', kind: 'device', publicKey: publicKey() })
+    if (request.kind !== 'accepted') throw new Error(`enrollment rejected: ${request.reason}`)
+    const decision = await ctx.authentication.redeemEnrollmentInvitation(request.value.id, invitation.token, PEER)
+    expect(decision.kind).toBe('accepted')
+    if (decision.kind !== 'accepted') return
+    const grants = await registry.listAuthenticationGrants({ dshHome })
+    const grant = grants.find(entry => entry.id === decision.value.grantId)
+    expect(grant).toMatchObject({ name: 'Laptop', kind: 'device', capabilities: ['harniverse.observe'] })
+    await expect(registry.revokeEnrollmentInvitation('missing-invitation-id', { dshHome })).rejects.toThrow(/does not exist/)
+    const pending = await ctx.authentication.requestEnrollment({
+      name: 'peer-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', kind: 'peer', publicKey: publicKey(),
+    })
+    if (pending.kind !== 'accepted') throw new Error(`enrollment rejected: ${pending.reason}`)
+    const approved = await registry.approveEnrollmentRequest(pending.value.id, { capabilities: ['harniverse.peer'] }, { dshHome })
+    expect(approved.kind).toBe('api-client')
+  })
+
   it('redeems through the service seam and exposes the resulting Grant', async () => {
     const dshHome = await home()
     const ctx = await boot(dshHome)

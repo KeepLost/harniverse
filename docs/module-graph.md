@@ -152,6 +152,7 @@ flowchart TD
     pkg_base["base"]
     pkg_chat_app["chat-app"]
     pkg_headless["headless"]
+    pkg_peer_app["peer-app"]
     pkg_web_app["web-app"]
   end
   subgraph group_capability["packages/capability"]
@@ -332,6 +333,11 @@ flowchart TD
   subgraph group_monitor["packages/monitor"]
     pkg_governor["governor"]
   end
+  subgraph group_peer["packages/peer"]
+    pkg_peer_client["peer-client"]
+    pkg_peer_host["peer-host"]
+    pkg_peer_protocol["peer-protocol"]
+  end
   subgraph group_preset["packages/preset"]
     pkg_agent_presets["agent-presets"]
     pkg_environment["environment"]
@@ -489,6 +495,7 @@ flowchart TD
   pkg_auth_app --> pkg_invariants
   pkg_base --> pkg_invariants
   pkg_chat_app --> pkg_invariants
+  pkg_peer_app --> pkg_invariants
   pkg_chat_adapter --> pkg_invariants
   pkg_client_authentication --> pkg_invariants
   pkg_client_schema_form --> pkg_invariants
@@ -507,6 +514,8 @@ flowchart TD
   pkg_host_directory_picker_browse --> pkg_invariants
   pkg_host_directory_picker_native --> pkg_invariants
   pkg_host_webserver --> pkg_invariants
+  pkg_peer_client --> pkg_invariants
+  pkg_peer_protocol --> pkg_invariants
   pkg_plugin_diagnostics --> pkg_invariants
   pkg_speech --> pkg_invariants
   pkg_remote_hosts_ssh --> pkg_invariants
@@ -534,6 +543,10 @@ flowchart TD
   pkg_host_plugin_inventory --> pkg_invariants
   pkg_host_plugin_inventory --> pkg_plugin_diagnostics
   pkg_host_plugin_inventory --> pkg_typert_protocol
+  pkg_peer_host --> pkg_home_paths
+  pkg_peer_host --> pkg_invariants
+  pkg_peer_host --> pkg_peer_protocol
+  pkg_peer_host --> pkg_typert_protocol
   pkg_settings --> pkg_brand
   pkg_settings --> pkg_invariants
   pkg_speech_openai --> pkg_invariants
@@ -2310,6 +2323,7 @@ flowchart TD
 | [`auth-app`](../packages/bundle/auth-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`chat-app`](../packages/bundle/chat-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`peer-app`](../packages/bundle/peer-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`chat-adapter`](../packages/chat/chat-adapter) | `chat` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-authentication`](../packages/client/authentication) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2328,6 +2342,8 @@ flowchart TD
 | [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`peer-client`](../packages/peer/peer-client) | `peer` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`peer-protocol`](../packages/peer/peer-protocol) | `peer` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | `runtime-diagnostics` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`speech`](../packages/speech/speech) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2345,6 +2361,7 @@ flowchart TD
 | [`credentials`](../packages/credentials/credentials) | `credentials` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-frontend-static`](../packages/host/frontend-static) | `host` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics), [`typert-protocol`](../packages/typert/protocol) |
+| [`peer-host`](../packages/peer/peer-host) | `peer` | [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`peer-protocol`](../packages/peer/peer-protocol), [`typert-protocol`](../packages/typert/protocol) |
 | [`settings`](../packages/settings/settings) | `settings` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`speech-openai`](../packages/speech/speech-openai) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`speech`](../packages/speech/speech) |
 | [`speech-sensevoice`](../packages/speech/speech-sensevoice) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`speech`](../packages/speech/speech) |

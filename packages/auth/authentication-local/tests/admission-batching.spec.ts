@@ -86,7 +86,7 @@ describe('authentication admission batching', () => {
       kind: 'accepted',
       principal: {
         kind: 'bypass',
-        capabilities: ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize'],
+        capabilities: ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize', 'harniverse.peer'],
       },
     })))
   })

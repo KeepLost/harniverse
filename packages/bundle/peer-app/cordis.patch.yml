@@ -1,0 +1,23 @@
+# One-shot peer pairing management without the serving composition.
+
+- insert:
+    - id: peer-startup
+      name: '@deepseek-ai/dsh-peer-app/startup'
+
+    - id: remote-hosts-ssh
+      name: '@deepseek-ai/dsh-remote-hosts-ssh'
+
+    - id: peer-runner
+      name: '@deepseek-ai/dsh-peer-app'
+      inject: [peerStartup, remoteHostSsh]
+      config:
+        operation: !!js ctx.peerStartup.operation
+        uri: !!js ctx.peerStartup.uri
+        endpoint: !!js ctx.peerStartup.endpoint
+        displayName: !!js ctx.peerStartup.displayName
+        ttl: !!js ctx.peerStartup.ttl
+        fingerprint: !!js ctx.peerStartup.fingerprint
+        sshHost: !!js ctx.peerStartup.sshHost
+        instanceId: !!js ctx.peerStartup.instanceId
+        timeoutMs: !!js ctx.peerStartup.timeoutMs
+        dshHome: !!js process.env.DSH_HOME

@@ -306,6 +306,7 @@ function isSupportedCapability(value: unknown): value is AuthenticationCapabilit
     || value === 'harniverse.operate'
     || value === 'harniverse.administer'
     || value === 'harniverse.authorize'
+    || value === 'harniverse.peer'
 }
 
 function sameInvocation(left: RemoteInvocationMarker, right: RemoteInvocationMarker): boolean {

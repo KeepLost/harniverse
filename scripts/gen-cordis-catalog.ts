@@ -50,6 +50,7 @@ export { REGION_BEGIN, REGION_END }
  * errors, so the partition can never silently drift from the service API.
  */
 export const SERVICE_PAGE: Record<string, string> = {
+  peerHost: 'peer.md',
   agentLoop: 'core.md',
   agentDefaultModel: 'core.md',
   modelPolicy: 'model-policy.md',
@@ -203,6 +204,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
  * {@link EVENT_WALK_EXEMPTIONS} names each one with its documentation owner.
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
+  peer: 'peer.md',
   'subprocess': 'subprocess.md',
   'workspace': 'workspace.md',
   'workspace-file': 'workspace.md',
@@ -269,6 +271,13 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  * appear on more than one page.
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
+  PeerRecord: 'peer.md',
+  PeerSurface: 'peer.md',
+  PeerInstanceId: 'peer.md',
+  PeerHello: 'peer.md',
+  PeerHelloInput: 'peer.md',
+  PeerTarget: 'peer.md',
+  InstanceIdentity: 'peer.md',
   SshStreamEndpoint: 'ssh.md',
   WorldDescription: 'ssh.md',
   ChatAdapter: 'chat-bridge.md',

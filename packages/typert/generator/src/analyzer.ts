@@ -61,6 +61,7 @@ const AUTHENTICATION_CAPABILITIES = new Set<InvocationModel['requiredCapability'
   'harniverse.operate',
   'harniverse.administer',
   'harniverse.authorize',
+  'harniverse.peer',
 ])
 
 type WithoutId<T> = T extends { readonly id: TypeNodeId } ? Omit<T, 'id'> : never

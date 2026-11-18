@@ -702,6 +702,7 @@ function isSupportedCapability(value: unknown): boolean {
     || value === 'harniverse.operate'
     || value === 'harniverse.administer'
     || value === 'harniverse.authorize'
+    || value === 'harniverse.peer'
 }
 
 function validateCodec(codec: InvocationDescriptor['result'], subject: string): void {
