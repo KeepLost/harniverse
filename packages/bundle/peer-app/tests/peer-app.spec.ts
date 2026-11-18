@@ -253,6 +253,26 @@ it('runs, sends, and lists delegated sessions through the CLI composition', asyn
   expect(unknown.err).toContain('RECORD_NOT_FOUND')
 })
 
+it('runs delegated sessions with options, budgets, and continued turns', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  const uri = inviteUri(invited.out)
+  const initiator = await temporary('peer-app-initiator-')
+  await invoke(['add', uri, '--timeout', '20000'], initiator)
+  const targetId = target.identity.instanceId
+  const withOptions = await invoke(['run', targetId, 'summarize', 'the', 'tree', '--cwd', 'repo/src', '--profile', 'none'], initiator)
+  expect(withOptions.code).toBe(0)
+  expect(withOptions.out).toContain('echo: summarize the tree')
+  const running = await invoke(['run', targetId, 'still', 'working', '--timeout', '1'], initiator)
+  expect(running.code).toBe(0)
+  expect(running.out).toContain('running')
+  expect(running.out).not.toContain('echo:')
+  const sessionId = running.out.split('\n')[0]!.split('\t')[1]!
+  const resumed = await invoke(['send', targetId, sessionId, 'thanks', '--timeout', '10000'], initiator)
+  expect(resumed.code).toBe(0)
+  expect(resumed.out).toContain('echo: thanks')
+})
+
 it('rejects an invalid lifetime and prints help for a bare command', async () => {
   const home = await temporary('peer-app-ttl-')
   const badTtl = await invoke(['invite', '--endpoint', 'https://build.example.org:8443', '--ttl', 'abc'], home)
@@ -378,11 +398,15 @@ it('pairs through a stubbed SSH forward to a live target', async () => {
       authentication: { kind: 'key', keyPath }, reverseMappings: [],
     }],
   }))
+  const overrides = { 'remote-hosts-ssh': { default: Ssh } }
   const agentAdded = await invoke(['add', `dsh-peer://${Buffer.from(JSON.stringify({
     version: 1, instanceId: target.identity.instanceId, displayName: target.identity.displayName,
     endpoint: { origin: 'http://127.0.0.1:9' }, token: (await target.invite()).token,
-  })).toString('base64url')}`, '--ssh-host', 'box', '--timeout', '20000'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
+  })).toString('base64url')}`, '--ssh-host', 'box', '--timeout', '20000'], registryHome, overrides)
   expect(agentAdded.code).toBe(0)
+  const tunneled = await invoke(['run', target.identity.instanceId, 'through', 'the', 'tunnel', '--timeout', '10000'], registryHome, overrides)
+  expect(tunneled.code).toBe(0)
+  expect(tunneled.out).toContain('echo: through the tunnel')
 
   const uri = `dsh-peer://${Buffer.from(JSON.stringify({
     version: 1, instanceId: target.identity.instanceId, displayName: target.identity.displayName,
@@ -392,7 +416,7 @@ it('pairs through a stubbed SSH forward to a live target', async () => {
   const added = await invoke(['add', uri, '--ssh-host', 'keybox', '--timeout', '20000'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
   expect(added.code).toBe(0)
   expect(added.out).toContain('paired\t')
-  expect(forwards).toEqual([Number(new URL(target.origin).port), Number(new URL(target.origin).port)])
+  expect(forwards).toEqual([Number(new URL(target.origin).port), Number(new URL(target.origin).port), Number(new URL(target.origin).port)])
   expect(await readFile(join(registryHome, 'peer-targets.json'), 'utf8')).toContain('"kind":"ssh"')
 })
 

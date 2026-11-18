@@ -323,6 +323,14 @@ describe('JsonlSessionPersistence: bounded page reads on plain logs', () => {
     })
     const listed = (await persistence.list()).find(header => header.id === m.id)
     expect(listed).toMatchObject({ origin: 'subagent', agentProfile: 'standard' })
+    const peer = {
+      ...meta('peer-child', '/work'),
+      origin: 'peer' as const,
+    }
+    await persistence.create(peer)
+    await persistence.append(peer.id, oneTurnLog())
+    expect((await persistence.load(peer.id)).meta).toMatchObject({ id: peer.id, origin: 'peer' })
+    expect((await persistence.list()).find(header => header.id === peer.id)).toMatchObject({ origin: 'peer' })
   })
 })
 

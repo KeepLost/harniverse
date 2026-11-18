@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { PeerError, ensureInstanceIdentity, peerHelloMessage, peerInstanceId } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerRecord } from '@deepseek-ai/dsh-peer-protocol'
 import PeerHost from '../src/index.ts'
@@ -97,6 +97,35 @@ it('refreshes an existing peer without re-emitting the paired event and keeps th
   expect(Date.parse(after.lastSeenAt)).toBeGreaterThan(Date.parse(before.lastSeenAt))
 })
 
+it('expires outstanding challenges and evicts the oldest past the pending bound', async () => {
+  const root = await home()
+  await ensureInstanceIdentity(root)
+  const { peerHost: host } = await mount(root)
+  const first = (await host.challenge()).challenge
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(Date.now() + 6 * 60_000)
+    for (let index = 0; index < 257; index += 1) await host.challenge()
+  } finally {
+    vi.useRealTimers()
+  }
+  await expect(handshake(host, { challenge: first })).rejects.toThrowError(/CHALLENGE_EXPIRED/)
+  const { peerHost: fresh } = await mount(root)
+  const expiryKey = identityKey()
+  const minted = (await fresh.challenge()).challenge
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(Date.now() + 6 * 60_000)
+    await expect(fresh.hello({
+      challenge: minted,
+      identity: { ...initiator },
+      proof: { publicKey: expiryKey.publicKey, signature: expiryKey.sign(peerHelloMessage(initiator.instanceId, minted)) },
+    })).rejects.toThrowError(/CHALLENGE_EXPIRED/)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('rejects unknown, reused, and stale challenges; forged proofs; and foreign keys', async () => {
   const root = await home()
   await ensureInstanceIdentity(root)
@@ -139,6 +168,9 @@ it('rejects invalid hellos, revoked peers, VM worlds, and missing self identity'
   const challenge = (await host.challenge()).challenge
   const proof = { publicKey: key.publicKey, signature: key.sign(peerHelloMessage(initiator.instanceId, challenge)) }
   await expect(host.hello({ challenge, identity: { ...initiator, displayName: '' }, proof })).rejects.toThrowError(/INVALID_HELLO/)
+  await expect(host.hello({ challenge, identity: { ...initiator, arch: '' }, proof })).rejects.toThrowError(/INVALID_HELLO/)
+  await expect(host.hello({ challenge, identity: { ...initiator, version: 5 as never }, proof })).rejects.toThrowError(/INVALID_HELLO/)
+  await expect(host.hello({ challenge, identity: { ...initiator, platform: {} as never }, proof })).rejects.toThrowError(/INVALID_HELLO/)
   await expect(host.hello({ identity: { ...initiator }, proof } as never)).rejects.toThrowError(/INVALID_HELLO/)
   await expect(host.hello({ challenge, proof } as never)).rejects.toThrowError(/INVALID_HELLO/)
   await expect(host.hello({ challenge, identity: { ...initiator, extra: true }, proof } as never)).rejects.toThrowError(/INVALID_HELLO/)

@@ -81,8 +81,7 @@ export async function callPeerRemote(access: GrantAccess, origin: string, method
   }
   const record = body as { type?: unknown; rpcId?: unknown; result?: { ok?: unknown; value?: unknown; error?: { message?: unknown } } }
   if (record.type !== 'server-response' || record.rpcId !== rpcId || record.result?.ok !== true) {
-    console.log('[debug] raw:', JSON.stringify(body))
-    throw peerErrorOf(record.result?.error?.message, method)
+    throw peerErrorOf(record.result?.error, method)
   }
   return record.result.value
 }
