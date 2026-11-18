@@ -2353,7 +2353,7 @@ export interface PeerStartupValues {
 export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions'
 ```
 
-Source: [`packages/bundle/peer-app/src/index.ts:46`](../packages/bundle/peer-app/src/index.ts)
+Source: [`packages/bundle/peer-app/src/index.ts:47`](../packages/bundle/peer-app/src/index.ts)
 
 <a id="deepseek-aidsh-peer-host"></a>
 

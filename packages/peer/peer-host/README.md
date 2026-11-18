@@ -38,11 +38,19 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
 
 ## Model Experience
 
-Delegated sessions run real agent turns on this instance under the caller's prompt; the model sees one ordinary user turn per delivered prompt inside the delegated session's own log, exactly as a local prompt of the same text. The accepting instance's own sessions never see peer prompts, so their token usage and cache behavior are unchanged.
+### Delegated turns
+
+#### What the model sees
+
+One `peer/delegate` or `peer/followup` prompt arrives as an ordinary user message inside the delegated session's own log; the agent runs the same turn it would for a local prompt of the same text, with no peer-specific markers on the model-visible surface.
+
+#### Token effect
+
+Identical to a local prompt of the same text; the accepting instance's own sessions never see peer prompts.
 
 #### KV Cache effect
 
-None for local sessions; each delegated session carries its own conversation and cache prefix, so a peer turn never reuses or evicts a local session's prefix.
+Each delegated session carries its own conversation and cache prefix, so a peer turn never reuses or evicts a local session's prefix.
 
 ## Known Limitations and Deferred Work
 

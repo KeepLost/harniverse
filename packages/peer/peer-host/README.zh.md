@@ -38,11 +38,19 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
 
 ## Model Experience
 
-无:该插件不注册任何工具、提示或 Session 事件;已配对面通过未来的委派与消息包到达模型。
+### 被委派回合
+
+#### What the model sees
+
+一条 `peer/delegate` 或 `peer/followup` 提示词以普通用户消息进入被委派会话自身的日志;agent 运行与同文本本地提示词完全相同的回合,模型可见面上没有任何 peer 特有标记。
+
+#### Token effect
+
+与同文本本地提示词一致;接受方自己的会话永远看不到 peer 提示词。
 
 #### KV Cache effect
 
-无;本插件不组装任何模型输入。
+每个被委派会话携带自己的对话与缓存前缀,peer 回合不会复用或逐出本地会话的前缀。
 
 ## Known Limitations and Deferred Work(已知限制与后续工作)
 
