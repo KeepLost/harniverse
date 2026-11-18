@@ -1865,6 +1865,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'peerHost',
+    summary: 'Peer acceptance service; the store file is the authority and events are live-process observations.',
+    description: 'Peer acceptance service; the store file is the authority and events are live-process observations.',
+    methods: [
+      {
+        signature: 'readonly home: string',
+        description: 'Resolved Harness home holding the identity file and the peer store.',
+        parameters: [],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async hello(identity: PeerHelloInput): Promise<PeerHello>',
+        description: 'Answer one authenticated peer\'s identity readback and commit its paired record.',
+        parameters: [{ name: 'identity', description: 'the initiator\'s self-asserted home identity.' }],
+        returns: 'this instance\'s identity and the approved surface.',
+      },
+      {
+        signature: 'async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>',
+        description: 'Remove one paired-peer record and report the removed record\'s final state.',
+        parameters: [{ name: 'instanceId', description: 'exact instance id to remove.' }],
+        returns: 'the removed record.',
+        throws: ['a {@link PeerError} with `RECORD_NOT_FOUND` when no such peer is stored.'],
+      },
+    ],
+  },
+  {
     key: 'permissionPresets',
     summary: 'Owns the deployment\'s permission presets and their write path.',
     description: 'Owns the deployment\'s permission presets and their write path. Requires a confining `ctx.shell` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.',
@@ -4441,6 +4466,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'peer/paired',
+    mode: 'emit',
+    signature: '\'peer/paired\'(record: PeerRecord): void',
+    summary: 'Emitted after one peer\'s first `peer/hello` appended its record.',
+    description: 'Emitted after one peer\'s first `peer/hello` appended its record.',
+    parameters: [{ name: 'record', description: 'the committed paired-peer record.' }],
+  },
+  {
+    name: 'peer/removed',
+    mode: 'emit',
+    signature: '\'peer/removed\'(record: PeerRecord): void',
+    summary: 'Emitted after one paired-peer record was removed from the store.',
+    description: 'Emitted after one paired-peer record was removed from the store.',
+    parameters: [{ name: 'record', description: 'the removed record\'s final state.' }],
+  },
+  {
     name: 'remote-runtime/ownerless',
     mode: 'emit',
     signature: '\'remote-runtime/ownerless\'(): void',
@@ -4918,7 +4959,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AuthenticationCapability',
-    declaration: 'export type AuthenticationCapability = \'harniverse.observe\' | \'harniverse.operate\' | \'harniverse.administer\' | \'harniverse.authorize\';',
+    declaration: 'export type AuthenticationCapability = \'harniverse.observe\' | \'harniverse.operate\' | \'harniverse.administer\' | \'harniverse.authorize\' | \'harniverse.peer\';',
   },
   {
     name: 'AuthenticationChallenge',
@@ -4962,7 +5003,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AuthenticationEnrollmentKind',
-    declaration: 'export type AuthenticationEnrollmentKind = \'device\' | \'temporary\';',
+    declaration: 'export type AuthenticationEnrollmentKind = \'device\' | \'temporary\' | \'peer\';',
   },
   {
     name: 'AuthenticationEnrollmentStatus',
@@ -6463,6 +6504,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OwnerView',
     declaration: 'export interface OwnerView {\n    key: string;\n    platform: string;\n    userId: string;\n    displayName?: string;\n    pairedAt: number;\n}',
+  },
+  {
+    name: 'PeerHello',
+    declaration: 'export interface PeerHello {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n}',
+  },
+  {
+    name: 'PeerHelloInput',
+    declaration: 'export interface PeerHelloInput {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n}',
+  },
+  {
+    name: 'PeerInstanceId',
+    declaration: 'export type PeerInstanceId = string;',
+  },
+  {
+    name: 'PeerRecord',
+    declaration: 'export interface PeerRecord {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n    pairedVia: \'invitation\';\n    status: \'active\' | \'revoked\';\n    firstSeenAt: string;\n    lastSeenAt: string;\n}',
+  },
+  {
+    name: 'PeerSurface',
+    declaration: 'export interface PeerSurface {\n    delegate: boolean;\n    message: boolean;\n    list: boolean;\n}',
   },
   {
     name: 'PermissionSelect',

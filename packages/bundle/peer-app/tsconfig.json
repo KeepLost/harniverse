@@ -1,0 +1,18 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../peer/peer-client" },
+    { "path": "../../peer/peer-host" },
+    { "path": "../../peer/peer-protocol" },
+    { "path": "../../auth/authentication" },
+    { "path": "../../auth/authentication-local" },
+    { "path": "../../boot/cmdline" },
+    { "path": "../../ssh/remote-hosts" },
+    { "path": "../../ssh/remote-hosts-ssh" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

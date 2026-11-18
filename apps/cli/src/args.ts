@@ -212,6 +212,19 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       resolved = { mode: 'profile', profile: 'auth', patches: [], args }
     })
 
+  const peer = program.command('peer').description('manage instance pairing (alias of --profile peer); app arguments follow')
+  peer
+    .helpOption(false)
+    .allowUnknownOption()
+    .passThroughOptions()
+    .enablePositionalOptions()
+    .argument('[args...]', 'arguments for the peer pairing app (see: dsh peer --help)')
+    .action((args: string[]) => {
+      rejectParentOptions('peer')
+      if (args.length === 0) resolved = { mode: 'profile', profile: 'peer', patches: [], args: ['--help'] }
+      else resolved = { mode: 'profile', profile: 'peer', patches: [], args }
+    })
+
   const chat = program.command('chat').description('bridge IM platforms to a local Harniverse (alias of --profile chat); app arguments follow')
   chat
     .helpOption(false)

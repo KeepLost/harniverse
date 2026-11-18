@@ -118,6 +118,7 @@ export function resolveProfileDir(name: string, home: string = resolveDshHome())
 export const PROFILE_TEMPLATES: Record<string, readonly string[]> = {
   auth: ['@deepseek-ai/dsh-auth-app'],
   chat: ['@deepseek-ai/dsh-chat-app'],
+  peer: ['@deepseek-ai/dsh-peer-app'],
   web: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
   headless: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
 }

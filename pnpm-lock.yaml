@@ -281,6 +281,9 @@ importers:
       '@deepseek-ai/dsh-mcp-user-config':
         specifier: workspace:^
         version: link:../../packages/mcp/mcp-user-config
+      '@deepseek-ai/dsh-peer-app':
+        specifier: workspace:^
+        version: link:../../packages/bundle/peer-app
       '@deepseek-ai/dsh-persona':
         specifier: workspace:^
         version: link:../../packages/preset/persona
@@ -2027,6 +2030,46 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+
+  packages/bundle/peer-app:
+    dependencies:
+      '@deepseek-ai/dsh-authentication':
+        specifier: workspace:^
+        version: link:../../auth/authentication
+      '@deepseek-ai/dsh-authentication-local':
+        specifier: workspace:^
+        version: link:../../auth/authentication-local
+      '@deepseek-ai/dsh-cmdline':
+        specifier: workspace:^
+        version: link:../../boot/cmdline
+      '@deepseek-ai/dsh-peer-client':
+        specifier: workspace:^
+        version: link:../../peer/peer-client
+      '@deepseek-ai/dsh-peer-host':
+        specifier: workspace:^
+        version: link:../../peer/peer-host
+      '@deepseek-ai/dsh-peer-protocol':
+        specifier: workspace:^
+        version: link:../../peer/peer-protocol
+      '@deepseek-ai/dsh-remote-hosts':
+        specifier: workspace:^
+        version: link:../../ssh/remote-hosts
+      '@deepseek-ai/dsh-remote-hosts-ssh':
+        specifier: workspace:^
+        version: link:../../ssh/remote-hosts-ssh
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
 
   packages/bundle/web-app:
     dependencies:
@@ -9120,6 +9163,69 @@ importers:
       '@deepseek-ai/dsh-storage-json':
         specifier: workspace:^
         version: link:../../storage/storage-json
+
+  packages/peer/peer-client:
+    dependencies:
+      '@deepseek-ai/dsh-peer-protocol':
+        specifier: workspace:^
+        version: link:../peer-protocol
+      '@deepseek-ai/dsh-sdk-client':
+        specifier: workspace:^
+        version: link:../../sdk/client
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
+  packages/peer/peer-host:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-api-gateway':
+        specifier: workspace:^
+        version: link:../../api/gateway
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../../client/connection
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:^
+        version: link:../../util/home-paths
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-peer-protocol':
+        specifier: workspace:^
+        version: link:../peer-protocol
+      '@deepseek-ai/dsh-typert-generator':
+        specifier: workspace:^
+        version: link:../../typert/generator
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:^
+        version: link:../../typert/protocol
+
+  packages/peer/peer-protocol:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
 
   packages/plan/plan-mode:
     dependencies:

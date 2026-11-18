@@ -21,6 +21,7 @@ import { authSecrets, connectSchema, listKeyFilesSchema, parseHostInput, remoteH
 import type { ActiveReverseMapping, Config, ConnectHostInput, ConnectivityResult, HostRecord, KeyFileListing, KeyFilePicker, ListKeyFilesInput, PickKeyFileResult, RemoteHostId, RemoteHostsProvider, RemoteHostState, RemoteHostView, UpsertHostInput, VerifyHostInput, RemoteHostProgress } from './types.ts'
 
 export type * from './types.ts'
+export { HostRegistry } from './registry.ts'
 export { remoteHostId, RemoteHostsError } from './validation.ts'
 declare module '@deepseek-ai/cordis' { interface Context { remoteHosts: RemoteHostsProvider } }
 

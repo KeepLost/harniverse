@@ -2309,6 +2309,61 @@ export type NotificationTurnReasonKind = NotificationTurnReason['kind']
 
 来源：[`packages/notification/notification-http/src/index.ts:50`](../packages/notification/notification-http/src/index.ts)
 
+<a id="deepseek-aidsh-peer-app"></a>
+
+## `@deepseek-ai/dsh-peer-app`
+
+需要：`peerStartup` · `remoteHostSsh`
+
+```ts config-catalog
+/** Peer pairing runner configuration. */
+export interface Config extends PeerStartupValues {
+  /** Harness home of this instance. */
+  dshHome?: string
+}
+
+/** One parsed peer pairing invocation. */
+export interface PeerStartupValues {
+  /** Selected pairing operation. */
+  operation: PeerOperation
+  /** Pasted `dsh-peer:` invitation URI for `add`. */
+  uri?: string
+  /** Target origin advertised in the invitation for `invite`. */
+  endpoint?: string
+  /** Display name for the invitation or this instance. */
+  displayName?: string
+  /** Invitation lifetime, such as `30s`, `10m`, or `7d`. */
+  ttl?: string
+  /** SHA-256 TLS certificate fingerprint, base64, for HTTPS endpoints. */
+  fingerprint?: string
+  /** remote-hosts record name dialed for a tunneled `add`. */
+  sshHost?: string
+  /** Instance id targeted by `remove` or `forget`. */
+  instanceId?: string
+  /** Per-request timeout in milliseconds for `add`. */
+  timeoutMs?: number
+}
+
+/** Supported peer pairing operations. */
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget'
+```
+
+来源：[`packages/bundle/peer-app/src/index.ts:38`](../packages/bundle/peer-app/src/index.ts)
+
+<a id="deepseek-aidsh-peer-host"></a>
+
+## `@deepseek-ai/dsh-peer-host`
+
+```ts config-catalog
+/** Home-relative peer store configuration. */
+export interface PeerHostConfig {
+  /** Harness home holding `instance.json` and `peers.json`; defaults to standard resolution. */
+  dshHome?: string
+}
+```
+
+来源：[`packages/peer/peer-host/src/types.ts:5`](../packages/peer/peer-host/src/types.ts)
+
 <a id="deepseek-aidsh-permission-presets"></a>
 
 ## `@deepseek-ai/dsh-permission-presets`
@@ -4938,6 +4993,8 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-loader-smoke`（[`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts)）
 - `@deepseek-ai/dsh-native-command`（[`packages/util/native-command/src/index.ts`](../packages/util/native-command/src/index.ts)）
 - `@deepseek-ai/dsh-output-retention`（[`packages/util/output-retention/src/index.ts`](../packages/util/output-retention/src/index.ts)）
+- `@deepseek-ai/dsh-peer-client`（[`packages/peer/peer-client/src/index.ts`](../packages/peer/peer-client/src/index.ts)）
+- `@deepseek-ai/dsh-peer-protocol`（[`packages/peer/peer-protocol/src/index.ts`](../packages/peer/peer-protocol/src/index.ts)）
 - `@deepseek-ai/dsh-remote-mock`（[`packages/test-support/remote-mock/src/index.ts`](../packages/test-support/remote-mock/src/index.ts)）
 - `@deepseek-ai/dsh-sandbox-windows-acl`（[`packages/sandbox/sandbox-windows-acl/src/index.ts`](../packages/sandbox/sandbox-windows-acl/src/index.ts)）
 - `@deepseek-ai/dsh-scope`（[`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts)）

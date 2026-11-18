@@ -173,6 +173,15 @@
         dshHome: !!js dshHomePath()
         artifactsRoot: !!js dshHomePath('artifacts')
 
+    # Accepting side of instance pairing: the capability-gated peer/hello
+    # Remote and the paired-peer store. A VM execution world composes no
+    # peer surface, and the service refuses hello from VM homes as well.
+    - id: peer-host
+      name: '@deepseek-ai/dsh-peer-host'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
+      config:
+        dshHome: !!js dshHomePath()
+
     # Session-scoped interactive USER terminals for the browser panel: a Host
     # Remote over the subprocess PTY seam (never sandbox-confined, never
     # model-visible), exposed through the gateway's terminal/* endpoints and

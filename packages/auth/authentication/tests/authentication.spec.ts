@@ -27,6 +27,7 @@ describe('authentication principals', () => {
       'harniverse.operate',
       'harniverse.administer',
       'harniverse.authorize',
+      'harniverse.peer',
     ])
     expect(ALL_AUTHENTICATION_CAPABILITIES.every(isAuthenticationCapability)).toBe(true)
     expect(isAuthenticationCapability('harniverse.unknown')).toBe(false)

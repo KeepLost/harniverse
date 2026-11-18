@@ -2155,6 +2155,21 @@
       "doc": "docs/subsystems/workspace.md",
       "symbol": "WorkspaceId",
       "source": "packages/workspace/workspace/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/peer.md",
+      "symbol": "PeerRecord",
+      "source": "packages/peer/peer-protocol/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/peer.md",
+      "symbol": "PeerSurface",
+      "source": "packages/peer/peer-protocol/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/peer.md",
+      "symbol": "PeerInstanceId",
+      "source": "packages/peer/peer-protocol/src/types.ts"
     }
   ]
 }

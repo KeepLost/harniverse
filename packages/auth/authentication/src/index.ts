@@ -20,13 +20,15 @@ export type AuthenticationCapability =
   | 'harniverse.operate'
   | 'harniverse.administer'
   | 'harniverse.authorize'
+  | 'harniverse.peer'
 
-/** Complete capability vocabulary in stable least-to-most-sensitive order. */
+/** Complete capability vocabulary in stable least-to-most-sensitive order; `harniverse.peer` is the orthogonal pairing class. */
 export const ALL_AUTHENTICATION_CAPABILITIES: readonly AuthenticationCapability[] = [
   'harniverse.observe',
   'harniverse.operate',
   'harniverse.administer',
   'harniverse.authorize',
+  'harniverse.peer',
 ]
 
 /**
@@ -182,8 +184,8 @@ export interface AuthenticationRevocation {
   grants: AuthenticationGrantRevision[]
 }
 
-/** Public-key enrollment category available before browser plugin loading. */
-export type AuthenticationEnrollmentKind = 'device' | 'temporary'
+/** Public-key enrollment category available before browser plugin loading; `peer` is a pairing initiator instance. */
+export type AuthenticationEnrollmentKind = 'device' | 'temporary' | 'peer'
 
 /** Request to enroll one browser-held P-256 key. */
 export interface AuthenticationEnrollmentInput {

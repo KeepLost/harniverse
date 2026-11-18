@@ -8,6 +8,7 @@ import {
   isAuthenticationCapability,
   type AuthenticationCapability,
   type AuthenticationEnrollmentId,
+  type AuthenticationEnrollmentKind,
   type AuthenticationGrantId,
 } from '@deepseek-ai/dsh-authentication'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -56,7 +57,7 @@ export interface EnrollmentRequest {
   id: AuthenticationEnrollmentId
   approvalCode: string
   name: string
-  kind: 'device' | 'temporary'
+  kind: AuthenticationEnrollmentKind
   publicKey: string
   createdAt: string
   expiresAt: string
@@ -85,7 +86,7 @@ export interface InvitationRecord {
   /** SHA-256 of the invitation token, base64url; the token itself is never stored. */
   codeHash: string
   capabilities: AuthenticationCapability[]
-  kind: 'device' | 'temporary'
+  kind: AuthenticationEnrollmentKind
   createdAt: string
   expiresAt: string
   state: InvitationState
@@ -97,7 +98,7 @@ export interface InvitationRecord {
 /** Safe invitation metadata without the code hash. */
 export interface InvitationSummary {
   id: string
-  kind: 'device' | 'temporary'
+  kind: AuthenticationEnrollmentKind
   capabilities: AuthenticationCapability[]
   createdAt: string
   expiresAt: string
@@ -112,7 +113,7 @@ export interface IssuedEnrollmentInvitation {
   /** Plaintext token, returned exactly once at issuance. */
   token: string
   id: string
-  kind: 'device' | 'temporary'
+  kind: AuthenticationEnrollmentKind
   capabilities: AuthenticationCapability[]
   bindName?: string
   createdAt: string
@@ -127,16 +128,16 @@ export class InvitationRedeemError extends Error {
    * Invitation kind, defined exactly when the reason is `invitation-kind`;
    * every issuing site passes it, so the field stays non-optional for readers.
    */
-  readonly expected: 'device' | 'temporary'
+  readonly expected: AuthenticationEnrollmentKind
 
   constructor(
     reason: 'invalid-invitation' | 'invitation-kind' | 'invitation-name' | 'not-found',
-    expected?: 'device' | 'temporary',
+    expected?: AuthenticationEnrollmentKind,
   ) {
     super(`authentication-local: invitation redemption rejected (${reason})`)
     this.name = 'InvitationRedeemError'
     this.reason = reason
-    this.expected = expected as 'device' | 'temporary'
+    this.expected = expected as AuthenticationEnrollmentKind
   }
 }
 
@@ -187,7 +188,7 @@ export class EnrollmentRequestInputError extends Error {
 /** Requested enrollment facts accepted from an untrusted browser. */
 export interface CreateEnrollmentRequest {
   name: string
-  kind: 'device' | 'temporary'
+  kind: AuthenticationEnrollmentKind
   publicKey: string
 }
 
@@ -360,7 +361,7 @@ function parseEnrollment(value: unknown, index: number): EnrollmentRecord {
   }
   strictKeys(object, ['id', 'approvalCode', 'name', 'kind', 'publicKey', 'createdAt', 'expiresAt', 'state'], `enrollment ${String(index)}`)
   if (typeof object.approvalCode !== 'string' || !/^[A-F0-9]{8}$/.test(object.approvalCode)) throw new Error(`authentication-local: enrollment ${String(index)} has an invalid approval code`)
-  if (object.kind !== 'device' && object.kind !== 'temporary') throw new Error(`authentication-local: enrollment ${String(index)} has an invalid kind`)
+  if (object.kind !== 'device' && object.kind !== 'temporary' && object.kind !== 'peer') throw new Error(`authentication-local: enrollment ${String(index)} has an invalid kind`)
   if (object.state !== 'pending') throw new Error(`authentication-local: enrollment ${String(index)} has an invalid state`)
   return {
     id: authenticationEnrollmentId(object.id),
@@ -392,7 +393,7 @@ function parseInvitation(value: unknown, index: number): InvitationRecord {
   if (typeof object.codeHash !== 'string' || !INVITATION_CODE_HASH_PATTERN.test(object.codeHash)) {
     throw new Error(`authentication-local: invitation ${String(index)} has an invalid code hash`)
   }
-  if (object.kind !== 'device' && object.kind !== 'temporary') {
+  if (object.kind !== 'device' && object.kind !== 'temporary' && object.kind !== 'peer') {
     throw new Error(`authentication-local: invitation ${String(index)} has an invalid kind`)
   }
   if (object.state !== 'active' && object.state !== 'used') {
@@ -656,7 +657,7 @@ function retainedInvitations(invitations: readonly InvitationRecord[], now: numb
  * @returns the invitation with its plaintext token, returned exactly once.
  */
 export async function issueEnrollmentInvitation(
-  input: { capabilities: readonly AuthenticationCapability[]; kind: 'device' | 'temporary'; bindName?: string; ttlMs: number },
+  input: { capabilities: readonly AuthenticationCapability[]; kind: AuthenticationEnrollmentKind; bindName?: string; ttlMs: number },
   options: GrantManagementOptions = {},
 ): Promise<IssuedEnrollmentInvitation> {
   const invitationCapabilities = capabilities(input.capabilities)
@@ -778,7 +779,7 @@ export async function redeemEnrollmentInvitation(
     const grant: AuthenticationGrant = {
       id: authenticationGrantId(managementId()),
       name: request.name,
-      kind: request.kind,
+      kind: request.kind === 'peer' ? 'api-client' : request.kind,
       revision: 1,
       publicKey: request.publicKey,
       capabilities: invitation.capabilities,
@@ -870,7 +871,7 @@ export function approveEnrollmentRequest(
     const grant: AuthenticationGrant = {
       id: authenticationGrantId(managementId()),
       name: request.name,
-      kind: request.kind,
+      kind: request.kind === 'peer' ? 'api-client' : request.kind,
       revision: 1,
       publicKey: request.publicKey,
       capabilities: approvedCapabilities,

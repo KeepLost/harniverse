@@ -623,6 +623,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The remote process owns loopback endpoint discovery, encrypted credential unlock, complete credential replacement, and model/search settings synchronization behind authenticated capability-gated Remote methods.',
   },
   {
+    key: 'peerHost',
+    pkg: 'peer-host',
+    title: 'Instance pairing host',
+    mode: 'seam',
+    implementations: ['peer-host'],
+    consumers: ['peer-app'],
+    note: 'The accepting side of home-to-home pairing owns the capability-gated peer/hello Remote, the home-anchored identity readback, and the authoritative paired-peer store; the management app and future delegation consumers reach it through the peer namespace.',
+  },
+  {
     key: 'subprocess',
     pkg: 'subprocess',
     title: 'Subprocess seam',

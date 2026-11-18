@@ -146,11 +146,11 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         if (typeof body !== 'object' || body === null || Array.isArray(body)
           || Object.keys(body).length !== 3
           || typeof (body as { name?: unknown }).name !== 'string'
-          || !['device', 'temporary'].includes(String((body as { kind?: unknown }).kind))
+          || !['device', 'temporary', 'peer'].includes(String((body as { kind?: unknown }).kind))
           || typeof (body as { publicKey?: unknown }).publicKey !== 'string') {
           return text('invalid enrollment request', 400)
         }
-        const enrollment = body as { name: string; kind: 'device' | 'temporary'; publicKey: string }
+        const enrollment = body as { name: string; kind: 'device' | 'temporary' | 'peer'; publicKey: string }
         ctx.logger.info(`client-connection: enrollment requested name=${JSON.stringify(enrollment.name)} kind=${JSON.stringify(enrollment.kind)} ${browserRequestDetails(request, peerAddress)}`)
         try {
           const decision = await ctx.authentication.requestEnrollment(enrollment, peerAddress)

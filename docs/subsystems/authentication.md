@@ -128,7 +128,7 @@ abstract issueEmergencyAccessToken( issuer: AuthenticationPrincipal, capabilitie
 abstract revokeBrowserSession(value?: string): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:308`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:310`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authentication-events"></a>
 
@@ -148,7 +148,7 @@ Credential freshness was reconciled after an unavailable interval.
 'authentication/available'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:303`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:305`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationrevoked--emit"></a>
 
@@ -165,7 +165,7 @@ A committed Grant registry change invalidated Grant revisions.
 'authentication/revoked'(revocation: AuthenticationRevocation): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:291`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:293`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationunavailable--emit"></a>
 
@@ -181,5 +181,5 @@ Credential freshness became unavailable; current sockets must close.
 'authentication/unavailable'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:297`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:299`](../../packages/auth/authentication/src/index.ts)
 <!-- END GENERATED cordis-surface -->
