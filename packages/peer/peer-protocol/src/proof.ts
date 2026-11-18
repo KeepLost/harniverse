@@ -54,6 +54,7 @@ export function verifyPeerSignature(publicKey: string, message: string, signatur
  * @param proof - untrusted wire proof.
  * @param pinnedKey - the record's pinned base64url SPKI key.
  * @param nowMs - the verifier's clock, in epoch milliseconds.
+ * @returns nothing; a passing call narrows `proof` to {@link PeerRequestProof}.
  * @throws a {@link PeerError} with `INVALID_PROOF` for any malformed, stale, or mismatched proof.
  */
 export function verifyPeerRequestProof(proof: unknown, pinnedKey: string | undefined, nowMs: number): asserts proof is PeerRequestProof {
