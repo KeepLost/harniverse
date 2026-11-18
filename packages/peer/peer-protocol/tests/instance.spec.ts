@@ -29,8 +29,10 @@ it('honors a requested display name only for a fresh mint and writes owner-only 
   const root = await home()
   const created = await ensureInstanceIdentity(root, { displayName: 'Build workstation' })
   expect(created.displayName).toBe('Build workstation')
-  const stat = await import('node:fs/promises').then(fs => fs.stat(instanceIdentityPath(root)))
-  expect(stat.mode & 0o777).toBe(0o600)
+  if (process.platform !== 'win32') {
+    const stat = await import('node:fs/promises').then(fs => fs.stat(instanceIdentityPath(root)))
+    expect(stat.mode & 0o777).toBe(0o600)
+  }
 })
 
 it('rejects unreadable and malformed identity documents', async () => {
