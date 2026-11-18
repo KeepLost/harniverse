@@ -237,7 +237,7 @@ it('covers the direct runner paths for missing fields and default lifetimes', as
     runnerInternals.stderr = { write: (chunk: string) => { captured.push(chunk); return true } }
     provide(ctx, { args: [], exit: (code: number) => { exits.push(code) } })
     apply(ctx, config as never)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await expect.poll(() => exits.length, { timeout: 5_000 }).toBeGreaterThan(0)
     await ctx.fiber.dispose()
     runnerInternals.stderr = process.stderr
     return { code: exits[0] ?? -1, err: captured.join('') }
