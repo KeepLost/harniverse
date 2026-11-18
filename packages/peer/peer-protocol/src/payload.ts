@@ -31,7 +31,10 @@ export function peerInstanceId(value: string): PeerInstanceId {
   return value
 }
 
-/** Freshly minted instance id for a new home. @returns a new canonical UUID id. */
+/** Mint one fresh instance id for a new home.
+ * @returns a new canonical lowercase-UUID id.
+ */
+
 export function newPeerInstanceId(): PeerInstanceId {
   return randomUUID()
 }

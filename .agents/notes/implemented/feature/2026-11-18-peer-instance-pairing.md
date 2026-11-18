@@ -1,6 +1,15 @@
-# Instance pairing between Harniverse homes
+# Agent Note: Instance pairing between Harniverse homes
+
+Status: implemented
 
 English | [中文](2026-11-18-peer-instance-pairing.zh.md)
+
+## Problem
+
+Two Harniverse instances cannot collaborate: the remote-hosts stack deploys a locked, ownerless-exit mirror rather than pairing the user's own running instances, and no authenticated principal, record, or channel exists between two homes. Pairing must not weaken inbound authentication, must survive restarts, and must never admit real-sandbox (VM) instances.
+
+## Decision
+
 
 - Date: 2026-11-18
 - Kind: feature
@@ -30,3 +39,11 @@ Fail-closed rules: every `peer/*` Remote requires `harniverse.peer`; VM executio
 - Closed-reason rejections: spent invitation, tampered identity, unreachable origin, VM guard, revoked peer, malformed stores and payloads.
 - The invitation-kind path through the provider (`invitation-runtime.spec.ts`) and the capability vocabulary assertion.
 - `pnpm run build` regenerates the strict `peer/hello` Remote contract; `packages/peer/peer-host/tests/typert.spec.ts` executes the generated schema.
+
+## Alternatives considered
+
+Deploying a dedicated mirror per peer (the remote-hosts model) was rejected: it owns the target's credentials and exits when the initiator leaves, which contradicts pairing two independently owned instances. Extending browser enrollment metadata with a peer principal was rejected for the same reason the grant-kind mapping exists: the registry already models API clients, so a new kind would duplicate it. Binding the calling grant cryptographically into the peer record waits for principal visibility on the Remote boundary; the deterministic `peer-<instanceId>` name plus registry name-uniqueness reaches the same integrity today.
+
+## Consequences
+
+The grant-kind mapping, capability vocabulary, typert loader lists, desktop grant validator, and coverage lanes each gained the pairing entry; every future capability or enrollment kind must update the same five mirrors. The hello record trusts invitation possession plus registry name-uniqueness instead of cryptographic caller binding, which the Remote boundary cannot express today; delegation and messaging Remotes remain ungated until the next milestone ships their durable mailbox.

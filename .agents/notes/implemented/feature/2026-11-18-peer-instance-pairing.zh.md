@@ -1,6 +1,15 @@
-# Harniverse 家之间的实例配对
+# Agent Note: Harniverse 家之间的实例配对
+
+Status: implemented
 
 [English](2026-11-18-peer-instance-pairing.md) | 中文
+
+## 问题
+
+两个 Harniverse 实例无法协作:remote-hosts 栈部署的是被锁定、受 ownerless-exit 约束的镜像,而非配对用户自己运行中的实例;两个家之间不存在已认证 principal、记录或通道。配对不得削弱入站认证,必须在重启后存活,且绝不能接入真沙箱(VM)实例。
+
+## 决策
+
 
 - 日期:2026-11-18
 - 类别:feature
@@ -30,3 +39,11 @@ Fail-closed 规则:每个 `peer/*` Remote 都要求 `harniverse.peer`;VM 执行�
 - 封闭原因拒绝:已消费邀请、篡改身份、不可达 origin、VM 守卫、已撤销 peer、畸形存储与载荷。
 - Provider 侧的邀请类别路径(`invitation-runtime.spec.ts`)与能力词表断言。
 - `pnpm run build` 重新生成 `peer/hello` 的严格 Remote 契约;`packages/peer/peer-host/tests/typert.spec.ts` 执行生成的 schema。
+
+## 备选方案
+
+按 remote-hosts 模式为每个 peer 部署专用镜像被否决:它拥有目标凭据且在发起方离开时退出,与"配对两个独立持有的实例"相悖。为 peer 扩展浏览器 enrollment 元数据也被否决,理由与 grant 类别映射的存在相同:注册表已建模 API client,新类别只会重复。把调用方 Grant 密码学地绑进 peer 记录则等待 Remote 边界的 principal 可见性;确定性的 `peer-<instanceId>` 命名加注册表名字唯一性今天即可达到同等完整性。
+
+## 后果
+
+Grant 类别映射、能力词表、typert 装载器列表、desktop Grant 校验器与覆盖 lane 各自新增了配对条目;未来每个新能力或 enrollment 类别都必须同步这五处镜像。hello 记录信任"邀请持有 + 注册表名字唯一性"而非密码学调用方绑定——今天的 Remote 边界表达不了它;委派与消息 Remote 在下一个里程碑交付其 durable 发件箱之前保持不挂载。
