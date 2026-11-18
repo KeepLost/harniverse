@@ -200,6 +200,7 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // instanceof), so helper/protocol/schemas build in one multi-entry pass
     // whose shared chunks land in the whitelisted <module>-*.js companions
     // (protocol, schemas, and the world descriptors they share).
+    // oxlint-disable-next-line no-unnecessary-condition -- manifest typing declares exports optional
     ...manifest.exports?.['./helper'] && manifest.exports?.['./protocol'] && manifest.exports?.['./schemas']
       ? ['lib/helper.js', 'lib/protocol.js', 'lib/schemas.js', 'lib/protocol-*.js', 'lib/schemas-*.js', 'lib/world-*.js']
       : [],

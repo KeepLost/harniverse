@@ -59,11 +59,13 @@ export interface PeerHello {
 
 /** Paired-peer record persisted by the accepting instance. */
 export interface PeerRecord {
+  /** The initiator's home-anchored identity, a minted lowercase UUID. */
   instanceId: PeerInstanceId
   displayName: string
   platform: string
   arch: string
   version: string
+  /** Peer capability surface approved at pairing; each field gates one Remote family. */
   surface: PeerSurface
   /** How the peer was admitted; the shipped flow is always the invitation token. */
   pairedVia: 'invitation'
