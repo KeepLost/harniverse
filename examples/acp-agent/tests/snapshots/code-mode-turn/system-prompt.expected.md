@@ -20,6 +20,8 @@ Use the workflow tool ONLY when the user explicitly asks for a workflow or for l
 
 Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
 
+Use the peer tool ONLY when the user explicitly asks to delegate work to a paired instance: it runs a prompt on another paired machine and returns that machine's reply. Do not use it for local work, and do not pick a target the user did not name.
+
 Use subagent asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. This subagent lifecycle is not a generic background job; never pass its Session id to job_output, job_list, or job_kill. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set `mode: sync` only when the next action depends on that subagent's initial result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.
 
 ## Writing code for run_code
@@ -105,6 +107,17 @@ interface ToolArgsMap {
   list_agents: {
     /** children (default) lists direct children only; descendants walks the complete tree below you. */
     scope?: "children" | "descendants";
+  } & Record<string, JsonValue>;
+  /** Run a prompt on a paired Harniverse instance — another machine this deployment is paired with — and return its settled reply. Use this when the user asks to delegate work to a paired instance by name, or to continue a delegated conversation started earlier. Pass `target` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its `sessionId`; continue that conversation by passing `session` with the next prompt. Each turn waits up to `timeoutMs` (default 120000, max 900000) for settlement — a turn still running past the budget reports `running` with the `sessionId`; re-check later by continuing that session with a short status prompt. The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable). */
+  peer: {
+    /** The paired instance to address: its display name or exact instance id. */
+    target: string;
+    /** The prompt to run on the paired instance (at most 32768 characters). */
+    prompt: string;
+    /** Existing delegated session id to continue; omit to start a fresh session. */
+    session?: string;
+    /** Settlement budget for this turn in milliseconds (default 120000, max 900000). */
+    timeoutMs?: number;
   } & Record<string, JsonValue>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph: {
@@ -375,6 +388,12 @@ interface ToolOutputMap {
     parent?: string;
     depth?: number;
   })[];
+  peer: {
+    sessionId: string;
+    state: string;
+    reply?: string;
+    endReason?: string;
+  };
   ralph: {
     runId: string;
     agentsStarted: number;

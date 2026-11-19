@@ -48,6 +48,7 @@
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
 | `@deepseek-ai/dsh-tool-working-directory` | `working_directory` | `ctx.tools`、`ctx.workingDirectory`、`a calling Agent session` | `tool/call`、`working-directory/change`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-worktree` | `create_worktree` | `ctx.tools`、`ctx.worktrees`、`a calling Agent session` | `tool/call`、`working-directory/change through the entered checkout`、`tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-peer` | `peer` | `ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | peer 是配对通道面向模型的消费方：它解析 home 已配对的目标，在有界结算预算内经 peer/delegate 或 peer/followup 投递提示词，并渲染点名 session id 的结算回复；仍在运行的回合返回续查引导，可达性始终以配对边界本身为准。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`、`ctx.fs`、`ctx.sessionProjections`、`a calling Agent (exec.agent) with an open turn and a workspace` | `tool/call`、`deliverables/presented`、`tool/result` | - | present 是交付物声明 seam：调用成功会向所属会话追加 deliverables/presented，由 UI 按轮折叠。schema 不随 maxFiles 变化；该上限只移动 execute 时的接受范围。 |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
@@ -2338,6 +2339,50 @@ Create a new Git branch and worktree from a local commit, branch, or tag, then c
 ```
 
 Source: [`packages/workspace/tool-worktree/src/index.ts`](../packages/workspace/tool-worktree/src/index.ts)
+
+<a id="deepseek-aidsh-tool-peer"></a>
+
+## `@deepseek-ai/dsh-tool-peer`
+
+### `peer`
+
+在与本部署已配对的 Harniverse 实例——另一台机器——上运行一条提示词并返回其结算回复。当用户按名称要求把工作委派到已配对实例,或要续聊先前开始的委派对话时使用。
+
+把 `target` 写成实例的显示名或其 instance id;精确的 instance id 总是优先。首次调用开启新的委派会话并返回其 `sessionId`;之后的对话传 `session` 与下一条提示词续聊。每个回合最多等待 `timeoutMs`(默认 120000,最大 900000)结算——超预算仍在运行的回合返回带 `sessionId` 的 `running`;稍后用一条简短的状态提示词续聊该会话即可复查。
+
+回复逐字反映委派实例的模型产出。失败会点名封闭的 peer 原因(例如未知会话的 SESSION_NOT_FOUND、实例不可达时的 TRANSPORT_FAILED)。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "The paired instance to address: its display name or exact instance id."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The prompt to run on the paired instance (at most 32768 characters)."
+    },
+    "session": {
+      "type": "string",
+      "description": "Existing delegated session id to continue; omit to start a fresh session."
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "description": "Settlement budget for this turn in milliseconds (default 120000, max 900000)."
+    }
+  },
+  "required": [
+    "target",
+    "prompt"
+  ]
+}
+```
+
+来源:[`packages/peer/tool-peer/src/index.ts`](../packages/peer/tool-peer/src/index.ts)
+
+peer is the model-facing consumer of the pairing channel: it resolves a target the home paired, delivers the prompt through peer/delegate or peer/followup within a bounded settlement budget, and renders the settled reply naming the session id; a turn still running reports continuation guidance, and reachability stays the pairing boundary itself.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

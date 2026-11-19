@@ -61,6 +61,8 @@ flowchart LR
   cfg --> plugin_acp_workflow_worker_thread
   plugin_acp_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
   cfg --> plugin_acp_tool_workflow
+  plugin_acp_tool_peer["tool-peer<br/>@deepseek-ai/dsh-tool-peer"]
+  cfg --> plugin_acp_tool_peer
   plugin_acp_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
   cfg --> plugin_acp_tool_ralph
   plugin_acp_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
@@ -104,6 +106,7 @@ flowchart LR
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-worker-thread` | `@deepseek-ai/dsh-workflow-worker-thread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
+| `tool-peer` | `@deepseek-ai/dsh-tool-peer` |
 | `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `repeat-tool-reminder` | `@deepseek-ai/dsh-repeat-tool-reminder` |

@@ -458,7 +458,12 @@ it('rejects a localhost invitation endpoint behind --ssh-host and a runner witho
   })).toString('base64url')}`
   const localhost = await invoke(['add', uri, '--ssh-host', 'box', '--timeout', '500'], home)
   expect(localhost.code).toBe(1)
-  expect(localhost.err).toContain('--ssh-host requires')
+  expect(localhost.err).toContain('ssh targets require an http://127.0.0.1')
+  const secure = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(uri.slice('dsh-peer://'.length), 'base64url').toString('utf8')), endpoint: { origin: 'https://build.example.org:8443' } })).toString('base64url')
+  const tlsUri = `dsh-peer://${secure}`
+  const httpsEndpoint = await invoke(['add', tlsUri, '--ssh-host', 'box', '--timeout', '500'], home)
+  expect(httpsEndpoint.code).toBe(1)
+  expect(httpsEndpoint.err).toContain('ssh targets require an http://127.0.0.1')
   const { Context: RawContext } = await import('@deepseek-ai/cordis')
   const { apply } = await import('../src/index.ts')
   const bare = new RawContext()
@@ -502,6 +507,6 @@ it('maps agent and encrypted host logins onto closed credential rejections', asy
   })).toString('base64url')}`
   const https = await invoke(['add', httpsUri, '--ssh-host', 'agentbox'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
   expect(https.code).toBe(1)
-  expect(https.err).toContain('--ssh-host requires')
+  expect(https.err).toContain('ssh targets require an http://127.0.0.1')
   expect(observations).toEqual([])
 })

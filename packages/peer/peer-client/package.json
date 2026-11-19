@@ -38,14 +38,17 @@
   ],
   "dependencies": {
     "@deepseek-ai/dsh-peer-protocol": "workspace:^",
-    "@deepseek-ai/dsh-sdk-client": "workspace:^"
+    "@deepseek-ai/dsh-sdk-client": "workspace:^",
+    "@deepseek-ai/dsh-remote-hosts": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-remote-hosts-ssh": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-remote-hosts-ssh": "workspace:^"
   }
 }

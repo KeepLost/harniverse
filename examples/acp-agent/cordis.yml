@@ -151,6 +151,10 @@
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
 
+# The model-facing peer tool: run prompts on paired Harniverse instances.
+- id: tool-peer
+  name: '@deepseek-ai/dsh-tool-peer'
+
 - id: tool-ralph
   name: '@deepseek-ai/dsh-tool-ralph'
 # `todo_write` replaces the logged whole list for later model requests.

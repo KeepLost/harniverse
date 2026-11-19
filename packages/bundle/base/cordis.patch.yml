@@ -421,6 +421,9 @@
     - id: tool-workflow
       name: '@deepseek-ai/dsh-tool-workflow'
 
+    - id: tool-peer
+      name: '@deepseek-ai/dsh-tool-peer'
+
     - id: timeout-policy
       name: '@deepseek-ai/dsh-tool-call-timeout-policy'
 

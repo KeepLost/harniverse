@@ -5,6 +5,8 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../peer-protocol" },
+    { "path": "../../ssh/remote-hosts" },
+    { "path": "../../ssh/remote-hosts-ssh" },
     { "path": "../../sdk/client" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

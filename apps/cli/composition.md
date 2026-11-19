@@ -174,6 +174,8 @@ flowchart LR
   cfg --> plugin_dsh_base_workflow_worker_thread
   plugin_dsh_base_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
   cfg --> plugin_dsh_base_tool_workflow
+  plugin_dsh_base_tool_peer["tool-peer<br/>@deepseek-ai/dsh-tool-peer"]
+  cfg --> plugin_dsh_base_tool_peer
   plugin_dsh_base_timeout_policy["timeout-policy<br/>@deepseek-ai/dsh-tool-call-timeout-policy"]
   cfg --> plugin_dsh_base_timeout_policy
   plugin_dsh_base_spill_local["spill-local<br/>@deepseek-ai/dsh-spill-local"]
@@ -331,6 +333,7 @@ flowchart LR
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-worker-thread` | `@deepseek-ai/dsh-workflow-worker-thread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
+| `tool-peer` | `@deepseek-ai/dsh-tool-peer` |
 | `timeout-policy` | `@deepseek-ai/dsh-tool-call-timeout-policy` |
 | `spill-local` | `@deepseek-ai/dsh-spill-local` |
 | `spill-policy` | `@deepseek-ai/dsh-spill-policy` |
