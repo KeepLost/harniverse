@@ -984,6 +984,9 @@ importers:
       '@deepseek-ai/dsh-tool-lsp':
         specifier: workspace:*
         version: link:../packages/lsp/tool-lsp
+      '@deepseek-ai/dsh-tool-peer':
+        specifier: workspace:^
+        version: link:../packages/peer/tool-peer
       '@deepseek-ai/dsh-tool-pwsh':
         specifier: workspace:*
         version: link:../packages/shell/tool-pwsh
@@ -2054,9 +2057,6 @@ importers:
       '@deepseek-ai/dsh-peer-protocol':
         specifier: workspace:^
         version: link:../../peer/peer-protocol
-      '@deepseek-ai/dsh-remote-hosts':
-        specifier: workspace:^
-        version: link:../../ssh/remote-hosts
       '@deepseek-ai/dsh-remote-hosts-ssh':
         specifier: workspace:^
         version: link:../../ssh/remote-hosts-ssh

@@ -4,7 +4,7 @@
 
 实例配对(instance pairing)连接两个 Harniverse 家(home),使一个实例的模型此后可以在另一个实例上委派和消息会话,各自运行在自己的环境里。配对本身不交换任何任务数据:它建立的是一个已认证 principal、两条持久记录和一个经过身份核验的通道锚点。家是身份锚点——一个 `instance.json`、一把 P-256 签名密钥、一份会话语料——而独占家租约已经保证每个家同一时刻只有一个运行中的进程。
 
-Service Definition:[dsh-peer-host](../../packages/peer/peer-host)(`ctx.peerHost` + `peer/*` Remote 命名空间与事件)。共享词汇与家锚定身份位于 [dsh-peer-protocol](../../packages/peer/peer-protocol);发起方编排、目标存储与共享传输拨号位于 [dsh-peer-client](../../packages/peer/peer-client);面向模型的 `peer` 工具是 [dsh-tool-peer](../../packages/peer/peer-tool);`dsh peer` 管理应用是 [dsh-peer-app](../../packages/bundle/peer-app)。设计理由见[实例配对 Agent Note](../../.agents/notes/implemented/feature/2026-11-18-peer-instance-pairing.md)。模型侧工具的决策见[peer 工具 Agent Note](../../.agents/notes/implemented/feature/2026-11-19-peer-tool.md)。
+Service Definition:[dsh-peer-host](../../packages/peer/peer-host)(`ctx.peerHost` + `peer/*` Remote 命名空间与事件)。共享词汇与家锚定身份位于 [dsh-peer-protocol](../../packages/peer/peer-protocol);发起方编排、目标存储与共享传输拨号位于 [dsh-peer-client](../../packages/peer/peer-client);面向模型的 `peer` 工具是 [dsh-tool-peer](../../packages/peer/tool-peer);`dsh peer` 管理应用是 [dsh-peer-app](../../packages/bundle/peer-app)。设计理由见[实例配对 Agent Note](../../.agents/notes/implemented/feature/2026-11-18-peer-instance-pairing.md)。模型侧工具的决策见[peer 工具 Agent Note](../../.agents/notes/implemented/feature/2026-11-19-peer-tool.md)。
 
 源码:[`packages/peer/peer-protocol/src/types.ts`](../../packages/peer/peer-protocol/src/types.ts)、[`packages/peer/peer-protocol/src/payload.ts`](../../packages/peer/peer-protocol/src/payload.ts)、[`packages/peer/peer-protocol/src/proof.ts`](../../packages/peer/peer-protocol/src/proof.ts)、[`packages/peer/peer-host/src/index.ts`](../../packages/peer/peer-host/src/index.ts)和 [`packages/peer/peer-host/src/delegate.ts`](../../packages/peer/peer-host/src/delegate.ts)
 
@@ -91,7 +91,8 @@ interface PeerRunResult {
 `peer/delegate`、`peer/followup` 与 `peer/sessions` 在接受方实例上为已配对的发起方运行真实会话。每个请求都携带由钉住身份密钥签名、带时间窗的请求证明；host 先由证明解析调用方记录、再检查对应的 surface 字段，因此 peer 只能触达自己的会话。`peer/delegate` 组建一个 `origin: 'peer'` 会话，工作目录解析在 `peer-work/<instanceId>/` 之下（仅允许相对路径），并把提示词经 agent 收件箱投递；结算从会话自身的事件窗口观察，返回拼接的助手文本与结束原因，超预算则返回 `state: 'running'`。`peer/followup` 以同样方式投递下一个 FIFO 回合，agent 不在位时冷恢复会话；`peer/sessions` 列出调用方的注册表条目及推导的 `running`/`idle`/`ended` 状态。`origin: 'peer'` 的会话不出现在任何面向用户的会话列表里，只能经 peer Remote 触达。
 
 移除 peer 会删除其会话注册表条目，并在真空闲时关闭其常驻 agent；发起方的 `dsh peer run/send/sessions` 按存储的传输解析目标——direct 端点原样拨号，`ssh` 传输在调用存活期内转发到目标的环回端口。
-发起方的模型经一方工具 `peer`([dsh-tool-peer](../../packages/peer/peer-tool))触达同一通道:它按显示名或 instance id 解析已配对目标,在有界结算预算内经 `peer/delegate` 或 `peer/followup` 投递提示词,并渲染点名 session id 的结算回复;超预算仍在运行的回合返回续查引导而不是阻塞。该工具不新增任何可达性——它只拨号 home 属主配对的目标,接受方的 surface 字段仍门控每个 Remote 族。
+
+发起方的模型经一方工具 `peer`([dsh-tool-peer](../../packages/peer/tool-peer))触达同一通道:它按显示名或 instance id 解析已配对目标,在有界结算预算内经 `peer/delegate` 或 `peer/followup` 投递提示词,并渲染点名 session id 的结算回复;超预算仍在运行的回合返回续查引导而不是阻塞。该工具不新增任何可达性——它只拨号 home 属主配对的目标,接受方的 surface 字段仍门控每个 Remote 族。
 
 ## 传输与排除
 
