@@ -145,7 +145,7 @@ export function apply(ctx: Context, config: Config): void {
   // lives in tool plugins as prompt sections, not in the deployment persona).
   ctx.systemPrompt.section({
     name: `tool:${toolName}`,
-    order: 116,
+    order: 117,
     text: `Use the ${toolName} tool ONLY when the user explicitly asks to delegate work to a paired instance: it runs a prompt on another paired machine and returns that machine's reply. Do not use it for local work, and do not pick a target the user did not name.`,
   })
   ctx.tools.register(defineTool({
