@@ -45,7 +45,10 @@ describe('verifyPeerSignature', () => {
     const message = peerHelloMessage('01234567-89ab-cdef-0123-456789abcdef', 'nonce-1')
     const signature = signWith(privateKey, message)
     expect(verifyPeerSignature('', message, signature)).toBe(false)
-    expect(verifyPeerSignature(publicKeyB64.slice(0, 40) + (publicKeyB64[41] === 'A' ? 'B' : 'A') + publicKeyB64.slice(41), message, signature)).toBe(false)
+    // The replacement must differ from the original character, or the mutation is a no-op
+    // against a per-run random key and the signature still verifies.
+    const replacement = ['A', 'B', 'C'].find(char => char !== publicKeyB64[40] && char !== publicKeyB64[41])
+    expect(verifyPeerSignature(publicKeyB64.slice(0, 40) + replacement + publicKeyB64.slice(41), message, signature)).toBe(false)
     expect(verifyPeerSignature(publicKeyB64, message, '')).toBe(false)
     expect(verifyPeerSignature('a'.repeat(600), message, signature)).toBe(false)
     const ed25519 = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).toString('base64url')
