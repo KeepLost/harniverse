@@ -414,9 +414,8 @@ it('resumes watching after a restart from the durable ledger', async () => {
   target.results = [{ sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'settled', reply: 'after restart', endReason: 'completed' }]
   await vi.waitFor(() => {
     expect(script.followups).toHaveLength(1)
+    expect(ctx2.peerOutbox?.list().find(candidate => candidate.id === entry.id)).toMatchObject({ state: 'settled', reply: 'after restart' })
   }, { timeout: 10_000, interval: 20 })
-  const restored = ctx2.peerOutbox?.list().find(candidate => candidate.id === entry.id)
-  expect(restored).toMatchObject({ state: 'settled', reply: 'after restart' })
 })
 
 it('prunes terminal entries beyond the retention bound', async () => {
@@ -428,9 +427,8 @@ it('prunes terminal entries beyond the retention bound', async () => {
   }
   await waitFor(() => {
     expect(rig.outbox.list().every(row => row.state === 'failed')).toBe(true)
+    expect(rig.outbox.list()).toHaveLength(200)
   })
-  expect(rig.outbox.list().length).toBeLessThanOrEqual(200)
-  expect(rig.outbox.list().length).toBe(200)
 })
 
 it('refuses reads before Service.init and settles turns that omit an end reason', async () => {

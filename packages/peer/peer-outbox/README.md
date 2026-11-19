@@ -15,7 +15,7 @@ Each poll cycle reads every `watching` entry's settlement through the read-only 
 
 ## Configuration
 
-- `dshHome` (required) — Harness home holding the pairing target store and the storages root.
+- `dshHome` (optional) — Harness home override; the composed row omits it and the service resolves the standard `DSH_HOME`.
 - `pollIntervalMs` (default 30000, minimum 100) — poll cadence for watching entries.
 - `maxResultChars` (default 50000) — stored and delivered reply ceiling.
 

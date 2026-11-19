@@ -37,7 +37,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Peer outbox configuration. */
 export interface PeerOutboxConfig {
-  /** Harness home of this instance holding the pairing target store and storages root. */
+  /** Harness home override; absent means standard `DSH_HOME` resolution. */
   dshHome?: string
   /** Poll cadence for watching entries in milliseconds (default 30000, minimum 100). */
   pollIntervalMs?: number
@@ -56,7 +56,6 @@ export class PeerOutbox extends Service {
   static inject = ['agents', 'sessions', 'storageDomain']
 
   static Config: z<PeerOutboxConfig> = z.object({
-    dshHome: z.string(),
     pollIntervalMs: z.natural().min(100).default(30_000),
     maxResultChars: z.natural().min(1).default(50_000),
   })
@@ -329,7 +328,7 @@ export class PeerOutbox extends Service {
 
 /** Peer outbox configuration. */
 export interface PeerOutboxConfig {
-  /** Harness home of this instance holding the pairing target store and storages root. */
+  /** Harness home override; absent means standard `DSH_HOME` resolution. */
   dshHome?: string
   /** Poll cadence for watching entries in milliseconds (default 30000, minimum 100). */
   pollIntervalMs?: number

@@ -189,8 +189,6 @@
     - id: peer-outbox
       name: '@deepseek-ai/dsh-peer-outbox'
       disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
-      config:
-        dshHome: !!js dshHomePath()
 
     # Session-scoped interactive USER terminals for the browser panel: a Host
     # Remote over the subprocess PTY seam (never sandbox-confined, never

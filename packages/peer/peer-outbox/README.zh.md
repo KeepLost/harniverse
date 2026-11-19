@@ -15,7 +15,7 @@
 
 ## Configuration
 
-- `dshHome`(必填)——持有配对目标记录与 storages 根的 Harness home。
+- `dshHome`(可选)——Harness home 覆盖值;组合行不传,服务按标准 `DSH_HOME` 解析。
 - `pollIntervalMs`(默认 30000,最小 100)——watching 条目的轮询节奏。
 - `maxResultChars`(默认 50000)——存储与投递的回复上限。
 
