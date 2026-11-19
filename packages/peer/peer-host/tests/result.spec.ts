@@ -154,7 +154,7 @@ it('reads one settled turn from persisted events after the agent went cold', asy
 })
 
 it('rejects foreign sessions, unknown ids, and absent persistence', async () => {
-  const { root, host, key } = await rig()
+  const { root, host, key, registry } = await rig()
   const delegated = await host.delegate({ proof: proofFor(key), prompt: 'p' })
   await expect(host.result({ proof: proofFor(key), sessionId: 'peer-00000000-0000-4000-8000-000000000000', messageId: delegated.messageId }))
     .rejects.toThrowError(/SESSION_NOT_FOUND/)
@@ -162,6 +162,30 @@ it('rejects foreign sessions, unknown ids, and absent persistence', async () => 
   await writePeerSessions(root, sessions.map(entry => ({ ...entry, peerInstanceId: other })))
   await expect(host.result({ proof: proofFor(key), sessionId: delegated.sessionId, messageId: delegated.messageId }))
     .rejects.toThrowError(/SESSION_NOT_FOUND/)
+  await writePeerSessions(root, sessions)
+  await registry.closeIfIdle(delegated.sessionId)
+  await expect(host.result({ proof: proofFor(key), sessionId: delegated.sessionId, messageId: delegated.messageId }))
+    .rejects.toThrowError(/persistence is not configured/)
+})
+
+it('rejects cold reads whose persisted log holds no claim', async () => {
+  const { ctx, host, key, registry } = await rig()
+  const delegated = await host.delegate({ proof: proofFor(key), prompt: 'p' })
+  await ctx.plugin(Persistence)
+  const persistence = ctx.get('sessionPersistence') as unknown as Persistence
+  persistence.snapshots.set(delegated.sessionId, { meta: {}, events: [...(registry.logs.get(delegated.sessionId) as LoggedEvent[])] })
+  await registry.closeIfIdle(delegated.sessionId)
+  await expect(host.result({ proof: proofFor(key), sessionId: delegated.sessionId, messageId: 'unclaimed' }))
+    .rejects.toThrowError(/turn is not in the persisted log/)
+  persistence.snapshots.delete(delegated.sessionId)
+  await expect(host.result({ proof: proofFor(key), sessionId: delegated.sessionId, messageId: delegated.messageId }))
+    .rejects.toThrowError(/SESSION_NOT_FOUND/)
+  persistence.snapshots.set(delegated.sessionId, {
+    meta: {},
+    events: [{ type: 'user/message', seq: 0, data: { id: 'held-out', content: [] } }],
+  })
+  await expect(host.result({ proof: proofFor(key), sessionId: delegated.sessionId, messageId: 'held-out' }))
+    .resolves.toMatchObject({ state: 'running' })
 })
 
 it('rejects unknown claims and malformed requests', async () => {

@@ -27,6 +27,8 @@ import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
 import type {} from '@deepseek-ai/dsh-system-prompt'
+// Declaration merge only: types the optional peerOutbox service consumed after a running turn.
+import type {} from '@deepseek-ai/dsh-peer-outbox'
 
 /** Hard prompt bound shared with the accepting host's payload validation. */
 const PROMPT_MAX_LENGTH = 32_768

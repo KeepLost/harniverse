@@ -2385,7 +2385,7 @@ Requires: `agents` · `sessions` · `storageDomain`
 ```ts config-catalog
 /** Peer outbox configuration. */
 export interface PeerOutboxConfig {
-  /** Harness home of this instance holding the pairing target store and storages root. */
+  /** Harness home override; absent means standard `DSH_HOME` resolution. */
   dshHome?: string
   /** Poll cadence for watching entries in milliseconds (default 30000, minimum 100). */
   pollIntervalMs?: number
@@ -4021,7 +4021,7 @@ export interface Config {
 }
 ```
 
-来源:[`packages/peer/tool-peer/src/index.ts:45`](../packages/peer/tool-peer/src/index.ts)
+来源:[`packages/peer/tool-peer/src/index.ts:47`](../packages/peer/tool-peer/src/index.ts)
 
 <a id="deepseek-aidsh-tool-present"></a>
 

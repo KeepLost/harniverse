@@ -324,6 +324,19 @@ it('submits asynchronously, reads the settlement later, and lists the ledger', a
   expect(read.out).toContain('settled')
   expect(read.out).toContain('echo: slow job')
 
+  const empty = await invoke(['outbox'], initiator)
+  expect(empty.code, `empty outbox stderr: ${empty.err}`).toBe(0)
+  expect(empty.out).not.toContain('watching')
+
+  const asyncSend = await invoke(['send', targetId, sessionId, 'second', '--async'], initiator)
+  expect(asyncSend.code).toBe(0)
+  expect(asyncSend.out).toContain('running')
+  expect(asyncSend.out).toContain('receipt\t')
+  const sendReceipt = asyncSend.out.split('\n').find(entry => entry.startsWith('receipt\t'))!
+  const sendMessageId = sendReceipt.split('\t')[2]!
+  const sendRead = await invoke(['result', targetId, sessionId, sendMessageId], initiator)
+  expect(sendRead.out).toContain('echo: second')
+
   const seed = new Context()
   contexts.push(seed)
   seed.provide('agents', { get: () => undefined } as never)
@@ -339,6 +352,14 @@ it('submits asynchronously, reads the settlement later, and lists the ledger', a
     messageId: 'm-seed',
     ownerSessionId: 'owner-session',
     label: 'seeded watch',
+  })
+  await seed.peerOutbox.track({
+    targetInstanceId: targetId,
+    targetDisplayName: 'Workstation',
+    peerSessionId: 'peer-01234567-89ab-cdef-0123-456789aaaa',
+    messageId: 'm-seed-2',
+    ownerSessionId: 'owner-session',
+    label: 'seeded watch 2',
   })
   await seed.fiber.dispose()
   contexts.pop()
@@ -433,6 +454,13 @@ it('covers the direct runner paths for missing fields and default lifetimes', as
   })
   expect(sendWithoutBudget.code).toBe(1)
   expect(sendWithoutBudget.err).not.toContain('RECORD_NOT_FOUND')
+  const runWithoutBudget = await invokeDirect({
+    operation: 'run', dshHome: home,
+    instanceId: '3f2a8f9e-1111-4222-8333-444455556666',
+    prompt: 'p',
+  })
+  expect(runWithoutBudget.code).toBe(1)
+  expect(runWithoutBudget.err).not.toContain('RECORD_NOT_FOUND')
 })
 
 it('pairs through a stubbed SSH forward to a live target', async () => {
