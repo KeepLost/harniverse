@@ -16,3 +16,4 @@ export {
   validateRunResult,
   validateSessionSummaries,
 } from './remote.ts'
+export { type PeerTransportRoute, withPeerOrigin, withPeerTransport } from './transport.ts'

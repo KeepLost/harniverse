@@ -3977,6 +3977,28 @@ export interface Config {
 
 来源：[`packages/lsp/tool-lsp/src/index.ts:58`](../packages/lsp/tool-lsp/src/index.ts)
 
+<a id="deepseek-aidsh-tool-peer"></a>
+
+## `@deepseek-ai/dsh-tool-peer`
+
+Requires: `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Peer tool configuration. */
+export interface Config {
+  /** The model-facing tool name to register (default `peer`). */
+  toolName?: string
+  /** Harness home of this instance holding the pairing target store. */
+  dshHome?: string
+  /** Default settlement budget per turn, in milliseconds (default 120000). */
+  defaultTimeoutMs?: number
+  /** Rendered-reply ceiling, in characters: a longer reply is truncated with a notice (default 50000). */
+  maxResultChars?: number
+}
+```
+
+来源:[`packages/peer/tool-peer/src/index.ts:44`](../packages/peer/tool-peer/src/index.ts)
+
 <a id="deepseek-aidsh-tool-present"></a>
 
 ## `@deepseek-ai/dsh-tool-present`

@@ -1,6 +1,5 @@
 /** One-shot peer pairing runner. */
 
-import { readFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import {
@@ -29,12 +28,11 @@ import {
   runPeerDelegate,
   runPeerFollowup,
   runPeerSessions,
+  withPeerOrigin,
+  withPeerTransport,
   writePeerTargets,
 } from '@deepseek-ai/dsh-peer-client'
 import { findPeer, readPeerStore, writePeerStore } from '@deepseek-ai/dsh-peer-host'
-import { HostRegistry } from '@deepseek-ai/dsh-remote-hosts'
-import type { RemoteHostSshAuthentication, RemoteHostSshConnection, RemoteHostSshForward } from '@deepseek-ai/dsh-remote-hosts-ssh'
-import type {} from '@deepseek-ai/dsh-remote-hosts-ssh'
 import type { PeerOperation, PeerStartupValues } from './startup.ts'
 
 /** Stable Cordis plugin name. */
@@ -133,16 +131,10 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
         const result = await pairWithPeer({ invite, home, origin: invite.endpoint.origin, timeoutMs })
         internals.stdout.write(`paired\t${result.hello.displayName}\t${result.hello.instanceId}\t${result.grantId}\n`)
       } else {
-        const tunnel = await openSshForward(ctx, home, config.sshHost, invite.endpoint.origin)
-        try {
-          const result = await pairWithPeer({
-            invite, home, origin: `http://127.0.0.1:${String(tunnel.port)}`, timeoutMs,
-            transport: { kind: 'ssh', host: config.sshHost },
-          })
-          internals.stdout.write(`paired\t${result.hello.displayName}\t${result.hello.instanceId}\t${result.grantId}\n`)
-        } finally {
-          await tunnel.close()
-        }
+        const route = { kind: 'ssh', host: config.sshHost } as const
+        const result = await withPeerOrigin(ctx, home, route, invite.endpoint.origin,
+          origin => pairWithPeer({ invite, home, origin, timeoutMs, transport: route }))
+        internals.stdout.write(`paired\t${result.hello.displayName}\t${result.hello.instanceId}\t${result.grantId}\n`)
       }
       break
     }
@@ -183,7 +175,7 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const target = await resolveTarget(config)
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
-      const result = await withTransport(ctx, home, target, origin => runPeerDelegate(
+      const result = await withPeerTransport(ctx, home, target, origin => runPeerDelegate(
         { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
         { instanceId: identity.instanceId, key },
         required(config.prompt, config.operation, 'a prompt'),
@@ -198,7 +190,7 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
       const sessionId = required(config.sessionId, config.operation, 'a session id')
-      const result = await withTransport(ctx, home, target, origin => runPeerFollowup(
+      const result = await withPeerTransport(ctx, home, target, origin => runPeerFollowup(
         { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
         { instanceId: identity.instanceId, key },
         sessionId,
@@ -212,7 +204,7 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const target = await resolveTarget(config)
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
-      const sessions = await withTransport(ctx, home, target, origin => runPeerSessions(
+      const sessions = await withPeerTransport(ctx, home, target, origin => runPeerSessions(
         { target, home, origin },
         { instanceId: identity.instanceId, key },
       ))
@@ -235,28 +227,6 @@ async function resolveTarget(config: Config): Promise<PeerTarget> {
     .find(entry => entry.targetInstanceId === id && entry.status === 'active')
   if (target === undefined) throw new PeerError('RECORD_NOT_FOUND', 'no active pairing target')
   return target
-}
-
-/** Run one origin-resolved operation directly or through the recorded SSH forward.
- * @param ctx - app context carrying the SSH provider.
- * @param home - initiator Harness home.
- * @param target - stored target record naming the transport.
- * @param body - operation to run against the resolved origin.
- * @returns the operation's result.
- */
-async function withTransport<T>(
-  ctx: Context,
-  home: string,
-  target: PeerTarget,
-  body: (origin: string) => Promise<T>,
-): Promise<T> {
-  if (target.transport.kind === 'direct') return await body(target.endpoint.origin)
-  const tunnel = await openSshForward(ctx, home, target.transport.host, target.endpoint.origin)
-  try {
-    return await body(`http://127.0.0.1:${String(tunnel.port)}`)
-  } finally {
-    await tunnel.close()
-  }
 }
 
 /** Print one delegation run result as tab-separated fields plus the settled reply body.
@@ -291,58 +261,6 @@ function settleBudget(value: number): number {
 function fingerprintValue(value: string): string {
   if (!/^[A-Za-z0-9+/]{43}$/.test(value)) throw new Error('peer-runner: --fingerprint must be base64 SHA-256 (43 characters)')
   return value
-}
-
-/** One established SSH forward to the target's loopback endpoint. */
-interface SshTunnel { port: number; close(): Promise<void> }
-
-/**
- * Dial one remote-hosts record and forward the target's loopback endpoint.
- * @param ctx - app context carrying the SSH provider.
- * @param home - initiator Harness home holding the remote-hosts registry.
- * @param hostName - remote-hosts record name.
- * @param endpointOrigin - the invitation endpoint origin naming the target's loopback port.
- * @returns the live local forward.
- */
-async function openSshForward(ctx: Context, home: string, hostName: string, endpointOrigin: string): Promise<SshTunnel> {
-  const target = new URL(endpointOrigin)
-  if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') {
-    throw new Error('peer-runner: --ssh-host requires an http://127.0.0.1:<port> invitation endpoint')
-  }
-  const registry = new HostRegistry(home)
-  await registry.load()
-  const record = registry.list().find(entry => entry.name === hostName)
-  if (record === undefined) throw new Error(`peer-runner: no remote host named ${JSON.stringify(hostName)}`)
-  const authentication = await sshAuthentication(record.authentication)
-  const connection: RemoteHostSshConnection = await ctx.remoteHostSsh.open({
-    host: record.host,
-    port: record.port,
-    username: record.username,
-    fingerprint: record.fingerprint,
-  }, authentication)
-  const forward: RemoteHostSshForward = await connection.forward('127.0.0.1', Number(target.port))
-  return {
-    port: forward.port,
-    close: async () => {
-      await forward.close()
-      await connection.dispose()
-    },
-  }
-}
-
-/**
- * Map one stored host authentication onto an explicit headless SSH credential.
- * @param authentication - stored record authentication.
- * @returns the explicit credential for this dial.
- */
-async function sshAuthentication(
-  authentication: { kind: 'password'; passwordRef?: string } | { kind: 'key'; privateKeyRef?: string; keyPath?: string; passphraseRef?: string } | { kind: 'agent'; socket: string },
-): Promise<RemoteHostSshAuthentication> {
-  if (authentication.kind === 'agent') return { kind: 'agent', socket: authentication.socket }
-  if (authentication.kind === 'key' && authentication.keyPath !== undefined && authentication.passphraseRef === undefined) {
-    return { kind: 'key', privateKey: await readFile(authentication.keyPath, 'utf8') }
-  }
-  throw new PeerError('UNSUPPORTED_CREDENTIALS', 'headless pairing supports key-file and agent host logins only')
 }
 
 /**

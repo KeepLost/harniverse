@@ -337,6 +337,7 @@ flowchart TD
     pkg_peer_client["peer-client"]
     pkg_peer_host["peer-host"]
     pkg_peer_protocol["peer-protocol"]
+    pkg_tool_peer["tool-peer"]
   end
   subgraph group_preset["packages/preset"]
     pkg_agent_presets["agent-presets"]
@@ -514,7 +515,6 @@ flowchart TD
   pkg_host_directory_picker_browse --> pkg_invariants
   pkg_host_directory_picker_native --> pkg_invariants
   pkg_host_webserver --> pkg_invariants
-  pkg_peer_client --> pkg_invariants
   pkg_peer_protocol --> pkg_invariants
   pkg_plugin_diagnostics --> pkg_invariants
   pkg_speech --> pkg_invariants
@@ -543,6 +543,8 @@ flowchart TD
   pkg_host_plugin_inventory --> pkg_invariants
   pkg_host_plugin_inventory --> pkg_plugin_diagnostics
   pkg_host_plugin_inventory --> pkg_typert_protocol
+  pkg_peer_client --> pkg_invariants
+  pkg_peer_client --> pkg_remote_hosts_ssh
   pkg_settings --> pkg_brand
   pkg_settings --> pkg_invariants
   pkg_speech_openai --> pkg_invariants
@@ -1419,6 +1421,10 @@ flowchart TD
   pkg_governor --> pkg_subprocess
   pkg_governor --> pkg_tools
   pkg_governor --> pkg_typert_protocol
+  pkg_tool_peer --> pkg_invariants
+  pkg_tool_peer --> pkg_llm
+  pkg_tool_peer --> pkg_system_prompt
+  pkg_tool_peer --> pkg_tools
   pkg_queue --> pkg_agent
   pkg_queue --> pkg_invariants
   pkg_queue --> pkg_llm
@@ -2348,7 +2354,6 @@ flowchart TD
 | [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants) |
-| [`peer-client`](../packages/peer/peer-client) | `peer` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`peer-protocol`](../packages/peer/peer-protocol) | `peer` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | `runtime-diagnostics` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`speech`](../packages/speech/speech) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -2367,6 +2372,7 @@ flowchart TD
 | [`credentials`](../packages/credentials/credentials) | `credentials` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-frontend-static`](../packages/host/frontend-static) | `host` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics), [`typert-protocol`](../packages/typert/protocol) |
+| [`peer-client`](../packages/peer/peer-client) | `peer` | [`invariants`](../packages/runtime-diagnostics/invariants), [`remote-hosts-ssh`](../packages/ssh/remote-hosts-ssh) |
 | [`settings`](../packages/settings/settings) | `settings` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`speech-openai`](../packages/speech/speech-openai) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`speech`](../packages/speech/speech) |
 | [`speech-sensevoice`](../packages/speech/speech-sensevoice) | `speech` | [`invariants`](../packages/runtime-diagnostics/invariants), [`speech`](../packages/speech/speech) |
@@ -2542,6 +2548,7 @@ flowchart TD
 | [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools), [`working-directory`](../packages/session/working-directory) |
 | [`mcp-resources`](../packages/mcp/mcp-resources) | `mcp` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`governor`](../packages/monitor/governor) | `monitor` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`storage-domain`](../packages/storage/storage-domain), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
+| [`tool-peer`](../packages/peer/tool-peer) | `peer` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`queue`](../packages/queue/queue) | `queue` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`storage-domain`](../packages/storage/storage-domain), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`tool-scheduler`](../packages/schedule/tool-scheduler) | `schedule` | [`invariants`](../packages/runtime-diagnostics/invariants), [`scheduler`](../packages/schedule/scheduler), [`tools`](../packages/core/tools) |
 | [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy) | `session` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`tools`](../packages/core/tools) |

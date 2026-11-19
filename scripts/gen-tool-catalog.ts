@@ -99,6 +99,7 @@ import * as ToolSubagentOar from '@deepseek-ai/dsh-tool-subagent-oar'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
+import * as ToolPeer from '@deepseek-ai/dsh-tool-peer'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import { githubSlug } from './verify-md-links.ts'
 
@@ -744,6 +745,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(CatalogWorktrees)
       await ctx.plugin(ToolWorktree)
     },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-peer',
+    dir: 'tool-peer',
+    source: 'packages/peer/tool-peer/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool needs no paired target at boot: target resolution and dialing
+      // happen per call against the configured home.
+      await ctx.plugin(ToolPeer)
+    },
+    note: 'peer is the model-facing consumer of the pairing channel: it resolves a target the home paired, delivers the prompt through peer/delegate or peer/followup within a bounded settlement budget, and renders the settled reply naming the session id; a turn still running reports continuation guidance, and reachability stays the pairing boundary itself.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

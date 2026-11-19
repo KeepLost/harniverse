@@ -45,7 +45,6 @@
     "@deepseek-ai/dsh-peer-client": "workspace:^",
     "@deepseek-ai/dsh-peer-host": "workspace:^",
     "@deepseek-ai/dsh-peer-protocol": "workspace:^",
-    "@deepseek-ai/dsh-remote-hosts": "workspace:^",
     "@deepseek-ai/dsh-remote-hosts-ssh": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "commander": "^15.0.0"

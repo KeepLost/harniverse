@@ -46,6 +46,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
 | `@deepseek-ai/dsh-tool-working-directory` | `working_directory` | `ctx.tools`, `ctx.workingDirectory`, `a calling Agent session` | `tool/call`, `working-directory/change`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-worktree` | `create_worktree` | `ctx.tools`, `ctx.worktrees`, `a calling Agent session` | `tool/call`, `working-directory/change through the entered checkout`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-peer` | `peer` | `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | peer is the model-facing consumer of the pairing channel: it resolves a target the home paired, delivers the prompt through peer/delegate or peer/followup within a bounded settlement budget, and renders the settled reply naming the session id; a turn still running reports continuation guidance, and reachability stays the pairing boundary itself. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`, `ctx.fs`, `ctx.sessionProjections`, `a calling Agent (exec.agent) with an open turn and a workspace` | `tool/call`, `deliverables/presented`, `tool/result` | - | present is the deliverable declaration seam: a successful call appends deliverables/presented to the owning session, which UIs fold per turn. The schema stays fixed regardless of maxFiles; the bound only moves the execute-time acceptance range. |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
@@ -2333,6 +2334,50 @@ Create a new Git branch and worktree from a local commit, branch, or tag, then c
 ```
 
 Source: [`packages/workspace/tool-worktree/src/index.ts`](../packages/workspace/tool-worktree/src/index.ts)
+
+<a id="deepseek-aidsh-tool-peer"></a>
+
+## `@deepseek-ai/dsh-tool-peer`
+
+### `peer`
+
+Run a prompt on a paired Harniverse instance — another machine this deployment is paired with — and return its settled reply. Use this when the user asks to delegate work to a paired instance by name, or to continue a delegated conversation started earlier.
+
+Pass `target` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its `sessionId`; continue that conversation by passing `session` with the next prompt. Each turn waits up to `timeoutMs` (default 120000, max 900000) for settlement — a turn still running past the budget reports `running` with the `sessionId`; re-check later by continuing that session with a short status prompt.
+
+The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable).
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "The paired instance to address: its display name or exact instance id."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The prompt to run on the paired instance (at most 32768 characters)."
+    },
+    "session": {
+      "type": "string",
+      "description": "Existing delegated session id to continue; omit to start a fresh session."
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "description": "Settlement budget for this turn in milliseconds (default 120000, max 900000)."
+    }
+  },
+  "required": [
+    "target",
+    "prompt"
+  ]
+}
+```
+
+Source: [`packages/peer/tool-peer/src/index.ts`](../packages/peer/tool-peer/src/index.ts)
+
+peer is the model-facing consumer of the pairing channel: it resolves a target the home paired, delivers the prompt through peer/delegate or peer/followup within a bounded settlement budget, and renders the settled reply naming the session id; a turn still running reports continuation guidance, and reachability stays the pairing boundary itself.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

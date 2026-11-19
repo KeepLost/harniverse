@@ -984,6 +984,9 @@ importers:
       '@deepseek-ai/dsh-tool-lsp':
         specifier: workspace:*
         version: link:../packages/lsp/tool-lsp
+      '@deepseek-ai/dsh-tool-peer':
+        specifier: workspace:^
+        version: link:../packages/peer/tool-peer
       '@deepseek-ai/dsh-tool-pwsh':
         specifier: workspace:*
         version: link:../packages/shell/tool-pwsh
@@ -1802,6 +1805,9 @@ importers:
       '@deepseek-ai/dsh-tool-jobs':
         specifier: workspace:^
         version: link:../../jobs/tool-jobs
+      '@deepseek-ai/dsh-tool-peer':
+        specifier: workspace:^
+        version: link:../../peer/tool-peer
       '@deepseek-ai/dsh-tool-pwsh':
         specifier: workspace:^
         version: link:../../shell/tool-pwsh
@@ -2051,9 +2057,6 @@ importers:
       '@deepseek-ai/dsh-peer-protocol':
         specifier: workspace:^
         version: link:../../peer/peer-protocol
-      '@deepseek-ai/dsh-remote-hosts':
-        specifier: workspace:^
-        version: link:../../ssh/remote-hosts
       '@deepseek-ai/dsh-remote-hosts-ssh':
         specifier: workspace:^
         version: link:../../ssh/remote-hosts-ssh
@@ -9172,6 +9175,9 @@ importers:
       '@deepseek-ai/dsh-peer-protocol':
         specifier: workspace:^
         version: link:../peer-protocol
+      '@deepseek-ai/dsh-remote-hosts':
+        specifier: workspace:^
+        version: link:../../ssh/remote-hosts
       '@deepseek-ai/dsh-sdk-client':
         specifier: workspace:^
         version: link:../../sdk/client
@@ -9182,6 +9188,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-remote-hosts-ssh':
+        specifier: workspace:^
+        version: link:../../ssh/remote-hosts-ssh
 
   packages/peer/peer-host:
     dependencies:
@@ -9240,6 +9249,37 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+
+  packages/peer/tool-peer:
+    dependencies:
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:^
+        version: link:../../util/home-paths
+      '@deepseek-ai/dsh-peer-client':
+        specifier: workspace:^
+        version: link:../peer-client
+      '@deepseek-ai/dsh-peer-protocol':
+        specifier: workspace:^
+        version: link:../peer-protocol
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
 
   packages/plan/plan-mode:
     dependencies:

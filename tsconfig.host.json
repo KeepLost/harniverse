@@ -346,6 +346,7 @@
     { "path": "./packages/peer/peer-protocol" },
     { "path": "./packages/peer/peer-host" },
     { "path": "./packages/peer/peer-client" },
+    { "path": "./packages/peer/tool-peer" },
     { "path": "./packages/bundle/peer-app" },
     { "path": "./packages/bundle/chat-app" },
     { "path": "./packages/bundle/headless" },

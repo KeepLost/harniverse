@@ -261,6 +261,8 @@
       "@deepseek-ai/dsh-peer-client": ["./packages/peer/peer-client/src/index.ts"],
       "@deepseek-ai/dsh-peer-client/invariant": ["./packages/peer/peer-client/src/invariant.ts"],
       "@deepseek-ai/dsh-peer-client/types": ["./packages/peer/peer-client/src/types.ts"],
+      "@deepseek-ai/dsh-tool-peer": ["./packages/peer/tool-peer/src/index.ts"],
+      "@deepseek-ai/dsh-tool-peer/invariant": ["./packages/peer/tool-peer/src/invariant.ts"],
       "@deepseek-ai/dsh-peer-app": ["./packages/bundle/peer-app/src/index.ts"],
       "@deepseek-ai/dsh-peer-app/invariant": ["./packages/bundle/peer-app/src/invariant.ts"],
       "@deepseek-ai/dsh-peer-app/startup": ["./packages/bundle/peer-app/src/startup.ts"],

@@ -50,6 +50,7 @@ const EXPECTED_TOOLS = [
   'job_kill',
   'job_list',
   'job_output',
+  'peer',
   'present',
   'queue-history',
   'queue-publish',
