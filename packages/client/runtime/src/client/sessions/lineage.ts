@@ -23,7 +23,7 @@ export interface SessionListEntry {
   blank: boolean
   parentSessionId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
-  origin?: 'subagent'
+  origin?: 'subagent' | 'peer'
   cwd?: string
   /** Agent profile the session's agent was composed from (summary passthrough). */
   agentProfile?: string

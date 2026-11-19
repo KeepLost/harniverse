@@ -6,7 +6,7 @@
 
 Service Definition:[dsh-peer-host](../../packages/peer/peer-host)(`ctx.peerHost` + `peer/*` Remote 命名空间与事件)。共享词汇与家锚定身份位于 [dsh-peer-protocol](../../packages/peer/peer-protocol);发起方编排与目标存储位于 [dsh-peer-client](../../packages/peer/peer-client);`dsh peer` 管理应用是 [dsh-peer-app](../../packages/bundle/peer-app)。设计理由见[实例配对 Agent Note](../../.agents/notes/implemented/feature/2026-11-18-peer-instance-pairing.md)。
 
-源码:[`packages/peer/peer-protocol/src/types.ts`](../../packages/peer/peer-protocol/src/types.ts)、[`packages/peer/peer-protocol/src/payload.ts`](../../packages/peer/peer-protocol/src/payload.ts)和 [`packages/peer/peer-host/src/index.ts`](../../packages/peer/peer-host/src/index.ts)
+源码:[`packages/peer/peer-protocol/src/types.ts`](../../packages/peer/peer-protocol/src/types.ts)、[`packages/peer/peer-protocol/src/payload.ts`](../../packages/peer/peer-protocol/src/payload.ts)、[`packages/peer/peer-protocol/src/proof.ts`](../../packages/peer/peer-protocol/src/proof.ts)、[`packages/peer/peer-host/src/index.ts`](../../packages/peer/peer-host/src/index.ts)和 [`packages/peer/peer-host/src/delegate.ts`](../../packages/peer/peer-host/src/delegate.ts)
 
 ## 配对流程
 
@@ -32,6 +32,8 @@ interface PeerRecord {
   /** How the peer was admitted; the shipped flow is always the invitation token. */
   pairedVia: 'invitation'
   status: 'active' | 'revoked'
+  /** Base64url SPKI pinned at the first proof-bearing hello; absent only in pre-proof records. */
+  identityPublicKey?: string
   firstSeenAt: string
   lastSeenAt: string
 }
@@ -54,7 +56,41 @@ interface PeerSurface {
 type PeerInstanceId = string
 ```
 
+```ts type-equiv
+/** Timestamp-windowed signature authenticating one peer Remote request. */
+interface PeerRequestProof {
+  /** The caller's home-anchored identity; resolves the pinned record. */
+  instanceId: PeerInstanceId
+  /** Claim time in epoch milliseconds; the host rejects values outside the skew window. */
+  timestamp: number
+  /** Base64url IEEE-P1363 ECDSA/SHA-256 signature over the canonical request message. */
+  signature: string
+}
+```
+
+```ts type-equiv
+/** Result of one delegate or follow-up call. */
+interface PeerRunResult {
+  /** Session id that owns the turn; safe to reference in later calls. */
+  sessionId: string
+  /** Accepted prompt message id. */
+  messageId: string
+  /** Whether the turn settled within the budget. */
+  state: PeerRunState
+  /** Concatenated assistant text of the turn, present once settled. */
+  reply?: string
+  /** Why the turn ended, present once settled; `completed` names success. */
+  endReason?: string
+}
+```
+
 `peer/hello` Remote 携带发起方的自我声明身份并返回目标身份;两侧都校验共享边界(展示名 1–64 个非控制字符,platform/arch/version 字符串有界),并以[peer 词汇表](../../packages/peer/peer-protocol)的封闭错误码拒绝。
+
+## 委派
+
+`peer/delegate`、`peer/followup` 与 `peer/sessions` 在接受方实例上为已配对的发起方运行真实会话。每个请求都携带由钉住身份密钥签名、带时间窗的请求证明；host 先由证明解析调用方记录、再检查对应的 surface 字段，因此 peer 只能触达自己的会话。`peer/delegate` 组建一个 `origin: 'peer'` 会话，工作目录解析在 `peer-work/<instanceId>/` 之下（仅允许相对路径），并把提示词经 agent 收件箱投递；结算从会话自身的事件窗口观察，返回拼接的助手文本与结束原因，超预算则返回 `state: 'running'`。`peer/followup` 以同样方式投递下一个 FIFO 回合，agent 不在位时冷恢复会话；`peer/sessions` 列出调用方的注册表条目及推导的 `running`/`idle`/`ended` 状态。`origin: 'peer'` 的会话不出现在任何面向用户的会话列表里，只能经 peer Remote 触达。
+
+移除 peer 会删除其会话注册表条目，并在真空闲时关闭其常驻 agent；发起方的 `dsh peer run/send/sessions` 按存储的传输解析目标——direct 端点原样拨号，`ssh` 传输在调用存活期内转发到目标的环回端口。
 
 ## 传输与排除
 
@@ -75,21 +111,44 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 Peer acceptance service; the store file is the authority and events are live-process observations.
 
 ```ts cordis-catalog
-/** Answer one authenticated peer's identity readback and commit its paired record.
- * @param identity - the initiator's self-asserted home identity.
+/** Mint one single-use pairing challenge for the hello proof exchange.
+ * @returns the nonce to sign and its lifetime boundary.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async challenge(): Promise<{ challenge: string }>
+
+/** Answer one authenticated peer's identity readback and commit its pinned paired record.
+ * @param request - the initiator's identity plus its challenge signature.
  * @returns this instance's identity and the approved surface.
  */
-@Remote({ requiredCapability: 'harniverse.peer' }) async hello(identity: PeerHelloInput): Promise<PeerHello>
+@Remote({ requiredCapability: 'harniverse.peer' }) async hello(request: PeerHelloRequest): Promise<PeerHello>
 
-/** Remove one paired-peer record and report the removed record's final state.
+/** Remove one paired-peer record, end its delegated sessions, and report the removed record.
  * @param instanceId - exact instance id to remove.
  * @returns the removed record.
  * @throws a {@link PeerError} with `RECORD_NOT_FOUND` when no such peer is stored.
  */
 async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
+
+/** Start one delegated session for the calling peer and await its first settlement.
+ * @param request - proof, prompt, and optional working directory, profile, and budget.
+ * @returns the minted session and its first turn's terminal state.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async delegate(request: PeerDelegateRequest): Promise<PeerRunResult>
+
+/** Deliver the next turn into one session the calling peer owns.
+ * @param request - proof, session id, prompt, and optional budget.
+ * @returns the delivered turn's terminal state.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async followup(request: PeerFollowupRequest): Promise<PeerRunResult>
+
+/** Enumerate the calling peer's own delegated sessions.
+ * @param request - proof of the calling peer.
+ * @returns the caller's session summaries, newest activity first.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async sessions(request: { proof: PeerRequestProof }): Promise<{ sessions: PeerSessionSummary[] }>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:43`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:52`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="peer-events"></a>
 
@@ -110,7 +169,7 @@ Emitted after one peer's first `peer/hello` appended its record.
 'peer/paired'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:32`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:41`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="peerremoved--emit"></a>
 
@@ -127,5 +186,5 @@ Emitted after one paired-peer record was removed from the store.
 'peer/removed'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:38`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:47`](../../packages/peer/peer-host/src/index.ts)
 <!-- END GENERATED cordis-surface -->

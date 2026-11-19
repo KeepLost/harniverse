@@ -2342,10 +2342,18 @@ export interface PeerStartupValues {
   instanceId?: string
   /** Per-request timeout in milliseconds for `add`. */
   timeoutMs?: number
+  /** Delegation prompt words for `run` and `send`. */
+  prompt?: string
+  /** Session id targeted by `send`. */
+  sessionId?: string
+  /** Working directory relative to the peer root for `run`. */
+  cwd?: string
+  /** Agent profile id for `run`. */
+  profile?: string
 }
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions'
 ```
 
 来源：[`packages/bundle/peer-app/src/index.ts:38`](../packages/bundle/peer-app/src/index.ts)

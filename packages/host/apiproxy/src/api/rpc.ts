@@ -190,6 +190,12 @@ export interface RpcErrorDetailsMap {
    */
   'chat-bot-failed': { reason: string }
   /**
+   * A peer Remote call failed. `reason` is the peer family's closed code
+   * (`SURFACE_DENIED`, `INVALID_PROOF`, `SESSION_NOT_FOUND`, …), carried
+   * verbatim so the initiator CLI discriminates without parsing messages.
+   */
+  'peer-failed': { reason: string }
+  /**
    * The workspaceFileWrite Remote's own closed codes (open, stat, save, and
    * exclusive create), carried verbatim so the workbench and the editor
    * discriminate them (a save conflict, an exclusive create collision)
@@ -314,6 +320,7 @@ export const RPC_ERROR_CODES = [
   'browser-navigation-refused',
   'remote-host-failed',
   'chat-bot-failed',
+  'peer-failed',
   'workspace-unknown',
   'path-invalid',
   'not-found',

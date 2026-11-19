@@ -56,7 +56,7 @@ export const sessionSummarySchema = z.object({
   running: z.boolean(),
   blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
-  origin: z.literal('subagent').optional(),
+  origin: z.union([z.literal('subagent'), z.literal('peer')]).optional(),
   cwd: z.string().optional(),
   agentProfile: z.string().optional(),
   modelProfile: z.string().min(1).optional(),

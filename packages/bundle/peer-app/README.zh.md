@@ -14,10 +14,13 @@
 | `peer remove <instance-id>` | 接受方 | 删除记录,并在存在时撤销 `peer-<instanceId>` Grant。 |
 | `peer targets` | 发起方 | 从 `peer-targets.json` 列出配对目标。 |
 | `peer forget <instance-id>` | 发起方 | 丢弃一条目标记录。 |
+| `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>]` | 发起方 | 在已配对目标上开启一个被委派会话并等待回复;打印会话行,结算后附回复文本。 |
+| `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>]` | 发起方 | 向一个被委派会话投递下一回合并以同样方式等待结算。 |
+| `peer sessions <instance-id>` | 发起方 | 列出本实例在目标上的被委派会话及活跃状态。 |
 
 邀请要求目标注册表中已存在 owner Grant(引导规则);新家只有在其 owner 引导之后才能配对。SSH 拨号的 add 仅接受密钥文件与 agent 主机登录——口令与加密引用登录报 `UNSUPPORTED_CREDENTIALS`,因为一次性进程不解析任何加密凭据。
 
-runner 组合 `remote-hosts-ssh`,使 `--ssh-host` 使用与 remote-hosts 协调器相同的传输拨号,主机记录读自 profile 家的 `remote-hosts.json`。
+runner 组合 `remote-hosts-ssh`,使 `--ssh-host` 使用与 remote-hosts 协调器相同的传输拨号,主机记录读自 profile 家的 `remote-hosts.json`。委派命令以同样方式解析目标存储的传输——direct 端点原样拨号,`ssh` 传输在调用存活期内转发到目标的环回端口。
 
 ## 验证
 
@@ -40,4 +43,5 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
 ## Known Limitations and Deferred Work(已知限制与后续工作)
 
 - `peer invite` 经本地注册表文件写邀请;服务实例通过其注册表 watcher 观察变更,因此已停止的实例必须先启动才能兑换邀请。
+- `peer run` 与 `peer send` 是同步的:预算耗尽而回合仍在运行时打印 `state: 'running'` 并以 0 退出;操作者之后凭会话 id 续话。发起方尚无在目标不可达时排队的发件箱。
 - 此处没有邀请列举或撤销命令;`dsh auth code list` 与 `dsh auth code revoke` 对所有邀请类别拥有这些操作。

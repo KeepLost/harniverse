@@ -14,10 +14,13 @@ One-shot peer pairing management app, booted by `dsh peer` (a launcher alias of 
 | `peer remove <instance-id>` | accepting | Removes the record and revokes the `peer-<instanceId>` grant when present. |
 | `peer targets` | initiating | Lists pairing targets from `peer-targets.json`. |
 | `peer forget <instance-id>` | initiating | Drops one target record. |
+| `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>]` | initiating | Starts one delegated session on the paired target and awaits its reply; prints the session line and, once settled, the reply text. |
+| `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>]` | initiating | Delivers the next turn into one delegated session and awaits settlement the same way. |
+| `peer sessions <instance-id>` | initiating | Lists this instance's delegated sessions on the target with live state. |
 
 Invitations require an existing owner Grant in the target registry (the bootstrap rule); a fresh home pairs only after its owner bootstrap. SSH-dialed adds accept key-file and agent host logins only — password and encrypted-reference logins report `UNSUPPORTED_CREDENTIALS`, because a one-shot process resolves no encrypted credentials.
 
-The runner composes `remote-hosts-ssh` so `--ssh-host` dials the same transport the remote-hosts coordinator uses, reading host records from the profile home's `remote-hosts.json`.
+The runner composes `remote-hosts-ssh` so `--ssh-host` dials the same transport the remote-hosts coordinator uses, reading host records from the profile home's `remote-hosts.json`. Delegation commands resolve the target's stored transport the same way — direct origins dial as-is, `ssh` transports forward to the target's loopback port for the call's lifetime.
 
 ## Verification
 
@@ -40,4 +43,5 @@ None; the app assembles no model input.
 ## Known Limitations and Deferred Work
 
 - `peer invite` writes invitations through the local registry file; the serving instance observes them through its registry watcher, so a stopped instance must be started before the invitation is redeemed.
+- `peer run` and `peer send` are synchronous: a budget that expires with the turn still running prints `state: running` and exits 0; the operator continues the session later by session id. No initiator-side outbox queues prompts while the target is unreachable.
 - No invitation listing or revocation commands here; `dsh auth code list` and `dsh auth code revoke` own those operations for every invitation kind.

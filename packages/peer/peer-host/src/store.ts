@@ -56,8 +56,14 @@ export function parsePeerRecord(value: unknown): PeerRecord {
   }
   const record = value as unknown as Record<string, unknown>
   const keys = ['instanceId', 'displayName', 'platform', 'arch', 'version', 'surface', 'pairedVia', 'status', 'firstSeenAt', 'lastSeenAt']
-  if (keys.length !== Object.keys(record).length || keys.some(key => !(key in record))) {
+  const present = Object.keys(record)
+  if (keys.some(key => !(key in record)) || present.length > keys.length + 1
+    || (present.length === keys.length + 1 && !('identityPublicKey' in record))) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer record fields mismatch')
+  }
+  if ('identityPublicKey' in record && (typeof record.identityPublicKey !== 'string' || record.identityPublicKey.length === 0
+    || record.identityPublicKey.length > 512)) {
+    throw new PeerError('CORRUPT_INSTANCE', 'peer record identity key')
   }
   if (typeof record.instanceId !== 'string'
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(record.instanceId)) {

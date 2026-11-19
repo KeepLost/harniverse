@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-共享 peer 词汇:`dsh-peer:` 邀请编解码、家锚定的实例身份、封闭错误词汇与 Grant 命名约定。纯库——无插件、无 Config、无注册——由 [dsh-peer-host](../peer-host/README.md)、[dsh-peer-client](../peer-client/README.md)与 [dsh-peer-app](../../bundle/peer-app/README.md)消费。
+共享 peer 词汇:`dsh-peer:` 邀请编解码、家锚定的实例身份、hello 与请求证明、封闭错误词汇与 Grant 命名约定。纯库——无插件、无 Config、无注册——由 [dsh-peer-host](../peer-host/README.md)、[dsh-peer-client](../peer-client/README.md)与 [dsh-peer-app](../../bundle/peer-app/README.md)消费。
 
 ## 实例身份
 
@@ -11,6 +11,10 @@
 ## 邀请编解码
 
 `encodePeerInvite(payload)` 产出单粘贴的 `dsh-peer://<base64url>` URI;`decodePeerInvite(uri)` 校验完整形态——版本、小写 UUID、有界展示名、HTTPS 或环回 HTTP 的 origin、`dshi1_` 令牌、可选的 base64 SHA-256 TLS 指纹——以封闭原因 `INVALID_URI` 与 `INVALID_PAYLOAD` 拒绝。`peerGrantName(instanceId)` 导出注册表唯一的 `peer-<instanceId>` 名,`instanceIdOfGrantName` 反向读取;共享展示名边界是 `isDisplayName`。
+
+## 证明
+
+两类规范签名把 Remote 调用绑定到发起方的 P-256 身份密钥。hello 证明覆盖 `peerHelloMessage(instanceId, challenge)`——`peer/challenge` 铸出的单次 nonce——因此接受方在首次配对时把 `identityPublicKey` 钉入配对记录,此后每次 hello 都按钉住的密钥验签(不符则 `IDENTITY_MISMATCH`)。请求证明覆盖 `peerRequestMessage(instanceId, timestamp)`;`verifyPeerRequestProof` 在任何委派、续话或枚举调用之前检查形状、`PEER_PROOF_SKEW_MS` 时钟窗与对钉住密钥的签名。`verifyPeerSignature` 是两类证明共用的 base64url-SPKI ECDSA/SHA-256 验签器。
 
 ## 验证
 

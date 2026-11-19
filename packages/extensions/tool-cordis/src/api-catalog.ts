@@ -1875,17 +1875,41 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
-        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async hello(identity: PeerHelloInput): Promise<PeerHello>',
-        description: 'Answer one authenticated peer\'s identity readback and commit its paired record.',
-        parameters: [{ name: 'identity', description: 'the initiator\'s self-asserted home identity.' }],
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async challenge(): Promise<{ challenge: string }>',
+        description: 'Mint one single-use pairing challenge for the hello proof exchange.',
+        parameters: [],
+        returns: 'the nonce to sign and its lifetime boundary.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async hello(request: PeerHelloRequest): Promise<PeerHello>',
+        description: 'Answer one authenticated peer\'s identity readback and commit its pinned paired record.',
+        parameters: [{ name: 'request', description: 'the initiator\'s identity plus its challenge signature.' }],
         returns: 'this instance\'s identity and the approved surface.',
       },
       {
         signature: 'async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>',
-        description: 'Remove one paired-peer record and report the removed record\'s final state.',
+        description: 'Remove one paired-peer record, end its delegated sessions, and report the removed record.',
         parameters: [{ name: 'instanceId', description: 'exact instance id to remove.' }],
         returns: 'the removed record.',
         throws: ['a {@link PeerError} with `RECORD_NOT_FOUND` when no such peer is stored.'],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async delegate(request: PeerDelegateRequest): Promise<PeerRunResult>',
+        description: 'Start one delegated session for the calling peer and await its first settlement.',
+        parameters: [{ name: 'request', description: 'proof, prompt, and optional working directory, profile, and budget.' }],
+        returns: 'the minted session and its first turn\'s terminal state.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async followup(request: PeerFollowupRequest): Promise<PeerRunResult>',
+        description: 'Deliver the next turn into one session the calling peer owns.',
+        parameters: [{ name: 'request', description: 'proof, session id, prompt, and optional budget.' }],
+        returns: 'the delivered turn\'s terminal state.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async sessions(request: { proof: PeerRequestProof }): Promise<{ sessions: PeerSessionSummary[] }>',
+        description: 'Enumerate the calling peer\'s own delegated sessions.',
+        parameters: [{ name: 'request', description: 'proof of the calling peer.' }],
+        returns: 'the caller\'s session summaries, newest activity first.',
       },
     ],
   },
@@ -5571,7 +5595,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n        readonly agentProfile?: string;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\' | \'peer\';\n        readonly delegationDepth?: number;\n        readonly agentProfile?: string;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
     name: 'CreatedWorktree',
@@ -5587,7 +5611,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n        readonly agentProfile?: string;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly origin?: SessionOrigin;\n        readonly delegationDepth?: number;\n        readonly agentProfile?: string;\n    };\n}',
   },
   {
     name: 'CreateWorktreeRequest',
@@ -6506,6 +6530,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface OwnerView {\n    key: string;\n    platform: string;\n    userId: string;\n    displayName?: string;\n    pairedAt: number;\n}',
   },
   {
+    name: 'PeerDelegateRequest',
+    declaration: 'export interface PeerDelegateRequest {\n    proof: PeerRequestProof;\n    prompt: string;\n    cwd?: string;\n    profile?: string;\n    timeoutMs?: number;\n}',
+  },
+  {
+    name: 'PeerFollowupRequest',
+    declaration: 'export interface PeerFollowupRequest {\n    proof: PeerRequestProof;\n    sessionId: string;\n    prompt: string;\n    timeoutMs?: number;\n}',
+  },
+  {
     name: 'PeerHello',
     declaration: 'export interface PeerHello {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n}',
   },
@@ -6514,12 +6546,40 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PeerHelloInput {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n}',
   },
   {
+    name: 'PeerHelloProof',
+    declaration: 'export interface PeerHelloProof {\n    publicKey: string;\n    signature: string;\n}',
+  },
+  {
+    name: 'PeerHelloRequest',
+    declaration: 'export interface PeerHelloRequest {\n    challenge: string;\n    identity: PeerHelloInput;\n    proof: PeerHelloProof;\n}',
+  },
+  {
     name: 'PeerInstanceId',
     declaration: 'export type PeerInstanceId = string;',
   },
   {
     name: 'PeerRecord',
-    declaration: 'export interface PeerRecord {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n    pairedVia: \'invitation\';\n    status: \'active\' | \'revoked\';\n    firstSeenAt: string;\n    lastSeenAt: string;\n}',
+    declaration: 'export interface PeerRecord {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n    pairedVia: \'invitation\';\n    status: \'active\' | \'revoked\';\n    identityPublicKey?: string;\n    firstSeenAt: string;\n    lastSeenAt: string;\n}',
+  },
+  {
+    name: 'PeerRequestProof',
+    declaration: 'export interface PeerRequestProof {\n    instanceId: PeerInstanceId;\n    timestamp: number;\n    signature: string;\n}',
+  },
+  {
+    name: 'PeerRunResult',
+    declaration: 'export interface PeerRunResult {\n    sessionId: string;\n    messageId: string;\n    state: PeerRunState;\n    reply?: string;\n    endReason?: string;\n}',
+  },
+  {
+    name: 'PeerRunState',
+    declaration: 'export type PeerRunState = \'settled\' | \'running\';',
+  },
+  {
+    name: 'PeerSessionState',
+    declaration: 'export type PeerSessionState = \'running\' | \'idle\' | \'ended\';',
+  },
+  {
+    name: 'PeerSessionSummary',
+    declaration: 'export interface PeerSessionSummary {\n    sessionId: string;\n    createdAt: string;\n    lastActivityAt: string;\n    state: PeerSessionState;\n    label: string;\n}',
   },
   {
     name: 'PeerSurface',
@@ -7167,7 +7227,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly origin?: \'subagent\';\n    readonly delegationDepth?: number;\n    readonly agentProfile?: string;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly origin?: SessionOrigin;\n    readonly delegationDepth?: number;\n    readonly agentProfile?: string;\n}',
   },
   {
     name: 'SessionHistoryPage',
@@ -7224,6 +7284,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionMessageTailItem',
     declaration: 'export interface SessionMessageTailItem {\n    seq: number;\n    time: number;\n    message: Message;\n}',
+  },
+  {
+    name: 'SessionOrigin',
+    declaration: 'export type SessionOrigin = \'subagent\' | \'peer\';',
   },
   {
     name: 'SessionPersistenceRevision',

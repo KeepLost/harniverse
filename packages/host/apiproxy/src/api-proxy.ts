@@ -912,7 +912,7 @@ function sessionListUpdatedAt(header: SessionHeader, metadata: SessionListMetada
 /** Shared Session-header projection for list baselines and creation frames. */
 function sessionListFields(header: SessionHeader, events: readonly SessionEvent[] = []): {
   parentSessionId?: SessionId
-  origin?: 'subagent'
+  origin?: 'subagent' | 'peer'
   cwd?: string
   agentProfile?: string
 } {
@@ -2264,7 +2264,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   /** Resolve ordinary-session visibility conservatively at every transient boundary. */
   function ordinarySessionId(sessionId: SessionId): boolean {
     const session = ctx.sessions.get(sessionId)
-    return session !== undefined && session.header.origin !== 'subagent'
+    return session !== undefined && session.header.origin === undefined
   }
 
   function broadcastHost(payload: HostFrame): void {
@@ -2886,14 +2886,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       }
     }
     const items = ctx.sessions.list()
-      .filter(session => session.header.origin !== 'subagent')
+      .filter(session => session.header.origin === undefined)
       .map(summarizeAttached)
     signal?.throwIfAborted()
     const attached = new Set(items.map(item => item.sessionId))
     const persistence = ctx.get('sessionPersistence')
     if (persistence !== undefined) {
       const cold = (await persistence.list(signal))
-        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined && meta.origin !== 'subagent')
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined && meta.origin === undefined)
       signal?.throwIfAborted()
       for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
         signal?.throwIfAborted()
@@ -6097,7 +6097,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const bufferedEvents: Array<{ session: Session; event: SessionEvent }> = []
         const createdDuringBootstrap: Session[] = []
         let bootstrapping = true
-        const visibleSession = (session: Session): boolean => session.header.origin !== 'subagent'
+        const visibleSession = (session: Session): boolean => session.header.origin === undefined
           || addressedSessions.has(session.id)
         const visibleSessionId = (sessionId: SessionId): boolean => ordinarySessionId(sessionId)
         const pageToken = request.payload.page

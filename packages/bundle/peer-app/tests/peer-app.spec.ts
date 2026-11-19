@@ -47,7 +47,7 @@ interface InvocationResult { code: number; out: string; err: string }
 /** Boot the two production plugins through Loader; a stub remote-hosts-ssh satisfies the runner injection. */
 async function invoke(args: string[], dshHome: string, overrides: Record<string, object> = {}): Promise<InvocationResult> {
   const fixture = await temporary('dsh-peer-app-loader-')
-  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs']
+  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile']
   await writeFile(join(fixture, 'cordis.yml'), [
     '- id: remote-hosts-ssh',
     '  name: remote-hosts-ssh',
@@ -102,6 +102,62 @@ interface ServingTarget {
   invite: TargetInvite
 }
 
+/** A deterministic agent registry standing in for the real loop in CLI e2e runs. */
+class SettlingAgentRegistry extends Service {
+  /** Created entries by session id. */
+  readonly entries = new Map<string, { status: 'idle' | 'running'; followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => void; whenIdle: () => Promise<void>; session: { id: string; seq: number; events: Array<{ type: string; seq: number; data: unknown }>; eventsFrom: (from: number) => Array<{ type: string; data: unknown }> } }>()
+
+  constructor(ctx: Context) {
+    super(ctx, 'agents')
+  }
+
+  get(id: string) {
+    return this.entries.get(id)
+  }
+
+  async create(options: { sessionId: string; meta: { cwd: string; origin?: string }; setup: (ctx: Context) => Promise<void> }) {
+    const events: Array<{ type: string; seq: number; data: unknown }> = []
+    const session = {
+      id: options.sessionId,
+      events,
+      get seq() { return events.length },
+      eventsFrom: (from: number) => events.filter(event => event.seq >= from),
+    }
+    let idle: Promise<void> = Promise.resolve()
+    const entry = {
+      status: 'idle' as 'idle' | 'running',
+      session,
+      whenIdle: () => idle,
+      followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => {
+        const prompt = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
+        entry.status = 'running'
+        idle = new Promise((resolve) => {
+          setTimeout(() => {
+            const turn = 1 + events.filter(event => event.type === 'turn/end').length
+            events.push({ type: 'turn/start', seq: events.length, data: { turn } })
+            events.push({ type: 'user/message', seq: events.length, data: message })
+            events.push({ type: 'assistant/message', seq: events.length, data: { turn, step: 1, message: { content: [{ type: 'text', text: `echo: ${prompt}` }] } } })
+            events.push({ type: 'turn/end', seq: events.length, data: { turn, reason: { kind: 'completed' } } })
+            entry.status = 'idle'
+            resolve()
+          }, 10)
+        })
+      },
+    }
+    this.entries.set(options.sessionId, entry)
+    return { agent: entry }
+  }
+
+  async resume(options: { resumeSessionId: string }) {
+    if (!this.entries.has(options.resumeSessionId)) throw new Error('no persisted session')
+    return { agent: this.entries.get(options.resumeSessionId)! }
+  }
+
+  async closeIfIdle(id: string) {
+    return this.entries.delete(id) ? 'closed' : 'not-found'
+  }
+}
+
 /** Boot the accepting stack once and expose its origin plus a bootstrapped owner. */
 async function servingTarget(): Promise<ServingTarget> {
   const home = await temporary('peer-app-target-')
@@ -114,6 +170,7 @@ async function servingTarget(): Promise<ServingTarget> {
     { id: 'authentication', name: 'authentication', config: { dshHome: home, watch: false } },
     { id: 'webserver', name: 'webserver', inject: ['authentication'], config: { host: '127.0.0.1', port: 0 } },
     { id: 'peer-host', name: 'peer-host', config: { dshHome: home } },
+    { id: 'agents', name: 'agents' },
     { id: 'typert', name: 'typert' },
     { id: 'gateway', name: 'gateway' },
     { id: 'connection', name: 'connection' },
@@ -123,6 +180,7 @@ async function servingTarget(): Promise<ServingTarget> {
   ctx.loader.internal = { version: 'v2', async import(specifier: string) {
     const modules: Record<string, object> = {
       authentication: Authentication, webserver: WebServer, 'peer-host': PeerHost,
+      agents: { default: SettlingAgentRegistry },
       typert: Typert, gateway: Gateway, connection: Connection,
     }
     const module = modules[specifier]
@@ -168,6 +226,54 @@ it('invites and pairs two homes end to end through the CLI composition', async (
   const forgotten = await invoke(['forget', target.identity.instanceId], initiator)
   expect(forgotten.code).toBe(0)
   expect(await readFile(join(initiator, 'peer-targets.json'), 'utf8')).toContain('"targets":[]')
+})
+
+it('runs, sends, and lists delegated sessions through the CLI composition', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  const uri = inviteUri(invited.out)
+  const initiator = await temporary('peer-app-initiator-')
+  const added = await invoke(['add', uri, '--timeout', '20000'], initiator)
+  expect(added.code).toBe(0)
+  const targetId = target.identity.instanceId
+  const run = await invoke(['run', targetId, 'summarize', 'the', 'tree', '--timeout', '10000'], initiator)
+  expect(run.code).toBe(0)
+  expect(run.out).toContain('session\t')
+  expect(run.out).toContain('echo: summarize the tree')
+  const sessionId = run.out.split('\n')[0]!.split('\t')[1]!
+  const sessions = await invoke(['sessions', targetId], initiator)
+  expect(sessions.code).toBe(0)
+  expect(sessions.out).toContain(sessionId)
+  expect(sessions.out).toContain('summarize the tree')
+  const sent = await invoke(['send', targetId, sessionId, 'thanks', '--timeout', '10000'], initiator)
+  expect(sent.code).toBe(0)
+  expect(sent.out).toContain('echo: thanks')
+  const unknown = await invoke(['run', '01234567-89ab-cdef-0123-456789abcdef', 'nope'], initiator)
+  expect(unknown.code).toBe(1)
+  expect(unknown.err).toContain('RECORD_NOT_FOUND')
+})
+
+it('runs delegated sessions with options, budgets, and continued turns', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  const uri = inviteUri(invited.out)
+  const initiator = await temporary('peer-app-initiator-')
+  await invoke(['add', uri, '--timeout', '20000'], initiator)
+  const targetId = target.identity.instanceId
+  const withOptions = await invoke(['run', targetId, 'summarize', 'the', 'tree', '--cwd', 'repo/src', '--profile', 'none'], initiator)
+  expect(withOptions.code).toBe(0)
+  expect(withOptions.out).toContain('echo: summarize the tree')
+  const running = await invoke(['run', targetId, 'still', 'working', '--timeout', '1'], initiator)
+  expect(running.code).toBe(0)
+  expect(running.out).toContain('running')
+  expect(running.out).not.toContain('echo:')
+  const sessionId = running.out.split('\n')[0]!.split('\t')[1]!
+  const resumed = await invoke(['send', targetId, sessionId, 'thanks', '--timeout', '10000'], initiator)
+  expect(resumed.code).toBe(0)
+  expect(resumed.out).toContain('echo: thanks')
+  const defaultBudget = await invoke(['send', targetId, sessionId, 'again'], initiator)
+  expect(defaultBudget.code).toBe(0)
+  expect(defaultBudget.out).toContain('echo: again')
 })
 
 it('rejects an invalid lifetime and prints help for a bare command', async () => {
@@ -248,6 +354,23 @@ it('covers the direct runner paths for missing fields and default lifetimes', as
   const defaultTtl = await invokeDirect({ operation: 'invite', dshHome: home, endpoint: 'https://build.example.org:8443' })
   expect(defaultTtl.code).toBe(1)
   expect(defaultTtl.err).toContain('first active Grant')
+  await writeFile(join(home, 'peer-targets.json'), JSON.stringify({
+    version: 1,
+    targets: [{
+      targetInstanceId: '3f2a8f9e-1111-4222-8333-444455556666',
+      displayName: 'Unreachable', endpoint: { origin: 'http://127.0.0.1:1' },
+      transport: { kind: 'direct' }, grantName: 'peer-3f2a8f9e-1111-4222-8333-444455556666',
+      grantId: 'gone', status: 'active', addedAt: '2026-01-01T00:00:00.000Z',
+    }],
+  }))
+  const sendWithoutBudget = await invokeDirect({
+    operation: 'send', dshHome: home,
+    instanceId: '3f2a8f9e-1111-4222-8333-444455556666',
+    sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef',
+    prompt: 'p',
+  })
+  expect(sendWithoutBudget.code).toBe(1)
+  expect(sendWithoutBudget.err).not.toContain('RECORD_NOT_FOUND')
 })
 
 it('pairs through a stubbed SSH forward to a live target', async () => {
@@ -295,11 +418,15 @@ it('pairs through a stubbed SSH forward to a live target', async () => {
       authentication: { kind: 'key', keyPath }, reverseMappings: [],
     }],
   }))
+  const overrides = { 'remote-hosts-ssh': { default: Ssh } }
   const agentAdded = await invoke(['add', `dsh-peer://${Buffer.from(JSON.stringify({
     version: 1, instanceId: target.identity.instanceId, displayName: target.identity.displayName,
     endpoint: { origin: 'http://127.0.0.1:9' }, token: (await target.invite()).token,
-  })).toString('base64url')}`, '--ssh-host', 'box', '--timeout', '20000'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
+  })).toString('base64url')}`, '--ssh-host', 'box', '--timeout', '20000'], registryHome, overrides)
   expect(agentAdded.code).toBe(0)
+  const tunneled = await invoke(['run', target.identity.instanceId, 'through', 'the', 'tunnel', '--timeout', '10000'], registryHome, overrides)
+  expect(tunneled.code).toBe(0)
+  expect(tunneled.out).toContain('echo: through the tunnel')
 
   const uri = `dsh-peer://${Buffer.from(JSON.stringify({
     version: 1, instanceId: target.identity.instanceId, displayName: target.identity.displayName,
@@ -309,7 +436,7 @@ it('pairs through a stubbed SSH forward to a live target', async () => {
   const added = await invoke(['add', uri, '--ssh-host', 'keybox', '--timeout', '20000'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
   expect(added.code).toBe(0)
   expect(added.out).toContain('paired\t')
-  expect(forwards).toEqual([Number(new URL(target.origin).port), Number(new URL(target.origin).port)])
+  expect(forwards).toEqual([Number(new URL(target.origin).port), Number(new URL(target.origin).port), Number(new URL(target.origin).port)])
   expect(await readFile(join(registryHome, 'peer-targets.json'), 'utf8')).toContain('"kind":"ssh"')
 })
 

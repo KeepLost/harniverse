@@ -185,7 +185,7 @@ function scripted(responses: Array<{ status?: number; body?: unknown; raw?: stri
     }
     let body = reply.body === undefined ? {} : reply.body
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (typeof url === 'string' && url.endsWith('/api/peer/hello') && init?.body !== undefined) {
+    if (typeof url === 'string' && /\/api\/peer\/(hello|challenge)$/.test(url) && init?.body !== undefined) {
       const request = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as { rpcId?: string }
       if (typeof request.rpcId === 'string' && typeof body === 'object' && body !== null) {
         body = { ...body as Record<string, unknown>, rpcId: request.rpcId }
@@ -234,6 +234,7 @@ it('rejects malformed hello envelopes, bodies, and surfaces', async () => {
     { body: { state: 'approved', grantId: grant } },
     { body: { id: 'cha', payload: 'c2lnbg', expiresAt: new Date(Date.now() + 60_000).toISOString() } },
     { body: { accessToken: 'tok', expiresAt: new Date(Date.now() + 60_000).toISOString() } },
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { challenge: 'nonce' } } } },
   ]
   const cases: Array<{ responses: Array<{ status?: number; body?: unknown; raw?: string }>; pattern: RegExp }> = [
     { responses: [...approved, { status: 500, body: {} }], pattern: /HELLO_REJECTED/ },

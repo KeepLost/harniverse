@@ -47,6 +47,91 @@ export interface PeerHelloInput {
   version: string
 }
 
+/** Signature binding one hello to the initiator's pinned identity key. */
+export interface PeerHelloProof {
+  /** Base64url DER SubjectPublicKeyInfo of the initiator's signing key. */
+  publicKey: string
+  /** Base64url IEEE-P1363 ECDSA/SHA-256 signature over the canonical hello message. */
+  signature: string
+}
+
+/** Hello request: the self-asserted identity plus its cryptographic proof. */
+export interface PeerHelloRequest {
+  /** The single-use nonce minted by `peer/challenge` that the signature covers. */
+  challenge: string
+  identity: PeerHelloInput
+  proof: PeerHelloProof
+}
+
+/** Timestamp-windowed signature authenticating one peer Remote request. */
+export interface PeerRequestProof {
+  /** The caller's home-anchored identity; resolves the pinned record. */
+  instanceId: PeerInstanceId
+  /** Claim time in epoch milliseconds; the host rejects values outside the skew window. */
+  timestamp: number
+  /** Base64url IEEE-P1363 ECDSA/SHA-256 signature over the canonical request message. */
+  signature: string
+}
+
+/** Delegation request: start one peer-owned session with an initial prompt. */
+export interface PeerDelegateRequest {
+  proof: PeerRequestProof
+  /** Initial user prompt delivered as the session's first turn. */
+  prompt: string
+  /** Working directory relative to the caller's peer root; absent means the root itself. */
+  cwd?: string
+  /** Agent profile id to compose the session with; absent means the deployment default. */
+  profile?: string
+  /** Settlement-wait budget in milliseconds; past it the run reports `running` instead. */
+  timeoutMs?: number
+}
+
+/** Follow-up request: deliver the next turn into one session the caller owns. */
+export interface PeerFollowupRequest {
+  proof: PeerRequestProof
+  /** Session id of the caller's own delegated session. */
+  sessionId: string
+  /** User prompt delivered as the session's next FIFO turn. */
+  prompt: string
+  /** Settlement-wait budget in milliseconds; past it the run reports `running` instead. */
+  timeoutMs?: number
+}
+
+/** Enumeration request for the caller's own delegated sessions. */
+export interface PeerSessionsRequest {
+  proof: PeerRequestProof
+}
+
+/** Terminal state of one observed turn. */
+export type PeerRunState = 'settled' | 'running'
+
+/** Result of one delegate or follow-up call. */
+export interface PeerRunResult {
+  /** Session id that owns the turn; safe to reference in later calls. */
+  sessionId: string
+  /** Accepted prompt message id. */
+  messageId: string
+  /** Whether the turn settled within the budget. */
+  state: PeerRunState
+  /** Concatenated assistant text of the turn, present once settled. */
+  reply?: string
+  /** Why the turn ended, present once settled; `completed` names success. */
+  endReason?: string
+}
+
+/** Lifecycle state of one delegated session, derived from agent residency. */
+export type PeerSessionState = 'running' | 'idle' | 'ended'
+
+/** One delegated session row of the caller's own namespace. */
+export interface PeerSessionSummary {
+  sessionId: string
+  createdAt: string
+  lastActivityAt: string
+  state: PeerSessionState
+  /** Creation label: the initial prompt truncated to its first line. */
+  label: string
+}
+
 /** Target identity readback returned by `peer/hello`. */
 export interface PeerHello {
   instanceId: PeerInstanceId
@@ -70,6 +155,8 @@ export interface PeerRecord {
   /** How the peer was admitted; the shipped flow is always the invitation token. */
   pairedVia: 'invitation'
   status: 'active' | 'revoked'
+  /** Base64url SPKI pinned at the first proof-bearing hello; absent only in pre-proof records. */
+  identityPublicKey?: string
   firstSeenAt: string
   lastSeenAt: string
 }

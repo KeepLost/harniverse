@@ -664,6 +664,7 @@
     "browser-navigation-refused",
     "remote-host-failed",
     "chat-bot-failed",
+    "peer-failed",
     "workspace-unknown",
     "path-invalid",
     "not-found",

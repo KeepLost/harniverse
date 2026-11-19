@@ -2170,6 +2170,16 @@
       "doc": "docs/subsystems/peer.md",
       "symbol": "PeerInstanceId",
       "source": "packages/peer/peer-protocol/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/peer.md",
+      "symbol": "PeerRequestProof",
+      "source": "packages/peer/peer-protocol/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/peer.md",
+      "symbol": "PeerRunResult",
+      "source": "packages/peer/peer-protocol/src/types.ts"
     }
   ]
 }

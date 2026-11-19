@@ -57,6 +57,9 @@ export function SessionId(id: string): SessionId {
  */
 export const SESSION_FORMAT_VERSION = 0
 
+/** Coarse durable origin classification of one session; navigation surfaces derive visibility from it. */
+export type SessionOrigin = 'subagent' | 'peer'
+
 /**
  * Immutable validated storage metadata, kept outside the conversation event log.
  */
@@ -84,7 +87,7 @@ export interface SessionHeader {
    * Coarse product classification for a session created as a subagent child.
    * This is presentation metadata, not proof that the child is continuable.
    */
-  readonly origin?: 'subagent'
+  readonly origin?: SessionOrigin
   /**
    * Delegation depth: absent (zero) for a top-level session, parent depth + 1
    * for a subagent child. Persisted so a recursion budget survives restart and
@@ -117,7 +120,7 @@ export interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
-    readonly origin?: 'subagent'
+    readonly origin?: SessionOrigin
     readonly delegationDepth?: number
     readonly agentProfile?: string
   }
