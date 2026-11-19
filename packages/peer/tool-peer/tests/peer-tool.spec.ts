@@ -228,6 +228,7 @@ it('tracks a running turn with the outbox service and points at the queued deliv
     ownerSessionId: 'owner-session',
     label: 'slow job',
   }])
+  rig.target.delegateRuns = [{ sessionId: 'peer-run-3', messageId: 'm3', state: 'running' }]
   const withoutAgent = await rig.ctx.tools.execute({
     signal: new AbortController().signal,
     callId: CallId('call-3'),
@@ -236,6 +237,18 @@ it('tracks a running turn with the outbox service and points at the queued deliv
   })
   expect(withoutAgent.isError).toBeFalsy()
   expect(tracked).toHaveLength(1)
+  const agentNoOutbox = await setup([{}])
+  agentNoOutbox.target.delegateRuns = [{ sessionId: 'peer-run-4', messageId: 'm4', state: 'running' }]
+  const bare = await agentNoOutbox.ctx.tools.execute({
+    signal: new AbortController().signal,
+    callId: CallId('call-4'),
+    name: 'peer',
+    arguments: { target: ID_A, prompt: 'p' },
+    agent: { session: { id: 'owner-session' } } as never,
+  })
+  expect(bare.isError).toBeFalsy()
+  const bareText = bare.content.filter(block => block.type === 'text').map(block => (block as { text: string }).text).join('')
+  expect(bareText).not.toContain('queued message')
 })
 
 it('maps settled non-completed turns and closed peer reasons onto errors', async () => {

@@ -95,7 +95,7 @@ export function validateFollowupRequest(value: unknown): PeerFollowupRequest {
     throw new PeerError('INVALID_PAYLOAD', 'prompt out of range')
   }
   effectiveTimeout(record.timeoutMs as number | undefined)
-  return value as unknown as PeerFollowupRequest
+  return value as PeerFollowupRequest
 }
 
 /** Validate the shared proof-plus-session prefix of one session-addressed request.
@@ -124,7 +124,7 @@ export function validateResultRequest(value: unknown): PeerResultRequest {
   if (typeof record.messageId !== 'string' || record.messageId.length === 0 || record.messageId.length > 128) {
     throw new PeerError('INVALID_PAYLOAD', 'messageId out of range')
   }
-  return value as unknown as PeerResultRequest
+  return value as PeerResultRequest
 }
 
 /**

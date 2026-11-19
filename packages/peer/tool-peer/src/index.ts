@@ -238,6 +238,7 @@ export function apply(ctx: Context, config: Config): void {
             peerSessionId: result.sessionId,
             messageId: result.messageId,
             ownerSessionId: exec.agent.session.id,
+            // v8 ignore next 1 -- split always yields one element; the fallback names the impossible
             label: args.prompt.split('\n', 1)[0] ?? args.prompt,
           })
           tracked = true
