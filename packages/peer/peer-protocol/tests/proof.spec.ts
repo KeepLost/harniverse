@@ -47,7 +47,7 @@ describe('verifyPeerSignature', () => {
     expect(verifyPeerSignature('', message, signature)).toBe(false)
     // The replacement must differ from the original character, or the mutation is a no-op
     // against a per-run random key and the signature still verifies.
-    const replacement = ['A', 'B', 'C'].find(char => char !== publicKeyB64[40] && char !== publicKeyB64[41])
+    const replacement = ['A', 'B', 'C'].find(char => char !== publicKeyB64[40] && char !== publicKeyB64[41]) ?? 'D'
     expect(verifyPeerSignature(publicKeyB64.slice(0, 40) + replacement + publicKeyB64.slice(41), message, signature)).toBe(false)
     expect(verifyPeerSignature(publicKeyB64, message, '')).toBe(false)
     expect(verifyPeerSignature('a'.repeat(600), message, signature)).toBe(false)
