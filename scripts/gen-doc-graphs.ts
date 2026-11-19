@@ -632,6 +632,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The accepting side of home-to-home pairing owns the capability-gated peer/hello Remote, the home-anchored identity readback, and the authoritative paired-peer store; the management app and future delegation consumers reach it through the peer namespace.',
   },
   {
+    key: 'peerOutbox',
+    pkg: 'peer-outbox',
+    title: 'Peer settlement ledger',
+    mode: 'seam',
+    implementations: ['peer-outbox'],
+    consumers: ['tool-peer', 'peer-app'],
+    note: 'The initiator side of home-to-home pairing owns the durable ledger of accepted-but-running delegated turns, polls their settlement read-only with one immediate re-probe, and delivers settled replies into the initiating session; unreachable targets fail entries instead of retrying.',
+  },
+  {
     key: 'subprocess',
     pkg: 'subprocess',
     title: 'Subprocess seam',

@@ -1159,6 +1159,15 @@
       "ignoreDependencies": [
         "zod"
       ]
+    },
+    "packages/peer/peer-outbox": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
     }
   }
 }

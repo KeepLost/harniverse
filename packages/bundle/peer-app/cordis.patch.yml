@@ -7,9 +7,25 @@
     - id: remote-hosts-ssh
       name: '@deepseek-ai/dsh-remote-hosts-ssh'
 
+    # Read-only settlement-ledger access for `dsh peer outbox`: the same
+    # storage composition the serving instance writes through; this app only
+    # opens the domain to list entries and never writes.
+    - id: storage
+      name: '@deepseek-ai/dsh-storage'
+
+    - id: storage-json
+      name: '@deepseek-ai/dsh-storage-json'
+      config:
+        root: !!js dshHomePath('storages')
+
+    - id: storage-domain
+      name: '@deepseek-ai/dsh-storage-domain'
+      config:
+        backend: json
+
     - id: peer-runner
       name: '@deepseek-ai/dsh-peer-app'
-      inject: [peerStartup, remoteHostSsh]
+      inject: [peerStartup, remoteHostSsh, storageDomain]
       config:
         operation: !!js ctx.peerStartup.operation
         uri: !!js ctx.peerStartup.uri
@@ -20,4 +36,6 @@
         sshHost: !!js ctx.peerStartup.sshHost
         instanceId: !!js ctx.peerStartup.instanceId
         timeoutMs: !!js ctx.peerStartup.timeoutMs
+        messageId: !!js ctx.peerStartup.messageId
+        async: !!js ctx.peerStartup.async
         dshHome: !!js process.env.DSH_HOME

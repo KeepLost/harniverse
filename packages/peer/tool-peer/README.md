@@ -28,7 +28,7 @@ None; the tool registers no Session events of its own. Delegated turns live in t
 
 #### What the model sees
 
-One `peer` tool with `target`, `prompt`, and optional `session`/`timeoutMs` parameters; the result names the delegated `sessionId` and carries the peer instance's reply text verbatim (truncated past the ceiling).
+One `peer` tool with `target`, `prompt`, and optional `session`/`timeoutMs` parameters; the result names the delegated `sessionId` and carries the peer instance's reply text verbatim (truncated past the ceiling). A turn still running past the budget reports `running` with continuation guidance; when the deployment composes [`@deepseek-ai/dsh-peer-outbox`](../peer-outbox/README.md), the turn is also tracked there and its settled reply later arrives as one queued user message in the calling session, so the model can keep working and address it when it lands.
 
 #### Token effect
 
@@ -40,5 +40,5 @@ A `peer` call never extends or evokes a local cache prefix on the accepting inst
 
 ## Known Limitations and Deferred Work
 
-- Settlement is synchronous within the budget: a turn still running returns guidance to re-check later; no initiator-side outbox queues prompts or polls settlements while the target is unreachable (the delegation outbox milestone owns that).
+- Without the outbox service in the composition, settlement stays synchronous within the budget and a running turn returns manual re-check guidance; the ledger never queues prompts, and a target unreachable during settlement fails the watch after one immediate re-probe.
 - An aborted parent step does not cancel an in-flight peer call; the per-call transport timeout bounds the wait, and live-channel cancellation is deferred with the sessioned channel.

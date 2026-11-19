@@ -17,9 +17,9 @@ import {
 } from '@deepseek-ai/dsh-peer-protocol'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
-import type { PeerDelegateRequest, PeerFollowupRequest, PeerHello, PeerHelloInput, PeerHelloRequest, PeerInstanceId, PeerRecord, PeerRequestProof, PeerRunResult, PeerSessionSummary } from '@deepseek-ai/dsh-peer-protocol'
+import type { PeerDelegateRequest, PeerFollowupRequest, PeerHello, PeerHelloInput, PeerHelloRequest, PeerInstanceId, PeerRecord, PeerRequestProof, PeerResultRequest, PeerRunResult, PeerSessionSummary } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerHostConfig } from './types.ts'
-import { delegateToPeer, dropPeerSessions, followupPeerSession, listPeerSessions, validateDelegateRequest, validateFollowupRequest, validateSessionsRequest } from './delegate.ts'
+import { delegateToPeer, dropPeerSessions, followupPeerSession, listPeerSessions, resultPeerSession, validateDelegateRequest, validateFollowupRequest, validateResultRequest, validateSessionsRequest } from './delegate.ts'
 import { findPeer, readPeerStore, writePeerStore } from './store.ts'
 
 const { version: PEER_HOST_VERSION } = createRequire(import.meta.url)('../package.json') as { version: string }
@@ -213,6 +213,21 @@ export class PeerHost extends TypertRemoteService {
       const record = await this.authenticate(valid.proof)
       if (!record.surface.message) throw new PeerError('SURFACE_DENIED', 'message')
       return await followupPeerSession(this.ctx, this.home, record.instanceId, valid)
+    })
+  }
+
+  /** Read one owned turn's settlement without delivering another prompt.
+   * @param request - proof, session id, and the accepted turn's message id.
+   * @returns the observed turn state, reply, and end reason.
+   */
+  @Remote({ requiredCapability: 'harniverse.peer' })
+  async result(request: PeerResultRequest): Promise<PeerRunResult> {
+    return await this.remote(async () => {
+      assertPairableWorld()
+      const valid = validateResultRequest(request)
+      const record = await this.authenticate(valid.proof)
+      if (!record.surface.list) throw new PeerError('SURFACE_DENIED', 'list')
+      return await resultPeerSession(this.ctx, this.home, record.instanceId, valid)
     })
   }
 

@@ -2343,7 +2343,7 @@ Source: [`packages/workspace/tool-worktree/src/index.ts`](../packages/workspace/
 
 Run a prompt on a paired Harniverse instance — another machine this deployment is paired with — and return its settled reply. Use this when the user asks to delegate work to a paired instance by name, or to continue a delegated conversation started earlier.
 
-Pass `target` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its `sessionId`; continue that conversation by passing `session` with the next prompt. Each turn waits up to `timeoutMs` (default 120000, max 900000) for settlement — a turn still running past the budget reports `running` with the `sessionId`; re-check later by continuing that session with a short status prompt.
+Pass `target` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its `sessionId`; continue that conversation by passing `session` with the next prompt. Each turn waits up to `timeoutMs` (default 120000, max 900000) for settlement — a turn still running past the budget reports `running` with the `sessionId`; when the deployment composes the initiator outbox, its settled reply later arrives as a queued message in this session, and otherwise you can re-check by continuing that session with a short status prompt.
 
 The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable).
 

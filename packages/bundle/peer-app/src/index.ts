@@ -27,19 +27,23 @@ import {
   readPeerTargets,
   runPeerDelegate,
   runPeerFollowup,
+  runPeerResult,
   runPeerSessions,
   withPeerOrigin,
   withPeerTransport,
   writePeerTargets,
 } from '@deepseek-ai/dsh-peer-client'
+import { peerOutboxDomainSpec } from '@deepseek-ai/dsh-peer-outbox/spec'
+// Declaration merge only: makes ctx.storageDomain visible for the outbox read.
+import type {} from '@deepseek-ai/dsh-storage-domain'
 import { findPeer, readPeerStore, writePeerStore } from '@deepseek-ai/dsh-peer-host'
 import type { PeerOperation, PeerStartupValues } from './startup.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'peer-runner'
 
-/** Parsed app invocation required before pairing starts. */
-export const inject = ['peerStartup', 'remoteHostSsh']
+/** Parsed app invocation plus the ledger store required before pairing starts. */
+export const inject = ['peerStartup', 'remoteHostSsh', 'storageDomain']
 
 /** Peer pairing runner configuration. */
 export interface Config extends PeerStartupValues {
@@ -53,6 +57,7 @@ export const Config: z<Config> = z.object({
     z.const('invite'), z.const('add'), z.const('list'),
     z.const('remove'), z.const('targets'), z.const('forget'),
     z.const('run'), z.const('send'), z.const('sessions'),
+    z.const('result'), z.const('outbox'),
   ]).required(),
   uri: z.string(),
   endpoint: z.string(),
@@ -66,6 +71,8 @@ export const Config: z<Config> = z.object({
   sessionId: z.string(),
   cwd: z.string(),
   profile: z.string(),
+  messageId: z.string(),
+  async: z.boolean(),
   dshHome: z.string(),
 })
 
@@ -175,14 +182,16 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const target = await resolveTarget(config)
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
+      const budget = config.async === true ? 1 : settleBudget(config.timeoutMs ?? 600_000)
       const result = await withPeerTransport(ctx, home, target, origin => runPeerDelegate(
         { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
         { instanceId: identity.instanceId, key },
         required(config.prompt, config.operation, 'a prompt'),
         { ...(config.cwd !== undefined && { cwd: config.cwd }), ...(config.profile !== undefined && { profile: config.profile }),
-          ...(config.timeoutMs !== undefined && { timeoutMs: settleBudget(config.timeoutMs) }) },
+          timeoutMs: budget },
       ))
       writeRunResult(result)
+      writeReceiptHint(config, result)
       break
     }
     case 'send': {
@@ -190,14 +199,42 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
       const sessionId = required(config.sessionId, config.operation, 'a session id')
+      const budget = config.async === true ? 1 : settleBudget(config.timeoutMs ?? 600_000)
       const result = await withPeerTransport(ctx, home, target, origin => runPeerFollowup(
         { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
         { instanceId: identity.instanceId, key },
         sessionId,
         required(config.prompt, config.operation, 'a prompt'),
-        config.timeoutMs !== undefined ? settleBudget(config.timeoutMs) : undefined,
+        budget,
       ))
       writeRunResult(result)
+      writeReceiptHint(config, result)
+      break
+    }
+    case 'result': {
+      const target = await resolveTarget(config)
+      const identity = await ensureInstanceIdentity(home)
+      const key = await ensurePeerIdentityKey(home)
+      const result = await withPeerTransport(ctx, home, target, origin => runPeerResult(
+        { target, home, origin },
+        { instanceId: identity.instanceId, key },
+        required(config.sessionId, config.operation, 'a session id'),
+        required(config.messageId, config.operation, 'a message id'),
+      ))
+      writeRunResult(result)
+      break
+    }
+    case 'outbox': {
+      const domain = await ctx.storageDomain.open(peerOutboxDomainSpec)
+      try {
+        const entries = [...domain.table('entries').entries()].map(([, entry]) => entry)
+          .sort((a, b) => a.submittedAt - b.submittedAt)
+        for (const entry of entries) {
+          internals.stdout.write(`${entry.id}\t${entry.state}\t${entry.targetDisplayName}\t${entry.peerSessionId}\t${entry.label}\n`)
+        }
+      } finally {
+        await domain.close()
+      }
       break
     }
     case 'sessions': {
@@ -235,6 +272,15 @@ async function resolveTarget(config: Config): Promise<PeerTarget> {
 function writeRunResult(result: Awaited<ReturnType<typeof runPeerDelegate>>): void {
   internals.stdout.write(`session\t${result.sessionId}\t${result.state}${result.endReason !== undefined ? `\t${result.endReason}` : ''}\n`)
   if (result.reply !== undefined) internals.stdout.write(`${result.reply}\n`)
+}
+
+/** Print one async submission receipt naming the settlement-read command.
+ * @param config - runner configuration carrying the async flag.
+ * @param result - the accepted turn's run result.
+ */
+function writeReceiptHint(config: Config, result: Awaited<ReturnType<typeof runPeerDelegate>>): void {
+  if (config.async !== true) return
+  internals.stdout.write(`receipt\t${result.sessionId}\t${result.messageId}\tread with: dsh peer result <instance-id> ${result.sessionId} ${result.messageId}\n`)
 }
 
 /** Bound one per-call transport timeout so long settlement budgets stay usable.

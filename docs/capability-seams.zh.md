@@ -214,6 +214,9 @@ flowchart LR
   pkg_peer_host["peer-host"]
   svc_peerHost["ctx.peerHost<br/>Instance pairing host"]
   pkg_peer_app["peer-app"]
+  pkg_peer_outbox["peer-outbox"]
+  svc_peerOutbox["ctx.peerOutbox<br/>Peer settlement ledger"]
+  pkg_tool_peer["tool-peer"]
   pkg_subprocess["subprocess"]
   svc_subprocess["ctx.subprocess<br/>Subprocess seam"]
   pkg_subprocess_local["subprocess-local"]
@@ -384,6 +387,7 @@ flowchart LR
   pkg_notification --> svc_notification
   pkg_notification_http --> svc_notification
   pkg_peer_host --> svc_peerHost
+  pkg_peer_outbox --> svc_peerOutbox
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
   pkg_plugin_diagnostics --> svc_pluginDiagnostics
@@ -529,6 +533,8 @@ flowchart LR
   svc_modelPolicy --> pkg_ui_model_selection
   svc_notification --> pkg_notification
   svc_peerHost --> pkg_peer_app
+  svc_peerOutbox --> pkg_peer_app
+  svc_peerOutbox --> pkg_tool_peer
   svc_pluginDiagnostics --> pkg_host_plugin_inventory
   svc_ptcRuntime --> pkg_tools
   svc_queue --> pkg_client_ui_queue
@@ -721,6 +727,7 @@ flowchart LR
 | `ctx.remoteHosts` | `seam` | [`remote-hosts`](../packages/ssh/remote-hosts) | [`remote-hosts`](../packages/ssh/remote-hosts) | [`client-ui-remote-hosts`](../packages/client/ui-remote-hosts), [`client-connection`](../packages/client/connection) | - | The local coordinator owns secret-free host records, credential references, artifact verification, remote deployment, settings synchronization, browser proxy boundaries, and connection state; the UI and trusted Host proxy consume its capabilities. |
 | `ctx.remoteRuntime` | `seam` | [`remote-runtime`](../packages/ssh/remote-runtime) | [`remote-runtime`](../packages/ssh/remote-runtime) | [`remote-hosts`](../packages/ssh/remote-hosts) | - | The remote process owns loopback endpoint discovery, encrypted credential unlock, complete credential replacement, and model/search settings synchronization behind authenticated capability-gated Remote methods. |
 | `ctx.peerHost` | `seam` | [`peer-host`](../packages/peer/peer-host) | [`peer-host`](../packages/peer/peer-host) | [`peer-app`](../packages/bundle/peer-app) | - | The accepting side of home-to-home pairing owns the capability-gated peer/hello Remote, the home-anchored identity readback, and the authoritative paired-peer store; the management app and future delegation consumers reach it through the peer namespace. |
+| `ctx.peerOutbox` | `seam` | [`peer-outbox`](../packages/peer/peer-outbox) | [`peer-outbox`](../packages/peer/peer-outbox) | [`tool-peer`](../packages/peer/tool-peer), [`peer-app`](../packages/bundle/peer-app) | - | The initiator side of home-to-home pairing owns the durable ledger of accepted-but-running delegated turns, polls their settlement read-only with one immediate re-probe, and delivers settled replies into the initiating session; unreachable targets fail entries instead of retrying. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local), [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash), [`lsp-stdio`](../packages/lsp/lsp-stdio), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code), [`governor`](../packages/monitor/governor) | - | The bash executors, the PTY shell backend, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn through ctx.subprocess; the service owns process coordinates, tree/session lifetime, stdio dispositions, terminal mechanics, and kill escalation. Correlated spawns additionally feed the governor through the subprocess/spawned metering events. |
 | `ctx.queue` | `seam` | [`queue`](../packages/queue/queue) | [`queue`](../packages/queue/queue) | [`client-ui-queue`](../packages/client/ui-queue) | - | The queue owns Kafka-style durable topics with forced archival and wake-on-deliver fan-out; the four model tools (queue-topic/history/subscription/publish) mount through the separately loadable queue/tool Consumer, and the panel tab polls the queue Remote. |
 | `ctx.terminalController` | `seam` | [`api-terminal-controller`](../packages/api/terminal-controller) | [`api-terminal-controller`](../packages/api/terminal-controller) | - | - | The terminal controller owns per-Session interactive USER shells over the subprocess PTY seam (full harness environment, login startup, never sandbox-confined, never model-visible) and serves snapshot-then-output screen frames to browser panels through the gateway terminal/* Remote endpoints and the apiproxy events.terminal / events.hold SSE streams. |

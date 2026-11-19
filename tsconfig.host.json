@@ -345,6 +345,7 @@
     { "path": "./packages/bundle/auth-app" },
     { "path": "./packages/peer/peer-protocol" },
     { "path": "./packages/peer/peer-host" },
+    { "path": "./packages/peer/peer-outbox" },
     { "path": "./packages/peer/peer-client" },
     { "path": "./packages/peer/tool-peer" },
     { "path": "./packages/bundle/peer-app" },

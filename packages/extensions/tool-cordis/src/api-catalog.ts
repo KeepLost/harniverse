@@ -1906,10 +1906,35 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the delivered turn\'s terminal state.',
       },
       {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async result(request: PeerResultRequest): Promise<PeerRunResult>',
+        description: 'Read one owned turn\'s settlement without delivering another prompt.',
+        parameters: [{ name: 'request', description: 'proof, session id, and the accepted turn\'s message id.' }],
+        returns: 'the observed turn state, reply, and end reason.',
+      },
+      {
         signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async sessions(request: { proof: PeerRequestProof }): Promise<{ sessions: PeerSessionSummary[] }>',
         description: 'Enumerate the calling peer\'s own delegated sessions.',
         parameters: [{ name: 'request', description: 'proof of the calling peer.' }],
         returns: 'the caller\'s session summaries, newest activity first.',
+      },
+    ],
+  },
+  {
+    key: 'peerOutbox',
+    summary: 'Peer outbox service; the storage-domain ledger is the authority.',
+    description: 'Peer outbox service; the storage-domain ledger is the authority.',
+    methods: [
+      {
+        signature: 'list(): PeerOutboxEntry[]',
+        description: 'All ledger entries, earliest submission first.',
+        parameters: [],
+        returns: 'every stored entry.',
+      },
+      {
+        signature: 'async track(input: PeerOutboxTrackInput): Promise<PeerOutboxEntry>',
+        description: 'Track one accepted-but-running delegated turn. The entry is durable from this call onward: an instance restart resumes the watch on its next poll.',
+        parameters: [{ name: 'input', description: 'target, peer session, watched turn, and owner session.' }],
+        returns: 'the stored entry.',
       },
     ],
   },
@@ -6558,12 +6583,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PeerInstanceId = string;',
   },
   {
+    name: 'PeerOutboxEntry',
+    declaration: 'export interface PeerOutboxEntry {\n    id: string;\n    targetInstanceId: string;\n    targetDisplayName: string;\n    peerSessionId: string;\n    messageId: string;\n    ownerSessionId: string;\n    label: string;\n    state: PeerOutboxState;\n    submittedAt: number;\n    settledAt?: number;\n    reply?: string;\n    endReason?: string;\n    failureReason?: PeerOutboxFailure;\n    failureDetail?: string;\n}',
+  },
+  {
+    name: 'PeerOutboxFailure',
+    declaration: 'export type PeerOutboxFailure = \'TARGET_UNREACHABLE\' | \'TARGET_RECORD_NOT_FOUND\' | \'SESSION_DROPPED\' | \'OWNER_SESSION_NOT_LIVE\' | \'READ_FAILED\';',
+  },
+  {
+    name: 'PeerOutboxState',
+    declaration: 'export type PeerOutboxState = \'watching\' | \'settled\' | \'failed\';',
+  },
+  {
+    name: 'PeerOutboxTrackInput',
+    declaration: 'export interface PeerOutboxTrackInput {\n    targetInstanceId: string;\n    targetDisplayName: string;\n    peerSessionId: string;\n    messageId: string;\n    ownerSessionId: string;\n    label: string;\n}',
+  },
+  {
     name: 'PeerRecord',
     declaration: 'export interface PeerRecord {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n    pairedVia: \'invitation\';\n    status: \'active\' | \'revoked\';\n    identityPublicKey?: string;\n    firstSeenAt: string;\n    lastSeenAt: string;\n}',
   },
   {
     name: 'PeerRequestProof',
     declaration: 'export interface PeerRequestProof {\n    instanceId: PeerInstanceId;\n    timestamp: number;\n    signature: string;\n}',
+  },
+  {
+    name: 'PeerResultRequest',
+    declaration: 'export interface PeerResultRequest {\n    proof: PeerRequestProof;\n    sessionId: string;\n    messageId: string;\n}',
   },
   {
     name: 'PeerRunResult',

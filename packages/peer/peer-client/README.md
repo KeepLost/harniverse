@@ -14,7 +14,7 @@ The initiating side of instance pairing: the per-home P-256 signing identity, th
 
 ## Delegation calls
 
-`runPeerDelegate`, `runPeerFollowup`, and `runPeerSessions` share `{ target, home, origin }` options and a resolved `{ instanceId, key }` identity: each call mints a timestamp-windowed request proof, rebuilds `GrantAccess` from the stored Grant id, and posts through the same envelope. Wire failures carrying code `peer-failed` map back to the closed peer reason (`SURFACE_DENIED`, `INVALID_PROOF`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, …); readbacks are re-validated before use.
+`runPeerDelegate`, `runPeerFollowup`, `runPeerResult`, and `runPeerSessions` share `{ target, home, origin }` options and a resolved `{ instanceId, key }` identity: each call mints a timestamp-windowed request proof, rebuilds `GrantAccess` from the stored Grant id, and posts through the same envelope. Wire failures carrying code `peer-failed` map back to the closed peer reason (`SURFACE_DENIED`, `INVALID_PROOF`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, …); readbacks are re-validated before use. `runPeerResult` reads one owned turn's settlement by session and message id without delivering a new prompt.
 
 Each stage reports a closed reason: `TRANSPORT_FAILED`, `ENROLLMENT_REJECTED`, `REDEEM_REJECTED`, `HELLO_REJECTED`, `IDENTITY_MISMATCH`, `CHALLENGE_EXPIRED`, `INVALID_PROOF`, `SURFACE_DENIED`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, `STORE_FAILED`. The origin must be HTTPS or loopback HTTP, matching the invitation codec's rule.
 

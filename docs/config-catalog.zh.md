@@ -2350,10 +2350,14 @@ export interface PeerStartupValues {
   cwd?: string
   /** Agent profile id for `run`. */
   profile?: string
+  /** Submit without waiting for settlement, for `run` and `send`. */
+  async?: boolean
+  /** Message id of the watched turn for `result`. */
+  messageId?: string
 }
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
 ```
 
 来源：[`packages/bundle/peer-app/src/index.ts:38`](../packages/bundle/peer-app/src/index.ts)
@@ -2371,6 +2375,26 @@ export interface PeerHostConfig {
 ```
 
 来源：[`packages/peer/peer-host/src/types.ts:5`](../packages/peer/peer-host/src/types.ts)
+
+<a id="deepseek-aidsh-peer-outbox"></a>
+
+## `@deepseek-ai/dsh-peer-outbox`
+
+Requires: `agents` · `sessions` · `storageDomain`
+
+```ts config-catalog
+/** Peer outbox configuration. */
+export interface PeerOutboxConfig {
+  /** Harness home of this instance holding the pairing target store and storages root. */
+  dshHome?: string
+  /** Poll cadence for watching entries in milliseconds (default 30000, minimum 100). */
+  pollIntervalMs?: number
+  /** Stored and delivered reply ceiling, in characters (default 50000). */
+  maxResultChars?: number
+}
+```
+
+来源：[`packages/peer/peer-outbox/src/index.ts:39`](../packages/peer/peer-outbox/src/index.ts)
 
 <a id="deepseek-aidsh-permission-presets"></a>
 
@@ -3997,7 +4021,7 @@ export interface Config {
 }
 ```
 
-来源:[`packages/peer/tool-peer/src/index.ts:44`](../packages/peer/tool-peer/src/index.ts)
+来源:[`packages/peer/tool-peer/src/index.ts:45`](../packages/peer/tool-peer/src/index.ts)
 
 <a id="deepseek-aidsh-tool-present"></a>
 

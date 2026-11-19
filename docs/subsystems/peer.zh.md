@@ -94,6 +94,12 @@ interface PeerRunResult {
 
 发起方的模型经一方工具 `peer`([dsh-tool-peer](../../packages/peer/tool-peer))触达同一通道:它按显示名或 instance id 解析已配对目标,在有界结算预算内经 `peer/delegate` 或 `peer/followup` 投递提示词,并渲染点名 session id 的结算回复;超预算仍在运行的回合返回续查引导而不是阻塞。该工具不新增任何可达性——它只拨号 home 属主配对的目标,接受方的 surface 字段仍门控每个 Remote 族。
 
+`peer/result` 是只读的结算伴侣:它从活跃会话日志——冷会话则从持久化事件——重新推导一个已拥有轮次的终态、回复与结束原因,不投递新提示,回合仍未结算时回答 `state: 'running'`。它门控在 `list` surface 上,存在的意义是让结算读取永远不需要一次多余的模型回合。
+
+## 结算台账
+
+委派是双方在线的契约:目标不可达立即失败,发起方结算台账([dsh-peer-outbox](../../packages/peer/peer-outbox),`ctx.peerOutbox`,web-app 组合)从不排队未投递的工作。它只跟踪已被在线目标接受、但超出工具预算的轮次:工具把这样的轮次持久登记,实例内的常驻轮询器按轮询间隔经 `peer/result` 读取其结算。瞬时传输故障恰好获得**同刻复探一次**;第二次故障即终态失败条目(`TARGET_UNREACHABLE`)——台账不等待任何人。结算的轮次在空闲维护阶段以一条 `peer` 来源的排队 user 消息把截断回复投回发起会话,同会话按提交顺序投递;会话不再活跃则以 `OWNER_SESSION_NOT_LIVE` 失败并保留回复供 `dsh peer outbox` 查看。台账是持久存储,实例重启后由下一次轮询恢复全部跟踪。终态条目有保留上限,`dsh peer run/send --async` 以最小预算提交并打印 `dsh peer result` 可回读的回执。
+
 ## 传输与排除
 
 邀请端点是 HTTPS origin,或隧道后的环回 HTTP——与所有已认证 origin 的规则一致。`dsh peer add` 直接拨号端点,或经一条 remote-hosts SSH 记录(`--ssh-host`)转发到目标的环回端口;密钥文件与 agent 登录可无头使用,加密凭据引用不可以。VM 执行世界不组合 `peer-host` 行,且该服务拒绝来自 VM 家的 `peer/hello`,因此真沙箱实例永远不会加入配对网络。
@@ -143,6 +149,12 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async followup(request: PeerFollowupRequest): Promise<PeerRunResult>
 
+/** Read one owned turn's settlement without delivering another prompt.
+ * @param request - proof, session id, and the accepted turn's message id.
+ * @returns the observed turn state, reply, and end reason.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async result(request: PeerResultRequest): Promise<PeerRunResult>
+
 /** Enumerate the calling peer's own delegated sessions.
  * @param request - proof of the calling peer.
  * @returns the caller's session summaries, newest activity first.
@@ -151,6 +163,30 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
 ```
 
 Source: [`packages/peer/peer-host/src/index.ts:52`](../../packages/peer/peer-host/src/index.ts)
+
+<a id="ctxpeeroutbox--peeroutbox"></a>
+
+### `ctx.peerOutbox` — `PeerOutbox`
+
+Peer outbox service; the storage-domain ledger is the authority.
+
+```ts cordis-catalog
+/**
+ * All ledger entries, earliest submission first.
+ * @returns every stored entry.
+ */
+list(): PeerOutboxEntry[]
+
+/**
+ * Track one accepted-but-running delegated turn. The entry is durable from
+ * this call onward: an instance restart resumes the watch on its next poll.
+ * @param input - target, peer session, watched turn, and owner session.
+ * @returns the stored entry.
+ */
+async track(input: PeerOutboxTrackInput): Promise<PeerOutboxEntry>
+```
+
+Source: [`packages/peer/peer-outbox/src/index.ts:55`](../../packages/peer/peer-outbox/src/index.ts)
 
 <a id="peer-events"></a>
 

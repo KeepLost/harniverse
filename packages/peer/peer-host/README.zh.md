@@ -12,6 +12,7 @@
 | `hello(request)` | `{ request: PeerHelloRequest }` | `harniverse.peer` | `PeerHello` |
 | `delegate(request)` | `{ request: PeerDelegateRequest }` | `harniverse.peer` | `PeerRunResult` |
 | `followup(request)` | `{ request: PeerFollowupRequest }` | `harniverse.peer` | `PeerRunResult` |
+| `result(request)` | `{ request: PeerResultRequest }` | `harniverse.peer` | `PeerRunResult` |
 | `sessions(request)` | `{ request: PeerSessionsRequest }` | `harniverse.peer` | `{ sessions: PeerSessionSummary[] }` |
 
 `challenge` 铸出一枚单次 nonce(五分钟 TTL,未决集有上界)。`hello` 验证发起方对 `(instanceId, challenge)` 的签名,首次配对时把 base64url SPKI `identityPublicKey` 钉入记录,此后每次 hello 都按钉住的密钥验签——换钥应答 `IDENTITY_MISMATCH`,已消费或未知 nonce 应答 `CHALLENGE_EXPIRED`。无钉钥的记录(前证明时代)在首个带证明的 hello 时钉钥。某 id 的首条记录发出 `peer/paired`;已撤销的记录以 `HELLO_REJECTED` 拒绝。每次调用在 VM 执行世界中以 `PEER_UNAVAILABLE_VM` 拒绝,且 web-app 组合在 `$DSH_EXEC_WORLD === 'vm'` 时整行禁用,因此真沙箱实例永远不会配对。

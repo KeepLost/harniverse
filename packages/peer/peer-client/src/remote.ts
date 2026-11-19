@@ -218,6 +218,26 @@ export async function runPeerFollowup(
 }
 
 /**
+ * Read one owned turn's settlement on a paired target without a new prompt.
+ * @param options - target, home, origin, and limits.
+ * @param identity - the initiator's resolved call identity.
+ * @param sessionId - the initiator's own delegated session.
+ * @param messageId - the accepted turn whose settlement is read.
+ * @returns the observed run result.
+ */
+export async function runPeerResult(
+  options: PeerCallOptions,
+  identity: PeerCallIdentity,
+  sessionId: string,
+  messageId: string,
+): Promise<PeerRunResult> {
+  const access = accessFor(options, identity.key)
+  const proof = await requestProofFor(identity)
+  const value = await callPeerRemote(access, options.origin, 'result', { request: { proof, sessionId, messageId } })
+  return validateRunResult(value)
+}
+
+/**
  * Enumerate the initiator's own delegated sessions on a paired target.
  * @param options - target, home, origin, and limits.
  * @param identity - the initiator's resolved call identity.

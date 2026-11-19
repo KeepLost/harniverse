@@ -195,6 +195,47 @@ it('reports a still-running turn with continuation guidance', async () => {
   expect(result.isError).toBeFalsy()
   expect(result.text).toContain('still running')
   expect(result.text).toContain('"peer-run-1"')
+  expect(result.text).not.toContain('queued message')
+})
+
+it('tracks a running turn with the outbox service and points at the queued delivery', async () => {
+  const rig = await setup([{}])
+  const tracked: Array<Record<string, unknown>> = []
+  rig.ctx.provide('peerOutbox', {
+    track: async (input: Record<string, unknown>) => {
+      tracked.push(input)
+      return { id: 'entry-1', ...input, state: 'watching', submittedAt: 0 }
+    },
+  } as never)
+  rig.target.delegateRuns = [{ sessionId: 'peer-run-2', messageId: 'm2', state: 'running' }]
+  const result = await rig.ctx.tools.execute({
+    signal: new AbortController().signal,
+    callId: CallId('call-2'),
+    name: 'peer',
+    arguments: { target: ID_A, prompt: 'slow job' },
+    agent: { session: { id: 'owner-session' } } as never,
+  })
+  expect(result.isError).toBeFalsy()
+  const text = result.content.filter(block => block.type === 'text').map(block => (block as { text: string }).text).join('')
+  expect(text).toContain('still running')
+  expect(text).toContain('queued message')
+  expect(text).toContain('"peer-run-2"')
+  expect(tracked).toMatchObject([{
+    targetInstanceId: ID_A,
+    targetDisplayName: 'Build workstation',
+    peerSessionId: 'peer-run-2',
+    messageId: 'm2',
+    ownerSessionId: 'owner-session',
+    label: 'slow job',
+  }])
+  const withoutAgent = await rig.ctx.tools.execute({
+    signal: new AbortController().signal,
+    callId: CallId('call-3'),
+    name: 'peer',
+    arguments: { target: ID_A, prompt: 'p' },
+  })
+  expect(withoutAgent.isError).toBeFalsy()
+  expect(tracked).toHaveLength(1)
 })
 
 it('maps settled non-completed turns and closed peer reasons onto errors', async () => {

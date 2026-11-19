@@ -182,6 +182,16 @@
       config:
         dshHome: !!js dshHomePath()
 
+    # Initiator side of instance pairing: the durable settlement ledger that
+    # watches accepted delegated turns past the tool budget and delivers the
+    # settled reply into the initiating session. Same pairing contract: an
+    # unreachable target fails the entry after one immediate re-probe.
+    - id: peer-outbox
+      name: '@deepseek-ai/dsh-peer-outbox'
+      disabled: !!js "(process.env.DSH_EXEC_WORLD ?? 'local') === 'vm'"
+      config:
+        dshHome: !!js dshHomePath()
+
     # Session-scoped interactive USER terminals for the browser panel: a Host
     # Remote over the subprocess PTY seam (never sandbox-confined, never
     # model-visible), exposed through the gateway's terminal/* endpoints and

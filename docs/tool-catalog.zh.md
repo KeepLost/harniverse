@@ -2348,7 +2348,7 @@ Source: [`packages/workspace/tool-worktree/src/index.ts`](../packages/workspace/
 
 在与本部署已配对的 Harniverse 实例——另一台机器——上运行一条提示词并返回其结算回复。当用户按名称要求把工作委派到已配对实例,或要续聊先前开始的委派对话时使用。
 
-把 `target` 写成实例的显示名或其 instance id;精确的 instance id 总是优先。首次调用开启新的委派会话并返回其 `sessionId`;之后的对话传 `session` 与下一条提示词续聊。每个回合最多等待 `timeoutMs`(默认 120000,最大 900000)结算——超预算仍在运行的回合返回带 `sessionId` 的 `running`;稍后用一条简短的状态提示词续聊该会话即可复查。
+把 `target` 写成实例的显示名或其 instance id;精确的 instance id 总是优先。首次调用开启新的委派会话并返回其 `sessionId`;之后的对话传 `session` 与下一条提示词续聊。每个回合最多等待 `timeoutMs`(默认 120000,最大 900000)结算——超预算仍在运行的回合返回带 `sessionId` 的 `running`;当部署组合了发起方 outbox 时,其结算回复稍后以一条排队消息送达本会话,否则稍后用一条简短的状态提示词续聊该会话即可复查。
 
 回复逐字反映委派实例的模型产出。失败会点名封闭的 peer 原因(例如未知会话的 SESSION_NOT_FOUND、实例不可达时的 TRANSPORT_FAILED)。
 

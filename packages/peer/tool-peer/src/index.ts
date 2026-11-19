@@ -4,8 +4,9 @@
  * model-facing schema and result rendering; target resolution, request proofs, and
  * transport dialing live in `@deepseek-ai/dsh-peer-client`, so the pairing channel
  * hardens without touching what the model sees. A turn still running past the budget
- * returns continuation guidance naming the session id; asynchronous receipt and
- * settlement push remain deferred to the initiator outbox.
+ * returns continuation guidance naming the session id; when the initiator outbox
+ * service is composed, the turn is also tracked there and its settled reply arrives
+ * later as a queued message in the calling session.
  * @module @deepseek-ai/dsh-tool-peer
  */
 
@@ -73,6 +74,8 @@ type PeerCallArgs = {
 interface PeerToolValue {
   sessionId: string
   state: 'settled' | 'running'
+  /** Whether the initiator outbox watches this turn for queued delivery. */
+  tracked: boolean
   reply?: string
   endReason?: string
 }
@@ -80,7 +83,7 @@ interface PeerToolValue {
 /** The model-facing contract, embedded in the tool description. */
 const DESCRIPTION = `Run a prompt on a paired Harniverse instance — another machine this deployment is paired with — and return its settled reply. Use this when the user asks to delegate work to a paired instance by name, or to continue a delegated conversation started earlier.
 
-Pass \`target\` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its \`sessionId\`; continue that conversation by passing \`session\` with the next prompt. Each turn waits up to \`timeoutMs\` (default 120000, max 900000) for settlement — a turn still running past the budget reports \`running\` with the \`sessionId\`; re-check later by continuing that session with a short status prompt.
+Pass \`target\` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its \`sessionId\`; continue that conversation by passing \`session\` with the next prompt. Each turn waits up to \`timeoutMs\` (default 120000, max 900000) for settlement — a turn still running past the budget reports \`running\` with the \`sessionId\`; when the deployment composes the initiator outbox, its settled reply later arrives as a queued message in this session, and otherwise you can re-check by continuing that session with a short status prompt.
 
 The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable).`
 
@@ -113,7 +116,9 @@ function resolveTarget(targets: readonly PeerTarget[], selector: string): PeerTa
  */
 function renderValue(args: PeerCallArgs, value: PeerToolValue, maxChars: number): string {
   if (value.state === 'running') {
-    return `Delegated session ${value.sessionId} on ${args.target} is still running. Continue it later by calling this tool with session ${JSON.stringify(value.sessionId)} and a short status prompt.`
+    return value.tracked
+      ? `Delegated session ${value.sessionId} on ${args.target} is still running. Its settled reply will arrive as a queued message in this session; keep working and address it when it arrives. You can also continue that conversation by calling this tool with session ${JSON.stringify(value.sessionId)}.`
+      : `Delegated session ${value.sessionId} on ${args.target} is still running. Continue it later by calling this tool with session ${JSON.stringify(value.sessionId)} and a short status prompt.`
   }
   const reply = value.reply ?? ''
   const clipped = reply.length > maxChars
@@ -178,6 +183,7 @@ export function apply(ctx: Context, config: Config): void {
         properties: {
           sessionId: { type: 'string', required: true },
           state: { type: 'string', required: true },
+          tracked: { type: 'boolean', required: true },
           reply: { type: 'string' },
           endReason: { type: 'string' },
         },
@@ -187,7 +193,7 @@ export function apply(ctx: Context, config: Config): void {
         text: renderValue(args, value, maxResultChars),
       }],
     },
-    async execute(args: PeerCallArgs): Promise<PeerToolValue> {
+    async execute(args: PeerCallArgs, exec): Promise<PeerToolValue> {
       if (args.prompt.length > PROMPT_MAX_LENGTH) {
         throw new Error(`peer: prompt exceeds ${String(PROMPT_MAX_LENGTH)} characters`)
       }
@@ -218,9 +224,27 @@ export function apply(ctx: Context, config: Config): void {
       if (result.state === 'settled' && result.endReason !== undefined && result.endReason !== 'completed') {
         throw new Error(`peer: delegated turn ${result.sessionId} ended ${result.endReason}`)
       }
+      let tracked = false
+      if (result.state === 'running' && exec.agent !== undefined) {
+        // The initiator outbox, when this deployment composes one, watches the
+        // accepted turn and delivers the settled reply as a queued message.
+        const outbox = ctx.get('peerOutbox')
+        if (outbox !== undefined) {
+          await outbox.track({
+            targetInstanceId: target.targetInstanceId,
+            targetDisplayName: target.displayName,
+            peerSessionId: result.sessionId,
+            messageId: result.messageId,
+            ownerSessionId: exec.agent.session.id,
+            label: args.prompt.split('\n', 1)[0] ?? args.prompt,
+          })
+          tracked = true
+        }
+      }
       return {
         sessionId: result.sessionId,
         state: result.state,
+        tracked,
         ...result.reply !== undefined ? { reply: result.reply } : {},
         ...result.endReason !== undefined ? { endReason: result.endReason } : {},
       }
