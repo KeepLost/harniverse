@@ -264,6 +264,9 @@
     - id: tool-workflow
       name: '@deepseek-ai/dsh-tool-workflow'
 
+    - id: tool-peer
+      name: '@deepseek-ai/dsh-tool-peer'
+
     - id: tool-ralph
       name: '@deepseek-ai/dsh-tool-ralph'
       config:

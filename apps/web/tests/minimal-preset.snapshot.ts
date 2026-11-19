@@ -100,13 +100,11 @@ describe('minimal agent preset', () => {
 
       Check the [exit code: N] marker on every bash result; investigate failures before moving on. Omit optional arguments that do not change this call. On ordinary calls, omit both sandbox_permissions and justification; include them only for a denied command retried in a strictly wider mode with a non-empty reason.
 
-      Use the peer tool ONLY when the user explicitly asks to delegate work to a paired instance: it runs a prompt on another paired machine and returns that machine's reply. Do not use it for local work, and do not pick a target the user did not name.
-
       When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.",
         "shell": "MINIMAL_SHELL_OK",
       }
     `)
-    expect(requestHeader.tools?.map(tool => tool.name)).toEqual([shellName, 'peer', 'str_replace_editor', 'working_directory'])
+    expect(requestHeader.tools?.map(tool => tool.name)).toEqual([shellName, 'str_replace_editor', 'working_directory'])
     expect(requestHeader.tools?.toSorted((left, right) => left.name.localeCompare(right.name)))
       .toEqual(scaffold.ctx.tools.schemas(agentHandle.agent).toSorted((left, right) => left.name.localeCompare(right.name)))
     expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'compaction')).toBeDefined()
