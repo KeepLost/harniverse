@@ -1942,7 +1942,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'admin views, newest activity first.',
       },
       {
-        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>',
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\', exportName: \'removePeer\' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>',
         description: 'Remove one paired peer, end its delegated sessions, and drop its governance entry.',
         parameters: [{ name: 'input', description: 'exact instance id to remove.' }],
       },

@@ -207,7 +207,7 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
 /** Remove one paired peer, end its delegated sessions, and drop its governance entry.
  * @param input - exact instance id to remove.
  */
-@Remote({ requiredCapability: 'harniverse.administer' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>
+@Remote({ requiredCapability: 'harniverse.administer', exportName: 'removePeer' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>
 
 /** Set the granted surface directly; the owner's own decision needs no approval step.
  * @param input - exact instance id and the complete new surface.

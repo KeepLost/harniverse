@@ -62,7 +62,7 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
 ## Known Limitations and Deferred Work(已知限制与后续工作)
 
 - `removePeer` 只从真空闲关闭忙碌的被委派 agent;运行中的回合会在其会话记录消失前跑完。
-- Owner 治理 Remote(`list`、`remove`、`setSurface`、`approveSurface`、`rejectSurface`、`setBudget`、`audit`)共用 `peer` 命名空间但要求 `harniverse.administer` 能力;回合预算存于 `peer-governance.json`,为每同伴可选的月度上限,按已被接受的投递回合计数,达到周期上限后以 `BUDGET_EXCEEDED` 拒绝。移除不发出任何流帧:配对侧从下一次失败的调用得知。
+- Owner 治理 Remote(`list`、`removePeer`、`setSurface`、`approveSurface`、`rejectSurface`、`setBudget`、`audit`)共用 `peer` 命名空间但要求 `harniverse.administer` 能力;回合预算存于 `peer-governance.json`,为每同伴可选的月度上限,按已被接受的投递回合计数,达到周期上限后以 `BUDGET_EXCEEDED` 拒绝。移除不发出任何流帧:配对侧从下一次失败的调用得知。
 - 待审能力面槽位没有过期时间;更新的扩张请求将其覆盖,owner 编辑、批准、拒绝或同伴侧的收窄提交都会将其清除。
 - 事件流不持有重放游标:断线丢帧由下一次 `peer/result` 读取覆盖,而非流断点续传;每次重连经一枚新证明铸出新令牌。
 - 已消费 nonce 的保留按 peer 设上界;超出上界的突发会让最老的 nonce 在偏差窗口内提前退出重放保护。

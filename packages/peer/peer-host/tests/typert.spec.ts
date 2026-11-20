@@ -42,7 +42,7 @@ it('generates one executable strict Remote schema for peer/hello with the pairin
     const methods = TYPERT_REMOTE.descriptors
     expect(methods.map(method => method.method)).toEqual([
       'approveSurface', 'audit', 'cancel', 'challenge', 'delegate', 'followup', 'hello', 'list',
-      'rejectSurface', 'remove', 'result', 'sessions', 'setBudget', 'setSurface', 'subscribe', 'surface',
+      'rejectSurface', 'removePeer', 'result', 'sessions', 'setBudget', 'setSurface', 'subscribe', 'surface',
     ])
     // The peer wire keeps its closed capability; the owner admin surface sits behind administer.
     const peerWire = new Set(['cancel', 'challenge', 'delegate', 'followup', 'hello', 'result', 'sessions', 'subscribe', 'surface'])

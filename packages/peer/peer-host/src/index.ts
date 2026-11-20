@@ -388,7 +388,7 @@ export class PeerHost extends TypertRemoteService {
   /** Remove one paired peer, end its delegated sessions, and drop its governance entry.
    * @param input - exact instance id to remove.
    */
-  @Remote({ requiredCapability: 'harniverse.administer' })
+  @Remote({ requiredCapability: 'harniverse.administer', exportName: 'removePeer' })
   async remove(input: { instanceId: PeerInstanceId }): Promise<void> {
     await this.remote(async () => {
       const { instanceId } = validateAdminTarget(input)

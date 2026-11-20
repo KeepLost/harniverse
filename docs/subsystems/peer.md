@@ -114,7 +114,7 @@ An invitation may pin the target's TLS certificate by its base64 SHA-256 fingerp
 
 ## Governance
 
-The accepting instance owns the governance surface. Its owner-administered Remotes — `list`, `remove`, `setSurface`, `approveSurface`, `rejectSurface`, `setBudget`, `audit` — ride the same `peer` namespace behind the `harniverse.administer` capability, so peer tokens cannot reach them; the web dashboard's Paired peers tab (`ui-peer-admin`) consumes them through the mounted client contract and re-lists on the forwarded `peer/paired` / `peer/removed` events.
+The accepting instance owns the governance surface. Its owner-administered Remotes — `list`, `removePeer`, `setSurface`, `approveSurface`, `rejectSurface`, `setBudget`, `audit` — ride the same `peer` namespace behind the `harniverse.administer` capability, so peer tokens cannot reach them; the web dashboard's Paired peers tab (`ui-peer-admin`) consumes them through the mounted client contract and re-lists on the forwarded `peer/paired` / `peer/removed` events.
 
 Surface changes follow the approval flow: an owner edit commits immediately, while a peer's own `peer/surface` request states one complete desired surface — a pure narrowing (or an equal surface) commits on the spot and retires any parked request, but any widening parks the complete desired surface in the record's single `pendingSurface` slot, latest request winning, with no expiry. While a request pends, calls keep answering under the surface in force; approval commits the parked surface, rejection drops it, and the peer observes the outcome from the next `peer/surface` call or the denials on other families.
 
@@ -207,7 +207,7 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
 /** Remove one paired peer, end its delegated sessions, and drop its governance entry.
  * @param input - exact instance id to remove.
  */
-@Remote({ requiredCapability: 'harniverse.administer' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>
+@Remote({ requiredCapability: 'harniverse.administer', exportName: 'removePeer' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>
 
 /** Set the granted surface directly; the owner's own decision needs no approval step.
  * @param input - exact instance id and the complete new surface.

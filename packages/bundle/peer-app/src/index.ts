@@ -244,6 +244,7 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const target = await resolveTarget(config)
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
+      /* v8 ignore next 3 -- the CLI flags and the zod schema both guarantee the surface; the guard names loader-direct misconfiguration */
       if (config.surface === undefined) {
         throw new Error(`peer surface: ${config.operation} needs a complete surface`)
       }

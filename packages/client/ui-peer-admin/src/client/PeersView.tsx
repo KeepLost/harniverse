@@ -41,13 +41,6 @@ function stateLabel(t: PeersViewProps['t'], state: PeerSessionSummary['state']):
   return state === 'running' ? t('sessionRunning') : state === 'idle' ? t('sessionIdle') : t('sessionEnded')
 }
 
-/** Read one peer's parked surface without narrowing loss inside JSX closures.
- * @param peer - the rendered admin view.
- * @returns the parked surface, or `undefined` when none pends. */
-function parkedOf(peer: PeerAdminView): PeerSurface | undefined {
-  return peer.pendingSurface
-}
-
 /** Render one surface as the three grant badges.
  * @param t - the localized copy face.
  * @param surface - the surface to render.
@@ -151,6 +144,8 @@ export function PeersView({
     })
   }
 
+  // A per-card const binding keeps the pending-surface narrowing alive inside JSX closures.
+  const cards = peers.map(peer => ({ peer, parked: peer.pendingSurface }))
   return (
     <div className={css.view}>
       <header className={css.header}>
@@ -160,7 +155,7 @@ export function PeersView({
       <div className={css.body}>
         {error !== undefined && <p className={css.error} role="alert">{error}</p>}
         {peers.length === 0 && error === undefined && <p className={css.empty}>{t('empty')}</p>}
-        {peers.map(peer => (
+        {cards.map(({ peer, parked }) => (
           <section key={peer.instanceId} className={css.card}>
             <div className={css.cardHead}>
               <div className={css.identity}>
@@ -226,9 +221,9 @@ export function PeersView({
                   </span>
                 )}
             </div>
-            {peer.pendingSurface !== undefined && (
+            {parked !== undefined && (
               <div className={css.pending}>
-                <span>{t('pendingBanner', { surface: GRANTS.filter(grant => parkedOf(peer)?.[grant] === true).map(grant => t(grant === 'delegate' ? 'grantDelegate' : grant === 'message' ? 'grantMessage' : 'grantList')).join(' + ') })}</span>
+                <span>{t('pendingBanner', { surface: GRANTS.filter(grant => parked[grant]).map(grant => t(grant === 'delegate' ? 'grantDelegate' : grant === 'message' ? 'grantMessage' : 'grantList')).join(' + ') })}</span>
                 <span className={css.confirm}>
                   <button type="button" className={css.button} onClick={() => {
                     void run(peer.instanceId, async () => { accept(await approveSurface({ instanceId: peer.instanceId })) })

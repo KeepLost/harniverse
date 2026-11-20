@@ -62,7 +62,7 @@ Each delegated session carries its own conversation and cache prefix, so a peer 
 ## Known Limitations and Deferred Work
 
 - `removePeer` closes a busy delegated agent only from true idle; a running turn finishes before its session record disappears.
-- The owner governance Remotes (`list`, `remove`, `setSurface`, `approveSurface`, `rejectSurface`, `setBudget`, `audit`) share the `peer` namespace behind the `harniverse.administer` capability; turn budgets live in `peer-governance.json` as optional per-peer monthly caps counted in accepted delivered turns, answering `BUDGET_EXCEEDED` once the period's cap is reached. Removal emits no stream frame: the paired side learns from its next failing call.
+- The owner governance Remotes (`list`, `removePeer`, `setSurface`, `approveSurface`, `rejectSurface`, `setBudget`, `audit`) share the `peer` namespace behind the `harniverse.administer` capability; turn budgets live in `peer-governance.json` as optional per-peer monthly caps counted in accepted delivered turns, answering `BUDGET_EXCEEDED` once the period's cap is reached. Removal emits no stream frame: the paired side learns from its next failing call.
 - The pending surface slot carries no expiry; a newer widening request replaces it, and owner edits, approval, rejection, or a peer-side narrowing commit clear it.
 - The event stream holds no replay cursor: a frame lost to a dropped connection is recovered by the next `peer/result` read, not by stream resumption; each reconnect mints a fresh token through a fresh proof.
 - Consumed-nonce retention is bounded per peer; a burst beyond the bound ages the oldest nonces out of replay protection inside the skew window.

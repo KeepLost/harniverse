@@ -41,7 +41,7 @@ export function apply(ctx: ClientContext): void {
     inject: () => ({
       hooks: { peersTick },
       list: () => ctx.remote.peer.list(),
-      remove: (input: { instanceId: string }) => ctx.remote.peer.remove(input),
+      remove: (input: { instanceId: string }) => ctx.remote.peer.removePeer(input),
       setSurface: (input: { instanceId: string; surface: PeerSurfaceLike }) => ctx.remote.peer.setSurface(input),
       approveSurface: (input: { instanceId: string }) => ctx.remote.peer.approveSurface(input),
       rejectSurface: (input: { instanceId: string }) => ctx.remote.peer.rejectSurface(input),

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { PeerAdminView, PeerSessionSummary, PeerSurface } from '@deepseek-ai/dsh-peer-host/types'
 import { PeersView, type PeersViewProps } from '../src/client/PeersView.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -167,11 +167,161 @@ describe('paired-peer governance view', () => {
     expect(await screen.findByText(zh.errorStoreFailed)).toBeDefined()
   })
 
+  it('surfaces list failures and render errors as operator copy', async () => {
+    const failing = face([peer()], {
+      list: vi.fn(async (): Promise<RemoteResult<{ peers: PeerAdminView[] }>> => {
+        throw new Error('socket send failed')
+      }),
+    })
+    mount(failing)
+    expect(await screen.findByText('socket send failed')).toBeDefined()
+    const refused = face([peer()], {
+      list: vi.fn(async (): Promise<RemoteResult<{ peers: PeerAdminView[] }>> => ({
+        ok: false,
+        error: { code: 'peer-failed', message: 'peer: RECORD_NOT_FOUND', details: { reason: 'RECORD_NOT_FOUND' } },
+      })),
+    })
+    mount(refused)
+    expect(await screen.findByText(zh.errorRecordNotFound)).toBeDefined()
+  })
+
+  it('walks the surface editor open-cancel path and renders all-off badges', async () => {
+    const actions = face([peer({ surface: { delegate: false, message: false, list: false } })])
+    mount(actions)
+    expect(await screen.findByText(/委派 \(关闭\)/)).toBeDefined()
+    fireEvent.click(screen.getByText(zh.editSurface))
+    fireEvent.click(screen.getByText(zh.collapse))
+    expect(actions.setSurface).not.toHaveBeenCalled()
+  })
+
+  it('cancels a started removal and refreshes on demand', async () => {
+    const actions = face([peer()])
+    mount(actions)
+    fireEvent.click(await screen.findByText(zh.remove))
+    fireEvent.click(screen.getByText(zh.reject))
+    expect(actions.remove).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText(zh.refresh))
+    await waitFor(() => { expect(actions.list).toHaveBeenCalled() })
+  })
+
+  it('audits with running rows and reports audit failures', async () => {
+    const actions = face([peer({ sessionCount: 2 })], {
+      audit: vi.fn(async (): Promise<RemoteResult<{ sessions: PeerSessionSummary[] }>> => ({
+        ok: true,
+        value: { sessions: [{ ...session, state: 'running' }] },
+      })),
+    })
+    mount(actions)
+    fireEvent.click(await screen.findByText(zh.expand))
+    expect(await screen.findByText(zh.sessionRunning)).toBeDefined()
+    const failing = face([peer({ sessionCount: 1 })], {
+      audit: vi.fn(async (): Promise<RemoteResult<{ sessions: PeerSessionSummary[] }>> => ({
+        ok: false,
+        error: { code: 'peer-failed', message: 'peer: STORE_FAILED', details: { reason: 'STORE_FAILED' } },
+      })),
+    })
+    mount(failing)
+    fireEvent.click(await screen.findByText(zh.expand))
+    expect(await screen.findByText(zh.errorStoreFailed)).toBeDefined()
+  })
+
+  it('drops a stale listing when a newer refresh already answered', async () => {
+    let releaseFirst: ((value: RemoteResult<{ peers: PeerAdminView[] }>) => void) | undefined
+    let failFirst: ((cause: unknown) => void) | undefined
+    const first = new Promise<RemoteResult<{ peers: PeerAdminView[] }>>((resolve, reject) => {
+      releaseFirst = resolve
+      failFirst = reject
+    })
+    const calls: Array<Promise<RemoteResult<{ peers: PeerAdminView[] }>>> = []
+    const actions = face([peer()], {
+      list: vi.fn(async (): Promise<RemoteResult<{ peers: PeerAdminView[] }>> => {
+        const result = calls.shift()
+        if (result !== undefined) return await result
+        return { ok: true, value: { peers: [peer({ displayName: 'Fresh answer' })] } }
+      }),
+    })
+    calls.push(first)
+    const { tick } = mount(actions)
+    tick.bump()
+    await screen.findByText('Fresh answer')
+    failFirst?.('stale refusal')
+    // The stale rejection arrived after a newer refresh answered, so its error is dropped too.
+    await waitFor(() => { expect(screen.queryByText('stale refusal')).toBeNull() })
+    const second = new Promise<RemoteResult<{ peers: PeerAdminView[] }>>((resolve) => { releaseFirst = resolve })
+    calls.push(second)
+    tick.bump()
+    // Flush between bumps so React delivers each tick as its own effect run.
+    await new Promise((resolve) => { setTimeout(resolve, 10) })
+    tick.bump()
+    await waitFor(() => { expect(screen.queryByText('Fresh answer')).not.toBeNull() })
+    releaseFirst?.({ ok: true, value: { peers: [peer({ displayName: 'Stale answer' })] } })
+    // Let the stale resolution run its continuation before asserting it never landed.
+    await new Promise((resolve) => { setTimeout(resolve, 10) })
+    expect(screen.queryByText('Stale answer')).toBeNull()
+  })
+
+  it('reports action throws through the view error line', async () => {
+    const actions = face([peer()], {
+      setSurface: vi.fn(async (): Promise<RemoteResult<PeerAdminView>> => { throw new Error('agent refused') }),
+    })
+    mount(actions)
+    fireEvent.click(await screen.findByText(zh.editSurface))
+    fireEvent.click(screen.getByText(zh.saveSurface))
+    expect(await screen.findByText('agent refused')).toBeDefined()
+  })
+
+  it('stringifies non-Error listing throws while the generation is current', async () => {
+    const actions = face([peer()], {
+      list: vi.fn(async (): Promise<RemoteResult<{ peers: PeerAdminView[] }>> => { throw 'listing refused' }),
+    })
+    mount(actions)
+    expect(await screen.findByText('listing refused')).toBeDefined()
+  })
+
+  it('stringifies non-Error action throws', async () => {
+    const actions = face([peer()], {
+      setSurface: vi.fn(async (): Promise<RemoteResult<PeerAdminView>> => { throw 'raw refusal' }),
+    })
+    mount(actions)
+    fireEvent.click(await screen.findByText(zh.editSurface))
+    fireEvent.click(screen.getByText(zh.saveSurface))
+    expect(await screen.findByText('raw refusal')).toBeDefined()
+  })
+
+  it('labels idle audit rows and full pending banners', async () => {
+    const actions = face([peer({ sessionCount: 1, pendingSurface: { delegate: true, message: true, list: true } })], {
+      audit: vi.fn(async (): Promise<RemoteResult<{ sessions: PeerSessionSummary[] }>> => ({
+        ok: true,
+        value: { sessions: [{ ...session, state: 'idle' }] },
+      })),
+    })
+    mount(actions)
+    await screen.findByText('Build workstation')
+    fireEvent.click(screen.getByText(zh.expand))
+    expect(await screen.findByText(zh.sessionIdle)).toBeDefined()
+    expect(screen.getByText(/委派 \+ 消息 \+ 列表/)).toBeDefined()
+  })
+
   it('re-lists when the pairing-event tick moves', async () => {
     const actions = face([peer()])
     const { tick } = mount(actions)
     await screen.findByText('Build workstation')
     tick.bump()
     await waitFor(() => { expect(actions.list).toHaveBeenCalledTimes(2) })
+  })
+})
+
+
+describe('issue localization', () => {
+  it('maps every closed reason and foreign failures to operator copy', async () => {
+    const { peerIssue, resultError } = await import('../src/client/issues.ts')
+    const failure = (reason: unknown, message?: unknown, code?: string) => ({ code: code ?? 'peer-failed', message, details: { reason } }) as unknown as RemoteFailure
+    expect(peerIssue(t, failure('INVALID_PAYLOAD', 'raw'))).toBe(zh.errorInvalidPayload)
+    expect(peerIssue(t, failure('CORRUPT_INSTANCE', 'raw'))).toBe(zh.errorCorruptInstance)
+    expect(peerIssue(t, failure(undefined, 'wire message'))).toBe('wire message')
+    expect(peerIssue(t, failure(undefined, '', 'other-code'))).toBe(zh.actionFailed)
+    expect(peerIssue(t, failure(42 as never, 'wire message'))).toBe('wire message')
+    expect(resultError(t, { ok: true as const, value: 1 })).toBeUndefined()
+    expect(resultError(t, { ok: false, error: failure('STORE_FAILED') })).toEqual(new Error(zh.errorStoreFailed))
   })
 })
