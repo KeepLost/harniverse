@@ -93,6 +93,9 @@
       "path": "../../mcp/mcp-user-config"
     },
     {
+      "path": "../../peer/peer-host"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {

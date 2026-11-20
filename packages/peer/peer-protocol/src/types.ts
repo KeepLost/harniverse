@@ -120,6 +120,21 @@ export interface PeerCancelRequest {
   sessionId: string
 }
 
+/** Surface-change request: the caller states a complete desired surface. */
+export interface PeerSurfaceRequest {
+  proof: PeerRequestProof
+  /** Complete desired surface; a pure narrowing commits immediately, any expansion awaits owner approval. */
+  surface: PeerSurface
+}
+
+/** Outcome of one surface-change request. */
+export interface PeerSurfaceResult {
+  /** The surface in force after the request; the committed narrowing, or the unchanged current surface while pending. */
+  surface: PeerSurface
+  /** Whether the desired surface is parked as a pending owner approval. */
+  pending: boolean
+}
+
 /** Subscription grant returned by `peer/subscribe`; opens the caller's event stream. */
 export interface PeerSubscribeResult {
   /** Single-use stream token redeemable once at the event-stream route inside its TTL. */
@@ -182,6 +197,8 @@ export interface PeerRecord {
   version: string
   /** Peer capability surface approved at pairing; each field gates one Remote family. */
   surface: PeerSurface
+  /** Complete desired surface parked by a peer request that widens any field; owner approval commits it. */
+  pendingSurface?: PeerSurface
   /** How the peer was admitted; the shipped flow is always the invitation token. */
   pairedVia: 'invitation'
   status: 'active' | 'revoked'

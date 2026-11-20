@@ -88,6 +88,7 @@
     { "path": "./packages/client/ui-jobs" },
     { "path": "./packages/client/ui-voice-input" },
      { "path": "./packages/client/ui-scheduler" },
+     { "path": "./packages/client/ui-peer-admin" },
      { "path": "./packages/client/ui-remote-hosts" },
     { "path": "./packages/client/ui-governor" },
     { "path": "./packages/client/ui-browser" },

@@ -1929,6 +1929,53 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'proof of the calling peer.' }],
         returns: 'the stream token and the heartbeat cadence.',
       },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async surface(request: PeerSurfaceRequest): Promise<PeerSurfaceResult>',
+        description: 'Request one surface change: a pure narrowing commits immediately, any widening parks for owner approval.',
+        parameters: [{ name: 'request', description: 'proof plus the complete desired surface.' }],
+        returns: 'the surface in force and whether the desire is pending owner approval.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async list(): Promise<{ peers: PeerAdminView[] }>',
+        description: 'List every paired peer with its governance state for the owner admin surface.',
+        parameters: [],
+        returns: 'admin views, newest activity first.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>',
+        description: 'Remove one paired peer, end its delegated sessions, and drop its governance entry.',
+        parameters: [{ name: 'input', description: 'exact instance id to remove.' }],
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async setSurface(input: { instanceId: PeerInstanceId; surface: PeerSurface }): Promise<PeerAdminView>',
+        description: 'Set the granted surface directly; the owner\'s own decision needs no approval step.',
+        parameters: [{ name: 'input', description: 'exact instance id and the complete new surface.' }],
+        returns: 'the updated admin view.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async approveSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>',
+        description: 'Commit the parked widening surface a peer requested.',
+        parameters: [{ name: 'input', description: 'exact instance id carrying a pending surface.' }],
+        returns: 'the updated admin view.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async rejectSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>',
+        description: 'Drop the parked widening surface a peer requested; the surface in force stays unchanged.',
+        parameters: [{ name: 'input', description: 'exact instance id carrying a pending surface.' }],
+        returns: 'the updated admin view.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView>',
+        description: 'Set or lift one peer\'s monthly delivered-turn budget.',
+        parameters: [{ name: 'input', description: 'exact instance id and the new cap; an absent cap lifts the budget.' }],
+        returns: 'the updated admin view.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async audit(input: { instanceId: PeerInstanceId }): Promise<{ sessions: PeerSessionSummary[] }>',
+        description: 'Audit one peer\'s delegated sessions; metadata only, transcripts stay in the session view.',
+        parameters: [{ name: 'input', description: 'exact instance id to audit.' }],
+        returns: 'the peer\'s session summaries, newest activity first.',
+      },
     ],
   },
   {
@@ -6567,6 +6614,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface OwnerView {\n    key: string;\n    platform: string;\n    userId: string;\n    displayName?: string;\n    pairedAt: number;\n}',
   },
   {
+    name: 'PeerAdminView',
+    declaration: 'export interface PeerAdminView {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    status: \'active\' | \'revoked\';\n    surface: PeerSurface;\n    pendingSurface?: PeerSurface;\n    firstSeenAt: string;\n    lastSeenAt: string;\n    monthlyTurns?: number;\n    monthlyTurnsUsed: number;\n    monthlyTurnPeriod: string;\n    sessionCount: number;\n}',
+  },
+  {
     name: 'PeerCancelRequest',
     declaration: 'export interface PeerCancelRequest {\n    proof: PeerRequestProof;\n    sessionId: string;\n}',
   },
@@ -6616,7 +6667,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PeerRecord',
-    declaration: 'export interface PeerRecord {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n    pairedVia: \'invitation\';\n    status: \'active\' | \'revoked\';\n    identityPublicKey?: string;\n    firstSeenAt: string;\n    lastSeenAt: string;\n}',
+    declaration: 'export interface PeerRecord {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    surface: PeerSurface;\n    pendingSurface?: PeerSurface;\n    pairedVia: \'invitation\';\n    status: \'active\' | \'revoked\';\n    identityPublicKey?: string;\n    firstSeenAt: string;\n    lastSeenAt: string;\n}',
   },
   {
     name: 'PeerRequestProof',
@@ -6649,6 +6700,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PeerSurface',
     declaration: 'export interface PeerSurface {\n    delegate: boolean;\n    message: boolean;\n    list: boolean;\n}',
+  },
+  {
+    name: 'PeerSurfaceRequest',
+    declaration: 'export interface PeerSurfaceRequest {\n    proof: PeerRequestProof;\n    surface: PeerSurface;\n}',
+  },
+  {
+    name: 'PeerSurfaceResult',
+    declaration: 'export interface PeerSurfaceResult {\n    surface: PeerSurface;\n    pending: boolean;\n}',
   },
   {
     name: 'PermissionSelect',

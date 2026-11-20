@@ -30,6 +30,7 @@ import {
   runPeerFollowup,
   runPeerResult,
   runPeerSessions,
+  runPeerSurface,
   withPeerOrigin,
   withPeerTransport,
   writePeerTargets,
@@ -58,7 +59,7 @@ export const Config: z<Config> = z.object({
     z.const('invite'), z.const('add'), z.const('list'),
     z.const('remove'), z.const('targets'), z.const('forget'),
     z.const('cancel'), z.const('run'), z.const('send'), z.const('sessions'),
-    z.const('result'), z.const('outbox'),
+    z.const('result'), z.const('surface'), z.const('outbox'),
   ]).required(),
   uri: z.string(),
   endpoint: z.string(),
@@ -73,6 +74,7 @@ export const Config: z<Config> = z.object({
   cwd: z.string(),
   profile: z.string(),
   messageId: z.string(),
+  surface: z.object({ delegate: z.boolean(), message: z.boolean(), list: z.boolean() }),
   async: z.boolean(),
   dshHome: z.string(),
 })
@@ -236,6 +238,25 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
         required(config.messageId, config.operation, 'a message id'),
       ))
       writeRunResult(result)
+      break
+    }
+    case 'surface': {
+      const target = await resolveTarget(config)
+      const identity = await ensureInstanceIdentity(home)
+      const key = await ensurePeerIdentityKey(home)
+      if (config.surface === undefined) {
+        throw new Error(`peer surface: ${config.operation} needs a complete surface`)
+      }
+      const desired = config.surface
+      const outcome = await withPeerTransport(ctx, home, target, origin => runPeerSurface(
+        { target, home, origin },
+        { instanceId: identity.instanceId, key },
+        desired,
+      ))
+      const grants = `${outcome.surface.delegate ? 'delegate' : 'no-delegate'}, ${outcome.surface.message ? 'message' : 'no-message'}, ${outcome.surface.list ? 'list' : 'no-list'}`
+      internals.stdout.write(outcome.pending
+        ? `pending owner approval (current: ${grants})\n`
+        : `committed (${grants})\n`)
       break
     }
     case 'outbox': {

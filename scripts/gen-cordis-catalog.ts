@@ -274,6 +274,9 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
 export const LINK_MAP: Readonly<Record<string, string>> = {
   PeerRecord: 'peer.md',
   PeerSurface: 'peer.md',
+  PeerSurfaceRequest: 'peer.md',
+  PeerSurfaceResult: 'peer.md',
+  PeerAdminView: 'peer.md',
   PeerInstanceId: 'peer.md',
   PeerHello: 'peer.md',
   PeerHelloInput: 'peer.md',

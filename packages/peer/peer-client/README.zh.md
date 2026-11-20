@@ -14,7 +14,7 @@
 
 ## 委派调用
 
-`runPeerDelegate`、`runPeerFollowup`、`runPeerCancel`、`runPeerResult`、`runPeerSessions` 与 `runPeerSubscribe` 共享 `{ target, home, origin }` 选项与解析出的 `{ instanceId, key }` 身份:每次调用铸造带单次 nonce 的请求证明、从存储的 Grant id 重建 `GrantAccess`,并经同一信封投递。携带 code `peer-failed` 的线上失败映射回封闭 peer 原因(`SURFACE_DENIED`、`INVALID_PROOF`、`SESSION_NOT_FOUND`、`SESSION_BUSY` 等);回读在使用前重新校验。`runPeerResult` 按会话与消息 id 只读一个已拥有轮次的结算,不投递新提示;`runPeerCancel` 中止一个已拥有会话的当前回合并返回其终态;`runPeerSubscribe` 铸出单次流令牌。
+`runPeerDelegate`、`runPeerFollowup`、`runPeerCancel`、`runPeerResult`、`runPeerSessions` 与 `runPeerSubscribe` 共享 `{ target, home, origin }` 选项与解析出的 `{ instanceId, key }` 身份:每次调用铸造带单次 nonce 的请求证明、从存储的 Grant id 重建 `GrantAccess`,并经同一信封投递。携带 code `peer-failed` 的线上失败映射回封闭 peer 原因(`SURFACE_DENIED`、`INVALID_PROOF`、`SESSION_NOT_FOUND`、`SESSION_BUSY` 等);回读在使用前重新校验。`runPeerResult` 按会话与消息 id 只读一个已拥有轮次的结算,不投递新提示;`runPeerCancel` 中止一个已拥有会话的当前回合并返回其终态;`runPeerSubscribe` 铸出单次流令牌;`runPeerSurface` 投递一份完整的目标能力面,并回报现行能力面与该意愿是否待 owner 审批。
 
 `openPeerEventStream({ target, home, origin, fetch?, signal }, streamToken, onFrame)` 把订阅的 `text/event-stream` 读到流结束或中止:经 `parsePeerEventFrame` 解析 `data:` 帧、忽略心跳注释,abort 触发时安静结束,被拒的流与畸形帧以 `TRANSPORT_FAILED` 报告。目标拒绝的 Grant 挑战或令牌交换——重配对遇撤销的 Grant——以 `EXCHANGE_FAILED` 呈现并附带"删除后重新邀请"指引,而不是裸的 sdk-client 错误;传输层抛错归类为 `TRANSPORT_FAILED`(配对期间为 `HELLO_REJECTED`),调用方因此只需做一次可达性分类。
 

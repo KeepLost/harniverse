@@ -1,0 +1,77 @@
+/** Bilingual copy for the paired-peer governance surface. */
+
+/** English labels for the paired-peer governance surface. */
+export const en = {
+  nav: 'Paired peers',
+  title: 'Paired peers',
+  refresh: 'Refresh',
+  empty: 'No paired peers yet. A paired peer appears here after it redeems one of your invitations.',
+  statusActive: 'active',
+  grantDelegate: 'Delegate', grantMessage: 'Message', grantList: 'List',
+  grantOn: 'granted', grantOff: 'off',
+  surfaceSection: 'Granted surface',
+  editSurface: 'Edit surface',
+  saveSurface: 'Save surface',
+  pendingBanner: 'Requested surface {surface} — awaiting your approval',
+  approve: 'Approve', reject: 'Reject',
+  budgetSection: 'Monthly budget',
+  budgetUnlimited: 'unlimited',
+  budgetUsage: '{used} / {limit} turns ({period})',
+  budgetPlaceholder: 'turn limit',
+  saveBudget: 'Save limit',
+  clearBudget: 'Lift limit',
+  budgetInvalid: 'The limit is a whole number from 1 to 1000000.',
+  sessionsSection: 'Delegated sessions',
+  sessionCount: '{count} sessions',
+  expand: 'Audit', collapse: 'Hide',
+  sessionRunning: 'running', sessionIdle: 'idle', sessionEnded: 'ended',
+  remove: 'Remove', confirmRemove: 'Confirm removal',
+  removeHint: 'Removal ends every delegated session this peer owns.',
+  lastSeen: 'last active {at}',
+  errorRecordNotFound: 'This peer record no longer exists. Refresh to reload the roster.',
+  errorInvalidPayload: 'The request was malformed; nothing changed.',
+  errorStoreFailed: 'The peer store write failed; nothing changed.',
+  errorCorruptInstance: 'The peer store is damaged; nothing changed.',
+  actionFailed: 'The operation failed.',
+} as const
+
+/** 中文文案:配对同伴治理面。 */
+export const zh = {
+  nav: '配对同伴',
+  title: '配对同伴',
+  refresh: '刷新',
+  empty: '还没有配对的同伴。同伴兑换你的邀请完成配对后会出现在这里。',
+  statusActive: '已激活',
+  grantDelegate: '委派', grantMessage: '消息', grantList: '列表',
+  grantOn: '已授予', grantOff: '关闭',
+  surfaceSection: '已授予的能力面',
+  editSurface: '编辑能力面',
+  saveSurface: '保存能力面',
+  pendingBanner: '请求将能力面调整为 {surface} —— 等待你的审批',
+  approve: '批准', reject: '拒绝',
+  budgetSection: '月度预算',
+  budgetUnlimited: '不限',
+  budgetUsage: '已用 {used} / {limit} 回合({period})',
+  budgetPlaceholder: '回合上限',
+  saveBudget: '保存上限',
+  clearBudget: '解除上限',
+  budgetInvalid: '上限必须是 1 到 1000000 之间的整数。',
+  sessionsSection: '委派会话',
+  sessionCount: '{count} 个会话',
+  expand: '审计', collapse: '收起',
+  sessionRunning: '运行中', sessionIdle: '空闲', sessionEnded: '已结束',
+  remove: '移除', confirmRemove: '确认移除',
+  removeHint: '移除会结束该同伴持有的全部委派会话。',
+  lastSeen: '最近活跃 {at}',
+  errorRecordNotFound: '该同伴记录已不存在,请刷新重载列表。',
+  errorInvalidPayload: '请求格式不正确,未做任何变更。',
+  errorStoreFailed: '同伴存储写入失败,未做任何变更。',
+  errorCorruptInstance: '同伴存储已损坏,未做任何变更。',
+  actionFailed: '操作失败。',
+}
+
+/** Dictionary namespace of this package. */
+export const NS = 'peerAdmin' as const
+
+/** Locale keys of this package. */
+export type PeerAdminKey = keyof typeof en

@@ -26,6 +26,9 @@
       "path": "../../credentials/credentials"
     },
     {
+      "path": "../../extensions/cordis-host-runner"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {
@@ -35,28 +38,28 @@
       "path": "../../mcp/mcp-user-config"
     },
     {
+      "path": "../../peer/peer-host"
+    },
+    {
       "path": "../../preset/agent-presets"
-    },
-    {
-      "path": "../../session/session-persistence"
-    },
-    {
-      "path": "../../extensions/cordis-host-runner"
-    },
-    {
-      "path": "../../settings/settings"
-    },
-    {
-      "path": "../../web/web"
     },
     {
       "path": "../../runtime-diagnostics/invariants"
     },
     {
-      "path": "../../typert/registry"
+      "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../settings/settings"
     },
     {
       "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../typert/registry"
+    },
+    {
+      "path": "../../web/web"
     }
   ]
 }

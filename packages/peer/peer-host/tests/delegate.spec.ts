@@ -10,6 +10,7 @@ import { ensureInstanceIdentity, peerInstanceId, peerRequestMessage } from '@dee
 import type { PeerRecord, PeerRequestProof } from '@deepseek-ai/dsh-peer-protocol'
 import PeerHost from '../src/index.ts'
 import { readPeerSessions, writePeerSessions } from '../src/session-registry.ts'
+import { periodOf, readPeerGovernance, writePeerGovernance } from '../src/governance.ts'
 import { readPeerStore, writePeerStore } from '../src/store.ts'
 
 const directories: string[] = []
@@ -210,6 +211,27 @@ function proofFor(key: ReturnType<typeof identityKey>): PeerRequestProof {
   const nonce = randomUUID()
   return { instanceId: caller, timestamp, nonce, signature: key.sign(peerRequestMessage(caller, timestamp, nonce)) }
 }
+
+it('rejects capped peers before minting artifacts and counts accepted turns', async () => {
+  const { root, host, key } = await rig()
+  const period = periodOf(new Date())
+  await writePeerGovernance(root, [{ instanceId: caller, monthlyTurns: 1, spent: { [period]: 1 } }])
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'first' })).rejects.toThrowError(/BUDGET_EXCEEDED/)
+  await expect(host.followup({ proof: proofFor(key), sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', prompt: 'next' }))
+    .rejects.toThrowError(/BUDGET_EXCEEDED/)
+  expect(await readPeerSessions(root)).toEqual([])
+  // Lifting to a working cap lets the turn through and records its acceptance.
+  await writePeerGovernance(root, [{ instanceId: caller, monthlyTurns: 2, spent: { [period]: 1 } }])
+  const settled = await host.delegate({ proof: proofFor(key), prompt: 'second' })
+  expect(settled.state).toBe('settled')
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: caller, monthlyTurns: 2, spent: { [period]: 2 } }])
+  // A running turn still consumed budget on acceptance, and the next one is capped out.
+  await writePeerGovernance(root, [{ instanceId: caller, monthlyTurns: 3, spent: { [period]: 2 } }])
+  const followup = await host.followup({ proof: proofFor(key), sessionId: settled.sessionId, prompt: 'third' })
+  expect(followup.state).toBe('settled')
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: caller, monthlyTurns: 3, spent: { [period]: 3 } }])
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'fourth' })).rejects.toThrowError(/BUDGET_EXCEEDED/)
+})
 
 it('delegates one session, settles its first turn, and records the entry', async () => {
   const { root, host, key, registry } = await rig()

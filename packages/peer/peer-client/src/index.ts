@@ -19,6 +19,7 @@ export {
   runPeerResult,
   runPeerSessions,
   runPeerSubscribe,
+  runPeerSurface,
   validateRunResult,
   validateSessionSummaries,
 } from './remote.ts'

@@ -8,6 +8,8 @@ import { PeerError, ensureInstanceIdentity, peerHelloMessage, peerInstanceId, pe
 import type { PeerRecord } from '@deepseek-ai/dsh-peer-protocol'
 import PeerHost from '../src/index.ts'
 import { parsePeerRecord, peerStorePath, readPeerStore, writePeerStore } from '../src/store.ts'
+import { periodOf, readPeerGovernance, writePeerGovernance } from '../src/governance.ts'
+import { writePeerSessions } from '../src/session-registry.ts'
 
 const directories: string[] = []
 const cleanups: Array<() => Promise<unknown>> = []
@@ -242,6 +244,14 @@ it('maps store write failures onto the closed reason', async () => {
   void PeerError
 })
 
+/** Rewrite the pinned initiator's granted surface in place.
+ * @param host - the mounted peer host.
+ * @param surface - the surface to force.
+ */
+async function forceSurface(host: PeerHost, surface: { delegate: boolean; message: boolean; list: boolean }): Promise<void> {
+  await writePeerStore(host.home, (await readPeerStore(host.home)).map(record => ({ ...record, surface })))
+}
+
 /** One request proof minted for the pinned initiator key. */
 function requestProof(key: ReturnType<typeof identityKey>): { instanceId: string; timestamp: number; nonce: string; signature: string } {
   const timestamp = Date.now()
@@ -286,6 +296,149 @@ it('denies cancel and subscribe under restricted surfaces', async () => {
   await expect(host.cancel({ proof: requestProof(key), sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef' }))
     .rejects.toThrowError(/SURFACE_DENIED/)
   await expect(host.subscribe({ proof: requestProof(key) })).rejects.toThrowError(/SURFACE_DENIED/)
+})
+
+it('commits narrowing surface requests immediately and retires any parked widening', async () => {
+  const { host, key, root } = await pairedHost()
+  const narrowing = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: false, list: false } })
+  expect(narrowing).toEqual({ surface: { delegate: true, message: false, list: false }, pending: false })
+  const peers = await readPeerStore(root)
+  expect(peers[0]!.surface).toEqual({ delegate: true, message: false, list: false })
+  expect('pendingSurface' in peers[0]!).toBe(false)
+  // A parked widening followed by a narrowing: the narrowing commits and clears the park.
+  await writePeerStore(root, [{ ...peers[0]!, pendingSurface: { delegate: true, message: true, list: true } }])
+  const again = await host.surface({ proof: requestProof(key), surface: { delegate: false, message: false, list: false } })
+  expect(again).toEqual({ surface: { delegate: false, message: false, list: false }, pending: false })
+  const after = (await readPeerStore(root))[0]!
+  expect(after.surface).toEqual({ delegate: false, message: false, list: false })
+  expect('pendingSurface' in after).toBe(false)
+})
+
+it('parks widening surface requests for owner approval with latest-wins replacement', async () => {
+  const { host, key, root } = await pairedHost()
+  const first = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
+  expect(first).toEqual({ surface: { delegate: true, message: true, list: true }, pending: false })
+  await forceSurface(host, { delegate: true, message: true, list: false })
+  const parked = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
+  expect(parked).toEqual({ surface: { delegate: true, message: true, list: false }, pending: true })
+  const replaced = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: false, list: true } })
+  expect(replaced.pending).toBe(true)
+  const record = (await readPeerStore(root))[0]!
+  expect(record.surface).toEqual({ delegate: true, message: true, list: false })
+  expect(record.pendingSurface).toEqual({ delegate: true, message: false, list: true })
+})
+
+it('rejects malformed surface requests and unauthenticated callers', async () => {
+  const { host, key } = await pairedHost()
+  await expect(host.surface({ proof: requestProof(key), surface: { delegate: true, message: true } as never }))
+    .rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.surface({ proof: requestProof(key), surface: 'none' as never })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  const stranger = identityKey()
+  const strangerId = '3f2a8f9e-9999-4222-8333-444455557777'
+  const timestamp = Date.now()
+  const nonce = randomUUID()
+  await expect(host.surface({
+    proof: { instanceId: strangerId, timestamp, nonce, signature: stranger.sign(peerRequestMessage(strangerId, timestamp, nonce)) },
+    surface: { delegate: true, message: true, list: true },
+  })).rejects.toThrowError(/RECORD_NOT_FOUND/)
+})
+
+it('answers the admin list with governance views newest activity first', async () => {
+  const { host, key, root } = await pairedHost()
+  const other = '3f2a8f9e-9999-4222-8333-444455557777'
+  const peers = await readPeerStore(root)
+  await writePeerStore(root, [{ ...peers[0]!, surface: { delegate: true, message: true, list: false } }, {
+    ...peers[0]!, instanceId: other, displayName: 'Tower', lastSeenAt: '2027-01-01T00:00:00.000Z',
+  }])
+  await writePeerSessions(root, [{ sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', peerInstanceId: other, createdAt: '2026-11-01T00:00:00.000Z', lastActivityAt: '2026-11-02T00:00:00.000Z', cwd: '/tmp', label: 'audit me' }])
+  await writePeerGovernance(root, [{ instanceId: other, monthlyTurns: 5, spent: { [periodOf(new Date())]: 2 } }])
+  // A parked widening shows in the admin list so the owner can see the pending request.
+  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
+  const { peers: views } = await host.list()
+  expect(views.map(view => view.instanceId)).toEqual([other, initiator.instanceId])
+  expect(views[0]).toMatchObject({
+    displayName: 'Tower', status: 'active', surface: { delegate: true, message: true, list: true },
+    monthlyTurns: 5, monthlyTurnsUsed: 2, sessionCount: 1,
+  })
+  expect(views[1]).toMatchObject({ sessionCount: 0, monthlyTurnsUsed: 0, pendingSurface: { delegate: true, message: true, list: true } })
+})
+
+it('edits surfaces directly, decides parked requests, and reports unknown peers', async () => {
+  const { host } = await pairedHost()
+  const edited = await host.setSurface({ instanceId: initiator.instanceId, surface: { delegate: true, message: false, list: false } })
+  expect(edited.surface).toEqual({ delegate: true, message: false, list: false })
+  await expect(host.approveSurface({ instanceId: initiator.instanceId })).rejects.toThrowError(/no pending surface/)
+  await expect(host.setSurface({ instanceId: '3f2a8f9e-9999-4222-8333-444455557777', surface: { delegate: true, message: true, list: true } }))
+    .rejects.toThrowError(/RECORD_NOT_FOUND/)
+})
+
+it('approves and rejects parked surfaces through the admin surface', async () => {
+  const { host, key } = await pairedHost()
+  await forceSurface(host, { delegate: true, message: true, list: false })
+  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: false, list: true } })
+  const rejected = await host.rejectSurface({ instanceId: initiator.instanceId })
+  expect(rejected.surface).toEqual({ delegate: true, message: true, list: false })
+  expect(rejected.pendingSurface).toBeUndefined()
+  await expect(host.rejectSurface({ instanceId: initiator.instanceId })).rejects.toThrowError(/no pending surface/)
+  await host.surface({ proof: requestProof(key), surface: { delegate: false, message: false, list: true } })
+  const approved = await host.approveSurface({ instanceId: initiator.instanceId })
+  expect(approved.surface).toEqual({ delegate: false, message: false, list: true })
+})
+
+it('sets and lifts budgets through the admin surface with strict input bounds', async () => {
+  const { host, key } = await pairedHost()
+  // Budget edits on a record carrying a parked request surface the park through the returned view.
+  const peers = await readPeerStore(host.home)
+  await writePeerStore(host.home, [{ ...peers[0]!, surface: { delegate: true, message: true, list: false } }])
+  await writePeerSessions(host.home, [{ sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', peerInstanceId: initiator.instanceId, createdAt: '2026-11-01T00:00:00.000Z', lastActivityAt: '2026-11-02T00:00:00.000Z', cwd: '/tmp', label: 'capped work' }])
+  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
+  const parked = await host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 12 })
+  expect(parked.pendingSurface).toEqual({ delegate: true, message: true, list: true })
+  expect(parked.sessionCount).toBe(1)
+  const capped = parked
+  expect(capped.monthlyTurns).toBe(12)
+  expect(capped.monthlyTurnsUsed).toBe(0)
+  const lifted = await host.setBudget({ instanceId: initiator.instanceId })
+  expect(lifted.monthlyTurns).toBeUndefined()
+  await expect(host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 0 })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 1.5 })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 1_000_001 })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  const extra = { instanceId: initiator.instanceId, monthlyTurns: 3, extra: 1 } as never
+  await expect(host.setBudget(extra)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setBudget({ instanceId: 'nope' })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setBudget({ instanceId: '3f2a8f9e-9999-4222-8333-444455557777', monthlyTurns: 3 })).rejects.toThrowError(/RECORD_NOT_FOUND/)
+})
+
+it('audits one peer\'s sessions and validates admin targets', async () => {
+  const { host, root } = await pairedHost()
+  await writePeerSessions(root, [
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', peerInstanceId: initiator.instanceId, createdAt: '2026-11-01T00:00:00.000Z', lastActivityAt: '2026-11-02T00:00:00.000Z', cwd: '/tmp', label: 'audit me' },
+  ])
+  const { sessions } = await host.audit({ instanceId: initiator.instanceId })
+  expect(sessions).toEqual([{ sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', createdAt: '2026-11-01T00:00:00.000Z', lastActivityAt: '2026-11-02T00:00:00.000Z', state: 'ended', label: 'audit me' }])
+  await expect(host.audit({ instanceId: '3f2a8f9e-9999-4222-8333-444455557777' })).rejects.toThrowError(/RECORD_NOT_FOUND/)
+  await expect(host.audit({ instanceId: 'nope' })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.remove({ instanceId: 'nope' })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.remove('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.audit([] as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setSurface('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setSurface({ instanceId: initiator.instanceId } as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setBudget('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.approveSurface([] as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.surface('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.surface({ surface: { delegate: true, message: true, list: true } } as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  const partial = { instanceId: initiator.instanceId, surface: { delegate: true } } as never
+  await expect(host.setSurface(partial)).rejects.toThrowError(/INVALID_PAYLOAD/)
+})
+
+it('removes through the admin surface and drops the governance entry', async () => {
+  const { host, root } = await pairedHost()
+  await host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 4 })
+  const gone = host.remove({ instanceId: initiator.instanceId })
+  await expect(gone).resolves.toBeUndefined()
+  expect(await readPeerStore(root)).toEqual([])
+  expect(await readPeerGovernance(root)).toEqual([])
+  await expect(host.remove({ instanceId: initiator.instanceId })).rejects.toThrowError(/RECORD_NOT_FOUND/)
 })
 
 it('serves the event stream route through single-use tokens', async () => {

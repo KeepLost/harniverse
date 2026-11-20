@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-agent-presets/types'
 // event shapes into this compilation face.
 import type {} from '@deepseek-ai/dsh-mcp-user-config/types'
 import type {} from '@deepseek-ai/dsh-web/types'
+import type {} from '@deepseek-ai/dsh-peer-host/types'
 import {
   effectiveModelProfile, effectiveModelTarget, ModelTargetNotAllowedError, MODEL_POLICY_SETTINGS_NAMESPACE,
   UNRESTRICTED_MODEL_PROFILE_ID,

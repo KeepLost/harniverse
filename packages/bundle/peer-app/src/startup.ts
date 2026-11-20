@@ -14,7 +14,7 @@ export const inject = ['cmdlineArgs']
 export const PEER_STARTUP_SERVICE = 'peerStartup'
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'outbox'
 
 /** One parsed peer pairing invocation. */
 export interface PeerStartupValues {
@@ -32,8 +32,17 @@ export interface PeerStartupValues {
   fingerprint?: string
   /** remote-hosts record name dialed for a tunneled `add`. */
   sshHost?: string
-  /** Instance id targeted by `remove` or `forget`. */
+  /** Instance id targeted by most operations. */
   instanceId?: string
+  /** Complete desired surface for `surface`. */
+  surface?: {
+    /** Delegate grant requested by `surface`. */
+    delegate: boolean
+    /** Message grant requested by `surface`. */
+    message: boolean
+    /** List grant requested by `surface`. */
+    list: boolean
+  }
   /** Per-request timeout in milliseconds for `add`. */
   timeoutMs?: number
   /** Delegation prompt words for `run` and `send`. */
@@ -151,6 +160,22 @@ function peerCommand(ctx: Context): Command {
     .argument('<message-id>', 'accepted turn message id printed at submission')
     .action((instanceId: string, sessionId: string, messageId: string) => {
       publish('result', { instanceId, sessionId, messageId })
+    })
+  program.command('surface')
+    .description('request a surface change on a paired target; pure narrowings commit immediately, widenings await owner approval')
+    .argument('<instance-id>', 'paired target instance id')
+    .requiredOption('--delegate <on|off>', 'delegate grant: on or off')
+    .requiredOption('--message <on|off>', 'message grant: on or off')
+    .requiredOption('--list <on|off>', 'list grant: on or off')
+    .action((instanceId: string, options: { delegate: string; message: string; list: string }) => {
+      const flag = (value: string): boolean => {
+        if (value !== 'on' && value !== 'off') program.error(`--delegate/--message/--list take "on" or "off", got "${value}"`)
+        return value === 'on'
+      }
+      publish('surface', {
+        instanceId,
+        surface: { delegate: flag(options.delegate), message: flag(options.message), list: flag(options.list) },
+      })
     })
   program.command('outbox')
     .description("list this home's initiator settlement ledger (written by a running instance)")

@@ -19,6 +19,7 @@
 | `peer sessions <instance-id>` | 发起方 | 列出本实例在目标上的被委派会话及活跃状态。 |
 | `peer cancel <instance-id> <session-id>` | 发起方 | 取消目标上一个被委派会话的当前回合并打印其终态;空闲会话原样报告最新声明的结算。 |
 | `peer result <instance-id> <session-id> <message-id>` | 发起方 | 不投递新提示,只读一个被委派轮次的结算——异步回执背后的人工逃生门。 |
+| `peer surface <instance-id> --delegate on\|off --message on\|off --list on\|off` | 发起方 | 在目标上请求一份完整的能力面变更:纯收窄立即生效,含扩张则挂起等待目标 owner 审批,并打印仍生效的能力面。 |
 | `peer outbox` | 发起方 | 列出本 home 的结算台账(由运行中实例经 `dsh-peer-outbox` 写入);视图永不写入。 |
 
 邀请要求目标注册表中已存在 owner Grant(引导规则);新家只有在其 owner 引导之后才能配对。SSH 拨号的 add 仅接受密钥文件与 agent 主机登录——口令与加密引用登录报 `UNSUPPORTED_CREDENTIALS`,因为一次性进程不解析任何加密凭据。
