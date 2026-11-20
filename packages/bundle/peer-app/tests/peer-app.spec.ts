@@ -142,23 +142,36 @@ class SettlingAgentRegistry extends Service {
       eventsFrom: (from: number) => events.filter(event => event.seq >= from),
     }
     let idle: Promise<void> = Promise.resolve()
+    let settle: (() => void) | undefined
     const entry = {
       status: 'idle' as 'idle' | 'running',
       session,
       whenIdle: () => idle,
+      cancel: (cause: { kind: string }) => {
+        if (settle === undefined) return
+        const turn = 1 + events.filter(event => event.type === 'turn/end').length
+        events.push({ type: 'turn/end', seq: events.length, data: { turn, reason: { kind: cause.kind } } })
+        entry.status = 'idle'
+        settle()
+      },
       followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => {
         const prompt = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
         entry.status = 'running'
+        const turn = 1 + events.filter(event => event.type === 'turn/end').length
+        events.push({ type: 'turn/start', seq: events.length, data: { turn } })
+        events.push({ type: 'user/message', seq: events.length, data: message })
         idle = new Promise((resolve) => {
-          setTimeout(() => {
-            const turn = 1 + events.filter(event => event.type === 'turn/end').length
-            events.push({ type: 'turn/start', seq: events.length, data: { turn } })
-            events.push({ type: 'user/message', seq: events.length, data: message })
+          const timer = setTimeout(() => {
+            settle = undefined
             events.push({ type: 'assistant/message', seq: events.length, data: { turn, step: 1, message: { content: [{ type: 'text', text: `echo: ${prompt}` }] } } })
             events.push({ type: 'turn/end', seq: events.length, data: { turn, reason: { kind: 'completed' } } })
             entry.status = 'idle'
             resolve()
-          }, 10)
+          }, prompt.startsWith('hold') ? 10_000 : 10)
+          settle = () => {
+            clearTimeout(timer)
+            resolve()
+          }
         })
       },
     }
@@ -218,6 +231,12 @@ async function servingTarget(): Promise<ServingTarget> {
   return { origin, home, identity, invite }
 }
 
+/** Extract the accepted message id from one async submission's receipt line. */
+function submittedMessageId(out: string): string {
+  const line = out.split('\n').find(entry => entry.startsWith('receipt\t'))!
+  return line.split('\t')[2]!
+}
+
 /** Extract the URI line the invite command printed. */
 function inviteUri(out: string): string {
   const line = out.split('\n').find(entry => entry.startsWith('dsh-peer://'))
@@ -227,7 +246,7 @@ function inviteUri(out: string): string {
 
 it('invites and pairs two homes end to end through the CLI composition', async () => {
   const target = await servingTarget()
-  const invited = await invoke(['invite', '--endpoint', target.origin, '--name', 'Build workstation', '--ttl', '600000', '--fingerprint', 'A'.repeat(43)], target.home)
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--name', 'Build workstation', '--ttl', '600000'], target.home)
   expect(invited.code).toBe(0)
   const uri = inviteUri(invited.out)
   const initiator = await temporary('peer-app-initiator-')
@@ -294,11 +313,42 @@ it('runs delegated sessions with options, budgets, and continued turns', async (
   expect(defaultBudget.out).toContain('echo: again')
 })
 
+it('issues a pinned invitation whose URI carries the TLS fingerprint', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', 'https://build.example.org:8443', '--ttl', '600000', '--fingerprint', 'A'.repeat(43)], target.home)
+  expect(invited.code, `invite stderr: ${invited.err}`).toBe(0)
+  const payload = JSON.parse(Buffer.from(inviteUri(invited.out).slice('dsh-peer://'.length), 'base64url').toString('utf8')) as { tlsFingerprint?: string; endpoint: { origin: string } }
+  expect(payload.tlsFingerprint).toBe('A'.repeat(43))
+  expect(payload.endpoint.origin).toBe('https://build.example.org:8443')
+})
+
+it('cancels the current turn of an async-submitted session', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  const uri = inviteUri(invited.out)
+  const initiator = await temporary('peer-app-initiator-')
+  await invoke(['add', uri, '--timeout', '20000'], initiator)
+  const targetId = target.identity.instanceId
+  const submitted = await invoke(['run', targetId, 'hold', 'still', '--async'], initiator)
+  expect(submitted.out).toContain('running')
+  const sessionLine = submitted.out.split('\n').find(entry => entry.startsWith('session\t'))!
+  const sessionId = sessionLine.split('\t')[1]!
+  const cancelled = await invoke(['cancel', targetId, sessionId], initiator)
+  expect(cancelled.code, `cancel stderr: ${cancelled.err}`).toBe(0)
+  expect(cancelled.out).toContain('settled')
+  expect(cancelled.out).toContain('user')
+  const settledRead = await invoke(['result', targetId, sessionId, submittedMessageId(submitted.out)], initiator)
+  expect(settledRead.out).toContain('user')
+})
+
 it('rejects an invalid lifetime and prints help for a bare command', async () => {
   const home = await temporary('peer-app-ttl-')
   const badTtl = await invoke(['invite', '--endpoint', 'https://build.example.org:8443', '--ttl', 'abc'], home)
   expect(badTtl.code).toBe(1)
   expect(badTtl.err).toContain('--ttl accepts')
+  const badFingerprint = await invoke(['invite', '--endpoint', 'https://build.example.org:8443', '--fingerprint', 'short'], home)
+  expect(badFingerprint.code).toBe(1)
+  expect(badFingerprint.err).toContain('--fingerprint must be base64 SHA-256 (43 characters)')
   const help = await invoke([], home)
   expect(help.code).toBe(0)
   expect(help.out).toContain('Manage instance pairing')
@@ -548,12 +598,12 @@ it('rejects a localhost invitation endpoint behind --ssh-host and a runner witho
   })).toString('base64url')}`
   const localhost = await invoke(['add', uri, '--ssh-host', 'box', '--timeout', '500'], home)
   expect(localhost.code).toBe(1)
-  expect(localhost.err).toContain('ssh targets require an http://127.0.0.1')
+  expect(localhost.err).toContain('ssh targets require a loopback')
   const secure = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(uri.slice('dsh-peer://'.length), 'base64url').toString('utf8')), endpoint: { origin: 'https://build.example.org:8443' } })).toString('base64url')
   const tlsUri = `dsh-peer://${secure}`
   const httpsEndpoint = await invoke(['add', tlsUri, '--ssh-host', 'box', '--timeout', '500'], home)
   expect(httpsEndpoint.code).toBe(1)
-  expect(httpsEndpoint.err).toContain('ssh targets require an http://127.0.0.1')
+  expect(httpsEndpoint.err).toContain('ssh targets require a loopback')
   const { Context: RawContext } = await import('@deepseek-ai/cordis')
   const { apply } = await import('../src/index.ts')
   const bare = new RawContext()
@@ -597,6 +647,6 @@ it('maps agent and encrypted host logins onto closed credential rejections', asy
   })).toString('base64url')}`
   const https = await invoke(['add', httpsUri, '--ssh-host', 'agentbox'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
   expect(https.code).toBe(1)
-  expect(https.err).toContain('ssh targets require an http://127.0.0.1')
+  expect(https.err).toContain('ssh targets require a loopback')
   expect(observations).toEqual([])
 })

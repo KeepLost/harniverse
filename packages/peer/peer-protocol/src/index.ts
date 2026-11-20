@@ -3,7 +3,10 @@ export type * from './types.ts'
 export { PeerError, type PeerErrorReason } from './errors.ts'
 export {
   PEER_CHALLENGE_TTL_MS,
+  PEER_NONCE_TTL_MS,
   PEER_PROOF_SKEW_MS,
+  PEER_STREAM_HEARTBEAT_MS,
+  PEER_STREAM_TOKEN_TTL_MS,
   peerHelloMessage,
   peerRequestMessage,
   verifyPeerRequestProof,

@@ -1917,6 +1917,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'proof of the calling peer.' }],
         returns: 'the caller\'s session summaries, newest activity first.',
       },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async cancel(request: PeerCancelRequest): Promise<PeerRunResult>',
+        description: 'Cancel the current turn of one session the calling peer owns.',
+        parameters: [{ name: 'request', description: 'proof and the caller\'s own session id.' }],
+        returns: 'the cancelled turn\'s terminal state.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async subscribe(request: { proof: PeerRequestProof }): Promise<PeerSubscribeResult>',
+        description: 'Mint one single-use event-stream token for the calling peer.',
+        parameters: [{ name: 'request', description: 'proof of the calling peer.' }],
+        returns: 'the stream token and the heartbeat cadence.',
+      },
     ],
   },
   {
@@ -6555,6 +6567,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface OwnerView {\n    key: string;\n    platform: string;\n    userId: string;\n    displayName?: string;\n    pairedAt: number;\n}',
   },
   {
+    name: 'PeerCancelRequest',
+    declaration: 'export interface PeerCancelRequest {\n    proof: PeerRequestProof;\n    sessionId: string;\n}',
+  },
+  {
     name: 'PeerDelegateRequest',
     declaration: 'export interface PeerDelegateRequest {\n    proof: PeerRequestProof;\n    prompt: string;\n    cwd?: string;\n    profile?: string;\n    timeoutMs?: number;\n}',
   },
@@ -6604,7 +6620,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PeerRequestProof',
-    declaration: 'export interface PeerRequestProof {\n    instanceId: PeerInstanceId;\n    timestamp: number;\n    signature: string;\n}',
+    declaration: 'export interface PeerRequestProof {\n    instanceId: PeerInstanceId;\n    timestamp: number;\n    nonce: string;\n    signature: string;\n}',
   },
   {
     name: 'PeerResultRequest',
@@ -6625,6 +6641,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PeerSessionSummary',
     declaration: 'export interface PeerSessionSummary {\n    sessionId: string;\n    createdAt: string;\n    lastActivityAt: string;\n    state: PeerSessionState;\n    label: string;\n}',
+  },
+  {
+    name: 'PeerSubscribeResult',
+    declaration: 'export interface PeerSubscribeResult {\n    streamToken: string;\n    heartbeatMs: number;\n}',
   },
   {
     name: 'PeerSurface',

@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-model-policy'
 import { PeerError } from '@deepseek-ai/dsh-peer-protocol'
 import type {
+  PeerCancelRequest,
   PeerDelegateRequest,
   PeerFollowupRequest,
   PeerInstanceId,
@@ -125,6 +126,27 @@ export function validateResultRequest(value: unknown): PeerResultRequest {
     throw new PeerError('INVALID_PAYLOAD', 'messageId out of range')
   }
   return value as PeerResultRequest
+}
+
+/**
+ * Validate one cancellation request's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated request.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+export function validateCancelRequest(value: unknown): PeerCancelRequest {
+  requireSessionEnvelope(value)
+  return value as PeerCancelRequest
+}
+
+/**
+ * Validate one subscription request's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated request.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+export function validateSubscribeRequest(value: unknown): { proof: PeerRequestProof } {
+  return validateSessionsRequest(value)
 }
 
 /**
@@ -431,6 +453,43 @@ function liveState(ctx: Context, entry: PeerSessionEntry): PeerSessionState {
   const agent = ctx.get('agents')?.get(entry.sessionId as SessionId)
   if (agent === undefined) return 'ended'
   return agent.status === 'running' ? 'running' : 'idle'
+}
+
+/** Derive the newest delivered prompt's message id inside the resident event window. */
+function lastClaimOf(events: readonly SessionEvent[]): string | undefined {
+  let last: string | undefined
+  for (const event of events) {
+    if (event.type === 'user/message') last = event.data.id
+  }
+  return last
+}
+
+/** Cancel the current turn of one session the verified caller owns.
+ * @param ctx - host context.
+ * @param home - absolute Harness home directory.
+ * @param instanceId - the verified caller's identity.
+ * @param request - validated cancellation request.
+ * @returns the cancelled turn's terminal state.
+ * @throws a {@link PeerError} with `SESSION_NOT_FOUND` when the session is not the caller's or holds no live agent.
+ */
+export async function cancelPeerSession(
+  ctx: Context,
+  home: string,
+  instanceId: PeerInstanceId,
+  request: PeerCancelRequest,
+): Promise<PeerRunResult> {
+  const entry = findPeerSession(await readPeerSessions(home), request.sessionId)
+  if (entry === undefined || entry.peerInstanceId !== instanceId) throw new PeerError('SESSION_NOT_FOUND')
+  const agent = ctx.get('agents')?.get(entry.sessionId as SessionId)
+  if (agent === undefined) throw new PeerError('SESSION_NOT_FOUND', 'session is not live')
+  const lastClaim = lastClaimOf(agent.session.events)
+  if (lastClaim === undefined) throw new PeerError('SESSION_NOT_FOUND', 'turn is no longer observable live')
+  if (agent.status === 'running') {
+    agent.cancel({ kind: 'user' }, { keepInbox: true })
+    await agent.whenIdle()
+  }
+  const settled = settlementOf(agent.session.events, lastClaim)
+  return { sessionId: entry.sessionId, messageId: lastClaim, ...settled ?? { state: 'running' } }
 }
 
 /** Enumerate the verified caller's own delegated sessions.

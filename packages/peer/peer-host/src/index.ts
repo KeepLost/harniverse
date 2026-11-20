@@ -3,7 +3,9 @@
 import { randomBytes } from 'node:crypto'
 import { createRequire } from 'node:module'
 import type { Context } from '@deepseek-ai/cordis'
+import { Service } from '@deepseek-ai/cordis'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   FULL_PEER_SURFACE,
   PEER_CHALLENGE_TTL_MS,
@@ -17,15 +19,19 @@ import {
 } from '@deepseek-ai/dsh-peer-protocol'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
-import type { PeerDelegateRequest, PeerFollowupRequest, PeerHello, PeerHelloInput, PeerHelloRequest, PeerInstanceId, PeerRecord, PeerRequestProof, PeerResultRequest, PeerRunResult, PeerSessionSummary } from '@deepseek-ai/dsh-peer-protocol'
+import type { PeerCancelRequest, PeerDelegateRequest, PeerFollowupRequest, PeerHello, PeerHelloInput, PeerHelloRequest, PeerInstanceId, PeerRecord, PeerRequestProof, PeerResultRequest, PeerRunResult, PeerSessionSummary, PeerSubscribeResult } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerHostConfig } from './types.ts'
-import { delegateToPeer, dropPeerSessions, followupPeerSession, listPeerSessions, resultPeerSession, validateDelegateRequest, validateFollowupRequest, validateResultRequest, validateSessionsRequest } from './delegate.ts'
+import { cancelPeerSession, delegateToPeer, dropPeerSessions, followupPeerSession, listPeerSessions, resultPeerSession, validateCancelRequest, validateDelegateRequest, validateFollowupRequest, validateResultRequest, validateSessionsRequest, validateSubscribeRequest } from './delegate.ts'
+import { PeerNonceLedger, PeerStreamTokens, runPeerEventStream } from './events.ts'
 import { findPeer, readPeerStore, writePeerStore } from './store.ts'
 
 const { version: PEER_HOST_VERSION } = createRequire(import.meta.url)('../package.json') as { version: string }
 
 /** Upper bound on simultaneously outstanding pairing challenges. */
 const MAX_PENDING_CHALLENGES = 256
+
+/** Exact path serving the peer event stream; exact routes take precedence over the `/api` prefix. */
+const PEER_EVENT_STREAM_PATH = '/api/peer/events'
 
 export type * from './types.ts'
 export { findPeer, parsePeerRecord, peerStorePath, readPeerStore, writePeerStore } from './store.ts'
@@ -58,9 +64,67 @@ export class PeerHost extends TypertRemoteService {
   /** Outstanding single-use pairing challenges by nonce. */
   private readonly pendingChallenges = new Map<string, number>()
 
+  /** Single-use stream tokens for the event channel. */
+  private readonly streamTokens = new PeerStreamTokens()
+
+  /** Consumed request-proof nonces; the replay half of the skew-window closure. */
+  private readonly nonceLedger = new PeerNonceLedger()
+
   constructor(ctx: Context, config: PeerHostConfig = {}) {
     super(ctx, 'peerHost', { namespace: 'peer' })
     this.home = resolveDshHome(config.dshHome)
+  }
+
+  /** @inheritdoc */
+  protected [Service.init](): void {
+    const webServer = this.ctx.get('webServer')
+    if (webServer === undefined) return
+    const route: WebRoute = {
+      kind: 'exact',
+      path: PEER_EVENT_STREAM_PATH,
+      handler: async (req, res) => {
+        await this.serveEventStream(req, res)
+      },
+    }
+    this.ctx.effect(() => webServer.register(route), 'peer-host: peer event stream route')
+  }
+
+  /** Serve one event-stream request: redeem the single-use token, then stream until the client leaves.
+   * @param req - the incoming stream request.
+   * @param res - the response the stream owns.
+   */
+  private async serveEventStream(req: { method?: string | undefined; url?: string | undefined }, res: {
+    writeHead(status: number, headers: Record<string, string>): unknown
+    write(chunk: string): unknown
+    end(): unknown
+    on(event: 'close', listener: () => void): unknown
+  }): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://dsh.internal')
+    if (req.method !== 'GET') {
+      res.writeHead(403, { 'content-type': 'text/plain' })
+      res.end()
+      return
+    }
+    const token = url.searchParams.get('token')
+    const instanceId = token === null ? undefined : this.streamTokens.redeem(token, Date.now())
+    if (instanceId === undefined) {
+      res.writeHead(403, { 'content-type': 'text/plain' })
+      res.end()
+      return
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
+    const close = new AbortController()
+    res.on('close', () => {
+      close.abort()
+    })
+    await runPeerEventStream({
+      ctx: this.ctx, home: this.home, instanceId,
+      write: (chunk) => {
+        res.write(chunk)
+      },
+      signal: close.signal,
+    })
+    res.end()
   }
 
   /** Mint one single-use pairing challenge for the hello proof exchange.
@@ -182,7 +246,11 @@ export class PeerHost extends TypertRemoteService {
     const record = findPeer(peers, proof.instanceId)
     if (record === undefined) throw new PeerError('RECORD_NOT_FOUND')
     if (record.status === 'revoked') throw new PeerError('HELLO_REJECTED', 'peer is revoked')
-    verifyPeerRequestProof(proof, record.identityPublicKey, Date.now())
+    const nonce = verifyPeerRequestProof(proof, record.identityPublicKey, Date.now())
+    // First use of a nonce wins; a capture replayed inside the skew window rejects here.
+    if (!this.nonceLedger.consume(record.instanceId, nonce, Date.now())) {
+      throw new PeerError('INVALID_PROOF', 'replayed nonce')
+    }
     return record
   }
 
@@ -243,6 +311,36 @@ export class PeerHost extends TypertRemoteService {
       const record = await this.authenticate(valid.proof)
       if (!record.surface.list) throw new PeerError('SURFACE_DENIED', 'list')
       return { sessions: await listPeerSessions(this.ctx, this.home, record.instanceId) }
+    })
+  }
+
+  /** Cancel the current turn of one session the calling peer owns.
+   * @param request - proof and the caller's own session id.
+   * @returns the cancelled turn's terminal state.
+   */
+  @Remote({ requiredCapability: 'harniverse.peer' })
+  async cancel(request: PeerCancelRequest): Promise<PeerRunResult> {
+    return await this.remote(async () => {
+      assertPairableWorld()
+      const valid = validateCancelRequest(request)
+      const record = await this.authenticate(valid.proof)
+      if (!record.surface.delegate) throw new PeerError('SURFACE_DENIED', 'delegate')
+      return await cancelPeerSession(this.ctx, this.home, record.instanceId, valid)
+    })
+  }
+
+  /** Mint one single-use event-stream token for the calling peer.
+   * @param request - proof of the calling peer.
+   * @returns the stream token and the heartbeat cadence.
+   */
+  @Remote({ requiredCapability: 'harniverse.peer' })
+  async subscribe(request: { proof: PeerRequestProof }): Promise<PeerSubscribeResult> {
+    return await this.remote(async () => {
+      assertPairableWorld()
+      const valid = validateSubscribeRequest(request)
+      const record = await this.authenticate(valid.proof)
+      if (!record.surface.list) throw new PeerError('SURFACE_DENIED', 'list')
+      return this.streamTokens.mint(record.instanceId, Date.now())
     })
   }
 }

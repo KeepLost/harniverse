@@ -90,7 +90,7 @@ it('mints request proofs over the canonical message', async () => {
   const identity = await identityOf(root)
   const proof = await requestProofFor(identity)
   expect(proof.instanceId).toBe(identity.instanceId)
-  const message = peerRequestMessage(identity.instanceId, proof.timestamp)
+  const message = peerRequestMessage(identity.instanceId, proof.timestamp, proof.nonce)
   const verify = sign('sha256', Buffer.from(message, 'utf8'), { key: generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey, dsaEncoding: 'ieee-p1363' })
   expect(proof.signature).not.toBe(verify.toString('base64url'))
 })

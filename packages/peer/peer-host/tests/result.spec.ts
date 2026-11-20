@@ -1,6 +1,6 @@
 /** Settlement-read Remote over a scripted agent registry and optional persistence. */
 
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -123,7 +123,8 @@ async function rig(surface: { delegate: boolean; message: boolean; list: boolean
 /** Mint one valid request proof for the caller. */
 function proofFor(key: ReturnType<typeof identityKey>): PeerRequestProof {
   const timestamp = Date.now()
-  return { instanceId: caller, timestamp, signature: key.sign(peerRequestMessage(caller, timestamp)) }
+  const nonce = randomUUID()
+  return { instanceId: caller, timestamp, nonce, signature: key.sign(peerRequestMessage(caller, timestamp, nonce)) }
 }
 
 it('reads one settled turn through the live agent without a new prompt', async () => {

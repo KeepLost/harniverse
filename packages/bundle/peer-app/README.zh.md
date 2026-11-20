@@ -17,6 +17,7 @@
 | `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>] [--async]` | 发起方 | 在已配对目标上开启一个被委派会话并等待回复;打印会话行,结算后附回复文本。`--async` 以最小预算提交并打印回执(会话与消息 id),点名 `dsh peer result` 读取方式。 |
 | `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>] [--async]` | 发起方 | 向一个被委派会话投递下一回合并以同样方式等待结算;`--async` 改为打印回执。 |
 | `peer sessions <instance-id>` | 发起方 | 列出本实例在目标上的被委派会话及活跃状态。 |
+| `peer cancel <instance-id> <session-id>` | 发起方 | 取消目标上一个被委派会话的当前回合并打印其终态;空闲会话原样报告最新声明的结算。 |
 | `peer result <instance-id> <session-id> <message-id>` | 发起方 | 不投递新提示,只读一个被委派轮次的结算——异步回执背后的人工逃生门。 |
 | `peer outbox` | 发起方 | 列出本 home 的结算台账(由运行中实例经 `dsh-peer-outbox` 写入);视图永不写入。 |
 

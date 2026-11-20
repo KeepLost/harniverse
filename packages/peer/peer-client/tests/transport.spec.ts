@@ -3,11 +3,11 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { afterEach, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
-import { withPeerOrigin, withPeerTransport } from '../src/transport.ts'
+import { pinnedFetchFor, pinnedIdentityChecker, verifyTlsFingerprint, withPeerOrigin, withPeerTransport } from '../src/transport.ts'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -117,9 +117,9 @@ it('resolves one stored target through its recorded transport', async () => {
 it('rejects ssh routes whose endpoint is not a loopback http origin, with or without the service', async () => {
   const home = await registryHost([keyRecord])
   await expect(withPeerOrigin(sshContext([]), home, { kind: 'ssh', host: 'keybox' }, 'https://build.example.org:8443', async () => 'x'))
-    .rejects.toThrowError(/ssh targets require an http:\/\/127\.0\.0\.1/)
+    .rejects.toThrowError(/ssh targets require a loopback/)
   await expect(withPeerOrigin(sshContext([]), home, { kind: 'ssh', host: 'keybox' }, 'http://localhost:8080', async () => 'x'))
-    .rejects.toThrowError(/ssh targets require an http:\/\/127\.0\.0\.1/)
+    .rejects.toThrowError(/ssh targets require a loopback/)
   await expect(withPeerOrigin(sshContext([], { failOpen: true }), home, { kind: 'ssh', host: 'keybox' }, 'http://127.0.0.1:8080', async () => 'x'))
     .rejects.toThrowError(/needs the remote-hosts-ssh service/)
 })
@@ -147,4 +147,36 @@ it('rejects stored logins it cannot express headlessly', async () => {
   }])
   await expect(withPeerOrigin(sshContext([]), home, { kind: 'ssh', host: 'box' }, 'http://127.0.0.1:8080', async () => 'x'))
     .rejects.toThrowError(/UNSUPPORTED_CREDENTIALS/)
+})
+
+it('accepts https loopback endpoints for ssh forwards alongside plain http', async () => {
+  const home = await registryHost([keyRecord])
+  await expect(withPeerOrigin(sshContext([], { failOpen: true }), home, { kind: 'ssh', host: 'keybox' }, 'https://127.0.0.1:8443', async () => 'x'))
+    .rejects.toThrowError(/needs the remote-hosts-ssh service/)
+})
+
+it('verifies pinned TLS fingerprints and builds rejecting identity checks', () => {
+  const certificate = { raw: Buffer.from('presented-certificate') }
+  const pin = createHash('sha256').update(certificate.raw).digest('base64')
+  expect(verifyTlsFingerprint(pin, certificate)).toBe(true)
+  expect(verifyTlsFingerprint('A'.repeat(43), certificate)).toBe(false)
+  const checker = pinnedIdentityChecker(pin)
+  expect(checker('host', certificate)).toBeUndefined()
+  expect((checker('host', { raw: Buffer.from('other') }) as Error).message).toContain('PIN_MISMATCH')
+})
+
+it('pins fetches onto HTTPS and refuses pinned plain-HTTP origins', async () => {
+  const plain = (async () => new Response('ok')) as typeof globalThis.fetch
+  expect(pinnedFetchFor(undefined, 'http://127.0.0.1:8080', plain)).toBe(plain)
+  expect(pinnedFetchFor(undefined, 'https://box.example.org:8443', plain)).toBe(plain)
+  expect(() => { pinnedFetchFor('A'.repeat(43), 'http://127.0.0.1:8080', plain) })
+    .toThrowError(/PIN_MISMATCH \(a pinned target must be reached over HTTPS\)/)
+  const seen: Array<RequestInit | undefined> = []
+  const capturing = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push(init)
+    return new Response('ok')
+  })
+  const pinned = pinnedFetchFor('A'.repeat(43), 'https://box.example.org:8443', capturing)
+  await pinned('https://box.example.org:8443/api/peer/result', { method: 'POST' })
+  expect((seen[0] as { dispatcher?: unknown } | undefined)?.dispatcher).toBeDefined()
 })

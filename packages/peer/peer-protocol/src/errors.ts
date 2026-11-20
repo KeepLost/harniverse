@@ -21,6 +21,7 @@ export type PeerErrorReason =
   | 'SURFACE_DENIED'
   | 'SESSION_NOT_FOUND'
   | 'SESSION_BUSY'
+  | 'PIN_MISMATCH'
 
 /** One carrier-level peer failure with a closed reason and no secret material. */
 export class PeerError extends Error {

@@ -1,6 +1,6 @@
 /** Peer outbox behavior: ledger durability, settlement polling, and inbox delivery. */
 
-import { createServer, type Server } from 'node:http'
+import { createServer, type Server, type ServerResponse } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -33,6 +33,17 @@ class ScriptedTarget {
   readDelayMs = 0
   /** Captured result requests. */
   readonly reads: Array<{ sessionId: string; messageId: string }> = []
+  /** Open event-stream responses, torn down with the server. */
+  readonly streams: ServerResponse[] = []
+  /** When set, subscribe calls answer with this HTTP status instead of a token. */
+  subscribeStatus = 0
+  /** Whether one event stream has been opened by the initiator. */
+  streamOpened = false
+
+  /** Push one settlement frame onto every open event stream. */
+  pushFrame(sessionId: string): void {
+    for (const stream of this.streams) stream.write(`data: ${JSON.stringify({ kind: 'settled', sessionId })}\n\n`)
+  }
   private readonly server: Server
 
   constructor() {
@@ -40,7 +51,7 @@ class ScriptedTarget {
       const chunks: Buffer[] = []
       req.on('data', (chunk) => { chunks.push(chunk as Buffer) })
       req.on('end', () => {
-        const body = JSON.parse(Buffer.concat(chunks).toString() || '{}') as { rpcId?: string; payload?: { args?: { request?: { sessionId?: string; messageId?: string; proof?: unknown } } } }
+        const body = JSON.parse(Buffer.concat(chunks).toString() || '{}') as { rpcId?: string; method?: string; payload?: { args?: { request?: { sessionId?: string; messageId?: string; proof?: unknown } } } }
         if (req.url === '/auth/challenge') {
           response.setHeader('content-type', 'application/json')
           response.end(JSON.stringify({ id: 'cha', payload: 'c2lnbg', expiresAt: new Date(Date.now() + 60_000).toISOString() }))
@@ -51,7 +62,27 @@ class ScriptedTarget {
           response.end(JSON.stringify({ accessToken: 'tok', expiresAt: new Date(Date.now() + 60_000).toISOString() }))
           return
         }
+        if (req.method === 'GET' && req.url !== undefined && req.url.startsWith('/api/peer/events')) {
+          response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+          this.streams.push(response)
+          response.on('close', () => {
+            this.streams.splice(this.streams.indexOf(response), 1)
+          })
+          this.streamOpened = true
+          return
+        }
         const request = body.payload?.args?.request ?? {}
+        if (body.method === 'peer/subscribe') {
+          if (this.subscribeStatus !== 0) {
+            response.statusCode = this.subscribeStatus
+            response.setHeader('content-type', 'text/plain')
+            response.end('refused')
+            return
+          }
+          response.setHeader('content-type', 'application/json')
+          response.end(JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value: { streamToken: 'stream-1', heartbeatMs: 15_000 } } }))
+          return
+        }
         this.reads.push({ sessionId: request.sessionId ?? '', messageId: request.messageId ?? '' })
         if (this.readDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, this.readDelayMs)
         const send = (value: unknown, ok = true): void => {
@@ -83,6 +114,7 @@ class ScriptedTarget {
 
   /** Stop the server. */
   async stop(): Promise<void> {
+    for (const stream of this.streams) stream.destroy()
     await new Promise<void>((resolve) => { this.server.close(() => { resolve() }) })
   }
 }
@@ -552,4 +584,89 @@ it('stops polling with its context, including mid-cycle', async () => {
   const midReads = midcycle.target.reads.length
   await new Promise(resolve => setTimeout(resolve, 400))
   expect(midcycle.target.reads.length).toBe(midReads)
+})
+
+it('wakes an immediate poll from a settlement push frame', async () => {
+  const rig = await harness({ pollIntervalMs: 5000 })
+  cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
+  rig.target.results = [
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'running' },
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'settled', reply: 'pushed', endReason: 'completed' },
+  ]
+  const entry = await rig.track({ messageId: 'm1' })
+  await waitFor(() => {
+    expect(rig.target.reads.length).toBeGreaterThanOrEqual(1)
+  })
+  await waitFor(() => {
+    expect(rig.target.streamOpened).toBe(true)
+  })
+  rig.target.pushFrame('peer-01234567-89ab-cdef-0123-456789abcdef')
+  await waitFor(() => {
+    expect(rig.script.followups).toHaveLength(1)
+  })
+  const settled = rig.outbox.list().find(candidate => candidate.id === entry.id)
+  expect(settled).toMatchObject({ state: 'settled', reply: 'pushed' })
+})
+
+it('keeps polling entries when the event stream is refused', async () => {
+  const rig = await harness({ pollIntervalMs: 100 })
+  cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
+  rig.target.subscribeStatus = 503
+  rig.target.results = [
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'running' },
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'settled', reply: 'polled', endReason: 'completed' },
+  ]
+  await rig.track({ messageId: 'm1' })
+  await waitFor(() => {
+    expect(rig.script.followups).toHaveLength(1)
+  })
+  const text = JSON.stringify(rig.script.followups[0]!.content)
+  expect(text).toContain('polled')
+  expect(rig.target.streamOpened).toBe(false)
+})
+
+it('tears the event stream down once no entry is watching', async () => {
+  const rig = await harness({ pollIntervalMs: 100 })
+  cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
+  rig.target.results = [
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'settled', reply: 'done', endReason: 'completed' },
+  ]
+  await rig.track({ messageId: 'm1' })
+  await waitFor(() => {
+    expect(rig.target.streamOpened).toBe(true)
+  })
+  await waitFor(() => {
+    expect(rig.target.streams).toHaveLength(0)
+  })
+})
+
+it('picks up a push that lands while a cycle is already polling', async () => {
+  const rig = await harness({ pollIntervalMs: 5000 })
+  cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
+  rig.target.readDelayMs = 300
+  rig.target.results = [
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'running' },
+    { sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'settled', reply: 'mid-cycle', endReason: 'completed' },
+  ]
+  await rig.track({ messageId: 'm1' })
+  // The first read holds the cycle open; a frame that lands now must defer to the next cycle.
+  await waitFor(() => {
+    expect(rig.target.reads.length).toBeGreaterThanOrEqual(1)
+  })
+  const poke = (rig.outbox as unknown as { poke(): void }).poke.bind(rig.outbox)
+  const settle = rig.target.results.pop()
+  rig.target.results.push({ sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', messageId: 'm1', state: 'running' })
+  rig.target.results.push(settle as PeerRunResult)
+  poke.call(rig.outbox)
+  await waitFor(() => {
+    expect(rig.script.followups).toHaveLength(1)
+  })
+  expect(JSON.stringify(rig.script.followups[0]!.content)).toContain('mid-cycle')
+})
+
+it('ignores pokes after disposal', async () => {
+  const rig = await harness({ pollIntervalMs: 100 })
+  await rig.ctx.fiber.dispose()
+  ;(rig.outbox as unknown as { poke(): void }).poke.bind(rig.outbox)()
+  cleanups.push(() => rig.target.stop(), () => removeHome(rig.home))
 })

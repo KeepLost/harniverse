@@ -26,6 +26,7 @@ import {
   pairWithPeer,
   readPeerTargets,
   runPeerDelegate,
+  runPeerCancel,
   runPeerFollowup,
   runPeerResult,
   runPeerSessions,
@@ -56,7 +57,7 @@ export const Config: z<Config> = z.object({
   operation: z.union([
     z.const('invite'), z.const('add'), z.const('list'),
     z.const('remove'), z.const('targets'), z.const('forget'),
-    z.const('run'), z.const('send'), z.const('sessions'),
+    z.const('cancel'), z.const('run'), z.const('send'), z.const('sessions'),
     z.const('result'), z.const('outbox'),
   ]).required(),
   uri: z.string(),
@@ -113,6 +114,7 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const origin = validateOrigin({ origin: required(config.endpoint, config.operation, '--endpoint') })
       const identity = await ensureInstanceIdentity(home)
       const ttlMs = parseDurationMs(config.ttl ?? '10m')
+      const tlsFingerprint = config.fingerprint === undefined ? undefined : fingerprintValue(config.fingerprint)
       const invitation = await issueEnrollmentInvitation({
         capabilities: [PEER_CAPABILITY],
         kind: PEER_ENROLLMENT_KIND,
@@ -123,7 +125,7 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
         instanceId: identity.instanceId,
         displayName: identity.displayName,
         endpoint: { origin },
-        ...(config.fingerprint !== undefined && { tlsFingerprint: fingerprintValue(config.fingerprint) }),
+        ...(tlsFingerprint !== undefined && { tlsFingerprint }),
         token: invitation.token,
       })
       internals.stdout.write(`${uri}\n`)
@@ -209,6 +211,18 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       ))
       writeRunResult(result)
       writeReceiptHint(config, result)
+      break
+    }
+    case 'cancel': {
+      const target = await resolveTarget(config)
+      const identity = await ensureInstanceIdentity(home)
+      const key = await ensurePeerIdentityKey(home)
+      const result = await withPeerTransport(ctx, home, target, origin => runPeerCancel(
+        { target, home, origin },
+        { instanceId: identity.instanceId, key },
+        required(config.sessionId, config.operation, 'a session id'),
+      ))
+      writeRunResult(result)
       break
     }
     case 'result': {

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Initiator-side settlement ledger for instance pairing: tracks delegated turns an online target already accepted but that outran the calling tool's budget, polls their settlement read-only, and delivers the settled reply into the initiating session as a plugin-sourced user message.
+Initiator-side settlement ledger for instance pairing: tracks delegated turns an online target already accepted but that outran the calling tool's budget, watches their settlement through the target's event stream with the read-only poll as the standing fallback, and delivers the settled reply into the initiating session as a plugin-sourced user message.
 
 The ledger holds no unsent work and retries nothing. Pairing is a both-online contract: a target unreachable during settlement fails the entry after exactly one immediate re-probe, per the owner's ruling that an expected failure is always safer than an unexpected later success. The peer tool registers running turns here when the deployment composes this service; `dsh peer outbox` lists the ledger for inspection.
 
@@ -11,7 +11,7 @@ The ledger holds no unsent work and retries nothing. Pairing is a both-online co
 - `ctx.peerOutbox.track(input)` — durably register one accepted-but-running turn; an instance restart resumes the watch on its next poll.
 - `ctx.peerOutbox.list()` — every entry, earliest submission first.
 
-Each poll cycle reads every `watching` entry's settlement through the read-only `peer/result` Remote (`harniverse.peer` capability, `list` surface). A settled turn delivers its reply (truncated at `maxResultChars`) through the idle maintenance phase as a `peer`-sourced user message; a terminal entry keeps its outcome in the ledger, and at most 200 terminal entries are retained. Failure families are closed: `TARGET_UNREACHABLE`, `TARGET_RECORD_NOT_FOUND`, `SESSION_DROPPED`, `OWNER_SESSION_NOT_LIVE`, `READ_FAILED`.
+Each cycle reads every `watching` entry's settlement through the read-only `peer/result` Remote (`harniverse.peer` capability, `list` surface), then keeps one event stream open per watched target: `runPeerSubscribe` mints a single-use token, and every push frame pokes an immediate poll — a frame arriving mid-cycle defers to the next re-arm. The stream is an optimization only: a refused subscription or a broken stream changes nothing, the standing cadence keeps watching, and no entry ever waits for a target to come online. A settled turn delivers its reply (truncated at `maxResultChars`) through the idle maintenance phase as a `peer`-sourced user message; a terminal entry keeps its outcome in the ledger, and at most 200 terminal entries are retained. Failure families are closed: `TARGET_UNREACHABLE`, `TARGET_RECORD_NOT_FOUND`, `SESSION_DROPPED`, `OWNER_SESSION_NOT_LIVE`, `READ_FAILED`.
 
 ## Configuration
 
@@ -48,3 +48,4 @@ The message arrives between turns as ordinary user content, appended after the p
 - Delivery targets live agents only: a session that is closed or cold when its entry settles fails with `OWNER_SESSION_NOT_LIVE` and the reply stays in the ledger for `dsh peer outbox`; cold-session resume delivery is deferred with the M6 governance work.
 - A crash between delivery and the settled write replays one delivery per entry (the reply is idempotent); the window is bounded by the flush barrier.
 - The `dsh peer outbox` view reads the durable JSON medium from a second process; entries written by a running instance appear once their write completes, and the view never writes.
+- The event stream holds no replay cursor: a frame lost to a dropped connection is covered by the standing poll, and each reconnect mints a fresh token through a fresh proof.

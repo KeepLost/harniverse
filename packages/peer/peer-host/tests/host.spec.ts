@@ -1,10 +1,10 @@
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { PeerError, ensureInstanceIdentity, peerHelloMessage, peerInstanceId } from '@deepseek-ai/dsh-peer-protocol'
+import { PeerError, ensureInstanceIdentity, peerHelloMessage, peerInstanceId, peerRequestMessage } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerRecord } from '@deepseek-ai/dsh-peer-protocol'
 import PeerHost from '../src/index.ts'
 import { parsePeerRecord, peerStorePath, readPeerStore, writePeerStore } from '../src/store.ts'
@@ -240,4 +240,152 @@ it('maps store write failures onto the closed reason', async () => {
   await expect(writePeerStore(join(block, 'under'), [])).rejects.toThrowError(/STORE_FAILED/)
   await expect(mount(join(root, 'unwritable'))).resolves.toBeDefined()
   void PeerError
+})
+
+/** One request proof minted for the pinned initiator key. */
+function requestProof(key: ReturnType<typeof identityKey>): { instanceId: string; timestamp: number; nonce: string; signature: string } {
+  const timestamp = Date.now()
+  const nonce = randomUUID()
+  const message = peerRequestMessage(initiator.instanceId, timestamp, nonce)
+  return { instanceId: initiator.instanceId, timestamp, nonce, signature: key.sign(message) }
+}
+
+/** One mounted host whose peer store carries the pinned initiator. */
+async function pairedHost(): Promise<{ host: PeerHost; key: ReturnType<typeof identityKey>; root: string }> {
+  const root = await home()
+  const key = identityKey()
+  const record: PeerRecord = {
+    instanceId: initiator.instanceId, displayName: initiator.displayName, platform: initiator.platform,
+    arch: initiator.arch, version: initiator.version,
+    surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+    identityPublicKey: key.publicKey, firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
+  }
+  await writePeerStore(root, [record])
+  const ctx = new Context()
+  cleanups.push(() => ctx.fiber.dispose())
+  await ctx.plugin(PeerHost, { dshHome: root })
+  return { host: ctx.peerHost, key, root }
+}
+
+it('subscribes the paired peer and rejects replayed proof nonces', async () => {
+  const { host, key } = await pairedHost()
+  const proof = requestProof(key)
+  const granted = await host.subscribe({ proof })
+  expect(granted.streamToken.length).toBeGreaterThan(0)
+  expect(granted.heartbeatMs).toBeGreaterThan(0)
+  await expect(host.subscribe({ proof })).rejects.toThrowError(/replayed nonce/)
+  await expect(host.subscribe({ proof: requestProof({ ...key, sign: () => 'bad' }) })).rejects.toThrowError(/INVALID_PROOF/)
+})
+
+it('denies cancel and subscribe under restricted surfaces', async () => {
+  const { host, key } = await pairedHost()
+  const peers = await readPeerStore(host.home)
+  await writePeerStore(host.home, [
+    { ...peers[0]!, surface: { delegate: false, message: false, list: false } },
+  ])
+  await expect(host.cancel({ proof: requestProof(key), sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef' }))
+    .rejects.toThrowError(/SURFACE_DENIED/)
+  await expect(host.subscribe({ proof: requestProof(key) })).rejects.toThrowError(/SURFACE_DENIED/)
+})
+
+it('serves the event stream route through single-use tokens', async () => {
+  const root = await home()
+  const key = identityKey()
+  const record: PeerRecord = {
+    instanceId: initiator.instanceId, displayName: initiator.displayName, platform: initiator.platform,
+    arch: initiator.arch, version: initiator.version,
+    surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+    identityPublicKey: key.publicKey, firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
+  }
+  await writePeerStore(root, [record])
+  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => void | Promise<void> }> = []
+  const ctx = new Context()
+  ctx.provide('webServer', {
+    register: (route: { kind: string; path: string; handler: (req: unknown, res: unknown) => void | Promise<void> }) => {
+      routes.push(route)
+      return () => routes.splice(routes.indexOf(route), 1)
+    },
+  })
+  cleanups.push(() => ctx.fiber.dispose())
+  await ctx.plugin(PeerHost, { dshHome: root })
+  expect(routes.map(route => ({ kind: route.kind, path: route.path }))).toEqual([{ kind: 'exact', path: '/api/peer/events' }])
+  expect(routes[0]!.handler).toBeInstanceOf(Function)
+
+  /** One capture-style response recorder. */
+  interface FakeResponseSink {
+    res: {
+      writeHead(status: number, headers: Record<string, string>): void
+      write(chunk: string): void
+      end(): void
+      on(event: 'close', listener: () => void): void
+    }
+    chunks: string[]
+    status: number
+    headers: Record<string, string>
+    ended: boolean
+    close(): void
+  }
+
+  const fakeResponse = (): FakeResponseSink => {
+    const state = { chunks: [] as string[], status: 0, headers: {} as Record<string, string>, ended: false, listener: (): void => {} }
+    return {
+      res: {
+        writeHead: (status: number, headers: Record<string, string>) => { state.status = status; state.headers = headers },
+        write: (chunk: string) => { state.chunks.push(chunk) },
+        end: () => { state.ended = true },
+        on: (_event: 'close', listener: () => void) => { state.listener = listener },
+      },
+      get chunks() { return state.chunks },
+      get status() { return state.status },
+      get headers() { return state.headers },
+      get ended() { return state.ended },
+      close: () => { state.listener() },
+    }
+  }
+
+  const handler = routes[0]!.handler
+  const host = ctx.peerHost
+  const { streamToken } = await host.subscribe({ proof: requestProof(key) })
+  const refused = fakeResponse()
+  await handler({ method: 'GET', url: '/api/peer/events?token=unknown' }, refused.res)
+  expect(refused.status).toBe(403)
+  expect(refused.ended).toBe(true)
+  const wrongMethod = fakeResponse()
+  await handler({ method: 'POST', url: '/api/peer/events' }, wrongMethod.res)
+  expect(wrongMethod.status).toBe(403)
+  const live = fakeResponse()
+  const streamingOutcome = handler({ method: 'GET', url: `/api/peer/events?token=${encodeURIComponent(streamToken)}` }, live.res)
+  const streaming = Promise.resolve(streamingOutcome)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  expect(live.status).toBe(200)
+  expect(live.headers['content-type']).toBe('text/event-stream')
+  live.close()
+  await streaming
+  expect(live.ended).toBe(true)
+  const replayed = fakeResponse()
+  await handler({ method: 'GET', url: `/api/peer/events?token=${encodeURIComponent(streamToken)}` }, replayed.res)
+  expect(replayed.status).toBe(403)
+  const bare = fakeResponse()
+  await handler({ method: 'GET', url: '/api/peer/events' }, bare.res)
+  expect(bare.status).toBe(403)
+  const urlless = fakeResponse()
+  await handler({ method: 'GET' }, urlless.res)
+  expect(urlless.status).toBe(403)
+
+  // A registry session plus a live turn/end pushes one frame through the route's sink.
+  const { writePeerSessions } = await import('../src/session-registry.ts')
+  const second = await host.subscribe({ proof: requestProof(key) })
+  await writePeerSessions(root, [{
+    sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', peerInstanceId: initiator.instanceId,
+    createdAt: '2026-01-01T00:00:00.000Z', lastActivityAt: '2026-01-01T00:00:00.000Z', cwd: root, label: 'seed',
+  }])
+  const framed = fakeResponse()
+  const pushingOutcome = handler({ method: 'GET', url: `/api/peer/events?token=${encodeURIComponent(second.streamToken)}` }, framed.res)
+  const pushing = Promise.resolve(pushingOutcome)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  ctx.emit('session/event', { id: 'peer-01234567-89ab-cdef-0123-456789abcdef' } as never, { type: 'turn/end', data: { turn: 't', reason: { kind: 'completed' } } } as never)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  expect(framed.chunks).toEqual(['data: {"kind":"settled","sessionId":"peer-01234567-89ab-cdef-0123-456789abcdef"}\n\n'])
+  framed.close()
+  await pushing
 })
