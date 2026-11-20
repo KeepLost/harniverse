@@ -15,6 +15,10 @@ import * as Gateway from '@deepseek-ai/dsh-api-gateway'
 import * as Typert from '@deepseek-ai/dsh-typert-registry'
 import * as Connection from '@deepseek-ai/dsh-client-connection'
 import * as RemoteHostSsh from '@deepseek-ai/dsh-remote-hosts-ssh'
+import Storage from '@deepseek-ai/dsh-storage'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
+import * as StorageJson from '@deepseek-ai/dsh-storage-json'
+import PeerOutboxService from '@deepseek-ai/dsh-peer-outbox'
 import { createAuthenticationClientGrant, issueEnrollmentInvitation } from '@deepseek-ai/dsh-authentication-local'
 import { ensureInstanceIdentity, readInstanceIdentity } from '@deepseek-ai/dsh-peer-protocol'
 import type { InstanceIdentity } from '@deepseek-ai/dsh-peer-protocol'
@@ -47,12 +51,23 @@ interface InvocationResult { code: number; out: string; err: string }
 /** Boot the two production plugins through Loader; a stub remote-hosts-ssh satisfies the runner injection. */
 async function invoke(args: string[], dshHome: string, overrides: Record<string, object> = {}): Promise<InvocationResult> {
   const fixture = await temporary('dsh-peer-app-loader-')
-  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile']
+  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile', 'messageId', 'async']
   await writeFile(join(fixture, 'cordis.yml'), [
     '- id: remote-hosts-ssh',
     '  name: remote-hosts-ssh',
+    '- id: storage',
+    '  name: storage',
+    '- id: storage-json',
+    '  name: storage-json',
+    '  config:',
+    `    root: ${JSON.stringify(join(dshHome, 'storages'))}`,
+    '- id: storage-domain',
+    '  name: storage-domain',
+    '  config:',
+    '    backend: json',
     '- id: peer-runner',
     '  name: peer-runner',
+    '  inject: [peerStartup, remoteHostSsh, storageDomain]',
     '  config:',
     ...fields.map(field => `    ${field}: !!js ctx.peerStartup.${field}`),
     `    dshHome: ${JSON.stringify(dshHome)}`,
@@ -70,6 +85,9 @@ async function invoke(args: string[], dshHome: string, overrides: Record<string,
   runnerInternals.stderr = stderr
   const modules: Record<string, object> = {
     'remote-hosts-ssh': RemoteHostSsh,
+    storage: { default: Storage },
+    'storage-json': StorageJson,
+    'storage-domain': StorageDomain,
     'peer-startup': { name: 'peer-startup', inject: ['cmdlineArgs'], apply: applyStartup },
     'peer-runner': { name: 'peer-runner', inject: ['peerStartup', 'remoteHostSsh'], apply: applyRunner },
     ...overrides,
@@ -286,6 +304,71 @@ it('rejects an invalid lifetime and prints help for a bare command', async () =>
   expect(help.out).toContain('Manage instance pairing')
 })
 
+it('submits asynchronously, reads the settlement later, and lists the ledger', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  const uri = inviteUri(invited.out)
+  const initiator = await temporary('peer-app-initiator-')
+  await invoke(['add', uri, '--timeout', '20000'], initiator)
+  const targetId = target.identity.instanceId
+  const submitted = await invoke(['run', targetId, 'slow', 'job', '--async'], initiator)
+  expect(submitted.code).toBe(0)
+  expect(submitted.out).toContain('running')
+  expect(submitted.out).toContain('receipt\t')
+  const sessionLine = submitted.out.split('\n').find(entry => entry.startsWith('session\t'))!
+  const receiptLine = submitted.out.split('\n').find(entry => entry.startsWith('receipt\t'))!
+  const sessionId = sessionLine.split('\t')[1]!
+  const messageId = receiptLine.split('\t')[2]!
+  const read = await invoke(['result', targetId, sessionId, messageId], initiator)
+  expect(read.code).toBe(0)
+  expect(read.out).toContain('settled')
+  expect(read.out).toContain('echo: slow job')
+
+  const empty = await invoke(['outbox'], initiator)
+  expect(empty.code, `empty outbox stderr: ${empty.err}`).toBe(0)
+  expect(empty.out).not.toContain('watching')
+
+  const asyncSend = await invoke(['send', targetId, sessionId, 'second', '--async'], initiator)
+  expect(asyncSend.code).toBe(0)
+  expect(asyncSend.out).toContain('running')
+  expect(asyncSend.out).toContain('receipt\t')
+  const sendReceipt = asyncSend.out.split('\n').find(entry => entry.startsWith('receipt\t'))!
+  const sendMessageId = sendReceipt.split('\t')[2]!
+  const sendRead = await invoke(['result', targetId, sessionId, sendMessageId], initiator)
+  expect(sendRead.out).toContain('echo: second')
+
+  const seed = new Context()
+  contexts.push(seed)
+  seed.provide('agents', { get: () => undefined } as never)
+  seed.provide('sessions', { flush: async () => undefined } as never)
+  await seed.plugin(Storage)
+  await seed.plugin(StorageJson, { root: join(initiator, 'storages') })
+  await seed.plugin(StorageDomain, { backend: 'json' })
+  await seed.plugin(PeerOutboxService, { dshHome: initiator, pollIntervalMs: 60_000 })
+  await seed.peerOutbox.track({
+    targetInstanceId: targetId,
+    targetDisplayName: 'Workstation',
+    peerSessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef',
+    messageId: 'm-seed',
+    ownerSessionId: 'owner-session',
+    label: 'seeded watch',
+  })
+  await seed.peerOutbox.track({
+    targetInstanceId: targetId,
+    targetDisplayName: 'Workstation',
+    peerSessionId: 'peer-01234567-89ab-cdef-0123-456789aaaa',
+    messageId: 'm-seed-2',
+    ownerSessionId: 'owner-session',
+    label: 'seeded watch 2',
+  })
+  await seed.fiber.dispose()
+  contexts.pop()
+  const ledger = await invoke(['outbox'], initiator)
+  expect(ledger.code, `outbox stderr: ${ledger.err}`).toBe(0)
+  expect(ledger.out).toContain('watching')
+  expect(ledger.out).toContain('seeded watch')
+})
+
 it('rejects an invalid endpoint, a bad fingerprint, an unknown SSH host, and a malformed URI', async () => {
   const home = await temporary('peer-app-home-')
   const badEndpoint = await invoke(['invite', '--endpoint', 'http://build.example.org:80'], home)
@@ -371,6 +454,13 @@ it('covers the direct runner paths for missing fields and default lifetimes', as
   })
   expect(sendWithoutBudget.code).toBe(1)
   expect(sendWithoutBudget.err).not.toContain('RECORD_NOT_FOUND')
+  const runWithoutBudget = await invokeDirect({
+    operation: 'run', dshHome: home,
+    instanceId: '3f2a8f9e-1111-4222-8333-444455556666',
+    prompt: 'p',
+  })
+  expect(runWithoutBudget.code).toBe(1)
+  expect(runWithoutBudget.err).not.toContain('RECORD_NOT_FOUND')
 })
 
 it('pairs through a stubbed SSH forward to a live target', async () => {

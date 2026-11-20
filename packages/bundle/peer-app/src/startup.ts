@@ -14,7 +14,7 @@ export const inject = ['cmdlineArgs']
 export const PEER_STARTUP_SERVICE = 'peerStartup'
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
 
 /** One parsed peer pairing invocation. */
 export interface PeerStartupValues {
@@ -44,6 +44,10 @@ export interface PeerStartupValues {
   cwd?: string
   /** Agent profile id for `run`. */
   profile?: string
+  /** Submit without waiting for settlement, for `run` and `send`. */
+  async?: boolean
+  /** Message id of the watched turn for `result`. */
+  messageId?: string
 }
 
 /**
@@ -106,13 +110,15 @@ function peerCommand(ctx: Context): Command {
     .option('--cwd <path>', 'working directory relative to the peer root')
     .option('--profile <id>', 'agent profile id to compose the session with')
     .option('--timeout <ms>', 'settlement-wait budget in milliseconds', (value: string) => Number(value), 600000)
-    .action((instanceId: string, prompt: string[], options: { cwd?: string; profile?: string; timeout: number }) => {
+    .option('--async', 'submit and print the receipt without waiting for settlement')
+    .action((instanceId: string, prompt: string[], options: { cwd?: string; profile?: string; timeout: number; async?: boolean }) => {
       publish('run', {
         instanceId,
         prompt: prompt.join(' '),
         ...(options.cwd !== undefined && { cwd: options.cwd }),
         ...(options.profile !== undefined && { profile: options.profile }),
         timeoutMs: options.timeout,
+        ...(options.async === true && { async: true }),
       })
     })
   program.command('send')
@@ -121,13 +127,27 @@ function peerCommand(ctx: Context): Command {
     .argument('<session-id>', 'delegated session id')
     .argument('<prompt...>', 'follow-up prompt words')
     .option('--timeout <ms>', 'settlement-wait budget in milliseconds', (value: string) => Number(value), 600000)
-    .action((instanceId: string, sessionId: string, prompt: string[], options: { timeout: number }) => {
-      publish('send', { instanceId, sessionId, prompt: prompt.join(' '), timeoutMs: options.timeout })
+    .option('--async', 'submit and print the receipt without waiting for settlement')
+    .action((instanceId: string, sessionId: string, prompt: string[], options: { timeout: number; async?: boolean }) => {
+      publish('send', {
+        instanceId, sessionId, prompt: prompt.join(' '), timeoutMs: options.timeout, ...(options.async === true && { async: true }),
+      })
     })
   program.command('sessions')
     .description("list this instance's delegated sessions on a paired target")
     .argument('<instance-id>', 'paired target instance id')
     .action((instanceId: string) => { publish('sessions', { instanceId }) })
+  program.command('result')
+    .description('read one delegated turn\u2019s settlement without a new prompt')
+    .argument('<instance-id>', 'paired target instance id')
+    .argument('<session-id>', 'delegated session id')
+    .argument('<message-id>', 'accepted turn message id printed at submission')
+    .action((instanceId: string, sessionId: string, messageId: string) => {
+      publish('result', { instanceId, sessionId, messageId })
+    })
+  program.command('outbox')
+    .description("list this home's initiator settlement ledger (written by a running instance)")
+    .action(() => { publish('outbox') })
   program.action(() => { program.help() })
   return program
 }

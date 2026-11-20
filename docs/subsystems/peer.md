@@ -94,6 +94,12 @@ Removing a peer drops its session registry entries and closes its resident agent
 
 The initiating side's model reaches the same channel through the first-party `peer` tool ([dsh-tool-peer](../../packages/peer/tool-peer)): it resolves a paired target by display name or instance id, delivers the prompt through `peer/delegate` or `peer/followup` within a bounded settlement budget, and renders the settled reply naming the session id; a turn still running past the budget reports continuation guidance instead of blocking. The tool adds no reachability of its own — it dials exactly the targets the home's owner paired, and the accepting surface fields still gate every Remote family.
 
+`peer/result` is the read-only settlement companion: it re-derives one owned turn's terminal state, reply, and end reason from the live session log — or, for a cold session, the persisted events — without delivering another prompt, answering `state: 'running'` while the turn is still outstanding. It gates on the `list` surface and exists so settlement reads never need a throwaway model turn.
+
+## Settlement ledger
+
+Delegation is a both-online contract: an unreachable target fails immediately, and the initiator's settlement ledger ([dsh-peer-outbox](../../packages/peer/peer-outbox), `ctx.peerOutbox`, web-app composition) never queues unsent work. It tracks exactly the turns an online target already accepted but that outran the tool's budget: the tool registers such a turn durably, and the instance-resident poller reads its settlement through `peer/result` every poll interval. A transient transport fault gets exactly one immediate re-probe; a second fault fails the entry (`TARGET_UNREACHABLE`) — the ledger waits for no one. A settled turn delivers its truncated reply into the initiating session as one `peer`-sourced queued user message through the idle maintenance phase, in submission order per session; a session that is no longer live fails the entry with the reply retained for `dsh peer outbox`. Because the ledger is durable storage, an instance restart resumes every watch on its next poll. Terminal entries are bounded to a retention window, and `dsh peer run/send --async` submit with the minimum budget and print the receipt that `dsh peer result` reads back.
+
 ## Transports and exclusion
 
 The invitation endpoint is an HTTPS origin, or loopback HTTP behind a tunnel — the same rule every authenticated origin follows. `dsh peer add` dials the endpoint directly, or through one remote-hosts SSH record (`--ssh-host`) that forwards to the target's loopback port; key-file and agent logins work headless, encrypted credential references do not. A VM execution world composes no `peer-host` row and the service refuses `peer/hello` from VM homes, so real-sandbox instances never join the pairing fabric.
@@ -143,6 +149,12 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async followup(request: PeerFollowupRequest): Promise<PeerRunResult>
 
+/** Read one owned turn's settlement without delivering another prompt.
+ * @param request - proof, session id, and the accepted turn's message id.
+ * @returns the observed turn state, reply, and end reason.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async result(request: PeerResultRequest): Promise<PeerRunResult>
+
 /** Enumerate the calling peer's own delegated sessions.
  * @param request - proof of the calling peer.
  * @returns the caller's session summaries, newest activity first.
@@ -151,6 +163,30 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
 ```
 
 Source: [`packages/peer/peer-host/src/index.ts:52`](../../packages/peer/peer-host/src/index.ts)
+
+<a id="ctxpeeroutbox--peeroutbox"></a>
+
+### `ctx.peerOutbox` — `PeerOutbox`
+
+Peer outbox service; the storage-domain ledger is the authority.
+
+```ts cordis-catalog
+/**
+ * All ledger entries, earliest submission first.
+ * @returns every stored entry.
+ */
+list(): PeerOutboxEntry[]
+
+/**
+ * Track one accepted-but-running delegated turn. The entry is durable from
+ * this call onward: an instance restart resumes the watch on its next poll.
+ * @param input - target, peer session, watched turn, and owner session.
+ * @returns the stored entry.
+ */
+async track(input: PeerOutboxTrackInput): Promise<PeerOutboxEntry>
+```
+
+Source: [`packages/peer/peer-outbox/src/index.ts:55`](../../packages/peer/peer-outbox/src/index.ts)
 
 <a id="peer-events"></a>
 

@@ -14,7 +14,7 @@
 
 ## 委派调用
 
-`runPeerDelegate`、`runPeerFollowup` 与 `runPeerSessions` 共享 `{ target, home, origin }` 选项与解析出的 `{ instanceId, key }` 身份:每次调用铸造带时间窗的请求证明、从存储的 Grant id 重建 `GrantAccess`,并经同一信封投递。携带 code `peer-failed` 的线上失败映射回封闭 peer 原因(`SURFACE_DENIED`、`INVALID_PROOF`、`SESSION_NOT_FOUND`、`SESSION_BUSY` 等);回读在使用前重新校验。
+`runPeerDelegate`、`runPeerFollowup`、`runPeerResult` 与 `runPeerSessions` 共享 `{ target, home, origin }` 选项与解析出的 `{ instanceId, key }` 身份:每次调用铸造带时间窗的请求证明、从存储的 Grant id 重建 `GrantAccess`,并经同一信封投递。携带 code `peer-failed` 的线上失败映射回封闭 peer 原因(`SURFACE_DENIED`、`INVALID_PROOF`、`SESSION_NOT_FOUND`、`SESSION_BUSY` 等);回读在使用前重新校验。`runPeerResult` 按会话与消息 id 只读一个已拥有轮次的结算,不投递新提示。
 
 各阶段报告封闭原因:`TRANSPORT_FAILED`、`ENROLLMENT_REJECTED`、`REDEEM_REJECTED`、`HELLO_REJECTED`、`IDENTITY_MISMATCH`、`CHALLENGE_EXPIRED`、`INVALID_PROOF`、`SURFACE_DENIED`、`SESSION_NOT_FOUND`、`SESSION_BUSY`、`STORE_FAILED`。origin 必须是 HTTPS 或环回 HTTP,与邀请编解码的规则一致。
 

@@ -13,6 +13,7 @@ import {
   requestProofFor,
   runPeerDelegate,
   runPeerFollowup,
+  runPeerResult,
   runPeerSessions,
 } from '../src/remote.ts'
 import { ensurePeerIdentityKey } from '../src/keys.ts'
@@ -56,7 +57,7 @@ function scripted(responses: Array<{ status?: number; body?: unknown; raw?: stri
     if (reply.raw !== undefined) return new Response(reply.raw, { status: reply.status ?? 200 })
     let body = reply.body === undefined ? {} : reply.body
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (typeof url === 'string' && /\/api\/peer\/(hello|challenge|delegate|followup|sessions)$/.test(url) && init?.body !== undefined) {
+    if (typeof url === 'string' && /\/api\/peer\/(hello|challenge|delegate|followup|result|sessions)$/.test(url) && init?.body !== undefined) {
       const request = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as { rpcId?: string }
       if (typeof request.rpcId === 'string' && typeof body === 'object' && body !== null) {
         body = { ...body as Record<string, unknown>, rpcId: request.rpcId }
@@ -123,6 +124,9 @@ it('runs the challenge/hello exchange and the three operations through one envel
   const sessionsFetch = scripted([...exchange, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: sessionsBody } } }])
   const sessions = await runPeerSessions({ ...options, fetch: sessionsFetch, timeoutMs: 5_000 }, identity)
   expect(sessions).toHaveLength(1)
+
+  const read = await runPeerResult({ ...options, fetch: scripted([...exchange, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { ...runResult, state: 'running', reply: undefined } } } }]), timeoutMs: 5_000 }, identity, run.sessionId, run.messageId)
+  expect(read).toMatchObject({ sessionId: run.sessionId, messageId: run.messageId, state: 'running' })
 })
 
 it('maps wire reasons, messages, statuses, and bodies onto the closed vocabulary', async () => {

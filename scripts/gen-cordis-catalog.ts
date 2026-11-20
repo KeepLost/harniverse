@@ -51,6 +51,7 @@ export { REGION_BEGIN, REGION_END }
  */
 export const SERVICE_PAGE: Record<string, string> = {
   peerHost: 'peer.md',
+  peerOutbox: 'peer.md',
   agentLoop: 'core.md',
   agentDefaultModel: 'core.md',
   modelPolicy: 'model-policy.md',
@@ -281,7 +282,10 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   PeerRequestProof: 'peer.md',
   PeerDelegateRequest: 'peer.md',
   PeerFollowupRequest: 'peer.md',
+  PeerResultRequest: 'peer.md',
   PeerSessionsRequest: 'peer.md',
+  PeerOutboxEntry: 'peer.md',
+  PeerOutboxTrackInput: 'peer.md',
   PeerRunResult: 'peer.md',
   PeerRunState: 'peer.md',
   PeerSessionState: 'peer.md',

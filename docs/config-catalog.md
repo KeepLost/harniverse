@@ -2310,7 +2310,7 @@ Source: [`packages/notification/notification-http/src/index.ts:50`](../packages/
 
 ## `@deepseek-ai/dsh-peer-app`
 
-Requires: `peerStartup` · `remoteHostSsh`
+Requires: `peerStartup` · `remoteHostSsh` · `storageDomain`
 
 ```ts config-catalog
 /** Peer pairing runner configuration. */
@@ -2347,13 +2347,17 @@ export interface PeerStartupValues {
   cwd?: string
   /** Agent profile id for `run`. */
   profile?: string
+  /** Submit without waiting for settlement, for `run` and `send`. */
+  async?: boolean
+  /** Message id of the watched turn for `result`. */
+  messageId?: string
 }
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
 ```
 
-Source: [`packages/bundle/peer-app/src/index.ts:45`](../packages/bundle/peer-app/src/index.ts)
+Source: [`packages/bundle/peer-app/src/index.ts:49`](../packages/bundle/peer-app/src/index.ts)
 
 <a id="deepseek-aidsh-peer-host"></a>
 
@@ -2368,6 +2372,26 @@ export interface PeerHostConfig {
 ```
 
 Source: [`packages/peer/peer-host/src/types.ts:5`](../packages/peer/peer-host/src/types.ts)
+
+<a id="deepseek-aidsh-peer-outbox"></a>
+
+## `@deepseek-ai/dsh-peer-outbox`
+
+Requires: `agents` · `sessions` · `storageDomain`
+
+```ts config-catalog
+/** Peer outbox configuration. */
+export interface PeerOutboxConfig {
+  /** Harness home override; absent means standard `DSH_HOME` resolution. */
+  dshHome?: string
+  /** Poll cadence for watching entries in milliseconds (default 30000, minimum 100). */
+  pollIntervalMs?: number
+  /** Stored and delivered reply ceiling, in characters (default 50000). */
+  maxResultChars?: number
+}
+```
+
+Source: [`packages/peer/peer-outbox/src/index.ts:39`](../packages/peer/peer-outbox/src/index.ts)
 
 <a id="deepseek-aidsh-permission-presets"></a>
 
@@ -3989,7 +4013,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/peer/tool-peer/src/index.ts:44`](../packages/peer/tool-peer/src/index.ts)
+Source: [`packages/peer/tool-peer/src/index.ts:47`](../packages/peer/tool-peer/src/index.ts)
 
 <a id="deepseek-aidsh-tool-present"></a>
 

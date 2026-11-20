@@ -15,11 +15,13 @@ import type {
   PeerFollowupRequest,
   PeerInstanceId,
   PeerRequestProof,
+  PeerResultRequest,
   PeerRunResult,
   PeerSessionState,
   PeerSessionSummary,
 } from '@deepseek-ai/dsh-peer-protocol'
 import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PeerSessionEntry } from './session-registry.ts'
 import { findPeerSession, readPeerSessions, writePeerSessions } from './session-registry.ts'
 
@@ -88,17 +90,41 @@ export function validateDelegateRequest(value: unknown): PeerDelegateRequest {
  * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
  */
 export function validateFollowupRequest(value: unknown): PeerFollowupRequest {
+  const record = requireSessionEnvelope(value)
+  if (typeof record.prompt !== 'string' || record.prompt.length === 0 || record.prompt.length > PEER_PROMPT_MAX_LENGTH) {
+    throw new PeerError('INVALID_PAYLOAD', 'prompt out of range')
+  }
+  effectiveTimeout(record.timeoutMs as number | undefined)
+  return value as PeerFollowupRequest
+}
+
+/** Validate the shared proof-plus-session prefix of one session-addressed request.
+ * @param value - untrusted wire value.
+ * @returns the envelope record with proof and session id validated.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed envelopes.
+ */
+function requireSessionEnvelope(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
   const record = value as Record<string, unknown>
   if (typeof record.proof !== 'object' || record.proof === null || Array.isArray(record.proof)) throw new PeerError('INVALID_PAYLOAD')
   if (typeof record.sessionId !== 'string' || !PEER_SESSION_ID_PATTERN.test(record.sessionId)) {
     throw new PeerError('INVALID_PAYLOAD', 'sessionId out of range')
   }
-  if (typeof record.prompt !== 'string' || record.prompt.length === 0 || record.prompt.length > PEER_PROMPT_MAX_LENGTH) {
-    throw new PeerError('INVALID_PAYLOAD', 'prompt out of range')
+  return record
+}
+
+/**
+ * Validate one settlement-read request's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated request.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+export function validateResultRequest(value: unknown): PeerResultRequest {
+  const record = requireSessionEnvelope(value)
+  if (typeof record.messageId !== 'string' || record.messageId.length === 0 || record.messageId.length > 128) {
+    throw new PeerError('INVALID_PAYLOAD', 'messageId out of range')
   }
-  effectiveTimeout(record.timeoutMs as number | undefined)
-  return value as unknown as PeerFollowupRequest
+  return value as PeerResultRequest
 }
 
 /**
@@ -348,6 +374,52 @@ export async function followupPeerSession(
   await writePeerSessions(home, sessions
     .map(item => item.sessionId === entry.sessionId ? { ...item, lastActivityAt: new Date().toISOString() } : item))
   return result
+}
+
+/** Whether one accepted turn's claim appears in the event window.
+ * @param events - events that may carry the claim.
+ * @param messageId - the accepted prompt's message id.
+ * @returns whether the claim is present.
+ */
+function claimed(events: readonly SessionEvent[], messageId: string): boolean {
+  return events.some(event => event.type === 'user/message' && event.data.id === messageId)
+}
+
+/** Read one owned turn's settlement without delivering another prompt.
+ * @param ctx - host context.
+ * @param home - absolute Harness home directory.
+ * @param instanceId - the verified caller's identity.
+ * @param request - validated settlement-read request.
+ * @returns the observed turn state, reply, and end reason.
+ * @throws a {@link PeerError} with `SESSION_NOT_FOUND` when the session or turn cannot be observed.
+ */
+export async function resultPeerSession(
+  ctx: Context,
+  home: string,
+  instanceId: PeerInstanceId,
+  request: PeerResultRequest,
+): Promise<PeerRunResult> {
+  const entry = findPeerSession(await readPeerSessions(home), request.sessionId)
+  if (entry === undefined || entry.peerInstanceId !== instanceId) throw new PeerError('SESSION_NOT_FOUND')
+  const agent = ctx.get('agents')?.get(entry.sessionId as SessionId)
+  if (agent !== undefined) {
+    const events = agent.session.events
+    if (!claimed(events, request.messageId)) {
+      // The claim fell outside the resident suffix (compacted while outstanding).
+      throw new PeerError('SESSION_NOT_FOUND', 'turn is no longer observable live')
+    }
+    const settled = settlementOf(events, request.messageId)
+    return { sessionId: entry.sessionId, messageId: request.messageId, ...settled ?? { state: 'running' } }
+  }
+  const persistence = ctx.get('sessionPersistence')
+  if (persistence === undefined) throw new PeerError('SESSION_NOT_FOUND', 'session persistence is not configured')
+  const inspected = await persistence.inspect(entry.sessionId as SessionId).catch(() => undefined)
+  if (inspected === undefined) throw new PeerError('SESSION_NOT_FOUND')
+  if (!claimed(inspected.events, request.messageId)) {
+    throw new PeerError('SESSION_NOT_FOUND', 'turn is not in the persisted log')
+  }
+  const settled = settlementOf(inspected.events, request.messageId)
+  return { sessionId: entry.sessionId, messageId: request.messageId, ...settled ?? { state: 'running' } }
 }
 
 /** Derive one entry's live state from agent residency and status.

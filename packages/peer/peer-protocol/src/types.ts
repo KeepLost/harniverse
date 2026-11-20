@@ -102,6 +102,15 @@ export interface PeerSessionsRequest {
   proof: PeerRequestProof
 }
 
+/** Settlement-read request for one turn the caller owns. */
+export interface PeerResultRequest {
+  proof: PeerRequestProof
+  /** Session id of the caller's own delegated session. */
+  sessionId: string
+  /** Message id of the accepted turn whose settlement is read. */
+  messageId: string
+}
+
 /** Terminal state of one observed turn. */
 export type PeerRunState = 'settled' | 'running'
 

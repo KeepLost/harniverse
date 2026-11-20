@@ -40,7 +40,7 @@ it('generates one executable strict Remote schema for peer/hello with the pairin
       }> }
     }
     const methods = TYPERT_REMOTE.descriptors
-    expect(methods.map(method => method.method)).toEqual(['challenge', 'delegate', 'followup', 'hello', 'sessions'])
+    expect(methods.map(method => method.method)).toEqual(['challenge', 'delegate', 'followup', 'hello', 'result', 'sessions'])
     expect(methods.every(method => method.requiredCapability === 'harniverse.peer')).toBe(true)
     const hello = methods.find(method => method.method === 'hello')!
     const schema = hello.parameters[0]!.codec.schema

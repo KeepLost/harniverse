@@ -12,6 +12,7 @@ export {
   requestProofFor,
   runPeerDelegate,
   runPeerFollowup,
+  runPeerResult,
   runPeerSessions,
   validateRunResult,
   validateSessionSummaries,
