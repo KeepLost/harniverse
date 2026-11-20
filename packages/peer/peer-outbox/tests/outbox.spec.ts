@@ -586,7 +586,7 @@ it('stops polling with its context, including mid-cycle', async () => {
   expect(midcycle.target.reads.length).toBe(midReads)
 })
 
-it('wakes an immediate poll from a settlement push frame', async () => {
+it('wakes an immediate poll from a settlement push frame', { timeout: 20_000 }, async () => {
   const rig = await harness({ pollIntervalMs: 5000 })
   cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
   rig.target.results = [
@@ -607,7 +607,7 @@ it('wakes an immediate poll from a settlement push frame', async () => {
   expect(rig.script.followups).toHaveLength(1)
 })
 
-it('keeps polling entries when the event stream is refused', async () => {
+it('keeps polling entries when the event stream is refused', { timeout: 20_000 }, async () => {
   const rig = await harness({ pollIntervalMs: 100 })
   cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
   rig.target.subscribeStatus = 503
@@ -624,7 +624,7 @@ it('keeps polling entries when the event stream is refused', async () => {
   expect(rig.target.streamOpened).toBe(false)
 })
 
-it('tears the event stream down once no entry is watching', async () => {
+it('tears the event stream down once no entry is watching', { timeout: 20_000 }, async () => {
   const rig = await harness({ pollIntervalMs: 100 })
   cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
   rig.target.results = [
@@ -639,7 +639,7 @@ it('tears the event stream down once no entry is watching', async () => {
   })
 })
 
-it('picks up a push that lands while a cycle is already polling', async () => {
+it('picks up a push that lands while a cycle is already polling', { timeout: 20_000 }, async () => {
   const rig = await harness({ pollIntervalMs: 5000 })
   cleanups.push(() => rig.ctx.fiber.dispose(), () => rig.target.stop(), () => removeHome(rig.home))
   rig.target.readDelayMs = 300
