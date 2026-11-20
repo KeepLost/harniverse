@@ -8,16 +8,22 @@
 
 | Method | 线上参数 | Capability | Result |
 | --- | --- | --- | --- |
+| `cancel(request)` | `{ request: PeerCancelRequest }` | `harniverse.peer` | `PeerRunResult` |
 | `challenge()` | `{}` | `harniverse.peer` | `{ challenge }` |
 | `hello(request)` | `{ request: PeerHelloRequest }` | `harniverse.peer` | `PeerHello` |
 | `delegate(request)` | `{ request: PeerDelegateRequest }` | `harniverse.peer` | `PeerRunResult` |
 | `followup(request)` | `{ request: PeerFollowupRequest }` | `harniverse.peer` | `PeerRunResult` |
 | `result(request)` | `{ request: PeerResultRequest }` | `harniverse.peer` | `PeerRunResult` |
 | `sessions(request)` | `{ request: PeerSessionsRequest }` | `harniverse.peer` | `{ sessions: PeerSessionSummary[] }` |
+| `subscribe(request)` | `{ request: PeerSessionsRequest }` | `harniverse.peer` | `PeerSubscribeResult` |
 
 `challenge` 铸出一枚单次 nonce(五分钟 TTL,未决集有上界)。`hello` 验证发起方对 `(instanceId, challenge)` 的签名,首次配对时把 base64url SPKI `identityPublicKey` 钉入记录,此后每次 hello 都按钉住的密钥验签——换钥应答 `IDENTITY_MISMATCH`,已消费或未知 nonce 应答 `CHALLENGE_EXPIRED`。无钉钥的记录(前证明时代)在首个带证明的 hello 时钉钥。某 id 的首条记录发出 `peer/paired`;已撤销的记录以 `HELLO_REJECTED` 拒绝。每次调用在 VM 执行世界中以 `PEER_UNAVAILABLE_VM` 拒绝,且 web-app 组合在 `$DSH_EXEC_WORLD === 'vm'` 时整行禁用,因此真沙箱实例永远不会配对。
 
-`delegate`、`followup` 与 `sessions` 对调用方带时间窗的请求证明按钉住密钥验签,再检查对应的 `PeerSurface` 字段(否则 `SURFACE_DENIED`)。`delegate` 组建一个 `peer-<uuid>`、`origin: 'peer'` 的会话,工作目录解析在 `peer-work/<instanceId>/` 之下(仅相对路径;越界以 `INVALID_PAYLOAD` 拒绝),把提示词经 agent 收件箱投递,并在请求预算内等待回合结算——结算返回拼接的助手文本与结束原因,超时返回 `state: 'running'` 与会话 id。`followup` 向同一调用方自有的会话投递下一个 FIFO 回合(否则 `SESSION_NOT_FOUND`),无常驻 agent 时冷恢复。`sessions` 列出该调用方条目及推导的 `running`/`idle`/`ended` 状态。封闭失败以 `RemoteError` code `peer-failed` 上线,`details.reason` 原样携带 peer 原因。
+`delegate`、`followup`、`cancel`、`result`、`subscribe` 与 `sessions` 对调用方带单次 nonce 的请求证明按钉住密钥验签,再检查对应的 `PeerSurface` 字段(否则 `SURFACE_DENIED`)。证明的 nonce 首次使用即被消费——偏差窗口内抓包重放以 `INVALID_PROOF (replayed nonce)` 拒绝。`delegate` 组建一个 `peer-<uuid>`、`origin: 'peer'` 的会话,工作目录解析在 `peer-work/<instanceId>/` 之下(仅相对路径;越界以 `INVALID_PAYLOAD` 拒绝),把提示词经 agent 收件箱投递,并在请求预算内等待回合结算——结算返回拼接的助手文本与结束原因,超时返回 `state: 'running'` 与会话 id。`followup` 向同一调用方自有的会话投递下一个 FIFO 回合(否则 `SESSION_NOT_FOUND`),无常驻 agent 时冷恢复。`cancel`(`delegate` 面)中止一个自有且常驻会话的当前回合:运行中的回合以 user 原因取消并返回其终态,空闲会话原样返回最新声明的结算,无常驻 agent 的会话应答 `SESSION_NOT_FOUND`。`result` 不投递新提示,只读一个自有轮次的结算——从活会话日志或冷会话持久化事件重新推导终态、回复与结束原因,轮次未完时应答 `running`;读取以 `list` 面门控。`sessions` 列出该调用方条目及推导的 `running`/`idle`/`ended` 状态。`subscribe`(同样 `list` 门控)铸出一枚单次流令牌,可在 `PEER_STREAM_TOKEN_TTL_MS` 内于事件流路由兑取。封闭失败以 `RemoteError` code `peer-failed` 上线,`details.reason` 原样携带 peer 原因。
+
+## 事件流
+
+组合了 web server 时,服务注册精确路由 `GET /api/peer/events?token=<streamToken>`——精确路由优先于共享的 `/api` 前缀,`peer/subscribe` 铸出的不可猜询单次令牌即是该路由的全部鉴权。每条订阅服务一个 `text/event-stream` 响应:该 peer 自有会话的 `turn/end` 事件推送 `{"kind":"settled","sessionId"}` 数据帧,心跳注释按 `PEER_STREAM_HEARTBEAT_MS` 流动(该节拍同时从注册表刷新自有会话过滤集)。帧只是唤醒信号——结算以 `peer/result` 确认;订阅被拒或流断开对调用方没有任何影响。令牌单次有效:每次重连都经鉴权 Remote 重新订阅,因此每条流之前都有一枚带新 nonce 的证明。
 
 ## 存储
 
@@ -55,6 +61,7 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-host
 
 ## Known Limitations and Deferred Work(已知限制与后续工作)
 
-- 请求证明携带时间窗而非服务端 nonce;`PEER_PROOF_SKEW_MS` 窗口内的抓包重放会被接纳。配对 hello 保留完整的单次挑战;逐调用 nonce 待会话化通道。
 - `removePeer` 只从真空闲关闭忙碌的被委派 agent;运行中的回合会在其会话记录消失前跑完。
 - 面的加宽与收窄是记录编辑,不是新的 Grant 能力;尚无面向面变更的审批流。
+- 事件流不持有重放游标:断线丢帧由下一次 `peer/result` 读取覆盖,而非流断点续传;每次重连经一枚新证明铸出新令牌。
+- 已消费 nonce 的保留按 peer 设上界;超出上界的突发会让最老的 nonce 在偏差窗口内提前退出重放保护。

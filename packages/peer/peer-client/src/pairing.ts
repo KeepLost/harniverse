@@ -11,6 +11,7 @@ import {
 import type { PeerErrorReason, PeerHello, PeerInvitePayload, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
 import { ensurePeerIdentityKey } from './keys.ts'
 import { provenHello } from './remote.ts'
+import { pinnedFetchFor } from './transport.ts'
 import { findPeerTarget, readPeerTargets, writePeerTargets } from './targets.ts'
 import type { PeerPairingResult } from './types.ts'
 
@@ -41,7 +42,8 @@ export interface PairOptions {
 export async function pairWithPeer(options: PairOptions): Promise<PeerPairingResult> {
   const { invite, home } = options
   const timeout = options.timeoutMs ?? 30_000
-  const fetchImpl = bounded(options.fetch ?? ((input, init) => globalThis.fetch(input, init)), timeout)
+  const fetchImpl = bounded(pinnedFetchFor(invite.tlsFingerprint, options.origin,
+    options.fetch ?? ((input, init) => globalThis.fetch(input, init))), timeout)
   const identity = await ensureInstanceIdentity(home)
   const key = await ensurePeerIdentityKey(home)
   const grantName = peerGrantName(identity.instanceId)

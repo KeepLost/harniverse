@@ -63,6 +63,8 @@ interface PeerRequestProof {
   instanceId: PeerInstanceId
   /** Claim time in epoch milliseconds; the host rejects values outside the skew window. */
   timestamp: number
+  /** Single-use nonce minted per request; the host rejects any replayed nonce inside the skew window. */
+  nonce: string
   /** Base64url IEEE-P1363 ECDSA/SHA-256 signature over the canonical request message. */
   signature: string
 }
@@ -94,11 +96,21 @@ interface PeerRunResult {
 
 发起方的模型经一方工具 `peer`([dsh-tool-peer](../../packages/peer/tool-peer))触达同一通道:它按显示名或 instance id 解析已配对目标,在有界结算预算内经 `peer/delegate` 或 `peer/followup` 投递提示词,并渲染点名 session id 的结算回复;超预算仍在运行的回合返回续查引导而不是阻塞。该工具不新增任何可达性——它只拨号 home 属主配对的目标,接受方的 surface 字段仍门控每个 Remote 族。
 
-`peer/result` 是只读的结算伴侣:它从活跃会话日志——冷会话则从持久化事件——重新推导一个已拥有轮次的终态、回复与结束原因,不投递新提示,回合仍未结算时回答 `state: 'running'`。它门控在 `list` surface 上,存在的意义是让结算读取永远不需要一次多余的模型回合。
+`peer/result` 是只读的结算伴侣:它从活跃会话日志——冷会话则从持久化事件——重新推导一个已拥有轮次的终态、回复与结束原因,不投递新提示,回合仍未结算时回答 `state: 'running'`。它门控在 `list` surface 上,存在的意义是让结算读取永远不需要一次多余的模型回合。`peer/cancel`(`delegate` 面)补上发起方的取消闭环:以 user 原因中止一个自有且常驻会话的当前回合并返回其终态——空闲会话原样报告最新声明的结算,无常驻 agent 的会话应答 `SESSION_NOT_FOUND`,取消因此从不捏造工作。
+
+现在每份请求证明都携带一枚被签名覆盖的单次 nonce:宿主在首次使用时消费该 nonce,并拒绝偏差窗口内的任何重放,关上了纯时间窗证明留下的 ±90 秒抓包重放窗。
 
 ## 结算台账
 
-委派是双方在线的契约:目标不可达立即失败,发起方结算台账([dsh-peer-outbox](../../packages/peer/peer-outbox),`ctx.peerOutbox`,web-app 组合)从不排队未投递的工作。它只跟踪已被在线目标接受、但超出工具预算的轮次:工具把这样的轮次持久登记,实例内的常驻轮询器按轮询间隔经 `peer/result` 读取其结算。瞬时传输故障恰好获得**同刻复探一次**;第二次故障即终态失败条目(`TARGET_UNREACHABLE`)——台账不等待任何人。结算的轮次在空闲维护阶段以一条 `peer` 来源的排队 user 消息把截断回复投回发起会话,同会话按提交顺序投递;会话不再活跃则以 `OWNER_SESSION_NOT_LIVE` 失败并保留回复供 `dsh peer outbox` 查看。台账是持久存储,实例重启后由下一次轮询恢复全部跟踪。终态条目有保留上限,`dsh peer run/send --async` 以最小预算提交并打印 `dsh peer result` 可回读的回执。
+委派是双方在线的契约:目标不可达立即失败,发起方结算台账([dsh-peer-outbox](../../packages/peer/peer-outbox),`ctx.peerOutbox`,web-app 组合)从不排队未投递的工作。它只跟踪已被在线目标接受、但超出工具预算的轮次:工具把这样的轮次持久登记,实例内的常驻监视器按轮询间隔经 `peer/result` 读取其结算。瞬时传输故障恰好获得**同刻复探一次**;第二次故障即终态失败条目(`TARGET_UNREACHABLE`)——台账不等待任何人。结算的轮次在空闲维护阶段以一条 `peer` 来源的排队 user 消息把截断回复投回发起会话,同会话按提交顺序投递;会话不再活跃则以 `OWNER_SESSION_NOT_LIVE` 失败并保留回复供 `dsh peer outbox` 查看。台账是持久存储,实例重启后由下一次轮询恢复全部跟踪。终态条目有保留上限,`dsh peer run/send --async` 以最小预算提交并打印 `dsh peer result` 可回读的回执;`dsh peer cancel` 在目标上中止运行中的回合,其条目经同一通道结算。
+
+## 事件流
+
+`peer/subscribe`(证明鉴权、`list` 门控)铸出一枚单次流令牌;精确路由 `GET /api/peer/events?token=…`——由 `peer-host` 在组合了 web server 时注册,优先于共享的 `/api` 前缀——为每条订阅服务一个 `text/event-stream`。流为该 peer 自有会话的每个 `turn/end` 推送一帧 `{"kind":"settled","sessionId"}`,并按固定节拍发送心跳注释;令牌即该路由的全部鉴权,因此每次重连都先过一枚带新 nonce 的证明。通道被有意设计为单向且仅作提示:帧是唤起立即结算读取的信号,绝不是第二事实源——台账保留常备轮询兜底,被拒的流不改变任何行为,也没有任何机制为离线目标排队工作。上行请求(投递、取消、续期)仍是普通的鉴权 Remote 调用,通道因此不新增任何可达面。
+
+## 传输钉校验
+
+邀请可以按 base64 SHA-256 指纹钉住目标的 TLS 证书。被钉的目标必须经 HTTPS 拨号——直连,或经邀请端点为 `https://127.0.0.1:<port>` 的 SSH 转发:客户端为传输 fetch 构造一个 `checkServerIdentity`,凡不哈希到钉值的证书一律拒绝(`PIN_MISMATCH`),且两种路径下校验都骑在同一条 TLS 连接上。被钉的目标经明文 HTTP 拨号在任何字节发出前即失败;未钉指纹的 HTTPS 来源保持 Node 信任根。
 
 ## 传输与排除
 
@@ -160,9 +172,21 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  * @returns the caller's session summaries, newest activity first.
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async sessions(request: { proof: PeerRequestProof }): Promise<{ sessions: PeerSessionSummary[] }>
+
+/** Cancel the current turn of one session the calling peer owns.
+ * @param request - proof and the caller's own session id.
+ * @returns the cancelled turn's terminal state.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async cancel(request: PeerCancelRequest): Promise<PeerRunResult>
+
+/** Mint one single-use event-stream token for the calling peer.
+ * @param request - proof of the calling peer.
+ * @returns the stream token and the heartbeat cadence.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async subscribe(request: { proof: PeerRequestProof }): Promise<PeerSubscribeResult>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:52`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:58`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="ctxpeeroutbox--peeroutbox"></a>
 
@@ -186,7 +210,7 @@ list(): PeerOutboxEntry[]
 async track(input: PeerOutboxTrackInput): Promise<PeerOutboxEntry>
 ```
 
-Source: [`packages/peer/peer-outbox/src/index.ts:55`](../../packages/peer/peer-outbox/src/index.ts)
+Source: [`packages/peer/peer-outbox/src/index.ts:60`](../../packages/peer/peer-outbox/src/index.ts)
 
 <a id="peer-events"></a>
 
@@ -207,7 +231,7 @@ Emitted after one peer's first `peer/hello` appended its record.
 'peer/paired'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:41`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:47`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="peerremoved--emit"></a>
 
@@ -224,5 +248,5 @@ Emitted after one paired-peer record was removed from the store.
 'peer/removed'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:47`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:53`](../../packages/peer/peer-host/src/index.ts)
 <!-- END GENERATED cordis-surface -->

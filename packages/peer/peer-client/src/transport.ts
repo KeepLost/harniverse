@@ -1,6 +1,8 @@
 /** Stored-transport dialing: resolve one target's origin directly or through its recorded SSH forward. */
 
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { Agent } from 'undici'
 import type { Context } from '@deepseek-ai/cordis'
 import { HostRegistry } from '@deepseek-ai/dsh-remote-hosts'
 import type { RemoteHostSshAuthentication, RemoteHostSshConnection, RemoteHostSshForward } from '@deepseek-ai/dsh-remote-hosts-ssh'
@@ -13,6 +15,48 @@ interface SshTunnel { port: number; close(): Promise<void> }
 
 /** How one dial reaches its endpoint: directly, or through a named remote-hosts SSH record. */
 export type PeerTransportRoute = { kind: 'direct' } | { kind: 'ssh'; host: string }
+
+/** Whether one presented TLS certificate matches the pinned SHA-256 fingerprint.
+ * @param pin - base64, 43 characters, from the invitation payload.
+ * @param certificate - the peer certificate exactly as TLS presented it.
+ * @returns whether the DER-encoded certificate hashes to the pin.
+ */
+export function verifyTlsFingerprint(pin: string, certificate: { raw: Buffer }): boolean {
+  return createHash('sha256').update(certificate.raw).digest('base64') === pin
+}
+
+/** Build the TLS identity check enforcing one pinned fingerprint on every connection.
+ * @param pin - base64 SHA-256 fingerprint the peer certificate must hash to.
+ * @returns a `checkServerIdentity` rejecting every other certificate.
+ */
+export function pinnedIdentityChecker(pin: string): (hostname: string, certificate: { raw: Buffer }) => Error | undefined {
+  return (_hostname, certificate) => verifyTlsFingerprint(pin, certificate)
+    ? undefined
+    : new Error('peer: PIN_MISMATCH (certificate does not match the pinned fingerprint)')
+}
+
+/**
+ * Resolve the fetch one target's calls use, enforcing its pinned TLS fingerprint.
+ * A pinned target must be reached over HTTPS — directly or through an SSH
+ * forward, the certificate verification rides the same TLS connection.
+ * @param pin - pinned base64 SHA-256 fingerprint, when the target carries one.
+ * @param origin - exact origin the calls dial.
+ * @param fetchImpl - transport fetch the pin wraps.
+ * @returns the pinned fetch, or the passed fetch when no pin applies.
+ * @throws a {@link PeerError} with `PIN_MISMATCH` when a pinned target is dialed over plain HTTP.
+ */
+export function pinnedFetchFor(
+  pin: string | undefined,
+  origin: string,
+  fetchImpl: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init),
+): typeof globalThis.fetch {
+  if (pin === undefined) return fetchImpl
+  if (!origin.startsWith('https://')) {
+    throw new PeerError('PIN_MISMATCH', 'a pinned target must be reached over HTTPS')
+  }
+  const agent = new Agent({ connect: { rejectUnauthorized: true, checkServerIdentity: pinnedIdentityChecker(pin) } })
+  return (input, init) => fetchImpl(input, { ...init, dispatcher: agent } as RequestInit)
+}
 
 /**
  * Run one origin-resolved operation directly or through the recorded SSH forward.
@@ -66,8 +110,8 @@ export async function withPeerTransport<T>(
  */
 async function openSshForward(ctx: Context, home: string, hostName: string, endpointOrigin: string): Promise<SshTunnel> {
   const target = new URL(endpointOrigin)
-  if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') {
-    throw new Error('peer transport: ssh targets require an http://127.0.0.1:<port> invitation endpoint')
+  if ((target.protocol !== 'http:' && target.protocol !== 'https:') || target.hostname !== '127.0.0.1') {
+    throw new Error('peer transport: ssh targets require a loopback http://127.0.0.1:<port> or https://127.0.0.1:<port> invitation endpoint')
   }
   const provider = ctx.get('remoteHostSsh')
   if (provider === undefined) throw new Error('peer transport: the ssh target needs the remote-hosts-ssh service')

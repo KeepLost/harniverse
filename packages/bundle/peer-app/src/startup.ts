@@ -14,7 +14,7 @@ export const inject = ['cmdlineArgs']
 export const PEER_STARTUP_SERVICE = 'peerStartup'
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
 
 /** One parsed peer pairing invocation. */
 export interface PeerStartupValues {
@@ -137,6 +137,13 @@ function peerCommand(ctx: Context): Command {
     .description("list this instance's delegated sessions on a paired target")
     .argument('<instance-id>', 'paired target instance id')
     .action((instanceId: string) => { publish('sessions', { instanceId }) })
+  program.command('cancel')
+    .description('cancel the current turn of one delegated session')
+    .argument('<instance-id>', 'paired target instance id')
+    .argument('<session-id>', 'delegated session id')
+    .action((instanceId: string, sessionId: string) => {
+      publish('cancel', { instanceId, sessionId })
+    })
   program.command('result')
     .description('read one delegated turn\u2019s settlement without a new prompt')
     .argument('<instance-id>', 'paired target instance id')

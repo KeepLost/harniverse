@@ -63,6 +63,8 @@ interface PeerRequestProof {
   instanceId: PeerInstanceId
   /** Claim time in epoch milliseconds; the host rejects values outside the skew window. */
   timestamp: number
+  /** Single-use nonce minted per request; the host rejects any replayed nonce inside the skew window. */
+  nonce: string
   /** Base64url IEEE-P1363 ECDSA/SHA-256 signature over the canonical request message. */
   signature: string
 }
@@ -94,11 +96,21 @@ Removing a peer drops its session registry entries and closes its resident agent
 
 The initiating side's model reaches the same channel through the first-party `peer` tool ([dsh-tool-peer](../../packages/peer/tool-peer)): it resolves a paired target by display name or instance id, delivers the prompt through `peer/delegate` or `peer/followup` within a bounded settlement budget, and renders the settled reply naming the session id; a turn still running past the budget reports continuation guidance instead of blocking. The tool adds no reachability of its own — it dials exactly the targets the home's owner paired, and the accepting surface fields still gate every Remote family.
 
-`peer/result` is the read-only settlement companion: it re-derives one owned turn's terminal state, reply, and end reason from the live session log — or, for a cold session, the persisted events — without delivering another prompt, answering `state: 'running'` while the turn is still outstanding. It gates on the `list` surface and exists so settlement reads never need a throwaway model turn.
+`peer/result` is the read-only settlement companion: it re-derives one owned turn's terminal state, reply, and end reason from the live session log — or, for a cold session, the persisted events — without delivering another prompt, answering `state: 'running'` while the turn is still outstanding. It gates on the `list` surface and exists so settlement reads never need a throwaway model turn. `peer/cancel` (`delegate` surface) closes the loop on the initiator's side: it aborts the current turn of one owned, resident session with the user cause and returns its terminal state — an idle session reports its newest claim's settlement unchanged, and a non-resident session answers `SESSION_NOT_FOUND`, so cancellation never fabricates work.
+
+Every request proof now carries a single-use nonce covered by the signature: the host consumes the nonce on first use and rejects any replay inside the skew window, closing the ±90s capture-replay window the timestamp-only proof left open.
 
 ## Settlement ledger
 
-Delegation is a both-online contract: an unreachable target fails immediately, and the initiator's settlement ledger ([dsh-peer-outbox](../../packages/peer/peer-outbox), `ctx.peerOutbox`, web-app composition) never queues unsent work. It tracks exactly the turns an online target already accepted but that outran the tool's budget: the tool registers such a turn durably, and the instance-resident poller reads its settlement through `peer/result` every poll interval. A transient transport fault gets exactly one immediate re-probe; a second fault fails the entry (`TARGET_UNREACHABLE`) — the ledger waits for no one. A settled turn delivers its truncated reply into the initiating session as one `peer`-sourced queued user message through the idle maintenance phase, in submission order per session; a session that is no longer live fails the entry with the reply retained for `dsh peer outbox`. Because the ledger is durable storage, an instance restart resumes every watch on its next poll. Terminal entries are bounded to a retention window, and `dsh peer run/send --async` submit with the minimum budget and print the receipt that `dsh peer result` reads back.
+Delegation is a both-online contract: an unreachable target fails immediately, and the initiator's settlement ledger ([dsh-peer-outbox](../../packages/peer/peer-outbox), `ctx.peerOutbox`, web-app composition) never queues unsent work. It tracks exactly the turns an online target already accepted but that outran the tool's budget: the tool registers such a turn durably, and the instance-resident watcher reads its settlement through `peer/result` every poll interval. A transient transport fault gets exactly one immediate re-probe; a second fault fails the entry (`TARGET_UNREACHABLE`) — the ledger waits for no one. A settled turn delivers its truncated reply into the initiating session as one `peer`-sourced queued user message through the idle maintenance phase, in submission order per session; a session that is no longer live fails the entry with the reply retained for `dsh peer outbox`. Because the ledger is durable storage, an instance restart resumes every watch on its next poll. Terminal entries are bounded to a retention window, and `dsh peer run/send --async` submit with the minimum budget and print the receipt that `dsh peer result` reads back; `dsh peer cancel` aborts a running turn on the target and settles its entry through the same channel.
+
+## Event stream
+
+`peer/subscribe` (proof-authenticated, `list`-gated) mints one single-use stream token; the exact route `GET /api/peer/events?token=…` — registered by `peer-host` whenever a web server is composed, taking precedence over the shared `/api` prefix — serves one `text/event-stream` per subscribed peer. The stream pushes a `{"kind":"settled","sessionId"}` frame for each `turn/end` of that peer's own sessions and heartbeats comments at a fixed cadence; the token is the route's entire authentication, so every reconnect passes a fresh nonce-bearing proof. The channel is deliberately one-way and advisory: frames are wake-up signals that poke an immediate settlement read, never a second source of truth — the outbox keeps its standing poll as the fallback, a refused stream changes nothing, and no mechanism queues work for a target that is offline. Upstream requests (delivery, cancellation, renewal) stay ordinary authenticated Remote calls, so the channel adds reachability to nothing.
+
+## Transport pinning
+
+An invitation may pin the target's TLS certificate by its base64 SHA-256 fingerprint. A pinned target must be dialed over HTTPS — directly, or through an SSH forward whose invitation endpoint is `https://127.0.0.1:<port>`: the client builds its transport fetch with a `checkServerIdentity` that rejects any certificate not hashing to the pin (`PIN_MISMATCH`), and the verification rides the same TLS connection either way. A pinned target dialed over plain HTTP fails before any bytes leave; an unpinned HTTPS origin keeps Node trust roots.
 
 ## Transports and exclusion
 
@@ -160,9 +172,21 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  * @returns the caller's session summaries, newest activity first.
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async sessions(request: { proof: PeerRequestProof }): Promise<{ sessions: PeerSessionSummary[] }>
+
+/** Cancel the current turn of one session the calling peer owns.
+ * @param request - proof and the caller's own session id.
+ * @returns the cancelled turn's terminal state.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async cancel(request: PeerCancelRequest): Promise<PeerRunResult>
+
+/** Mint one single-use event-stream token for the calling peer.
+ * @param request - proof of the calling peer.
+ * @returns the stream token and the heartbeat cadence.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async subscribe(request: { proof: PeerRequestProof }): Promise<PeerSubscribeResult>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:52`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:58`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="ctxpeeroutbox--peeroutbox"></a>
 
@@ -186,7 +210,7 @@ list(): PeerOutboxEntry[]
 async track(input: PeerOutboxTrackInput): Promise<PeerOutboxEntry>
 ```
 
-Source: [`packages/peer/peer-outbox/src/index.ts:55`](../../packages/peer/peer-outbox/src/index.ts)
+Source: [`packages/peer/peer-outbox/src/index.ts:60`](../../packages/peer/peer-outbox/src/index.ts)
 
 <a id="peer-events"></a>
 
@@ -207,7 +231,7 @@ Emitted after one peer's first `peer/hello` appended its record.
 'peer/paired'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:41`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:47`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="peerremoved--emit"></a>
 
@@ -224,5 +248,5 @@ Emitted after one paired-peer record was removed from the store.
 'peer/removed'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:47`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:53`](../../packages/peer/peer-host/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -105,9 +105,9 @@ it('pairs an initiator with a real serving target end to end', async () => {
   const secondHome = await temporary('peer-initiator-')
   const pinned = await target.invite()
   const withPin = { ...pinned, tlsFingerprint: 'A'.repeat(43) }
-  const pinnedResult = await pairWithPeer({ invite: withPin, home: secondHome, origin: target.origin })
-  expect(pinnedResult.target.tlsFingerprint).toBe('A'.repeat(43))
-  const result = pinnedResult
+  await expect(pairWithPeer({ invite: withPin, home: secondHome, origin: target.origin }))
+    .rejects.toThrowError(/PIN_MISMATCH \(a pinned target must be reached over HTTPS\)/)
+  const result = await pairWithPeer({ invite: pinned, home: secondHome, origin: target.origin })
   expect(result.hello.instanceId).toBe(target.identity.instanceId)
   expect(result.hello.surface).toEqual({ delegate: true, message: true, list: true })
   const grants = await listAuthenticationGrants({ dshHome: target.home })
@@ -310,4 +310,35 @@ it('rejects a non-EC identity key file with the closed corrupt reason', async ()
   await writeFile(target, pem)
   const { ensurePeerIdentityKey } = await import('../src/index.ts')
   await expect(ensurePeerIdentityKey(initiatorHome)).rejects.toThrowError(/CORRUPT_INSTANCE/)
+})
+
+it('records a pinned target through a completed HTTPS pairing', async () => {
+  const target = await serving()
+  const initiatorHome = await temporary('peer-initiator-')
+  const invite = await target.invite()
+  const pin = 'A'.repeat(43)
+  const origin = 'https://build.example.org:8443'
+  // Serve the whole pairing flow from one scripted fetch; the pin rides the transport, not the wire.
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const path = new URL(url).pathname
+    const json = (value: unknown): Response => new Response(JSON.stringify(value))
+    if (path === '/auth/enrollment') return json({ id: 'enr', state: 'pending' })
+    if (path === '/auth/enrollment/redeem') return json({ state: 'approved', grantId: 'grant-9' })
+    if (path === '/auth/challenge') return json({ id: 'cha', payload: 'c2lnbg', expiresAt: new Date(Date.now() + 60_000).toISOString() })
+    if (path === '/auth/token') return json({ accessToken: 'tok', expiresAt: new Date(Date.now() + 60_000).toISOString() })
+    const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as { rpcId?: string; method?: string }
+    if (body.method === 'peer/challenge') {
+      return new Response(JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value: { challenge: 'cha-1' } } }))
+    }
+    return new Response(JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value: {
+      instanceId: invite.instanceId, displayName: invite.displayName, platform: 'linux', arch: 'x64', version: '1.0.0',
+      surface: { delegate: true, message: true, list: true },
+    } } }))
+  })
+  const pinnedInvite = { ...invite, endpoint: { origin }, tlsFingerprint: pin }
+  const result = await pairWithPeer({ invite: pinnedInvite, home: initiatorHome, origin, fetch: fetchImpl, timeoutMs: 5000 })
+  expect(result.target.tlsFingerprint).toBe(pin)
+  expect(result.target.endpoint.origin).toBe(origin)
+  expect(result.grantId).toBe('grant-9')
 })

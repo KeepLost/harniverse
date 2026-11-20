@@ -69,6 +69,8 @@ export interface PeerRequestProof {
   instanceId: PeerInstanceId
   /** Claim time in epoch milliseconds; the host rejects values outside the skew window. */
   timestamp: number
+  /** Single-use nonce minted per request; the host rejects any replayed nonce inside the skew window. */
+  nonce: string
   /** Base64url IEEE-P1363 ECDSA/SHA-256 signature over the canonical request message. */
   signature: string
 }
@@ -110,6 +112,25 @@ export interface PeerResultRequest {
   /** Message id of the accepted turn whose settlement is read. */
   messageId: string
 }
+
+/** Cancellation request for the current turn of one session the caller owns. */
+export interface PeerCancelRequest {
+  proof: PeerRequestProof
+  /** Session id of the caller's own delegated session. */
+  sessionId: string
+}
+
+/** Subscription grant returned by `peer/subscribe`; opens the caller's event stream. */
+export interface PeerSubscribeResult {
+  /** Single-use stream token redeemable once at the event-stream route inside its TTL. */
+  streamToken: string
+  /** Heartbeat cadence the stream maintains, in milliseconds. */
+  heartbeatMs: number
+}
+
+/** One push frame on the peer event stream; a wake-up signal, never the settlement's source of truth. */
+export type PeerEventFrame =
+  | { kind: 'settled'; sessionId: string }
 
 /** Terminal state of one observed turn. */
 export type PeerRunState = 'settled' | 'running'

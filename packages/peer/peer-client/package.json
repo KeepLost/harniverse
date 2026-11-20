@@ -39,7 +39,8 @@
   "dependencies": {
     "@deepseek-ai/dsh-peer-protocol": "workspace:^",
     "@deepseek-ai/dsh-sdk-client": "workspace:^",
-    "@deepseek-ai/dsh-remote-hosts": "workspace:^"
+    "@deepseek-ai/dsh-remote-hosts": "workspace:^",
+    "undici": "8.12.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",

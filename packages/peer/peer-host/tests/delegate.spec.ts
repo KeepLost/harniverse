@@ -1,6 +1,6 @@
 /** Delegate, follow-up, and enumeration Remotes over a scripted agent registry. */
 
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -76,31 +76,42 @@ class FakeAgentRegistry extends Service {
       eventsFrom: (from: number) => events.filter(event => event.seq >= from),
     }
     let idle: Promise<void> = Promise.resolve()
+    let settle: (() => void) | undefined
     const entry = {
       status: 'idle' as 'idle' | 'running',
       session,
       whenIdle: () => idle,
+      cancel: (cause: { kind: string }) => {
+        if (settle !== undefined) {
+          events.push({ type: 'turn/end', seq: events.length, data: { turn: 1 + events.filter(event => event.type === 'turn/end').length, reason: { kind: cause.kind } } })
+          entry.status = 'idle'
+          settle()
+        }
+      },
       followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => {
         if (this.followupFails) throw new Error('agent closing')
         const prompt = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
         entry.status = 'running'
+        const turn = 1 + events.filter(event => event.type === 'turn/end').length
+        events.push({ type: 'turn/start', seq: events.length, data: { turn } })
+        events.push({ type: 'user/message', seq: events.length, data: message })
         idle = new Promise((resolve) => {
-          setTimeout(() => {
-            const turn = 1 + events.filter(event => event.type === 'turn/end').length
-            events.push({ type: 'turn/start', seq: events.length, data: { turn } })
-            events.push({ type: 'user/message', seq: events.length, data: message })
-            if (this.halfSettle) {
-              entry.status = 'running'
-              return
+          const timer = setTimeout(() => {
+            settle = undefined
+            if (!this.halfSettle) {
+              const content = this.reasoningOnly
+                ? [{ type: 'reasoning', text: 'thinking' }]
+                : [{ type: 'text', text: `done: ${prompt}` }]
+              events.push({ type: 'assistant/message', seq: events.length, data: { turn, step: 1, message: { content } } })
+              events.push({ type: 'turn/end', seq: events.length, data: { turn, reason: { kind: 'completed' } } })
+              entry.status = 'idle'
             }
-            const content = this.reasoningOnly
-              ? [{ type: 'reasoning', text: 'thinking' }]
-              : [{ type: 'text', text: `done: ${prompt}` }]
-            events.push({ type: 'assistant/message', seq: events.length, data: { turn, step: 1, message: { content } } })
-            events.push({ type: 'turn/end', seq: events.length, data: { turn, reason: { kind: 'completed' } } })
-            entry.status = 'idle'
             resolve()
           }, this.settleMs)
+          settle = () => {
+            clearTimeout(timer)
+            resolve()
+          }
         })
       },
     }
@@ -196,7 +207,8 @@ async function rig(
  */
 function proofFor(key: ReturnType<typeof identityKey>): PeerRequestProof {
   const timestamp = Date.now()
-  return { instanceId: caller, timestamp, signature: key.sign(peerRequestMessage(caller, timestamp)) }
+  const nonce = randomUUID()
+  return { instanceId: caller, timestamp, nonce, signature: key.sign(peerRequestMessage(caller, timestamp, nonce)) }
 }
 
 it('delegates one session, settles its first turn, and records the entry', async () => {
@@ -228,6 +240,48 @@ it('reports running past the settlement budget and keeps the entry', async () =>
   expect(result.state).toBe('running')
   expect(result.reply).toBeUndefined()
   expect(await readPeerSessions(root)).toHaveLength(1)
+})
+
+it('cancels the running current turn and reports idle sessions as already settled', async () => {
+  const { root, host, key, registry } = await rig()
+  const created = await host.delegate({ proof: proofFor(key), prompt: 'work', timeoutMs: 20 })
+  const settled = await host.cancel({ proof: proofFor(key), sessionId: created.sessionId })
+  expect(settled).toMatchObject({ sessionId: created.sessionId, messageId: created.messageId, state: 'settled', endReason: 'completed' })
+
+  registry.settleMs = 10_000
+  const running = await host.followup({ proof: proofFor(key), sessionId: created.sessionId, prompt: 'slow', timeoutMs: 20 })
+  expect(running.state).toBe('running')
+  const cancelled = await host.cancel({ proof: proofFor(key), sessionId: created.sessionId })
+  expect(cancelled).toMatchObject({ sessionId: created.sessionId, state: 'settled', endReason: 'user' })
+
+  await expect(host.cancel({ proof: proofFor(key), sessionId: 'peer-00000000-0000-4000-8000-000000000000' }))
+    .rejects.toThrowError(/SESSION_NOT_FOUND/)
+  const sessions = await readPeerSessions(root)
+  await writePeerSessions(root, sessions.map(entry => ({ ...entry, peerInstanceId: other })))
+  await expect(host.cancel({ proof: proofFor(key), sessionId: created.sessionId })).rejects.toThrowError(/SESSION_NOT_FOUND/)
+  await writePeerSessions(root, sessions)
+  registry.entries.clear()
+  await expect(host.cancel({ proof: proofFor(key), sessionId: created.sessionId })).rejects.toThrowError(/SESSION_NOT_FOUND/)
+  await expect(host.cancel({ proof: undefined as never, sessionId: created.sessionId })).rejects.toThrowError(/INVALID_PAYLOAD/)
+})
+
+it('cancels an idle session with an outstanding claim as still running', async () => {
+  const { host, key, registry } = await rig()
+  registry.settleMs = 10_000
+  const created = await host.delegate({ proof: proofFor(key), prompt: 'held', timeoutMs: 20 })
+  expect(created.state).toBe('running')
+  registry.entries.get(created.sessionId)!.status = 'idle'
+  const cancelled = await host.cancel({ proof: proofFor(key), sessionId: created.sessionId })
+  expect(cancelled).toMatchObject({ sessionId: created.sessionId, messageId: created.messageId, state: 'running' })
+})
+
+it('cancels an idle session whose resident window no longer shows a claim', async () => {
+  const { root, host, key, registry } = await rig()
+  const created = await host.delegate({ proof: proofFor(key), prompt: 'work' })
+  registry.entries.get(created.sessionId)!.session.events.length = 0
+  await expect(host.cancel({ proof: proofFor(key), sessionId: created.sessionId }))
+    .rejects.toThrowError(/turn is no longer observable live/)
+  expect(root).toBeDefined()
 })
 
 it('follows up one owned session and rejects foreign or unknown ids', async () => {
@@ -317,7 +371,8 @@ it('rejects unknown and revoked callers on every request family', async () => {
   const stranger = identityKey()
   const strangerProof = (() => {
     const timestamp = Date.now()
-    return { instanceId: '99999999-1111-4222-8333-444455556666', timestamp, signature: stranger.sign(peerRequestMessage('99999999-1111-4222-8333-444455556666', timestamp)) }
+    const nonce = randomUUID()
+    return { instanceId: '99999999-1111-4222-8333-444455556666', timestamp, nonce, signature: stranger.sign(peerRequestMessage('99999999-1111-4222-8333-444455556666', timestamp, nonce)) }
   })()
   await expect(host.sessions({ proof: strangerProof })).rejects.toThrowError(/RECORD_NOT_FOUND/)
   await writePeerStore(root, (await readPeerStore(root)).map(peer => ({ ...peer, status: 'revoked' as const })))

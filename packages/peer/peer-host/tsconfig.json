@@ -45,6 +45,9 @@
       "path": "../../util/home-paths"
     },
     {
+      "path": "../../host/webserver"
+    },
+    {
       "path": "../peer-protocol"
     }
   ]

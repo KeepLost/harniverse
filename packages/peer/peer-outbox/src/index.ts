@@ -15,12 +15,17 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import { ensureInstanceIdentity, PeerError } from '@deepseek-ai/dsh-peer-protocol'
+import {
+  ensureInstanceIdentity,
+  PeerError,
+} from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerRunResult, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
 import {
   ensurePeerIdentityKey,
+  openPeerEventStream,
   readPeerTargets,
   runPeerResult,
+  runPeerSubscribe,
   withPeerTransport,
 } from '@deepseek-ai/dsh-peer-client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -67,8 +72,11 @@ export class PeerOutbox extends Service {
   private table: KvTable<string, PeerOutboxEntry> | undefined
   private timer: ReturnType<typeof setTimeout> | undefined
   private polling = false
+  private again = false
   private closed = false
   private readonly chains = new Map<string, Promise<unknown>>()
+  /** Live event streams by target instance id; a stream failure only returns its target to poll-only watching. */
+  private readonly streams = new Map<string, AbortController>()
 
   constructor(ctx: Context, config: PeerOutboxConfig = {}) {
     super(ctx, 'peerOutbox')
@@ -92,6 +100,7 @@ export class PeerOutbox extends Service {
     this.ownerCtx.effect(() => async () => {
       this.closed = true
       this.disarm()
+      for (const controller of this.streams.values()) controller.abort()
       await Promise.allSettled([...this.chains.values()])
       await domain.close()
     }, 'peer-outbox lifecycle')
@@ -139,9 +148,13 @@ export class PeerOutbox extends Service {
     return this.table
   }
 
-  /** Schedule one poll soon when idle; a running cycle already re-arms itself. */
+  /** Schedule one poll soon when idle; a running cycle picks the request up at its re-arm. */
   private poke(): void {
-    if (this.closed || this.polling) return
+    if (this.closed) return
+    if (this.polling) {
+      this.again = true
+      return
+    }
     this.rearm(0)
   }
 
@@ -177,9 +190,60 @@ export class PeerOutbox extends Service {
       await Promise.allSettled(watching
         .map(entry => this.chains.get(entry.ownerSessionId))
         .filter((chain): chain is Promise<unknown> => chain !== undefined))
+      await this.refreshStreams(watching)
     } finally {
       this.polling = false
-      this.rearm(this.pollIntervalMs)
+      const immediate = this.again
+      this.again = false
+      this.rearm(immediate ? 0 : this.pollIntervalMs)
+    }
+  }
+
+  /** Keep one event stream per watched target: a push frame pokes an immediate poll.
+   * @param watching - the cycle's watching entries.
+   */
+  private async refreshStreams(watching: PeerOutboxEntry[]): Promise<void> {
+    const targets = new Map<string, PeerTarget>()
+    for (const entry of watching) {
+      if (targets.has(entry.targetInstanceId)) continue
+      const target = await this.resolveTarget(entry)
+      if (target !== undefined) targets.set(entry.targetInstanceId, target)
+    }
+    for (const id of [...this.streams.keys()]) {
+      if (targets.has(id)) continue
+      ;(this.streams.get(id) as AbortController).abort()
+      this.streams.delete(id)
+    }
+    for (const [id, target] of targets) {
+      if (this.streams.has(id) || this.closed) continue
+      const controller = new AbortController()
+      this.streams.set(id, controller)
+      void this.runStream(id, target, controller.signal)
+    }
+  }
+
+  /** Run one target's event stream; any failure only returns the target to poll-only watching. */
+  private async runStream(id: string, target: PeerTarget, signal: AbortSignal): Promise<void> {
+    try {
+      const identity = await ensureInstanceIdentity(this.home)
+      const key = await ensurePeerIdentityKey(this.home)
+      const subscribe = (origin: string) => runPeerSubscribe(
+        { target, home: this.home, origin, timeoutMs: RESULT_CALL_MS },
+        { instanceId: identity.instanceId, key },
+      )
+      const { streamToken } = await withPeerTransport(this.ownerCtx, this.home, target, subscribe)
+      const stream = (origin: string) => openPeerEventStream(
+        { target, home: this.home, origin, signal },
+        streamToken,
+        () => {
+          this.poke()
+        },
+      )
+      await withPeerTransport(this.ownerCtx, this.home, target, stream)
+    } catch {
+      // A refused or broken stream never fails entries; the standing poll keeps the watch.
+    } finally {
+      if (this.streams.get(id)?.signal === signal) this.streams.delete(id)
     }
   }
 

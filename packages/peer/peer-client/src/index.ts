@@ -6,15 +6,27 @@ export { type PairOptions, pairWithPeer } from './pairing.ts'
 export {
   type PeerCallIdentity,
   type PeerCallOptions,
+  type PeerStreamOptions,
   accessFor,
   callPeerRemote,
+  openPeerEventStream,
+  parsePeerEventFrame,
   provenHello,
   requestProofFor,
+  runPeerCancel,
   runPeerDelegate,
   runPeerFollowup,
   runPeerResult,
   runPeerSessions,
+  runPeerSubscribe,
   validateRunResult,
   validateSessionSummaries,
 } from './remote.ts'
-export { type PeerTransportRoute, withPeerOrigin, withPeerTransport } from './transport.ts'
+export {
+  type PeerTransportRoute,
+  pinnedFetchFor,
+  pinnedIdentityChecker,
+  verifyTlsFingerprint,
+  withPeerOrigin,
+  withPeerTransport,
+} from './transport.ts'

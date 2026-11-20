@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-实例配对的发起方结算台账:跟踪已被在线目标接受、但超出调用工具预算的委派轮次,只读轮询其结算,并把结算回复作为 plugin 来源的 user 消息投回发起会话。
+实例配对的发起方结算台账:跟踪已被在线目标接受、但超出调用工具预算的委派轮次,经目标事件流监视其结算、以只读轮询为常备兜底,并把结算回复作为 plugin 来源的 user 消息投回发起会话。
 
 台账不保存任何未投递的工作,也不做任何重试。配对是双方在线的契约:结算期不可达的目标在**同刻复探一次**后仍不可达即终态失败条目——这是 owner 的裁定,可预期的失败永远比不可预期的稍后成功安全。部署组合了本服务时,peer 工具把 running 轮次登记到此处;`dsh peer outbox` 列出台账供检视。
 
@@ -11,7 +11,7 @@
 - `ctx.peerOutbox.track(input)` —— 持久登记一个已接受但仍在运行的轮次;实例重启后由下一次轮询自然恢复跟踪。
 - `ctx.peerOutbox.list()` —— 全部条目,按提交时间升序。
 
-每个轮询周期经只读 `peer/result` Remote(`harniverse.peer` 能力、`list` surface)读取每个 `watching` 条目的结算。结算的轮次在空闲维护阶段投递回复(按 `maxResultChars` 截断),来源标记为 `peer` 的 user 消息;终态条目在台账中保留结局,至多保留 200 条终态记录。失败族是闭集:`TARGET_UNREACHABLE`、`TARGET_RECORD_NOT_FOUND`、`SESSION_DROPPED`、`OWNER_SESSION_NOT_LIVE`、`READ_FAILED`。
+每个周期经只读 `peer/result` Remote(`harniverse.peer` 能力、`list` surface)读取每个 `watching` 条目的结算,然后为每个被监视目标保持一条事件流:`runPeerSubscribe` 铸出单次令牌,每条推送帧都唤起一次立即轮询——周期进行中到达的帧顺延到下次重整。流只是优化:订阅被拒或流断开不改变任何行为,常备节拍继续监视,任何条目都不会等待目标上线。结算的轮次在空闲维护阶段投递回复(按 `maxResultChars` 截断),来源标记为 `peer` 的 user 消息;终态条目在台账中保留结局,至多保留 200 条终态记录。失败族是闭集:`TARGET_UNREACHABLE`、`TARGET_RECORD_NOT_FOUND`、`SESSION_DROPPED`、`OWNER_SESSION_NOT_LIVE`、`READ_FAILED`。
 
 ## Configuration
 
@@ -48,3 +48,4 @@ peer 工具报告轮次仍在运行后,结算回复稍后以一条排队的 user
 - 投递只面向活跃 agent:条目结算时会话已关闭或已冷,则失败为 `OWNER_SESSION_NOT_LIVE`,回复保留在台账中供 `dsh peer outbox` 查看;冷会话唤醒投递随 M6 治理工作一并处理。
 - 投递与结算写入之间崩溃会为该条目重放一次投递(回复内容幂等);窗口以 flush 屏障为界。
 - `dsh peer outbox` 视图从第二个进程读取持久 JSON 介质;运行中实例写入的条目在其写入完成后可见,视图永不写入。
+- 事件流不持有重放游标:断线丢帧由常备轮询覆盖,每次重连都经一枚新证明铸出新令牌。

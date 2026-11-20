@@ -9199,6 +9199,9 @@ importers:
       '@deepseek-ai/dsh-sdk-client':
         specifier: workspace:^
         version: link:../../sdk/client
+      undici:
+        specifier: 8.12.2
+        version: 8.12.2
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -9240,6 +9243,9 @@ importers:
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:^
         version: link:../../util/home-paths
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants

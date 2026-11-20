@@ -17,6 +17,7 @@ One-shot peer pairing management app, booted by `dsh peer` (a launcher alias of 
 | `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>] [--async]` | initiating | Starts one delegated session on the paired target and awaits its reply; prints the session line and, once settled, the reply text. `--async` submits with the minimum budget and prints the receipt (session and message id) naming the `dsh peer result` read. |
 | `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>] [--async]` | initiating | Delivers the next turn into one delegated session and awaits settlement the same way; `--async` prints the receipt instead. |
 | `peer sessions <instance-id>` | initiating | Lists this instance's delegated sessions on the target with live state. |
+| `peer cancel <instance-id> <session-id>` | initiating | Cancels the current turn of one delegated session on the target and prints its terminal state; an idle session reports its newest claim's settlement unchanged. |
 | `peer result <instance-id> <session-id> <message-id>` | initiating | Reads one delegated turn's settlement without a new prompt — the manual escape hatch behind an async receipt. |
 | `peer outbox` | initiating | Lists this home's settlement ledger (written by a running instance through `dsh-peer-outbox`); the view never writes. |
 

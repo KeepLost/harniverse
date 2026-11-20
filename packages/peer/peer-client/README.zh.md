@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-实例配对的发起方:家粒度 P-256 签名身份、`peer-targets.json` 存储与"注册—兑换—hello"编排。纯库——无插件、无 Config——由 [dsh-peer-app](../../bundle/peer-app/README.md) 消费;未来的活通道插件将以同样方式组合它。
+实例配对的发起方:家粒度 P-256 签名身份、`peer-targets.json` 存储、"注册—兑换—hello"编排、委派与取消调用,以及事件流读取器。纯库——无插件、无 Config——由 [dsh-peer-app](../../bundle/peer-app/README.md) 与 [dsh-peer-outbox](../peer-outbox/README.md) 消费。
 
 ## 签名身份
 
@@ -10,13 +10,15 @@
 
 ## 配对编排
 
-`pairWithPeer({ invite, home, origin, fetch?, timeoutMs?, transport? })` 对一个目标跑完整流程:确保身份与密钥,然后要么复用已记录的活跃 Grant(幂等重配对完全跳过登记),要么以 `peer-<instanceId>` 登记、兑换邀请并保留已批准的 Grant id。每次运行用签名挑战换短时 Access Token,取回一枚 `peer/challenge` nonce,并携带对 `(instanceId, nonce)` 的签名经 Connection RPC 信封调用 `peer/hello`;若目标作答的身份与邀请声称不符则以 `IDENTITY_MISMATCH` 中止。持久化目标把端点、传输、Grant 名与 id、状态记入 `peer-targets.json`。
+`pairWithPeer({ invite, home, origin, fetch?, timeoutMs?, transport? })` 对一个目标跑完整流程:确保身份与密钥,然后要么复用已记录的活跃 Grant(幂等重配对完全跳过登记),要么以 `peer-<instanceId>` 登记、兑换邀请并保留已批准的 Grant id。每次运行用签名挑战换短时 Access Token,取回一枚 `peer/challenge` nonce,并携带对 `(instanceId, nonce)` 的签名经 Connection RPC 信封调用 `peer/hello`;若目标作答的身份与邀请声称不符则以 `IDENTITY_MISMATCH` 中止。持久化目标把端点、传输、Grant 名与 id、TLS 钉、状态记入 `peer-targets.json`。携带 `tlsFingerprint` 的目标必须经 HTTPS 拨号:`pinnedFetchFor` 为传输 fetch 构造一个 `checkServerIdentity`,凡不哈希到钉值的证书一律拒绝(`PIN_MISMATCH`);SSH 转发接受 `https://127.0.0.1:<port>` 端点,同一校验因此可以贯穿隧道;未钉指纹的目标保持 Node 信任根。
 
 ## 委派调用
 
-`runPeerDelegate`、`runPeerFollowup`、`runPeerResult` 与 `runPeerSessions` 共享 `{ target, home, origin }` 选项与解析出的 `{ instanceId, key }` 身份:每次调用铸造带时间窗的请求证明、从存储的 Grant id 重建 `GrantAccess`,并经同一信封投递。携带 code `peer-failed` 的线上失败映射回封闭 peer 原因(`SURFACE_DENIED`、`INVALID_PROOF`、`SESSION_NOT_FOUND`、`SESSION_BUSY` 等);回读在使用前重新校验。`runPeerResult` 按会话与消息 id 只读一个已拥有轮次的结算,不投递新提示。
+`runPeerDelegate`、`runPeerFollowup`、`runPeerCancel`、`runPeerResult`、`runPeerSessions` 与 `runPeerSubscribe` 共享 `{ target, home, origin }` 选项与解析出的 `{ instanceId, key }` 身份:每次调用铸造带单次 nonce 的请求证明、从存储的 Grant id 重建 `GrantAccess`,并经同一信封投递。携带 code `peer-failed` 的线上失败映射回封闭 peer 原因(`SURFACE_DENIED`、`INVALID_PROOF`、`SESSION_NOT_FOUND`、`SESSION_BUSY` 等);回读在使用前重新校验。`runPeerResult` 按会话与消息 id 只读一个已拥有轮次的结算,不投递新提示;`runPeerCancel` 中止一个已拥有会话的当前回合并返回其终态;`runPeerSubscribe` 铸出单次流令牌。
 
-各阶段报告封闭原因:`TRANSPORT_FAILED`、`ENROLLMENT_REJECTED`、`REDEEM_REJECTED`、`HELLO_REJECTED`、`IDENTITY_MISMATCH`、`CHALLENGE_EXPIRED`、`INVALID_PROOF`、`SURFACE_DENIED`、`SESSION_NOT_FOUND`、`SESSION_BUSY`、`STORE_FAILED`。origin 必须是 HTTPS 或环回 HTTP,与邀请编解码的规则一致。
+`openPeerEventStream({ target, home, origin, fetch?, signal }, streamToken, onFrame)` 把订阅的 `text/event-stream` 读到流结束或中止:经 `parsePeerEventFrame` 解析 `data:` 帧、忽略心跳注释,abort 触发时安静结束,被拒的流与畸形帧以 `TRANSPORT_FAILED` 报告。目标拒绝的 Grant 挑战或令牌交换——重配对遇撤销的 Grant——以 `EXCHANGE_FAILED` 呈现并附带"删除后重新邀请"指引,而不是裸的 sdk-client 错误;传输层抛错归类为 `TRANSPORT_FAILED`(配对期间为 `HELLO_REJECTED`),调用方因此只需做一次可达性分类。
+
+各阶段报告封闭原因:`TRANSPORT_FAILED`、`ENROLLMENT_REJECTED`、`REDEEM_REJECTED`、`EXCHANGE_FAILED`、`HELLO_REJECTED`、`IDENTITY_MISMATCH`、`CHALLENGE_EXPIRED`、`INVALID_PROOF`、`SURFACE_DENIED`、`SESSION_NOT_FOUND`、`SESSION_BUSY`、`PIN_MISMATCH`、`STORE_FAILED`。origin 必须是 HTTPS 或环回 HTTP,与邀请编解码的规则一致。
 
 ## 验证
 
@@ -38,6 +40,7 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/peer/peer-client
 
 ## Known Limitations and Deferred Work(已知限制与后续工作)
 
-- 幂等重配对复用已记录的 Grant;若目标已撤销它,交换失败,操作者需在删除陈旧目标记录后重新邀请。
-- Access Token 仅存进程内存;未来的活通道插件负责长连接上的续期。
-- 委派调用是同步的:`state: 'running'` 的结果把回合留在目标上继续,调用方经 `sessions` 再问;发起方尚无在目标不可达时排队的持久发件箱。
+- 幂等重配对复用已记录的 Grant;已撤销的 Grant 应答 `EXCHANGE_FAILED`,操作者需在删除陈旧目标记录后重新邀请——不存在静默重新登记。
+- Access Token 仅存进程内存;每次新调用重建 `GrantAccess`,事件流不携带令牌续期——每次重连都经一枚新证明重新订阅。
+- 委派调用是同步的:`state: 'running'` 的结果把回合留在目标上继续,调用方经 `result` 再问;配对契约禁止在目标不可达时排队待发。
+- 钉校验在每条拨号连接上验证证书,但不做证书透明度或 OCSP 检查。

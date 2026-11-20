@@ -14,7 +14,7 @@ Each DSH home mints one `instance.json` on first peer use — `{ version, instan
 
 ## Proofs
 
-Two canonical signatures bind Remote calls to the initiator's P-256 identity key. The hello proof covers `peerHelloMessage(instanceId, challenge)` — the single-use nonce minted by `peer/challenge` — so the accepting instance pins `identityPublicKey` into the paired record at first pairing and verifies every later hello against the pinned key (`IDENTITY_MISMATCH` otherwise). The request proof covers `peerRequestMessage(instanceId, timestamp)`; `verifyPeerRequestProof` checks shape, the `PEER_PROOF_SKEW_MS` clock window, and the signature against the pinned key before any delegate, follow-up, or enumeration call runs. `verifyPeerSignature` is the shared base64url-SPKI ECDSA/SHA-256 verifier both proofs use.
+Two canonical signatures bind Remote calls to the initiator's P-256 identity key. The hello proof covers `peerHelloMessage(instanceId, challenge)` — the single-use nonce minted by `peer/challenge` — so the accepting instance pins `identityPublicKey` into the paired record at first pairing and verifies every later hello against the pinned key (`IDENTITY_MISMATCH` otherwise). The request proof covers `peerRequestMessage(instanceId, timestamp, nonce)`; `verifyPeerRequestProof` checks shape, the `PEER_PROOF_SKEW_MS` clock window, and the signature against the pinned key, and returns the proof's nonce so the host rejects any replay inside the window. `verifyPeerSignature` is the shared base64url-SPKI ECDSA/SHA-256 verifier both proofs use. Stream constants ride along: `PEER_STREAM_TOKEN_TTL_MS` bounds one minted event-stream token's redeemability and `PEER_STREAM_HEARTBEAT_MS` names the cadence the stream maintains; `PEER_NONCE_TTL_MS` is the host-side retention horizon for consumed request nonces.
 
 ## Verification
 
@@ -37,4 +37,4 @@ None; the package assembles no model input.
 ## Known Limitations and Deferred Work
 
 - The identity document carries no key material; a future key-rotation path replaces the initiator key through revoke-and-re-pair rather than extending this format.
-- TLS fingerprint pinning is carried by the payload but not yet enforced by a transport; direct HTTPS today relies on Node trust roots.
+- TLS fingerprint pinning applies only when the invitation carries one; an unpinned HTTPS origin still relies on Node trust roots, and a pinned origin rejects plain-HTTP dials outright.

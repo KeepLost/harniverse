@@ -1,13 +1,14 @@
 /** Authenticated peer Remote calls: the shared envelope, proofs, and the delegate/follow-up/enumeration operations. */
 
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { GrantAccess } from '@deepseek-ai/dsh-sdk-client'
 import {
   PeerError,
   peerHelloMessage,
   peerRequestMessage,
 } from '@deepseek-ai/dsh-peer-protocol'
-import type { PeerErrorReason, PeerInstanceId, PeerRequestProof, PeerRunResult, PeerSessionSummary, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
+import type { PeerErrorReason, PeerEventFrame, PeerInstanceId, PeerRequestProof, PeerRunResult, PeerSessionSummary, PeerSubscribeResult, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
+import { pinnedFetchFor } from './transport.ts'
 import type { PeerKeyMaterial } from './keys.ts'
 
 /** Inputs of one Remote call run; the caller owns transport establishment. */
@@ -31,14 +32,15 @@ export interface PeerCallIdentity {
 }
 
 /**
- * Mint one timestamp-windowed request proof.
+ * Mint one single-use nonce-bound request proof.
  * @param identity - the initiator's key and instance anchor.
  * @returns the signed proof for the next Remote call.
  */
 export async function requestProofFor(identity: PeerCallIdentity): Promise<PeerRequestProof> {
   const timestamp = Date.now()
-  const message = peerRequestMessage(identity.instanceId, timestamp)
-  return { instanceId: identity.instanceId, timestamp, signature: await identity.key.signChallenge(message) }
+  const nonce = randomBytes(16).toString('base64url')
+  const message = peerRequestMessage(identity.instanceId, timestamp, nonce)
+  return { instanceId: identity.instanceId, timestamp, nonce, signature: await identity.key.signChallenge(message) }
 }
 
 /**
@@ -49,7 +51,8 @@ export async function requestProofFor(identity: PeerCallIdentity): Promise<PeerR
  */
 export function accessFor(options: PeerCallOptions, key: PeerKeyMaterial): GrantAccess {
   const timeout = options.timeoutMs ?? 30_000
-  const fetchImpl = bounded(options.fetch ?? ((input, init) => globalThis.fetch(input, init)), timeout)
+  const fetchImpl = bounded(pinnedFetchFor(options.target.tlsFingerprint, options.origin,
+    options.fetch ?? ((input, init) => globalThis.fetch(input, init))), timeout)
   return new GrantAccess({ origin: options.origin, grantId: options.target.grantId,
     signChallenge: payload => key.signChallenge(payload), fetch: fetchImpl })
 }
@@ -65,11 +68,24 @@ export function accessFor(options: PeerCallOptions, key: PeerKeyMaterial): Grant
  */
 export async function callPeerRemote(access: GrantAccess, origin: string, method: string, args: unknown): Promise<unknown> {
   const rpcId = randomUUID()
-  const response = await access.fetch(`${origin}/api/peer/${method}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type: 'client-request', rpcId, method: `peer/${method}`, payload: { args } }),
-  })
+  let response: Response
+  try {
+    response = await access.fetch(`${origin}/api/peer/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId, method: `peer/${method}`, payload: { args } }),
+    })
+  } catch (error) {
+    // The Grant's challenge/token exchange rejects revoked grants with a raw
+    // sdk-client Error; surface the closed re-pair guidance instead.
+    if (error instanceof Error && error.message.startsWith('GrantAccess:')) {
+      throw new PeerError('EXCHANGE_FAILED', 'grant rejected; remove the stale target record and re-pair with a fresh invitation')
+    }
+    // A transport-level throw (refused connection, DNS, abort) names the same
+    // family as an HTTP-level fault so callers classify reachability once.
+    const detail = error instanceof Error ? error.message : String(error)
+    throw method === 'hello' ? new PeerError('HELLO_REJECTED', detail) : new PeerError('TRANSPORT_FAILED', detail)
+  }
   const transportFault = (detail: string): PeerError =>
     method === 'hello' ? new PeerError('HELLO_REJECTED', detail) : new PeerError('TRANSPORT_FAILED', detail)
   if (!response.ok) throw transportFault(`HTTP ${String(response.status)}`)
@@ -248,6 +264,142 @@ export async function runPeerSessions(options: PeerCallOptions, identity: PeerCa
   const proof = await requestProofFor(identity)
   const value = await callPeerRemote(access, options.origin, 'sessions', { request: { proof } })
   return validateSessionSummaries(value)
+}
+
+/**
+ * Cancel the current turn of one session the initiator owns on a paired target.
+ * @param options - target, home, origin, and limits.
+ * @param identity - the initiator's resolved call identity.
+ * @param sessionId - the initiator's own delegated session.
+ * @returns the cancelled turn's terminal state.
+ */
+export async function runPeerCancel(options: PeerCallOptions, identity: PeerCallIdentity, sessionId: string): Promise<PeerRunResult> {
+  const access = accessFor(options, identity.key)
+  const proof = await requestProofFor(identity)
+  const value = await callPeerRemote(access, options.origin, 'cancel', { request: { proof, sessionId } })
+  return validateRunResult(value)
+}
+
+/**
+ * Mint one single-use event-stream token on a paired target.
+ * @param options - target, home, origin, and limits.
+ * @param identity - the initiator's resolved call identity.
+ * @returns the stream token and the heartbeat cadence.
+ */
+export async function runPeerSubscribe(options: PeerCallOptions, identity: PeerCallIdentity): Promise<PeerSubscribeResult> {
+  const access = accessFor(options, identity.key)
+  const proof = await requestProofFor(identity)
+  const value = await callPeerRemote(access, options.origin, 'subscribe', { request: { proof } })
+  return validateSubscribeResult(value)
+}
+
+/** Inputs of one event-stream run; the caller owns transport establishment. */
+export interface PeerStreamOptions {
+  /** The paired target record carrying the Grant identity and TLS pin. */
+  target: PeerTarget
+  /** Absolute initiator Harness home holding the identity key. */
+  home: string
+  /** Origin the target endpoint resolves to for this run. */
+  origin: string
+  /** Fetch implementation bound to the transport; defaults to the global fetch. */
+  fetch?: typeof globalThis.fetch
+  /** Abort ending the stream; the returned promise then resolves. */
+  signal: AbortSignal
+}
+
+/**
+ * Read one subscribed event stream until it ends or aborts. Frames are wake-up
+ * signals only; settlements are confirmed through `peer/result`.
+ * @param options - target, origin, fetch, and abort.
+ * @param streamToken - the single-use token minted by `runPeerSubscribe`.
+ * @param onFrame - sink for every validated push frame.
+ * @throws a {@link PeerError} with `TRANSPORT_FAILED` for a refused stream or malformed frames.
+ */
+export async function openPeerEventStream(
+  options: PeerStreamOptions,
+  streamToken: string,
+  onFrame: (frame: PeerEventFrame) => void,
+): Promise<void> {
+  const fetchImpl = pinnedFetchFor(options.target.tlsFingerprint, options.origin, options.fetch)
+  let response: Response
+  try {
+    response = await fetchImpl(`${options.origin}/api/peer/events?token=${encodeURIComponent(streamToken)}`, {
+      signal: options.signal,
+      headers: { accept: 'text/event-stream' },
+    })
+  } catch (error) {
+    if (options.signal.aborted) return
+    throw new PeerError('TRANSPORT_FAILED', error instanceof Error ? error.message : String(error))
+  }
+  if (!response.ok || response.body === null) {
+    throw new PeerError('TRANSPORT_FAILED', `event stream HTTP ${String(response.status)}`)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return
+      buffer += decoder.decode(value, { stream: true })
+      let boundary = buffer.indexOf('\n\n')
+      while (boundary >= 0) {
+        const chunk = buffer.slice(0, boundary)
+        buffer = buffer.slice(boundary + 2)
+        boundary = buffer.indexOf('\n\n')
+        const line = chunk.split('\n').find(candidate => candidate.startsWith('data: '))
+        if (line === undefined) continue
+        onFrame(parsePeerEventFrame(line.slice('data: '.length)))
+      }
+    }
+  } catch (error) {
+    if (options.signal.aborted) {
+      try {
+        await reader.cancel()
+      } catch {
+        // The abort already tore the stream down; cancelling a dead reader has no one left to tell.
+      }
+      return
+    }
+    throw error
+  }
+}
+
+/**
+ * Validate one subscribe readback value.
+ * @param value - untrusted wire value.
+ * @returns the validated subscribe result.
+ * @throws a {@link PeerError} with `TRANSPORT_FAILED` for malformed readbacks.
+ */
+function validateSubscribeResult(value: unknown): PeerSubscribeResult {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('TRANSPORT_FAILED', 'malformed subscribe result')
+  const record = value as Record<string, unknown>
+  if (typeof record.streamToken !== 'string' || record.streamToken.length === 0 || record.streamToken.length > 128
+    || typeof record.heartbeatMs !== 'number' || !Number.isFinite(record.heartbeatMs) || record.heartbeatMs < 1) {
+    throw new PeerError('TRANSPORT_FAILED', 'malformed subscribe result')
+  }
+  return value as PeerSubscribeResult
+}
+
+/**
+ * Parse and validate one event-stream `data:` payload.
+ * @param line - the raw JSON text after the `data:` prefix.
+ * @returns the validated frame.
+ * @throws a {@link PeerError} with `TRANSPORT_FAILED` for malformed frames.
+ */
+export function parsePeerEventFrame(line: string): PeerEventFrame {
+  let value: unknown
+  try {
+    value = JSON.parse(line)
+  } catch {
+    throw new PeerError('TRANSPORT_FAILED', 'malformed event frame')
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('TRANSPORT_FAILED', 'malformed event frame')
+  const record = value as Record<string, unknown>
+  if (record.kind !== 'settled' || typeof record.sessionId !== 'string' || record.sessionId.length === 0 || record.sessionId.length > 80) {
+    throw new PeerError('TRANSPORT_FAILED', 'malformed event frame')
+  }
+  return record as PeerEventFrame
 }
 
 /** Wrap one fetch with a per-call timeout.
