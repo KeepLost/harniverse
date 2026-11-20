@@ -2354,10 +2354,10 @@ export interface PeerStartupValues {
 }
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
 ```
 
-Source: [`packages/bundle/peer-app/src/index.ts:49`](../packages/bundle/peer-app/src/index.ts)
+Source: [`packages/bundle/peer-app/src/index.ts:50`](../packages/bundle/peer-app/src/index.ts)
 
 <a id="deepseek-aidsh-peer-host"></a>
 
@@ -2391,7 +2391,7 @@ export interface PeerOutboxConfig {
 }
 ```
 
-Source: [`packages/peer/peer-outbox/src/index.ts:39`](../packages/peer/peer-outbox/src/index.ts)
+Source: [`packages/peer/peer-outbox/src/index.ts:44`](../packages/peer/peer-outbox/src/index.ts)
 
 <a id="deepseek-aidsh-permission-presets"></a>
 

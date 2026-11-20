@@ -82,7 +82,10 @@ export class PeerNonceLedger {
   }
 }
 
-/** Encode one push frame as a server-sent-event data line. */
+/** Encode one push frame as a server-sent-event data line.
+ * @param frame - the push frame to carry.
+ * @returns the complete `data:` chunk including its blank-line terminator.
+ */
 export function encodePeerEventFrame(frame: PeerEventFrame): string {
   return `data: ${JSON.stringify(frame)}\n\n`
 }

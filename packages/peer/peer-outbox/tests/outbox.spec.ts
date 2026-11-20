@@ -602,10 +602,9 @@ it('wakes an immediate poll from a settlement push frame', async () => {
   })
   rig.target.pushFrame('peer-01234567-89ab-cdef-0123-456789abcdef')
   await waitFor(() => {
-    expect(rig.script.followups).toHaveLength(1)
+    expect(rig.outbox.list().find(candidate => candidate.id === entry.id)).toMatchObject({ state: 'settled', reply: 'pushed' })
   })
-  const settled = rig.outbox.list().find(candidate => candidate.id === entry.id)
-  expect(settled).toMatchObject({ state: 'settled', reply: 'pushed' })
+  expect(rig.script.followups).toHaveLength(1)
 })
 
 it('keeps polling entries when the event stream is refused', async () => {

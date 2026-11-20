@@ -2357,7 +2357,7 @@ export interface PeerStartupValues {
 }
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
 ```
 
 来源：[`packages/bundle/peer-app/src/index.ts:38`](../packages/bundle/peer-app/src/index.ts)

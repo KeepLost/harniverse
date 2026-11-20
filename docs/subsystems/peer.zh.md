@@ -63,6 +63,8 @@ interface PeerRequestProof {
   instanceId: PeerInstanceId
   /** Claim time in epoch milliseconds; the host rejects values outside the skew window. */
   timestamp: number
+  /** Single-use nonce minted per request; the host rejects any replayed nonce inside the skew window. */
+  nonce: string
   /** Base64url IEEE-P1363 ECDSA/SHA-256 signature over the canonical request message. */
   signature: string
 }
