@@ -11,7 +11,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { peerInstanceId } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerRunResult, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
-import { writePeerTargets } from '@deepseek-ai/dsh-peer-client'
+import { readPeerTargets, writePeerTargets } from '@deepseek-ai/dsh-peer-client'
 import * as toolPeer from '../src/index.ts'
 
 const ID_A = peerInstanceId('3f2a8f9e-1111-4222-8333-444455556666')
@@ -284,12 +284,19 @@ it('truncates oversized replies at the configured ceiling', async () => {
   expect(result.text).toContain('… [truncated: 6 more characters]')
 })
 
-it('rethrows raw transport faults from an unreachable target', async () => {
+it('maps transport faults from an unreachable target and rethrows raw ssh faults', async () => {
   const rig = await setup([{}])
   await rig.target.stop()
   const result = await rig.execute({ target: ID_A, prompt: 'p' })
   expect(result.isError).toBe(true)
-  expect(result.text).toContain('fetch failed')
+  expect(result.text).toContain('peer call failed (TRANSPORT_FAILED): fetch failed')
+  // An ssh route without the remote-hosts-ssh service fails before the peer envelope,
+  // so the raw (non-PeerError) throw surfaces verbatim.
+  await writePeerTargets(rig.home, (await readPeerTargets(rig.home))
+    .map(record => ({ ...record, transport: { kind: 'ssh', host: 'keybox' } })))
+  const raw = await rig.execute({ target: ID_A, prompt: 'p' })
+  expect(raw.isError).toBe(true)
+  expect(raw.text).toContain('the ssh target needs the remote-hosts-ssh service')
 })
 
 it('renders a settled turn without a reply and a transport fault with its message', async () => {
