@@ -349,6 +349,9 @@ it('requests surface changes through the CLI composition', async () => {
   const added = await invoke(['add', inviteUri(invited.out), '--timeout', '20000'], initiator)
   expect(added.code, `add stderr: ${added.err}`).toBe(0)
   const targetId = target.identity.instanceId
+  const unchanged = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on'], initiator)
+  expect(unchanged.code, `surface stderr: ${unchanged.err}`).toBe(0)
+  expect(unchanged.out).toContain('committed (delegate, message, list)')
   const narrowed = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'off', '--list', 'off'], initiator)
   expect(narrowed.code, `surface stderr: ${narrowed.err}`).toBe(0)
   expect(narrowed.out).toContain('committed (delegate, no-message, no-list)')
@@ -358,6 +361,8 @@ it('requests surface changes through the CLI composition', async () => {
   const allOff = await invoke(['surface', targetId, '--delegate', 'off', '--message', 'off', '--list', 'off'], initiator)
   expect(allOff.code, `surface stderr: ${allOff.err}`).toBe(0)
   expect(allOff.out).toContain('committed (no-delegate, no-message, no-list)')
+  const parkedFromAllOff = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on'], initiator)
+  expect(parkedFromAllOff.out).toContain('pending owner approval (current: no-delegate, no-message, no-list)')
   const badFlag = await invoke(['surface', targetId, '--delegate', 'maybe', '--message', 'on', '--list', 'on'], initiator)
   expect(badFlag.code).toBe(1)
   expect(badFlag.err).toContain('take "on" or "off"')

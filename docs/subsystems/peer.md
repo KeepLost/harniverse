@@ -29,6 +29,8 @@ interface PeerRecord {
   version: string
   /** Peer capability surface approved at pairing; each field gates one Remote family. */
   surface: PeerSurface
+  /** Complete desired surface parked by a peer request that widens any field; owner approval commits it. */
+  pendingSurface?: PeerSurface
   /** How the peer was admitted; the shipped flow is always the invitation token. */
   pairedVia: 'invitation'
   status: 'active' | 'revoked'

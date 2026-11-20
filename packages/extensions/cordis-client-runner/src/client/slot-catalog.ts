@@ -1527,6 +1527,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [
       'client-ui-governor GovernorResourcesTab id \'resources\'',
       'client-ui-governor GovernorQuotaTab id \'quotas\'',
+      'client-ui-peer-admin PeersView id \'peer-admin\'',
       'client-ui-queue QueueTab id \'queue\'',
       'client-ui-remote-hosts RemoteHostsView id \'remote-hosts\'',
       'client-ui-scheduler ScheduleTab id \'schedules\'',

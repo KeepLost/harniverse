@@ -315,12 +315,12 @@ describe('paired-peer governance view', () => {
 describe('issue localization', () => {
   it('maps every closed reason and foreign failures to operator copy', async () => {
     const { peerIssue, resultError } = await import('../src/client/issues.ts')
-    const failure = (reason: unknown, message?: unknown, code?: string) => ({ code: code ?? 'peer-failed', message, details: { reason } }) as unknown as RemoteFailure
+    const failure = (reason: unknown, message?: unknown, code?: string) => ({ code: code ?? 'peer-failed', message, details: { reason }  }) as RemoteFailure
     expect(peerIssue(t, failure('INVALID_PAYLOAD', 'raw'))).toBe(zh.errorInvalidPayload)
     expect(peerIssue(t, failure('CORRUPT_INSTANCE', 'raw'))).toBe(zh.errorCorruptInstance)
     expect(peerIssue(t, failure(undefined, 'wire message'))).toBe('wire message')
     expect(peerIssue(t, failure(undefined, '', 'other-code'))).toBe(zh.actionFailed)
-    expect(peerIssue(t, failure(42 as never, 'wire message'))).toBe('wire message')
+    expect(peerIssue(t, failure(42, 'wire message'))).toBe('wire message')
     expect(resultError(t, { ok: true as const, value: 1 })).toBeUndefined()
     expect(resultError(t, { ok: false, error: failure('STORE_FAILED') })).toEqual(new Error(zh.errorStoreFailed))
   })

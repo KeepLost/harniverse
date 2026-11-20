@@ -45,7 +45,7 @@
   padding: 14px 16px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
-  background: var(--dsw-alias-bg-elevated);
+  background: var(--dsw-alias-bg-layer-2);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -117,10 +117,10 @@
 
 .danger {
   appearance: none;
-  border: 1px solid var(--dsw-alias-danger, #d24735);
+  border: 1px solid var(--dsw-alias-state-error-primary);
   border-radius: 6px;
   background: transparent;
-  color: var(--dsw-alias-danger, #d24735);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   padding: 3px 10px;
   cursor: pointer;
@@ -150,8 +150,8 @@
 }
 
 .badgeOn {
-  color: var(--dsw-alias-success, #2e7d4f);
-  border-color: var(--dsw-alias-success, #2e7d4f);
+  color: var(--dsw-alias-state-success-primary);
+  border-color: var(--dsw-alias-state-success-primary);
 }
 
 .badgeOff {
@@ -172,7 +172,7 @@
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  border: 1px solid var(--dsw-alias-warning, #b8860b);
+  border: 1px solid var(--dsw-alias-state-error-secondary);
   border-radius: 8px;
   padding: 8px 10px;
   color: var(--dsw-alias-label-primary);
@@ -203,7 +203,7 @@
 }
 
 .error {
-  color: var(--dsw-alias-danger, #d24735);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   margin: 0;
 }

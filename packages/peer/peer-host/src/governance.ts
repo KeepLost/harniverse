@@ -141,13 +141,14 @@ export function periodOf(now: Date): string {
   return `${now.getUTCFullYear().toString().padStart(4, '0')}-${(now.getUTCMonth() + 1).toString().padStart(2, '0')}`
 }
 
+/** The three grant flags of one peer surface. */
+type SurfaceFlags = { delegate: boolean; message: boolean; list: boolean }
+
 /** Whether one desired surface stays inside the granted one field-by-field.
  * @param granted - the surface currently in force.
  * @param desired - the complete requested surface.
  * @returns `true` when no field widens, so the change may commit without approval.
  */
-type SurfaceFlags = { delegate: boolean; message: boolean; list: boolean }
-
 export function isNarrowing(granted: SurfaceFlags, desired: SurfaceFlags): boolean {
   return (!desired.delegate || granted.delegate) && (!desired.message || granted.message) && (!desired.list || granted.list)
 }

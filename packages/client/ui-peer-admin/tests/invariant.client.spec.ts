@@ -77,7 +77,7 @@ describe('client composition', () => {
     for (const stop of stops) stop()
     // The injected actions reach the mounted peer namespace verbatim.
     const actions = injected as unknown as Record<string, (input: unknown) => unknown>
-    const verbs = ['list', 'removePeer', 'setSurface', 'approveSurface', 'rejectSurface', 'setBudget', 'audit']
+    const verbs = ['list', 'remove', 'setSurface', 'approveSurface', 'rejectSurface', 'setBudget', 'audit']
     for (const verb of verbs) {
       actions[verb]!({ instanceId: peerId, surface: { delegate: true, message: true, list: true } })
     }
