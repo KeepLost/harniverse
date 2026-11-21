@@ -2335,8 +2335,17 @@ export interface PeerStartupValues {
   fingerprint?: string
   /** remote-hosts record name dialed for a tunneled `add`. */
   sshHost?: string
-  /** Instance id targeted by `remove` or `forget`. */
+  /** Instance id targeted by most operations. */
   instanceId?: string
+  /** Complete desired surface for `surface`. */
+  surface?: {
+    /** Delegate grant requested by `surface`. */
+    delegate: boolean
+    /** Message grant requested by `surface`. */
+    message: boolean
+    /** List grant requested by `surface`. */
+    list: boolean
+  }
   /** Per-request timeout in milliseconds for `add`. */
   timeoutMs?: number
   /** Delegation prompt words for `run` and `send`. */
@@ -2354,10 +2363,10 @@ export interface PeerStartupValues {
 }
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'outbox'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'outbox'
 ```
 
-Source: [`packages/bundle/peer-app/src/index.ts:50`](../packages/bundle/peer-app/src/index.ts)
+Source: [`packages/bundle/peer-app/src/index.ts:51`](../packages/bundle/peer-app/src/index.ts)
 
 <a id="deepseek-aidsh-peer-host"></a>
 
@@ -2371,7 +2380,7 @@ export interface PeerHostConfig {
 }
 ```
 
-Source: [`packages/peer/peer-host/src/types.ts:5`](../packages/peer/peer-host/src/types.ts)
+Source: [`packages/peer/peer-host/src/types.ts:23`](../packages/peer/peer-host/src/types.ts)
 
 <a id="deepseek-aidsh-peer-outbox"></a>
 
@@ -4882,6 +4891,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-message-feedback` ([`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-message-quotes` ([`packages/client/ui-message-quotes/src/index.ts`](../packages/client/ui-message-quotes/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model-selection` ([`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-peer-admin` ([`packages/client/ui-peer-admin/src/index.ts`](../packages/client/ui-peer-admin/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-permission-presets` ([`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-queue` ([`packages/client/ui-queue/src/index.ts`](../packages/client/ui-queue/src/index.ts))

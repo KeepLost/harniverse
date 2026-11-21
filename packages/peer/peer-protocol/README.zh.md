@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-共享 peer 词汇:`dsh-peer:` 邀请编解码、家锚定的实例身份、hello 与请求证明、封闭错误词汇与 Grant 命名约定。纯库——无插件、无 Config、无注册——由 [dsh-peer-host](../peer-host/README.md)、[dsh-peer-client](../peer-client/README.md)与 [dsh-peer-app](../../bundle/peer-app/README.md)消费。
+共享 peer 词汇:`dsh-peer:` 邀请编解码、家锚定的实例身份、hello 与请求证明、封闭错误词汇(含治理拒绝 `BUDGET_EXCEEDED`)、能力面请求信封与 Grant 命名约定。纯库——无插件、无 Config、无注册——由 [dsh-peer-host](../peer-host/README.md)、[dsh-peer-client](../peer-client/README.md)与 [dsh-peer-app](../../bundle/peer-app/README.md)消费。
 
 ## 实例身份
 

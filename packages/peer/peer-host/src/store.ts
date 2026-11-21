@@ -56,9 +56,10 @@ export function parsePeerRecord(value: unknown): PeerRecord {
   }
   const record = value as unknown as Record<string, unknown>
   const keys = ['instanceId', 'displayName', 'platform', 'arch', 'version', 'surface', 'pairedVia', 'status', 'firstSeenAt', 'lastSeenAt']
+  const optional = ['identityPublicKey', 'pendingSurface']
   const present = Object.keys(record)
-  if (keys.some(key => !(key in record)) || present.length > keys.length + 1
-    || (present.length === keys.length + 1 && !('identityPublicKey' in record))) {
+  const extras = present.filter(key => !keys.includes(key))
+  if (keys.some(key => !(key in record)) || extras.some(key => !optional.includes(key))) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer record fields mismatch')
   }
   if ('identityPublicKey' in record && (typeof record.identityPublicKey !== 'string' || record.identityPublicKey.length === 0
@@ -82,6 +83,17 @@ export function parsePeerRecord(value: unknown): PeerRecord {
   if (Object.keys(surface).length !== 3 || typeof surface.delegate !== 'boolean'
     || typeof surface.message !== 'boolean' || typeof surface.list !== 'boolean') {
     throw new PeerError('CORRUPT_INSTANCE', 'peer record surface fields')
+  }
+  if ('pendingSurface' in record) {
+    const pending = record.pendingSurface
+    if (typeof pending !== 'object' || pending === null || Array.isArray(pending)) {
+      throw new PeerError('CORRUPT_INSTANCE', 'peer record pending surface')
+    }
+    const fields = pending as Record<string, unknown>
+    if (Object.keys(fields).length !== 3 || typeof fields.delegate !== 'boolean'
+      || typeof fields.message !== 'boolean' || typeof fields.list !== 'boolean') {
+      throw new PeerError('CORRUPT_INSTANCE', 'peer record pending surface fields')
+    }
   }
   if (record.pairedVia !== 'invitation' || (record.status !== 'active' && record.status !== 'revoked')) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer record admission fields')

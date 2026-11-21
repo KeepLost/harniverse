@@ -19,11 +19,13 @@ import {
 } from '@deepseek-ai/dsh-peer-protocol'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
-import type { PeerCancelRequest, PeerDelegateRequest, PeerFollowupRequest, PeerHello, PeerHelloInput, PeerHelloRequest, PeerInstanceId, PeerRecord, PeerRequestProof, PeerResultRequest, PeerRunResult, PeerSessionSummary, PeerSubscribeResult } from '@deepseek-ai/dsh-peer-protocol'
-import type { PeerHostConfig } from './types.ts'
+import type { PeerCancelRequest, PeerDelegateRequest, PeerFollowupRequest, PeerHello, PeerHelloInput, PeerHelloRequest, PeerInstanceId, PeerRecord, PeerRequestProof, PeerResultRequest, PeerRunResult, PeerSessionSummary, PeerSubscribeResult, PeerSurface, PeerSurfaceRequest, PeerSurfaceResult } from '@deepseek-ai/dsh-peer-protocol'
+import type { PeerAdminView, PeerHostConfig } from './types.ts'
 import { cancelPeerSession, delegateToPeer, dropPeerSessions, followupPeerSession, listPeerSessions, resultPeerSession, validateCancelRequest, validateDelegateRequest, validateFollowupRequest, validateResultRequest, validateSessionsRequest, validateSubscribeRequest } from './delegate.ts'
+import { PEER_BUDGET_MAX_TURNS, isNarrowing, peerBudgetView, setPeerBudget } from './governance.ts'
 import { PeerNonceLedger, PeerStreamTokens, runPeerEventStream } from './events.ts'
 import { findPeer, readPeerStore, writePeerStore } from './store.ts'
+import { readPeerSessions } from './session-registry.ts'
 
 const { version: PEER_HOST_VERSION } = createRequire(import.meta.url)('../package.json') as { version: string }
 
@@ -38,20 +40,6 @@ export { findPeer, parsePeerRecord, peerStorePath, readPeerStore, writePeerStore
 
 declare module '@deepseek-ai/cordis' {
   interface Context { peerHost: PeerHost }
-  interface Events {
-    /**
-     * Emitted after one peer's first `peer/hello` appended its record.
-     * @mode emit
-     * @param record - the committed paired-peer record.
-     */
-    'peer/paired'(record: PeerRecord): void
-    /**
-     * Emitted after one paired-peer record was removed from the store.
-     * @mode emit
-     * @param record - the removed record's final state.
-     */
-    'peer/removed'(record: PeerRecord): void
-  }
 }
 
 /** Peer acceptance service; the store file is the authority and events are live-process observations. */
@@ -343,11 +331,270 @@ export class PeerHost extends TypertRemoteService {
       return this.streamTokens.mint(record.instanceId, Date.now())
     })
   }
+
+  /** Request one surface change: a pure narrowing commits immediately, any widening parks for owner approval.
+   * @param request - proof plus the complete desired surface.
+   * @returns the surface in force and whether the desire is pending owner approval.
+   */
+  @Remote({ requiredCapability: 'harniverse.peer' })
+  async surface(request: PeerSurfaceRequest): Promise<PeerSurfaceResult> {
+    return await this.remote(async () => {
+      assertPairableWorld()
+      const valid = validateSurfaceRequest(request)
+      const authenticated = await this.authenticate(valid.proof)
+      const peers = await readPeerStore(this.home)
+      const record = findPeer(peers, authenticated.instanceId)
+      /* v8 ignore next -- a concurrent removal between authenticate and this write must not resurrect the record */
+      if (record === undefined) throw new PeerError('RECORD_NOT_FOUND')
+      const { pendingSurface: parked, ...rest } = record
+      const replace = [...peers.filter(peer => peer.instanceId !== record.instanceId)]
+      if (isNarrowing(record.surface, valid.surface)) {
+        // A narrowing is the peer surrendering grants; committing it also retires any parked widening.
+        if (!sameSurface(record.surface, valid.surface) || parked !== undefined) {
+          await writePeerStore(this.home, [...replace, { ...rest, surface: valid.surface }])
+        }
+        return { surface: valid.surface, pending: false }
+      }
+      await writePeerStore(this.home, [...replace, { ...record, pendingSurface: valid.surface }])
+      return { surface: record.surface, pending: true }
+    })
+  }
+
+  /** List every paired peer with its governance state for the owner admin surface.
+   * @returns admin views, newest activity first.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer' })
+  async list(): Promise<{ peers: PeerAdminView[] }> {
+    return await this.remote(async () => {
+      const peers = await readPeerStore(this.home)
+      const sessions = await readPeerSessions(this.home)
+      const views: PeerAdminView[] = []
+      for (const record of peers) {
+        const budget = await peerBudgetView(this.home, record.instanceId, new Date())
+        views.push({
+          instanceId: record.instanceId, displayName: record.displayName, platform: record.platform,
+          arch: record.arch, version: record.version, status: record.status, surface: record.surface,
+          ...record.pendingSurface === undefined ? {} : { pendingSurface: record.pendingSurface },
+          firstSeenAt: record.firstSeenAt, lastSeenAt: record.lastSeenAt,
+          ...budget,
+          sessionCount: sessions.filter(entry => entry.peerInstanceId === record.instanceId).length,
+        })
+      }
+      views.sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+      return { peers: views }
+    })
+  }
+
+  /** Remove one paired peer, end its delegated sessions, and drop its governance entry.
+   * @param input - exact instance id to remove.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer', exportName: 'removePeer' })
+  async remove(input: { instanceId: PeerInstanceId }): Promise<void> {
+    await this.remote(async () => {
+      const { instanceId } = validateAdminTarget(input)
+      await this.removePeer(instanceId)
+      await setPeerBudget(this.home, instanceId, undefined)
+    })
+  }
+
+  /** Set the granted surface directly; the owner's own decision needs no approval step.
+   * @param input - exact instance id and the complete new surface.
+   * @returns the updated admin view.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer' })
+  async setSurface(input: { instanceId: PeerInstanceId; surface: PeerSurface }): Promise<PeerAdminView> {
+    return await this.remote(async () => {
+      const valid = validateAdminSurface(input)
+      return await this.updatePeerRecord(valid.instanceId, (record) => {
+        const { pendingSurface: parked, ...rest } = record
+        void parked
+        return { ...rest, surface: valid.surface }
+      })
+    })
+  }
+
+  /** Commit the parked widening surface a peer requested.
+   * @param input - exact instance id carrying a pending surface.
+   * @returns the updated admin view.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer' })
+  async approveSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView> {
+    return await this.remote(async () => {
+      const { instanceId } = validateAdminTarget(input)
+      return await this.updatePeerRecord(instanceId, (record) => {
+        if (record.pendingSurface === undefined) throw new PeerError('RECORD_NOT_FOUND', 'no pending surface')
+        const { pendingSurface, ...rest } = record
+        return { ...rest, surface: pendingSurface }
+      })
+    })
+  }
+
+  /** Drop the parked widening surface a peer requested; the surface in force stays unchanged.
+   * @param input - exact instance id carrying a pending surface.
+   * @returns the updated admin view.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer' })
+  async rejectSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView> {
+    return await this.remote(async () => {
+      const { instanceId } = validateAdminTarget(input)
+      return await this.updatePeerRecord(instanceId, (record) => {
+        if (record.pendingSurface === undefined) throw new PeerError('RECORD_NOT_FOUND', 'no pending surface')
+        const { pendingSurface: parked, ...rest } = record
+        void parked
+        return rest
+      })
+    })
+  }
+
+  /** Set or lift one peer's monthly delivered-turn budget.
+   * @param input - exact instance id and the new cap; an absent cap lifts the budget.
+   * @returns the updated admin view.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer' })
+  async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView> {
+    return await this.remote(async () => {
+      const valid = validateSetBudget(input)
+      const peers = await readPeerStore(this.home)
+      const record = findPeer(peers, valid.instanceId)
+      if (record === undefined) throw new PeerError('RECORD_NOT_FOUND')
+      await setPeerBudget(this.home, valid.instanceId, valid.monthlyTurns)
+      return await this.adminViewOf(record)
+    })
+  }
+
+  /** Audit one peer's delegated sessions; metadata only, transcripts stay in the session view.
+   * @param input - exact instance id to audit.
+   * @returns the peer's session summaries, newest activity first.
+   */
+  @Remote({ requiredCapability: 'harniverse.administer' })
+  async audit(input: { instanceId: PeerInstanceId }): Promise<{ sessions: PeerSessionSummary[] }> {
+    return await this.remote(async () => {
+      const { instanceId } = validateAdminTarget(input)
+      const peers = await readPeerStore(this.home)
+      if (findPeer(peers, instanceId) === undefined) throw new PeerError('RECORD_NOT_FOUND')
+      return { sessions: await listPeerSessions(this.ctx, this.home, instanceId) }
+    })
+  }
+
+  /** Build the admin view of one stored record.
+   * @param record - the stored paired-peer record.
+   * @returns the governance view with budget and session counts.
+   */
+  private async adminViewOf(record: PeerRecord): Promise<PeerAdminView> {
+    const [budget, sessions] = await Promise.all([peerBudgetView(this.home, record.instanceId, new Date()), readPeerSessions(this.home)])
+    return {
+      instanceId: record.instanceId, displayName: record.displayName, platform: record.platform,
+      arch: record.arch, version: record.version, status: record.status, surface: record.surface,
+      ...record.pendingSurface === undefined ? {} : { pendingSurface: record.pendingSurface },
+      firstSeenAt: record.firstSeenAt, lastSeenAt: record.lastSeenAt,
+      ...budget,
+      sessionCount: sessions.filter(entry => entry.peerInstanceId === record.instanceId).length,
+    }
+  }
+
+  /** Apply one owner edit to a stored record and return its admin view.
+   * @param instanceId - exact instance id to edit.
+   * @param mutate - pure record transformation.
+   * @returns the admin view of the committed record.
+   * @throws a {@link PeerError} with `RECORD_NOT_FOUND` when no such peer is stored.
+   */
+  private async updatePeerRecord(instanceId: PeerInstanceId, mutate: (record: PeerRecord) => PeerRecord): Promise<PeerAdminView> {
+    const peers = await readPeerStore(this.home)
+    const record = findPeer(peers, instanceId)
+    if (record === undefined) throw new PeerError('RECORD_NOT_FOUND')
+    const updated = mutate(record)
+    await writePeerStore(this.home, [...peers.filter(peer => peer.instanceId !== instanceId), updated])
+    return await this.adminViewOf(updated)
+  }
 }
 
 /** Reject pairing inside a VM execution world; peers never serve from real-sandbox instances. */
 function assertPairableWorld(): void {
   if (process.env.DSH_EXEC_WORLD === 'vm') throw new PeerError('PEER_UNAVAILABLE_VM')
+}
+
+/** Whether two surfaces agree on every field.
+ * @param left - one complete surface.
+ * @param right - the other complete surface.
+ * @returns whether all three grants match.
+ */
+function sameSurface(left: PeerSurface, right: PeerSurface): boolean {
+  return left.delegate === right.delegate && left.message === right.message && left.list === right.list
+}
+
+/** Validate the strict three-boolean surface shape.
+ * @param value - untrusted surface value.
+ * @returns the validated surface.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed surfaces.
+ */
+function requireSurface(value: unknown): PeerSurface {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD', 'surface')
+  const surface = value as Record<string, unknown>
+  if (Object.keys(surface).length !== 3 || typeof surface.delegate !== 'boolean'
+    || typeof surface.message !== 'boolean' || typeof surface.list !== 'boolean') {
+    throw new PeerError('INVALID_PAYLOAD', 'surface')
+  }
+  return value as PeerSurface
+}
+
+/** Validate one surface-change request's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated request.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+function validateSurfaceRequest(value: unknown): PeerSurfaceRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  if (typeof record.proof !== 'object' || record.proof === null || Array.isArray(record.proof)) throw new PeerError('INVALID_PAYLOAD')
+  requireSurface(record.surface)
+  return value as PeerSurfaceRequest
+}
+
+/** Validate one admin request naming a single instance id.
+ * @param value - untrusted wire value.
+ * @returns the validated target.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+function validateAdminTarget(value: unknown): { instanceId: PeerInstanceId } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  if (Object.keys(record).length !== 1 || typeof record.instanceId !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(record.instanceId)) {
+    throw new PeerError('INVALID_PAYLOAD', 'instanceId')
+  }
+  return value as { instanceId: PeerInstanceId }
+}
+
+/** Validate one admin surface edit's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated target and surface.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+function validateAdminSurface(value: unknown): { instanceId: PeerInstanceId; surface: PeerSurface } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  if (Object.keys(record).length !== 2) throw new PeerError('INVALID_PAYLOAD')
+  validateAdminTarget({ instanceId: record.instanceId })
+  requireSurface(record.surface)
+  return value as { instanceId: PeerInstanceId; surface: PeerSurface }
+}
+
+/** Validate one budget edit's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated target and optional cap.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+function validateSetBudget(value: unknown): { instanceId: PeerInstanceId; monthlyTurns?: number } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+  if (keys.some(key => key !== 'instanceId' && key !== 'monthlyTurns')) throw new PeerError('INVALID_PAYLOAD', 'fields')
+  validateAdminTarget({ instanceId: record.instanceId })
+  if (record.monthlyTurns !== undefined && (typeof record.monthlyTurns !== 'number' || !Number.isInteger(record.monthlyTurns)
+    || record.monthlyTurns < 1 || record.monthlyTurns > PEER_BUDGET_MAX_TURNS)) {
+    throw new PeerError('INVALID_PAYLOAD', 'monthlyTurns out of range')
+  }
+  return value as { instanceId: PeerInstanceId; monthlyTurns?: number }
 }
 
 /** Validate one hello request against the shared bounds.

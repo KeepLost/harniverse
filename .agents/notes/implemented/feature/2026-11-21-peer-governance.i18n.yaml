@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-21-peer-governance.md
+2026-11-21-peer-governance.md: a0131a08a0d4d30db8569bb48eebcc3282a68f15
+2026-11-21-peer-governance.zh.md: 01578f9f1ba18c31647392064e1d994d276fe620

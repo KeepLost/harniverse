@@ -25,6 +25,7 @@ import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PeerSessionEntry } from './session-registry.ts'
 import { findPeerSession, readPeerSessions, writePeerSessions } from './session-registry.ts'
+import { authorizePeerTurn, recordPeerTurn } from './governance.ts'
 
 /** Settlement-wait budget applied when a request names none. */
 export const PEER_RUN_TIMEOUT_DEFAULT_MS = 600_000
@@ -335,6 +336,8 @@ export async function delegateToPeer(
   instanceId: PeerInstanceId,
   request: PeerDelegateRequest,
 ): Promise<PeerRunResult> {
+  // The budget gate precedes session minting; a capped peer leaves no artifacts behind.
+  await authorizePeerTurn(home, instanceId, new Date())
   const cwd = resolvePeerCwd(home, instanceId, request.cwd)
   const sessionId = `peer-${randomUUID()}`
   const composition = await composePeerAgent(ctx, request.profile)
@@ -368,6 +371,8 @@ export async function delegateToPeer(
   const beforeDeliver = [...(await readPeerSessions(home)).filter(item => item.sessionId !== sessionId), entry]
   await writePeerSessions(home, beforeDeliver)
   const result = await deliverTurn(ctx, sessionId, handle.agent, request.prompt, effectiveTimeout(request.timeoutMs))
+  // The turn was accepted for delivery, so it consumed budget whatever its settlement says.
+  await recordPeerTurn(home, instanceId, new Date())
   const afterDeliver = (await readPeerSessions(home))
     .map(item => item.sessionId === sessionId ? { ...item, lastActivityAt: new Date().toISOString() } : item)
   await writePeerSessions(home, afterDeliver)
@@ -388,11 +393,15 @@ export async function followupPeerSession(
   instanceId: PeerInstanceId,
   request: PeerFollowupRequest,
 ): Promise<PeerRunResult> {
+  // The budget gate precedes the session lookup; a capped peer learns nothing about stored ids.
+  await authorizePeerTurn(home, instanceId, new Date())
   const sessions = await readPeerSessions(home)
   const entry = findPeerSession(sessions, request.sessionId)
   if (entry === undefined || entry.peerInstanceId !== instanceId) throw new PeerError('SESSION_NOT_FOUND')
   const agent = await ensurePeerAgent(ctx, entry)
   const result = await deliverTurn(ctx, entry.sessionId, agent, request.prompt, effectiveTimeout(request.timeoutMs))
+  // The turn was accepted for delivery, so it consumed budget whatever its settlement says.
+  await recordPeerTurn(home, instanceId, new Date())
   await writePeerSessions(home, sessions
     .map(item => item.sessionId === entry.sessionId ? { ...item, lastActivityAt: new Date().toISOString() } : item))
   return result

@@ -51,7 +51,7 @@ interface InvocationResult { code: number; out: string; err: string }
 /** Boot the two production plugins through Loader; a stub remote-hosts-ssh satisfies the runner injection. */
 async function invoke(args: string[], dshHome: string, overrides: Record<string, object> = {}): Promise<InvocationResult> {
   const fixture = await temporary('dsh-peer-app-loader-')
-  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile', 'messageId', 'async']
+  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile', 'messageId', 'surface', 'async']
   await writeFile(join(fixture, 'cordis.yml'), [
     '- id: remote-hosts-ssh',
     '  name: remote-hosts-ssh',
@@ -339,6 +339,33 @@ it('cancels the current turn of an async-submitted session', async () => {
   expect(cancelled.out).toContain('user')
   const settledRead = await invoke(['result', targetId, sessionId, submittedMessageId(submitted.out)], initiator)
   expect(settledRead.out).toContain('user')
+})
+
+it('requests surface changes through the CLI composition', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  expect(invited.code).toBe(0)
+  const initiator = await temporary('peer-app-surface-')
+  const added = await invoke(['add', inviteUri(invited.out), '--timeout', '20000'], initiator)
+  expect(added.code, `add stderr: ${added.err}`).toBe(0)
+  const targetId = target.identity.instanceId
+  const unchanged = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on'], initiator)
+  expect(unchanged.code, `surface stderr: ${unchanged.err}`).toBe(0)
+  expect(unchanged.out).toContain('committed (delegate, message, list)')
+  const narrowed = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'off', '--list', 'off'], initiator)
+  expect(narrowed.code, `surface stderr: ${narrowed.err}`).toBe(0)
+  expect(narrowed.out).toContain('committed (delegate, no-message, no-list)')
+  const parked = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'off'], initiator)
+  expect(parked.code, `surface stderr: ${parked.err}`).toBe(0)
+  expect(parked.out).toContain('pending owner approval (current: delegate, no-message, no-list)')
+  const allOff = await invoke(['surface', targetId, '--delegate', 'off', '--message', 'off', '--list', 'off'], initiator)
+  expect(allOff.code, `surface stderr: ${allOff.err}`).toBe(0)
+  expect(allOff.out).toContain('committed (no-delegate, no-message, no-list)')
+  const parkedFromAllOff = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on'], initiator)
+  expect(parkedFromAllOff.out).toContain('pending owner approval (current: no-delegate, no-message, no-list)')
+  const badFlag = await invoke(['surface', targetId, '--delegate', 'maybe', '--message', 'on', '--list', 'on'], initiator)
+  expect(badFlag.code).toBe(1)
+  expect(badFlag.err).toContain('take "on" or "off"')
 })
 
 it('rejects an invalid lifetime and prints help for a bare command', async () => {

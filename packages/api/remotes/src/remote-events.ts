@@ -26,6 +26,8 @@ export const API_REMOTE_FORWARDED_EVENTS = [
   'cordis/inspect-query-resolved',
   'llm/adapters-updated',
   'mcpManagement/fleet-changed',
+  'peer/paired',
+  'peer/removed',
   'settings/document-updated',
   'settings/exposure-changed',
   'web/providers-changed',

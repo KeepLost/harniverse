@@ -29,6 +29,8 @@ interface PeerRecord {
   version: string
   /** Peer capability surface approved at pairing; each field gates one Remote family. */
   surface: PeerSurface
+  /** Complete desired surface parked by a peer request that widens any field; owner approval commits it. */
+  pendingSurface?: PeerSurface
   /** How the peer was admitted; the shipped flow is always the invitation token. */
   pairedVia: 'invitation'
   status: 'active' | 'revoked'
@@ -112,6 +114,14 @@ Delegation is a both-online contract: an unreachable target fails immediately, a
 
 An invitation may pin the target's TLS certificate by its base64 SHA-256 fingerprint. A pinned target must be dialed over HTTPS — directly, or through an SSH forward whose invitation endpoint is `https://127.0.0.1:<port>`: the client builds its transport fetch with a `checkServerIdentity` that rejects any certificate not hashing to the pin (`PIN_MISMATCH`), and the verification rides the same TLS connection either way. A pinned target dialed over plain HTTP fails before any bytes leave; an unpinned HTTPS origin keeps Node trust roots.
 
+## Governance
+
+The accepting instance owns the governance surface. Its owner-administered Remotes — `list`, `removePeer`, `setSurface`, `approveSurface`, `rejectSurface`, `setBudget`, `audit` — ride the same `peer` namespace behind the `harniverse.administer` capability, so peer tokens cannot reach them; the web dashboard's Paired peers tab (`ui-peer-admin`) consumes them through the mounted client contract and re-lists on the forwarded `peer/paired` / `peer/removed` events.
+
+Surface changes follow the approval flow: an owner edit commits immediately, while a peer's own `peer/surface` request states one complete desired surface — a pure narrowing (or an equal surface) commits on the spot and retires any parked request, but any widening parks the complete desired surface in the record's single `pendingSurface` slot, latest request winning, with no expiry. While a request pends, calls keep answering under the surface in force; approval commits the parked surface, rejection drops it, and the peer observes the outcome from the next `peer/surface` call or the denials on other families.
+
+Turn budgets live in `peer-governance.json`: one optional per-peer monthly cap counted in accepted delivered turns (`delegate` first turns and `followup` turns alike), in UTC calendar months, unlimited when unset. The gate runs before delivery — a capped `delegate` mints no session and a capped `followup` checks before the session lookup — and the count is recorded once the turn is accepted for delivery, whatever its settlement later says; concurrently in-flight deliveries can overshoot by at most their own count, and the rejection is `BUDGET_EXCEEDED` naming the period and the limit. The admin `audit` answers metadata-only session rows (live state, timestamps, creation label); transcripts stay in the normal session view, and the rows live for the pairing's lifetime — removal ends the peer's delegated sessions, drops its governance entry, and emits `peer/removed`; the paired side learns of a removal when its next call no longer resolves the record, by design no stream frame announces it.
+
 ## Transports and exclusion
 
 The invitation endpoint is an HTTPS origin, or loopback HTTP behind a tunnel — the same rule every authenticated origin follows. `dsh peer add` dials the endpoint directly, or through one remote-hosts SSH record (`--ssh-host`) that forwards to the target's loopback port; key-file and agent logins work headless, encrypted credential references do not. A VM execution world composes no `peer-host` row and the service refuses `peer/hello` from VM homes, so real-sandbox instances never join the pairing fabric.
@@ -184,9 +194,55 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  * @returns the stream token and the heartbeat cadence.
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async subscribe(request: { proof: PeerRequestProof }): Promise<PeerSubscribeResult>
+
+/** Request one surface change: a pure narrowing commits immediately, any widening parks for owner approval.
+ * @param request - proof plus the complete desired surface.
+ * @returns the surface in force and whether the desire is pending owner approval.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async surface(request: PeerSurfaceRequest): Promise<PeerSurfaceResult>
+
+/** List every paired peer with its governance state for the owner admin surface.
+ * @returns admin views, newest activity first.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async list(): Promise<{ peers: PeerAdminView[] }>
+
+/** Remove one paired peer, end its delegated sessions, and drop its governance entry.
+ * @param input - exact instance id to remove.
+ */
+@Remote({ requiredCapability: 'harniverse.administer', exportName: 'removePeer' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>
+
+/** Set the granted surface directly; the owner's own decision needs no approval step.
+ * @param input - exact instance id and the complete new surface.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async setSurface(input: { instanceId: PeerInstanceId; surface: PeerSurface }): Promise<PeerAdminView>
+
+/** Commit the parked widening surface a peer requested.
+ * @param input - exact instance id carrying a pending surface.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async approveSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>
+
+/** Drop the parked widening surface a peer requested; the surface in force stays unchanged.
+ * @param input - exact instance id carrying a pending surface.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async rejectSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>
+
+/** Set or lift one peer's monthly delivered-turn budget.
+ * @param input - exact instance id and the new cap; an absent cap lifts the budget.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView>
+
+/** Audit one peer's delegated sessions; metadata only, transcripts stay in the session view.
+ * @param input - exact instance id to audit.
+ * @returns the peer's session summaries, newest activity first.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async audit(input: { instanceId: PeerInstanceId }): Promise<{ sessions: PeerSessionSummary[] }>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:58`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:46`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="ctxpeeroutbox--peeroutbox"></a>
 
@@ -231,7 +287,7 @@ Emitted after one peer's first `peer/hello` appended its record.
 'peer/paired'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:47`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/types.ts:11`](../../packages/peer/peer-host/src/types.ts)
 
 <a id="peerremoved--emit"></a>
 
@@ -248,5 +304,5 @@ Emitted after one paired-peer record was removed from the store.
 'peer/removed'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:53`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/types.ts:17`](../../packages/peer/peer-host/src/types.ts)
 <!-- END GENERATED cordis-surface -->

@@ -15,6 +15,7 @@ import {
   runPeerFollowup,
   runPeerResult,
   runPeerSessions,
+  runPeerSurface,
 } from '../src/remote.ts'
 import { ensurePeerIdentityKey } from '../src/keys.ts'
 import { ensureInstanceIdentity } from '@deepseek-ai/dsh-peer-protocol'
@@ -57,7 +58,7 @@ function scripted(responses: Array<{ status?: number; body?: unknown; raw?: stri
     if (reply.raw !== undefined) return new Response(reply.raw, { status: reply.status ?? 200 })
     let body = reply.body === undefined ? {} : reply.body
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (typeof url === 'string' && /\/api\/peer\/(hello|challenge|delegate|followup|result|sessions)$/.test(url) && init?.body !== undefined) {
+    if (typeof url === 'string' && /\/api\/peer\/(hello|challenge|delegate|followup|result|sessions|surface)$/.test(url) && init?.body !== undefined) {
       const request = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as { rpcId?: string }
       if (typeof request.rpcId === 'string' && typeof body === 'object' && body !== null) {
         body = { ...body as Record<string, unknown>, rpcId: request.rpcId }
@@ -127,6 +128,41 @@ it('runs the challenge/hello exchange and the three operations through one envel
 
   const read = await runPeerResult({ ...options, fetch: scripted([...exchange, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { ...runResult, state: 'running', reply: undefined } } } }]), timeoutMs: 5_000 }, identity, run.sessionId, run.messageId)
   expect(read).toMatchObject({ sessionId: run.sessionId, messageId: run.messageId, state: 'running' })
+})
+
+it('requests surface changes and validates the readback shape', async () => {
+  const root = await home()
+  const identity = await identityOf(root)
+  const options = { target, home: root, origin: target.endpoint.origin, fetch: scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: false, list: false }, pending: false } } } },
+  ]) }
+  const committed = await runPeerSurface(options, identity, { delegate: true, message: false, list: false })
+  expect(committed).toEqual({ surface: { delegate: true, message: false, list: false }, pending: false })
+  const parkedOptions = { ...options, fetch: scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: true, list: false }, pending: true } } } },
+  ]) }
+  const parked = await runPeerSurface(parkedOptions, identity, { delegate: true, message: true, list: true })
+  expect(parked).toEqual({ surface: { delegate: true, message: true, list: false }, pending: true })
+  const malformed = { ...options, fetch: scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true }, pending: false } } } },
+  ]) }
+  await expect(runPeerSurface(malformed, identity, { delegate: true, message: true, list: true }))
+    .rejects.toThrowError(/INVALID_PAYLOAD/)
+  const notObject = { ...options, fetch: scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: null } } },
+  ]) }
+  await expect(runPeerSurface(notObject, identity, { delegate: true, message: true, list: true }))
+    .rejects.toThrowError(/INVALID_PAYLOAD/)
+  const unpending = { ...options, fetch: scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: true, list: true } } } } },
+  ]) }
+  await expect(runPeerSurface(unpending, identity, { delegate: true, message: true, list: true }))
+    .rejects.toThrowError(/INVALID_PAYLOAD/)
 })
 
 it('maps wire reasons, messages, statuses, and bodies onto the closed vocabulary', async () => {

@@ -19,6 +19,7 @@ export type PeerErrorReason =
   | 'CHALLENGE_EXPIRED'
   | 'INVALID_PROOF'
   | 'SURFACE_DENIED'
+  | 'BUDGET_EXCEEDED'
   | 'SESSION_NOT_FOUND'
   | 'SESSION_BUSY'
   | 'PIN_MISMATCH'

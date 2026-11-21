@@ -71,6 +71,17 @@ it('validates every record field through the parser', () => {
   expect(() => bad({ firstSeenAt: 'nope' })).toThrowError(/CORRUPT_INSTANCE/)
   expect(() => bad({ lastSeenAt: 'nope' })).toThrowError(/CORRUPT_INSTANCE/)
   expect(() => bad({ extra: 1 })).toThrowError(/CORRUPT_INSTANCE/)
+  expect(() => bad({ pendingSurface: 'x' })).toThrowError(/CORRUPT_INSTANCE/)
+  expect(() => bad({ pendingSurface: [] })).toThrowError(/CORRUPT_INSTANCE/)
+  expect(() => bad({ pendingSurface: { delegate: true } })).toThrowError(/CORRUPT_INSTANCE/)
+  expect(() => bad({ pendingSurface: { delegate: true, message: true, list: 'yes' } })).toThrowError(/CORRUPT_INSTANCE/)
+})
+
+it('round-trips parked pending surfaces and keeps them optional', () => {
+  expect(parsePeerRecord(record)).toEqual(record)
+  const parked = parsePeerRecord({ ...record, pendingSurface: { delegate: true, message: false, list: true } })
+  expect(parked.pendingSurface).toEqual({ delegate: true, message: false, list: true })
+  expect('pendingSurface' in parked).toBe(true)
 })
 
 it('maps store write failures onto the closed reason', async () => {

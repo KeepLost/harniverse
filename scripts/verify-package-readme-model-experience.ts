@@ -110,6 +110,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/authentication': { kind: 'none', reason: 'Browser credential renewal and request admission register no model context or tools.' },
   'packages/client/ui-connection-status': { kind: 'none', reason: 'Read-only browser connection indicator; it neither initiates operations nor registers model context.' },
   'packages/client/ui-remote-hosts': { kind: 'none', reason: 'Browser-side remote-host management surface; it registers no model context or tools.' },
+  'packages/client/ui-peer-admin': { kind: 'none', reason: 'Browser-side paired-peer governance surface; it registers no model context or tools.' },
   'packages/client/ui-dashboard': { kind: 'none', reason: 'The dashboard shell composes other plugins\' management tabs; every data path belongs to its owning package.' },
   'packages/client/ui-queue': { kind: 'none', reason: 'The dashboard tab consumes the queue Remote only; delivery injection belongs to dsh-queue and its tools.' },
   'packages/client/ui-settings-global-rules': { kind: 'indirect', reason: 'The browser editor only moves bytes over the globalRules Remote; the agent-instructions baseline chain renders the edited file into model context.' },

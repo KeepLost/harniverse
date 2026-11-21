@@ -29,6 +29,8 @@ interface PeerRecord {
   version: string
   /** Peer capability surface approved at pairing; each field gates one Remote family. */
   surface: PeerSurface
+  /** Complete desired surface parked by a peer request that widens any field; owner approval commits it. */
+  pendingSurface?: PeerSurface
   /** How the peer was admitted; the shipped flow is always the invitation token. */
   pairedVia: 'invitation'
   status: 'active' | 'revoked'
@@ -112,6 +114,14 @@ interface PeerRunResult {
 
 邀请可以按 base64 SHA-256 指纹钉住目标的 TLS 证书。被钉的目标必须经 HTTPS 拨号——直连,或经邀请端点为 `https://127.0.0.1:<port>` 的 SSH 转发:客户端为传输 fetch 构造一个 `checkServerIdentity`,凡不哈希到钉值的证书一律拒绝(`PIN_MISMATCH`),且两种路径下校验都骑在同一条 TLS 连接上。被钉的目标经明文 HTTP 拨号在任何字节发出前即失败;未钉指纹的 HTTPS 来源保持 Node 信任根。
 
+## 治理
+
+接受方实例拥有治理面。其 owner 的 administer Remote —— `list`、`remove`、`setSurface`、`approveSurface`、`rejectSurface`、`setBudget`、`audit` —— 与 peer 线共用 `peer` 命名空间但要求 `harniverse.administer` 能力,peer 令牌无法触达;Web 仪表盘的「配对同伴」标签页(`ui-peer-admin`)经挂载的客户端契约消费它们,并在转发的 `peer/paired` / `peer/removed` 事件上重新拉取列表。
+
+能力面变更遵循审批流:owner 的直接编辑立即生效;而同伴自己的 `peer/surface` 请求陈述一份完整的目标能力面 —— 纯收窄(或等价面)当场提交并顺带撤销任何已挂起请求,含任何扩张则把整份目标面挂入记录的单一 `pendingSurface` 槽位,最新请求胜出,没有过期时间。请求待批期间,调用继续按现行能力面应答;批准提交挂起面,拒绝将其丢弃,同伴从下一次 `peer/surface` 调用或其它族面的拒绝得知结果。
+
+回合预算存于 `peer-governance.json`:每同伴一个可选的月度上限,按已被接受的投递回合计数(`delegate` 首回合与 `followup` 回合同样计),UTC 自然月,未设置即不限。闸门在投递之前 —— 被限额的 `delegate` 不铸造会话,被限额的 `followup` 在会话查找之前检查 —— 回合一经接受投递即计数,无论其后结算如何;并发在途投递可超出上限,至多以其自身数量为上界,拒绝以 `BUDGET_EXCEEDED` 携带周期与限额。管理 `audit` 只回应仅元数据的会话行(实时状态、时间戳、创建标签);全文留在常规会话视图,而这些行的存续期等于配对生命周期 —— 移除结束该同伴的委派会话、丢弃其治理条目并发出 `peer/removed`;配对侧在下一次调用解析不到记录时得知移除,按设计没有任何流帧宣告它。
+
 ## 传输与排除
 
 邀请端点是 HTTPS origin,或隧道后的环回 HTTP——与所有已认证 origin 的规则一致。`dsh peer add` 直接拨号端点,或经一条 remote-hosts SSH 记录(`--ssh-host`)转发到目标的环回端口;密钥文件与 agent 登录可无头使用,加密凭据引用不可以。VM 执行世界不组合 `peer-host` 行,且该服务拒绝来自 VM 家的 `peer/hello`,因此真沙箱实例永远不会加入配对网络。
@@ -184,9 +194,55 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  * @returns the stream token and the heartbeat cadence.
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async subscribe(request: { proof: PeerRequestProof }): Promise<PeerSubscribeResult>
+
+/** Request one surface change: a pure narrowing commits immediately, any widening parks for owner approval.
+ * @param request - proof plus the complete desired surface.
+ * @returns the surface in force and whether the desire is pending owner approval.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async surface(request: PeerSurfaceRequest): Promise<PeerSurfaceResult>
+
+/** List every paired peer with its governance state for the owner admin surface.
+ * @returns admin views, newest activity first.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async list(): Promise<{ peers: PeerAdminView[] }>
+
+/** Remove one paired peer, end its delegated sessions, and drop its governance entry.
+ * @param input - exact instance id to remove.
+ */
+@Remote({ requiredCapability: 'harniverse.administer', exportName: 'removePeer' }) async remove(input: { instanceId: PeerInstanceId }): Promise<void>
+
+/** Set the granted surface directly; the owner's own decision needs no approval step.
+ * @param input - exact instance id and the complete new surface.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async setSurface(input: { instanceId: PeerInstanceId; surface: PeerSurface }): Promise<PeerAdminView>
+
+/** Commit the parked widening surface a peer requested.
+ * @param input - exact instance id carrying a pending surface.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async approveSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>
+
+/** Drop the parked widening surface a peer requested; the surface in force stays unchanged.
+ * @param input - exact instance id carrying a pending surface.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async rejectSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>
+
+/** Set or lift one peer's monthly delivered-turn budget.
+ * @param input - exact instance id and the new cap; an absent cap lifts the budget.
+ * @returns the updated admin view.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView>
+
+/** Audit one peer's delegated sessions; metadata only, transcripts stay in the session view.
+ * @param input - exact instance id to audit.
+ * @returns the peer's session summaries, newest activity first.
+ */
+@Remote({ requiredCapability: 'harniverse.administer' }) async audit(input: { instanceId: PeerInstanceId }): Promise<{ sessions: PeerSessionSummary[] }>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:58`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:46`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="ctxpeeroutbox--peeroutbox"></a>
 
@@ -231,7 +287,7 @@ Emitted after one peer's first `peer/hello` appended its record.
 'peer/paired'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:47`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/types.ts:11`](../../packages/peer/peer-host/src/types.ts)
 
 <a id="peerremoved--emit"></a>
 
@@ -248,5 +304,5 @@ Emitted after one paired-peer record was removed from the store.
 'peer/removed'(record: PeerRecord): void
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:53`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/types.ts:17`](../../packages/peer/peer-host/src/types.ts)
 <!-- END GENERATED cordis-surface -->

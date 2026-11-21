@@ -19,6 +19,7 @@ One-shot peer pairing management app, booted by `dsh peer` (a launcher alias of 
 | `peer sessions <instance-id>` | initiating | Lists this instance's delegated sessions on the target with live state. |
 | `peer cancel <instance-id> <session-id>` | initiating | Cancels the current turn of one delegated session on the target and prints its terminal state; an idle session reports its newest claim's settlement unchanged. |
 | `peer result <instance-id> <session-id> <message-id>` | initiating | Reads one delegated turn's settlement without a new prompt — the manual escape hatch behind an async receipt. |
+| `peer surface <instance-id> --delegate on\|off --message on\|off --list on\|off` | initiating | Requests one complete surface change on the target: a pure narrowing commits immediately, any widening parks for the target owner's approval and prints the surface still in force. |
 | `peer outbox` | initiating | Lists this home's settlement ledger (written by a running instance through `dsh-peer-outbox`); the view never writes. |
 
 Invitations require an existing owner Grant in the target registry (the bootstrap rule); a fresh home pairs only after its owner bootstrap. SSH-dialed adds accept key-file and agent host logins only — password and encrypted-reference logins report `UNSUPPORTED_CREDENTIALS`, because a one-shot process resolves no encrypted credentials.

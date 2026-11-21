@@ -14,6 +14,7 @@ import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
 import schedulerRemote from '@deepseek-ai/dsh-scheduler/remote'
 import governorRemote from '@deepseek-ai/dsh-governor/remote'
 import queueRemote from '@deepseek-ai/dsh-queue/remote'
+import peerHostRemote from '@deepseek-ai/dsh-peer-host/remote'
 import remoteHostsRemote from '@deepseek-ai/dsh-remote-hosts/remote'
 import workspaceFileWriteRemote from '@deepseek-ai/dsh-workspace-file-write/remote'
 import chatBotsRemote from '@deepseek-ai/dsh-chat-manager/remote'
@@ -229,6 +230,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       governorRemote,
       queueRemote,
       remoteHostsRemote,
+      peerHostRemote,
       workspaceFileWriteRemote,
       chatBotsRemote,
       mcpUserConfigRemote,

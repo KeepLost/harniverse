@@ -7,7 +7,7 @@ import {
   peerHelloMessage,
   peerRequestMessage,
 } from '@deepseek-ai/dsh-peer-protocol'
-import type { PeerErrorReason, PeerEventFrame, PeerInstanceId, PeerRequestProof, PeerRunResult, PeerSessionSummary, PeerSubscribeResult, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
+import type { PeerErrorReason, PeerEventFrame, PeerInstanceId, PeerRequestProof, PeerRunResult, PeerSessionSummary, PeerSubscribeResult, PeerSurface, PeerSurfaceResult, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
 import { pinnedFetchFor } from './transport.ts'
 import type { PeerKeyMaterial } from './keys.ts'
 
@@ -281,6 +281,24 @@ export async function runPeerCancel(options: PeerCallOptions, identity: PeerCall
 }
 
 /**
+ * Request one surface change on a paired target.
+ * @param options - target, home, origin, and limits.
+ * @param identity - the initiator's resolved call identity.
+ * @param surface - complete desired surface; a pure narrowing commits immediately, any widening awaits owner approval.
+ * @returns the surface in force and whether the desire is pending owner approval.
+ */
+export async function runPeerSurface(
+  options: PeerCallOptions,
+  identity: PeerCallIdentity,
+  surface: PeerSurface,
+): Promise<PeerSurfaceResult> {
+  const access = accessFor(options, identity.key)
+  const proof = await requestProofFor(identity)
+  const value = await callPeerRemote(access, options.origin, 'surface', { request: { proof, surface } })
+  return validateSurfaceResult(value)
+}
+
+/**
  * Mint one single-use event-stream token on a paired target.
  * @param options - target, home, origin, and limits.
  * @param identity - the initiator's resolved call identity.
@@ -371,6 +389,24 @@ export async function openPeerEventStream(
  * @returns the validated subscribe result.
  * @throws a {@link PeerError} with `TRANSPORT_FAILED` for malformed readbacks.
  */
+/** Validate one surface-change response from the wire.
+ * @param value - untrusted wire value.
+ * @returns the validated surface outcome.
+ */
+function validateSurfaceResult(value: unknown): PeerSurfaceResult {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  if (typeof record.pending !== 'boolean') throw new PeerError('INVALID_PAYLOAD')
+  const surface = record.surface
+  if (typeof surface !== 'object' || surface === null || Array.isArray(surface)
+    || typeof (surface as Record<string, unknown>).delegate !== 'boolean'
+    || typeof (surface as Record<string, unknown>).message !== 'boolean'
+    || typeof (surface as Record<string, unknown>).list !== 'boolean') {
+    throw new PeerError('INVALID_PAYLOAD')
+  }
+  return { surface: surface as PeerSurface, pending: record.pending }
+}
+
 function validateSubscribeResult(value: unknown): PeerSubscribeResult {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('TRANSPORT_FAILED', 'malformed subscribe result')
   const record = value as Record<string, unknown>

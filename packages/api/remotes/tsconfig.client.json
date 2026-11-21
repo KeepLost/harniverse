@@ -15,10 +15,16 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../gateway/tsconfig.client.json"
+      "path": "../../chat/chat-manager"
     },
     {
       "path": "../../client/connection/tsconfig.client.json"
+    },
+    {
+      "path": "../../context/file-reference"
+    },
+    {
+      "path": "../../context/session-reference"
     },
     {
       "path": "../../credentials/credentials"
@@ -27,28 +33,25 @@
       "path": "../../extensions/cordis-host-runner"
     },
     {
-      "path": "../../context/file-reference"
+      "path": "../../feedback/message-feedback"
     },
     {
       "path": "../../goal/goal"
     },
     {
-      "path": "../../schedule/scheduler"
-    },
-    {
-      "path": "../../feedback/message-feedback"
-    },
-    {
-      "path": "../../host/plugin-inventory"
+      "path": "../../host/capability-management"
     },
     {
       "path": "../../host/official-session-import"
     },
     {
+      "path": "../../host/plugin-inventory"
+    },
+    {
       "path": "../../host/skin-library"
     },
     {
-      "path": "../../host/capability-management"
+      "path": "../../host/workspace-file-write"
     },
     {
       "path": "../../interaction/commands"
@@ -57,31 +60,31 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../mcp/mcp-user-config"
+    },
+    {
+      "path": "../../peer/peer-host"
+    },
+    {
       "path": "../../preset/agent-presets"
+    },
+    {
+      "path": "../../schedule/scheduler"
     },
     {
       "path": "../../settings/settings"
     },
     {
-      "path": "../../context/session-reference"
-    },
-    {
       "path": "../../ssh/remote-hosts"
     },
     {
-      "path": "../../host/workspace-file-write"
-    },
-    {
-      "path": "../../chat/chat-manager"
-    },
-    {
-      "path": "../../mcp/mcp-user-config"
+      "path": "../../typert/protocol"
     },
     {
       "path": "../../web/web"
     },
     {
-      "path": "../../typert/protocol"
+      "path": "../gateway/tsconfig.client.json"
     }
   ]
 }
