@@ -19,7 +19,7 @@ export interface PeersActions {
   setSurface: (input: { instanceId: string; surface: PeerSurface }) => Promise<RemoteResult<PeerAdminView>>
   approveSurface: (input: { instanceId: string }) => Promise<RemoteResult<PeerAdminView>>
   rejectSurface: (input: { instanceId: string }) => Promise<RemoteResult<PeerAdminView>>
-  setBudget: (input: { instanceId: string; monthlyTurns?: number }) => Promise<RemoteResult<PeerAdminView>>
+  setBudget: (input: { instanceId: string; monthlyTurns?: number; monthlyBytes?: number }) => Promise<RemoteResult<PeerAdminView>>
   audit: (input: { instanceId: string }) => Promise<RemoteResult<{ sessions: PeerSessionSummary[] }>>
 }
 
@@ -31,7 +31,18 @@ export type PeersViewProps =
 /** One grant line's toggle state kept while the owner edits a surface. */
 type SurfaceDraft = PeerSurface
 
-const GRANTS: ReadonlyArray<keyof PeerSurface> = ['delegate', 'message', 'list']
+const GRANTS: ReadonlyArray<keyof PeerSurface> = ['delegate', 'message', 'list', 'artifacts']
+
+/** Upper bound of the MiB figure the byte-budget form accepts; 1 TiB in bytes. */
+const BYTES_MAX_MIB = 1024 * 1024
+
+/** Localize one grant's label.
+ * @param t - the localized copy face.
+ * @param grant - the grant to name.
+ * @returns the localized label. */
+function grantLabel(t: PeersViewProps['t'], grant: keyof PeerSurface): string {
+  return t(grant === 'delegate' ? 'grantDelegate' : grant === 'message' ? 'grantMessage' : grant === 'list' ? 'grantList' : 'grantArtifacts')
+}
 
 /** Localize one session's live state.
  * @param t - the localized copy face.
@@ -41,7 +52,7 @@ function stateLabel(t: PeersViewProps['t'], state: PeerSessionSummary['state']):
   return state === 'running' ? t('sessionRunning') : state === 'idle' ? t('sessionIdle') : t('sessionEnded')
 }
 
-/** Render one surface as the three grant badges.
+/** Render one surface as the four grant badges.
  * @param t - the localized copy face.
  * @param surface - the surface to render.
  * @returns the badge row. */
@@ -50,7 +61,7 @@ function surfaceBadges(t: PeersViewProps['t'], surface: PeerSurface) {
     <span className={css.badges}>
       {GRANTS.map(grant => (
         <span key={grant} className={`${css.badge} ${surface[grant] ? css.badgeOn : css.badgeOff}`}>
-          {t(grant === 'delegate' ? 'grantDelegate' : grant === 'message' ? 'grantMessage' : 'grantList')}
+          {grantLabel(t, grant)}
           {surface[grant] ? '' : ` (${t('grantOff')})`}
         </span>
       ))}
@@ -66,8 +77,9 @@ export function PeersView({
   const [busy, setBusy] = useState<string | undefined>()
   const [confirming, setConfirming] = useState<string | undefined>()
   const [editingSurface, setEditingSurface] = useState<string | undefined>()
-  const [draft, setDraft] = useState<SurfaceDraft>({ delegate: true, message: true, list: true })
+  const [draft, setDraft] = useState<SurfaceDraft>({ delegate: true, message: true, list: true, artifacts: true })
   const [budgetDraft, setBudgetDraft] = useState<string>('')
+  const [bytesDraft, setBytesDraft] = useState<string>('')
   const [budgetError, setBudgetError] = useState<string | undefined>()
   const [auditOf, setAuditOf] = useState<string | undefined>()
   const [sessions, setSessions] = useState<PeerSessionSummary[]>([])
@@ -201,7 +213,7 @@ export function PeersView({
                           checked={draft[grant]}
                           onChange={() => { flip(grant) }}
                         />
-                        {t(grant === 'delegate' ? 'grantDelegate' : grant === 'message' ? 'grantMessage' : 'grantList')}
+                        {grantLabel(t, grant)}
                       </label>
                     ))}
                     <button type="button" className={css.button} onClick={() => {
@@ -223,7 +235,7 @@ export function PeersView({
             </div>
             {parked !== undefined && (
               <div className={css.pending}>
-                <span>{t('pendingBanner', { surface: GRANTS.filter(grant => parked[grant]).map(grant => t(grant === 'delegate' ? 'grantDelegate' : grant === 'message' ? 'grantMessage' : 'grantList')).join(' + ') })}</span>
+                <span>{t('pendingBanner', { surface: GRANTS.filter(grant => parked[grant]).map(grant => grantLabel(t, grant)).join(' + ') })}</span>
                 <span className={css.confirm}>
                   <button type="button" className={css.button} onClick={() => {
                     void run(peer.instanceId, async () => { accept(await approveSurface({ instanceId: peer.instanceId })) })
@@ -240,6 +252,9 @@ export function PeersView({
                 {peer.monthlyTurns === undefined
                   ? <span className={css.meta}>{t('budgetUnlimited')}</span>
                   : <span className={css.meta}>{t('budgetUsage', { used: String(peer.monthlyTurnsUsed), limit: String(peer.monthlyTurns), period: peer.monthlyTurnPeriod })}</span>}
+                {peer.monthlyBytes === undefined
+                  ? <span className={css.meta}>{t('bytesUnlimited')}</span>
+                  : <span className={css.meta}>{t('bytesUsage', { used: String(Math.ceil(peer.monthlyBytesUsed / (1024 * 1024))), limit: String(Math.round(peer.monthlyBytes / (1024 * 1024))) })}</span>}
                 <input
                   className={css.input}
                   type="text"
@@ -247,17 +262,29 @@ export function PeersView({
                   value={budgetDraft}
                   onChange={(event) => { setBudgetDraft(event.currentTarget.value); setBudgetError(undefined) }}
                 />
+                <input
+                  className={css.input}
+                  type="text"
+                  placeholder={t('bytesPlaceholder')}
+                  value={bytesDraft}
+                  onChange={(event) => { setBytesDraft(event.currentTarget.value); setBudgetError(undefined) }}
+                />
                 <button type="button" className={css.button} onClick={() => {
                   const trimmed = budgetDraft.trim()
+                  const bytesTrimmed = bytesDraft.trim()
                   const parsed = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : Number.NaN
-                  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1_000_000) {
+                  const parsedBytes = /^[0-9]+$/.test(bytesTrimmed) ? Number(bytesTrimmed) : Number.NaN
+                  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1_000_000
+                    || !Number.isInteger(parsedBytes) || parsedBytes < 1 || parsedBytes > BYTES_MAX_MIB) {
                     setBudgetError(t('budgetInvalid'))
                     return
                   }
                   setBudgetError(undefined)
-                  void run(peer.instanceId, async () => { accept(await setBudget({ instanceId: peer.instanceId, monthlyTurns: parsed })) })
+                  void run(peer.instanceId, async () => {
+                    accept(await setBudget({ instanceId: peer.instanceId, monthlyTurns: parsed, monthlyBytes: parsedBytes * 1024 * 1024 }))
+                  })
                 }} disabled={busy === peer.instanceId}>{t('saveBudget')}</button>
-                {peer.monthlyTurns !== undefined && (
+                {(peer.monthlyTurns !== undefined || peer.monthlyBytes !== undefined) && (
                   <button type="button" className={css.button} onClick={() => {
                     void run(peer.instanceId, async () => { accept(await setBudget({ instanceId: peer.instanceId })) })
                   }} disabled={busy === peer.instanceId}>{t('clearBudget')}</button>

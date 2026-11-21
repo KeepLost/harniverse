@@ -15,6 +15,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../core/agent"
     },
     {
@@ -27,7 +30,7 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../session/session-persistence"
+      "path": "../../host/webserver"
     },
     {
       "path": "../../llm/llm"
@@ -39,13 +42,13 @@
       "path": "../../runtime-diagnostics/invariants"
     },
     {
+      "path": "../../session/session-persistence"
+    },
+    {
       "path": "../../typert/protocol"
     },
     {
       "path": "../../util/home-paths"
-    },
-    {
-      "path": "../../host/webserver"
     },
     {
       "path": "../peer-protocol"

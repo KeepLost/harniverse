@@ -14,13 +14,16 @@
 | `peer remove <instance-id>` | 接受方 | 删除记录,并在存在时撤销 `peer-<instanceId>` Grant。 |
 | `peer targets` | 发起方 | 从 `peer-targets.json` 列出配对目标。 |
 | `peer forget <instance-id>` | 发起方 | 丢弃一条目标记录。 |
-| `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>] [--async]` | 发起方 | 在已配对目标上开启一个被委派会话并等待回复;打印会话行,结算后附回复文本。`--async` 以最小预算提交并打印回执(会话与消息 id),点名 `dsh peer result` 读取方式。 |
-| `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>] [--async]` | 发起方 | 向一个被委派会话投递下一回合并以同样方式等待结算;`--async` 改为打印回执。 |
+| `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>] [--async] [--attach <path>]...` | 发起方 | 在已配对目标上开启一个被委派会话并等待回复;打印会话行,结算后附回复文本。`--async` 以最小预算提交并打印回执(会话与消息 id),点名 `dsh peer result` 读取方式。 |
+| `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>] [--async] [--attach <path>]...` | 发起方 | 向一个被委派会话投递下一回合并以同样方式等待结算;`--async` 改为打印回执。 |
 | `peer sessions <instance-id>` | 发起方 | 列出本实例在目标上的被委派会话及活跃状态。 |
 | `peer cancel <instance-id> <session-id>` | 发起方 | 取消目标上一个被委派会话的当前回合并打印其终态;空闲会话原样报告最新声明的结算。 |
 | `peer result <instance-id> <session-id> <message-id>` | 发起方 | 不投递新提示,只读一个被委派轮次的结算——异步回执背后的人工逃生门。 |
-| `peer surface <instance-id> --delegate on\|off --message on\|off --list on\|off` | 发起方 | 在目标上请求一份完整的能力面变更:纯收窄立即生效,含扩张则挂起等待目标 owner 审批,并打印仍生效的能力面。 |
+| `peer surface <instance-id> --delegate on\|off --message on\|off --list on\|off --artifacts on\|off` | 发起方 | 在目标上请求一份完整的能力面变更:纯收窄立即生效,含扩张则挂起等待目标 owner 审批,并打印仍生效的能力面。 |
+| `peer fetch <instance-id> <path> [--out <dir>]` | 发起方 | 从目标上的 peer 根复制一个有界工作区文件到本 home 的 `peer-downloads/<instance-id>/`(或 `--out`),抵达时核验摘要。 |
 | `peer outbox` | 发起方 | 列出本 home 的结算台账(由运行中实例经 `dsh-peer-outbox` 写入);视图永不写入。 |
+
+`--attach`(可重复,至多四个)把本地文件随提示词作为暂存消息工件投递;目标自己的附件上限与面上的 `artifacts` 授权生效。
 
 邀请要求目标注册表中已存在 owner Grant(引导规则);新家只有在其 owner 引导之后才能配对。SSH 拨号的 add 仅接受密钥文件与 agent 主机登录——口令与加密引用登录报 `UNSUPPORTED_CREDENTIALS`,因为一次性进程不解析任何加密凭据。
 

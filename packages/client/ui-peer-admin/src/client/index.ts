@@ -45,7 +45,7 @@ export function apply(ctx: ClientContext): void {
       setSurface: (input: { instanceId: string; surface: PeerSurfaceLike }) => ctx.remote.peer.setSurface(input),
       approveSurface: (input: { instanceId: string }) => ctx.remote.peer.approveSurface(input),
       rejectSurface: (input: { instanceId: string }) => ctx.remote.peer.rejectSurface(input),
-      setBudget: (input: { instanceId: string; monthlyTurns?: number }) => ctx.remote.peer.setBudget(input),
+      setBudget: (input: { instanceId: string; monthlyTurns?: number; monthlyBytes?: number }) => ctx.remote.peer.setBudget(input),
       audit: (input: { instanceId: string }) => ctx.remote.peer.audit(input),
     }),
   }, PeersView))

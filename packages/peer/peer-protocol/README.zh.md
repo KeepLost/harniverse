@@ -16,6 +16,10 @@
 
 两类规范签名把 Remote 调用绑定到发起方的 P-256 身份密钥。hello 证明覆盖 `peerHelloMessage(instanceId, challenge)`——`peer/challenge` 铸出的单次 nonce——因此接受方在首次配对时把 `identityPublicKey` 钉入配对记录,此后每次 hello 都按钉住的密钥验签(不符则 `IDENTITY_MISMATCH`)。请求证明覆盖 `peerRequestMessage(instanceId, timestamp, nonce)`;`verifyPeerRequestProof` 检查形状、`PEER_PROOF_SKEW_MS` 时钟窗与对钉住密钥的签名,并返回证明的 nonce,供宿主在窗口内拒绝任何重放。`verifyPeerSignature` 是两类证明共用的 base64url-SPKI ECDSA/SHA-256 验签器。流常量随行:`PEER_STREAM_TOKEN_TTL_MS` 界定一枚已铸出事件流令牌的可兑取时长,`PEER_STREAM_HEARTBEAT_MS` 命名流维持的心跳节拍;`PEER_NONCE_TTL_MS` 是宿主侧已消费请求 nonce 的保留视界。
 
+## 工件 wire 词汇
+
+文件工件随消息信道走,不开存储侧门。一次上传以 `PeerUploadManifest`(`name`、可选 `mediaType`、精确 `bytes`、base64url `sha256`)开始;接受方预留一个瞬态暂存槽,并以其自身的 `maxChunkBytes` 与(在接受通用文件时的)`maxFileBytes` 作答。分块按 `offset` 有序、以规范 base64 追加;delegate 或 follow-up 请求经 `PeerUploadRef` 条目接纳已完成的槽——接受方在工件进入其会话管线前复验每个摘要。`PeerDownloadRequest` 经 `PeerDownloadResult` 有界回读一个工作区文件。封闭理由 `ATTACHMENT_REFUSED`、`ATTACHMENT_TOO_LARGE`、`UPLOAD_NOT_FOUND` 与 `DIGEST_MISMATCH` 命名工件失败族;一切携带工件的调用都要求面上的 `artifacts` 授权。
+
 ## 验证
 
 在仓库根目录:

@@ -50,6 +50,8 @@ interface PeerSurface {
   message: boolean
   /** The peer may enumerate sessions it owns on this instance. */
   list: boolean
+  /** The peer may carry file artifacts with its messages and fetch its workspace files. */
+  artifacts: boolean
 }
 ```
 
@@ -120,7 +122,15 @@ The accepting instance owns the governance surface. Its owner-administered Remot
 
 Surface changes follow the approval flow: an owner edit commits immediately, while a peer's own `peer/surface` request states one complete desired surface — a pure narrowing (or an equal surface) commits on the spot and retires any parked request, but any widening parks the complete desired surface in the record's single `pendingSurface` slot, latest request winning, with no expiry. While a request pends, calls keep answering under the surface in force; approval commits the parked surface, rejection drops it, and the peer observes the outcome from the next `peer/surface` call or the denials on other families.
 
-Turn budgets live in `peer-governance.json`: one optional per-peer monthly cap counted in accepted delivered turns (`delegate` first turns and `followup` turns alike), in UTC calendar months, unlimited when unset. The gate runs before delivery — a capped `delegate` mints no session and a capped `followup` checks before the session lookup — and the count is recorded once the turn is accepted for delivery, whatever its settlement later says; concurrently in-flight deliveries can overshoot by at most their own count, and the rejection is `BUDGET_EXCEEDED` naming the period and the limit. The admin `audit` answers metadata-only session rows (live state, timestamps, creation label); transcripts stay in the normal session view, and the rows live for the pairing's lifetime — removal ends the peer's delegated sessions, drops its governance entry, and emits `peer/removed`; the paired side learns of a removal when its next call no longer resolves the record, by design no stream frame announces it.
+Turn budgets live in `peer-governance.json`: one optional per-peer monthly cap counted in accepted delivered turns (`delegate` first turns and `followup` turns alike), in UTC calendar months, unlimited when unset. The gate runs before delivery — a capped `delegate` mints no session and a capped `followup` checks before the session lookup — and the count is recorded once the turn is accepted for delivery, whatever its settlement later says; concurrently in-flight deliveries can overshoot by at most their own count, and the rejection is `BUDGET_EXCEEDED` naming the period and the limit; artifact chunks and download bytes meter into the same `peer-governance.json` entry's monthly `monthlyBytes` bucket. The admin `audit` answers metadata-only session rows (live state, timestamps, creation label); transcripts stay in the normal session view, and the rows live for the pairing's lifetime — removal ends the peer's delegated sessions, drops its governance entry, and emits `peer/removed`; the paired side learns of a removal when its next call no longer resolves the record, by design no stream frame announces it.
+
+## Artifacts
+
+File artifacts ride the message channel — the peer line is communication, never a side door into either side's storage. One artifact upload starts with `peer/upload`, whose manifest (`name`, optional `mediaType`, exact `bytes`, base64url `sha256`) the accepting side validates against its own deployment file limits, refusing with `ATTACHMENT_REFUSED` when it accepts no generic files and `ATTACHMENT_TOO_LARGE` past its own cap; the begin result advertises the accepting side's `maxChunkBytes` and `maxFileBytes` so an initiator fails fast without transferring. Ordered `peer/append` calls carry canonical-base64 chunks by absolute offset into a transient staging area (`.peer-uploads/<peerId>/`, fifteen-minute TTL, swept each minute, cleared at host start — pure in-flight transport state, never durable configuration), and a slot seals only when its complete bytes match the manifest digest, else it drops with `DIGEST_MISMATCH`.
+
+A `delegate` or `followup` request admits sealed slots through its `uploads` list (at most four); the accepting side re-verifies each digest, then commits the bytes through its own attachment pipeline (`saveFile`) and delivers the message with the durable references in its source and a read-only handle block naming the file for the target model's read tool. Storage policy, retention, and caps stay entirely the accepting side's own attachment configuration — the peer layer owns none of them, and artifacts belong to the sessions that admitted them, not to the pairing: `removePeer` clears pairing and governance, never session artifacts.
+
+The reverse lane is `peer/download`: it reads one bounded workspace file (sixteen MiB single-frame cap, `ATTACHMENT_TOO_LARGE` beyond) from the caller's own peer root, refusing absolute or escaping paths, and answers with the bytes, their length, and a digest the initiator verifies before use. Both directions require the surface's `artifacts` grant and meter against the same governance entry: every carried chunk on append and every delivered download byte count into the peer's monthly `monthlyBytes` bucket beside its turn counts, with the identical `BUDGET_EXCEEDED` rejection — so a byte-capped peer is stopped before any byte lands, not after.
 
 ## Transports and exclusion
 
@@ -201,6 +211,24 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async surface(request: PeerSurfaceRequest): Promise<PeerSurfaceResult>
 
+/** Reserve one transient staging slot for one artifact upload.
+ * @param request - proof plus the complete upload manifest.
+ * @returns the staging slot id and this deployment's own chunk and file caps.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async upload(request: PeerUploadBeginRequest): Promise<PeerUploadBeginResult>
+
+/** Append one ordered chunk to a staged upload, metering the carried bytes against the peer's budget.
+ * @param request - proof, slot id, absolute offset, and canonical base64 chunk.
+ * @returns bytes held after the append and whether the slot sealed against its digest.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async append(request: PeerUploadAppendRequest): Promise<PeerUploadAppendResult>
+
+/** Read one bounded workspace file from the caller's peer root in a single frame.
+ * @param request - proof plus the relative path inside the caller's workspace.
+ * @returns the file's digest-bearing readback; the carried bytes count against the peer's budget.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async download(request: PeerDownloadRequest): Promise<PeerDownloadResult>
+
 /** List every paired peer with its governance state for the owner admin surface.
  * @returns admin views, newest activity first.
  */
@@ -229,11 +257,11 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  */
 @Remote({ requiredCapability: 'harniverse.administer' }) async rejectSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>
 
-/** Set or lift one peer's monthly delivered-turn budget.
- * @param input - exact instance id and the new cap; an absent cap lifts the budget.
+/** Set or lift one peer's monthly budgets.
+ * @param input - exact instance id and the new caps; an absent cap lifts that budget.
  * @returns the updated admin view.
  */
-@Remote({ requiredCapability: 'harniverse.administer' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView>
+@Remote({ requiredCapability: 'harniverse.administer' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number; monthlyBytes?: number }): Promise<PeerAdminView>
 
 /** Audit one peer's delegated sessions; metadata only, transcripts stay in the session view.
  * @param input - exact instance id to audit.
@@ -242,7 +270,7 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
 @Remote({ requiredCapability: 'harniverse.administer' }) async audit(input: { instanceId: PeerInstanceId }): Promise<{ sessions: PeerSessionSummary[] }>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:46`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:70`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="ctxpeeroutbox--peeroutbox"></a>
 

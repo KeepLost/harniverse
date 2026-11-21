@@ -1936,6 +1936,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the surface in force and whether the desire is pending owner approval.',
       },
       {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async upload(request: PeerUploadBeginRequest): Promise<PeerUploadBeginResult>',
+        description: 'Reserve one transient staging slot for one artifact upload.',
+        parameters: [{ name: 'request', description: 'proof plus the complete upload manifest.' }],
+        returns: 'the staging slot id and this deployment\'s own chunk and file caps.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async append(request: PeerUploadAppendRequest): Promise<PeerUploadAppendResult>',
+        description: 'Append one ordered chunk to a staged upload, metering the carried bytes against the peer\'s budget.',
+        parameters: [{ name: 'request', description: 'proof, slot id, absolute offset, and canonical base64 chunk.' }],
+        returns: 'bytes held after the append and whether the slot sealed against its digest.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.peer\' }) async download(request: PeerDownloadRequest): Promise<PeerDownloadResult>',
+        description: 'Read one bounded workspace file from the caller\'s peer root in a single frame.',
+        parameters: [{ name: 'request', description: 'proof plus the relative path inside the caller\'s workspace.' }],
+        returns: 'the file\'s digest-bearing readback; the carried bytes count against the peer\'s budget.',
+      },
+      {
         signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async list(): Promise<{ peers: PeerAdminView[] }>',
         description: 'List every paired peer with its governance state for the owner admin surface.',
         parameters: [],
@@ -1965,9 +1983,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the updated admin view.',
       },
       {
-        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView>',
-        description: 'Set or lift one peer\'s monthly delivered-turn budget.',
-        parameters: [{ name: 'input', description: 'exact instance id and the new cap; an absent cap lifts the budget.' }],
+        signature: '@Remote({ requiredCapability: \'harniverse.administer\' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number; monthlyBytes?: number }): Promise<PeerAdminView>',
+        description: 'Set or lift one peer\'s monthly budgets.',
+        parameters: [{ name: 'input', description: 'exact instance id and the new caps; an absent cap lifts that budget.' }],
         returns: 'the updated admin view.',
       },
       {
@@ -6615,7 +6633,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PeerAdminView',
-    declaration: 'export interface PeerAdminView {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    status: \'active\' | \'revoked\';\n    surface: PeerSurface;\n    pendingSurface?: PeerSurface;\n    firstSeenAt: string;\n    lastSeenAt: string;\n    monthlyTurns?: number;\n    monthlyTurnsUsed: number;\n    monthlyTurnPeriod: string;\n    sessionCount: number;\n}',
+    declaration: 'export interface PeerAdminView {\n    instanceId: PeerInstanceId;\n    displayName: string;\n    platform: string;\n    arch: string;\n    version: string;\n    status: \'active\' | \'revoked\';\n    surface: PeerSurface;\n    pendingSurface?: PeerSurface;\n    firstSeenAt: string;\n    lastSeenAt: string;\n    monthlyTurns?: number;\n    monthlyTurnsUsed: number;\n    monthlyBytes?: number;\n    monthlyBytesUsed: number;\n    monthlyTurnPeriod: string;\n    sessionCount: number;\n}',
   },
   {
     name: 'PeerCancelRequest',
@@ -6623,11 +6641,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PeerDelegateRequest',
-    declaration: 'export interface PeerDelegateRequest {\n    proof: PeerRequestProof;\n    prompt: string;\n    cwd?: string;\n    profile?: string;\n    timeoutMs?: number;\n}',
+    declaration: 'export interface PeerDelegateRequest {\n    proof: PeerRequestProof;\n    prompt: string;\n    cwd?: string;\n    profile?: string;\n    timeoutMs?: number;\n    uploads?: readonly PeerUploadRef[];\n}',
+  },
+  {
+    name: 'PeerDownloadRequest',
+    declaration: 'export interface PeerDownloadRequest {\n    proof: PeerRequestProof;\n    path: string;\n}',
+  },
+  {
+    name: 'PeerDownloadResult',
+    declaration: 'export interface PeerDownloadResult {\n    name: string;\n    bytes: number;\n    sha256: string;\n    dataBase64: string;\n}',
   },
   {
     name: 'PeerFollowupRequest',
-    declaration: 'export interface PeerFollowupRequest {\n    proof: PeerRequestProof;\n    sessionId: string;\n    prompt: string;\n    timeoutMs?: number;\n}',
+    declaration: 'export interface PeerFollowupRequest {\n    proof: PeerRequestProof;\n    sessionId: string;\n    prompt: string;\n    timeoutMs?: number;\n    uploads?: readonly PeerUploadRef[];\n}',
   },
   {
     name: 'PeerHello',
@@ -6699,7 +6725,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PeerSurface',
-    declaration: 'export interface PeerSurface {\n    delegate: boolean;\n    message: boolean;\n    list: boolean;\n}',
+    declaration: 'export interface PeerSurface {\n    delegate: boolean;\n    message: boolean;\n    list: boolean;\n    artifacts: boolean;\n}',
   },
   {
     name: 'PeerSurfaceRequest',
@@ -6708,6 +6734,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PeerSurfaceResult',
     declaration: 'export interface PeerSurfaceResult {\n    surface: PeerSurface;\n    pending: boolean;\n}',
+  },
+  {
+    name: 'PeerUploadAppendRequest',
+    declaration: 'export interface PeerUploadAppendRequest {\n    proof: PeerRequestProof;\n    uploadId: string;\n    offset: number;\n    dataBase64: string;\n}',
+  },
+  {
+    name: 'PeerUploadAppendResult',
+    declaration: 'export interface PeerUploadAppendResult {\n    received: number;\n    ready: boolean;\n}',
+  },
+  {
+    name: 'PeerUploadBeginRequest',
+    declaration: 'export interface PeerUploadBeginRequest {\n    proof: PeerRequestProof;\n    manifest: PeerUploadManifest;\n}',
+  },
+  {
+    name: 'PeerUploadBeginResult',
+    declaration: 'export interface PeerUploadBeginResult {\n    uploadId: string;\n    maxChunkBytes: number;\n    maxFileBytes?: number;\n}',
+  },
+  {
+    name: 'PeerUploadManifest',
+    declaration: 'export interface PeerUploadManifest {\n    name: string;\n    mediaType?: string;\n    bytes: number;\n    sha256: string;\n}',
+  },
+  {
+    name: 'PeerUploadRef',
+    declaration: 'export interface PeerUploadRef {\n    uploadId: string;\n    sha256: string;\n}',
   },
   {
     name: 'PermissionSelect',

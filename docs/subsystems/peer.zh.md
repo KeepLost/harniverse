@@ -50,6 +50,8 @@ interface PeerSurface {
   message: boolean
   /** The peer may enumerate sessions it owns on this instance. */
   list: boolean
+  /** The peer may carry file artifacts with its messages and fetch its workspace files. */
+  artifacts: boolean
 }
 ```
 
@@ -120,7 +122,15 @@ interface PeerRunResult {
 
 能力面变更遵循审批流:owner 的直接编辑立即生效;而同伴自己的 `peer/surface` 请求陈述一份完整的目标能力面 —— 纯收窄(或等价面)当场提交并顺带撤销任何已挂起请求,含任何扩张则把整份目标面挂入记录的单一 `pendingSurface` 槽位,最新请求胜出,没有过期时间。请求待批期间,调用继续按现行能力面应答;批准提交挂起面,拒绝将其丢弃,同伴从下一次 `peer/surface` 调用或其它族面的拒绝得知结果。
 
-回合预算存于 `peer-governance.json`:每同伴一个可选的月度上限,按已被接受的投递回合计数(`delegate` 首回合与 `followup` 回合同样计),UTC 自然月,未设置即不限。闸门在投递之前 —— 被限额的 `delegate` 不铸造会话,被限额的 `followup` 在会话查找之前检查 —— 回合一经接受投递即计数,无论其后结算如何;并发在途投递可超出上限,至多以其自身数量为上界,拒绝以 `BUDGET_EXCEEDED` 携带周期与限额。管理 `audit` 只回应仅元数据的会话行(实时状态、时间戳、创建标签);全文留在常规会话视图,而这些行的存续期等于配对生命周期 —— 移除结束该同伴的委派会话、丢弃其治理条目并发出 `peer/removed`;配对侧在下一次调用解析不到记录时得知移除,按设计没有任何流帧宣告它。
+回合预算存于 `peer-governance.json`:每同伴一个可选的月度上限,按已被接受的投递回合计数(`delegate` 首回合与 `followup` 回合同样计),UTC 自然月,未设置即不限。闸门在投递之前 —— 被限额的 `delegate` 不铸造会话,被限额的 `followup` 在会话查找之前检查 —— 回合一经接受投递即计数,无论其后结算如何;并发在途投递可超出上限,至多以其自身数量为上界,拒绝以 `BUDGET_EXCEEDED` 携带周期与限额;工件分块与下载字节一并计入同一 `peer-governance.json` 条目的月度 `monthlyBytes` 桶。管理 `audit` 只回应仅元数据的会话行(实时状态、时间戳、创建标签);全文留在常规会话视图,而这些行的存续期等于配对生命周期 —— 移除结束该同伴的委派会话、丢弃其治理条目并发出 `peer/removed`;配对侧在下一次调用解析不到记录时得知移除,按设计没有任何流帧宣告它。
+
+## 工件
+
+文件工件随消息信道走——peer 线是通信,不是通往任一侧存储的侧门。一次工件上传以 `peer/upload` 开始:清单(`name`、可选 `mediaType`、精确 `bytes`、base64url `sha256`)由接受方按自己部署的文件上限校验,不接受通用文件时以 `ATTACHMENT_REFUSED` 拒绝,超出自身上限时以 `ATTACHMENT_TOO_LARGE` 拒;begin 结果通告接受方的 `maxChunkBytes` 与 `maxFileBytes`,发起方因此无需传输即可快速失败。有序的 `peer/append` 调用按绝对偏移以规范 base64 分块送入瞬态暂存区(`.peer-uploads/<peerId>/`,十五分钟 TTL,每分钟清扫一次,宿主启动时清空——纯传输在途状态,绝非持久配置);槽位只有在完整字节与清单摘要一致时才封口,否则以 `DIGEST_MISMATCH` 丢弃。
+
+`delegate` 或 `followup` 请求经其 `uploads` 列表(至多四项)接纳已封口槽位;接受方复验每个摘要,随后经自己的附件管线(`saveFile`)提交字节,并以消息 source 中的持久引用与命名文件的只读句柄块投递给目标模型的读取工具。存储策略、保留期与上限完全属于接受方自己的附件配置——peer 层一个都不拥有;工件属于接纳它们的会话,而非配对:`removePeer` 清配对与治理,永不清会话工件。
+
+反向通路是 `peer/download`:从调用者自己的 peer 根读取一个有界工作区文件(十六 MiB 单帧上限,超出即 `ATTACHMENT_TOO_LARGE`),拒绝绝对路径与逃逸路径,以字节、长度与摘要作答,发起方核验后才使用。两个方向都要求面上的 `artifacts` 授权,并计入同一治理条目:append 的每个承载分块与 download 的每个投递字节都记入该 peer 的月度 `monthlyBytes` 桶(与回合计数并列),拒绝同为 `BUDGET_EXCEEDED`——字节封顶的 peer 在任何字节落盘之前就被拦下,而非之后。
 
 ## 传输与排除
 
@@ -201,6 +211,24 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  */
 @Remote({ requiredCapability: 'harniverse.peer' }) async surface(request: PeerSurfaceRequest): Promise<PeerSurfaceResult>
 
+/** Reserve one transient staging slot for one artifact upload.
+ * @param request - proof plus the complete upload manifest.
+ * @returns the staging slot id and this deployment's own chunk and file caps.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async upload(request: PeerUploadBeginRequest): Promise<PeerUploadBeginResult>
+
+/** Append one ordered chunk to a staged upload, metering the carried bytes against the peer's budget.
+ * @param request - proof, slot id, absolute offset, and canonical base64 chunk.
+ * @returns bytes held after the append and whether the slot sealed against its digest.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async append(request: PeerUploadAppendRequest): Promise<PeerUploadAppendResult>
+
+/** Read one bounded workspace file from the caller's peer root in a single frame.
+ * @param request - proof plus the relative path inside the caller's workspace.
+ * @returns the file's digest-bearing readback; the carried bytes count against the peer's budget.
+ */
+@Remote({ requiredCapability: 'harniverse.peer' }) async download(request: PeerDownloadRequest): Promise<PeerDownloadResult>
+
 /** List every paired peer with its governance state for the owner admin surface.
  * @returns admin views, newest activity first.
  */
@@ -229,11 +257,11 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
  */
 @Remote({ requiredCapability: 'harniverse.administer' }) async rejectSurface(input: { instanceId: PeerInstanceId }): Promise<PeerAdminView>
 
-/** Set or lift one peer's monthly delivered-turn budget.
- * @param input - exact instance id and the new cap; an absent cap lifts the budget.
+/** Set or lift one peer's monthly budgets.
+ * @param input - exact instance id and the new caps; an absent cap lifts that budget.
  * @returns the updated admin view.
  */
-@Remote({ requiredCapability: 'harniverse.administer' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView>
+@Remote({ requiredCapability: 'harniverse.administer' }) async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number; monthlyBytes?: number }): Promise<PeerAdminView>
 
 /** Audit one peer's delegated sessions; metadata only, transcripts stay in the session view.
  * @param input - exact instance id to audit.
@@ -242,7 +270,7 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
 @Remote({ requiredCapability: 'harniverse.administer' }) async audit(input: { instanceId: PeerInstanceId }): Promise<{ sessions: PeerSessionSummary[] }>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:46`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:70`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="ctxpeeroutbox--peeroutbox"></a>
 

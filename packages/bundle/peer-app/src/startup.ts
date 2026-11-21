@@ -14,7 +14,16 @@ export const inject = ['cmdlineArgs']
 export const PEER_STARTUP_SERVICE = 'peerStartup'
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'outbox'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'fetch' | 'outbox'
+
+/** Options the run command collects from its flags. */
+interface RunOptions {
+  cwd?: string
+  profile?: string
+  timeout: number
+  async?: boolean
+  attach?: string[]
+}
 
 /** One parsed peer pairing invocation. */
 export interface PeerStartupValues {
@@ -42,6 +51,8 @@ export interface PeerStartupValues {
     message: boolean
     /** List grant requested by `surface`. */
     list: boolean
+    /** Artifact grant requested by `surface`. */
+    artifacts: boolean
   }
   /** Per-request timeout in milliseconds for `add`. */
   timeoutMs?: number
@@ -57,6 +68,12 @@ export interface PeerStartupValues {
   async?: boolean
   /** Message id of the watched turn for `result`. */
   messageId?: string
+  /** Local file paths delivered with the prompt, for `run` and `send`. */
+  attach?: string[]
+  /** Workspace-relative path fetched from the peer root, for `fetch`. */
+  path?: string
+  /** Directory the fetched file lands in, for `fetch`. */
+  out?: string
 }
 
 /**
@@ -120,7 +137,13 @@ function peerCommand(ctx: Context): Command {
     .option('--profile <id>', 'agent profile id to compose the session with')
     .option('--timeout <ms>', 'settlement-wait budget in milliseconds', (value: string) => Number(value), 600000)
     .option('--async', 'submit and print the receipt without waiting for settlement')
-    .action((instanceId: string, prompt: string[], options: { cwd?: string; profile?: string; timeout: number; async?: boolean }) => {
+    .option(
+      '--attach <path>',
+      'local file delivered with the prompt; repeat for each file',
+      (value: string, previous: string[]) => [...previous, value],
+      [],
+    )
+    .action((instanceId: string, prompt: string[], options: RunOptions) => {
       publish('run', {
         instanceId,
         prompt: prompt.join(' '),
@@ -128,6 +151,7 @@ function peerCommand(ctx: Context): Command {
         ...(options.profile !== undefined && { profile: options.profile }),
         timeoutMs: options.timeout,
         ...(options.async === true && { async: true }),
+        ...(options.attach !== undefined && options.attach.length > 0 && { attach: options.attach }),
       })
     })
   program.command('send')
@@ -137,9 +161,16 @@ function peerCommand(ctx: Context): Command {
     .argument('<prompt...>', 'follow-up prompt words')
     .option('--timeout <ms>', 'settlement-wait budget in milliseconds', (value: string) => Number(value), 600000)
     .option('--async', 'submit and print the receipt without waiting for settlement')
-    .action((instanceId: string, sessionId: string, prompt: string[], options: { timeout: number; async?: boolean }) => {
+    .option(
+      '--attach <path>',
+      'local file delivered with the prompt; repeat for each file',
+      (value: string, previous: string[]) => [...previous, value],
+      [],
+    )
+    .action((instanceId: string, sessionId: string, prompt: string[], options: { timeout: number; async?: boolean; attach?: string[] }) => {
       publish('send', {
         instanceId, sessionId, prompt: prompt.join(' '), timeoutMs: options.timeout, ...(options.async === true && { async: true }),
+        ...(options.attach !== undefined && options.attach.length > 0 && { attach: options.attach }),
       })
     })
   program.command('sessions')
@@ -167,14 +198,28 @@ function peerCommand(ctx: Context): Command {
     .requiredOption('--delegate <on|off>', 'delegate grant: on or off')
     .requiredOption('--message <on|off>', 'message grant: on or off')
     .requiredOption('--list <on|off>', 'list grant: on or off')
-    .action((instanceId: string, options: { delegate: string; message: string; list: string }) => {
+    .requiredOption('--artifacts <on|off>', 'artifact grant: on or off')
+    .action((instanceId: string, options: { delegate: string; message: string; list: string; artifacts: string }) => {
       const flag = (value: string): boolean => {
-        if (value !== 'on' && value !== 'off') program.error(`--delegate/--message/--list take "on" or "off", got "${value}"`)
+        if (value !== 'on' && value !== 'off') program.error(`--delegate/--message/--list/--artifacts take "on" or "off", got "${value}"`)
         return value === 'on'
       }
       publish('surface', {
         instanceId,
-        surface: { delegate: flag(options.delegate), message: flag(options.message), list: flag(options.list) },
+        surface: {
+          delegate: flag(options.delegate), message: flag(options.message), list: flag(options.list),
+          artifacts: flag(options.artifacts),
+        },
+      })
+    })
+  program.command('fetch')
+    .description('copy one bounded workspace file from the peer root on a paired target')
+    .argument('<instance-id>', 'paired target instance id')
+    .argument('<path>', 'file path relative to the peer root on the target')
+    .option('--out <dir>', 'directory the fetched file lands in (default peer-downloads/<instance-id> under this home)')
+    .action((instanceId: string, path: string, options: { out?: string }) => {
+      publish('fetch', {
+        instanceId, path, ...(options.out !== undefined && { out: options.out }),
       })
     })
   program.command('outbox')

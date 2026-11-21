@@ -51,7 +51,8 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:^",
     "zod": "^4.6.6",
-    "@deepseek-ai/dsh-llm": "workspace:^"
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-attachment": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -64,7 +65,8 @@
     "@deepseek-ai/dsh-model-policy": "workspace:^",
     "@deepseek-ai/dsh-peer-protocol": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-typert-protocol": "workspace:^"
+    "@deepseek-ai/dsh-typert-protocol": "workspace:^",
+    "@deepseek-ai/dsh-attachment": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-host-webserver": "workspace:^",

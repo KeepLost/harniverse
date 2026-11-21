@@ -41,11 +41,11 @@ it('generates one executable strict Remote schema for peer/hello with the pairin
     }
     const methods = TYPERT_REMOTE.descriptors
     expect(methods.map(method => method.method)).toEqual([
-      'approveSurface', 'audit', 'cancel', 'challenge', 'delegate', 'followup', 'hello', 'list',
-      'rejectSurface', 'removePeer', 'result', 'sessions', 'setBudget', 'setSurface', 'subscribe', 'surface',
+      'append', 'approveSurface', 'audit', 'cancel', 'challenge', 'delegate', 'download', 'followup', 'hello', 'list',
+      'rejectSurface', 'removePeer', 'result', 'sessions', 'setBudget', 'setSurface', 'subscribe', 'surface', 'upload',
     ])
     // The peer wire keeps its closed capability; the owner admin surface sits behind administer.
-    const peerWire = new Set(['cancel', 'challenge', 'delegate', 'followup', 'hello', 'result', 'sessions', 'subscribe', 'surface'])
+    const peerWire = new Set(['append', 'cancel', 'challenge', 'delegate', 'download', 'followup', 'hello', 'result', 'sessions', 'subscribe', 'surface', 'upload'])
     expect(methods.filter(method => peerWire.has(method.method)).every(method => method.requiredCapability === 'harniverse.peer')).toBe(true)
     expect(methods.filter(method => !peerWire.has(method.method)).every(method => method.requiredCapability === 'harniverse.administer')).toBe(true)
     const hello = methods.find(method => method.method === 'hello')!

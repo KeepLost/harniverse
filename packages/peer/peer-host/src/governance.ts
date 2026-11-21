@@ -8,19 +8,26 @@ import type { PeerInstanceId } from '@deepseek-ai/dsh-peer-protocol'
 /** Ceiling for one configured monthly turn budget; larger owner input is rejected. */
 export const PEER_BUDGET_MAX_TURNS = 1_000_000
 
+/** Ceiling for one configured monthly artifact-byte budget; larger owner input is rejected. */
+export const PEER_BUDGET_MAX_BYTES = 2 ** 40
+
 /** How many monthly periods one entry retains; writes prune anything older. */
 const RETAINED_PERIODS = 2
 
 /** Upper bound on periods accepted when parsing; guards malformed files, not a policy. */
 const MAX_PARSE_PERIODS = 24
 
-/** Budget state of one peer: the optional cap plus per-period delivered-turn counts. */
+/** Budget state of one peer: the optional caps plus per-period delivered-turn and artifact-byte counts. */
 export interface PeerGovernanceEntry {
   instanceId: PeerInstanceId
   /** Monthly delivered-turn cap; absent means unlimited. */
   monthlyTurns?: number
+  /** Monthly artifact-byte cap over the message channel; absent means unlimited. */
+  monthlyBytes?: number
   /** Delivered turns keyed by UTC period `YYYY-MM`. */
   spent: Record<string, number>
+  /** Artifact bytes carried over the channel, keyed by UTC period `YYYY-MM`. */
+  spentBytes?: Record<string, number>
 }
 
 /** Durable file shape of the governance store. */
@@ -77,9 +84,9 @@ export function parsePeerGovernanceEntry(value: unknown): PeerGovernanceEntry {
   }
   const record = value as unknown as Record<string, unknown>
   const keys = ['instanceId', 'spent']
+  const optional = ['monthlyTurns', 'monthlyBytes', 'spentBytes']
   const present = Object.keys(record)
-  if (keys.some(key => !(key in record)) || present.length > keys.length + 1
-    || (present.length === keys.length + 1 && !('monthlyTurns' in record))) {
+  if (keys.some(key => !(key in record)) || present.some(key => !keys.includes(key) && !optional.includes(key))) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry fields mismatch')
   }
   if (typeof record.instanceId !== 'string'
@@ -89,6 +96,10 @@ export function parsePeerGovernanceEntry(value: unknown): PeerGovernanceEntry {
   if ('monthlyTurns' in record && (!Number.isInteger(record.monthlyTurns)
     || (record.monthlyTurns as number) < 1 || (record.monthlyTurns as number) > PEER_BUDGET_MAX_TURNS)) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry budget')
+  }
+  if ('monthlyBytes' in record && (!Number.isInteger(record.monthlyBytes)
+    || (record.monthlyBytes as number) < 1 || (record.monthlyBytes as number) > PEER_BUDGET_MAX_BYTES)) {
+    throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry byte budget')
   }
   if (typeof record.spent !== 'object' || record.spent === null || Array.isArray(record.spent)) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry spent')
@@ -101,6 +112,20 @@ export function parsePeerGovernanceEntry(value: unknown): PeerGovernanceEntry {
   for (const [period, turns] of Object.entries(spent)) {
     if (!/^\d{4}-\d{2}$/.test(period) || !Number.isInteger(turns) || (turns as number) < 0) {
       throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry spent field')
+    }
+  }
+  if ('spentBytes' in record) {
+    if (typeof record.spentBytes !== 'object' || record.spentBytes === null || Array.isArray(record.spentBytes)) {
+      throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry spent bytes')
+    }
+    const spentBytes = record.spentBytes as Record<string, unknown>
+    if (Object.keys(spentBytes).length > MAX_PARSE_PERIODS) {
+      throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry spent bytes periods')
+    }
+    for (const [period, bytes] of Object.entries(spentBytes)) {
+      if (!/^\d{4}-\d{2}$/.test(period) || !Number.isInteger(bytes) || (bytes as number) < 0) {
+        throw new PeerError('CORRUPT_INSTANCE', 'peer governance entry spent bytes field')
+      }
     }
   }
   return record as unknown as PeerGovernanceEntry
@@ -141,8 +166,8 @@ export function periodOf(now: Date): string {
   return `${now.getUTCFullYear().toString().padStart(4, '0')}-${(now.getUTCMonth() + 1).toString().padStart(2, '0')}`
 }
 
-/** The three grant flags of one peer surface. */
-type SurfaceFlags = { delegate: boolean; message: boolean; list: boolean }
+/** The four grant flags of one peer surface. */
+type SurfaceFlags = { delegate: boolean; message: boolean; list: boolean; artifacts: boolean }
 
 /** Whether one desired surface stays inside the granted one field-by-field.
  * @param granted - the surface currently in force.
@@ -150,7 +175,8 @@ type SurfaceFlags = { delegate: boolean; message: boolean; list: boolean }
  * @returns `true` when no field widens, so the change may commit without approval.
  */
 export function isNarrowing(granted: SurfaceFlags, desired: SurfaceFlags): boolean {
-  return (!desired.delegate || granted.delegate) && (!desired.message || granted.message) && (!desired.list || granted.list)
+  return (!desired.delegate || granted.delegate) && (!desired.message || granted.message)
+    && (!desired.list || granted.list) && (!desired.artifacts || granted.artifacts)
 }
 
 /**
@@ -170,6 +196,28 @@ export async function authorizePeerTurn(
   const period = periodOf(now)
   if ((entry.spent[period] ?? 0) >= entry.monthlyTurns) {
     throw new PeerError('BUDGET_EXCEEDED', `${period} limit ${entry.monthlyTurns}`)
+  }
+}
+
+/**
+ * Reject one peer's next artifact-bearing transfer when its monthly byte budget cannot carry it.
+ * @param home - absolute Harness home directory.
+ * @param instanceId - the verified calling peer.
+ * @param now - the transfer moment.
+ * @param bytes - the byte count this transfer would add to the current period.
+ * @throws a {@link PeerError} with `BUDGET_EXCEEDED` when the cap cannot carry the transfer.
+ */
+export async function authorizePeerBytes(
+  home: string,
+  instanceId: PeerInstanceId,
+  now: Date,
+  bytes: number,
+): Promise<void> {
+  const entry = (await readPeerGovernance(home)).find(item => item.instanceId === instanceId)
+  if (entry?.monthlyBytes === undefined) return
+  const period = periodOf(now)
+  if ((entry.spentBytes?.[period] ?? 0) + bytes > entry.monthlyBytes) {
+    throw new PeerError('BUDGET_EXCEEDED', `${period} bytes limit ${entry.monthlyBytes}`)
   }
 }
 
@@ -198,53 +246,99 @@ export async function recordPeerTurn(home: string, instanceId: PeerInstanceId, n
 }
 
 /**
+ * Record artifact bytes carried over the channel against the peer's current period.
+ * @param home - absolute Harness home directory.
+ * @param instanceId - the verified calling peer whose transfer completed.
+ * @param now - the transfer moment.
+ * @param bytes - the byte count the channel carried.
+ */
+export async function recordPeerBytes(home: string, instanceId: PeerInstanceId, now: Date, bytes: number): Promise<void> {
+  if (bytes <= 0) return
+  const entries = await readPeerGovernance(home)
+  const period = periodOf(now)
+  const keep = new Set(orderedPeriods(period).slice(-RETAINED_PERIODS))
+  const existing = entries.find(item => item.instanceId === instanceId)
+  if (existing === undefined) {
+    await writePeerGovernance(home, [...entries, { instanceId, spent: {}, spentBytes: { [period]: bytes } }])
+    return
+  }
+  const pruned: Record<string, number> = {}
+  for (const [key, spent] of Object.entries(existing.spentBytes ?? {})) {
+    if (keep.has(key)) pruned[key] = spent
+  }
+  pruned[period] = (pruned[period] ?? 0) + bytes
+  const updated = entries.map(item => item.instanceId === instanceId ? { ...item, spentBytes: pruned } : item)
+  await writePeerGovernance(home, stripEmptyBudget(updated, instanceId))
+}
+
+/**
  * Read one peer's budget summary for the admin view.
  * @param home - absolute Harness home directory.
  * @param instanceId - the paired peer.
  * @param now - the moment the view is taken for.
- * @returns the cap when configured and the current period's delivered turns.
+ * @returns the caps when configured and the current period's delivered turns and artifact bytes.
  */
 export async function peerBudgetView(
   home: string,
   instanceId: PeerInstanceId,
   now: Date,
-): Promise<{ monthlyTurns?: number; monthlyTurnsUsed: number; monthlyTurnPeriod: string }> {
+): Promise<{
+  monthlyTurns?: number
+  monthlyTurnsUsed: number
+  monthlyBytes?: number
+  monthlyBytesUsed: number
+  monthlyTurnPeriod: string
+}> {
   const period = periodOf(now)
   const entry = (await readPeerGovernance(home)).find(item => item.instanceId === instanceId)
   return {
     ...entry?.monthlyTurns === undefined ? {} : { monthlyTurns: entry.monthlyTurns },
     monthlyTurnsUsed: entry?.spent[period] ?? 0,
+    ...entry?.monthlyBytes === undefined ? {} : { monthlyBytes: entry.monthlyBytes },
+    monthlyBytesUsed: entry?.spentBytes?.[period] ?? 0,
     monthlyTurnPeriod: period,
   }
 }
 
+/** Owner-editable budget dimensions; an absent dimension lifts its cap. */
+export interface PeerBudgetLimits {
+  /** Monthly delivered-turn cap, or `undefined` to lift. */
+  monthlyTurns?: number
+  /** Monthly artifact-byte cap, or `undefined` to lift. */
+  monthlyBytes?: number
+}
+
 /**
- * Set or clear one peer's monthly turn budget.
+ * Set or clear one peer's monthly budgets.
  * @param home - absolute Harness home directory.
  * @param instanceId - the paired peer.
- * @param monthlyTurns - the new cap, or `undefined` to lift the budget.
+ * @param limits - the new caps; an absent dimension lifts that cap.
  */
-export async function setPeerBudget(home: string, instanceId: PeerInstanceId, monthlyTurns: number | undefined): Promise<void> {
+export async function setPeerBudget(home: string, instanceId: PeerInstanceId, limits: PeerBudgetLimits): Promise<void> {
   const entries = await readPeerGovernance(home)
   const existing = entries.find(item => item.instanceId === instanceId)
   if (existing === undefined) {
-    if (monthlyTurns === undefined) return
-    await writePeerGovernance(home, [...entries, { instanceId, monthlyTurns, spent: {} }])
+    if (limits.monthlyTurns === undefined && limits.monthlyBytes === undefined) return
+    await writePeerGovernance(home, [...entries, {
+      instanceId,
+      spent: {},
+      ...limits.monthlyTurns === undefined ? {} : { monthlyTurns: limits.monthlyTurns },
+      ...limits.monthlyBytes === undefined ? {} : { monthlyBytes: limits.monthlyBytes },
+    }])
     return
   }
-  const updated = entries.map((item) => {
-    if (item.instanceId !== instanceId) return item
-    if (monthlyTurns === undefined) {
-      const { monthlyTurns: lifted, ...rest } = item
-      void lifted
-      return rest
-    }
-    return { ...item, monthlyTurns }
-  })
+  const { monthlyTurns: liftedTurns, monthlyBytes: liftedBytes, ...rest } = existing
+  void liftedTurns
+  void liftedBytes
+  const updated = entries.map(item => item.instanceId === instanceId ? {
+    ...rest,
+    ...limits.monthlyTurns === undefined ? {} : { monthlyTurns: limits.monthlyTurns },
+    ...limits.monthlyBytes === undefined ? {} : { monthlyBytes: limits.monthlyBytes },
+  } : item)
   await writePeerGovernance(home, stripEmptyBudget(updated, instanceId))
 }
 
-/** Drop one entry that carries neither a cap nor recorded turns.
+/** Drop one entry that carries neither a cap nor recorded usage.
  * @param entries - complete entry list.
  * @param instanceId - the entry just edited.
  * @returns the list with the named entry removed when it became inert.
@@ -253,7 +347,8 @@ function stripEmptyBudget(entries: readonly PeerGovernanceEntry[], instanceId: P
   const edited = entries.find(item => item.instanceId === instanceId)
   /* v8 ignore next -- both callers map an entry for the id first, so the find cannot miss */
   if (edited === undefined) return [...entries]
-  if (edited.monthlyTurns !== undefined || Object.keys(edited.spent).length > 0) return [...entries]
+  if (edited.monthlyTurns !== undefined || edited.monthlyBytes !== undefined
+    || Object.keys(edited.spent).length > 0 || Object.keys(edited.spentBytes ?? {}).length > 0) return [...entries]
   return entries.filter(item => item.instanceId !== instanceId)
 }
 

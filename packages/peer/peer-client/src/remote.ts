@@ -1,13 +1,13 @@
 /** Authenticated peer Remote calls: the shared envelope, proofs, and the delegate/follow-up/enumeration operations. */
 
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { GrantAccess } from '@deepseek-ai/dsh-sdk-client'
 import {
   PeerError,
   peerHelloMessage,
   peerRequestMessage,
 } from '@deepseek-ai/dsh-peer-protocol'
-import type { PeerErrorReason, PeerEventFrame, PeerInstanceId, PeerRequestProof, PeerRunResult, PeerSessionSummary, PeerSubscribeResult, PeerSurface, PeerSurfaceResult, PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
+import type { PeerErrorReason, PeerEventFrame, PeerDownloadResult, PeerInstanceId, PeerRequestProof, PeerRunResult, PeerSessionSummary, PeerSubscribeResult, PeerSurface, PeerSurfaceResult, PeerTarget, PeerUploadAppendResult, PeerUploadBeginResult, PeerUploadRef } from '@deepseek-ai/dsh-peer-protocol'
 import { pinnedFetchFor } from './transport.ts'
 import type { PeerKeyMaterial } from './keys.ts'
 
@@ -192,21 +192,23 @@ export function validateSessionSummaries(value: unknown): PeerSessionSummary[] {
  * @param options - target, home, origin, and limits.
  * @param identity - the initiator's resolved call identity.
  * @param prompt - initial user prompt.
- * @param extras - optional working directory, agent profile, and settlement budget.
+ * @param extras - optional working directory, agent profile, settlement budget, and local artifacts.
  * @returns the run result naming the minted session.
  */
 export async function runPeerDelegate(
   options: PeerCallOptions,
   identity: PeerCallIdentity,
   prompt: string,
-  extras: { cwd?: string; profile?: string; timeoutMs?: number } = {},
+  extras: { cwd?: string; profile?: string; timeoutMs?: number; files?: readonly PeerLocalFile[] } = {},
 ): Promise<PeerRunResult> {
   const access = accessFor(options, identity.key)
+  const uploads = await stagePeerFiles(options, identity, access, extras.files)
   const proof = await requestProofFor(identity)
   const value = await callPeerRemote(access, options.origin, 'delegate', { request: { proof, prompt,
     ...extras.cwd === undefined ? {} : { cwd: extras.cwd },
     ...extras.profile === undefined ? {} : { profile: extras.profile },
-    ...extras.timeoutMs === undefined ? {} : { timeoutMs: extras.timeoutMs } } })
+    ...extras.timeoutMs === undefined ? {} : { timeoutMs: extras.timeoutMs },
+    ...uploads === undefined ? {} : { uploads } } })
   return validateRunResult(value)
 }
 
@@ -217,6 +219,7 @@ export async function runPeerDelegate(
  * @param sessionId - the initiator's own delegated session.
  * @param prompt - user prompt for the next turn.
  * @param timeoutMs - optional settlement budget.
+ * @param files - optional local artifacts to deliver with the prompt.
  * @returns the run result of the delivered turn.
  */
 export async function runPeerFollowup(
@@ -225,12 +228,61 @@ export async function runPeerFollowup(
   sessionId: string,
   prompt: string,
   timeoutMs?: number,
+  files?: readonly PeerLocalFile[],
 ): Promise<PeerRunResult> {
   const access = accessFor(options, identity.key)
+  const uploads = await stagePeerFiles(options, identity, access, files)
   const proof = await requestProofFor(identity)
   const value = await callPeerRemote(access, options.origin, 'followup', { request: { proof, sessionId, prompt,
-    ...timeoutMs === undefined ? {} : { timeoutMs } } })
+    ...timeoutMs === undefined ? {} : { timeoutMs },
+    ...uploads === undefined ? {} : { uploads } } })
   return validateRunResult(value)
+}
+
+/** Stage local artifacts when a call carries any; `undefined` keeps the payload artifact-free.
+ * @param options - target, home, origin, and limits.
+ * @param identity - the initiator's resolved call identity.
+ * @param access - the already-built transport for staging calls.
+ * @param files - the call's local artifacts, if any.
+ * @returns upload references in delivery order, or `undefined` when none.
+ */
+async function stagePeerFiles(
+  options: PeerCallOptions,
+  identity: PeerCallIdentity,
+  access: GrantAccess,
+  files: readonly PeerLocalFile[] | undefined,
+): Promise<PeerUploadRef[] | undefined> {
+  if (files === undefined || files.length === 0) return undefined
+  const uploads: PeerUploadRef[] = []
+  for (const file of files) {
+    const sha256 = createHash('sha256').update(file.data).digest('base64url')
+    const proof = await requestProofFor(identity)
+    const begin = await callPeerRemote(access, options.origin, 'upload', { request: { proof, manifest: {
+      name: file.name,
+      ...file.mediaType === undefined ? {} : { mediaType: file.mediaType },
+      bytes: file.data.byteLength,
+      sha256,
+    } } }) as PeerUploadBeginResult
+    if (typeof begin.uploadId !== 'string' || !Number.isInteger(begin.maxChunkBytes) || begin.maxChunkBytes < 1) {
+      throw new PeerError('TRANSPORT_FAILED', 'malformed upload begin result')
+    }
+    const chunkBytes = Math.min(PEER_UPLOAD_CHUNK_BYTES, begin.maxChunkBytes)
+    for (let offset = 0; offset < file.data.byteLength; offset += chunkBytes) {
+      const chunk = file.data.subarray(offset, Math.min(offset + chunkBytes, file.data.byteLength))
+      const appendProof = await requestProofFor(identity)
+      const outcome = await callPeerRemote(access, options.origin, 'append', { request: {
+        proof: appendProof,
+        uploadId: begin.uploadId,
+        offset,
+        dataBase64: Buffer.from(chunk).toString('base64'),
+      } }) as PeerUploadAppendResult
+      if (outcome.received !== Math.min(offset + chunkBytes, file.data.byteLength)) {
+        throw new PeerError('TRANSPORT_FAILED', 'append lost bytes')
+      }
+    }
+    uploads.push({ uploadId: begin.uploadId, sha256 })
+  }
+  return uploads
 }
 
 /**
@@ -296,6 +348,64 @@ export async function runPeerSurface(
   const proof = await requestProofFor(identity)
   const value = await callPeerRemote(access, options.origin, 'surface', { request: { proof, surface } })
   return validateSurfaceResult(value)
+}
+
+/** One local artifact to deliver with a peer message. */
+export interface PeerLocalFile {
+  /** Display name recorded on the target; never a path there. */
+  name: string
+  /** Caller-declared media type recorded as given. */
+  mediaType?: string
+  /** Complete file bytes. */
+  data: Uint8Array
+}
+
+/** Chunk size one upload loop carries per append call. */
+const PEER_UPLOAD_CHUNK_BYTES = 512 * 1024
+
+/**
+ * Read one bounded workspace file from the caller's peer root on the target.
+ * @param options - target, home, origin, and limits.
+ * @param identity - the initiator's resolved call identity.
+ * @param path - file path relative to the caller's peer root on the target.
+ * @returns the file's name, digest, and complete bytes.
+ */
+export async function downloadPeerFile(
+  options: PeerCallOptions,
+  identity: PeerCallIdentity,
+  path: string,
+): Promise<PeerDownloadResult & { data: Uint8Array }> {
+  const access = accessFor(options, identity.key)
+  const proof = await requestProofFor(identity)
+  const value = await callPeerRemote(access, options.origin, 'download', { request: { proof, path } })
+  return validatePeerDownloadResult(value)
+}
+
+/** Validate one workspace download readback and decode its bytes.
+ * @param value - untrusted wire value.
+ * @returns the file's name, digest, and decoded bytes.
+ * @throws a {@link PeerError} with `TRANSPORT_FAILED` for malformed readbacks or a digest mismatch.
+ */
+function validatePeerDownloadResult(value: unknown): PeerDownloadResult & { data: Uint8Array } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new PeerError('TRANSPORT_FAILED', 'malformed download result')
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record.name !== 'string' || record.name.length === 0 || record.name.length > 255
+    || !Number.isInteger(record.bytes) || (record.bytes as number) < 0
+    || typeof record.sha256 !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(record.sha256)
+    || typeof record.dataBase64 !== 'string') {
+    throw new PeerError('TRANSPORT_FAILED', 'malformed download result')
+  }
+  const decoded = Buffer.from(record.dataBase64, 'base64')
+  if (decoded.toString('base64') !== record.dataBase64 || decoded.byteLength !== record.bytes) {
+    throw new PeerError('TRANSPORT_FAILED', 'malformed download result')
+  }
+  const data = new Uint8Array(decoded)
+  if (createHash('sha256').update(data).digest('base64url') !== record.sha256) {
+    throw new PeerError('DIGEST_MISMATCH')
+  }
+  return { name: record.name, bytes: record.bytes, sha256: record.sha256, dataBase64: record.dataBase64, data }
 }
 
 /**
@@ -401,7 +511,8 @@ function validateSurfaceResult(value: unknown): PeerSurfaceResult {
   if (typeof surface !== 'object' || surface === null || Array.isArray(surface)
     || typeof (surface as Record<string, unknown>).delegate !== 'boolean'
     || typeof (surface as Record<string, unknown>).message !== 'boolean'
-    || typeof (surface as Record<string, unknown>).list !== 'boolean') {
+    || typeof (surface as Record<string, unknown>).list !== 'boolean'
+    || typeof (surface as Record<string, unknown>).artifacts !== 'boolean') {
     throw new PeerError('INVALID_PAYLOAD')
   }
   return { surface: surface as PeerSurface, pending: record.pending }

@@ -16,6 +16,10 @@ Each DSH home mints one `instance.json` on first peer use — `{ version, instan
 
 Two canonical signatures bind Remote calls to the initiator's P-256 identity key. The hello proof covers `peerHelloMessage(instanceId, challenge)` — the single-use nonce minted by `peer/challenge` — so the accepting instance pins `identityPublicKey` into the paired record at first pairing and verifies every later hello against the pinned key (`IDENTITY_MISMATCH` otherwise). The request proof covers `peerRequestMessage(instanceId, timestamp, nonce)`; `verifyPeerRequestProof` checks shape, the `PEER_PROOF_SKEW_MS` clock window, and the signature against the pinned key, and returns the proof's nonce so the host rejects any replay inside the window. `verifyPeerSignature` is the shared base64url-SPKI ECDSA/SHA-256 verifier both proofs use. Stream constants ride along: `PEER_STREAM_TOKEN_TTL_MS` bounds one minted event-stream token's redeemability and `PEER_STREAM_HEARTBEAT_MS` names the cadence the stream maintains; `PEER_NONCE_TTL_MS` is the host-side retention horizon for consumed request nonces.
 
+## Artifact wire vocabulary
+
+File artifacts ride the message channel, never a storage side door. One upload begins with a `PeerUploadManifest` (`name`, optional `mediaType`, exact `bytes`, base64url `sha256`); the accepting side reserves a transient staging slot and answers with its own `maxChunkBytes` and, when it accepts generic files, its `maxFileBytes`. Chunks append in order by `offset` and canonical base64, and a delegate or follow-up request admits completed slots through `PeerUploadRef` entries — the accepting side re-verifies each digest before the artifact enters its session pipeline. `PeerDownloadRequest` reads one bounded workspace file back through `PeerDownloadResult`. The closed reasons `ATTACHMENT_REFUSED`, `ATTACHMENT_TOO_LARGE`, `UPLOAD_NOT_FOUND`, and `DIGEST_MISMATCH` name the artifact failure family; every artifact-bearing call requires the surface's `artifacts` grant.
+
 ## Verification
 
 From the repository root:

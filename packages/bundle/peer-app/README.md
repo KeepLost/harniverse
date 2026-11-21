@@ -14,13 +14,16 @@ One-shot peer pairing management app, booted by `dsh peer` (a launcher alias of 
 | `peer remove <instance-id>` | accepting | Removes the record and revokes the `peer-<instanceId>` grant when present. |
 | `peer targets` | initiating | Lists pairing targets from `peer-targets.json`. |
 | `peer forget <instance-id>` | initiating | Drops one target record. |
-| `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>] [--async]` | initiating | Starts one delegated session on the paired target and awaits its reply; prints the session line and, once settled, the reply text. `--async` submits with the minimum budget and prints the receipt (session and message id) naming the `dsh peer result` read. |
-| `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>] [--async]` | initiating | Delivers the next turn into one delegated session and awaits settlement the same way; `--async` prints the receipt instead. |
+| `peer run <instance-id> <prompt...> [--cwd] [--profile] [--timeout <ms>] [--async] [--attach <path>]...` | initiating | Starts one delegated session on the paired target and awaits its reply; prints the session line and, once settled, the reply text. `--async` submits with the minimum budget and prints the receipt (session and message id) naming the `dsh peer result` read. |
+| `peer send <instance-id> <session-id> <prompt...> [--timeout <ms>] [--async] [--attach <path>]...` | initiating | Delivers the next turn into one delegated session and awaits settlement the same way; `--async` prints the receipt instead. |
 | `peer sessions <instance-id>` | initiating | Lists this instance's delegated sessions on the target with live state. |
 | `peer cancel <instance-id> <session-id>` | initiating | Cancels the current turn of one delegated session on the target and prints its terminal state; an idle session reports its newest claim's settlement unchanged. |
 | `peer result <instance-id> <session-id> <message-id>` | initiating | Reads one delegated turn's settlement without a new prompt — the manual escape hatch behind an async receipt. |
-| `peer surface <instance-id> --delegate on\|off --message on\|off --list on\|off` | initiating | Requests one complete surface change on the target: a pure narrowing commits immediately, any widening parks for the target owner's approval and prints the surface still in force. |
+| `peer surface <instance-id> --delegate on\|off --message on\|off --list on\|off --artifacts on\|off` | initiating | Requests one complete surface change on the target: a pure narrowing commits immediately, any widening parks for the target owner's approval and prints the surface still in force. |
+| `peer fetch <instance-id> <path> [--out <dir>]` | initiating | Copies one bounded workspace file from the peer root on the target into this home's `peer-downloads/<instance-id>/` (or `--out`), verifying its digest on arrival. |
 | `peer outbox` | initiating | Lists this home's settlement ledger (written by a running instance through `dsh-peer-outbox`); the view never writes. |
+
+`--attach` (repeatable, at most four) delivers local files with the prompt as staged message artifacts; the target's own attachment limits and the surface's `artifacts` grant apply.
 
 Invitations require an existing owner Grant in the target registry (the bootstrap rule); a fresh home pairs only after its owner bootstrap. SSH-dialed adds accept key-file and agent host logins only — password and encrypted-reference logins report `UNSUPPORTED_CREDENTIALS`, because a one-shot process resolves no encrypted credentials.
 

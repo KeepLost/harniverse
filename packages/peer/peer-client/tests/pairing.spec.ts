@@ -109,7 +109,7 @@ it('pairs an initiator with a real serving target end to end', async () => {
     .rejects.toThrowError(/PIN_MISMATCH \(a pinned target must be reached over HTTPS\)/)
   const result = await pairWithPeer({ invite: pinned, home: secondHome, origin: target.origin })
   expect(result.hello.instanceId).toBe(target.identity.instanceId)
-  expect(result.hello.surface).toEqual({ delegate: true, message: true, list: true })
+  expect(result.hello.surface).toEqual({ delegate: true, message: true, list: true, artifacts: true })
   const grants = await listAuthenticationGrants({ dshHome: target.home })
   const peerGrant = grants.find(grant => grant.id === result.grantId)
   expect(peerGrant).toMatchObject({ kind: 'api-client', capabilities: ['harniverse.peer'], name: result.target.grantName })
@@ -247,22 +247,22 @@ it('rejects malformed hello envelopes, bodies, and surfaces', async () => {
     } } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: false } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
-      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'x'.repeat(65), platform: 'linux', arch: 'x64', version: '1', surface: { delegate: true, message: true, list: true },
+      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'x'.repeat(65), platform: 'linux', arch: 'x64', version: '1', surface: { delegate: true, message: true, list: true, artifacts: true },
     } } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
-      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 5, arch: 'x64', version: '1', surface: { delegate: true, message: true, list: true },
+      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 5, arch: 'x64', version: '1', surface: { delegate: true, message: true, list: true, artifacts: true },
     } } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
-      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: '', platform: 'linux', arch: 'x64', version: '1', surface: { delegate: true, message: true, list: true },
+      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: '', platform: 'linux', arch: 'x64', version: '1', surface: { delegate: true, message: true, list: true, artifacts: true },
     } } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
       instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 'linux', arch: 'x64', version: '1', surface: { delegate: true, message: 'x', list: true },
     } } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
-      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 'linux', arch: 5, version: '1', surface: { delegate: true, message: true, list: true },
+      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 'linux', arch: 5, version: '1', surface: { delegate: true, message: true, list: true, artifacts: true },
     } } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
-      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 'linux', arch: 'x64', version: 5, surface: { delegate: true, message: true, list: true },
+      instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 'linux', arch: 'x64', version: 5, surface: { delegate: true, message: true, list: true, artifacts: true },
     } } } }], pattern: /HELLO_REJECTED/ },
     { responses: [...approved, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
       instanceId: '3f2a8f9e-1111-4222-8333-444455556666', displayName: 'T', platform: 'linux', arch: 'x64', version: '1', surface: { delegate: 'x', message: true, list: true },
@@ -333,7 +333,7 @@ it('records a pinned target through a completed HTTPS pairing', async () => {
     }
     return new Response(JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result: { ok: true, value: {
       instanceId: invite.instanceId, displayName: invite.displayName, platform: 'linux', arch: 'x64', version: '1.0.0',
-      surface: { delegate: true, message: true, list: true },
+      surface: { delegate: true, message: true, list: true, artifacts: true },
     } } }))
   })
   const pinnedInvite = { ...invite, endpoint: { origin }, tlsFingerprint: pin }

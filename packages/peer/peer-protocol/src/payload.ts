@@ -17,7 +17,7 @@ export const PEER_INVITE_SCHEME = 'dsh-peer:' as const
 export const DEFAULT_INVITE_TTL_MS = 10 * 60_000
 
 /** The full pairing surface approved by the shipped invitation flow. */
-export const FULL_PEER_SURFACE = { delegate: true, message: true, list: true } as const
+export const FULL_PEER_SURFACE = { delegate: true, message: true, list: true, artifacts: true } as const
 
 /**
  * Validate and mint one home-anchored instance id.

@@ -6,9 +6,9 @@
 
 ## 工具面
 
-注册一个工具(名称可配置,默认 `peer`)与一段使用策略提示词小节,把它限制在用户点名的已配对实例上。参数:`target`(显示名或精确 instance id;id 优先于歧义名)、`prompt`(至多 32768 字符,与接受方主机的上限一致)、可选 `session`(要续聊的委派会话 id)、可选 `timeoutMs`(结算预算,默认 120000,钳制在 1000–900000)。
+注册一个工具(名称可配置,默认 `peer`)与一段使用策略提示词小节,把它限制在用户点名的已配对实例上。参数:`target`(显示名或精确 instance id;id 优先于歧义名)、`prompt`(至多 32768 字符,与接受方主机的上限一致)、可选 `session`(要续聊的委派会话 id)、可选 `timeoutMs`(结算预算,默认 120000,钳制在 1000–900000)、可选 `attachFiles`(随提示词投递的本地文件路径,至多四个)、可选 `fetchFiles`(回合结束后从配对实例工作区复制回来的相对路径)。
 
-一次调用从配置 home 下的 `peer-targets.json` 解析目标、签出时间窗请求证明,并经 `peer/delegate`(新会话)或 `peer/followup`(续聊)投递提示词。结构化输出携带 `sessionId`、`state` 与结算的 `reply`;渲染文本总是点名 session id,模型可据此续聊。超过预算仍在运行的回合返回 `state: 'running'` 与续查引导,而不是阻塞轮次。结束原因不是 `completed` 的结算回合,以及每一个封闭 peer 原因(`SESSION_NOT_FOUND`、`TRANSPORT_FAILED`……)都转为点名原因的工具错误。超限回复在配置上限(默认 50000 字符)处截断并附提示。
+一次调用从配置 home 下的 `peer-targets.json` 解析目标、签出时间窗请求证明,并经 `peer/delegate`(新会话)或 `peer/followup`(续聊)投递提示词。结构化输出携带 `sessionId`、`state` 与结算的 `reply`;渲染文本总是点名 session id,模型可据此续聊。超过预算仍在运行的回合返回 `state: 'running'` 与续查引导,而不是阻塞轮次。结束原因不是 `completed` 的结算回合,以及每一个封闭 peer 原因(`SESSION_NOT_FOUND`、`TRANSPORT_FAILED`……)都转为点名原因的工具错误。超限回复在配置上限(默认 50000 字符)处截断并附提示。`attachFiles` 把每个可读的本地文件经分块上传通路暂存,并在投递的消息中引用;目标自己的附件上限与面上的 `artifacts` 授权生效。`fetchFiles` 在回合之后运行:每个路径经有界下载 Remote 读回,落到本 home 的 `peer-downloads/<目标-instance-id>/` 下,渲染回复列出本地副本;失败的 fetch 转为点名 peer 原因的工具错误。
 
 ## 配置
 
@@ -28,7 +28,7 @@
 
 #### 模型所见
 
-一个带 `target`、`prompt` 与可选 `session`/`timeoutMs` 参数的 `peer` 工具;结果点名委派 `sessionId`,并逐字携带 peer 实例的回复文本(超上限截断)。超出预算仍在运行的回合返回 `running` 与续查引导;当部署组合了 [`@deepseek-ai/dsh-peer-outbox`](../peer-outbox/README.md) 时,该轮次同时进入台账,结算回复稍后以一条排队 user 消息送达调用会话,模型可以继续干活、等它落地再处理。
+一个带 `target`、`prompt`、可选 `session`/`timeoutMs` 与可选 `attachFiles`/`fetchFiles` 数组参数的 `peer` 工具;结果点名委派 `sessionId`,并逐字携带 peer 实例的回复文本(超上限截断)。超出预算仍在运行的回合返回 `running` 与续查引导;当部署组合了 [`@deepseek-ai/dsh-peer-outbox`](../peer-outbox/README.md) 时,该轮次同时进入台账,结算回复稍后以一条排队 user 消息送达调用会话,模型可以继续干活、等它落地再处理。
 
 #### Token 效果
 

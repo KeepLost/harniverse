@@ -1,6 +1,6 @@
 /** Remote operations: proofs, the shared envelope, error mapping, and readback validation. */
 
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +15,7 @@ import {
   runPeerFollowup,
   runPeerResult,
   runPeerSessions,
+  downloadPeerFile,
   runPeerSurface,
 } from '../src/remote.ts'
 import { ensurePeerIdentityKey } from '../src/keys.ts'
@@ -58,7 +59,7 @@ function scripted(responses: Array<{ status?: number; body?: unknown; raw?: stri
     if (reply.raw !== undefined) return new Response(reply.raw, { status: reply.status ?? 200 })
     let body = reply.body === undefined ? {} : reply.body
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (typeof url === 'string' && /\/api\/peer\/(hello|challenge|delegate|followup|result|sessions|surface)$/.test(url) && init?.body !== undefined) {
+    if (typeof url === 'string' && /\/api\/peer\/(hello|challenge|delegate|followup|result|sessions|surface|upload|append|download)$/.test(url) && init?.body !== undefined) {
       const request = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as { rpcId?: string }
       if (typeof request.rpcId === 'string' && typeof body === 'object' && body !== null) {
         body = { ...body as Record<string, unknown>, rpcId: request.rpcId }
@@ -105,7 +106,7 @@ it('runs the challenge/hello exchange and the three operations through one envel
     { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { challenge: 'nonce' } } } },
     { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: {
       instanceId: target.targetInstanceId, displayName: 'T', platform: 'linux', arch: 'x64', version: '1',
-      surface: { delegate: true, message: true, list: true },
+      surface: { delegate: true, message: true, list: true, artifacts: true },
     } } } },
   ]), timeoutMs: 5_000 }, identity.key)
   await expect(provenHello(access, options.origin, {
@@ -135,33 +136,33 @@ it('requests surface changes and validates the readback shape', async () => {
   const identity = await identityOf(root)
   const options = { target, home: root, origin: target.endpoint.origin, fetch: scripted([
     ...exchange,
-    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: false, list: false }, pending: false } } } },
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: false, list: false, artifacts: true }, pending: false } } } },
   ]) }
-  const committed = await runPeerSurface(options, identity, { delegate: true, message: false, list: false })
-  expect(committed).toEqual({ surface: { delegate: true, message: false, list: false }, pending: false })
+  const committed = await runPeerSurface(options, identity, { delegate: true, message: false, list: false, artifacts: true })
+  expect(committed).toEqual({ surface: { delegate: true, message: false, list: false, artifacts: true }, pending: false })
   const parkedOptions = { ...options, fetch: scripted([
     ...exchange,
-    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: true, list: false }, pending: true } } } },
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: true, list: false, artifacts: true }, pending: true } } } },
   ]) }
-  const parked = await runPeerSurface(parkedOptions, identity, { delegate: true, message: true, list: true })
-  expect(parked).toEqual({ surface: { delegate: true, message: true, list: false }, pending: true })
+  const parked = await runPeerSurface(parkedOptions, identity, { delegate: true, message: true, list: true, artifacts: true })
+  expect(parked).toEqual({ surface: { delegate: true, message: true, list: false, artifacts: true }, pending: true })
   const malformed = { ...options, fetch: scripted([
     ...exchange,
     { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true }, pending: false } } } },
   ]) }
-  await expect(runPeerSurface(malformed, identity, { delegate: true, message: true, list: true }))
+  await expect(runPeerSurface(malformed, identity, { delegate: true, message: true, list: true, artifacts: true }))
     .rejects.toThrowError(/INVALID_PAYLOAD/)
   const notObject = { ...options, fetch: scripted([
     ...exchange,
     { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: null } } },
   ]) }
-  await expect(runPeerSurface(notObject, identity, { delegate: true, message: true, list: true }))
+  await expect(runPeerSurface(notObject, identity, { delegate: true, message: true, list: true, artifacts: true }))
     .rejects.toThrowError(/INVALID_PAYLOAD/)
   const unpending = { ...options, fetch: scripted([
     ...exchange,
-    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: true, list: true } } } } },
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { surface: { delegate: true, message: true, list: true, artifacts: true } } } } },
   ]) }
-  await expect(runPeerSurface(unpending, identity, { delegate: true, message: true, list: true }))
+  await expect(runPeerSurface(unpending, identity, { delegate: true, message: true, list: true, artifacts: true }))
     .rejects.toThrowError(/INVALID_PAYLOAD/)
 })
 
@@ -202,4 +203,82 @@ it('rejects malformed operation readbacks with the transport reason', async () =
     await expect(runPeerSessions({ ...options, fetch: scripted([...exchange, { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value } } }]) }, identity))
       .rejects.toThrowError(/TRANSPORT_FAILED/)
   }
+})
+
+it('stages local artifacts with delegate and follow-up and validates download readbacks', async () => {
+  const root = await home()
+  const identity = await identityOf(root)
+  const data = new Uint8Array(1200)
+  crypto.getRandomValues(data)
+  const sha256 = createHash('sha256').update(data).digest('base64url')
+  const uploadId = '00000000-0000-4000-8000-00000000000a'
+  const beginBody = { type: 'server-response', rpcId: 'x', result: { ok: true, value: { uploadId, maxChunkBytes: 1024, maxFileBytes: 4096 } } }
+  const chunks = Math.ceil(1200 / 1024)
+  const appends = Array.from({ length: chunks }, (_, index) => (
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { received: Math.min((index + 1) * 1024, 1200), ready: Math.min((index + 1) * 1024, 1200) === 1200 } } } }
+  ))
+  const delegateFetch = scripted([
+    ...exchange,
+    { body: beginBody },
+    ...appends,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: runResult } } },
+  ])
+  const result = await runPeerDelegate({ target, home: root, origin: target.endpoint.origin, fetch: delegateFetch, timeoutMs: 5_000 },
+    identity, 'take this', { files: [{ name: 'a.bin', mediaType: 'text/plain', data }] })
+  expect(result).toEqual(runResult)
+  // A malformed begin readback fails fast without appending anything.
+  const badFetch = scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { uploadId: 'nope' } } } },
+  ])
+  await expect(runPeerFollowup({ target, home: root, origin: target.endpoint.origin, fetch: badFetch, timeoutMs: 5_000 },
+    identity, runResult.sessionId, 'next', 1_000, [{ name: 'a.bin', data }])).rejects.toThrowError(/TRANSPORT_FAILED/)
+  // A digest mismatch on download rejects the readback.
+  const downloadFetch = scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { name: 'r.txt', bytes: 3, sha256, dataBase64: Buffer.from('abc').toString('base64') } } } },
+  ])
+  await expect(downloadPeerFile({ target, home: root, origin: target.endpoint.origin, fetch: downloadFetch, timeoutMs: 5_000 },
+    identity, 'r.txt')).rejects.toThrowError(/DIGEST_MISMATCH/)
+  const good = createHash('sha256').update('abc').digest('base64url')
+  // A chunk the target reports short fails the staged upload loop.
+  const shortFetch = scripted([
+    ...exchange,
+    { body: beginBody },
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { received: 999, ready: false } } } },
+  ])
+  await expect(runPeerDelegate({ target, home: root, origin: target.endpoint.origin, fetch: shortFetch, timeoutMs: 5_000 },
+    identity, 'take this', { files: [{ name: 'a.bin', data }] })).rejects.toThrowError(/append lost bytes/)
+  // Malformed download readbacks reject without decoding.
+  const malformed = scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: 'nope' } } },
+  ])
+  await expect(downloadPeerFile({ target, home: root, origin: target.endpoint.origin, fetch: malformed, timeoutMs: 5_000 }, identity, 'r.txt'))
+    .rejects.toThrowError(/malformed download result/)
+  const nonCanonical = scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { name: 'r.txt', bytes: 3, sha256: good, dataBase64: 'YWJj!!' } } } },
+  ])
+  await expect(downloadPeerFile({ target, home: root, origin: target.endpoint.origin, fetch: nonCanonical, timeoutMs: 5_000 }, identity, 'r.txt'))
+    .rejects.toThrowError(/malformed download result/)
+  const badDigest = scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { name: 'r.txt', bytes: 3, sha256: 'short', dataBase64: Buffer.from('abc').toString('base64') } } } },
+  ])
+  await expect(downloadPeerFile({ target, home: root, origin: target.endpoint.origin, fetch: badDigest, timeoutMs: 5_000 }, identity, 'r.txt'))
+    .rejects.toThrowError(/malformed download result/)
+  const lengthMismatch = scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { name: 'r.txt', bytes: 4, sha256: good, dataBase64: Buffer.from('abc').toString('base64') } } } },
+  ])
+  await expect(downloadPeerFile({ target, home: root, origin: target.endpoint.origin, fetch: lengthMismatch, timeoutMs: 5_000 }, identity, 'r.txt'))
+    .rejects.toThrowError(/malformed download result/)
+  const goodFetch = scripted([
+    ...exchange,
+    { body: { type: 'server-response', rpcId: 'x', result: { ok: true, value: { name: 'r.txt', bytes: 3, sha256: good, dataBase64: Buffer.from('abc').toString('base64') } } } },
+  ])
+  const file = await downloadPeerFile({ target, home: root, origin: target.endpoint.origin, fetch: goodFetch, timeoutMs: 5_000 }, identity, 'r.txt')
+  expect([...file.data]).toEqual([...Buffer.from('abc')])
+  expect(file.name).toBe('r.txt')
 })

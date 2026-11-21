@@ -1,16 +1,19 @@
 /** Delegate, follow-up, and enumeration Remotes over a scripted agent registry. */
 
-import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
+import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import { ensureInstanceIdentity, peerInstanceId, peerRequestMessage } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerRecord, PeerRequestProof } from '@deepseek-ai/dsh-peer-protocol'
 import PeerHost from '../src/index.ts'
 import { readPeerSessions, writePeerSessions } from '../src/session-registry.ts'
 import { periodOf, readPeerGovernance, writePeerGovernance } from '../src/governance.ts'
+import { PEER_CHUNK_MAX_BYTES, stagedUploadExists } from '../src/staging.ts'
+import { PEER_DOWNLOAD_MAX_BYTES } from '../src/delegate.ts'
 import { readPeerStore, writePeerStore } from '../src/store.ts'
 
 const directories: string[] = []
@@ -27,6 +30,12 @@ const other = peerInstanceId('77777777-1111-4222-8333-444455556666')
 class FakeAgentRegistry extends Service {
   /** Created entries by session id: the agent facet and its scripted behavior. */
   readonly entries = new Map<string, { status: 'idle' | 'running'; followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => void; whenIdle: () => Promise<void>; session: { id: string; seq: number; events: Array<{ type: string; seq: number; data: unknown }>; eventsFrom: (from: number) => Array<{ type: string; data: unknown }> } }>()
+  /** Every delivered user message in full, including its source fields. */
+  readonly delivered: Array<{
+    id: string
+    content: Array<{ type: string; text?: string }>
+    source?: { kind: string; files?: unknown[] }
+  }> = []
   /** Options observed at creation, for asserting agent composition. */
   readonly createOptions: Array<{
     meta: { cwd: string; origin?: string; agentProfile?: string }
@@ -90,6 +99,7 @@ class FakeAgentRegistry extends Service {
         }
       },
       followup: (message: { id: string; content: Array<{ type: string; text?: string }> }) => {
+        this.delivered.push(message)
         if (this.followupFails) throw new Error('agent closing')
         const prompt = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
         entry.status = 'running'
@@ -174,8 +184,9 @@ class FakeDefaultModel extends Service {
  * @param extras - optional presets, default-model, and registry wiring.
  */
 async function rig(
-  surface: { delegate: boolean; message: boolean; list: boolean } = { delegate: true, message: true, list: true },
-  extras: { presets?: boolean; defaultModel?: boolean; modelPolicy?: boolean; agents?: boolean } = {},
+  surface: { delegate: boolean; message: boolean; list: boolean; artifacts: boolean }
+    = { delegate: true, message: true, list: true, artifacts: true },
+  extras: { presets?: boolean; defaultModel?: boolean; modelPolicy?: boolean; agents?: boolean; attachments?: boolean } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'peer-delegate-'))
   directories.push(root)
@@ -186,6 +197,7 @@ async function rig(
   if (extras.presets === true) await ctx.plugin(FakePresets)
   if (extras.defaultModel === true) await ctx.plugin(FakeDefaultModel)
   if (extras.modelPolicy === true) await ctx.plugin(FakeModelPolicy)
+  if (extras.attachments === true) await ctx.plugin(FakeAttachmentStore)
   await ctx.plugin(PeerHost, { dshHome: root })
   const key = identityKey()
   const record: PeerRecord = {
@@ -200,6 +212,7 @@ async function rig(
     root, ctx, host: ctx.peerHost, key,
     registry: ctx.get('agents') as unknown as FakeAgentRegistry,
     presets: ctx.get('agentPresets') as unknown as FakePresets | undefined,
+    attachments: ctx.get('attachments') as unknown as FakeAttachmentStore | undefined,
   }
 }
 
@@ -336,7 +349,7 @@ it("enumerates only the caller's sessions with derived live state", async () => 
 })
 
 it('denies surfaces, malformed requests, stale proofs, and removal cleanup', async () => {
-  const { host, key } = await rig({ delegate: false, message: false, list: false })
+  const { host, key } = await rig({ delegate: false, message: false, list: false, artifacts: false })
   await expect(host.delegate({ proof: proofFor(key), prompt: 'p' })).rejects.toThrowError(/SURFACE_DENIED/)
   await expect(host.followup({ proof: proofFor(key), sessionId: 'peer-00000000-0000-4000-8000-000000000000', prompt: 'p' })).rejects.toThrowError(/SURFACE_DENIED/)
   await expect(host.sessions({ proof: proofFor(key) })).rejects.toThrowError(/SURFACE_DENIED/)
@@ -366,6 +379,62 @@ class FakeModelPolicy extends Service {
   }
 }
 
+/** A scripted attachment store admitting generic files into memory. */
+class FakeAttachmentStore extends Service {
+  /** Saved files keyed by content digest; each entry records the ref and handle path. */
+  readonly saved: Array<{ name: string; mediaType?: string; bytes: number; data: Uint8Array }> = []
+  /** Published read-only handle paths by attachment digest. */
+  readonly handles: string[] = []
+  /** When set, `saveFile` rejects with the configured AttachmentError code. */
+  saveFailsWith: AttachmentError['code'] | undefined
+  /** When set, `saveFile` rejects with a plain Error instead of an AttachmentError. */
+  saveThrowsRaw = false
+  /** When set, `publishFileHandle` rejects with the configured AttachmentError code. */
+  handleFailsWith: AttachmentError['code'] | undefined
+
+  constructor(ctx: Context, readonly acceptsFiles = true) {
+    super(ctx, 'attachments')
+  }
+
+  get imageLimits() {
+    return { maxImageBytes: 1, maxImagesPerMessage: 1, maxMessageImageBytes: 1, maxImagePixels: 1, mediaTypes: [] as never[] }
+  }
+
+  get fileLimits() {
+    return this.acceptsFiles ? { maxFileBytes: 64 * 1024 * 1024 } : undefined
+  }
+
+  async validateImage(): Promise<void> {}
+
+  async saveImage(): Promise<never> {
+    throw new Error('unused')
+  }
+
+  async saveFile(input: { data: Uint8Array; mediaType?: string; name?: string })
+    : Promise<{ attachmentId: string; bytes: number; name?: string; mediaType?: string }> {
+    if (this.saveThrowsRaw) throw new Error('disk on fire')
+    if (this.saveFailsWith !== undefined) {
+      throw new AttachmentError('store refused', this.saveFailsWith)
+    }
+    this.saved.push({ name: input.name ?? 'unnamed', ...input.mediaType === undefined ? {} : { mediaType: input.mediaType }, bytes: input.data.byteLength, data: input.data })
+    return {
+      attachmentId: `sha256:${String(this.saved.length - 1).padStart(64, '0')}`,
+      bytes: input.data.byteLength,
+      ...input.name === undefined ? {} : { name: input.name },
+      ...input.mediaType === undefined ? {} : { mediaType: input.mediaType },
+    }
+  }
+
+  async publishFileHandle(ref: { bytes: number; name?: string }): Promise<string> {
+    if (this.handleFailsWith !== undefined) {
+      throw new AttachmentError('handle refused', this.handleFailsWith)
+    }
+    const path = `/ro/${ref.name ?? 'file'}`
+    this.handles.push(path)
+    return path
+  }
+}
+
 it('initializes the composed model policy with each delegated session', async () => {
   const root = await mkdtemp(join(tmpdir(), 'peer-delegate-'))
   directories.push(root)
@@ -378,7 +447,7 @@ it('initializes the composed model policy with each delegated session', async ()
   const key = identityKey()
   const record: PeerRecord = {
     instanceId: caller, displayName: 'Laptop', platform: 'darwin', arch: 'arm64', version: '1.0.0-rc.3',
-    surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+    surface: { delegate: true, message: true, list: true, artifacts: true }, pairedVia: 'invitation', status: 'active',
     identityPublicKey: key.publicKey,
     firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
   }
@@ -532,4 +601,146 @@ it('orders enumeration by newest activity across both directions', async () => {
     : entry))
   const listed = await host.sessions({ proof: proofFor(key) })
   expect(listed.sessions.map(entry => entry.sessionId)).toEqual([first.sessionId, second.sessionId])
+})
+
+it('delivers staged uploads through the attachment pipeline as message files', async () => {
+  const { root, host, key, registry } = await rig({ delegate: true, message: true, list: true, artifacts: true },
+    { attachments: true })
+  const data = new Uint8Array(3000)
+  crypto.getRandomValues(data)
+  const sha256 = createHash('sha256').update(data).digest('base64url')
+  const begin = await host.upload({ proof: proofFor(key), manifest: { name: 'logs.tar', mediaType: 'application/x-tar', bytes: 3000, sha256 } })
+  expect(begin.maxChunkBytes).toBe(PEER_CHUNK_MAX_BYTES)
+  expect(begin.maxFileBytes).toBe(64 * 1024 * 1024)
+  for (let offset = 0; offset < 3000; offset += 1024) {
+    const chunk = data.subarray(offset, Math.min(offset + 1024, 3000))
+    await host.append({ proof: proofFor(key), uploadId: begin.uploadId, offset, dataBase64: Buffer.from(chunk).toString('base64') })
+  }
+  const result = await host.delegate({ proof: proofFor(key), prompt: 'analyze the archive', uploads: [{ uploadId: begin.uploadId, sha256 }] })
+  expect(result.state).toBe('settled')
+  const store = registry.delivered
+  expect(store.at(-1)!.content[0]).toEqual({ type: 'text', text: 'analyze the archive' })
+  expect(store.at(-1)!.content[1]!.text).toContain('logs.tar')
+  expect(store.at(-1)!.content[1]!.text).toContain('只读路径')
+  const admitted = (store.at(-1)!.source as {
+    files?: Array<{ attachmentId?: unknown; bytes?: unknown; name?: unknown; mediaType?: unknown }>
+  }).files ?? []
+  expect(admitted).toHaveLength(1)
+  expect(String(admitted[0]!.attachmentId)).toMatch(/^sha256:/)
+  expect(admitted[0]!.bytes).toBe(3000)
+  expect(admitted[0]!.name).toBe('logs.tar')
+  expect(admitted[0]!.mediaType).toBe('application/x-tar')
+  // The staged slot is consumed and the bytes metered against the peer's byte budget.
+  expect(await stagedUploadExists(root, caller, begin.uploadId)).toBe(false)
+  const period = periodOf(new Date())
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: caller, spent: { [period]: 1 },
+    spentBytes: { [period]: 3000 } }])
+})
+
+it('rejects artifact calls without the artifacts grant or without an attachment store', async () => {
+  const denied = await rig({ delegate: true, message: true, list: true, artifacts: false }, { attachments: true })
+  const data = new Uint8Array(4)
+  const sha256 = createHash('sha256').update(data).digest('base64url')
+  await expect(denied.host.upload({ proof: proofFor(denied.key), manifest: { name: 'a.bin', bytes: 4, sha256 } })).rejects.toThrowError(/SURFACE_DENIED/)
+  await expect(denied.host.download({ proof: proofFor(denied.key), path: 'out.txt' })).rejects.toThrowError(/SURFACE_DENIED/)
+  const bare = await rig()
+  await expect(bare.host.upload({ proof: proofFor(bare.key), manifest: { name: 'a.bin', bytes: 4, sha256 } })).rejects.toThrowError(/ATTACHMENT_REFUSED/)
+})
+
+it('maps attachment-pipeline refusals onto the closed artifact reasons', async () => {
+  const { host, key, attachments } = await rig({ delegate: true, message: true, list: true, artifacts: true }, { attachments: true })
+  const data = new Uint8Array(4)
+  const sha256 = createHash('sha256').update(data).digest('base64url')
+  attachments!.saveFailsWith = 'FILE_TOO_LARGE'
+  const oversized = await host.upload({ proof: proofFor(key), manifest: { name: 'big.bin', bytes: 4, sha256 } })
+  await host.append({ proof: proofFor(key), uploadId: oversized.uploadId, offset: 0, dataBase64: Buffer.from(data).toString('base64') })
+  attachments!.saveFailsWith = 'FILE_UPLOAD_UNSUPPORTED'
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'take it', uploads: [{ uploadId: oversized.uploadId, sha256 }] }))
+    .rejects.toThrowError(/ATTACHMENT_REFUSED/)
+})
+
+it('reads bounded workspace files back and records the carried bytes', async () => {
+  const { root, host, key } = await rig()
+  const work = join(root, 'peer-work', caller)
+  await mkdir(work, { recursive: true })
+  await writeFile(join(work, 'report.txt'), 'results', { flag: 'w' })
+  const file = await host.download({ proof: proofFor(key), path: 'report.txt' })
+  expect(file.name).toBe('report.txt')
+  expect(file.bytes).toBe(7)
+  expect(file.dataBase64).toBe(Buffer.from('results').toString('base64'))
+  await expect(host.download({ proof: proofFor(key), path: 'missing.txt' })).rejects.toThrowError(/file not found/)
+  await expect(host.download({ proof: proofFor(key), path: '../secrets' })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  // A file past the single-frame cap refuses without reading it into memory first.
+  const huge = join(work, 'huge.bin')
+  const handle = await open(huge, 'w')
+  await handle.truncate(PEER_DOWNLOAD_MAX_BYTES + 1)
+  await handle.close()
+  await expect(host.download({ proof: proofFor(key), path: 'huge.bin' })).rejects.toThrowError(/ATTACHMENT_TOO_LARGE/)
+  const period = periodOf(new Date())
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: caller, spent: {}, spentBytes: { [period]: 7 } }])
+})
+
+it('rejects appends past the monthly byte budget before any byte lands', async () => {
+  const { root, host, key } = await rig({ delegate: true, message: true, list: true, artifacts: true }, { attachments: true })
+  const period = periodOf(new Date())
+  await writePeerGovernance(root, [{ instanceId: caller, monthlyBytes: 8, spent: {}, spentBytes: { [period]: 6 } }])
+  const data = new Uint8Array(4)
+  const sha256 = createHash('sha256').update(data).digest('base64url')
+  const begin = await host.upload({ proof: proofFor(key), manifest: { name: 'a.bin', bytes: 4, sha256 } })
+  // A chunk the cap can still carry lands and meters; the next three-byte chunk cannot.
+  await host.append({ proof: proofFor(key), uploadId: begin.uploadId, offset: 0, dataBase64: Buffer.from(data.subarray(0, 2)).toString('base64') })
+  await expect(host.append({ proof: proofFor(key), uploadId: begin.uploadId, offset: 2, dataBase64: Buffer.from(data.subarray(2)).toString('base64') }))
+    .rejects.toThrowError(/BUDGET_EXCEEDED/)
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: caller, monthlyBytes: 8, spent: {}, spentBytes: { [period]: 8 } }])
+})
+
+it('rejects malformed upload references and artifact Remotes with the closed reasons', async () => {
+  const { host, key, attachments } = await rig({ delegate: true, message: true, list: true, artifacts: true }, { attachments: true })
+  const data = new Uint8Array(4)
+  const sha256 = createHash('sha256').update(data).digest('base64url')
+  const ref = { uploadId: '00000000-0000-4000-8000-00000000000a', sha256: 'A'.repeat(43) }
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'x', uploads: [] })).rejects.toThrowError(/uploads out of range/)
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'x', uploads: ['bad' as never] })).rejects.toThrowError(/not an object/)
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'x', uploads: [{ uploadId: 'x', sha256: 'y' }] })).rejects.toThrowError(/reference fields/)
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'x', uploads: [ref, ref, ref, ref, ref] })).rejects.toThrowError(/uploads out of range/)
+  await expect(host.followup({ proof: proofFor(key), sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', prompt: 'x', uploads: [] }))
+    .rejects.toThrowError(/uploads out of range/)
+  // A delegate naming uploads without any mounted store refuses the whole turn.
+  const bare = await rig()
+  await expect(bare.host.delegate({ proof: proofFor(bare.key), prompt: 'x', uploads: [ref] }))
+    .rejects.toThrowError(/ATTACHMENT_REFUSED/)
+  // Remote-level shape validation for the artifact verbs.
+  await expect(host.upload('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.append('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.download('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.upload({ proof: proofFor(key) } as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.append({ proof: proofFor(key), uploadId: 'short', offset: 0, dataBase64: 'YQ==' })).rejects.toThrowError(/append fields/)
+  await expect(host.append({ proof: proofFor(key), uploadId: ref.uploadId, offset: -1, dataBase64: 'YQ==' })).rejects.toThrowError(/append fields/)
+  await expect(host.append({ proof: proofFor(key), uploadId: ref.uploadId, offset: 0, dataBase64: '' })).rejects.toThrowError(/append fields/)
+  await expect(host.append({ proof: proofFor(key), uploadId: ref.uploadId, offset: 0, dataBase64: '!!' })).rejects.toThrowError(/canonical base64/)
+  await expect(host.download({ proof: proofFor(key), path: '' })).rejects.toThrowError(/download fields/)
+  await expect(host.download({ proof: proofFor(key), path: 'x'.repeat(513) })).rejects.toThrowError(/download fields/)
+  // A store throwing a raw non-attachment failure maps onto the generic refused reason.
+  attachments!.saveThrowsRaw = true
+  const raw = await host.upload({ proof: proofFor(key), manifest: { name: 'z.bin', bytes: 4, sha256 } })
+  await host.append({ proof: proofFor(key), uploadId: raw.uploadId, offset: 0, dataBase64: Buffer.from(data).toString('base64') })
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'x', uploads: [{ uploadId: raw.uploadId, sha256 }] }))
+    .rejects.toThrowError(/ATTACHMENT_REFUSED/)
+  attachments!.saveThrowsRaw = false
+  // The artifacts grant gates the append verb independently of the begin verb.
+  const denied = await rig({ delegate: true, message: true, list: true, artifacts: false }, { attachments: true })
+  await expect(denied.host.append({ proof: proofFor(denied.key), uploadId: ref.uploadId, offset: 0, dataBase64: 'YQ==' }))
+    .rejects.toThrowError(/SURFACE_DENIED/)
+  // A store that rejects the save fails the turn, and a handle-publication failure fails it before delivery.
+  const begin = await host.upload({ proof: proofFor(key), manifest: { name: 'h.bin', bytes: 4, sha256 } })
+  await host.append({ proof: proofFor(key), uploadId: begin.uploadId, offset: 0, dataBase64: Buffer.from(data).toString('base64') })
+  attachments!.saveFailsWith = 'FILE_TOO_LARGE'
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'x', uploads: [{ uploadId: begin.uploadId, sha256 }] }))
+    .rejects.toThrowError(/ATTACHMENT_TOO_LARGE/)
+  attachments!.saveFailsWith = undefined
+  const handled = await host.upload({ proof: proofFor(key), manifest: { name: 'h2.bin', bytes: 4, sha256 } })
+  await host.append({ proof: proofFor(key), uploadId: handled.uploadId, offset: 0, dataBase64: Buffer.from(data).toString('base64') })
+  attachments!.handleFailsWith = 'FILE_TOO_LARGE'
+  await expect(host.delegate({ proof: proofFor(key), prompt: 'x', uploads: [{ uploadId: handled.uploadId, sha256 }] }))
+    .rejects.toThrowError(/ATTACHMENT_TOO_LARGE/)
 })
