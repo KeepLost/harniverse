@@ -91,8 +91,8 @@ export class PeerHost extends TypertRemoteService {
   protected [Service.init](): void {
     // One restart invalidates every in-flight upload; staging is transport state, never durable.
     void clearStagingUploads(this.home)
+    /* v8 ignore next 4 -- the periodic sweeper reaps TTL-expired slots in production; unit tests sweep directly */
     const sweeper = setInterval(() => {
-      /* v8 ignore next -- the periodic sweeper reaps TTL-expired slots in production; tests sweep directly */
       void sweepStagingUploads(this.home, Date.now())
     }, 60_000)
     ;(sweeper as { unref?: () => void }).unref?.()
