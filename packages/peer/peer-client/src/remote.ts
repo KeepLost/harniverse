@@ -32,6 +32,18 @@ export interface PeerCallIdentity {
 }
 
 /**
+ * Flatten one {@link PeerError} into the shared non-secret failure wording
+ * (`peer call failed (REASON)` plus the optional detail), for callers that
+ * surface wire failures as ordinary errors.
+ * @param error - the thrown peer failure.
+ * @returns the human-readable one-line message.
+ */
+export function peerFailureMessage(error: PeerError): string {
+  const detail = error.message.slice(`peer: ${error.reason}`.length).replace(/^ \(|\)$/g, '')
+  return `peer call failed (${error.reason})${detail === '' ? '' : `: ${detail}`}`
+}
+
+/**
  * Mint one single-use nonce-bound request proof.
  * @param identity - the initiator's key and instance anchor.
  * @returns the signed proof for the next Remote call.

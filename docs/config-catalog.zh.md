@@ -3644,6 +3644,32 @@ export interface Config {
 
 Source: [`packages/subagent/subagent-oar/src/index.ts:25`](../packages/subagent/subagent-oar/src/index.ts)
 
+<a id="deepseek-aidsh-subagent-peer"></a>
+
+## `@deepseek-ai/dsh-subagent-peer`
+
+Requires: `subagents`
+
+```ts config-catalog
+/** Config: which paired instance every delegation of this backend targets. */
+export interface Config {
+  /** Provider name on `ctx.subagents` (default `peer`). */
+  providerName: string
+  /**
+   * The paired instance every run delegates to: its exact instance id or its
+   * exact display name in this home's pairing-target store. Resolution happens
+   * per run, so a target paired after boot is picked up without a reload.
+   */
+  peerTarget: string
+  /** Harness home of this instance holding the pairing target store. */
+  dshHome?: string
+  /** Settlement budget per delegated turn, in milliseconds (default 120000). */
+  settleTimeoutMs?: number
+}
+```
+
+Source: [`packages/subagent/subagent-peer/src/index.ts:53`](../packages/subagent/subagent-peer/src/index.ts)
+
 <a id="deepseek-aidsh-subagent-spawn-in-process"></a>
 
 ## `@deepseek-ai/dsh-subagent-spawn-in-process`
@@ -4032,7 +4058,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/peer/tool-peer/src/index.ts:50`](../packages/peer/tool-peer/src/index.ts)
+Source: [`packages/peer/tool-peer/src/index.ts:51`](../packages/peer/tool-peer/src/index.ts)
 
 <a id="deepseek-aidsh-tool-present"></a>
 

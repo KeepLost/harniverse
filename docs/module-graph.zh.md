@@ -77,6 +77,7 @@ flowchart TD
     pkg_subagent_fork_in_process["subagent-fork-in-process"]
     pkg_subagent_in_process_driver["subagent-in-process-driver"]
     pkg_subagent_oar["subagent-oar"]
+    pkg_subagent_peer["subagent-peer"]
     pkg_subagent_spawn_in_process["subagent-spawn-in-process"]
     pkg_tool_subagent["tool-subagent"]
     pkg_tool_subagent_control["tool-subagent-control"]
@@ -1541,6 +1542,14 @@ flowchart TD
   pkg_subagent_oar --> pkg_session
   pkg_subagent_oar --> pkg_subagent
   pkg_subagent_oar --> pkg_subprocess
+  pkg_subagent_peer --> pkg_agent
+  pkg_subagent_peer --> pkg_home_paths
+  pkg_subagent_peer --> pkg_invariants
+  pkg_subagent_peer --> pkg_llm
+  pkg_subagent_peer --> pkg_peer_client
+  pkg_subagent_peer --> pkg_peer_protocol
+  pkg_subagent_peer --> pkg_session
+  pkg_subagent_peer --> pkg_subagent
   pkg_tool_subagent --> pkg_agent
   pkg_tool_subagent --> pkg_invariants
   pkg_tool_subagent --> pkg_llm
@@ -2589,6 +2598,7 @@ flowchart TD
 | [`subagent-claude-code`](../packages/subagent/subagent-claude-code) | `subagent` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`supervision`](../packages/interaction/supervision), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`subagent-oar`](../packages/subagent/subagent-oar) | `subagent` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess) |
+| [`subagent-peer`](../packages/subagent/subagent-peer) | `subagent` | [`agent`](../packages/core/agent), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`peer-client`](../packages/peer/peer-client), [`peer-protocol`](../packages/peer/peer-protocol), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`supervision`](../packages/interaction/supervision), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-subagent-control`](../packages/subagent/tool-subagent-control) | `subagent` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`tool-subagent-oar`](../packages/subagent/tool-subagent-oar) | `subagent` | [`invariants`](../packages/runtime-diagnostics/invariants), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
