@@ -1085,6 +1085,19 @@
         "which"
       ]
     },
+    "packages/subagent/subagent-peer": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts",
+        "tests/scripted-peer-target.ts",
+        "tests/fixtures/driver.ts",
+        "tests/fixtures/mock-delegating-llm.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/subagent/tool-subagent-oar": {
       "entry": [
         "tests/**/*.spec.ts"

@@ -55,9 +55,38 @@ Every delegated turn consumes the pairing's own governance: the accepting side's
 | `error` or unknown | `error` (unknown reasons carry the raw value as diagnostic) |
 | turn still `running` at the budget | `error` with a continuation diagnostic naming the peer session |
 
-## Model experience
+## Process boundary
 
-The parent model calls the ordinary `subagent` tool; the peer transport is invisible. The result renders the remote reply as the child's final output and publishes the peer session id. Token cost on the parent is the prompt plus the settled reply — the remote's own tool traffic never enters the parent's context. Delivering or fetching files stays on the `peer` tool (`attachFiles`/`fetchFiles`): the subagent tool's prompt is text-only, and remote-produced artifacts are addressed through the read-only handle blocks the remote's reply already names.
+The wire driver is [`dsh-peer-client`](../../peer/peer-client/README.md): Grant-backed transport, request proofs, and target selection all live there, and the target store (`peer-targets.json`) stays owned by the initiating home. The pairing channel is the real trust boundary — identity keys, surface gates, and budget enforcement on the accepting side — and same-process subagent values are not defensively cloned.
+## Model Experience
+
+### Parent tool result
+
+#### What the model sees
+
+Through the ordinary `subagent` tool: the one-shot render publishes the peer session id and carries the remote reply as the child's final output. Failures name the closed peer reason (for example TRANSPORT_FAILED); a turn still running past the settlement budget becomes an error naming that session, which stays continuable through the `peer` tool.
+
+#### Token effect
+
+Parent input grows only by the settled reply or error, which is data-dependent and retained until compaction. The remote's own tool traffic never enters the parent's context.
+
+#### KV Cache effect
+
+The parent request grows append-only with the settled reply. Nothing about the pairing channel perturbs the parent's prefix reuse; the remote side's cache is independent of this request entirely.
+
+### Remote child request
+
+#### What the model sees
+
+The paired instance's model receives the standalone prompt inside its own deployment's system prompt, tools, and a fresh delegated session. No parent conversation crosses the pairing channel, and persona, tool-filter, depth, and structured-output requests reject loud before any wire call.
+
+#### Token effect
+
+The remote child pays for its own full context and multi-step history under the pairing's own turn budget; those tokens never enter this deployment.
+
+#### KV Cache effect
+
+Each side caches independently: the remote reuses prefixes only under its own provider, model, composition, and history, and the parent's cache sees only the settled reply appended.
 
 ## Known Limitations and Deferred Work
 
@@ -65,7 +94,3 @@ The parent model calls the ordinary `subagent` tool; the peer transport is invis
 - No cancellation propagation: local disposal abandons the wait only; the remote turn runs to completion and consumes its own budget. A remote-abort Remote would need its own wire decision.
 - Text-only prompts: the delegation wire carries text; image or other content blocks reject before any wire call.
 - No artifact bridging: files cross the pairing through the `peer` tool's upload/download facilities, not through this provider.
-
-## Process boundary
-
-The wire driver is [`dsh-peer-client`](../../peer/peer-client/README.md): Grant-backed transport, request proofs, and target selection all live there, and the target store (`peer-targets.json`) stays owned by the initiating home. The pairing channel is the real trust boundary — identity keys, surface gates, and budget enforcement on the accepting side — and same-process subagent values are not defensively cloned.

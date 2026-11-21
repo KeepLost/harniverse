@@ -55,9 +55,38 @@ peer provider 把每个子 agent 作为一条新的委派会话,经实例配对�
 | `error` 或未知 | `error`(未知原因以原始值作为诊断) |
 | 预算点仍在 `running` | `error`,诊断命名 peer 会话以供续聊 |
 
+## 进程边界
+
+wire driver 是 [`dsh-peer-client`](../../peer/peer-client/README.md):Grant 传输、请求证明与目标选择都在那里,目标存储(`peer-targets.json`)归发起方 home 所有。配对信道是真正的信任边界——身份密钥、surface 门控与接受方预算 enforcement——同进程 subagent 值不做防御性克隆。
 ## 模型体验
 
-父模型调用普通的 `subagent` 工具;peer 传输不可见。结果把远端回复渲染为子 agent 的最终输出并发布 peer 会话 id。父侧 token 开销是 prompt 加落定回复——远端自身的工具流量从不进入父上下文。传递或取回文件仍走 `peer` 工具(`attachFiles`/`fetchFiles`):subagent 工具的 prompt 仅文本,远端产物通过远端回复已命名的只读句柄块寻址。
+### 父侧工具结果
+
+#### 模型看到什么
+
+经普通 `subagent` 工具:一次性渲染发布 peer 会话 id,并以子 agent 的最终输出承载远端回复。失败点名封闭 peer 原因(例如 TRANSPORT_FAILED);超出落定预算仍在运行的回合变成命名该会话的 error,该会话仍可经 `peer` 工具续聊。
+
+#### Token 效应
+
+父输入只增长落定回复或错误,数据相关并保留至压缩。远端自身的工具流量从不进入父上下文。
+
+#### KV Cache 效应
+
+父请求随落定回复仅追加增长。配对信道的任何东西都不扰动父侧前缀复用;远端侧缓存与该请求完全独立。
+
+### 远端子请求
+
+#### 模型看到什么
+
+配对实例的模型在其自身部署的系统提示词、工具与全新委派会话中收到独立 prompt。没有父对话跨越配对信道,persona、工具过滤、深度与结构化输出请求在任何 wire 调用之前显式拒绝。
+
+#### Token 效应
+
+远端子 agent 在配对自身的回合预算下支付它自己的完整上下文与多步历史;这些 token 从不进入本部署。
+
+#### KV Cache 效应
+
+两侧独立缓存:远端只在它自己的 provider、模型、组合与历史下复用前缀,父侧缓存只看到追加的落定回复。
 
 ## 已知限制与 deferred work
 
@@ -65,7 +94,3 @@ peer provider 把每个子 agent 作为一条新的委派会话,经实例配对�
 - 无取消传播:本地 dispose 只放弃等待;远端回合运行到完成并消耗它自己的预算。远端中止 Remote 需要独立的 wire 决策。
 - 仅文本 prompt:委派 wire 承载文本;图像或其他内容块在任何 wire 调用之前拒绝。
 - 无工件桥接:文件经 `peer` 工具的上传/下载设施跨越配对,不经本 provider。
-
-## 进程边界
-
-wire driver 是 [`dsh-peer-client`](../../peer/peer-client/README.md):Grant 传输、请求证明与目标选择都在那里,目标存储(`peer-targets.json`)归发起方 home 所有。配对信道是真正的信任边界——身份密钥、surface 门控与接受方预算 enforcement——同进程 subagent 值不做防御性克隆。
