@@ -1,7 +1,8 @@
 /** Peer tool behavior: target resolution, budgeting, result rendering, and error mapping. */
 
+import { createHash } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -30,6 +31,12 @@ class ScriptedTarget {
   followupRuns: PeerRunResult[] = []
   wireError: { reason: string } | undefined
   failWith: { status: number } | undefined
+  /** Bytes appended across all staged uploads, for asserting chunked delivery. */
+  uploadedBytes = 0
+  /** Total manifest bytes the scripted upload accepts before sealing a slot. */
+  manifestBytes = 0
+  /** One-shot wire error raised by the download route only. */
+  downloadError: { reason: string } | undefined
   private readonly server: Server
 
   constructor() {
@@ -64,7 +71,29 @@ class ScriptedTarget {
           return
         }
         if (this.wireError !== undefined) { send(undefined, false); return }
+        if (url.endsWith('/api/peer/upload')) {
+          send({ uploadId: '00000000-0000-4000-8000-00000000000a', maxChunkBytes: 1024, maxFileBytes: 4096 })
+          return
+        }
+        if (url.endsWith('/api/peer/append')) {
+          const chunk = Buffer.from(String(request.dataBase64), 'base64')
+          this.uploadedBytes += chunk.byteLength
+          send({ received: this.uploadedBytes, ready: this.uploadedBytes === this.manifestBytes })
+          return
+        }
+        if (url.endsWith('/api/peer/download')) {
+          if (this.downloadError !== undefined) {
+            this.wireError = this.downloadError
+            send(undefined, false)
+            this.wireError = undefined
+            return
+          }
+          const data = Buffer.from('artifact bytes')
+          send({ name: 'out.bin', bytes: data.byteLength, sha256: createHash('sha256').update(data).digest('base64url'), dataBase64: data.toString('base64') })
+          return
+        }
         if (url.endsWith('/api/peer/delegate')) {
+          if (typeof request.manifestBytes === 'number') this.manifestBytes = request.manifestBytes
           send(this.delegateRuns.shift() ?? { sessionId: 'peer-0', messageId: 'm', state: 'settled', reply: 'ok', endReason: 'completed' })
           return
         }
@@ -327,4 +356,58 @@ it('unregisters with its fiber', async () => {
   expect(rig.ctx.tools.get('peer')).toBeDefined()
   await rig.fiber.dispose()
   expect(rig.ctx.tools.get('peer')).toBeUndefined()
+})
+
+it('delivers local attachments with the prompt and fetches workspace files back', async () => {
+  const scene = await setup([{}])
+  const local = join(scene.home, 'brief.txt')
+  await writeFile(local, 'peer artifact payload')
+  scene.target.manifestBytes = Buffer.byteLength('peer artifact payload')
+  await scene.execute({ target: 'Build workstation', prompt: 'read the brief', attachFiles: [local] })
+
+  const upload = scene.target.requests.find(call => call.url.endsWith('/api/peer/upload'))!
+  expect((upload.request.manifest as { name: string }).name).toBe('brief.txt')
+  expect(scene.target.uploadedBytes).toBe(Buffer.byteLength('peer artifact payload'))
+  const delegate = scene.target.requests.find(call => call.url.endsWith('/api/peer/delegate'))!
+  expect(Array.isArray(delegate.request.uploads)).toBe(true)
+  const fetched = await scene.execute({ target: 'Build workstation', prompt: 'fetch the artifact', fetchFiles: ['out.bin'] })
+  expect(fetched.isError).not.toBe(true)
+  expect(fetched.text).toContain('Fetched workspace files into:')
+  expect(fetched.text).toContain(join(scene.home, 'peer-downloads', ID_A, 'out.bin'))
+  expect(await readFile(join(scene.home, 'peer-downloads', ID_A, 'out.bin'), 'utf8')).toBe('artifact bytes')
+})
+
+it('maps fetch failures onto the closed peer reason', async () => {
+  const scene = await setup([{}])
+  scene.target.downloadError = { reason: 'ATTACHMENT_TOO_LARGE' }
+  const result = await scene.execute({ target: 'Build workstation', prompt: 'fetch', fetchFiles: ['huge.bin'] })
+  expect(result.isError).toBe(true)
+  expect(result.text).toContain('peer fetch failed (ATTACHMENT_TOO_LARGE)')
+})
+
+it('delivers attachments on a follow-up turn into an existing session', async () => {
+  const scene = await setup([{}])
+  const local = join(scene.home, 'second.txt')
+  await writeFile(local, 'more payload')
+  scene.target.manifestBytes = Buffer.byteLength('more payload')
+  const result = await scene.execute({ target: 'Build workstation', prompt: 'next', session: 'peer-0', attachFiles: [local] })
+  expect(result.isError).not.toBe(true)
+  const followup = scene.target.requests.find(call => call.url.endsWith('/api/peer/followup'))!
+  expect(Array.isArray(followup.request.uploads)).toBe(true)
+})
+
+it('skips the fetch loop for an explicitly empty fetch list', async () => {
+  const scene = await setup([{}])
+  const result = await scene.execute({ target: 'Build workstation', prompt: 'x', fetchFiles: [] })
+  expect(result.isError).not.toBe(true)
+  expect(result.text).not.toContain('Fetched workspace files')
+  expect(scene.target.requests.some(call => call.url.endsWith('/api/peer/download'))).toBe(false)
+})
+
+it('reports unreadable attach files as tool errors before any wire call', async () => {
+  const scene = await setup([{}])
+  const result = await scene.execute({ target: 'Build workstation', prompt: 'read', attachFiles: [join(scene.home, 'missing.bin')] })
+  expect(result.isError).toBe(true)
+  expect(result.text).toContain('cannot be read')
+  expect(scene.target.requests.filter(call => call.url.endsWith('/api/peer/upload'))).toHaveLength(0)
 })

@@ -20,7 +20,7 @@ const record: PeerRecord = {
   platform: 'darwin',
   arch: 'arm64',
   version: '1.0.0-rc.3',
-  surface: { delegate: true, message: true, list: true },
+  surface: { delegate: true, message: true, list: true, artifacts: true },
   pairedVia: 'invitation',
   status: 'active',
   firstSeenAt: '2026-11-18T08:00:00.000Z',
@@ -66,6 +66,8 @@ it('validates every record field through the parser', () => {
   expect(() => bad({ surface: [] })).toThrowError(/CORRUPT_INSTANCE/)
   expect(() => bad({ surface: { delegate: true } })).toThrowError(/CORRUPT_INSTANCE/)
   expect(() => bad({ surface: { delegate: true, message: true, list: 'yes' } })).toThrowError(/CORRUPT_INSTANCE/)
+  expect(() => bad({ surface: { delegate: true, message: true, list: true, artifacts: 'yes' } })).toThrowError(/CORRUPT_INSTANCE/)
+  expect(() => bad({ surface: { delegate: true, message: true, list: true, extra: true } })).toThrowError(/CORRUPT_INSTANCE/)
   expect(() => bad({ pairedVia: 'manual' })).toThrowError(/CORRUPT_INSTANCE/)
   expect(() => bad({ status: 'other' })).toThrowError(/CORRUPT_INSTANCE/)
   expect(() => bad({ firstSeenAt: 'nope' })).toThrowError(/CORRUPT_INSTANCE/)
@@ -79,9 +81,15 @@ it('validates every record field through the parser', () => {
 
 it('round-trips parked pending surfaces and keeps them optional', () => {
   expect(parsePeerRecord(record)).toEqual(record)
-  const parked = parsePeerRecord({ ...record, pendingSurface: { delegate: true, message: false, list: true } })
-  expect(parked.pendingSurface).toEqual({ delegate: true, message: false, list: true })
+  const parked = parsePeerRecord({ ...record, pendingSurface: { delegate: true, message: false, list: true, artifacts: false } })
+  expect(parked.pendingSurface).toEqual({ delegate: true, message: false, list: true, artifacts: false })
   expect('pendingSurface' in parked).toBe(true)
+})
+
+it('reads pre-artifact three-field surfaces back with artifacts defaulted off', () => {
+  const legacy = { ...record as unknown as Record<string, unknown>, surface: { delegate: true, message: true, list: false } }
+  const parsed = parsePeerRecord(legacy)
+  expect(parsed.surface).toEqual({ delegate: true, message: true, list: false, artifacts: false })
 })
 
 it('maps store write failures onto the closed reason', async () => {

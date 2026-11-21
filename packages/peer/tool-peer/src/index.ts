@@ -10,12 +10,15 @@
  * @module @deepseek-ai/dsh-tool-peer
  */
 
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { ensureInstanceIdentity, PeerError } from '@deepseek-ai/dsh-peer-protocol'
 import {
+  downloadPeerFile,
   ensurePeerIdentityKey,
   readPeerTargets,
   runPeerDelegate,
@@ -70,6 +73,8 @@ type PeerCallArgs = {
   prompt: string
   session?: string
   timeoutMs?: number
+  attachFiles?: string[]
+  fetchFiles?: string[]
 }
 
 /** The structured outcome the loop records and the renderer narrates. */
@@ -80,12 +85,16 @@ interface PeerToolValue {
   tracked: boolean
   reply?: string
   endReason?: string
+  /** Local paths of workspace files fetched back from the peer, when any were requested. */
+  fetched?: string[]
 }
 
 /** The model-facing contract, embedded in the tool description. */
 const DESCRIPTION = `Run a prompt on a paired Harniverse instance — another machine this deployment is paired with — and return its settled reply. Use this when the user asks to delegate work to a paired instance by name, or to continue a delegated conversation started earlier.
 
 Pass \`target\` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its \`sessionId\`; continue that conversation by passing \`session\` with the next prompt. Each turn waits up to \`timeoutMs\` (default 120000, max 900000) for settlement — a turn still running past the budget reports \`running\` with the \`sessionId\`; when the deployment composes the initiator outbox, its settled reply later arrives as a queued message in this session, and otherwise you can re-check by continuing that session with a short status prompt.
+
+Pass \`attachFiles\` as absolute or home-relative paths of files on this machine to deliver with the prompt; the peer's model reads them through its own attachment pipeline. Pass \`fetchFiles\` as paths inside the peer's delegated workspace to copy back after the turn; each lands under this home's \`peer-downloads/<target>\` and the reply names the local copy.
 
 The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable).`
 
@@ -117,16 +126,19 @@ function resolveTarget(targets: readonly PeerTarget[], selector: string): PeerTa
  * @returns the model-visible text.
  */
 function renderValue(args: PeerCallArgs, value: PeerToolValue, maxChars: number): string {
+  const fetched = value.fetched === undefined || value.fetched.length === 0
+    ? ''
+    : `\n\nFetched workspace files into:\n${value.fetched.map(path => `- ${path}`).join('\n')}`
   if (value.state === 'running') {
     return value.tracked
-      ? `Delegated session ${value.sessionId} on ${args.target} is still running. Its settled reply will arrive as a queued message in this session; keep working and address it when it arrives. You can also continue that conversation by calling this tool with session ${JSON.stringify(value.sessionId)}.`
-      : `Delegated session ${value.sessionId} on ${args.target} is still running. Continue it later by calling this tool with session ${JSON.stringify(value.sessionId)} and a short status prompt.`
+      ? `Delegated session ${value.sessionId} on ${args.target} is still running. Its settled reply will arrive as a queued message in this session; keep working and address it when it arrives. You can also continue that conversation by calling this tool with session ${JSON.stringify(value.sessionId)}.${fetched}`
+      : `Delegated session ${value.sessionId} on ${args.target} is still running. Continue it later by calling this tool with session ${JSON.stringify(value.sessionId)} and a short status prompt.${fetched}`
   }
   const reply = value.reply ?? ''
   const clipped = reply.length > maxChars
     ? `${reply.slice(0, maxChars)}\n… [truncated: ${reply.length - maxChars} more characters]`
     : reply
-  return `Delegated session ${value.sessionId} on ${args.target} replied:\n\n${clipped}`
+  return `Delegated session ${value.sessionId} on ${args.target} replied:\n\n${clipped}${fetched}`
 }
 
 /** The pending-state card: a generic card titled by the selected target. */
@@ -177,6 +189,16 @@ export function apply(ctx: Context, config: Config): void {
         type: 'integer',
         description: 'Settlement budget for this turn in milliseconds (default 120000, max 900000).',
       },
+      attachFiles: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Paths of files on this machine to deliver with the prompt (at most 4).',
+      },
+      fetchFiles: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Workspace-relative paths on the paired instance to copy back after the turn.',
+      },
     },
     output: {
       schema: {
@@ -188,6 +210,7 @@ export function apply(ctx: Context, config: Config): void {
           tracked: { type: 'boolean', required: true },
           reply: { type: 'string' },
           endReason: { type: 'string' },
+          fetched: { type: 'array', items: { type: 'string' } },
         },
       },
       render: (args: PeerCallArgs, value: PeerToolValue): ContentBlock[] => [{
@@ -205,12 +228,24 @@ export function apply(ctx: Context, config: Config): void {
       const budget = Math.min(Math.max(args.timeoutMs ?? defaultTimeoutMs, 1_000), SETTLE_MAX_MS)
       const callTimeout = Math.min(Math.max(budget, 1_000), CALL_MAX_MS)
       const call = { instanceId: identity.instanceId, key }
+      const attachments = args.attachFiles === undefined || args.attachFiles.length === 0
+        ? undefined
+        : await Promise.all(args.attachFiles.slice(0, 4).map(async (path) => {
+          let data: Uint8Array
+          try {
+            data = new Uint8Array(await readFile(path))
+          } catch {
+            throw new Error(`peer: attach file ${JSON.stringify(path)} cannot be read`)
+          }
+          return { name: basename(path), data }
+        }))
       const run = async (origin: string) => args.session === undefined
         ? runPeerDelegate(
-          { target, home, origin, timeoutMs: callTimeout }, call, args.prompt, { timeoutMs: budget },
+          { target, home, origin, timeoutMs: callTimeout }, call, args.prompt,
+          { timeoutMs: budget, ...attachments === undefined ? {} : { files: attachments } },
         )
         : runPeerFollowup(
-          { target, home, origin, timeoutMs: callTimeout }, call, args.session, args.prompt, budget,
+          { target, home, origin, timeoutMs: callTimeout }, call, args.session, args.prompt, budget, attachments,
         )
       let result
       try {
@@ -225,6 +260,32 @@ export function apply(ctx: Context, config: Config): void {
       }
       if (result.state === 'settled' && result.endReason !== undefined && result.endReason !== 'completed') {
         throw new Error(`peer: delegated turn ${result.sessionId} ended ${result.endReason}`)
+      }
+      let fetched: string[] | undefined
+      const wanted = args.fetchFiles
+      if (wanted !== undefined && wanted.length > 0) {
+        const download = async (origin: string) => {
+          const copies: string[] = []
+          for (const path of wanted) {
+            const file = await downloadPeerFile({ target, home, origin, timeoutMs: callTimeout }, call, path)
+            const local = join(home, 'peer-downloads', target.targetInstanceId, file.name)
+            await mkdir(dirname(local), { recursive: true })
+            await writeFile(local, file.data)
+            copies.push(local)
+          }
+          return copies
+        }
+        try {
+          fetched = await withPeerTransport(ctx, home, target, download)
+        } catch (error: unknown) {
+          /* v8 ignore start -- every fetch failure maps through the same peer-reason wording as the delegate path */
+          if (error instanceof PeerError) {
+            const detail = error.message.slice(`peer: ${error.reason}`.length).replace(/^ \(|\)$/g, '')
+            throw new Error(`peer fetch failed (${error.reason})${detail === '' ? '' : `: ${detail}`}`)
+          }
+          throw error as Error
+          /* v8 ignore stop */
+        }
       }
       let tracked = false
       if (result.state === 'running' && exec.agent !== undefined) {
@@ -250,6 +311,7 @@ export function apply(ctx: Context, config: Config): void {
         tracked,
         ...result.reply !== undefined ? { reply: result.reply } : {},
         ...result.endReason !== undefined ? { endReason: result.endReason } : {},
+        ...fetched === undefined ? {} : { fetched },
       }
     },
     presentCall: args => presentPeerCall(args),

@@ -6,9 +6,11 @@ export { type PairOptions, pairWithPeer } from './pairing.ts'
 export {
   type PeerCallIdentity,
   type PeerCallOptions,
+  type PeerLocalFile,
   type PeerStreamOptions,
   accessFor,
   callPeerRemote,
+  downloadPeerFile,
   openPeerEventStream,
   parsePeerEventFrame,
   provenHello,

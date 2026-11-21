@@ -100,7 +100,10 @@ function identityKey(): { publicKey: string; sign(payload: string): string } {
 }
 
 /** Mount the host with the scripted registry and one pinned active caller record. */
-async function rig(surface: { delegate: boolean; message: boolean; list: boolean } = { delegate: true, message: true, list: true }) {
+async function rig(
+  surface: { delegate: boolean; message: boolean; list: boolean; artifacts: boolean }
+    = { delegate: true, message: true, list: true, artifacts: true },
+) {
   const root = await mkdtemp(join(tmpdir(), 'peer-result-'))
   directories.push(root)
   await ensureInstanceIdentity(root)
@@ -201,7 +204,7 @@ it('rejects unknown claims and malformed requests', async () => {
 })
 
 it('denies the read when the list surface is closed', async () => {
-  const { host, key } = await rig({ delegate: true, message: true, list: false })
+  const { host, key } = await rig({ delegate: true, message: true, list: false, artifacts: true })
   const delegated = await host.delegate({ proof: proofFor(key), prompt: 'p' })
   await expect(host.result({ proof: proofFor(key), sessionId: delegated.sessionId, messageId: delegated.messageId }))
     .rejects.toThrowError(/SURFACE_DENIED/)

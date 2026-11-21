@@ -2345,6 +2345,8 @@ export interface PeerStartupValues {
     message: boolean
     /** List grant requested by `surface`. */
     list: boolean
+    /** Artifact grant requested by `surface`. */
+    artifacts: boolean
   }
   /** Per-request timeout in milliseconds for `add`. */
   timeoutMs?: number
@@ -2360,13 +2362,19 @@ export interface PeerStartupValues {
   async?: boolean
   /** Message id of the watched turn for `result`. */
   messageId?: string
+  /** Local file paths delivered with the prompt, for `run` and `send`. */
+  attach?: string[]
+  /** Workspace-relative path fetched from the peer root, for `fetch`. */
+  path?: string
+  /** Directory the fetched file lands in, for `fetch`. */
+  out?: string
 }
 
 /** Supported peer pairing operations. */
-export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'outbox'
+export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'fetch' | 'outbox'
 ```
 
-Source: [`packages/bundle/peer-app/src/index.ts:51`](../packages/bundle/peer-app/src/index.ts)
+Source: [`packages/bundle/peer-app/src/index.ts:54`](../packages/bundle/peer-app/src/index.ts)
 
 <a id="deepseek-aidsh-peer-host"></a>
 
@@ -4022,7 +4030,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/peer/tool-peer/src/index.ts:47`](../packages/peer/tool-peer/src/index.ts)
+Source: [`packages/peer/tool-peer/src/index.ts:50`](../packages/peer/tool-peer/src/index.ts)
 
 <a id="deepseek-aidsh-tool-present"></a>
 

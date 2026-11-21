@@ -43,6 +43,10 @@ export interface PeerAdminView {
   monthlyTurns?: number
   /** Delivered turns in the labeled period. */
   monthlyTurnsUsed: number
+  /** Monthly artifact-byte cap; absent means unlimited. */
+  monthlyBytes?: number
+  /** Artifact bytes carried in the labeled period. */
+  monthlyBytesUsed: number
   monthlyTurnPeriod: string
   /** Delegated sessions currently on record for this peer. */
   sessionCount: number

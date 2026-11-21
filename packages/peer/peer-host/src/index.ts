@@ -19,11 +19,35 @@ import {
 } from '@deepseek-ai/dsh-peer-protocol'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
-import type { PeerCancelRequest, PeerDelegateRequest, PeerFollowupRequest, PeerHello, PeerHelloInput, PeerHelloRequest, PeerInstanceId, PeerRecord, PeerRequestProof, PeerResultRequest, PeerRunResult, PeerSessionSummary, PeerSubscribeResult, PeerSurface, PeerSurfaceRequest, PeerSurfaceResult } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerAdminView, PeerHostConfig } from './types.ts'
-import { cancelPeerSession, delegateToPeer, dropPeerSessions, followupPeerSession, listPeerSessions, resultPeerSession, validateCancelRequest, validateDelegateRequest, validateFollowupRequest, validateResultRequest, validateSessionsRequest, validateSubscribeRequest } from './delegate.ts'
-import { PEER_BUDGET_MAX_TURNS, isNarrowing, peerBudgetView, setPeerBudget } from './governance.ts'
+import type {
+  PeerCancelRequest,
+  PeerDelegateRequest,
+  PeerDownloadRequest,
+  PeerDownloadResult,
+  PeerFollowupRequest,
+  PeerHello,
+  PeerHelloInput,
+  PeerHelloRequest,
+  PeerInstanceId,
+  PeerRecord,
+  PeerRequestProof,
+  PeerResultRequest,
+  PeerRunResult,
+  PeerSessionSummary,
+  PeerSubscribeResult,
+  PeerSurface,
+  PeerSurfaceRequest,
+  PeerSurfaceResult,
+  PeerUploadAppendRequest,
+  PeerUploadAppendResult,
+  PeerUploadBeginRequest,
+  PeerUploadBeginResult,
+} from '@deepseek-ai/dsh-peer-protocol'
+import { cancelPeerSession, delegateToPeer, downloadPeerFile, dropPeerSessions, followupPeerSession, listPeerSessions, resultPeerSession, validateCancelRequest, validateDelegateRequest, validateFollowupRequest, validateResultRequest, validateSessionsRequest, validateSubscribeRequest } from './delegate.ts'
+import { authorizePeerBytes, PEER_BUDGET_MAX_BYTES, PEER_BUDGET_MAX_TURNS, isNarrowing, peerBudgetView, recordPeerBytes, setPeerBudget } from './governance.ts'
 import { PeerNonceLedger, PeerStreamTokens, runPeerEventStream } from './events.ts'
+import { appendStagedUpload, beginStagedUpload, clearStagingUploads, sweepStagingUploads, validateUploadManifest, PEER_CHUNK_MAX_BYTES } from './staging.ts'
 import { findPeer, readPeerStore, writePeerStore } from './store.ts'
 import { readPeerSessions } from './session-registry.ts'
 
@@ -65,6 +89,18 @@ export class PeerHost extends TypertRemoteService {
 
   /** @inheritdoc */
   protected [Service.init](): void {
+    // One restart invalidates every in-flight upload; staging is transport state, never durable.
+    void clearStagingUploads(this.home)
+    /* v8 ignore next 4 -- the periodic sweeper reaps TTL-expired slots in production; unit tests sweep directly */
+    const sweeper = setInterval(() => {
+      void sweepStagingUploads(this.home, Date.now())
+    }, 60_000)
+    ;(sweeper as { unref?: () => void }).unref?.()
+    this.ctx.effect(() => {
+      return () => {
+        clearInterval(sweeper)
+      }
+    })
     const webServer = this.ctx.get('webServer')
     if (webServer === undefined) return
     const route: WebRoute = {
@@ -360,6 +396,61 @@ export class PeerHost extends TypertRemoteService {
     })
   }
 
+  /** Reserve one transient staging slot for one artifact upload.
+   * @param request - proof plus the complete upload manifest.
+   * @returns the staging slot id and this deployment's own chunk and file caps.
+   */
+  @Remote({ requiredCapability: 'harniverse.peer' })
+  async upload(request: PeerUploadBeginRequest): Promise<PeerUploadBeginResult> {
+    return await this.remote(async () => {
+      assertPairableWorld()
+      const valid = validateUploadBegin(request)
+      const record = await this.authenticate(valid.proof)
+      if (!record.surface.artifacts) throw new PeerError('SURFACE_DENIED', 'artifacts')
+      const limits = this.ctx.get('attachments')?.fileLimits
+      if (limits === undefined) throw new PeerError('ATTACHMENT_REFUSED', 'generic files are not accepted here')
+      const manifest = validateUploadManifest(valid.manifest, limits.maxFileBytes)
+      const uploadId = await beginStagedUpload(this.home, record.instanceId, manifest)
+      return { uploadId, maxChunkBytes: PEER_CHUNK_MAX_BYTES, maxFileBytes: limits.maxFileBytes }
+    })
+  }
+
+  /** Append one ordered chunk to a staged upload, metering the carried bytes against the peer's budget.
+   * @param request - proof, slot id, absolute offset, and canonical base64 chunk.
+   * @returns bytes held after the append and whether the slot sealed against its digest.
+   */
+  @Remote({ requiredCapability: 'harniverse.peer' })
+  async append(request: PeerUploadAppendRequest): Promise<PeerUploadAppendResult> {
+    return await this.remote(async () => {
+      assertPairableWorld()
+      const valid = validateUploadAppend(request)
+      const record = await this.authenticate(valid.proof)
+      if (!record.surface.artifacts) throw new PeerError('SURFACE_DENIED', 'artifacts')
+      const data = decodeCanonicalBase64(valid.dataBase64)
+      await authorizePeerBytes(this.home, record.instanceId, new Date(), data.byteLength)
+      const outcome = await appendStagedUpload(this.home, record.instanceId, valid.uploadId, valid.offset, data)
+      await recordPeerBytes(this.home, record.instanceId, new Date(), data.byteLength)
+      return outcome
+    })
+  }
+
+  /** Read one bounded workspace file from the caller's peer root in a single frame.
+   * @param request - proof plus the relative path inside the caller's workspace.
+   * @returns the file's digest-bearing readback; the carried bytes count against the peer's budget.
+   */
+  @Remote({ requiredCapability: 'harniverse.peer' })
+  async download(request: PeerDownloadRequest): Promise<PeerDownloadResult> {
+    return await this.remote(async () => {
+      assertPairableWorld()
+      const valid = validateDownloadRequest(request)
+      const record = await this.authenticate(valid.proof)
+      if (!record.surface.artifacts) throw new PeerError('SURFACE_DENIED', 'artifacts')
+      const outcome = await downloadPeerFile(this.home, record.instanceId, valid)
+      await recordPeerBytes(this.home, record.instanceId, new Date(), outcome.bytes)
+      return outcome
+    })
+  }
+
   /** List every paired peer with its governance state for the owner admin surface.
    * @returns admin views, newest activity first.
    */
@@ -393,7 +484,7 @@ export class PeerHost extends TypertRemoteService {
     await this.remote(async () => {
       const { instanceId } = validateAdminTarget(input)
       await this.removePeer(instanceId)
-      await setPeerBudget(this.home, instanceId, undefined)
+      await setPeerBudget(this.home, instanceId, {})
     })
   }
 
@@ -446,18 +537,20 @@ export class PeerHost extends TypertRemoteService {
     })
   }
 
-  /** Set or lift one peer's monthly delivered-turn budget.
-   * @param input - exact instance id and the new cap; an absent cap lifts the budget.
+  /** Set or lift one peer's monthly budgets.
+   * @param input - exact instance id and the new caps; an absent cap lifts that budget.
    * @returns the updated admin view.
    */
   @Remote({ requiredCapability: 'harniverse.administer' })
-  async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number }): Promise<PeerAdminView> {
+  async setBudget(input: { instanceId: PeerInstanceId; monthlyTurns?: number; monthlyBytes?: number }): Promise<PeerAdminView> {
     return await this.remote(async () => {
       const valid = validateSetBudget(input)
       const peers = await readPeerStore(this.home)
       const record = findPeer(peers, valid.instanceId)
       if (record === undefined) throw new PeerError('RECORD_NOT_FOUND')
-      await setPeerBudget(this.home, valid.instanceId, valid.monthlyTurns)
+      await setPeerBudget(this.home, valid.instanceId,
+        { ...valid.monthlyTurns === undefined ? {} : { monthlyTurns: valid.monthlyTurns },
+          ...valid.monthlyBytes === undefined ? {} : { monthlyBytes: valid.monthlyBytes } })
       return await this.adminViewOf(record)
     })
   }
@@ -516,13 +609,14 @@ function assertPairableWorld(): void {
 /** Whether two surfaces agree on every field.
  * @param left - one complete surface.
  * @param right - the other complete surface.
- * @returns whether all three grants match.
+ * @returns whether all four grants match.
  */
 function sameSurface(left: PeerSurface, right: PeerSurface): boolean {
-  return left.delegate === right.delegate && left.message === right.message && left.list === right.list
+  return left.delegate === right.delegate && left.message === right.message
+    && left.list === right.list && left.artifacts === right.artifacts
 }
 
-/** Validate the strict three-boolean surface shape.
+/** Validate the strict four-boolean surface shape.
  * @param value - untrusted surface value.
  * @returns the validated surface.
  * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed surfaces.
@@ -530,8 +624,9 @@ function sameSurface(left: PeerSurface, right: PeerSurface): boolean {
 function requireSurface(value: unknown): PeerSurface {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD', 'surface')
   const surface = value as Record<string, unknown>
-  if (Object.keys(surface).length !== 3 || typeof surface.delegate !== 'boolean'
-    || typeof surface.message !== 'boolean' || typeof surface.list !== 'boolean') {
+  if (Object.keys(surface).length !== 4 || typeof surface.delegate !== 'boolean'
+    || typeof surface.message !== 'boolean' || typeof surface.list !== 'boolean'
+    || typeof surface.artifacts !== 'boolean') {
     throw new PeerError('INVALID_PAYLOAD', 'surface')
   }
   return value as PeerSurface
@@ -581,20 +676,87 @@ function validateAdminSurface(value: unknown): { instanceId: PeerInstanceId; sur
 
 /** Validate one budget edit's shape.
  * @param value - untrusted wire value.
- * @returns the validated target and optional cap.
+ * @returns the validated target and optional caps.
  * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
  */
-function validateSetBudget(value: unknown): { instanceId: PeerInstanceId; monthlyTurns?: number } {
+function validateSetBudget(value: unknown): { instanceId: PeerInstanceId; monthlyTurns?: number; monthlyBytes?: number } {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
   const record = value as Record<string, unknown>
   const keys = Object.keys(record)
-  if (keys.some(key => key !== 'instanceId' && key !== 'monthlyTurns')) throw new PeerError('INVALID_PAYLOAD', 'fields')
+  if (keys.some(key => key !== 'instanceId' && key !== 'monthlyTurns' && key !== 'monthlyBytes')) {
+    throw new PeerError('INVALID_PAYLOAD', 'fields')
+  }
   validateAdminTarget({ instanceId: record.instanceId })
   if (record.monthlyTurns !== undefined && (typeof record.monthlyTurns !== 'number' || !Number.isInteger(record.monthlyTurns)
     || record.monthlyTurns < 1 || record.monthlyTurns > PEER_BUDGET_MAX_TURNS)) {
     throw new PeerError('INVALID_PAYLOAD', 'monthlyTurns out of range')
   }
-  return value as { instanceId: PeerInstanceId; monthlyTurns?: number }
+  if (record.monthlyBytes !== undefined && (typeof record.monthlyBytes !== 'number' || !Number.isInteger(record.monthlyBytes)
+    || record.monthlyBytes < 1 || record.monthlyBytes > PEER_BUDGET_MAX_BYTES)) {
+    throw new PeerError('INVALID_PAYLOAD', 'monthlyBytes out of range')
+  }
+  return value as { instanceId: PeerInstanceId; monthlyTurns?: number; monthlyBytes?: number }
+}
+
+/** Validate one upload-begin request's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated request.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+function validateUploadBegin(value: unknown): PeerUploadBeginRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  if (Object.keys(record).length !== 2 || typeof record.proof !== 'object' || record.proof === null
+    || Array.isArray(record.proof) || typeof record.manifest !== 'object' || record.manifest === null
+    || Array.isArray(record.manifest)) {
+    throw new PeerError('INVALID_PAYLOAD')
+  }
+  return value as PeerUploadBeginRequest
+}
+
+/** Validate one upload-append request's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated request.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+function validateUploadAppend(value: unknown): PeerUploadAppendRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  if (Object.keys(record).length !== 4 || typeof record.proof !== 'object' || record.proof === null
+    || Array.isArray(record.proof) || typeof record.uploadId !== 'string' || !/^[0-9a-f-]{36}$/.test(record.uploadId)
+    || !Number.isInteger(record.offset) || (record.offset as number) < 0
+    || typeof record.dataBase64 !== 'string' || record.dataBase64.length === 0
+    || record.dataBase64.length > Math.ceil(PEER_CHUNK_MAX_BYTES * 4 / 3) + 4) {
+    throw new PeerError('INVALID_PAYLOAD', 'append fields')
+  }
+  return value as PeerUploadAppendRequest
+}
+
+/** Validate one workspace download request's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated request.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed requests.
+ */
+function validateDownloadRequest(value: unknown): PeerDownloadRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new PeerError('INVALID_PAYLOAD')
+  const record = value as Record<string, unknown>
+  if (Object.keys(record).length !== 2 || typeof record.proof !== 'object' || record.proof === null
+    || Array.isArray(record.proof) || typeof record.path !== 'string' || record.path.length === 0
+    || record.path.length > 512 || record.path.includes('\0')) {
+    throw new PeerError('INVALID_PAYLOAD', 'download fields')
+  }
+  return value as PeerDownloadRequest
+}
+
+/** Decode one canonical-base64 chunk, rejecting non-canonical encodings.
+ * @param data - the wire encoding.
+ * @returns the decoded bytes.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for non-canonical base64.
+ */
+function decodeCanonicalBase64(data: string): Uint8Array {
+  const decoded = Buffer.from(data, 'base64')
+  if (decoded.toString('base64') !== data) throw new PeerError('INVALID_PAYLOAD', 'chunk is not canonical base64')
+  return new Uint8Array(decoded)
 }
 
 /** Validate one hello request against the shared bounds.

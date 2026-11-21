@@ -2371,6 +2371,20 @@ Source: [`packages/workspace/tool-worktree/src/index.ts`](../packages/workspace/
     "timeoutMs": {
       "type": "integer",
       "description": "Settlement budget for this turn in milliseconds (default 120000, max 900000)."
+    },
+    "attachFiles": {
+      "type": "array",
+      "description": "Paths of files on this machine to deliver with the prompt (at most 4).",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fetchFiles": {
+      "type": "array",
+      "description": "Workspace-relative paths on the paired instance to copy back after the turn.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

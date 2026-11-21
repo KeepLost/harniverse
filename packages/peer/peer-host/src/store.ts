@@ -3,7 +3,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { PeerError } from '@deepseek-ai/dsh-peer-protocol'
-import type { PeerInstanceId, PeerRecord, PeerStoreFile } from '@deepseek-ai/dsh-peer-protocol'
+import type { PeerInstanceId, PeerRecord, PeerStoreFile, PeerSurface } from '@deepseek-ai/dsh-peer-protocol'
 
 /**
  * Resolve the store path inside one home.
@@ -50,6 +50,29 @@ export async function readPeerStore(home: string): Promise<PeerRecord[]> {
  * @returns the validated record.
  * @throws a {@link PeerError} with `CORRUPT_INSTANCE` for malformed records.
  */
+/** Validate one surface object; a three-field pre-artifact surface reads back with `artifacts` defaulted off.
+ * @param value - untrusted surface object.
+ * @param detail - corruption detail label naming the containing field.
+ * @returns the validated surface.
+ * @throws a {@link PeerError} with `CORRUPT_INSTANCE` for malformed surfaces.
+ */
+function parsePeerSurface(value: Record<string, unknown>, detail: string): PeerSurface {
+  const keys = Object.keys(value)
+  if (typeof value.delegate !== 'boolean' || typeof value.message !== 'boolean' || typeof value.list !== 'boolean'
+    || (keys.length === 4 && typeof value.artifacts !== 'boolean') || (keys.length !== 3 && keys.length !== 4)) {
+    throw new PeerError('CORRUPT_INSTANCE', detail)
+  }
+  return keys.length === 3
+    ? { delegate: value.delegate, message: value.message, list: value.list, artifacts: false }
+    : value as unknown as PeerSurface
+}
+
+/**
+ * Parse and validate one stored paired-peer record.
+ * @param value - candidate record value.
+ * @returns the validated record.
+ * @throws a {@link PeerError} with `CORRUPT_INSTANCE` for malformed records.
+ */
 export function parsePeerRecord(value: unknown): PeerRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer record is not an object')
@@ -79,21 +102,13 @@ export function parsePeerRecord(value: unknown): PeerRecord {
   if (typeof record.surface !== 'object' || record.surface === null || Array.isArray(record.surface)) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer record surface')
   }
-  const surface = record.surface as Record<string, unknown>
-  if (Object.keys(surface).length !== 3 || typeof surface.delegate !== 'boolean'
-    || typeof surface.message !== 'boolean' || typeof surface.list !== 'boolean') {
-    throw new PeerError('CORRUPT_INSTANCE', 'peer record surface fields')
-  }
+  record.surface = parsePeerSurface(record.surface as Record<string, unknown>, 'peer record surface fields')
   if ('pendingSurface' in record) {
     const pending = record.pendingSurface
     if (typeof pending !== 'object' || pending === null || Array.isArray(pending)) {
       throw new PeerError('CORRUPT_INSTANCE', 'peer record pending surface')
     }
-    const fields = pending as Record<string, unknown>
-    if (Object.keys(fields).length !== 3 || typeof fields.delegate !== 'boolean'
-      || typeof fields.message !== 'boolean' || typeof fields.list !== 'boolean') {
-      throw new PeerError('CORRUPT_INSTANCE', 'peer record pending surface fields')
-    }
+    record.pendingSurface = parsePeerSurface(pending as Record<string, unknown>, 'peer record pending surface fields')
   }
   if (record.pairedVia !== 'invitation' || (record.status !== 'active' && record.status !== 'revoked')) {
     throw new PeerError('CORRUPT_INSTANCE', 'peer record admission fields')

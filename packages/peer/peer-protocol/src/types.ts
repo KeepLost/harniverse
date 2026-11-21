@@ -10,6 +10,8 @@ export interface PeerSurface {
   message: boolean
   /** The peer may enumerate sessions it owns on this instance. */
   list: boolean
+  /** The peer may carry file artifacts with its messages and fetch its workspace files. */
+  artifacts: boolean
 }
 
 /** Origin one paired initiator dials: `https://host:port`, or loopback `http://127.0.0.1:port` behind a tunnel. */
@@ -86,6 +88,8 @@ export interface PeerDelegateRequest {
   profile?: string
   /** Settlement-wait budget in milliseconds; past it the run reports `running` instead. */
   timeoutMs?: number
+  /** Staged uploads to admit as the delivered message's file artifacts. */
+  uploads?: readonly PeerUploadRef[]
 }
 
 /** Follow-up request: deliver the next turn into one session the caller owns. */
@@ -97,6 +101,8 @@ export interface PeerFollowupRequest {
   prompt: string
   /** Settlement-wait budget in milliseconds; past it the run reports `running` instead. */
   timeoutMs?: number
+  /** Staged uploads to admit as the delivered message's file artifacts. */
+  uploads?: readonly PeerUploadRef[]
 }
 
 /** Enumeration request for the caller's own delegated sessions. */
@@ -141,6 +147,81 @@ export interface PeerSubscribeResult {
   streamToken: string
   /** Heartbeat cadence the stream maintains, in milliseconds. */
   heartbeatMs: number
+}
+
+/** One complete artifact-upload manifest; the accepting side enforces its own file limits. */
+export interface PeerUploadManifest {
+  /** Display name recorded with the artifact; never interpreted as a path. */
+  name: string
+  /** Caller-declared media type recorded as given. */
+  mediaType?: string
+  /** Exact byte length of the artifact. */
+  bytes: number
+  /** Base64url SHA-256 digest of the complete bytes. */
+  sha256: string
+}
+
+/** Upload-begin request: reserve one transient staging slot for one artifact. */
+export interface PeerUploadBeginRequest {
+  proof: PeerRequestProof
+  /** Complete upload manifest. */
+  manifest: PeerUploadManifest
+}
+
+/** Upload-begin outcome; the accepting side advertises its own limits. */
+export interface PeerUploadBeginResult {
+  /** Opaque staging slot id for the append calls and the message's upload reference. */
+  uploadId: string
+  /** Maximum decoded bytes one append call may carry. */
+  maxChunkBytes: number
+  /** The accepting side's generic-file byte cap, when it accepts generic files. */
+  maxFileBytes?: number
+}
+
+/** Upload-append request: extend one staging slot with the next ordered chunk. */
+export interface PeerUploadAppendRequest {
+  proof: PeerRequestProof
+  /** Staging slot id from the begin result. */
+  uploadId: string
+  /** Absolute byte offset this chunk must extend; out-of-order appends reject. */
+  offset: number
+  /** Canonical base64 of exactly the chunk's bytes. */
+  dataBase64: string
+}
+
+/** Upload-append outcome. */
+export interface PeerUploadAppendResult {
+  /** Bytes the staging slot holds after this append. */
+  received: number
+  /** Whether the slot now holds the complete manifest bytes and passed its digest check. */
+  ready: boolean
+}
+
+/** One artifact reference inside a delegate or follow-up request. */
+export interface PeerUploadRef {
+  /** Staging slot id whose complete bytes the message admits. */
+  uploadId: string
+  /** Base64url SHA-256 the accepting side re-verifies before admitting the artifact. */
+  sha256: string
+}
+
+/** Workspace-file download request: read one bounded file from the caller's peer root. */
+export interface PeerDownloadRequest {
+  proof: PeerRequestProof
+  /** File path relative to the caller's peer root; absolute or escaping paths reject. */
+  path: string
+}
+
+/** Workspace-file download outcome. */
+export interface PeerDownloadResult {
+  /** File name derived from the requested path. */
+  name: string
+  /** Exact byte length of the file. */
+  bytes: number
+  /** Base64url SHA-256 digest of the complete bytes. */
+  sha256: string
+  /** Canonical base64 of the complete file bytes. */
+  dataBase64: string
 }
 
 /** One push frame on the peer event stream; a wake-up signal, never the settlement's source of truth. */

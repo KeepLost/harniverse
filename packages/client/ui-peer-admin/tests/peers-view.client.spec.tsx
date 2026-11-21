@@ -19,10 +19,11 @@ function peer(overrides: Partial<PeerAdminView> = {}): PeerAdminView {
     displayName: 'Build workstation',
     platform: 'darwin', arch: 'arm64', version: '1.0.0-rc.3',
     status: 'active',
-    surface: { delegate: true, message: true, list: true },
+    surface: { delegate: true, message: true, list: true, artifacts: true },
     firstSeenAt: '2026-11-01T00:00:00.000Z',
     lastSeenAt: '2026-11-20T08:00:00.000Z',
     monthlyTurnsUsed: 0,
+    monthlyBytesUsed: 0,
     monthlyTurnPeriod: '2026-11',
     sessionCount: 0,
     ...overrides,
@@ -45,7 +46,7 @@ function face(initial: PeerAdminView[], overrides: Record<string, unknown> = {})
       return { ok: true as const, value: peer({ surface: input.surface }) } as const
     }),
     approveSurface: vi.fn(async () => {
-      return { ok: true as const, value: peer({ surface: { delegate: true, message: true, list: true } }) } as const
+      return { ok: true as const, value: peer({ surface: { delegate: true, message: true, list: true, artifacts: true } }) } as const
     }),
     rejectSurface: vi.fn(async () => ({ ok: true as const, value: peer() } as const)),
     setBudget: vi.fn(async (input: { instanceId: string; monthlyTurns?: number }) => {
@@ -106,12 +107,13 @@ describe('paired-peer governance view', () => {
     fireEvent.click(messageToggle)
     fireEvent.click(screen.getByText(zh.saveSurface))
     await waitFor(() => {
-      expect(actions.setSurface).toHaveBeenCalledWith({ instanceId: peerId, surface: { delegate: true, message: false, list: true } })
+      expect(actions.setSurface).toHaveBeenCalledWith({ instanceId: peerId,
+        surface: { delegate: true, message: false, list: true, artifacts: true } })
     })
   })
 
   it('approves and rejects parked widening requests', async () => {
-    const actions = face([peer({ pendingSurface: { delegate: true, message: false, list: true } })])
+    const actions = face([peer({ pendingSurface: { delegate: true, message: false, list: true, artifacts: true } })])
     mount(actions)
     expect(await screen.findByText(/等待你的审批/)).toBeDefined()
     fireEvent.click(screen.getByText(zh.approve))
@@ -121,16 +123,21 @@ describe('paired-peer governance view', () => {
   })
 
   it('saves and lifts turn budgets with strict input bounds', async () => {
-    const actions = face([peer({ monthlyTurns: 5, monthlyTurnsUsed: 5 })])
+    const actions = face([peer({ monthlyTurns: 5, monthlyTurnsUsed: 5, monthlyBytes: 2 * 1024 * 1024, monthlyBytesUsed: 1024 * 1024 })])
     mount(actions)
     const input = await screen.findByPlaceholderText(zh.budgetPlaceholder)
+    expect(await screen.findByText(zh.bytesUsage.replace('{used}', '1').replace('{limit}', '2'))).toBeDefined()
     fireEvent.change(input, { target: { value: 'soon' } })
     fireEvent.click(screen.getByText(zh.saveBudget))
     expect(await screen.findByText(zh.budgetInvalid)).toBeDefined()
     expect(actions.setBudget).not.toHaveBeenCalled()
     fireEvent.change(input, { target: { value: '40' } })
+    const bytes = screen.getByPlaceholderText(zh.bytesPlaceholder)
+    fireEvent.change(bytes, { target: { value: '16' } })
     fireEvent.click(screen.getByText(zh.saveBudget))
-    await waitFor(() => { expect(actions.setBudget).toHaveBeenCalledWith({ instanceId: peerId, monthlyTurns: 40 }) })
+    await waitFor(() => {
+      expect(actions.setBudget).toHaveBeenCalledWith({ instanceId: peerId, monthlyTurns: 40, monthlyBytes: 16 * 1024 * 1024 })
+    })
     fireEvent.click(screen.getByText(zh.clearBudget))
     await waitFor(() => { expect(actions.setBudget).toHaveBeenCalledWith({ instanceId: peerId }) })
   })
@@ -163,6 +170,7 @@ describe('paired-peer governance view', () => {
     mount(actions)
     const input = await screen.findByPlaceholderText(zh.budgetPlaceholder)
     fireEvent.change(input, { target: { value: '9' } })
+    fireEvent.change(screen.getByPlaceholderText(zh.bytesPlaceholder), { target: { value: '8' } })
     fireEvent.click(screen.getByText(zh.saveBudget))
     expect(await screen.findByText(zh.errorStoreFailed)).toBeDefined()
   })
@@ -186,7 +194,7 @@ describe('paired-peer governance view', () => {
   })
 
   it('walks the surface editor open-cancel path and renders all-off badges', async () => {
-    const actions = face([peer({ surface: { delegate: false, message: false, list: false } })])
+    const actions = face([peer({ surface: { delegate: false, message: false, list: false, artifacts: false } })])
     mount(actions)
     expect(await screen.findByText(/委派 \(关闭\)/)).toBeDefined()
     fireEvent.click(screen.getByText(zh.editSurface))
@@ -289,7 +297,7 @@ describe('paired-peer governance view', () => {
   })
 
   it('labels idle audit rows and full pending banners', async () => {
-    const actions = face([peer({ sessionCount: 1, pendingSurface: { delegate: true, message: true, list: true } })], {
+    const actions = face([peer({ sessionCount: 1, pendingSurface: { delegate: true, message: true, list: true, artifacts: true } })], {
       audit: vi.fn(async (): Promise<RemoteResult<{ sessions: PeerSessionSummary[] }>> => ({
         ok: true,
         value: { sessions: [{ ...session, state: 'idle' }] },

@@ -16,10 +16,15 @@
 | `result(request)` | `{ request: PeerResultRequest }` | `harniverse.peer` | `PeerRunResult` |
 | `sessions(request)` | `{ request: PeerSessionsRequest }` | `harniverse.peer` | `{ sessions: PeerSessionSummary[] }` |
 | `subscribe(request)` | `{ request: PeerSessionsRequest }` | `harniverse.peer` | `PeerSubscribeResult` |
+| `upload(request)` | `{ request: PeerUploadBeginRequest }` | `harniverse.peer` | `PeerUploadBeginResult` |
+| `append(request)` | `{ request: PeerUploadAppendRequest }` | `harniverse.peer` | `PeerUploadAppendResult` |
+| `download(request)` | `{ request: PeerDownloadRequest }` | `harniverse.peer` | `PeerDownloadResult` |
 
 `challenge` 铸出一枚单次 nonce(五分钟 TTL,未决集有上界)。`hello` 验证发起方对 `(instanceId, challenge)` 的签名,首次配对时把 base64url SPKI `identityPublicKey` 钉入记录,此后每次 hello 都按钉住的密钥验签——换钥应答 `IDENTITY_MISMATCH`,已消费或未知 nonce 应答 `CHALLENGE_EXPIRED`。无钉钥的记录(前证明时代)在首个带证明的 hello 时钉钥。某 id 的首条记录发出 `peer/paired`;已撤销的记录以 `HELLO_REJECTED` 拒绝。每次调用在 VM 执行世界中以 `PEER_UNAVAILABLE_VM` 拒绝,且 web-app 组合在 `$DSH_EXEC_WORLD === 'vm'` 时整行禁用,因此真沙箱实例永远不会配对。
 
 `delegate`、`followup`、`cancel`、`result`、`subscribe` 与 `sessions` 对调用方带单次 nonce 的请求证明按钉住密钥验签,再检查对应的 `PeerSurface` 字段(否则 `SURFACE_DENIED`)。证明的 nonce 首次使用即被消费——偏差窗口内抓包重放以 `INVALID_PROOF (replayed nonce)` 拒绝。`delegate` 组建一个 `peer-<uuid>`、`origin: 'peer'` 的会话,工作目录解析在 `peer-work/<instanceId>/` 之下(仅相对路径;越界以 `INVALID_PAYLOAD` 拒绝),把提示词经 agent 收件箱投递,并在请求预算内等待回合结算——结算返回拼接的助手文本与结束原因,超时返回 `state: 'running'` 与会话 id。`followup` 向同一调用方自有的会话投递下一个 FIFO 回合(否则 `SESSION_NOT_FOUND`),无常驻 agent 时冷恢复。`cancel`(`delegate` 面)中止一个自有且常驻会话的当前回合:运行中的回合以 user 原因取消并返回其终态,空闲会话原样返回最新声明的结算,无常驻 agent 的会话应答 `SESSION_NOT_FOUND`。`result` 不投递新提示,只读一个自有轮次的结算——从活会话日志或冷会话持久化事件重新推导终态、回复与结束原因,轮次未完时应答 `running`;读取以 `list` 面门控。`sessions` 列出该调用方条目及推导的 `running`/`idle`/`ended` 状态。`subscribe`(同样 `list` 门控)铸出一枚单次流令牌,可在 `PEER_STREAM_TOKEN_TTL_MS` 内于事件流路由兑取。`surface`(与其余族面同样经证明认证)接收一份完整的目标能力面:纯收窄当场提交并顺带撤销任何已挂起请求,含任何扩张则把整份目标面挂入记录的单一 `pendingSurface` 槽位 —— 最新请求胜出、没有过期时间,owner 决定之前调用继续按现行能力面应答。封闭失败以 `RemoteError` code `peer-failed` 上线,`details.reason` 原样携带 peer 原因。
+
+工件三动词遵循同一消息纪律——peer 线是通信,绝不是存储侧门。`upload` 按本部署自己的附件文件上限校验清单(不支持通用文件应答 `ATTACHMENT_REFUSED`;超部署上限应答 `ATTACHMENT_TOO_LARGE`),并在瞬态暂存区 `.peer-uploads/<peerId>/` 预留一个槽位(十五分钟 TTL,每分钟清扫,宿主启动时清空——仅传输在途状态)。`append` 按绝对偏移承载一个规范 base64 分块,字节在任何落盘之前先计入该 peer 的月度 `monthlyBytes` 预算,槽位在完整字节与清单摘要一致时封口(`DIGEST_MISMATCH` 整体丢弃)。`delegate` 或 `followup` 请求经 `uploads`(至多四项)接纳已封口槽位:每个摘要复验后,字节经本实例自己的附件管线(`saveFile`)提交,投递的消息在 source 中携带持久引用、并附带命名文件的只读句柄块供模型的读取工具使用——存储策略与保留期完全属于本侧自己的附件配置。`download` 从调用者自己的 peer 根读取一个有界工作区文件(十六 MiB 单帧),拒绝绝对路径与逃逸路径,其投递字节计入同一桶。三个动词都要求面上的 `artifacts` 授权。
 
 ## 事件流
 

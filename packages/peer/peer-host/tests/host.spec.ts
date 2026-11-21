@@ -76,7 +76,7 @@ it('answers hello with this instance identity and commits the first pinned recor
   ctx.on('peer/paired', (record: PeerRecord) => { paired.push(record) })
   const hello = await handshake(host, { key })
   expect(hello.instanceId).toBe(self.instanceId)
-  expect(hello.surface).toEqual({ delegate: true, message: true, list: true })
+  expect(hello.surface).toEqual({ delegate: true, message: true, list: true, artifacts: true })
   const peers = await readPeerStore(root)
   expect(peers).toHaveLength(1)
   expect(peers[0]).toMatchObject({ instanceId: initiator.instanceId, displayName: 'Laptop', status: 'active', identityPublicKey: key.publicKey })
@@ -156,7 +156,7 @@ it('pins a pre-proof record on its first proof-bearing hello', async () => {
   const root = await home()
   await ensureInstanceIdentity(root)
   const { peerHost: host } = await mount(root)
-  await writePeerStore(root, [{ ...initiator, surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active', firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z' }])
+  await writePeerStore(root, [{ ...initiator, surface: { delegate: true, message: true, list: true, artifacts: true }, pairedVia: 'invitation', status: 'active', firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z' }])
   const key = identityKey()
   await expect(handshake(host, { key })).resolves.toBeDefined()
   expect((await readPeerStore(root))[0]!.identityPublicKey).toBe(key.publicKey)
@@ -248,7 +248,10 @@ it('maps store write failures onto the closed reason', async () => {
  * @param host - the mounted peer host.
  * @param surface - the surface to force.
  */
-async function forceSurface(host: PeerHost, surface: { delegate: boolean; message: boolean; list: boolean }): Promise<void> {
+async function forceSurface(
+  host: PeerHost,
+  surface: { delegate: boolean; message: boolean; list: boolean; artifacts: boolean },
+): Promise<void> {
   await writePeerStore(host.home, (await readPeerStore(host.home)).map(record => ({ ...record, surface })))
 }
 
@@ -267,7 +270,7 @@ async function pairedHost(): Promise<{ host: PeerHost; key: ReturnType<typeof id
   const record: PeerRecord = {
     instanceId: initiator.instanceId, displayName: initiator.displayName, platform: initiator.platform,
     arch: initiator.arch, version: initiator.version,
-    surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+    surface: { delegate: true, message: true, list: true, artifacts: true }, pairedVia: 'invitation', status: 'active',
     identityPublicKey: key.publicKey, firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
   }
   await writePeerStore(root, [record])
@@ -291,7 +294,7 @@ it('denies cancel and subscribe under restricted surfaces', async () => {
   const { host, key } = await pairedHost()
   const peers = await readPeerStore(host.home)
   await writePeerStore(host.home, [
-    { ...peers[0]!, surface: { delegate: false, message: false, list: false } },
+    { ...peers[0]!, surface: { delegate: false, message: false, list: false, artifacts: false } },
   ])
   await expect(host.cancel({ proof: requestProof(key), sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef' }))
     .rejects.toThrowError(/SURFACE_DENIED/)
@@ -300,32 +303,35 @@ it('denies cancel and subscribe under restricted surfaces', async () => {
 
 it('commits narrowing surface requests immediately and retires any parked widening', async () => {
   const { host, key, root } = await pairedHost()
-  const narrowing = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: false, list: false } })
-  expect(narrowing).toEqual({ surface: { delegate: true, message: false, list: false }, pending: false })
+  const narrowing = await host.surface({ proof: requestProof(key),
+    surface: { delegate: true, message: false, list: false, artifacts: true } })
+  expect(narrowing).toEqual({ surface: { delegate: true, message: false, list: false, artifacts: true }, pending: false })
   const peers = await readPeerStore(root)
-  expect(peers[0]!.surface).toEqual({ delegate: true, message: false, list: false })
+  expect(peers[0]!.surface).toEqual({ delegate: true, message: false, list: false, artifacts: true })
   expect('pendingSurface' in peers[0]!).toBe(false)
   // A parked widening followed by a narrowing: the narrowing commits and clears the park.
-  await writePeerStore(root, [{ ...peers[0]!, pendingSurface: { delegate: true, message: true, list: true } }])
-  const again = await host.surface({ proof: requestProof(key), surface: { delegate: false, message: false, list: false } })
-  expect(again).toEqual({ surface: { delegate: false, message: false, list: false }, pending: false })
+  await writePeerStore(root, [{ ...peers[0]!, pendingSurface: { delegate: true, message: true, list: true, artifacts: true } }])
+  const again = await host.surface({ proof: requestProof(key),
+    surface: { delegate: false, message: false, list: false, artifacts: false } })
+  expect(again).toEqual({ surface: { delegate: false, message: false, list: false, artifacts: false }, pending: false })
   const after = (await readPeerStore(root))[0]!
-  expect(after.surface).toEqual({ delegate: false, message: false, list: false })
+  expect(after.surface).toEqual({ delegate: false, message: false, list: false, artifacts: false })
   expect('pendingSurface' in after).toBe(false)
 })
 
 it('parks widening surface requests for owner approval with latest-wins replacement', async () => {
   const { host, key, root } = await pairedHost()
-  const first = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
-  expect(first).toEqual({ surface: { delegate: true, message: true, list: true }, pending: false })
-  await forceSurface(host, { delegate: true, message: true, list: false })
-  const parked = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
-  expect(parked).toEqual({ surface: { delegate: true, message: true, list: false }, pending: true })
-  const replaced = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: false, list: true } })
+  const first = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true, artifacts: true } })
+  expect(first).toEqual({ surface: { delegate: true, message: true, list: true, artifacts: true }, pending: false })
+  await forceSurface(host, { delegate: true, message: true, list: false, artifacts: true })
+  const parked = await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true, artifacts: true } })
+  expect(parked).toEqual({ surface: { delegate: true, message: true, list: false, artifacts: true }, pending: true })
+  const replaced = await host.surface({ proof: requestProof(key),
+    surface: { delegate: true, message: false, list: true, artifacts: true } })
   expect(replaced.pending).toBe(true)
   const record = (await readPeerStore(root))[0]!
-  expect(record.surface).toEqual({ delegate: true, message: true, list: false })
-  expect(record.pendingSurface).toEqual({ delegate: true, message: false, list: true })
+  expect(record.surface).toEqual({ delegate: true, message: true, list: false, artifacts: true })
+  expect(record.pendingSurface).toEqual({ delegate: true, message: false, list: true, artifacts: true })
 })
 
 it('rejects malformed surface requests and unauthenticated callers', async () => {
@@ -339,7 +345,7 @@ it('rejects malformed surface requests and unauthenticated callers', async () =>
   const nonce = randomUUID()
   await expect(host.surface({
     proof: { instanceId: strangerId, timestamp, nonce, signature: stranger.sign(peerRequestMessage(strangerId, timestamp, nonce)) },
-    surface: { delegate: true, message: true, list: true },
+    surface: { delegate: true, message: true, list: true, artifacts: true },
   })).rejects.toThrowError(/RECORD_NOT_FOUND/)
 })
 
@@ -347,53 +353,55 @@ it('answers the admin list with governance views newest activity first', async (
   const { host, key, root } = await pairedHost()
   const other = '3f2a8f9e-9999-4222-8333-444455557777'
   const peers = await readPeerStore(root)
-  await writePeerStore(root, [{ ...peers[0]!, surface: { delegate: true, message: true, list: false } }, {
+  await writePeerStore(root, [{ ...peers[0]!, surface: { delegate: true, message: true, list: false, artifacts: true } }, {
     ...peers[0]!, instanceId: other, displayName: 'Tower', lastSeenAt: '2027-01-01T00:00:00.000Z',
   }])
   await writePeerSessions(root, [{ sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', peerInstanceId: other, createdAt: '2026-11-01T00:00:00.000Z', lastActivityAt: '2026-11-02T00:00:00.000Z', cwd: '/tmp', label: 'audit me' }])
   await writePeerGovernance(root, [{ instanceId: other, monthlyTurns: 5, spent: { [periodOf(new Date())]: 2 } }])
   // A parked widening shows in the admin list so the owner can see the pending request.
-  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
+  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true, artifacts: true } })
   const { peers: views } = await host.list()
   expect(views.map(view => view.instanceId)).toEqual([other, initiator.instanceId])
   expect(views[0]).toMatchObject({
-    displayName: 'Tower', status: 'active', surface: { delegate: true, message: true, list: true },
+    displayName: 'Tower', status: 'active', surface: { delegate: true, message: true, list: true, artifacts: true },
     monthlyTurns: 5, monthlyTurnsUsed: 2, sessionCount: 1,
   })
-  expect(views[1]).toMatchObject({ sessionCount: 0, monthlyTurnsUsed: 0, pendingSurface: { delegate: true, message: true, list: true } })
+  expect(views[1]).toMatchObject({ sessionCount: 0, monthlyTurnsUsed: 0,
+    pendingSurface: { delegate: true, message: true, list: true, artifacts: true } })
 })
 
 it('edits surfaces directly, decides parked requests, and reports unknown peers', async () => {
   const { host } = await pairedHost()
-  const edited = await host.setSurface({ instanceId: initiator.instanceId, surface: { delegate: true, message: false, list: false } })
-  expect(edited.surface).toEqual({ delegate: true, message: false, list: false })
+  const edited = await host.setSurface({ instanceId: initiator.instanceId,
+    surface: { delegate: true, message: false, list: false, artifacts: true } })
+  expect(edited.surface).toEqual({ delegate: true, message: false, list: false, artifacts: true })
   await expect(host.approveSurface({ instanceId: initiator.instanceId })).rejects.toThrowError(/no pending surface/)
-  await expect(host.setSurface({ instanceId: '3f2a8f9e-9999-4222-8333-444455557777', surface: { delegate: true, message: true, list: true } }))
+  await expect(host.setSurface({ instanceId: '3f2a8f9e-9999-4222-8333-444455557777', surface: { delegate: true, message: true, list: true, artifacts: true } }))
     .rejects.toThrowError(/RECORD_NOT_FOUND/)
 })
 
 it('approves and rejects parked surfaces through the admin surface', async () => {
   const { host, key } = await pairedHost()
-  await forceSurface(host, { delegate: true, message: true, list: false })
-  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: false, list: true } })
+  await forceSurface(host, { delegate: true, message: true, list: false, artifacts: true })
+  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: false, list: true, artifacts: true } })
   const rejected = await host.rejectSurface({ instanceId: initiator.instanceId })
-  expect(rejected.surface).toEqual({ delegate: true, message: true, list: false })
+  expect(rejected.surface).toEqual({ delegate: true, message: true, list: false, artifacts: true })
   expect(rejected.pendingSurface).toBeUndefined()
   await expect(host.rejectSurface({ instanceId: initiator.instanceId })).rejects.toThrowError(/no pending surface/)
-  await host.surface({ proof: requestProof(key), surface: { delegate: false, message: false, list: true } })
+  await host.surface({ proof: requestProof(key), surface: { delegate: false, message: false, list: true, artifacts: true } })
   const approved = await host.approveSurface({ instanceId: initiator.instanceId })
-  expect(approved.surface).toEqual({ delegate: false, message: false, list: true })
+  expect(approved.surface).toEqual({ delegate: false, message: false, list: true, artifacts: true })
 })
 
 it('sets and lifts budgets through the admin surface with strict input bounds', async () => {
   const { host, key } = await pairedHost()
   // Budget edits on a record carrying a parked request surface the park through the returned view.
   const peers = await readPeerStore(host.home)
-  await writePeerStore(host.home, [{ ...peers[0]!, surface: { delegate: true, message: true, list: false } }])
+  await writePeerStore(host.home, [{ ...peers[0]!, surface: { delegate: true, message: true, list: false, artifacts: true } }])
   await writePeerSessions(host.home, [{ sessionId: 'peer-01234567-89ab-cdef-0123-456789abcdef', peerInstanceId: initiator.instanceId, createdAt: '2026-11-01T00:00:00.000Z', lastActivityAt: '2026-11-02T00:00:00.000Z', cwd: '/tmp', label: 'capped work' }])
-  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true } })
+  await host.surface({ proof: requestProof(key), surface: { delegate: true, message: true, list: true, artifacts: true } })
   const parked = await host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 12 })
-  expect(parked.pendingSurface).toEqual({ delegate: true, message: true, list: true })
+  expect(parked.pendingSurface).toEqual({ delegate: true, message: true, list: true, artifacts: true })
   expect(parked.sessionCount).toBe(1)
   const capped = parked
   expect(capped.monthlyTurns).toBe(12)
@@ -407,6 +415,13 @@ it('sets and lifts budgets through the admin surface with strict input bounds', 
   await expect(host.setBudget(extra)).rejects.toThrowError(/INVALID_PAYLOAD/)
   await expect(host.setBudget({ instanceId: 'nope' })).rejects.toThrowError(/INVALID_PAYLOAD/)
   await expect(host.setBudget({ instanceId: '3f2a8f9e-9999-4222-8333-444455557777', monthlyTurns: 3 })).rejects.toThrowError(/RECORD_NOT_FOUND/)
+  const bytes = await host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 3, monthlyBytes: 2 * 1024 * 1024 })
+  expect(bytes.monthlyBytes).toBe(2 * 1024 * 1024)
+  expect(bytes.monthlyBytesUsed).toBe(0)
+  await expect(host.setBudget({ instanceId: initiator.instanceId, monthlyBytes: 0 })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.setBudget({ instanceId: initiator.instanceId, monthlyBytes: 2 ** 40 + 1 })).rejects.toThrowError(/INVALID_PAYLOAD/)
+  const liftedBytes = await host.setBudget({ instanceId: initiator.instanceId, monthlyTurns: 3 })
+  expect(liftedBytes.monthlyBytes).toBeUndefined()
 })
 
 it('audits one peer\'s sessions and validates admin targets', async () => {
@@ -426,7 +441,8 @@ it('audits one peer\'s sessions and validates admin targets', async () => {
   await expect(host.setBudget('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
   await expect(host.approveSurface([] as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
   await expect(host.surface('nope' as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
-  await expect(host.surface({ surface: { delegate: true, message: true, list: true } } as never)).rejects.toThrowError(/INVALID_PAYLOAD/)
+  await expect(host.surface({ surface: { delegate: true, message: true, list: true, artifacts: true } } as never))
+    .rejects.toThrowError(/INVALID_PAYLOAD/)
   const partial = { instanceId: initiator.instanceId, surface: { delegate: true } } as never
   await expect(host.setSurface(partial)).rejects.toThrowError(/INVALID_PAYLOAD/)
 })
@@ -447,7 +463,7 @@ it('serves the event stream route through single-use tokens', async () => {
   const record: PeerRecord = {
     instanceId: initiator.instanceId, displayName: initiator.displayName, platform: initiator.platform,
     arch: initiator.arch, version: initiator.version,
-    surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+    surface: { delegate: true, message: true, list: true, artifacts: true }, pairedVia: 'invitation', status: 'active',
     identityPublicKey: key.publicKey, firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
   }
   await writePeerStore(root, [record])

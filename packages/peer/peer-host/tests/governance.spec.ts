@@ -7,8 +7,8 @@ import { afterEach, expect, it } from 'vitest'
 import { PeerError } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerInstanceId } from '@deepseek-ai/dsh-peer-protocol'
 import {
-  authorizePeerTurn, isNarrowing, parsePeerGovernanceEntry, peerBudgetView, peerGovernancePath,
-  periodOf, readPeerGovernance, recordPeerTurn, setPeerBudget, writePeerGovernance,
+  authorizePeerBytes, authorizePeerTurn, isNarrowing, parsePeerGovernanceEntry, peerBudgetView, peerGovernancePath,
+  periodOf, readPeerGovernance, recordPeerBytes, recordPeerTurn, setPeerBudget, writePeerGovernance,
 } from '../src/governance.ts'
 
 const directories: string[] = []
@@ -45,11 +45,19 @@ it('rejects malformed governance documents and entries with the closed reason', 
     ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666"}]}', 'missing spent'],
     ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666","spent":{"2026-1":1}}]}', 'period shape'],
     ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666","spent":{"2026-11":-1}}]}', 'negative turns'],
+    ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666","spent":{},"monthlyBytes":0}]}', 'byte budget low'],
+    ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666","spent":{},"monthlyBytes":2.5}]}', 'byte budget fractional'],
+    ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666","spent":{},"spentBytes":"soon"}]}', 'spent bytes shape'],
+    ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666","spent":{},"spentBytes":{"2026-11":-1}}]}', 'spent bytes negative'],
+    ['{"version":1,"entries":[{"instanceId":"3f2a8f9e-1111-4222-8333-444455556666","spent":{},"spentBytes":{"bad":1}}]}', 'spent bytes period shape'],
   ] as const) {
     await writeFile(peerGovernancePath(root), document, 'utf8')
     await expect(readPeerGovernance(root), label).rejects.toThrowError(/CORRUPT_INSTANCE/)
   }
   expect(() => parsePeerGovernanceEntry('nope')).toThrowError(/CORRUPT_INSTANCE/)
+  const periods: Record<string, number> = {}
+  for (let index = 0; index < 25; index++) periods[`${String(2000 + Math.floor(index / 10))}-${String(index % 100).padStart(2, '0')}`] = index
+  expect(() => parsePeerGovernanceEntry({ instanceId: peer, spent: {}, spentBytes: periods })).toThrowError(/CORRUPT_INSTANCE/)
 })
 
 it('treats a blank governance file as empty and bounds parsed periods', async () => {
@@ -77,7 +85,7 @@ it('keeps other peers untouched while recording and editing one peer', async () 
   await writePeerGovernance(root, [{ instanceId: other, spent: { '2026-11': 9 } }])
   await recordPeerTurn(root, peer, new Date('2026-11-21T12:00:00.000Z'))
   await recordPeerTurn(root, peer, new Date('2026-11-21T12:00:00.000Z'))
-  await setPeerBudget(root, peer, 4)
+  await setPeerBudget(root, peer, {})
   expect(await readPeerGovernance(root)).toContainEqual({ instanceId: other, spent: { '2026-11': 9 } })
 })
 
@@ -88,12 +96,15 @@ it('labels UTC calendar periods', () => {
 })
 
 it('classifies desired surfaces by whether any field widens', () => {
-  const full = { delegate: true, message: true, list: true }
-  expect(isNarrowing(full, { delegate: false, message: true, list: false })).toBe(true)
+  const full = { delegate: true, message: true, list: true, artifacts: true }
+  const midGrants = { delegate: false, message: true, list: true, artifacts: false }
+  expect(isNarrowing(full, { delegate: false, message: true, list: false, artifacts: true })).toBe(true)
   expect(isNarrowing(full, full)).toBe(true)
-  expect(isNarrowing(full, { delegate: false, message: false, list: true })).toBe(true)
-  expect(isNarrowing({ delegate: false, message: true, list: true }, { delegate: false, message: true, list: true })).toBe(true)
-  expect(isNarrowing({ delegate: false, message: true, list: true }, { delegate: true, message: false, list: false })).toBe(false)
+  expect(isNarrowing(full, { delegate: false, message: false, list: true, artifacts: false })).toBe(true)
+  expect(isNarrowing(midGrants, midGrants)).toBe(true)
+  expect(isNarrowing(full, { delegate: true, message: true, list: true, artifacts: true })).toBe(true)
+  expect(isNarrowing({ delegate: true, message: true, list: true, artifacts: false }, full)).toBe(false)
+  expect(isNarrowing(midGrants, { delegate: true, message: false, list: false, artifacts: false })).toBe(false)
 })
 
 it('authorizes turns against the current period and rejects exhausted budgets', async () => {
@@ -125,26 +136,102 @@ it('records accepted turns, creating and pruning period buckets', async () => {
 it('summarizes one peer budget for the admin view', async () => {
   const root = await home()
   const now = new Date('2026-11-21T12:00:00.000Z')
-  expect(await peerBudgetView(root, peer, now)).toEqual({ monthlyTurnsUsed: 0, monthlyTurnPeriod: '2026-11' })
+  expect(await peerBudgetView(root, peer, now)).toEqual({ monthlyTurnsUsed: 0, monthlyBytesUsed: 0, monthlyTurnPeriod: '2026-11' })
   await writePeerGovernance(root, [{ instanceId: peer, monthlyTurns: 3, spent: { '2026-10': 9, '2026-11': 1 } }])
-  expect(await peerBudgetView(root, peer, now)).toEqual({ monthlyTurns: 3, monthlyTurnsUsed: 1, monthlyTurnPeriod: '2026-11' })
+  expect(await peerBudgetView(root, peer, now)).toEqual({ monthlyTurns: 3, monthlyTurnsUsed: 1, monthlyBytesUsed: 0,
+    monthlyTurnPeriod: '2026-11' })
+  await writePeerGovernance(root, [{ instanceId: peer, monthlyTurns: 3, monthlyBytes: 2048, spent: { '2026-11': 1 },
+    spentBytes: { '2026-11': 512 } }])
+  expect(await peerBudgetView(root, peer, now)).toEqual({ monthlyTurns: 3, monthlyTurnsUsed: 1, monthlyBytes: 2048,
+    monthlyBytesUsed: 512, monthlyTurnPeriod: '2026-11' })
+})
+
+it('authorizes bytes for a capped entry that has recorded no bytes yet', async () => {
+  const root = await home()
+  const now = new Date('2026-11-21T12:00:00.000Z')
+  await writePeerGovernance(root, [{ instanceId: peer, monthlyBytes: 100, spent: {} }])
+  await expect(authorizePeerBytes(root, peer, now, 100)).resolves.toBeUndefined()
+  await expect(authorizePeerBytes(root, peer, now, 101)).rejects.toThrowError(/BUDGET_EXCEEDED/)
+  // Recording bytes onto an entry that never carried any reuses its spent map untouched.
+  await recordPeerTurn(root, peer, now)
+  await recordPeerBytes(root, peer, now, 40)
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, monthlyBytes: 100, spent: { '2026-11': 1 }, spentBytes: { '2026-11': 40 } }])
+})
+
+it('rewrites one dimension of an existing entry without touching the other', async () => {
+  const root = await home()
+  await setPeerBudget(root, peer, { monthlyTurns: 5 })
+  await setPeerBudget(root, peer, { monthlyTurns: 6, monthlyBytes: 1024 })
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, monthlyTurns: 6, monthlyBytes: 1024, spent: {} }])
+  await setPeerBudget(root, peer, { monthlyTurns: 6 })
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, monthlyTurns: 6, spent: {} }])
+})
+
+it('prunes byte buckets to the retained periods across multiple entries', async () => {
+  const root = await home()
+  const other = '77777777-1111-4222-8333-444455556666'
+  const now = new Date('2026-11-21T12:00:00.000Z')
+  await writePeerGovernance(root, [
+    { instanceId: peer, spent: {}, spentBytes: { '2026-09': 5, '2026-10': 7, '2026-11': 1 } },
+    { instanceId: other, spent: {} },
+  ])
+  await recordPeerBytes(root, peer, now, 3)
+  const entries = await readPeerGovernance(root)
+  expect(entries[0]!.spentBytes).toEqual({ '2026-10': 7, '2026-11': 4 })
+  expect(entries[1]!.instanceId).toBe(other)
+  // A turns-only cap on a fresh entry records without a byte bucket.
+  await setPeerBudget(root, other, { monthlyTurns: 4 })
+  const capped = (await readPeerGovernance(root)).find(entry => entry.instanceId === other)!
+  expect(capped.monthlyTurns).toBe(4)
+  expect(capped.spentBytes).toBeUndefined()
+})
+
+it('authorizes artifact bytes against the current period and records carried bytes', async () => {
+  const root = await home()
+  const now = new Date('2026-11-21T12:00:00.000Z')
+  await expect(authorizePeerBytes(root, peer, now, 100)).resolves.toBeUndefined()
+  await recordPeerBytes(root, peer, now, 100)
+  await recordPeerBytes(root, peer, now, 50)
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, spent: {}, spentBytes: { '2026-11': 150 } }])
+  await writePeerGovernance(root, [{ instanceId: peer, monthlyBytes: 200, spent: {}, spentBytes: { '2026-11': 150 } }])
+  await expect(authorizePeerBytes(root, peer, now, 50)).resolves.toBeUndefined()
+  await expect(authorizePeerBytes(root, peer, now, 51)).rejects.toThrowError(/BUDGET_EXCEEDED/)
+  await recordPeerBytes(root, peer, now, 50)
+  await expect(authorizePeerBytes(root, peer, now, 1)).rejects.toThrowError(/2026-11 bytes limit 200/)
+  // Recording zero bytes keeps the store untouched; the inert entry drops once its bytes lift.
+  await recordPeerBytes(root, peer, new Date('2026-11-21T12:00:00.000Z'), 0)
+  await setPeerBudget(root, peer, {})
+  await writePeerGovernance(root, [{ instanceId: peer, spent: {}, spentBytes: { '2026-11': 200 } }])
+  await setPeerBudget(root, peer, {})
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, spent: {}, spentBytes: { '2026-11': 200 } }])
+  await writePeerGovernance(root, [{ instanceId: peer, spent: {}, spentBytes: {} }])
+  await setPeerBudget(root, peer, {})
+  expect(await readPeerGovernance(root)).toEqual([])
 })
 
 it('sets and lifts budgets, dropping entries that become inert', async () => {
   const root = await home()
-  await setPeerBudget(root, peer, undefined)
+  await setPeerBudget(root, peer, {})
   expect(await readPeerGovernance(root)).toEqual([])
-  await setPeerBudget(root, peer, 7)
+  await setPeerBudget(root, peer, { monthlyTurns: 7 })
   expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, monthlyTurns: 7, spent: {} }])
-  await setPeerBudget(root, peer, 9)
+  await setPeerBudget(root, peer, {})
+  expect(await readPeerGovernance(root)).toEqual([])
+  await setPeerBudget(root, peer, { monthlyBytes: 2048 })
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, monthlyBytes: 2048, spent: {} }])
+  await setPeerBudget(root, peer, {})
+  expect(await readPeerGovernance(root)).toEqual([])
+  await setPeerBudget(root, peer, { monthlyTurns: 9, monthlyBytes: 4096 })
+  expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, monthlyTurns: 9, monthlyBytes: 4096, spent: {} }])
+  await setPeerBudget(root, peer, { monthlyTurns: 9 })
   expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, monthlyTurns: 9, spent: {} }])
   // An entry with recorded usage stays after the cap lifts; usage remains readable.
   await recordPeerTurn(root, peer, new Date('2026-11-21T12:00:00.000Z'))
-  await setPeerBudget(root, peer, undefined)
+  await setPeerBudget(root, peer, {})
   expect(await readPeerGovernance(root)).toEqual([{ instanceId: peer, spent: { '2026-11': 1 } }])
   // Once a fresh period resets usage, lifting the cap lets the entry go inert and drop.
   await writePeerGovernance(root, [{ instanceId: peer, spent: {} }])
-  await setPeerBudget(root, peer, undefined)
+  await setPeerBudget(root, peer, {})
   expect(await readPeerGovernance(root)).toEqual([])
   void PeerError
 })

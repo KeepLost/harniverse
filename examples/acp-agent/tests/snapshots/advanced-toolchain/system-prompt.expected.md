@@ -273,7 +273,7 @@ interface ToolArgsMap {
     /** children (default) lists direct children only; descendants walks the complete tree below you. */
     scope?: "children" | "descendants";
   } & Record<string, JsonValue>;
-  /** Run a prompt on a paired Harniverse instance — another machine this deployment is paired with — and return its settled reply. Use this when the user asks to delegate work to a paired instance by name, or to continue a delegated conversation started earlier. Pass `target` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its `sessionId`; continue that conversation by passing `session` with the next prompt. Each turn waits up to `timeoutMs` (default 120000, max 900000) for settlement — a turn still running past the budget reports `running` with the `sessionId`; when the deployment composes the initiator outbox, its settled reply later arrives as a queued message in this session, and otherwise you can re-check by continuing that session with a short status prompt. The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable). */
+  /** Run a prompt on a paired Harniverse instance — another machine this deployment is paired with — and return its settled reply. Use this when the user asks to delegate work to a paired instance by name, or to continue a delegated conversation started earlier. Pass `target` as the instance's display name or its instance id; an exact instance id always wins. The first call starts a fresh delegated session and returns its `sessionId`; continue that conversation by passing `session` with the next prompt. Each turn waits up to `timeoutMs` (default 120000, max 900000) for settlement — a turn still running past the budget reports `running` with the `sessionId`; when the deployment composes the initiator outbox, its settled reply later arrives as a queued message in this session, and otherwise you can re-check by continuing that session with a short status prompt. Pass `attachFiles` as absolute or home-relative paths of files on this machine to deliver with the prompt; the peer's model reads them through its own attachment pipeline. Pass `fetchFiles` as paths inside the peer's delegated workspace to copy back after the turn; each lands under this home's `peer-downloads/<target>` and the reply names the local copy. The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable). */
   peer: {
     /** The paired instance to address: its display name or exact instance id. */
     target: string;
@@ -283,6 +283,10 @@ interface ToolArgsMap {
     session?: string;
     /** Settlement budget for this turn in milliseconds (default 120000, max 900000). */
     timeoutMs?: number;
+    /** Paths of files on this machine to deliver with the prompt (at most 4). */
+    attachFiles?: string[];
+    /** Workspace-relative paths on the paired instance to copy back after the turn. */
+    fetchFiles?: string[];
   } & Record<string, JsonValue>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph: {
@@ -578,6 +582,7 @@ interface ToolOutputMap {
     tracked: boolean;
     reply?: string;
     endReason?: string;
+    fetched?: string[];
   };
   ralph: {
     runId: string;

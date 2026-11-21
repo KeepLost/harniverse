@@ -37,13 +37,13 @@ describe('invariant companion', () => {
     await ctx.peerHost.removePeer(peerInstanceId('3f2a8f9e-1111-4222-8333-444455556666'))
     // A violation throws InvariantError out of emit; each fail path is covered by one emission.
     expect(() => { ctx.emit('peer/paired', { instanceId: 'nope', displayName: 'x', platform: 'linux', arch: 'x64', version: '1',
-      surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+      surface: { delegate: true, message: true, list: true, artifacts: true }, pairedVia: 'invitation', status: 'active',
       firstSeenAt: '2026-11-18T08:00:00.000Z', lastSeenAt: '2026-11-18T08:00:00.000Z' }) }).toThrow(/incoherent/)
     expect(() => { ctx.emit('peer/paired', { instanceId: peerInstanceId('3f2a8f9e-1111-4222-8333-444455556666'), displayName: 'x', platform: 'linux', arch: 'x64', version: '1',
-      surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+      surface: { delegate: true, message: true, list: true, artifacts: true }, pairedVia: 'invitation', status: 'active',
       firstSeenAt: '2026-11-18T08:00:00.000Z', lastSeenAt: '2026-11-18T08:00:01.000Z' }) }).toThrow(/incoherent/)
     expect(() => { ctx.emit('peer/removed', { instanceId: 'nope', displayName: 'x', platform: 'linux', arch: 'x64', version: '1',
-      surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+      surface: { delegate: true, message: true, list: true, artifacts: true }, pairedVia: 'invitation', status: 'active',
       firstSeenAt: '2026-11-18T08:00:00.000Z', lastSeenAt: '2026-11-18T08:00:00.000Z' }) }).toThrow(/canonical identity/)
     await ctx.fiber.dispose()
     await rm(home, { recursive: true, force: true })

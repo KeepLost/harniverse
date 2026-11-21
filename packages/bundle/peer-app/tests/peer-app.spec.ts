@@ -1,6 +1,6 @@
 /** Peer pairing management through the real startup/runner Loader composition. */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -51,7 +51,7 @@ interface InvocationResult { code: number; out: string; err: string }
 /** Boot the two production plugins through Loader; a stub remote-hosts-ssh satisfies the runner injection. */
 async function invoke(args: string[], dshHome: string, overrides: Record<string, object> = {}): Promise<InvocationResult> {
   const fixture = await temporary('dsh-peer-app-loader-')
-  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile', 'messageId', 'surface', 'async']
+  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile', 'messageId', 'surface', 'async', 'attach', 'path', 'out']
   await writeFile(join(fixture, 'cordis.yml'), [
     '- id: remote-hosts-ssh',
     '  name: remote-hosts-ssh',
@@ -118,6 +118,41 @@ interface ServingTarget {
   home: string
   identity: InstanceIdentity
   invite: TargetInvite
+  /** The deterministic attachment store instance serving this target. */
+  attachments: SettlingAttachmentStore
+}
+
+/** A deterministic attachment store standing in for the real durable store in CLI e2e runs. */
+class SettlingAttachmentStore extends Service {
+  /** Admitted files, newest last. */
+  readonly saved: Array<{ name?: string; data: Uint8Array }> = []
+
+  constructor(ctx: Context) {
+    super(ctx, 'attachments')
+  }
+
+  get imageLimits() {
+    return { maxImageBytes: 1, maxImagesPerMessage: 1, maxMessageImageBytes: 1, maxImagePixels: 1, mediaTypes: [] as never[] }
+  }
+
+  get fileLimits() {
+    return { maxFileBytes: 64 * 1024 * 1024 }
+  }
+
+  async validateImage(): Promise<void> {}
+
+  async saveImage(): Promise<never> {
+    throw new Error('unused')
+  }
+
+  async saveFile(input: { data: Uint8Array; name?: string }): Promise<{ attachmentId: string; bytes: number; name?: string }> {
+    this.saved.push({ ...input.name === undefined ? {} : { name: input.name }, data: input.data })
+    return { attachmentId: `sha256:${String(this.saved.length).padStart(64, '0')}`, bytes: input.data.byteLength, ...input.name === undefined ? {} : { name: input.name } }
+  }
+
+  async publishFileHandle(ref: { name?: string }): Promise<string> {
+    return `/ro/${ref.name ?? 'file'}`
+  }
 }
 
 /** A deterministic agent registry standing in for the real loop in CLI e2e runs. */
@@ -202,6 +237,7 @@ async function servingTarget(): Promise<ServingTarget> {
     { id: 'webserver', name: 'webserver', inject: ['authentication'], config: { host: '127.0.0.1', port: 0 } },
     { id: 'peer-host', name: 'peer-host', config: { dshHome: home } },
     { id: 'agents', name: 'agents' },
+    { id: 'attachments', name: 'attachments' },
     { id: 'typert', name: 'typert' },
     { id: 'gateway', name: 'gateway' },
     { id: 'connection', name: 'connection' },
@@ -212,6 +248,7 @@ async function servingTarget(): Promise<ServingTarget> {
     const modules: Record<string, object> = {
       authentication: Authentication, webserver: WebServer, 'peer-host': PeerHost,
       agents: { default: SettlingAgentRegistry },
+      attachments: { default: SettlingAttachmentStore },
       typert: Typert, gateway: Gateway, connection: Connection,
     }
     const module = modules[specifier]
@@ -228,7 +265,13 @@ async function servingTarget(): Promise<ServingTarget> {
     const invitation = await issueEnrollmentInvitation({ capabilities: ['harniverse.peer'], kind: 'peer', ttlMs: 60_000 }, { dshHome: home })
     return { token: invitation.token }
   }
-  return { origin, home, identity, invite }
+  return { origin, home, identity, invite, attachments: ctx.get('attachments') as unknown as SettlingAttachmentStore }
+}
+
+/** Read one home's instance id from its identity document. */
+async function instanceIdOf(home: string): Promise<string> {
+  const identity = JSON.parse(await readFile(join(home, 'instance.json'), 'utf8')) as { instanceId: string }
+  return identity.instanceId
 }
 
 /** Extract the accepted message id from one async submission's receipt line. */
@@ -349,21 +392,21 @@ it('requests surface changes through the CLI composition', async () => {
   const added = await invoke(['add', inviteUri(invited.out), '--timeout', '20000'], initiator)
   expect(added.code, `add stderr: ${added.err}`).toBe(0)
   const targetId = target.identity.instanceId
-  const unchanged = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on'], initiator)
+  const unchanged = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on', '--artifacts', 'on'], initiator)
   expect(unchanged.code, `surface stderr: ${unchanged.err}`).toBe(0)
-  expect(unchanged.out).toContain('committed (delegate, message, list)')
-  const narrowed = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'off', '--list', 'off'], initiator)
+  expect(unchanged.out).toContain('committed (delegate, message, list, artifacts)')
+  const narrowed = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'off', '--list', 'off', '--artifacts', 'on'], initiator)
   expect(narrowed.code, `surface stderr: ${narrowed.err}`).toBe(0)
-  expect(narrowed.out).toContain('committed (delegate, no-message, no-list)')
-  const parked = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'off'], initiator)
+  expect(narrowed.out).toContain('committed (delegate, no-message, no-list, artifacts)')
+  const parked = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'off', '--artifacts', 'on'], initiator)
   expect(parked.code, `surface stderr: ${parked.err}`).toBe(0)
-  expect(parked.out).toContain('pending owner approval (current: delegate, no-message, no-list)')
-  const allOff = await invoke(['surface', targetId, '--delegate', 'off', '--message', 'off', '--list', 'off'], initiator)
+  expect(parked.out).toContain('pending owner approval (current: delegate, no-message, no-list, artifacts)')
+  const allOff = await invoke(['surface', targetId, '--delegate', 'off', '--message', 'off', '--list', 'off', '--artifacts', 'off'], initiator)
   expect(allOff.code, `surface stderr: ${allOff.err}`).toBe(0)
-  expect(allOff.out).toContain('committed (no-delegate, no-message, no-list)')
-  const parkedFromAllOff = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on'], initiator)
-  expect(parkedFromAllOff.out).toContain('pending owner approval (current: no-delegate, no-message, no-list)')
-  const badFlag = await invoke(['surface', targetId, '--delegate', 'maybe', '--message', 'on', '--list', 'on'], initiator)
+  expect(allOff.out).toContain('committed (no-delegate, no-message, no-list, no-artifacts)')
+  const parkedFromAllOff = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on', '--artifacts', 'on'], initiator)
+  expect(parkedFromAllOff.out).toContain('pending owner approval (current: no-delegate, no-message, no-list, no-artifacts)')
+  const badFlag = await invoke(['surface', targetId, '--delegate', 'maybe', '--message', 'on', '--list', 'on', '--artifacts', 'on'], initiator)
   expect(badFlag.code).toBe(1)
   expect(badFlag.err).toContain('take "on" or "off"')
 })
@@ -676,4 +719,79 @@ it('maps agent and encrypted host logins onto closed credential rejections', asy
   expect(https.code).toBe(1)
   expect(https.err).toContain('ssh targets require a loopback')
   expect(observations).toEqual([])
+})
+
+it('delivers local files with a delegated run and fetches workspace files back', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  expect(invited.code).toBe(0)
+  const initiator = await temporary('peer-app-artifacts-')
+  const added = await invoke(['add', inviteUri(invited.out), '--timeout', '20000'], initiator)
+  expect(added.code, `add stderr: ${added.err}`).toBe(0)
+  const targetId = target.identity.instanceId
+  const localFile = join(initiator, 'brief.txt')
+  await writeFile(localFile, 'scan these logs')
+  const run = await invoke(['run', targetId, 'read the brief', '--attach', localFile, '--timeout', '20000'], initiator)
+  expect(run.code, `run stderr: ${run.err}`).toBe(0)
+  expect(run.out).toContain('settled')
+  expect(target.attachments.saved.map(file => file.name)).toEqual(['brief.txt'])
+  expect(Buffer.from(target.attachments.saved[0]!.data).toString('utf8')).toBe('scan these logs')
+  // A follow-up turn carries attachments the same way.
+  const sessionLine = run.out.split('\n').find(entry => entry.startsWith('session\t'))!
+  const sessionId = sessionLine.split('\t')[1]!
+  const second = join(initiator, 'second.txt')
+  await writeFile(second, 'more')
+  const sent = await invoke(['send', targetId, sessionId, 'and this', '--attach', second, '--timeout', '20000'], initiator)
+  expect(sent.code, `send stderr: ${sent.err}`).toBe(0)
+  expect(target.attachments.saved.map(file => file.name)).toEqual(['brief.txt', 'second.txt'])
+  // A workspace file on the target reads back through fetch with its digest verified.
+  const work = join(target.home, 'peer-work', await instanceIdOf(initiator))
+  await mkdir(work, { recursive: true })
+  await writeFile(join(work, 'report.md'), '# results')
+  const fetched = await invoke(['fetch', targetId, 'report.md'], initiator)
+  expect(fetched.code, `fetch stderr: ${fetched.err}`).toBe(0)
+  expect(fetched.out).toContain('fetched report.md (9 bytes)')
+  expect(await readFile(join(initiator, 'peer-downloads', targetId, 'report.md'), 'utf8')).toBe('# results')
+  const escaped = await invoke(['fetch', targetId, '../../secrets'], initiator)
+  expect(escaped.code).toBe(1)
+  expect(escaped.err).toContain('INVALID_PAYLOAD')
+})
+
+it('refuses artifact calls until the surface grants artifacts', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  expect(invited.code).toBe(0)
+  const initiator = await temporary('peer-app-noartifacts-')
+  const added = await invoke(['add', inviteUri(invited.out), '--timeout', '20000'], initiator)
+  expect(added.code, `add stderr: ${added.err}`).toBe(0)
+  const targetId = target.identity.instanceId
+  const narrowed = await invoke(['surface', targetId, '--delegate', 'on', '--message', 'on', '--list', 'on', '--artifacts', 'off'], initiator)
+  expect(narrowed.code, `surface stderr: ${narrowed.err}`).toBe(0)
+  expect(narrowed.out).toContain('committed (delegate, message, list, no-artifacts)')
+  const localFile = join(initiator, 'brief.txt')
+  await writeFile(localFile, 'x')
+  const run = await invoke(['run', targetId, 'read', '--attach', localFile, '--timeout', '20000'], initiator)
+  expect(run.code, `run stderr: ${run.err}`).toBe(1)
+  expect(run.err).toContain('SURFACE_DENIED')
+})
+
+it('reports unreadable attach files and optional fetch output directory', async () => {
+  const target = await servingTarget()
+  const invited = await invoke(['invite', '--endpoint', target.origin, '--ttl', '600000'], target.home)
+  expect(invited.code).toBe(0)
+  const initiator = await temporary('peer-app-attach-err-')
+  const added = await invoke(['add', inviteUri(invited.out), '--timeout', '20000'], initiator)
+  expect(added.code, `add stderr: ${added.err}`).toBe(0)
+  const targetId = target.identity.instanceId
+  const missing = await invoke(['run', targetId, 'read', '--attach', join(initiator, 'nope.bin'), '--timeout', '20000'], initiator)
+  expect(missing.code).toBe(1)
+  expect(missing.err).toContain('cannot be read')
+  // A send without attachments keeps the artifact-free payload, and fetch honors --out.
+  const work = join(target.home, 'peer-work', await instanceIdOf(initiator))
+  await mkdir(work, { recursive: true })
+  await writeFile(join(work, 'note.txt'), 'note')
+  const custom = await temporary('peer-app-fetch-out-')
+  const fetched = await invoke(['fetch', targetId, 'note.txt', '--out', custom], initiator)
+  expect(fetched.code, `fetch stderr: ${fetched.err}`).toBe(0)
+  expect(await readFile(join(custom, 'note.txt'), 'utf8')).toBe('note')
 })

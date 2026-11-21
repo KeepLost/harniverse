@@ -1,5 +1,7 @@
 /** One-shot peer pairing runner. */
 
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import {
@@ -22,6 +24,7 @@ import {
 } from '@deepseek-ai/dsh-peer-protocol'
 import type { PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
 import {
+  downloadPeerFile,
   ensurePeerIdentityKey,
   pairWithPeer,
   readPeerTargets,
@@ -59,7 +62,7 @@ export const Config: z<Config> = z.object({
     z.const('invite'), z.const('add'), z.const('list'),
     z.const('remove'), z.const('targets'), z.const('forget'),
     z.const('cancel'), z.const('run'), z.const('send'), z.const('sessions'),
-    z.const('result'), z.const('surface'), z.const('outbox'),
+    z.const('result'), z.const('surface'), z.const('fetch'), z.const('outbox'),
   ]).required(),
   uri: z.string(),
   endpoint: z.string(),
@@ -74,8 +77,11 @@ export const Config: z<Config> = z.object({
   cwd: z.string(),
   profile: z.string(),
   messageId: z.string(),
-  surface: z.object({ delegate: z.boolean(), message: z.boolean(), list: z.boolean() }),
+  surface: z.object({ delegate: z.boolean(), message: z.boolean(), list: z.boolean(), artifacts: z.boolean() }),
   async: z.boolean(),
+  attach: z.array(z.string()),
+  path: z.string(),
+  out: z.string(),
   dshHome: z.string(),
 })
 
@@ -101,6 +107,25 @@ function parseDurationMs(value: string): number {
   }
   const scale = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[match[2] ?? 'ms'] ?? 1
   return Number(match[1]) * scale
+}
+
+/** Read the invocation's attach files, when any, as local artifacts.
+ * @param config - the parsed runner configuration.
+ * @returns complete local artifacts, or `undefined` when the call carries none.
+ */
+async function readAttachFiles(config: Config): Promise<{ name: string; data: Uint8Array }[] | undefined> {
+  if (config.attach === undefined || config.attach.length === 0) return undefined
+  const files: { name: string; data: Uint8Array }[] = []
+  for (const path of config.attach.slice(0, 4)) {
+    let data: Uint8Array
+    try {
+      data = new Uint8Array(await readFile(path))
+    } catch {
+      throw new Error(`peer-runner: attach file ${JSON.stringify(path)} cannot be read`)
+    }
+    files.push({ name: basename(path), data })
+  }
+  return files
 }
 
 function required(value: string | undefined, operation: PeerOperation, field: string): string {
@@ -187,12 +212,13 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
       const budget = config.async === true ? 1 : settleBudget(config.timeoutMs ?? 600_000)
+      const files = await readAttachFiles(config)
       const result = await withPeerTransport(ctx, home, target, origin => runPeerDelegate(
         { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
         { instanceId: identity.instanceId, key },
         required(config.prompt, config.operation, 'a prompt'),
         { ...(config.cwd !== undefined && { cwd: config.cwd }), ...(config.profile !== undefined && { profile: config.profile }),
-          timeoutMs: budget },
+          timeoutMs: budget, ...files === undefined ? {} : { files } },
       ))
       writeRunResult(result)
       writeReceiptHint(config, result)
@@ -204,12 +230,14 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
       const key = await ensurePeerIdentityKey(home)
       const sessionId = required(config.sessionId, config.operation, 'a session id')
       const budget = config.async === true ? 1 : settleBudget(config.timeoutMs ?? 600_000)
+      const files = await readAttachFiles(config)
       const result = await withPeerTransport(ctx, home, target, origin => runPeerFollowup(
         { target, home, origin, ...(config.timeoutMs !== undefined && { timeoutMs: boundCallTimeout(config.timeoutMs) }) },
         { instanceId: identity.instanceId, key },
         sessionId,
         required(config.prompt, config.operation, 'a prompt'),
         budget,
+        files,
       ))
       writeRunResult(result)
       writeReceiptHint(config, result)
@@ -254,10 +282,27 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
         { instanceId: identity.instanceId, key },
         desired,
       ))
-      const grants = `${outcome.surface.delegate ? 'delegate' : 'no-delegate'}, ${outcome.surface.message ? 'message' : 'no-message'}, ${outcome.surface.list ? 'list' : 'no-list'}`
+      const grants = `${outcome.surface.delegate ? 'delegate' : 'no-delegate'}, ${outcome.surface.message ? 'message' : 'no-message'}, ${outcome.surface.list ? 'list' : 'no-list'}, ${outcome.surface.artifacts ? 'artifacts' : 'no-artifacts'}`
       internals.stdout.write(outcome.pending
         ? `pending owner approval (current: ${grants})\n`
         : `committed (${grants})\n`)
+      break
+    }
+    case 'fetch': {
+      const target = await resolveTarget(config)
+      const identity = await ensureInstanceIdentity(home)
+      const key = await ensurePeerIdentityKey(home)
+      const path = required(config.path, config.operation, 'a workspace path')
+      const file = await withPeerTransport(ctx, home, target, origin => downloadPeerFile(
+        { target, home, origin },
+        { instanceId: identity.instanceId, key },
+        path,
+      ))
+      const directory = config.out ?? join(home, 'peer-downloads', target.targetInstanceId)
+      const local = join(directory, file.name)
+      await mkdir(dirname(local), { recursive: true })
+      await writeFile(local, file.data)
+      internals.stdout.write(`fetched ${file.name} (${String(file.bytes)} bytes) to ${local}\n`)
       break
     }
     case 'outbox': {

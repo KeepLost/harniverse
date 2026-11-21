@@ -1,11 +1,13 @@
 /** Peer delegation operations: peer-owned sessions, turn delivery, and settlement observation. */
 
-import { randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
-import { join, resolve as resolvePath, sep, isAbsolute } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, readFile, stat } from 'node:fs/promises'
+import { basename, join, resolve as resolvePath, sep, isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentOptions, AgentRegistry } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { AttachmentError, fileHandleText } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-model-policy'
@@ -13,6 +15,8 @@ import { PeerError } from '@deepseek-ai/dsh-peer-protocol'
 import type {
   PeerCancelRequest,
   PeerDelegateRequest,
+  PeerDownloadRequest,
+  PeerDownloadResult,
   PeerFollowupRequest,
   PeerInstanceId,
   PeerRequestProof,
@@ -20,12 +24,15 @@ import type {
   PeerRunResult,
   PeerSessionState,
   PeerSessionSummary,
+  PeerUploadRef,
 } from '@deepseek-ai/dsh-peer-protocol'
 import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { PeerSessionEntry } from './session-registry.ts'
 import { findPeerSession, readPeerSessions, writePeerSessions } from './session-registry.ts'
 import { authorizePeerTurn, recordPeerTurn } from './governance.ts'
+import { takeStagedUpload } from './staging.ts'
 
 /** Settlement-wait budget applied when a request names none. */
 export const PEER_RUN_TIMEOUT_DEFAULT_MS = 600_000
@@ -35,6 +42,12 @@ export const PEER_RUN_TIMEOUT_MAX_MS = 900_000
 
 /** Upper bound on one delivered prompt's length in UTF-16 code units. */
 const PEER_PROMPT_MAX_LENGTH = 32_768
+
+/** Upper bound on staged uploads one delivered message may admit. */
+const PEER_UPLOADS_PER_TURN_MAX = 4
+
+/** Upper bound on one workspace file a `peer/download` call returns in a single frame. */
+export const PEER_DOWNLOAD_MAX_BYTES = 16 * 1024 * 1024
 
 /** Session-id shape minted for delegated sessions. */
 const PEER_SESSION_ID_PATTERN = /^peer-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -61,6 +74,28 @@ function effectiveTimeout(timeoutMs: number | undefined): number {
   return timeoutMs
 }
 
+/** Validate one staged-upload reference list's shape.
+ * @param value - untrusted wire value.
+ * @returns the validated references.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for malformed references.
+ */
+function validateUploadRefs(value: unknown): PeerUploadRef[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > PEER_UPLOADS_PER_TURN_MAX) {
+    throw new PeerError('INVALID_PAYLOAD', 'uploads out of range')
+  }
+  const refs: PeerUploadRef[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) throw new PeerError('INVALID_PAYLOAD', 'upload reference is not an object')
+    const record = entry as Record<string, unknown>
+    if (Object.keys(record).length !== 2 || typeof record.uploadId !== 'string' || !/^[0-9a-f-]{36}$/.test(record.uploadId)
+      || typeof record.sha256 !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(record.sha256)) {
+      throw new PeerError('INVALID_PAYLOAD', 'upload reference fields')
+    }
+    refs.push(entry as PeerUploadRef)
+  }
+  return refs
+}
+
 /**
  * Validate one delegate request's shape.
  * @param value - untrusted wire value.
@@ -82,6 +117,7 @@ export function validateDelegateRequest(value: unknown): PeerDelegateRequest {
     throw new PeerError('INVALID_PAYLOAD', 'profile out of range')
   }
   effectiveTimeout(record.timeoutMs as number | undefined)
+  if (record.uploads !== undefined) validateUploadRefs(record.uploads)
   return value as unknown as PeerDelegateRequest
 }
 
@@ -97,6 +133,7 @@ export function validateFollowupRequest(value: unknown): PeerFollowupRequest {
     throw new PeerError('INVALID_PAYLOAD', 'prompt out of range')
   }
   effectiveTimeout(record.timeoutMs as number | undefined)
+  if (record.uploads !== undefined) validateUploadRefs(record.uploads)
   return value as PeerFollowupRequest
 }
 
@@ -277,19 +314,97 @@ function settlementOf(events: readonly SessionEvent[], messageId: string): Omit<
   return { state: 'settled', ...reply.length > 0 ? { reply } : {}, endReason: end.data.reason.kind }
 }
 
+/** Map one attachment-pipeline failure onto the closed peer artifact reasons.
+ * @param error - the thrown failure from the attachment store.
+ * @returns the equivalent {@link PeerError}.
+ */
+function attachmentFailure(error: unknown): PeerError {
+  if (error instanceof AttachmentError) {
+    return error.code === 'FILE_TOO_LARGE'
+      ? new PeerError('ATTACHMENT_TOO_LARGE')
+      : new PeerError('ATTACHMENT_REFUSED', error.code)
+  }
+  return new PeerError('ATTACHMENT_REFUSED', 'attachment store')
+}
+
+/** Resolve the optional attachment store, refusing artifact-bearing turns without one.
+ * @param ctx - host context.
+ * @returns the deployment's attachment store.
+ * @throws a {@link PeerError} with `ATTACHMENT_REFUSED` when no store is composed.
+ */
+function attachmentsOf(ctx: Context): AttachmentStore {
+  const store = ctx.get('attachments')
+  if (store === undefined) throw new PeerError('ATTACHMENT_REFUSED', 'attachment store is not configured')
+  return store
+}
+
+/** Consume one message's staged uploads through the deployment's attachment pipeline.
+ * @param ctx - host context.
+ * @param home - absolute Harness home directory.
+ * @param instanceId - the verified calling peer.
+ * @param uploads - validated upload references from the delivered message.
+ * @returns durable attachment references in the message's order.
+ */
+async function admitUploads(
+  ctx: Context,
+  home: string,
+  instanceId: PeerInstanceId,
+  uploads: readonly PeerUploadRef[] | undefined,
+): Promise<FileAttachmentRef[]> {
+  if (uploads === undefined) return []
+  const store = attachmentsOf(ctx)
+  const refs: FileAttachmentRef[] = []
+  for (const upload of uploads) {
+    const staged = await takeStagedUpload(home, instanceId, upload.uploadId, upload.sha256)
+    try {
+      refs.push(await store.saveFile({
+        data: staged.data,
+        ...staged.manifest.mediaType === undefined ? {} : { mediaType: staged.manifest.mediaType },
+        name: staged.manifest.name,
+      }))
+    } catch (error) {
+      throw attachmentFailure(error)
+    }
+  }
+  return refs
+}
+
 /** Deliver one prompt as the session's next FIFO turn and observe its settlement.
  * @param ctx - host context.
  * @param sessionId - the caller's own session.
  * @param agent - the session's live agent.
  * @param prompt - user prompt text.
  * @param timeoutMs - settlement-wait budget.
+ * @param files - durable artifacts admitted with this message, in delivery order.
  * @returns the run result naming the accepted message.
  * @throws a {@link PeerError} with `SESSION_BUSY` when the agent rejects delivery.
  */
-async function deliverTurn(ctx: Context, sessionId: string, agent: Agent, prompt: string, timeoutMs: number): Promise<PeerRunResult> {
-  void ctx
+async function deliverTurn(
+  ctx: Context,
+  sessionId: string,
+  agent: Agent,
+  prompt: string,
+  timeoutMs: number,
+  files: readonly FileAttachmentRef[] = [],
+): Promise<PeerRunResult> {
+  const content = [{ type: 'text' as const, text: prompt }]
+  if (files.length > 0) {
+    const store = attachmentsOf(ctx)
+    for (const ref of files) {
+      let path: string
+      try {
+        path = await store.publishFileHandle(ref)
+      } catch (error) {
+        throw attachmentFailure(error)
+      }
+      content.push({ type: 'text', text: fileHandleText(ref, path) })
+    }
+  }
   const baseline = agent.session.seq
-  const message = createUserMessage({ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } })
+  const message = createUserMessage({
+    content,
+    source: { kind: 'user', ...files.length > 0 ? { files: [...files] } : {} },
+  })
   try {
     agent.followup(message)
   } catch {
@@ -370,7 +485,8 @@ export async function delegateToPeer(
   }
   const beforeDeliver = [...(await readPeerSessions(home)).filter(item => item.sessionId !== sessionId), entry]
   await writePeerSessions(home, beforeDeliver)
-  const result = await deliverTurn(ctx, sessionId, handle.agent, request.prompt, effectiveTimeout(request.timeoutMs))
+  const files = await admitUploads(ctx, home, instanceId, request.uploads)
+  const result = await deliverTurn(ctx, sessionId, handle.agent, request.prompt, effectiveTimeout(request.timeoutMs), files)
   // The turn was accepted for delivery, so it consumed budget whatever its settlement says.
   await recordPeerTurn(home, instanceId, new Date())
   const afterDeliver = (await readPeerSessions(home))
@@ -399,7 +515,8 @@ export async function followupPeerSession(
   const entry = findPeerSession(sessions, request.sessionId)
   if (entry === undefined || entry.peerInstanceId !== instanceId) throw new PeerError('SESSION_NOT_FOUND')
   const agent = await ensurePeerAgent(ctx, entry)
-  const result = await deliverTurn(ctx, entry.sessionId, agent, request.prompt, effectiveTimeout(request.timeoutMs))
+  const files = await admitUploads(ctx, home, instanceId, request.uploads)
+  const result = await deliverTurn(ctx, entry.sessionId, agent, request.prompt, effectiveTimeout(request.timeoutMs), files)
   // The turn was accepted for delivery, so it consumed budget whatever its settlement says.
   await recordPeerTurn(home, instanceId, new Date())
   await writePeerSessions(home, sessions
@@ -530,5 +647,36 @@ export async function dropPeerSessions(ctx: Context, home: string, instanceId: P
   for (const entry of sessions) {
     if (entry.peerInstanceId !== instanceId) continue
     if (agents?.get(entry.sessionId as SessionId) !== undefined) await agents.closeIfIdle(entry.sessionId as SessionId)
+  }
+}
+
+/** Read one bounded workspace file from the caller's peer root for download.
+ * @param home - absolute Harness home directory.
+ * @param instanceId - the verified calling peer.
+ * @param request - validated download request.
+ * @returns the file's digest-bearing single-frame readback.
+ * @throws a {@link PeerError} with `INVALID_PAYLOAD` for missing or unreadable files, or `ATTACHMENT_TOO_LARGE` past the frame cap.
+ */
+export async function downloadPeerFile(
+  home: string,
+  instanceId: PeerInstanceId,
+  request: PeerDownloadRequest,
+): Promise<PeerDownloadResult> {
+  const root = peerSessionRoot(home, instanceId)
+  const absolute = resolvePath(root, request.path)
+  if (absolute !== root && !absolute.startsWith(`${root}${sep}`)) {
+    throw new PeerError('INVALID_PAYLOAD', 'path escapes the peer root')
+  }
+  const info = await stat(absolute).catch(() => undefined)
+  if (info === undefined || !info.isFile()) throw new PeerError('INVALID_PAYLOAD', 'file not found')
+  if (info.size > PEER_DOWNLOAD_MAX_BYTES) {
+    throw new PeerError('ATTACHMENT_TOO_LARGE', `frame cap ${PEER_DOWNLOAD_MAX_BYTES}`)
+  }
+  const data = new Uint8Array(await readFile(absolute))
+  return {
+    name: basename(absolute),
+    bytes: data.byteLength,
+    sha256: createHash('sha256').update(data).digest('base64url'),
+    dataBase64: Buffer.from(data).toString('base64'),
   }
 }
