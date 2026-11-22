@@ -30,7 +30,7 @@ import {
   imageSerialization,
   staleFileDetail,
 } from '../../common/request-images.ts'
-import { projectImageOmissions } from '@deepseek-ai/dsh-llm'
+import { projectImageOmissions } from '@deepseek-ai/dsh-llm/request-images'
 import type { ImageSerializationOptions } from '../../common/request-images.ts'
 import { serialize } from './serialize.ts'
 import { parseSse } from './sse.ts'

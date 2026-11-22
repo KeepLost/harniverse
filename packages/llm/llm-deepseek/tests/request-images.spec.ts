@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { CallId, createToolResultMessage, createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { DeepSeekFileStore, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
-import { projectImageOmissions } from '@deepseek-ai/dsh-llm'
+import { projectImageOmissions } from '@deepseek-ai/dsh-llm/request-images'
 import { imageSerialization } from '../src/common/request-images.ts'
 
 const attachment = { attachmentId: AttachmentId('same-image'), mediaType: 'image/png' as const, bytes: 4, width: 1, height: 1 }

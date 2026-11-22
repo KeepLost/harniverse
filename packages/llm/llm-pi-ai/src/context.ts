@@ -5,8 +5,9 @@
  */
 
 import { CallId, contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
-import { limitRequestImages, projectImageOmissions } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, ImageWireLocation, Message, RequestImageBudgetLimits, RequestImageOccurrence } from '@deepseek-ai/dsh-llm'
+import { limitRequestImages, projectImageOmissions } from '@deepseek-ai/dsh-llm/request-images'
+import type { ImageWireLocation, RequestImageBudgetLimits, RequestImageOccurrence } from '@deepseek-ai/dsh-llm/request-images'
+import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef, ImageRequestPolicy, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'

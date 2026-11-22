@@ -35,7 +35,11 @@
       "default": "./lib/types/message.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./request-images": {
+      "types": "./lib/types/request-images.d.ts",
+      "default": "./lib/request-images.js"
+    }
   },
   "files": [
     "lib/index.js",

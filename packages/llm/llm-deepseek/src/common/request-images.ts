@@ -1,7 +1,9 @@
 /** Shared request-image preparation, budget offload, and Files representation selection. */
 
-import { limitRequestImages, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, ImageWireLocation, Message, RequestImageBudgetLimits } from '@deepseek-ai/dsh-llm'
+import { limitRequestImages } from '@deepseek-ai/dsh-llm/request-images'
+import { LlmError } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { ImageWireLocation, RequestImageBudgetLimits } from '@deepseek-ai/dsh-llm/request-images'
 import type {
   AttachmentId,
   AttachmentStore,

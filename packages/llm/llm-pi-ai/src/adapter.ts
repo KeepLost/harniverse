@@ -47,11 +47,11 @@ import type {
   LlmProviderInfo,
   LlmResolvedModelInfo,
   ReasoningEffortId as ReasoningEffortIdType,
-  RequestImageBudgetLimits,
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { wireDiagnosticHeaders, wireRequestMetadata } from '@deepseek-ai/dsh-llm'
+import type { RequestImageBudgetLimits } from '@deepseek-ai/dsh-llm/request-images'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
