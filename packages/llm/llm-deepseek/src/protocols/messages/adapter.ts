@@ -138,6 +138,7 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
     let images: ImageSerializationOptions | undefined
     const selectImages = (preparedImages: NonNullable<typeof prepared>, representation: 'file' | 'base64'): void => {
       images = imageSerialization(preparedImages, connection, this.files, apiKey, signal, representation, 'messages', options.messages)
+      /* v8 ignore next -- imageSerialization always returns the selection's occurrences. */
       options = projectImageOmissions(options, images.omittedOccurrences ?? [])
     }
     const onReplayDegrade = (reason: string): void => {

@@ -6,7 +6,7 @@ English | [中文](2026-11-23-request-image-budget-preflight.zh.md)
 
 ## Problem
 
-`compaction-body-limit-recovery` (see [413 request-body recovery](2026-11-03-body-limit-recovery.md)) was the reactive net: discover the transport cap by hitting it, settle every image, compact, retry. Its own ponytail named the ceiling — "a proactive request-body budget … pre-settle before send" — because a 413 round-trip is a wasted attempt and whole-history settlement drops images the request could have kept. The pi-ai path had no aggregate bound at all: `toPiContextWithImages` inlined every retained occurrence as base64, so an image-heavy session on any gateway could exceed the body cap on every attempt.
+`compaction-body-limit-recovery` (see [413 request-body recovery](../bug-fix/2026-11-03-body-limit-recovery.md)) was the reactive net: discover the transport cap by hitting it, settle every image, compact, retry. Its own ponytail named the ceiling — "a proactive request-body budget … pre-settle before send" — because a 413 round-trip is a wasted attempt and whole-history settlement drops images the request could have kept. The pi-ai path had no aggregate bound at all: `toPiContextWithImages` inlined every retained occurrence as base64, so an image-heavy session on any gateway could exceed the body cap on every attempt.
 
 ## Decision
 

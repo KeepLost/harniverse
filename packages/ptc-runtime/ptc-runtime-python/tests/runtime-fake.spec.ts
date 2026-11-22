@@ -500,6 +500,46 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     await lateOutput.fiber.dispose()
   })
 
+  it('retains a fitting log prefix when a required value exceeds the limit', async () => {
+    arm((child) => {
+      const frame = child.protocol.writes.at(-1)
+      if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+      else if (frame?.startsWith('{"type":"run"')) {
+        child.protocol.send({ type: 'log', text: 'kept' })
+        child.protocol.send({ type: 'log', text: 'z'.repeat(200) })
+        child.protocol.send({ type: 'done', value: 'v'.repeat(200) })
+      }
+    })
+    const h = await setup({ maxOutputBytes: 64 })
+    const result = await h.runtime.run(h.runtime.resolve(request()))
+    expect(result.error?.kind).toBe('output-limit')
+    expect(result.logs[0]).toBe('kept')
+    expect(result.logs[1]?.startsWith('z')).toBe(true)
+    expect(result.outputTruncated).toBe(true)
+    await h.fiber.dispose()
+  })
+
+  it('cuts admitted logs to prioritize a value that fits beside a shorter prefix', async () => {
+    arm((child) => {
+      const frame = child.protocol.writes.at(-1)
+      if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+      else if (frame?.startsWith('{"type":"run"')) {
+        child.protocol.send({ type: 'log', text: 'a'.repeat(20) })
+        child.protocol.send({ type: 'log', text: 'b'.repeat(20) })
+        child.protocol.send({ type: 'done', value: 'v'.repeat(40) })
+      }
+    })
+    const h = await setup({ maxOutputBytes: 80 })
+    const result = await h.runtime.run(h.runtime.resolve(request()))
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBe('v'.repeat(40))
+    expect(result.logs[0]).toBe('a'.repeat(20))
+    expect(result.logs[1]?.startsWith('b')).toBe(true)
+    expect(result.logs[1]?.length).toBeLessThan(20)
+    expect(result.outputTruncated).toBe(true)
+    await h.fiber.dispose()
+  })
+
   it('returns host-side protocol errors and all child done variants', async () => {
     const runtime = await setup({ maxOutputBytes: 128 })
     const runFrame = async (done: ChildFrame): Promise<unknown> => {

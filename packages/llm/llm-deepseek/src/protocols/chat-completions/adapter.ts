@@ -196,6 +196,7 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
     const selectImages = (preparedImages: NonNullable<typeof prepared>, representation: 'file' | 'base64') => {
       const images = imageSerialization(preparedImages, connection, this.files, apiKey, signal, representation, 'chat-completions', options.messages)
+      /* v8 ignore next -- imageSerialization always returns the selection's occurrences. */
       options = projectImageOmissions(options, images.omittedOccurrences ?? [])
       return images
     }

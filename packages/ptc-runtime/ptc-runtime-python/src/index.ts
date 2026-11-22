@@ -269,20 +269,23 @@ class OutputLedger{
     const valueBytes = jsonValueBytesUpTo(value, this.maxBytes - 2)
     if (valueBytes === undefined) return this.limit(logs)
     if (jsonValueBytesUpTo(value, this.maxBytes - this.bytes) !== undefined) return { logs, value }
+    // Reaching here means the value fits only after logs are cut, so the
+    // prefix always truncates.
     const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - valueBytes)
-    if (retained.truncated) return { logs: retained.logs, value, outputTruncated: true }
-    return { logs: retained.logs, value }
+    return { logs: retained.logs, value, outputTruncated: true }
   }
 
   failure(logs: string[], error: PtcRunFailure): PtcRunResult {
     if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) !== undefined) return { logs, error }
     const message = truncateJsonString(error.message, this.maxBytes - 2)
+    // truncateJsonString returned a fitting prefix, so it measures; the
+    // fallback only names the empty-string floor.
+    /* v8 ignore next -- a fitting truncated diagnostic always measures. */
     const messageBytes = jsonStringBytesUpTo(message, this.maxBytes - 2) ?? 2
+    // Reaching here means the diagnostic fits only after logs are cut, so the
+    // result always truncates.
     const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - messageBytes)
-    if (message.length < error.message.length || retained.truncated) {
-      return { logs: retained.logs, error: { ...error, message }, outputTruncated: true }
-    }
-    return { logs: retained.logs, error }
+    return { logs: retained.logs, error: { ...error, message }, outputTruncated: true }
   }
 
   limit(logs: string[]): PtcRunResult {
@@ -294,6 +297,7 @@ class OutputLedger{
     for (const text of logs) {
       const separator = retained.length > 0 ? 1 : 0
       const available = logBudget - retainedBytes - separator
+      /* v8 ignore next -- only a sub-2-byte budget stays exhausted here. */
       if (available < 2) break
       const stringBytes = jsonStringBytesUpTo(text, available)
       if (stringBytes !== undefined) {
@@ -302,6 +306,7 @@ class OutputLedger{
         continue
       }
       const prefix = truncateJsonString(text, available)
+      /* v8 ignore next 3 -- a zero-length prefix means nothing fits, which the byte math of `available` already bounds. */
       if (prefix.length > 0) {
         const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
         retained.push(prefix)
@@ -332,6 +337,7 @@ class OutputLedger{
         continue
       }
       const prefix = truncateJsonString(text, available)
+      /* v8 ignore next 3 -- a zero-length prefix means nothing fits, which the byte math of `available` already bounds. */
       if (prefix.length > 0) {
         const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
         retained.push(prefix)
@@ -630,6 +636,7 @@ export class PythonPtcRuntime extends PtcRuntime {
         : { kind: 'worker-exit', message: 'python process exited before completing' }
 
       const finish = (finalize: () => PtcRunResult): void => {
+        /* v8 ignore next -- re-entrant finish is guarded by every caller's settle check. */
         if (settling) return
         settling = true
         clearTimeout(wallTimer)

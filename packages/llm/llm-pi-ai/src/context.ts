@@ -42,6 +42,7 @@ async function userContent(
         // Request images project under the routed model's budgets instead of
         // shipping stored originals; the prepared version carries the scaling.
         const projected = requestImages.get(block.attachment.attachmentId)
+        /* v8 ignore next 1 -- occurrences are collected from these same messages before projection. */
         if (projected === undefined) throw new LlmError('pi-ai request image was not prepared.', 'INVALID_REQUEST')
         content.push({
           type: 'image',

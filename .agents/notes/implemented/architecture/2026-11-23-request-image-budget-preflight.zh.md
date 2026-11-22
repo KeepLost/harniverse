@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`compaction-body-limit-recovery`（见 [413 请求体恢复](2026-11-03-body-limit-recovery.md)）是被动兜底：撞上传输上限才发现它，沉降全部图片、压缩、重试。它自己的 ponytail 注明了这个天花板——"主动的请求体预算……发送前预沉降"——因为一次 413 往返是白费的一次尝试，而且全历史沉降会丢掉本可以保留的图片。pi-ai 路径此前完全没有聚合上限：`toPiContextWithImages` 把每个保留出现都内联为 base64，任何网关上的图片密集会话都可能每次尝试都超体。
+`compaction-body-limit-recovery`（见 [413 请求体恢复](../bug-fix/2026-11-03-body-limit-recovery.md)）是被动兜底：撞上传输上限才发现它，沉降全部图片、压缩、重试。它自己的 ponytail 注明了这个天花板——"主动的请求体预算……发送前预沉降"——因为一次 413 往返是白费的一次尝试，而且全历史沉降会丢掉本可以保留的图片。pi-ai 路径此前完全没有聚合上限：`toPiContextWithImages` 把每个保留出现都内联为 base64，任何网关上的图片密集会话都可能每次尝试都超体。
 
 ## 决策
 
