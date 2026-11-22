@@ -92,12 +92,11 @@ it.each(['function-body', 'repl', 'script'] as const)('leaves an unawaited call 
   expect(h.state.exitCode).toBeUndefined()
 })
 
-it.each([4, 64])('reports exhausted output accounting during the run with a %s-byte limit', async (maxOutputBytes) => {
+it.each([4, 64])('reports exhausted output accounting during the run and still completes with a %s-byte limit', async (maxOutputBytes) => {
   const h = await setup()
   const limited = vi.fn()
   h.methods.outputLimit = limited
-  expect(await h.run('console.log("x".repeat(100)); return null', maxOutputBytes))
-    .toEqual({ error: { kind: 'output-limit', message: `outer output exceeded ${maxOutputBytes} bytes` } })
+  expect(await h.run('console.log("x".repeat(100)); return null', maxOutputBytes)).toEqual({ value: [null] })
   if (maxOutputBytes === 4) expect(h.logs).toEqual([])
   await vi.waitFor(() => { expect(limited).toHaveBeenCalledOnce() })
 })
@@ -114,9 +113,11 @@ it.each([
   expect(result.value).toBeUndefined()
 })
 
-it.each(['throw "x".repeat(1_000_000)', 'throw new Error("x".repeat(1_000_000))'])('bounds large diagnostics for %s', async (code) => {
+it.each(['throw "x".repeat(1_000_000)', 'throw new Error("x".repeat(1_000_000))'])('bounds large diagnostics without changing the failure kind for %s', async (code) => {
   const h = await setup()
-  expect(await h.run(code, 64)).toEqual({ error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' } })
+  const result = await h.run(code, 64)
+  expect(result.error?.kind).toBe('exception')
+  expect(Buffer.byteLength(JSON.stringify(result.error?.message))).toBeLessThanOrEqual(62)
 })
 
 it.each([

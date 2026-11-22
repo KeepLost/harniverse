@@ -5,7 +5,8 @@
 
 import { inspect, types } from 'node:util'
 import type { HostMethods, ProgramResult, ProgramBootData } from './protocol.ts'
-import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
+
+import { jsonStringBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
 import { decodePtcJsonWire, encodePtcJsonWire, snapshotPtcJsonValue } from './json-wire.ts'
 
 const CapturedError = Error
@@ -39,8 +40,8 @@ export interface PatchableStream {
  * a sink as each item lands (the real sink sends text to the host eagerly,
  * so captured output survives a mid-run termination). It includes the log
  * array syntax and string escaping in its accounting. Once exhausted it emits
- * the fitting prefix and reports the limit once; the host turns that condition
- * into an explicit `output-limit` run failure.
+ * the fitting prefix and reports the limit once; the host records the
+ * truncation and the run continues to completion.
  */
 export class LogBuffer {
   private bytes = 2 // JSON serialization of the empty logs array: []
@@ -85,11 +86,6 @@ export class LogBuffer {
     this.bytes += stringBytes + separatorBytes
     this.entries += 1
     this.sink(text)
-  }
-
-  /** Remaining exact JSON-byte budget for the completion value or failure message. */
-  remainingOutputBytes(): number {
-    return this.maxBytes - this.bytes
   }
 }
 
@@ -150,20 +146,17 @@ const INSPECT_OPTIONS = { depth: 4, maxArrayLength: 100, maxStringLength: 10_000
 
 /**
  * Prepare the program's completion value for the run result. Only lossless
- * JSON crosses, and a value that does not fit the remaining combined outer
- * budget reports `output-limit`; the host revalidates hostile traffic and
- * remains authoritative for native pipe writes the program shim cannot observe.
+ * JSON crosses, and the value ships whole: captured output was already
+ * delivered, so the host ledger — which owns the combined byte budget —
+ * prioritizes the required value over the retained log prefix and fails the
+ * run only when the value alone cannot fit. The host revalidates hostile
+ * traffic and remains authoritative for native pipe writes the program shim
+ * cannot observe.
  *
  * @param value - the program's completion value.
- * @param remainingOutputBytes - exact bytes left after captured logs.
- * @param maxOutputBytes - the configured cap named in an overflow diagnostic.
  * @returns the result fragment: `{}` for `undefined`, else a flat wire `{ value }`.
  */
-export function prepareCompletion(
-  value: unknown,
-  remainingOutputBytes: number,
-  maxOutputBytes: number = remainingOutputBytes,
-): ProgramResult {
+export function prepareCompletion(value: unknown, maxOutputBytes: number = Number.MAX_SAFE_INTEGER): ProgramResult {
   if (value === undefined) return {}
   let snapshot: ReturnType<typeof snapshotPtcJsonValue>
   try {
@@ -172,48 +165,31 @@ export function prepareCompletion(
     snapshot = undefined
   }
   if (snapshot === undefined) {
-    return prepareFailure(
-      'invalid-output',
-      'program completion must be lossless JSON',
-      remainingOutputBytes,
-      maxOutputBytes,
-    )
-  }
-  if (jsonValueBytesUpTo(snapshot, remainingOutputBytes) === undefined) {
-    return outputLimit(maxOutputBytes)
+    return prepareFailure('invalid-output', 'program completion must be lossless JSON', maxOutputBytes)
   }
   return { value: encodePtcJsonWire(snapshot) }
 }
 
-/** Build the fixed overflow fragment without carrying rejected variable bytes. */
-function outputLimit(maxOutputBytes: number): ProgramResult {
-  return { error: { kind: 'output-limit', message: `outer output exceeded ${maxOutputBytes} bytes` } }
-}
-
-/** Admit one bounded failure message or replace it with the fixed overflow diagnostic. */
-function prepareFailure(
-  kind: 'exception' | 'invalid-output',
-  message: string,
-  remainingOutputBytes: number,
-  maxOutputBytes: number,
-): ProgramResult {
-  if (jsonStringBytesUpTo(message, remainingOutputBytes) === undefined) return outputLimit(maxOutputBytes)
+/**
+ * Ship one failure diagnostic bounded to the combined budget, preserving its
+ * kind; the host ledger owns the final shape against admitted logs.
+ */
+function prepareFailure(kind: 'exception' | 'invalid-output', message: string, maxOutputBytes: number): ProgramResult {
+  if (jsonStringBytesUpTo(message, maxOutputBytes - 2) === undefined) {
+    return { error: { kind, message: truncateJsonStringBytes(message, maxOutputBytes - 2) } }
+  }
   return { error: { kind, message } }
 }
 
 /**
- * Prepare a thrown program value, including cross-realm errors, without sending
- * an unbounded stack or string across the process channel.
+ * Prepare a thrown program value, including cross-realm errors. The rendered
+ * diagnostic ships whole; frame caps bound the wire and the host ledger bounds
+ * the combined result.
  * @param error - the value thrown by the program.
- * @param remainingOutputBytes - exact bytes left after captured logs.
- * @param maxOutputBytes - the configured cap named in an overflow diagnostic.
- * @returns a bounded exception or fixed output-limit fragment.
+ * @param maxOutputBytes - the combined budget bounding the diagnostic on the wire.
+ * @returns the bounded exception fragment.
  */
-export function prepareException(
-  error: unknown,
-  remainingOutputBytes: number,
-  maxOutputBytes: number = remainingOutputBytes,
-): ProgramResult {
+export function prepareException(error: unknown, maxOutputBytes: number = Number.MAX_SAFE_INTEGER): ProgramResult {
   let message: string
   try {
     const detail: unknown = isNativeError(error) ? error.stack ?? error.message : error
@@ -221,7 +197,7 @@ export function prepareException(
   } catch {
     message = 'program threw an unrenderable value'
   }
-  return prepareFailure('exception', message, remainingOutputBytes, maxOutputBytes)
+  return prepareFailure('exception', message, maxOutputBytes)
 }
 
 /** Constructor type for one program-visible binding rejection class. */

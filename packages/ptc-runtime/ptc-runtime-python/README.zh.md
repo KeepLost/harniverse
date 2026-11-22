@@ -24,7 +24,7 @@
 | `maxOutputBytes` | `67108864` | 有序日志加完成值或失败消息的合并序列化预算。 |
 | `maxControlBytes` | `67109888` | 控制 JSONL 帧的最大宽度；必须比 `maxOutputBytes` 至少多 1 KiB。此提供方上限也约束单个绑定参数或 resolve 值帧。 |
 
-无效配置会使插件初始化失败；解析不到可执行文件或未通过 CPython 版本探测的可执行文件同样如此。加载后解释器被删除、解释器退出、资源终止、格式错误的超宽帧、程序异常、超时、中止、无效完成值或输出溢出都通过 `CodeRunResult.error` resolve；无效可移植绑定、dispose 后误用与无效配置会作为 Service Definition 误用而 reject。
+无效配置会使插件初始化失败；解析不到可执行文件或未通过 CPython 版本探测的可执行文件同样如此。加载后解释器被删除、解释器退出、资源终止、格式错误的超宽帧、程序异常、超时或中止都通过 `CodeRunResult.error` resolve；超出预算的捕获输出截断为有序前缀并携带 `outputTruncated`，决不会使运行失败；无效可移植绑定、dispose 后误用与无效配置会作为 Service Definition 误用而 reject。
 
 ## 进程与协议
 

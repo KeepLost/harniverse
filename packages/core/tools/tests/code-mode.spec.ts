@@ -1314,6 +1314,39 @@ describe('the run_code dispatch bridge', () => {
     expect('presentResult' in tool).toBe(false)
   })
 
+  it('appends the truncation notice to a truncated run without failing it', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({
+      logs: ['kept prefix'],
+      outputTruncated: true,
+    })
+
+    const result = await runCode(ctx, 'console.log("x".repeat(1000))')
+
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: 'kept prefix\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]',
+    }])
+  })
+
+  it('appends the truncation notice beside a bounded failure diagnostic', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({
+      logs: [],
+      error: { kind: 'exception', message: 'boom' },
+      outputTruncated: true,
+    })
+
+    const result = await runCode(ctx, 'throw new Error("boom")')
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: 'Error: code run failed (exception): boom\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]',
+    }])
+  })
+
   it('logs the complete sub-result content verbatim, non-text blocks and long text included', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const { agent, events } = fakeAgent()

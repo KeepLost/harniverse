@@ -175,8 +175,13 @@ describe('persistent PTC host protocol', () => {
     h.onBoot(() => { h.complete({ value: 'bad' }) })
     expect((await h.start()).error?.kind).toBe('invalid-output')
     const limited = await setup({ maxOutputBytes: 30 })
-    limited.onBoot(() => { limited.emit({ t: 'q', m: 'log', a: ['x'.repeat(100)] }) })
-    expect((await limited.start()).error?.kind).toBe('output-limit')
+    limited.onBoot(() => {
+      limited.emit({ t: 'q', m: 'log', a: ['x'.repeat(100)] })
+      limited.complete({})
+    })
+    const truncated = await limited.start()
+    expect(truncated.error).toBeUndefined()
+    expect(truncated.outputTruncated).toBe(true)
   })
 
   it('returns current binding successes, exceptions and unavailable bindings', async () => {
@@ -241,24 +246,28 @@ describe('persistent PTC host protocol', () => {
     expect(h.terminate).not.toHaveBeenCalled()
   })
 
-  it('clears retained resources when final diagnostic accounting detects an overflow', async () => {
+  it('bounds an oversized diagnostic without clearing retained resources', async () => {
     const h = await setup({ maxOutputBytes: 100 })
     h.onBoot(() => { h.complete({ error: { kind: 'exception', message: 'x'.repeat(1000) } }) })
     const result = await h.start()
-    expect(result.error?.kind).toBe('output-limit')
-    expect(result.error?.message).toContain('retained variables were cleared')
-    expect(h.terminate).toHaveBeenCalledTimes(1)
+    expect(result.error?.kind).toBe('exception')
+    expect(result.outputTruncated).toBe(true)
+    expect(result.error?.message).not.toContain('retained variables were cleared')
+    expect(h.terminate).not.toHaveBeenCalled()
   })
 
-  it('keeps the first outcome when tagged output overflows beside a terminal frame', async () => {
+  it('keeps the completion value when tagged output overflows beside a terminal frame', async () => {
     const h = await setup({ maxOutputBytes: 100 })
     h.onBoot(() => {
       h.complete({ value: encodePtcJsonWire(42) })
       queueMicrotask(() => { h.emit({ t: 'q', m: 'log', a: ['x'.repeat(1000)] }) })
     })
-    expect((await h.start()).error?.kind).toBe('output-limit')
+    const result = await h.start()
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBe(42)
+    expect(result.outputTruncated).toBe(true)
     await setImmediate()
-    expect(h.terminate).toHaveBeenCalledTimes(1)
+    expect(h.terminate).not.toHaveBeenCalled()
   })
 
   it('reports the exit result when the control pipe ends beside process completion', async () => {
@@ -344,28 +353,31 @@ describe('persistent PTC host protocol', () => {
     }
   })
 
-  it('reports failed managed cleanup and waits for both exit and pipe drain', async () => {
+  it('records program-side exhaustion and completes without terminating the retained owner', async () => {
     const h = await setup()
-    h.waitForExit.mockRejectedValue(new Error('cleanup failed'))
-    h.onBoot(() => { h.emit({ t: 'q', m: 'outputLimit', a: [] }) })
-    expect((await h.start()).error?.message).toContain('cleanup failed')
+    h.onBoot(() => {
+      h.emit({ t: 'q', m: 'outputLimit', a: [] })
+      h.complete({})
+    })
+    const result = await h.start()
+    expect(result.error).toBeUndefined()
+    expect(result.outputTruncated).toBe(true)
+    expect(h.terminate).not.toHaveBeenCalled()
   })
 
-  it.each([
-    { maxOutputBytes: 38, kind: 'worker-exit' },
-    { maxOutputBytes: 4, kind: 'output-limit' },
-  ])('bounds cleanup failure after parse diagnostics overflow a $maxOutputBytes-byte budget', async ({ maxOutputBytes, kind }) => {
+  it.each([38, 4])('bounds parse diagnostics within a %s-byte budget and keeps the owner reserved', async (maxOutputBytes) => {
     const h = await setup({ maxOutputBytes })
     h.onBoot(() => { h.complete({}) })
     expect(await h.start()).toMatchObject({ logs: [] })
     h.waitForExit.mockRejectedValue(new Error('x'))
     const result = await h.runtime.run(h.runtime.resolve({ ...request, program: 'return 1' }))
-    expect(result.error?.kind).toBe(kind)
-    if (kind === 'worker-exit') expect(result.error?.message).toContain('cleanup failed: x')
+    expect(result.error?.kind).toBe('exception')
+    expect(result.outputTruncated).toBe(true)
     const bytes = Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message))
     expect(bytes).toBeLessThanOrEqual(maxOutputBytes)
-    expect(h.terminate).toHaveBeenCalledTimes(1)
-    expect(h.waitForExit).toHaveBeenCalledTimes(1)
+    expect(h.terminate).not.toHaveBeenCalled()
+    h.onBoot(() => { h.complete({ value: encodePtcJsonWire(5) }) })
+    expect((await h.runtime.run(h.runtime.resolve({ ...request, program: '2 + 3' }))).value).toBe(5)
     await expect(h.runtime.release(request.stateOwner!)).rejects.toThrow('x')
   })
 
@@ -536,21 +548,18 @@ it('retries process observation before releasing an owner after cleanup fails', 
   } finally { reported.mockRestore() }
 })
 
-it('reserves the owner while parse-output overflow releases its environment', async () => {
+it('truncates a parse-output overflow without releasing the owner environment', async () => {
   const h = await setup({ maxOutputBytes: 32 })
-  const cleanup = Promise.withResolvers<true>()
-  const stopped = Promise.withResolvers<boolean>()
   h.onBoot(() => { h.complete({}) })
   await h.start()
-  h.waitForExit.mockImplementation(async () => { cleanup.resolve(true); return stopped.promise })
-  const pending = h.runtime.run(h.runtime.resolve({ ...request, program: 'return 1' }))
-  try {
-    await cleanup.promise
-    await expect(h.runtime.run(h.runtime.resolve(request))).rejects.toThrow('does not accept concurrent')
-    expect(h.spawn).toHaveBeenCalledOnce()
-    stopped.resolve(true)
-    expect((await pending).error?.kind).toBe('output-limit')
-  } finally { stopped.resolve(true); await pending }
+  const result = await h.runtime.run(h.runtime.resolve({ ...request, program: 'return 1' }))
+  expect(result.error?.kind).toBe('exception')
+  expect(result.outputTruncated).toBe(true)
+  const bytes = Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message))
+  expect(bytes).toBeLessThanOrEqual(32)
+  expect(h.spawn).toHaveBeenCalledOnce()
+  h.onBoot(() => { h.complete({ value: encodePtcJsonWire(5) }) })
+  expect((await h.runtime.run(h.runtime.resolve({ ...request, program: '2 + 3' }))).value).toBe(5)
 })
 
 it.each([true, false])('classifies confined process spawn failure with runner evidence %s', async (runnerFailure) => {

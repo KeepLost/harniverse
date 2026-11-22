@@ -21,7 +21,6 @@ describe('LogBuffer', () => {
     buffer.push('dropped')
     expect(seen).toEqual(['12345', '123'])
     expect(limits).toBe(1)
-    expect(buffer.remainingOutputBytes()).toBe(0)
 
     const exactlyFull: string[] = []
     const fullBuffer = new LogBuffer(6, text => exactlyFull.push(text))
@@ -93,35 +92,30 @@ describe('prepareCompletion', () => {
     const sparse = Array(2)
     class Exotic { readonly marker = true }
     for (const value of [{ fn: () => 1 }, -0, Number.POSITIVE_INFINITY, sparse, cyclic, new Exotic()]) {
-      expect(prepareCompletion(value, 1_000)).toEqual({
+      expect(prepareCompletion(value)).toEqual({
         error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' },
       })
     }
   })
 
-  it('reports an oversized value instead of substituting rendered text', () => {
-    expect(prepareCompletion('x'.repeat(50), 10)).toEqual({
-      error: { kind: 'output-limit', message: 'outer output exceeded 10 bytes' },
-    })
+  it('ships an oversized value whole instead of substituting rendered text', () => {
+    expect(prepareCompletion('x'.repeat(50))).toEqual({ value: encodePtcJsonWire('x'.repeat(50)) })
   })
 
-  it('measures the exact JSON serialization at and over the boundary', () => {
-    expect(prepareCompletion('€', 5)).toEqual({ value: encodePtcJsonWire('€') })
-    expect(prepareCompletion('€', 4)).toEqual({
-      error: { kind: 'output-limit', message: 'outer output exceeded 4 bytes' },
-    })
+  it('measures the exact JSON serialization of multibyte values', () => {
+    expect(prepareCompletion('€')).toEqual({ value: encodePtcJsonWire('€') })
   })
 
   it('contains a getter failure as invalid-output', () => {
     const value = Object.defineProperty({}, 'x', { enumerable: true, get() { throw new Error('getter exploded') } })
-    expect(prepareCompletion(value, 1_000)).toEqual({
+    expect(prepareCompletion(value)).toEqual({
       error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' },
     })
   })
 
-  it('uses the remaining combined budget for invalid-output diagnostics', () => {
-    expect(prepareCompletion(() => 1, 4, 64)).toEqual({
-      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+  it('reports invalid-output for a value that is not lossless JSON', () => {
+    expect(prepareCompletion(() => 1)).toEqual({
+      error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' },
     })
   })
 })
@@ -133,24 +127,24 @@ describe('prepareException', () => {
     ['const error = new Error("hidden"); Object.defineProperty(error, "stack", { get() { throw 1 } }); error', 'program threw an unrenderable value'],
   ])('formats a cross-realm error through the shared diagnostic path: %s', (source, message) => {
     const error: unknown = runInNewContext(source)
-    expect(prepareException(error, 1_000)).toEqual({ error: { kind: 'exception', message } })
+    expect(prepareException(error)).toEqual({ error: { kind: 'exception', message } })
   })
 
-  it('passes a fitting diagnostic and rejects one byte over without carrying its text', () => {
-    expect(prepareException('boom', 6, 64)).toEqual({ error: { kind: 'exception', message: 'boom' } })
-    expect(prepareException('boom', 5, 64)).toEqual({
-      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+  it('ships the rendered diagnostic whole for the host ledger to bound', () => {
+    expect(prepareException('boom')).toEqual({ error: { kind: 'exception', message: 'boom' } })
+    expect(prepareException('x'.repeat(1_000_000))).toEqual({
+      error: { kind: 'exception', message: 'x'.repeat(1_000_000) },
     })
   })
 
   it('contains a thrown value whose string conversion fails', () => {
     const thrown = { toString() { throw new Error('cannot render') } }
-    expect(prepareException(thrown, 1_000)).toEqual({
+    expect(prepareException(thrown)).toEqual({
       error: { kind: 'exception', message: 'program threw an unrenderable value' },
     })
 
     const strangeStack = Object.defineProperty(new Error('ignored'), 'stack', { value: 42 })
-    expect(prepareException(strangeStack, 1_000)).toEqual({
+    expect(prepareException(strangeStack)).toEqual({
       error: { kind: 'exception', message: '42' },
     })
   })

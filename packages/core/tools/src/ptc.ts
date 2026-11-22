@@ -270,6 +270,13 @@ function renderJsonValue(value: Exclude<JsonValue, string>): string {
   return chunks.join('')
 }
 
+/**
+ * One bounded notice appended to a truncated run's captured output: later
+ * output was discarded to keep the result within the request budget, and the
+ * run was not canceled, so replaying it may repeat completed side effects.
+ */
+const TRUNCATION_NOTICE = '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'
+
 /** Render one present program completion value for the model-facing result text. */
 function renderValue(value: JsonValue): string {
   return typeof value === 'string' ? value : renderJsonValue(value)
@@ -685,10 +692,11 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
 
         if (result.error) {
           const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
-          throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}`)
+          const truncatedText = result.outputTruncated === true ? `\n${TRUNCATION_NOTICE}` : ''
+          throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}${truncatedText}`)
         }
         return {
-          logs: result.logs,
+          logs: result.outputTruncated === true ? [...result.logs, TRUNCATION_NOTICE] : result.logs,
           ...result.value !== undefined ? { result: result.value } : {},
         }
       } finally {

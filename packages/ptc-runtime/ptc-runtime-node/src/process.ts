@@ -98,7 +98,7 @@ export async function runNodeMain(
           if (evaluator === undefined) {
             evaluator = createProgramEvaluator(format, (error) => {
               const active = context.getStore()
-              if (active?.active && error) active.finish(prepareException(error, active.logs.remainingOutputBytes(), active.maxOutputBytes))
+              if (active?.active && error) active.finish(prepareException(error, active.maxOutputBytes))
             }, importHandler === undefined ? undefined : (request) => {
               const active = context.getStore()
               if (!active?.active) throw new ImportEvaluationEndedError(active?.reusable ?? true)
@@ -136,11 +136,11 @@ export async function runNodeMain(
           evaluator.evaluate(data.code, (result) => {
             if (!evaluation.active) return
             if (evaluation.revoked) { evaluation.finish({}); return }
-            evaluation.finish(result.ok ? prepareCompletion(result.value, logs.remainingOutputBytes(), data.maxOutputBytes)
-              : prepareException(result.error, logs.remainingOutputBytes(), data.maxOutputBytes))
+            evaluation.finish(result.ok ? prepareCompletion(result.value, data.maxOutputBytes)
+              : prepareException(result.error, data.maxOutputBytes))
           })
         } catch (error: unknown) {
-          evaluation.finish(prepareException(error, logs.remainingOutputBytes(), data.maxOutputBytes))
+          evaluation.finish(prepareException(error, data.maxOutputBytes))
         }
       })
       return await completion.promise

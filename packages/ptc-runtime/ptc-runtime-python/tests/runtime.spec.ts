@@ -233,15 +233,13 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
       'import json, os',
       'text = "start-" + ("😀\\\"" * 10000)',
       'os.write(3, (json.dumps({"type": "log", "text": text}) + "\\n").encode())',
-      'while True:',
-      '    pass',
     ].join('\n'),
     bindings: [],
     })
-    expect(result.error?.kind).toBe('output-limit')
+    expect(result.error).toBeUndefined()
+    expect(result.outputTruncated).toBe(true)
     expect(result.logs[0]?.startsWith('start-')).toBe(true)
-    expect(Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message)))
-      .toBeLessThanOrEqual(128)
+    expect(Buffer.byteLength(JSON.stringify(result.logs))).toBeLessThanOrEqual(128)
   }, heavyRuntimeTestTimeoutMs)
 
   it('reports pre-abort and rejects unusable configured executables at load', async () => {

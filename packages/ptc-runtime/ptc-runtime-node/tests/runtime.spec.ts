@@ -138,12 +138,32 @@ describe('Node program process', () => {
     expect((await run({ program: 'return { value: undefined }', bindings: [] })).error?.kind).toBe('invalid-output')
   })
 
-  it('enforces the combined output cap', async () => {
+  it('truncates overflowing logs without canceling the run or losing the completion value', async () => {
     const { run } = await setup({ maxOutputBytes: 80 })
-    const result = await run({ program: 'console.log("x".repeat(500)); return 42;', bindings: [] })
-    expect(result.error?.kind).toBe('output-limit')
+    const result = await run({ program: 'console.log("x".repeat(500)); console.log("after"); return 42;', bindings: [] })
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBe(42)
+    expect(result.outputTruncated).toBe(true)
+    expect(result.logs.join('')).not.toContain('after')
+    const bytes = Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.value))
+    expect(bytes).toBeLessThanOrEqual(80)
+  })
+
+  it('keeps a bounded failure diagnostic and its failure kind when logs overflow', async () => {
+    const { run } = await setup({ maxOutputBytes: 80 })
+    const result = await run({ program: 'console.log("x".repeat(500)); throw new Error("boom")', bindings: [] })
+    expect(result.value).toBeUndefined()
+    expect(result.error?.kind).toBe('exception')
+    expect(result.outputTruncated).toBe(true)
     const bytes = Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message))
     expect(bytes).toBeLessThanOrEqual(80)
+  })
+
+  it('fails with output-limit only when the required completion value cannot fit', async () => {
+    const { run } = await setup({ maxOutputBytes: 64 })
+    const result = await run({ program: 'return "v".repeat(200);', bindings: [] })
+    expect(result.error?.kind).toBe('output-limit')
+    expect(result.value).toBeUndefined()
   })
 
   it('uses the default deadline and caps explicit requests', async () => {
@@ -325,8 +345,9 @@ it('preserves empty console entries and bounds native output overflow', async ()
   const lines = await run({ program: 'console.log("a"); console.log(""); console.log("b")', bindings: [] })
   expect(lines.logs).toEqual(['a', '', 'b'])
   const overflow = await run({ program: 'const fs=await import("node:fs"); fs.writeSync(1,"HEAD-"+"x".repeat(100000));', bindings: [] })
-  expect(overflow.error?.kind).toBe('output-limit')
+  expect(overflow.error).toBeUndefined()
+  expect(overflow.outputTruncated).toBe(true)
   expect(overflow.logs.join('')).toContain('HEAD-')
-  const bytes = Buffer.byteLength(JSON.stringify(overflow.logs)) + Buffer.byteLength(JSON.stringify(overflow.error?.message))
+  const bytes = Buffer.byteLength(JSON.stringify(overflow.logs))
   expect(bytes).toBeLessThanOrEqual(100)
 })

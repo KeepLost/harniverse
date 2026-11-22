@@ -353,25 +353,28 @@ describe.each([
     expect((await run('42', { timeoutMs: null })).value).toBe(42)
   })
 
-  it.each(['throw new Error("long diagnostic ".repeat(1000))', '"large completion".repeat(1000)'])('clears retained state after a final output overflow: %s', async (program) => {
+  it.each([
+    ['throw new Error("long diagnostic ".repeat(1000))', 'exception'],
+    ['"large completion".repeat(1000)', 'output-limit'],
+  ] as const)('bounds the final output without clearing retained state: %s', async (program, kind) => {
     const { run } = await setup({ maxOutputBytes: 100 })
     await run('let retained = true;')
     const result = await run(program)
-    expect(result.error?.kind).toBe('output-limit')
-    expect(result.error?.message).toContain('retained variables were cleared')
+    expect(result.error?.kind).toBe(kind)
+    expect(result.error?.message).not.toContain('retained variables were cleared')
     const outputBytes = Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message))
     expect(outputBytes).toBeLessThanOrEqual(100)
-    expect((await run('typeof retained')).value).toBe('undefined')
+    expect((await run('typeof retained')).value).toBe('boolean')
   })
 
-  it('bounds type-stripping diagnostics and clears the owner after a parse-output overflow', async () => {
+  it('bounds type-stripping diagnostics without clearing the owner after a parse-output overflow', async () => {
     const { run } = await setup({ maxOutputBytes: 32 })
     await run('let retained = true;')
     const result = await run('const =')
-    expect(result.error?.kind).toBe('output-limit')
+    expect(result.error?.kind).toBe('exception')
     const outputBytes = Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message))
     expect(outputBytes).toBeLessThanOrEqual(32)
-    expect((await run('typeof retained')).value).toBe('undefined')
+    expect((await run('typeof retained')).value).toBe('boolean')
   })
 
   it('rejects a packaged host without a persistent bootstrap during provider loading', async () => {
@@ -387,10 +390,12 @@ describe.each([
     }
   })
 
-  it('bounds output and clears state after an overflow', async () => {
+  it('truncates overflowing logs without clearing retained state', async () => {
     const { run } = await setup({ maxOutputBytes: 100 })
-    expect((await run('let retained = true; console.log("x".repeat(1000))')).error?.kind).toBe('output-limit')
-    expect((await run('typeof retained')).value).toBe('undefined')
+    const result = await run('let retained = true; console.log("x".repeat(1000))')
+    expect(result.error).toBeUndefined()
+    expect(result.outputTruncated).toBe(true)
+    expect((await run('typeof retained')).value).toBe('boolean')
   })
 })
 
