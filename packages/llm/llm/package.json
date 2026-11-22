@@ -34,12 +34,12 @@
       "types": "./lib/types/message.d.ts",
       "default": "./lib/types/message.js"
     },
-    "./src/*": "./src/*",
-    "./package.json": "./package.json",
     "./request-images": {
       "types": "./lib/types/request-images.d.ts",
-      "default": "./lib/request-images.js"
-    }
+      "default": "./lib/types/request-images.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",

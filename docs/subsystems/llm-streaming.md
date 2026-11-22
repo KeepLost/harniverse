@@ -899,7 +899,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:295`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:294`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -943,7 +943,7 @@ Synchronous durable request projection before stream observers run. Consumers co
 'llm/project-request'(options: GenerateOptions, next: () => GenerateOptions): GenerateOptions
 ```
 
-Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:61`](../../packages/llm/llm/src/index.ts)
 
 <a id="llmstream--waterfall"></a>
 
@@ -967,5 +967,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:75`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:74`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->
