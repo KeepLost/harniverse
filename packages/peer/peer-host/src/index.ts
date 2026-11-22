@@ -60,7 +60,6 @@ const MAX_PENDING_CHALLENGES = 256
 const PEER_EVENT_STREAM_PATH = '/api/peer/events'
 
 export type * from './types.ts'
-export { findPeer, parsePeerRecord, peerStorePath, readPeerStore, writePeerStore } from './store.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { peerHost: PeerHost }
