@@ -100,6 +100,8 @@ interface PeerRunResult {
 
 发起方的模型经一方工具 `peer`([dsh-tool-peer](../../packages/peer/tool-peer))触达同一通道:它按显示名或 instance id 解析已配对目标,在有界结算预算内经 `peer/delegate` 或 `peer/followup` 投递提示词,并渲染点名 session id 的结算回复;超预算仍在运行的回合返回续查引导而不是阻塞。该工具不新增任何可达性——它只拨号 home 属主配对的目标,接受方的 surface 字段仍门控每个 Remote 族。
 
+同一通道也服务 subagent 缝:[dsh-subagent-peer](../../packages/subagent/subagent-peer) 注册 `peer` 进程外提供方,部署即可通过普通 `subagent` 工具(legacy 一次性模式)暴露一个已配对实例,run id 即可续聊的 peer 会话 id。设计理由见 [peer subagent Agent Note](../../.agents/notes/implemented/feature/2026-11-22-peer-subagent-provider.md)。
+
 `peer/result` 是只读的结算伴侣:它从活跃会话日志——冷会话则从持久化事件——重新推导一个已拥有轮次的终态、回复与结束原因,不投递新提示,回合仍未结算时回答 `state: 'running'`。它门控在 `list` surface 上,存在的意义是让结算读取永远不需要一次多余的模型回合。`peer/cancel`(`delegate` 面)补上发起方的取消闭环:以 user 原因中止一个自有且常驻会话的当前回合并返回其终态——空闲会话原样报告最新声明的结算,无常驻 agent 的会话应答 `SESSION_NOT_FOUND`,取消因此从不捏造工作。
 
 现在每份请求证明都携带一枚被签名覆盖的单次 nonce:宿主在首次使用时消费该 nonce,并拒绝偏差窗口内的任何重放,关上了纯时间窗证明留下的 ±90 秒抓包重放窗。

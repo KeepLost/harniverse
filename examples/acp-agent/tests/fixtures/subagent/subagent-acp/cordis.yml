@@ -33,6 +33,9 @@
     # ACP advertises no depthLimit: the child harness owns its own recursion
     # budget, so the local numeric default cannot apply here.
     maxDepth: 'provider-managed'
+    # ACP is an out-of-process one-shot transport without the continuable
+    # capability; the ordinary continuable path would reject every call.
+    backgroundMode: 'one-shot'
 
 - id: agent-spine
   name: '@deepseek-ai/dsh-agent-spine-demo'

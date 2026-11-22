@@ -131,3 +131,25 @@ export async function writePeerTargets(home: string, targets: readonly PeerTarge
 export function findPeerTarget(targets: readonly PeerTarget[], instanceId: PeerInstanceId): PeerTarget | undefined {
   return targets.find(target => target.targetInstanceId === instanceId)
 }
+
+/**
+ * Resolve one stored active target by instance id or exact display name.
+ * @param targets - current targets.
+ * @param selector - caller-provided target selector.
+ * @returns the unique matching active target record.
+ * @throws an `Error` naming the ambiguity or miss plus the active catalog.
+ */
+export function selectPeerTarget(targets: readonly PeerTarget[], selector: string): PeerTarget {
+  const active = targets.filter(target => target.status === 'active')
+  const byId = active.filter(target => target.targetInstanceId === selector)
+  if (byId.length === 1) return byId[0] as PeerTarget
+  const byName = active.filter(target => target.displayName === selector)
+  if (byId.length === 0 && byName.length === 1) return byName[0] as PeerTarget
+  const catalog = active.length === 0
+    ? 'no paired instances are recorded'
+    : `paired instances: ${active.map(target => `${target.displayName} (${target.targetInstanceId})`).join(', ')}`
+  if (byId.length === 0 && byName.length > 1) {
+    throw new Error(`peer: ${JSON.stringify(selector)} matches several instances; pass an exact instance id — ${catalog}`)
+  }
+  throw new Error(`peer: no paired instance matches ${JSON.stringify(selector)} — ${catalog}`)
+}

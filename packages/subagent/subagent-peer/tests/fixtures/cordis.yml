@@ -1,0 +1,54 @@
+# Test-only composition: the peer subagent backend on the real Loader/app path.
+# The scripted model delegates once through the `subagent` tool; the peer
+# backend targets the scripted pairing target whose origin and home reach this
+# file through DSH_TEST_PEER_HOME / DSH_TEST_PEER_TARGET, so the delegated
+# reply and the peer session id are asserted keylessly end to end. The tool
+# row pins the legacy one-shot mode: the peer backend is an out-of-process
+# transport with no continuable capability, exactly like the ACP backend.
+- id: mock-llm
+  name: './mock-delegating-llm.ts'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-peer
+  name: '@deepseek-ai/dsh-subagent-peer'
+  config:
+    providerName: peer
+    peerTarget: !!js process.env.DSH_TEST_PEER_TARGET
+    dshHome: !!js process.env.DSH_TEST_PEER_HOME
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: peer
+    toolName: subagent
+    # The paired deployment owns its own recursion budget; the local numeric
+    # default cannot apply to an out-of-process transport.
+    maxDepth: 'provider-managed'
+    backgroundMode: 'one-shot'
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents:
+      - id: main
+        provider: mock
+        model: mock-delegate
+        cwd: !!js process.cwd()
+    persona: 'Test the peer subagent backend composition.'
+    workspaceContext: false
+
+
+# Where the agent works: OS, shell, working machine, and the session-fixed
+# working directory, computed once from process-stable platform facts.
+- id: environment
+  name: '@deepseek-ai/dsh-environment'
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: 'none'
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

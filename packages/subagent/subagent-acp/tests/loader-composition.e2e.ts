@@ -68,6 +68,7 @@ describe('ACP subagent cwd inheritance through a real cordis.yml', () => {
       .filter(block => block.type === 'text')
       .map(block => block.text)
       .join('')
-    expect(resultText).toBe(`${workspace}\n${workspace}`)
+    expect(resultText).toContain('Final output:')
+    expect(resultText).toContain(`${workspace}\n${workspace}`)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

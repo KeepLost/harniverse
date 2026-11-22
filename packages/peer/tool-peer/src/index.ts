@@ -20,12 +20,13 @@ import { ensureInstanceIdentity, PeerError } from '@deepseek-ai/dsh-peer-protoco
 import {
   downloadPeerFile,
   ensurePeerIdentityKey,
+  peerFailureMessage,
   readPeerTargets,
   runPeerDelegate,
   runPeerFollowup,
+  selectPeerTarget,
   withPeerTransport,
 } from '@deepseek-ai/dsh-peer-client'
-import type { PeerTarget } from '@deepseek-ai/dsh-peer-protocol'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
@@ -97,27 +98,6 @@ Pass \`target\` as the instance's display name or its instance id; an exact inst
 Pass \`attachFiles\` as absolute or home-relative paths of files on this machine to deliver with the prompt; the peer's model reads them through its own attachment pipeline. Pass \`fetchFiles\` as paths inside the peer's delegated workspace to copy back after the turn; each lands under this home's \`peer-downloads/<target>\` and the reply names the local copy.
 
 The reply mirrors what the delegated instance's model produced. Failures name the closed peer reason (for example SESSION_NOT_FOUND for unknown sessions, TRANSPORT_FAILED when the instance is unreachable).`
-
-/**
- * Resolve one stored active target by instance id or exact display name.
- * @param targets - stored pairing targets.
- * @param selector - model-provided target selector.
- * @returns the unique matching active target record.
- */
-function resolveTarget(targets: readonly PeerTarget[], selector: string): PeerTarget {
-  const active = targets.filter(target => target.status === 'active')
-  const byId = active.filter(target => target.targetInstanceId === selector)
-  if (byId.length === 1) return byId[0] as PeerTarget
-  const byName = active.filter(target => target.displayName === selector)
-  if (byId.length === 0 && byName.length === 1) return byName[0] as PeerTarget
-  const catalog = active.length === 0
-    ? 'no paired instances are recorded'
-    : `paired instances: ${active.map(target => `${target.displayName} (${target.targetInstanceId})`).join(', ')}`
-  if (byId.length === 0 && byName.length > 1) {
-    throw new Error(`peer: ${JSON.stringify(selector)} matches several instances; pass an exact instance id — ${catalog}`)
-  }
-  throw new Error(`peer: no paired instance matches ${JSON.stringify(selector)} — ${catalog}`)
-}
 
 /** Render the settled or running narration, truncating oversized replies.
  * @param args - the validated call arguments.
@@ -222,7 +202,7 @@ export function apply(ctx: Context, config: Config): void {
       if (args.prompt.length > PROMPT_MAX_LENGTH) {
         throw new Error(`peer: prompt exceeds ${String(PROMPT_MAX_LENGTH)} characters`)
       }
-      const target = resolveTarget(await readPeerTargets(home), args.target)
+      const target = selectPeerTarget(await readPeerTargets(home), args.target)
       const identity = await ensureInstanceIdentity(home)
       const key = await ensurePeerIdentityKey(home)
       const budget = Math.min(Math.max(args.timeoutMs ?? defaultTimeoutMs, 1_000), SETTLE_MAX_MS)
@@ -253,8 +233,7 @@ export function apply(ctx: Context, config: Config): void {
       } catch (error: unknown) {
         if (error instanceof PeerError) {
           // PeerError messages always read `peer: <REASON>` plus an optional detail in parentheses.
-          const detail = error.message.slice(`peer: ${error.reason}`.length).replace(/^ \(|\)$/g, '')
-          throw new Error(`peer call failed (${error.reason})${detail === '' ? '' : `: ${detail}`}`)
+          throw new Error(peerFailureMessage(error))
         }
         throw error as Error
       }
@@ -280,8 +259,7 @@ export function apply(ctx: Context, config: Config): void {
         } catch (error: unknown) {
           /* v8 ignore start -- every fetch failure maps through the same peer-reason wording as the delegate path */
           if (error instanceof PeerError) {
-            const detail = error.message.slice(`peer: ${error.reason}`.length).replace(/^ \(|\)$/g, '')
-            throw new Error(`peer fetch failed (${error.reason})${detail === '' ? '' : `: ${detail}`}`)
+            throw new Error(peerFailureMessage(error).replace('peer call failed', 'peer fetch failed'))
           }
           throw error as Error
           /* v8 ignore stop */
