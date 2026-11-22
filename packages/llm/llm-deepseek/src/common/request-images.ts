@@ -1,7 +1,7 @@
 /** Shared request-image preparation, budget offload, and Files representation selection. */
 
-import { freezeMessage, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import { limitRequestImages, LlmError } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, ImageWireLocation, Message, RequestImageBudgetLimits } from '@deepseek-ai/dsh-llm'
 import type {
   AttachmentId,
   AttachmentStore,
@@ -56,12 +56,6 @@ export interface ImageSerializationOptions {
   omittedOccurrences?: readonly ImageWireLocation[]
 }
 
-/** Position of an image in the original harness message sequence. */
-export interface ImageWireLocation {
-  message: number
-  image: number
-}
-
 /** Collected references and their prepared request versions. */
 export interface PreparedRequestImages {
   refs: readonly ImageAttachmentRef[]
@@ -72,32 +66,6 @@ function collectImageRefs(content: readonly ContentBlock[], refs: Map<Attachment
   for (const block of content) {
     if (block.type === 'image') refs.set(block.attachment.attachmentId, block.attachment)
     else if (block.type === 'tool-result') collectImageRefs(block.content, refs)
-  }
-}
-
-function limitRequestImages(
-  pairs: readonly { ref: ImageAttachmentRef; version: RequestImageAttachment; location: ImageWireLocation }[],
-  maxBytes: number,
-  maxCount: number,
-  byteQuantum: number,
-  countQuantum: number,
-): { requestImages: Map<AttachmentId, RequestImageAttachment>; omittedOccurrences: ImageWireLocation[] } {
-  const targetCount = pairs.length > maxCount && maxCount > countQuantum
-    ? maxCount - countQuantum
-    : maxCount
-  let start = Math.max(0, pairs.length - targetCount)
-  let total = pairs.slice(start).reduce((sum, pair) => sum + pair.version.bytes, 0)
-  const targetBytes = total > maxBytes && maxBytes > byteQuantum
-    ? maxBytes - byteQuantum
-    : maxBytes
-  while (start < pairs.length && total > targetBytes) {
-    const pair = pairs[start] as (typeof pairs)[number]
-    total -= pair.version.bytes
-    start += 1
-  }
-  return {
-    requestImages: new Map(pairs.slice(start).map(pair => [pair.version.attachment.attachmentId, pair.version])),
-    omittedOccurrences: pairs.slice(0, start).map(pair => pair.location),
   }
 }
 
@@ -174,13 +142,13 @@ export function imageSerialization(
     }
     visit(entry.content)
   }
-  const limited = limitRequestImages(
-    pairs,
-    representation === 'file' ? connection.maxRequestFilesBytes : connection.maxInlineRequestImageBytes,
-    connection.maxImagesPerRequest,
-    representation === 'file' ? connection.imageOffloadByteQuantum : connection.inlineImageOffloadByteQuantum,
-    connection.imageOffloadCountQuantum,
-  )
+  const limits: RequestImageBudgetLimits = {
+    maxBytes: representation === 'file' ? connection.maxRequestFilesBytes : connection.maxInlineRequestImageBytes,
+    maxCount: connection.maxImagesPerRequest,
+    byteQuantum: representation === 'file' ? connection.imageOffloadByteQuantum : connection.inlineImageOffloadByteQuantum,
+    countQuantum: connection.imageOffloadCountQuantum,
+  }
+  const limited = limitRequestImages(pairs, limits)
   const filePolicy: DeepSeekFilePolicy = {
     expiresAfterSeconds: connection.fileExpiresAfterSeconds,
     refreshMarginSeconds: connection.fileRefreshMarginSeconds,
@@ -207,31 +175,6 @@ export function imageSerialization(
         }
       })(),
   }
-}
-
-/**
- * Settle the selected occurrences before serializing a provider attempt.
- * @param options - current request projection, including earlier fallback decisions.
- * @param images - provider-budget selection for this attempt.
- * @returns the request with durable stubs supplied by its policy owner, when mounted.
- */
-export function projectImageOmissions(options: GenerateOptions, images: ImageSerializationOptions): GenerateOptions {
-  const targets = images.omittedOccurrences ?? []
-  if (targets.length === 0) return options
-  if (options.onImagesOmitted !== undefined) return { ...options, messages: options.onImagesOmitted(targets) }
-  const omitted = new Set(targets.map(target => `${target.message}:${target.image}`))
-  const messages = options.messages.map((entry, message) => {
-    let image = 0
-    const visit = (blocks: readonly ContentBlock[]): ContentBlock[] => blocks.map((block) => {
-      if (block.type === 'tool-result') return { ...block, content: visit(block.content) }
-      if (block.type === 'image' && omitted.has(`${message}:${image++}`)) {
-        return { type: 'text', text: `[image omitted: ${block.attachment.attachmentId}]` }
-      }
-      return block
-    })
-    return freezeMessage({ ...entry, content: visit(entry.content) })
-  })
-  return { ...options, messages }
 }
 
 /** Whether a provider error reports an unusable cached file id.

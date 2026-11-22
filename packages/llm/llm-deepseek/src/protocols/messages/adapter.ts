@@ -28,9 +28,9 @@ import { MESSAGES_FILES_BETA, messagesApiRoot } from '../../common/messages-api.
 import {
   collectRequestImages,
   imageSerialization,
-  projectImageOmissions,
   staleFileDetail,
 } from '../../common/request-images.ts'
+import { projectImageOmissions } from '@deepseek-ai/dsh-llm'
 import type { ImageSerializationOptions } from '../../common/request-images.ts'
 import { serialize } from './serialize.ts'
 import { parseSse } from './sse.ts'
@@ -138,7 +138,7 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
     let images: ImageSerializationOptions | undefined
     const selectImages = (preparedImages: NonNullable<typeof prepared>, representation: 'file' | 'base64'): void => {
       images = imageSerialization(preparedImages, connection, this.files, apiKey, signal, representation, 'messages', options.messages)
-      options = projectImageOmissions(options, images)
+      options = projectImageOmissions(options, images.omittedOccurrences ?? [])
     }
     const onReplayDegrade = (reason: string): void => {
       this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })

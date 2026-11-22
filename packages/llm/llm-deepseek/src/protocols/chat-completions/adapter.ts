@@ -43,9 +43,9 @@ import {
   collectRequestImages,
   imageSerialization,
   type ImageSerializationOptions,
-  projectImageOmissions,
   staleFileDetail,
 } from '../../common/request-images.ts'
+import { projectImageOmissions } from '@deepseek-ai/dsh-llm'
 import { serializeRequest } from './serialize.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
@@ -196,7 +196,7 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
     const selectImages = (preparedImages: NonNullable<typeof prepared>, representation: 'file' | 'base64') => {
       const images = imageSerialization(preparedImages, connection, this.files, apiKey, signal, representation, 'chat-completions', options.messages)
-      options = projectImageOmissions(options, images)
+      options = projectImageOmissions(options, images.omittedOccurrences ?? [])
       return images
     }
     let body: WireRequest

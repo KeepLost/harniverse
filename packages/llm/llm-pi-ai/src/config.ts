@@ -31,6 +31,30 @@ import type {
 } from './catalog.ts'
 import { buildProvider, supportedProtocols } from './provider.ts'
 
+/**
+ * Default cap on the aggregate encoded bytes of retained request images per
+ * request. Keeps image-heavy history under a gateway's request-size limit
+ * before the request leaves; deployments behind tighter gateways lower it.
+ */
+export const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20 * 1024 * 1024
+/**
+ * Default request-level bound on retained image occurrences: Azure OpenAI's
+ * documented limit of 50 images per GPT-4o and GPT-4.1 request. Routes whose
+ * provider accepts more images raise it.
+ */
+export const DEFAULT_MAX_REQUEST_IMAGES = 50
+/**
+ * Byte headroom one byte-budget overflow removes with the oldest occurrences,
+ * so a saturated route rewrites its request prefix once per quantum of new
+ * images instead of once per image.
+ */
+export const DEFAULT_IMAGE_OFFLOAD_BYTE_QUANTUM = 10 * 1024 * 1024
+/**
+ * Oldest occurrences one count-budget overflow removes, so a saturated route
+ * does not shrink its prefix one image at a time.
+ */
+export const DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM = 10
+
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
@@ -138,6 +162,20 @@ export interface PiAiProviderProfile {
   websocketConnectTimeoutMs?: number
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
+  /**
+   * Maximum aggregate encoded bytes of retained request images per request
+   * (default 20 MiB). When a request's accumulated images exceed it, the
+   * oldest occurrences settle to omission stubs until the request fits, so a
+   * long image-heavy session keeps completing requests instead of hitting the
+   * gateway's request-size limit.
+   */
+  maxRequestImageBytes?: number
+  /** Maximum retained image occurrences per request (default 50). */
+  maxRequestImages?: number
+  /** Byte headroom removed with the oldest occurrences per byte-budget overflow (default 10 MiB). */
+  imageOffloadByteQuantum?: number
+  /** Oldest occurrences removed per count-budget overflow (default 10). */
+  imageOffloadCountQuantum?: number
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
@@ -155,6 +193,14 @@ export interface ResolvedPiAiProviderProfile
   authMode: 'api-key' | 'bearer' | 'none'
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
+  /** Aggregate request-image byte cap after defaulting. */
+  maxRequestImageBytes: number
+  /** Retained image occurrence cap after defaulting. */
+  maxRequestImages: number
+  /** Byte headroom removed per byte-budget overflow after defaulting. */
+  imageOffloadByteQuantum: number
+  /** Oldest occurrences removed per count-budget overflow after defaulting. */
+  imageOffloadCountQuantum: number
   /** Immutable retry policy captured with this provider route. */
   retryPolicy: ResolvedRetryPolicy
   /**
@@ -279,6 +325,10 @@ const profile = z.object({
   timeoutMs: z.natural(),
   websocketConnectTimeoutMs: z.natural(),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
+  maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
+  maxRequestImages: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGES),
+  imageOffloadByteQuantum: z.number().step(1).min(1).default(DEFAULT_IMAGE_OFFLOAD_BYTE_QUANTUM),
+  imageOffloadCountQuantum: z.number().step(1).min(1).default(DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM),
   retryPolicy: RetryPolicySchema,
 })
 
@@ -374,6 +424,17 @@ export function resolveProfiles(
         }
       }
     }
+    const imageBudgetFields = {
+      maxRequestImageBytes: source.maxRequestImageBytes ?? DEFAULT_MAX_REQUEST_IMAGE_BYTES,
+      maxRequestImages: source.maxRequestImages ?? DEFAULT_MAX_REQUEST_IMAGES,
+      imageOffloadByteQuantum: source.imageOffloadByteQuantum ?? DEFAULT_IMAGE_OFFLOAD_BYTE_QUANTUM,
+      imageOffloadCountQuantum: source.imageOffloadCountQuantum ?? DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM,
+    } satisfies Record<string, number>
+    for (const [field, value] of Object.entries(imageBudgetFields)) {
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`llm-pi-ai: provider "${provider}" ${field} must be a positive safe integer`)
+      }
+    }
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
       || streamIdleTimeoutMs <= 0
@@ -414,6 +475,7 @@ export function resolveProfiles(
       authMode: source.authMode ?? 'api-key',
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
+      ...imageBudgetFields,
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
