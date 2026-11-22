@@ -271,7 +271,7 @@ async removePeer(instanceId: PeerInstanceId): Promise<PeerRecord>
 @Remote({ requiredCapability: 'harniverse.administer' }) async audit(input: { instanceId: PeerInstanceId }): Promise<{ sessions: PeerSessionSummary[] }>
 ```
 
-Source: [`packages/peer/peer-host/src/index.ts:70`](../../packages/peer/peer-host/src/index.ts)
+Source: [`packages/peer/peer-host/src/index.ts:69`](../../packages/peer/peer-host/src/index.ts)
 
 <a id="ctxpeeroutbox--peeroutbox"></a>
 

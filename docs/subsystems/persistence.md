@@ -285,7 +285,7 @@ Serves the export upload route and the limits the browser checks first.
 
 ```ts cordis-catalog
 /**
- * The upload route the API proxy carrier serves at {@link UPLOAD_PATH}:
+ * The upload route (UPLOAD_PATH from ./protocol.ts) the API proxy carrier serves:
  * one `harniverse.operate`-gated POST carries the complete archive, which is
  * buffered in memory, imported, and released when the import ends. The
  * answer streams `application/x-ndjson` progress lines and one outcome line.
@@ -302,7 +302,7 @@ uploadRoute(request: Request): Promise<Response>
 @Remote({ exportName: 'limits', requiredCapability: 'harniverse.operate' }) limits(signal?: AbortSignal): DeepseekChatImportLimits
 ```
 
-Source: [`packages/host/deepseek-chat-import/src/index.ts:57`](../../packages/host/deepseek-chat-import/src/index.ts)
+Source: [`packages/host/deepseek-chat-import/src/index.ts:54`](../../packages/host/deepseek-chat-import/src/index.ts)
 
 <a id="ctxsessionimport--sessionimport"></a>
 
