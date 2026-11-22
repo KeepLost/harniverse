@@ -41,7 +41,8 @@ import {
 import { peerOutboxDomainSpec } from '@deepseek-ai/dsh-peer-outbox/spec'
 // Declaration merge only: makes ctx.storageDomain visible for the outbox read.
 import type {} from '@deepseek-ai/dsh-storage-domain'
-import { findPeer, readPeerStore, writePeerStore } from '@deepseek-ai/dsh-peer-host'
+import { findPeer, readPeerStore, writePeerStore } from '@deepseek-ai/dsh-peer-host/store'
+import { internals } from './internals.ts'
 import type { PeerOperation, PeerStartupValues } from './startup.ts'
 
 /** Stable Cordis plugin name. */
@@ -84,16 +85,6 @@ export const Config: z<Config> = z.object({
   out: z.string(),
   dshHome: z.string(),
 })
-
-interface TextOutput {
-  write(value: string): unknown
-}
-
-/** Process streams used by the runner; tests replace them with captures. */
-export const internals: { stdout: TextOutput; stderr: TextOutput } = {
-  stdout: process.stdout,
-  stderr: process.stderr,
-}
 
 /**
  * Parse one invitation lifetime expression.

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import DeepseekChatImportService from '../src/index.ts'
-import { UPLOAD_PATH } from '../src/index.ts'
+import { UPLOAD_PATH } from '../src/protocol.ts'
 import type { DeepseekChatImportLine } from '../src/index.ts'
 import type { DeepseekChatImportWorkspace } from '../src/importer.ts'
 

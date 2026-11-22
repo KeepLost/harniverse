@@ -53,17 +53,10 @@ export const name = 'tool-hooks'
 /** Capability service required to register the model-facing tools. */
 export const inject = ['tools']
 
-/** Hard ceiling for one hook's kill timeout, in seconds (the dialect default). */
-export const MAX_TIMEOUT_SECONDS = 600
-
-/** Default cap on total hook groups kept in one scope's store. */
-export const DEFAULT_MAX_HOOKS = 256
+import { DEFAULT_MAX_HOOKS, MAX_TIMEOUT_SECONDS, SCOPE_VALUES } from './limits.ts'
 
 /** Where an installed hook lives; also the removal and listing selector. */
 export type HookScope = 'session' | 'workspace' | 'global'
-
-/** Every scope the tools accept, in disclosure order. */
-export const SCOPE_VALUES: readonly HookScope[] = ['session', 'workspace', 'global']
 
 /** Deployment-owned bounds on how many hooks each scope's store may carry. */
 export interface Config {

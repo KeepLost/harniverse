@@ -1041,7 +1041,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'uploadRoute(request: Request): Promise<Response>',
-        description: 'The upload route the API proxy carrier serves at UPLOAD_PATH: one `harniverse.operate`-gated POST carries the complete archive, which is buffered in memory, imported, and released when the import ends. The answer streams `application/x-ndjson` progress lines and one outcome line.',
+        description: 'The upload route (UPLOAD_PATH from ./protocol.ts) the API proxy carrier serves: one `harniverse.operate`-gated POST carries the complete archive, which is buffered in memory, imported, and released when the import ends. The answer streams `application/x-ndjson` progress lines and one outcome line.',
         parameters: [{ name: 'request', description: 'the raw carrier request with the archive body.' }],
         returns: 'the streaming NDJSON response.',
       },

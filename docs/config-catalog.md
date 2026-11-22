@@ -1385,7 +1385,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/deepseek-chat-import/src/index.ts:38`](../packages/host/deepseek-chat-import/src/index.ts)
+Source: [`packages/host/deepseek-chat-import/src/index.ts:35`](../packages/host/deepseek-chat-import/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
@@ -2374,7 +2374,7 @@ export interface PeerStartupValues {
 export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'fetch' | 'outbox'
 ```
 
-Source: [`packages/bundle/peer-app/src/index.ts:54`](../packages/bundle/peer-app/src/index.ts)
+Source: [`packages/bundle/peer-app/src/index.ts:55`](../packages/bundle/peer-app/src/index.ts)
 
 <a id="deepseek-aidsh-peer-host"></a>
 
@@ -3953,7 +3953,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/tool-hooks/src/index.ts:69`](../packages/hooks/tool-hooks/src/index.ts)
+Source: [`packages/hooks/tool-hooks/src/index.ts:62`](../packages/hooks/tool-hooks/src/index.ts)
 
 <a id="deepseek-aidsh-tool-jobs"></a>
 

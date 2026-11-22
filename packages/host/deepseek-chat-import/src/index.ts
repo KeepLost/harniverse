@@ -31,9 +31,6 @@ export type {
   DeepseekChatImportSkip,
 } from './types.ts'
 
-/** Route constants shared with the browser uploader. */
-export { UPLOAD_PATH, UPLOAD_ROUTE } from './protocol.ts'
-
 /** Deployment limits of the importer. */
 export interface Config {
   /** Most Sessions one import writes, choosing the conversations the export index lists as most recently updated. */
@@ -77,7 +74,7 @@ export default class DeepseekChatImportService extends TypertRemoteService {
   }
 
   /**
-   * The upload route the API proxy carrier serves at {@link UPLOAD_PATH}:
+   * The upload route (UPLOAD_PATH from ./protocol.ts) the API proxy carrier serves:
    * one `harniverse.operate`-gated POST carries the complete archive, which is
    * buffered in memory, imported, and released when the import ends. The
    * answer streams `application/x-ndjson` progress lines and one outcome line.
