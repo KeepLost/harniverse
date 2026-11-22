@@ -21,7 +21,7 @@
     },
     "./registry": {
       "types": "./lib/types/registry.d.ts",
-      "default": "./lib/registry.js"
+      "default": "./lib/types/registry.js"
     },
     ".": {
       "types": "./lib/types/index.d.ts",

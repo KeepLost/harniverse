@@ -25,7 +25,7 @@
     },
     "./store": {
       "types": "./lib/types/store.d.ts",
-      "default": "./lib/store.js"
+      "default": "./lib/types/store.js"
     },
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
