@@ -11,7 +11,6 @@
 | [`subagent-spawn-in-process/`](subagent-spawn-in-process/README.md) | 启动全新的进程内子 agent | 注册到 `ctx.subagents` |
 | [`subagent-fork-in-process/`](subagent-fork-in-process/README.md) | 从父 agent 已完成的历史记录启动进程内子 agent | 注册到 `ctx.subagents` |
 | [`subagent-acp/`](subagent-acp/README.md) | 通过 ACP（Agent Client Protocol）启动进程外子 agent | 注册到 `ctx.subagents` |
-| [`subagent-peer/`](subagent-peer/README.md) | 在已配对的 Harniverse 实例上启动进程外子 agent | 注册到 `ctx.subagents` |
 | [`subagent-codex/`](subagent-codex/README.md) | 启动真实的 Codex app-server 子 agent | 注册到 `ctx.subagents` |
 | [`subagent-claude-code/`](subagent-claude-code/README.md) | 通过官方 Claude Agent SDK 启动真实的 Claude Code 子 agent | 注册到 `ctx.subagents` |
 | [`subagent-dsh-sdk/`](subagent-dsh-sdk/README.md) | 通过 TypeScript SDK 启动进程外 Harness 子 agent | 注册到 `ctx.subagents` |
