@@ -370,7 +370,6 @@
     { "path": "./packages/subagent/tool-subagent-report" },
     { "path": "./packages/subagent/subagent-in-process-driver" },
     { "path": "./packages/subagent/subagent-oar" },
-    { "path": "./packages/subagent/subagent-peer" },
     { "path": "./packages/subagent/subagent-spawn-in-process" },
     { "path": "./packages/subagent/subagent-fork-in-process" },
     { "path": "./packages/subagent/subagent-acp" },
