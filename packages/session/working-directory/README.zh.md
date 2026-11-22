@@ -29,7 +29,7 @@
 
 ## 模型体验
 
-间接通过 `working-directory:current` 上下文与每次提交变更注入的一条通知；`dsh-tool-working-directory` 拥有直接模型交互。
+间接通过 `working-directory:current` 上下文与每次提交变更注入的一条通知；shell 工具与会话头仍是模型的直接面。
 
 #### KV Cache 效果
 

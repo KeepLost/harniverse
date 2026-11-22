@@ -739,9 +739,6 @@
 - id: tool-session-query
   disabled: true
 
-- id: tool-working-directory
-  disabled: true
-
 - id: tool-worktree
   disabled: true
 

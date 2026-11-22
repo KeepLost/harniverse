@@ -104,7 +104,7 @@ describe('minimal agent preset', () => {
         "shell": "MINIMAL_SHELL_OK",
       }
     `)
-    expect(requestHeader.tools?.map(tool => tool.name)).toEqual([shellName, 'str_replace_editor', 'working_directory'])
+    expect(requestHeader.tools?.map(tool => tool.name)).toEqual([shellName, 'str_replace_editor'])
     expect(requestHeader.tools?.toSorted((left, right) => left.name.localeCompare(right.name)))
       .toEqual(scaffold.ctx.tools.schemas(agentHandle.agent).toSorted((left, right) => left.name.localeCompare(right.name)))
     expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'compaction')).toBeDefined()

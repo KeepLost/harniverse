@@ -76,9 +76,7 @@ import * as ToolSessionDelivery from '@deepseek-ai/dsh-tool-session-delivery'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import { Context, Service } from '@deepseek-ai/cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
-import * as ToolWorkingDirectory from '@deepseek-ai/dsh-tool-working-directory'
 import * as ToolWorktree from '@deepseek-ai/dsh-tool-worktree'
-import WorkingDirectoryService from '@deepseek-ai/dsh-working-directory'
 import * as ToolPresent from '@deepseek-ai/dsh-tool-present'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 import CompactionEngine from '@deepseek-ai/dsh-compaction'
@@ -721,19 +719,6 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.',
-  },
-  {
-    pkg: '@deepseek-ai/dsh-tool-working-directory',
-    dir: 'tool-working-directory',
-    source: 'packages/session/tool-working-directory/src/index.ts',
-    requires: ['ctx.tools', 'ctx.workingDirectory', 'a calling Agent session'],
-    writes: ['tool/call', 'working-directory/change', 'tool/result'],
-    async mount(ctx) {
-      await ctx.plugin(SessionProjectionRegistry)
-      await ctx.plugin(LocalFileSystem)
-      await ctx.plugin(WorkingDirectoryService)
-      await ctx.plugin(ToolWorkingDirectory)
-    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-worktree',

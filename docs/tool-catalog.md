@@ -44,7 +44,6 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic shell/terminal background-job controller: background bash commands, PowerShell commands, and PTY sends are read, listed, and killed through the same three tools. Subagent Sessions use the separate Session/Invocation controls and never enter this registry. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
-| `@deepseek-ai/dsh-tool-working-directory` | `working_directory` | `ctx.tools`, `ctx.workingDirectory`, `a calling Agent session` | `tool/call`, `working-directory/change`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-worktree` | `create_worktree` | `ctx.tools`, `ctx.worktrees`, `a calling Agent session` | `tool/call`, `working-directory/change through the entered checkout`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-peer` | `peer` | `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | peer is the model-facing consumer of the pairing channel: it resolves a target the home paired, delivers the prompt through peer/delegate or peer/followup within a bounded settlement budget, and renders the settled reply naming the session id; a turn still running reports continuation guidance, and reachability stays the pairing boundary itself. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
@@ -2287,35 +2286,13 @@ Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/
 
 todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.
 
-<a id="deepseek-aidsh-tool-working-directory"></a>
-
-## `@deepseek-ai/dsh-tool-working-directory`
-
-### `working_directory`
-
-Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "cd": {
-      "type": "string",
-      "description": "Existing directory to enter. Omit to read the current directory."
-    }
-  }
-}
-```
-
-Source: [`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts)
-
 <a id="deepseek-aidsh-tool-worktree"></a>
 
 ## `@deepseek-ai/dsh-tool-worktree`
 
 ### `create_worktree`
 
-Create a new Git branch and worktree from a local commit, branch, or tag, then change this session's working directory to it. Defaults to HEAD and a generated name. Uncommitted files stay in the source checkout. Existing names fail. Use working_directory with cd to leave; the checkout and branch remain.
+Create a new Git branch and worktree from a local commit, branch, or tag, then change this session's working directory to it. Defaults to HEAD and a generated name. Uncommitted files stay in the source checkout. Existing names fail. To leave, change the directory back with your shell; the checkout and branch remain.
 
 ```json
 {
