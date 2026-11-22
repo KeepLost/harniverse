@@ -18,6 +18,17 @@ it('prioritizes the required completion value over the retained log prefix', () 
   expect(ledger.admit('second', logs)).toBe(true)
   const cut = ledger.success(logs, 'late-value')
   expect(cut).toEqual({ logs: ['fi'], value: 'late-value', outputTruncated: true })
+  // An early entry survives the cut while a later one is dropped whole.
+  const stepped = new OutputLedger(20)
+  const steppedLogs: string[] = []
+  expect(stepped.admit('a', steppedLogs)).toBe(true)
+  expect(stepped.admit('b', steppedLogs)).toBe(true)
+  expect(stepped.success(steppedLogs, 'v'.repeat(11))).toEqual({
+    logs: ['a'],
+    value: 'v'.repeat(11),
+    outputTruncated: true,
+  })
+
   const impossible = ledger.success(logs, 'v'.repeat(100))
   expect(impossible.error?.kind).toBe('output-limit')
   expect(impossible.outputTruncated).toBe(true)
@@ -29,6 +40,12 @@ it('keeps a fitting log prefix when an overflowing entry arrives', () => {
   expect(ledger.admit('first', logs)).toBe(true)
   ledger.admitPrefix('second-third', logs)
   expect(logs).toEqual(['first', 'second-t'])
+
+  const exhausted = new OutputLedger(8)
+  const exhaustedLogs: string[] = []
+  expect(exhausted.admit('abcd', exhaustedLogs)).toBe(true)
+  exhausted.admitPrefix('zz', exhaustedLogs)
+  expect(exhaustedLogs).toEqual(['abcd'])
 })
 
 it('bounds a failure diagnostic without reclassifying its kind', () => {

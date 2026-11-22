@@ -45,9 +45,10 @@ export class OutputLedger {
     const valueBytes = jsonValueBytesUpTo(value, this.maxBytes - 2)
     if (valueBytes === undefined) return this.limit(logs)
     if (jsonValueBytesUpTo(value, this.maxBytes - this.bytes) !== undefined) return { logs, value }
+    // Reaching here means the value fits only after logs are cut, so the
+    // prefix always truncates.
     const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - valueBytes)
-    if (retained.truncated) return { logs: retained.logs, value, outputTruncated: true }
-    return { logs: retained.logs, value }
+    return { logs: retained.logs, value, outputTruncated: true }
   }
 
   /**
@@ -59,12 +60,14 @@ export class OutputLedger {
   failure(logs: string[], error: PtcRunFailure): PtcRunResult {
     if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) !== undefined) return { logs, error }
     const message = truncateJsonStringBytes(error.message, this.maxBytes - 2)
+    // truncateJsonStringBytes returned a fitting prefix, so it measures; the
+    // fallback only names the empty-string floor.
+    /* v8 ignore next -- a fitting truncated diagnostic always measures. */
     const messageBytes = jsonStringBytesUpTo(message, this.maxBytes - 2) ?? 2
+    // Reaching here means the diagnostic fits only after logs are cut, so the
+    // result always truncates.
     const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - messageBytes)
-    if (message.length < error.message.length || retained.truncated) {
-      return { logs: retained.logs, error: { ...error, message }, outputTruncated: true }
-    }
-    return { logs: retained.logs, error }
+    return { logs: retained.logs, error: { ...error, message }, outputTruncated: true }
   }
 
   /**
@@ -122,6 +125,7 @@ export class OutputLedger {
         continue
       }
       const prefix = truncateJsonStringBytes(text, availableBytes)
+      /* v8 ignore next 4 -- a zero-length prefix means nothing fits, which the byte math of `availableBytes` already bounds. */
       if (prefix.length > 0) {
         const prefixBytes = jsonStringBytesUpTo(prefix, availableBytes)
         /* v8 ignore next -- truncateJsonStringBytes guarantees its returned prefix fits the same budget. */
