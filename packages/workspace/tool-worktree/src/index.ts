@@ -30,8 +30,8 @@ export function apply(ctx: Context): void {
     name: 'create_worktree',
     description: 'Create a new Git branch and worktree from a local commit, branch, or tag, then '
       + 'change this session\'s working directory to it. Defaults to HEAD and a generated name. '
-      + 'Uncommitted files stay in the source checkout. Existing names fail. Use working_directory '
-      + 'with cd to leave; the checkout and branch remain.',
+      + 'Uncommitted files stay in the source checkout. Existing names fail. To leave, change the '
+      + 'directory back with your shell; the checkout and branch remain.',
     parameters: {
       name: { type: 'string', description: 'New branch name, also used as the checkout directory. Omit to generate a unique name.' },
       from: { type: 'string', description: 'Local commit, branch, or tag to start from. Defaults to HEAD; no fetch is performed.' },

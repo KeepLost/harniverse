@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertServiceable, Config } from '../src/config.ts'
+import { assertServiceable, Config, resolveProfiles } from '../src/config.ts'
 
 /** Validate one hand-declared route, with the caller's fields layered onto it. */
 const routeWith = (profile: Record<string, unknown>): (() => unknown) =>
@@ -30,6 +30,16 @@ describe('reasoning schema boundary', () => {
     expect(withFalse.providers['acme-gateway']?.models?.[0]?.reasoningEfforts).toBe(false)
     const absent = configWith({})() as Materialized
     expect(absent.providers['acme-gateway']?.models?.[0]?.reasoningEfforts).toBeUndefined()
+  })
+
+  it('rejects an invalid request-image budget field at the write', () => {
+    // The schema refuses fractions, zero, and negatives; an unsafe integer
+    // passes the schema and falls to resolution validation.
+    expect(routeWith({ maxRequestImageBytes: 0 })).toThrow()
+    expect(routeWith({ maxRequestImages: 1.5 })).toThrow()
+    expect(routeWith({ imageOffloadByteQuantum: -1 })).toThrow()
+    expect(routeWith({ imageOffloadCountQuantum: Number.NaN })).toThrow()
+    expect(() => resolveProfiles({ 'acme-gateway': { api: 'openai-completions', baseURL: 'https://acme.test', models: [{ id: 'm' }], maxRequestImageBytes: 2 ** 53 } })).toThrow(/maxRequestImageBytes must be a positive safe integer/)
   })
 
   it('rejects a thinking format outside the offered set', () => {

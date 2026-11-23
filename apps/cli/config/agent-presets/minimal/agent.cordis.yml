@@ -31,8 +31,6 @@
   config:
     maxOutputChars: 16000
 
-- id: tool-working-directory
-  name: '@deepseek-ai/dsh-tool-working-directory'
 
 - id: compaction
   name: cordis:group

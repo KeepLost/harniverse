@@ -203,7 +203,7 @@ async function mountNodeRuntime(ctx: Context, config: NodeRuntimeConfig = {}): P
 }
 
 describe('outer PTC failure capture', () => {
-  it('spills the bounded output-limit diagnostic through the ordinary outer-result policy', async () => {
+  it('spills a truncated oversized success through the ordinary outer-result policy', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime, { mode: 'code' })
@@ -230,12 +230,13 @@ describe('outer PTC failure capture', () => {
       agent: agent as never,
     })
 
-    expect(result.isError).toBe(true)
+    expect(result.isError).toBe(false)
     const saved = (ctx.spillStore as StubStore).saves
     expect(saved).toHaveLength(1)
     expect(saved[0]?.source.toolName).toBe('run_code')
-    expect(saved[0]?.content).toContain('code run failed (output-limit)')
     expect(saved[0]?.content).toContain('HEAD-')
+    expect(saved[0]?.content).toContain('[output truncated:')
+    expect(saved[0]?.content).toContain('unreachable')
     expect(textOf(result.content)).toContain('Full formatted result stored at: /spill/run_code.txt')
     expect(events).toEqual([])
   })

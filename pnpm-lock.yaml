@@ -416,9 +416,6 @@ importers:
       '@deepseek-ai/dsh-tool-workflow':
         specifier: workspace:^
         version: link:../../packages/workflow/tool-workflow
-      '@deepseek-ai/dsh-tool-working-directory':
-        specifier: workspace:^
-        version: link:../../packages/session/tool-working-directory
       '@deepseek-ai/dsh-tool-worktree':
         specifier: workspace:^
         version: link:../../packages/workspace/tool-worktree
@@ -1586,9 +1583,6 @@ importers:
       '@deepseek-ai/dsh-compaction-basic':
         specifier: workspace:^
         version: link:../../compaction/compaction-basic
-      '@deepseek-ai/dsh-compaction-body-limit-recovery':
-        specifier: workspace:^
-        version: link:../../compaction/compaction-body-limit-recovery
       '@deepseek-ai/dsh-compaction-image-offload':
         specifier: workspace:^
         version: link:../../compaction/compaction-image-offload
@@ -1853,9 +1847,6 @@ importers:
       '@deepseek-ai/dsh-tool-workflow':
         specifier: workspace:^
         version: link:../../workflow/tool-workflow
-      '@deepseek-ai/dsh-tool-working-directory':
-        specifier: workspace:^
-        version: link:../../session/tool-working-directory
       '@deepseek-ai/dsh-tool-worktree':
         specifier: workspace:^
         version: link:../../workspace/tool-worktree
@@ -5717,30 +5708,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
-
-  packages/compaction/compaction-body-limit-recovery:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-compaction':
-        specifier: workspace:^
-        version: link:../compaction
-      '@deepseek-ai/dsh-image-offload-policy':
-        specifier: workspace:^
-        version: link:../image-offload-policy
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../../core/session
 
   packages/compaction/compaction-image-offload:
     dependencies:
@@ -10622,39 +10589,6 @@ importers:
       '@deepseek-ai/dsh-timeout':
         specifier: workspace:^
         version: link:../../util/timeout
-
-  packages/session/tool-working-directory:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-fs-local':
-        specifier: workspace:^
-        version: link:../../fs/fs-local
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../../core/session
-      '@deepseek-ai/dsh-session-projection':
-        specifier: workspace:^
-        version: link:../session-projection
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../../core/tools
-      '@deepseek-ai/dsh-working-directory':
-        specifier: workspace:^
-        version: link:../working-directory
 
   packages/session/working-directory:
     dependencies:

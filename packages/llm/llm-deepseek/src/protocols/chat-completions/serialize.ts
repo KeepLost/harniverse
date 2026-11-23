@@ -11,10 +11,12 @@ import { contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { RequestDefaults } from '../../common/types.ts'
-import type { ImageSerializationOptions, ImageWireLocation } from '../../common/request-images.ts'
+import type { ImageSerializationOptions } from '../../common/request-images.ts'
+import type { ImageWireLocation } from '@deepseek-ai/dsh-llm/request-images'
 import type { WireImageContentPart, WireMessage, WireRequest, WireTool, WireUserContentPart, WireTextContentPart } from './types.ts'
 
-export type { ImageRequestRepresentation, ImageSerializationOptions, ImageWireLocation } from '../../common/request-images.ts'
+export type { ImageRequestRepresentation, ImageSerializationOptions } from '../../common/request-images.ts'
+export type { ImageWireLocation } from '@deepseek-ai/dsh-llm/request-images'
 
 interface ResolvedThinking {
   thinking?: 'enabled' | 'disabled'

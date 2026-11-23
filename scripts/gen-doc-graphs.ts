@@ -518,7 +518,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'working-directory',
     title: 'Session working directory',
     mode: 'core',
-    consumers: ['tool-working-directory', 'tool-bash', 'tool-fs', 'tool-lsp', 'tool-bash-persistent', 'agent-instructions', 'worktree'],
+    consumers: ['tool-bash', 'tool-fs', 'tool-lsp', 'tool-bash-persistent', 'agent-instructions', 'worktree'],
     note: 'Owns one logged effective directory per session: an additive whole-value change event, a folded projection, filesystem-validated set/ensure with recovery to the original project, and one injected notice per committed change; the header cwd stays the identity and sandbox root.',
   },
   {

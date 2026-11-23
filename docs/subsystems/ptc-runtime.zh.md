@@ -100,6 +100,13 @@ interface PtcRunResult {
   logs: string[]
   /** Present iff the run failed; see {@link PtcRunFailure} for the taxonomy. */
   error?: PtcRunFailure
+  /**
+   * Present iff captured output was discarded to keep the serialized result
+   * within the configured cap — a mid-run log overflow kept its ordered prefix
+   * and dropped later output, or the final diagnostic was shortened. Execution
+   * was not canceled: inspect current state instead of replaying the run.
+   */
+  outputTruncated?: true
 }
 ```
 
@@ -197,7 +204,9 @@ type PtcBindingFunction = (args: unknown) => Promise<PtcJsonValue>
  * - `'abort'` — {@link PtcRunRequest.signal} fired.
  * - `'worker-exit'` — the execution substrate died without settling (e.g. OOM).
  * - `'invalid-output'` — the completion value was not lossless JSON.
- * - `'output-limit'` — the serialized outer logs/value/diagnostic exceeded the configured cap.
+ * - `'output-limit'` — the required completion value could not fit the combined
+ *   serialized cap even after captured output was cut to its fitting prefix;
+ *   captured output alone never fails a run.
  * - `'protocol'` — the program sent invalid or over-budget control traffic.
  * - `'sandbox-unavailable'` — required confinement could not be established.
  */

@@ -244,8 +244,10 @@ it('terminates when the final stop diagnostic exceeds the output budget', async 
     await h.booted.promise
     await vi.advanceTimersByTimeAsync(100)
     h.complete({})
-    expect((await pending).error?.kind).toBe('output-limit')
-    expect(h.terminate).toHaveBeenCalledOnce()
+    const result = await pending
+    expect(result.error?.kind).toBe('timeout')
+    expect(result.outputTruncated).toBe(true)
+    expect(h.terminate).not.toHaveBeenCalled()
   } finally { await h.runtime.release(h.request.stateOwner); vi.useRealTimers() }
 })
 

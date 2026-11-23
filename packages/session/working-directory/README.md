@@ -29,7 +29,7 @@ Consumers (`dsh-tool-bash`, `dsh-tool-fs`, `dsh-tool-lsp`, `dsh-tool-bash-persis
 
 ## Model Experience
 
-Indirectly, through the `working-directory:current` context and one injected notice per committed change; `dsh-tool-working-directory` owns direct model interaction.
+Indirectly, through the `working-directory:current` context and one injected notice per committed change; shell tools and the session header remain the model's direct surface.
 
 #### KV Cache effect
 

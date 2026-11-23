@@ -5,7 +5,8 @@ import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-ll
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { RequestDefaults } from '../../common/types.ts'
 import type { DeepSeekConnectionOptions as Connection } from '../../common/types.ts'
-import type { ImageSerializationOptions, ImageWireLocation } from '../../common/request-images.ts'
+import type { ImageSerializationOptions } from '../../common/request-images.ts'
+import type { ImageWireLocation } from '@deepseek-ai/dsh-llm/request-images'
 import { readReplay } from './replay.ts'
 import type { WireBlock, WireInput, WireMessage, WireRequest } from './types.ts'
 

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Model tool for creating and entering a new Git worktree through the shared runtime (`ctx.worktrees`): `create_worktree` creates a fresh branch and checkout from a local commit, branch, or tag, then changes the session's working directory to it. Defaults are `HEAD` and a generated unique name; uncommitted files stay in the source checkout; existing names fail. Leaving the checkout later is `working_directory` with `cd` — the checkout and branch remain. It is a function plugin (`inject: ['tools', 'worktrees']`).
+Model tool for creating and entering a new Git worktree through the shared runtime (`ctx.worktrees`): `create_worktree` creates a fresh branch and checkout from a local commit, branch, or tag, then changes the session's working directory to it. Defaults are `HEAD` and a generated unique name; uncommitted files stay in the source checkout; existing names fail. Leaving the checkout later means changing the directory back with the model's shell — the checkout and branch remain. It is a function plugin (`inject: ['tools', 'worktrees']`).
 
 ## Use
 

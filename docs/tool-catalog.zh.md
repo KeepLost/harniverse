@@ -46,7 +46,6 @@
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的 shell/终端后台 job 控制器：后台 bash 命令、PowerShell 命令和 PTY 发送通过相同的 3 个工具读取、列出和终止。Subagent Session 使用独立的 Session/Invocation 控制，不进入此注册表。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
-| `@deepseek-ai/dsh-tool-working-directory` | `working_directory` | `ctx.tools`、`ctx.workingDirectory`、`a calling Agent session` | `tool/call`、`working-directory/change`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-worktree` | `create_worktree` | `ctx.tools`、`ctx.worktrees`、`a calling Agent session` | `tool/call`、`working-directory/change through the entered checkout`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-peer` | `peer` | `ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | peer 是配对通道面向模型的消费方：它解析 home 已配对的目标，在有界结算预算内经 peer/delegate 或 peer/followup 投递提示词，并渲染点名 session id 的结算回复；仍在运行的回合返回续查引导，可达性始终以配对边界本身为准。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
@@ -2292,35 +2291,13 @@ Source: [`packages/subagent/tool-subagent-oar/src/index.ts`](../packages/subagen
 
 todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。
 
-<a id="deepseek-aidsh-tool-working-directory"></a>
-
-## `@deepseek-ai/dsh-tool-working-directory`
-
-### `working_directory`
-
-Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "cd": {
-      "type": "string",
-      "description": "Existing directory to enter. Omit to read the current directory."
-    }
-  }
-}
-```
-
-Source: [`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts)
-
 <a id="deepseek-aidsh-tool-worktree"></a>
 
 ## `@deepseek-ai/dsh-tool-worktree`
 
 ### `create_worktree`
 
-Create a new Git branch and worktree from a local commit, branch, or tag, then change this session's working directory to it. Defaults to HEAD and a generated name. Uncommitted files stay in the source checkout. Existing names fail. Use working_directory with cd to leave; the checkout and branch remain.
+Create a new Git branch and worktree from a local commit, branch, or tag, then change this session's working directory to it. Defaults to HEAD and a generated name. Uncommitted files stay in the source checkout. Existing names fail. To leave, change the directory back with your shell; the checkout and branch remain.
 
 ```json
 {

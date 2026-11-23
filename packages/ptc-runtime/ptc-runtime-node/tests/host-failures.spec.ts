@@ -384,8 +384,10 @@ describe('Node runtime host failures', () => {
       h.control.push(Buffer.from(`${JSON.stringify(result)}\n${JSON.stringify(log)}\n`))
     })
     const result = await h.start()
-    expect(result.error?.kind).toBe('output-limit')
-    expect(result.sandbox?.denied).toBe(false)
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toContain('EACCES: blocked')
+    expect(result.outputTruncated).toBe(true)
+    expect(result.sandbox?.denied).toBe(true)
   })
 
   it('retains admitted logs when the program reports its own output limit', async () => {
@@ -441,9 +443,13 @@ describe('Node runtime host failures', () => {
       h.stdout.end()
       h.direct.resolve({ exitCode: 0, signal: null })
     })
-    h.onBoot(() => { h.stdout.write('x'.repeat(1024)) })
+    h.onBoot(() => {
+      h.stdout.write('x'.repeat(1024))
+      h.complete({})
+    })
     const result = await h.start()
-    expect(result.error?.kind).toBe('output-limit')
+    expect(result.error).toBeUndefined()
+    expect(result.outputTruncated).toBe(true)
     expect(result.logs.join('')).toMatch(/^x+$/)
     expect(Buffer.byteLength(JSON.stringify(result.logs))).toBeLessThanOrEqual(256)
   })

@@ -301,15 +301,14 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) {
         child.stdout.emit('data', Buffer.from('😀"\u0001é€'))
         child.stderr.emit('data', Buffer.from('after-overflow'))
+        child.protocol.send({ type: 'done' })
       }
     })
     const capped = await setup({ maxOutputBytes: 4 })
     const cappedResult = await capped.runtime.run(capped.runtime.resolve(request()))
-    expect(cappedResult.error?.kind).toBe('output-limit')
+    expect(cappedResult.error).toBeUndefined()
+    expect(cappedResult.outputTruncated).toBe(true)
     expect(cappedResult.logs).toEqual([])
-    const cappedBytes = Buffer.byteLength(JSON.stringify(cappedResult.logs))
-      + Buffer.byteLength(JSON.stringify(cappedResult.error?.message))
-    expect(cappedBytes).toBeLessThanOrEqual(4)
     await capped.fiber.dispose()
 
     arm((child) => {
@@ -318,10 +317,11 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) {
         child.protocol.send({ type: 'log', text: '' })
         child.protocol.send({ type: 'log', text: 'x' })
+        child.protocol.send({ type: 'done' })
       }
     })
     const emptyBoundary = await setup({ maxOutputBytes: 4 })
-    await expect(emptyBoundary.runtime.run(emptyBoundary.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' } })
+    await expect(emptyBoundary.runtime.run(emptyBoundary.runtime.resolve(request()))).resolves.toMatchObject({ outputTruncated: true, logs: [''] })
     await emptyBoundary.fiber.dispose()
 
     arm((child) => {
@@ -330,11 +330,13 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       else if (frame?.startsWith('{"type":"run"')) {
         child.protocol.send({ type: 'log', text: 'kept' })
         child.protocol.send({ type: 'log', text: 'z'.repeat(200) })
+        child.protocol.send({ type: 'done' })
       }
     })
     const partial = await setup({ maxOutputBytes: 64 })
     const partialResult = await partial.runtime.run(partial.runtime.resolve(request()))
-    expect(partialResult.error?.kind).toBe('output-limit')
+    expect(partialResult.error).toBeUndefined()
+    expect(partialResult.outputTruncated).toBe(true)
     expect(partialResult.logs[0]).toBe('kept')
     expect(partialResult.logs[1]?.length).toBeGreaterThan(0)
     await partial.fiber.dispose()
@@ -346,10 +348,11 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
         child.protocol.send({ type: 'log', text: 'a'.repeat(24) })
         child.protocol.send({ type: 'log', text: '😀' })
         child.protocol.send({ type: 'log', text: 'z'.repeat(100) })
+        child.protocol.send({ type: 'done' })
       }
     })
     const emptyPrefix = await setup({ maxOutputBytes: 64 })
-    await expect(emptyPrefix.runtime.run(emptyPrefix.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' }, logs: ['a'.repeat(24)] })
+    await expect(emptyPrefix.runtime.run(emptyPrefix.runtime.resolve(request()))).resolves.toMatchObject({ outputTruncated: true, logs: ['a'.repeat(24), '😀', 'z'.repeat(26)] })
     await emptyPrefix.fiber.dispose()
   })
 
@@ -493,8 +496,48 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
       }
     })
     const lateOutput = await setup({ maxOutputBytes: 128 })
-    await expect(lateOutput.runtime.run(lateOutput.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' } })
+    await expect(lateOutput.runtime.run(lateOutput.runtime.resolve(request()))).resolves.toMatchObject({ value: 1, outputTruncated: true })
     await lateOutput.fiber.dispose()
+  })
+
+  it('retains a fitting log prefix when a required value exceeds the limit', async () => {
+    arm((child) => {
+      const frame = child.protocol.writes.at(-1)
+      if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+      else if (frame?.startsWith('{"type":"run"')) {
+        child.protocol.send({ type: 'log', text: 'kept' })
+        child.protocol.send({ type: 'log', text: 'z'.repeat(200) })
+        child.protocol.send({ type: 'done', value: 'v'.repeat(200) })
+      }
+    })
+    const h = await setup({ maxOutputBytes: 64 })
+    const result = await h.runtime.run(h.runtime.resolve(request()))
+    expect(result.error?.kind).toBe('output-limit')
+    expect(result.logs[0]).toBe('kept')
+    expect(result.logs[1]?.startsWith('z')).toBe(true)
+    expect(result.outputTruncated).toBe(true)
+    await h.fiber.dispose()
+  })
+
+  it('cuts admitted logs to prioritize a value that fits beside a shorter prefix', async () => {
+    arm((child) => {
+      const frame = child.protocol.writes.at(-1)
+      if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+      else if (frame?.startsWith('{"type":"run"')) {
+        child.protocol.send({ type: 'log', text: 'a'.repeat(20) })
+        child.protocol.send({ type: 'log', text: 'b'.repeat(20) })
+        child.protocol.send({ type: 'done', value: 'v'.repeat(40) })
+      }
+    })
+    const h = await setup({ maxOutputBytes: 80 })
+    const result = await h.runtime.run(h.runtime.resolve(request()))
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBe('v'.repeat(40))
+    expect(result.logs[0]).toBe('a'.repeat(20))
+    expect(result.logs[1]?.startsWith('b')).toBe(true)
+    expect(result.logs[1]?.length).toBeLessThan(20)
+    expect(result.outputTruncated).toBe(true)
+    await h.fiber.dispose()
   })
 
   it('returns host-side protocol errors and all child done variants', async () => {
@@ -527,7 +570,7 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
     await expect(runFrame({ type: 'done', value: Array.from({ length: 128 }, () => 1) })).resolves.toMatchObject({ error: { kind: 'output-limit' } })
     await expect(runFrame({ type: 'done', value: Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, index])) })).resolves.toMatchObject({ error: { kind: 'output-limit' } })
     await expect(runFrame({ type: 'done', value: 'x'.repeat(200) })).resolves.toMatchObject({ error: { kind: 'output-limit' } })
-    await expect(runFrame({ type: 'done', error: { kind: 'exception', message: 'x'.repeat(200) } })).resolves.toMatchObject({ error: { kind: 'output-limit' } })
+    await expect(runFrame({ type: 'done', error: { kind: 'exception', message: 'x'.repeat(200) } })).resolves.toMatchObject({ error: { kind: 'exception' }, outputTruncated: true })
 
     spawnMock.mockImplementationOnce(() => new FakeChild((child) => {
       const frame = child.protocol.writes.at(-1)
@@ -537,7 +580,8 @@ describe('PythonPtcRuntime deterministic process boundary', () => {
         child.protocol.send({ type: 'done', error: { kind: 'exception', message: 'x'.repeat(200) } })
       }
     }) as never)
-    await expect(runtime.runtime.run(runtime.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'output-limit' }, logs: ['kept'] })
+    // The bounded diagnostic takes priority over the retained log prefix.
+    await expect(runtime.runtime.run(runtime.runtime.resolve(request()))).resolves.toMatchObject({ error: { kind: 'exception' }, logs: [], outputTruncated: true })
 
     spawnMock.mockImplementationOnce(() => new FakeChild((child) => {
       const frame = child.protocol.writes.at(-1)

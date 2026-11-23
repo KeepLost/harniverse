@@ -1709,6 +1709,20 @@ export interface PiAiProviderProfile {
   websocketConnectTimeoutMs?: number
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
+  /**
+   * Maximum aggregate encoded bytes of retained request images per request
+   * (default 20 MiB). When a request's accumulated images exceed it, the
+   * oldest occurrences settle to omission stubs until the request fits, so a
+   * long image-heavy session keeps completing requests instead of hitting the
+   * gateway's request-size limit.
+   */
+  maxRequestImageBytes?: number
+  /** Maximum retained image occurrences per request (default 50). */
+  maxRequestImages?: number
+  /** Byte headroom removed with the oldest occurrences per byte-budget overflow (default 10 MiB). */
+  imageOffloadByteQuantum?: number
+  /** Oldest occurrences removed per count-budget overflow (default 10). */
+  imageOffloadCountQuantum?: number
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
@@ -4941,7 +4955,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-command-reset` — requires `commands` ([`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
-- `@deepseek-ai/dsh-compaction-body-limit-recovery` ([`packages/compaction/compaction-body-limit-recovery/src/index.ts`](../packages/compaction/compaction-body-limit-recovery/src/index.ts))
 - `@deepseek-ai/dsh-compaction-image-offload` — requires `sessions` ([`packages/compaction/compaction-image-offload/src/index.ts`](../packages/compaction/compaction-image-offload/src/index.ts))
 - `@deepseek-ai/dsh-context-inspector` — requires `systemPrompt` · `tokenMeter` ([`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts))
 - `@deepseek-ai/dsh-context-reset` — requires `sessions` ([`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts))
@@ -4987,7 +5000,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-scheduler` — requires `scheduler` · `tools` ([`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts))
 - `@deepseek-ai/dsh-tool-session-delivery` — requires `tools` · `sessionDelivery` ([`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts))
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
-- `@deepseek-ai/dsh-tool-working-directory` — requires `tools` · `workingDirectory` ([`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts))
 - `@deepseek-ai/dsh-tool-worktree` — requires `tools` · `worktrees` ([`packages/workspace/tool-worktree/src/index.ts`](../packages/workspace/tool-worktree/src/index.ts))
 - `@deepseek-ai/dsh-user-questions` ([`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))

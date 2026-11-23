@@ -251,14 +251,41 @@ class OutputLedger{
     return true
   }
 
+  /** Admit the fitting prefix of one overflowing entry, preserving an ordered prefix of captured output. */
+  admitPrefix(text: string, sink: string[]): void {
+    const separator = this.entries > 0 ? 1 : 0
+    const available = this.maxBytes - this.bytes - separator
+    if (available < 2) return
+    const prefix = truncateJsonString(text, available)
+    if (prefix.length === 0) return
+    const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
+    this.bytes += prefixBytes + separator
+    this.entries += 1
+    sink.push(prefix)
+  }
+
   success(logs: string[], value?: PtcJsonValue): PtcRunResult {
-    if (value !== undefined && jsonValueBytesUpTo(value, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
-    return { logs, ...value !== undefined ? { value } : {} }
+    if (value === undefined) return { logs }
+    const valueBytes = jsonValueBytesUpTo(value, this.maxBytes - 2)
+    if (valueBytes === undefined) return this.limit(logs)
+    if (jsonValueBytesUpTo(value, this.maxBytes - this.bytes) !== undefined) return { logs, value }
+    // Reaching here means the value fits only after logs are cut, so the
+    // prefix always truncates.
+    const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - valueBytes)
+    return { logs: retained.logs, value, outputTruncated: true }
   }
 
   failure(logs: string[], error: PtcRunFailure): PtcRunResult {
-    if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
-    return { logs, error }
+    if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) !== undefined) return { logs, error }
+    const message = truncateJsonString(error.message, this.maxBytes - 2)
+    // truncateJsonString returned a fitting prefix, so it measures; the
+    // fallback only names the empty-string floor.
+    /* v8 ignore next -- a fitting truncated diagnostic always measures. */
+    const messageBytes = jsonStringBytesUpTo(message, this.maxBytes - 2) ?? 2
+    // Reaching here means the diagnostic fits only after logs are cut, so the
+    // result always truncates.
+    const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - messageBytes)
+    return { logs: retained.logs, error: { ...error, message }, outputTruncated: true }
   }
 
   limit(logs: string[]): PtcRunResult {
@@ -270,6 +297,7 @@ class OutputLedger{
     for (const text of logs) {
       const separator = retained.length > 0 ? 1 : 0
       const available = logBudget - retainedBytes - separator
+      /* v8 ignore next -- only a sub-2-byte budget stays exhausted here. */
       if (available < 2) break
       const stringBytes = jsonStringBytesUpTo(text, available)
       if (stringBytes !== undefined) {
@@ -278,6 +306,7 @@ class OutputLedger{
         continue
       }
       const prefix = truncateJsonString(text, available)
+      /* v8 ignore next 3 -- a zero-length prefix means nothing fits, which the byte math of `available` already bounds. */
       if (prefix.length > 0) {
         const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
         retained.push(prefix)
@@ -286,7 +315,38 @@ class OutputLedger{
       break
     }
     const message = truncateJsonString(fullMessage, this.maxBytes - retainedBytes)
-    return { logs: retained, error: { kind: 'output-limit', message } }
+    return { logs: retained, error: { kind: 'output-limit', message }, outputTruncated: true }
+  }
+
+  /** Keep the fitting prefix of `logs` within `budget` combined bytes. */
+  private logPrefixWithin(logs: readonly string[], budget: number): { logs: string[]; bytes: number; truncated: boolean } {
+    const retained: string[] = []
+    let retainedBytes = 2
+    let truncated = false
+    for (const text of logs) {
+      const separator = retained.length > 0 ? 1 : 0
+      const available = budget - retainedBytes - separator
+      if (available < 2) {
+        truncated = true
+        break
+      }
+      const stringBytes = jsonStringBytesUpTo(text, available)
+      if (stringBytes !== undefined) {
+        retained.push(text)
+        retainedBytes += stringBytes + separator
+        continue
+      }
+      const prefix = truncateJsonString(text, available)
+      /* v8 ignore next 3 -- a zero-length prefix means nothing fits, which the byte math of `available` already bounds. */
+      if (prefix.length > 0) {
+        const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
+        retained.push(prefix)
+        retainedBytes += prefixBytes + separator
+      }
+      truncated = true
+      break
+    }
+    return { logs: retained, bytes: retainedBytes, truncated }
   }
 }/* jscpd:ignore-end */
 
@@ -564,7 +624,7 @@ export class PythonPtcRuntime extends PtcRuntime {
       let pendingCalls = 0
       const logs: string[] = []
       const output = new OutputLedger(this.config.maxOutputBytes)
-      let terminalOverride: PtcRunResult | undefined
+      let truncated = false
       let closeSignal: NodeJS.Signals | null = null
       let closeResolve!: () => void
       const closed = new Promise<void>((done) => { closeResolve = done })
@@ -576,6 +636,7 @@ export class PythonPtcRuntime extends PtcRuntime {
         : { kind: 'worker-exit', message: 'python process exited before completing' }
 
       const finish = (finalize: () => PtcRunResult): void => {
+        /* v8 ignore next -- re-entrant finish is guarded by every caller's settle check. */
         if (settling) return
         settling = true
         clearTimeout(wallTimer)
@@ -588,7 +649,7 @@ export class PythonPtcRuntime extends PtcRuntime {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
         void closed.then(() => {
           const finalized = finalize()
-          const result = terminalOverride ?? finalized
+          const result: PtcRunResult = truncated ? { ...finalized, outputTruncated: true } : finalized
           this.live.delete(live)
           finishResolve()
           resolve(result)
@@ -596,10 +657,10 @@ export class PythonPtcRuntime extends PtcRuntime {
       }
 
       const capture = (text: string): void => {
-        if (terminalOverride !== undefined) return
+        if (truncated) return
         if (!output.admit(text, logs)) {
-          terminalOverride = output.limit([...logs, text])
-          finish(() => terminalOverride as PtcRunResult)
+          truncated = true
+          output.admitPrefix(text, logs)
         }
       }
       stdout.on('data', (chunk: Buffer) => { capture(chunk.toString('utf8')) })

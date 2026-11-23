@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-23-ptc-output-truncation.md
+2026-11-23-ptc-output-truncation.md: e9937dbff3416122390d055c1d9f6426b07538e9
+2026-11-23-ptc-output-truncation.zh.md: c38fb9b857f463ed1a687cd25889524a01d7df10

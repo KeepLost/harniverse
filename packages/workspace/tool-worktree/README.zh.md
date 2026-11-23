@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-通过共享运行时（`ctx.worktrees`）创建并进入新 Git worktree 的模型工具：`create_worktree` 从本地 commit、branch 或 tag 创建新分支与检出，然后把会话工作目录更改为它。默认为 `HEAD` 与生成的唯一名称；未提交文件留在源检出中；已存在的名称会失败。之后离开检出用带 `cd` 的 `working_directory` —— 检出与分支保留。它是函数插件（`inject: ['tools', 'worktrees']`）。
+通过共享运行时（`ctx.worktrees`）创建并进入新 Git worktree 的模型工具：`create_worktree` 从本地 commit、branch 或 tag 创建新分支与检出，然后把会话工作目录更改为它。默认为 `HEAD` 与生成的唯一名称；未提交文件留在源检出中；已存在的名称会失败。之后离开检出用模型自己的 shell 把目录切回 —— 检出与分支保留。它是函数插件（`inject: ['tools', 'worktrees']`）。
 
 ## 使用
 

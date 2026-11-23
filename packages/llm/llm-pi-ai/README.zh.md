@@ -127,7 +127,9 @@ profile 的 `models` 列表是*替换*该路由已安装 catalog，而不是扩�
 
 **没有**这份元数据的模型——条目未声明 `reasoningEfforts` 的手工声明模型，以及 pi-ai 标记为不具备推理能力的 catalog 模型——完全不公开 `reasoning`。pi-ai 会把这类模型报告为只支持 `off` 一档，但 `off` 会被翻译成*省略* reasoning 选项，而那与「不点名任何档位」产出的请求逐字节相同：选它关不掉任何东西，于是自身默认就在思考的提供方，会在界面显示 `off` 被选中的同时继续思考。把该能力报告为不可用，界面就只剩提供方默认这一项，不会再出现自相矛盾的控件。配置 profile 的 `reasoning` 值（包括 `off`）在存在时是部署默认值；省略它会保留提供方默认值。每次请求的 `GenerateOptions.reasoningEffort` 优先；未出现在确切模型能力中的档位会让**请求**在网络 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败，而不会被自动调整。**描述**一个模型则从不这样失败：同一提供方下各模型接受的档位并不一致，因此 `resolveModel` 对该模型拿不下的 profile 档位报告为「没有默认值」，而不是抛错。在那里抛错会让整个提供方从任何基于它构建的模型目录中消失——一个配错的 profile 字段连支持该档位的模型也一并藏起来——所以坏配置暴露在被执行处，而不是被描述处。pi-ai 的通用流选项通过省略 `reasoning` 表示 `off`。
 
-受支持的 profile 字段是 `apiKeyEnv`、`authMode`、`displayName`、`api`、`baseURL`、`models`、`modelOverrides`、`compat`、`defaultContextWindow`、`defaultMaxTokens`、`defaultInput`、`headers`、`reasoning`、`thinkingBudgets`、`cacheRetention`、`transport`、`timeoutMs`、`websocketConnectTimeoutMs`、`streamIdleTimeoutMs` 和 `retryPolicy`。每个 profile 的可选重试策略都会与该提供方路由一同捕获；省略时使用有界的常规默认值。流空闲间隔必须是正的有限 Node 定时器延迟，默认为五分钟，且只覆盖未完成提供方读取，不包括消费方思考时间。每个已配置标头都会在 profile 解析时对照 Fetch 校验，因此提供方请求或发现探测都无法承载的标头会在写入处被拒；若已配置标头中有同名项，则以 Harness 应用归因为准。
+受支持的 profile 字段是 `apiKeyEnv`、`authMode`、`displayName`、`api`、`baseURL`、`models`、`modelOverrides`、`compat`、`defaultContextWindow`、`defaultMaxTokens`、`defaultInput`、`headers`、`reasoning`、`thinkingBudgets`、`cacheRetention`、`transport`、`timeoutMs`、`websocketConnectTimeoutMs`、`streamIdleTimeoutMs`、`maxRequestImageBytes`、`maxRequestImages`、`imageOffloadByteQuantum`、`imageOffloadCountQuantum` 和 `retryPolicy`。每个 profile 的可选重试策略都会与该提供方路由一同捕获；省略时使用有界的常规默认值。流空闲间隔必须是正的有限 Node 定时器延迟，默认为五分钟，且只覆盖未完成提供方读取，不包括消费方思考时间。每个已配置标头都会在 profile 解析时对照 Fetch 校验，因此提供方请求或发现探测都无法承载的标头会在写入处被拒；若已配置标头中有同名项，则以 Harness 应用归因为准。
+
+保留的请求图片受每请求聚合预算约束：`maxRequestImageBytes`（默认 20 MiB）限制其合并编码字节，`maxRequestImages`（默认 50，即 Azure OpenAI 文档记载的 GPT-4o/4.1 上限）限制其数量，两个 quantum 字段决定一次超限沉降到预算下方多远，使接近上限的路由每个新图片 quantum 才重写一次请求前缀，而不是每张图片都重写。请求超出预算时，最老的图片出现先沉降——组合了 compaction 属主时走持久化 `image/offload` 决策，否则用本地省略占位符——然后请求才发出，因此图片密集的会话能持续完成请求，而不是被网关的请求尺寸上限拒绝。网关更紧的部署应调低 `maxRequestImageBytes`，为请求体的其余内容留出空间。
 
 适配器强制 pi-ai SDK `maxRetries` 为零，因此一次 `stream()` 调用只会发起一次提供方请求。已移除 profile 字段 `maxRetries` 和 `maxRetryDelayMs` 会使加载失败，而不是静默倍增或隐藏单独组合的 agent（智能体）级重试预算。空闲超时会 abort SDK 的稳定请求信号，并以 `TIMEOUT` 呈现；较早的调用方 abort 仍为 `ABORTED`。
 
@@ -202,7 +204,7 @@ An earlier assistant turn in this conversation reasoned under a different model 
 
 #### Token 影响
 
-精确输入取决于提供方 tokenization。转换不添加模型可见文本；回放元数据可能让原生 API 复用提供方侧状态。
+精确输入取决于提供方 tokenization。在保留图片 fit 路由聚合预算期间，转换不添加模型可见文本；超出预算时，最老的出现以省略占位符离开请求，后续请求携带更少的内联图片，输入按已沉降的图片精确缩减。回放元数据可能让原生 API 复用提供方侧状态。
 
 #### KV Cache 影响
 
