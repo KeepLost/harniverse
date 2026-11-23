@@ -580,7 +580,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
   it('waits when slow durable settle events exceed the log-work cap', async () => {
     const { ctx, runtime } = await setup({ mode: 'code', maxParallelSubCalls: 2 })
     const calls = registerEcho(ctx)
-    const events: { type: string; data: unknown }[] = []
+    const events: { type: string; data?: unknown }[] = []
     const gates: Array<() => void> = []
     const agent = {
       session: {
@@ -1664,9 +1664,9 @@ describe('the run_code dispatch bridge', () => {
     runtime.behavior = () => failed
       ? Promise.resolve({ output: [{ type: 'image', attachment }], error: { kind: 'exception', message: 'boom' } })
       : Promise.resolve({ output: [{ type: 'image', attachment }, { type: 'text', text: 'kept\n' }] })
-    ctx.on('tools/execute', async (exec: unknown, next: () => Promise<unknown>) => {
+    ctx.on('tools/execute', async (exec, next) => {
       const result = await next()
-      if ((exec as { name: string }).name !== RUN_CODE_NAME) return result
+      if (exec.name !== RUN_CODE_NAME) return result
       // A result replaced after the tool body ran no longer matches the
       // interleaving projection, so the replacement wins verbatim.
       return failed
