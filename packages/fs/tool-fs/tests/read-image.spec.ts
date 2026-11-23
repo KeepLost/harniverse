@@ -74,7 +74,7 @@ class FakeRuntime extends PtcRuntime {
   }
   readonly language = 'typescript'
   readonly isolation = 'fake'
-  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ logs: [] })
+  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ output: [] })
 
   run(request: PtcRunRequest): Promise<PtcRunResult> {
     return this.behavior(request)
@@ -258,7 +258,7 @@ describe('read_image happy path', () => {
     const runtime = ctx.ptcRuntime as FakeRuntime
     runtime.behavior = async (request) => {
       const value = await request.bindings[0]!.functions.read_image!({ file_path: 'red.png' })
-      return { logs: [], value }
+      return { output: [], value }
     }
 
     const result = await call(ctx, RUN_CODE_NAME, {

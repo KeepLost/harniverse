@@ -893,7 +893,7 @@ describe('PTC native-tool denial through the agent loop', () => {
     readonly language = 'typescript'
     readonly isolation = 'fake' as const
     async run(_request: PtcRunRequest): Promise<PtcRunResult> {
-      return { logs: [] }
+      return { output: [] }
     }
   }
 

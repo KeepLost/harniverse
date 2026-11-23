@@ -3,7 +3,7 @@ import { setImmediate as nextTurn } from 'node:timers/promises'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { createProcessRpc } from '../src/rpc.ts'
 import { runNodeMain, type ProgramProcess } from '../src/process.ts'
-import type { HostMethods, ProgramBootData, ProgramMethods } from '../src/protocol.ts'
+import type { BindingResult, HostMethods, ProgramBootData, ProgramMethods } from '../src/protocol.ts'
 import { decodePtcJsonWire, encodePtcJsonWire } from '../src/json-wire.ts'
 import { duplexPair } from './duplex-pair.ts'
 
@@ -61,16 +61,16 @@ it('clears the environment and returns a binding result after captured output', 
 
 it('keeps unfinished temporary calls pending and suppresses later logs while awaiting host shutdown', async () => {
   const h = await setup()
-  const release = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
+  const release = Promise.withResolvers<BindingResult>()
   h.methods.invoke = () => release.promise
   try {
     expect(decodePtcJsonWire((await h.run('void tools.echo({}).catch(() => {}); void tools.echo({}).catch(() => console.log("late rejection")); setImmediate(() => console.log("late timer")); return 42;')).value)).toBe(42)
     await nextTurn()
     expect(h.child.destroyed).toBe(false)
-    release.resolve(encodePtcJsonWire(42))
+    release.resolve({ value: encodePtcJsonWire(42) })
     await nextTurn()
     expect(h.logs).toEqual([])
-  } finally { release.resolve(encodePtcJsonWire(null)) }
+  } finally { release.resolve({ value: encodePtcJsonWire(null) }) }
 })
 
 it('rejects a binding call that the host fails during the run', async () => {
@@ -82,8 +82,8 @@ it('rejects a binding call that the host fails during the run', async () => {
 
 it.each(['function-body', 'repl', 'script'] as const)('leaves an unawaited call pending when a temporary %s process closes after the result', async (format) => {
   const h = await setup()
-  const pending = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
-  onTestFinished(() => { pending.resolve(encodePtcJsonWire(null)) })
+  const pending = Promise.withResolvers<BindingResult>()
+  onTestFinished(() => { pending.resolve({ value: encodePtcJsonWire(null) }) })
   h.methods.invoke = () => pending.promise
   const code = format === 'function-body' ? 'void tools.echo({}).catch(() => {}); return 42' : 'void tools.echo({}).catch(() => {}); 42'
   expect(decodePtcJsonWire((await h.run(code, 1024, format)).value)).toBe(42)
@@ -133,7 +133,7 @@ it.each([
 
 it('sends no binding calls or output notifications after returning its result', async () => {
   const h = await setup()
-  const invoked = vi.fn(async () => encodePtcJsonWire(1))
+  const invoked = vi.fn(async () => ({ value: encodePtcJsonWire(1) }))
   const limited = vi.fn()
   h.methods.invoke = invoked
   h.methods.outputLimit = limited

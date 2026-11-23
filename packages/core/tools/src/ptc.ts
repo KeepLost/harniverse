@@ -51,7 +51,7 @@ const TYPESCRIPT_FUNCTION_FLAVOR: RunCodeFlavor = {
     + 'arguments: `code`, the BODY of an async function (erasable syntax only; top-level '
     + '`await` and `return` work), and `description`, a short summary of what the program '
     + 'does. Call tools as `await tools.name(args)` per the declarations in the system '
-    + 'prompt. Only what you print or return comes back — curate it.',
+    + 'prompt. Show selected text and images with `inspect(...values)`.',
   codeDescription: 'The program: the body of an async TypeScript function.',
 }
 
@@ -72,8 +72,8 @@ const TYPESCRIPT_PROGRAM_FLAVOR: RunCodeFlavor = {
 
 /**
  * The Python flavor: the body of an async function, top-level `await` and
- * `return`, answer via `print` and/or the returned value, matching
- * {@link ./py-types.ts}'s SDK instructions.
+ * `return`, answer via `print`, matching {@link ./py-types.ts}'s SDK
+ * instructions.
  */
 const PYTHON_FLAVOR: RunCodeFlavor = {
   description:
@@ -81,7 +81,7 @@ const PYTHON_FLAVOR: RunCodeFlavor = {
     + 'arguments: `code`, the BODY of an async function (top-level `await` and `return` '
     + 'work), and `description`, a short summary of what the program does. Call tools as '
     + '`await tools.name(args)` per the declarations in the system prompt. Answer '
-    + 'with `print(...)` and/or `return <value>` — only that comes back, so curate it.',
+    + 'with `print(...)` — only the printed text comes back, so curate it.',
   codeDescription: 'The program: the body of an async Python function.',
 }
 

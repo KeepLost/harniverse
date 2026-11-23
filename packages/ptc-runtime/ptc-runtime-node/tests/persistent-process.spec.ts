@@ -5,7 +5,7 @@ import { createProcessRpc } from '../src/rpc.ts'
 import { runPersistentMain } from '../src/persistent-process.ts'
 import type { ProgramProcess } from '../src/process.ts'
 import { decodePtcJsonWire, encodePtcJsonWire } from '../src/json-wire.ts'
-import type { ProgramBootData, HostMethods, ProgramMethods } from '../src/protocol.ts'
+import type { BindingResult, ProgramBootData, HostMethods, ProgramMethods } from '../src/protocol.ts'
 import { rawPeer } from './raw-peer.ts'
 import { duplexPair } from './duplex-pair.ts'
 
@@ -130,11 +130,11 @@ it('ignores output and rejects new tool calls from a completed evaluation', asyn
 
 it.each(['resolve', 'reject'] as const)('rejects an unfinished binding once when a completed program receives a late %s', async (outcome) => {
   const h = await setup()
-  const pending = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
-  onTestFinished(() => { pending.resolve(encodePtcJsonWire(null)) })
+  const pending = Promise.withResolvers<BindingResult>()
+  onTestFinished(() => { pending.resolve({ value: encodePtcJsonWire(null) }) })
   h.setCall(() => pending.promise)
   await h.run('let effects = []; void tools.echo({}).then(() => effects.push("then")).catch(() => effects.push("catch")).finally(() => effects.push("finally"));', [{ global: 'tools', names: ['echo'] }])
-  if (outcome === 'resolve') pending.resolve(encodePtcJsonWire(42))
+  if (outcome === 'resolve') pending.resolve({ value: encodePtcJsonWire(42) })
   else pending.reject(new Error('late failure'))
   await setImmediate()
   expect(decodePtcJsonWire((await h.run('effects')).value)).toEqual(['catch', 'finally'])
@@ -142,9 +142,9 @@ it.each(['resolve', 'reject'] as const)('rejects an unfinished binding once when
 
 it.each([['resolve', 'repl'], ['reject', 'repl'], ['resolve', 'script'], ['reject', 'script']] as const)('revokes an awaiting program after a late %s in %s', async (outcome, format) => {
   const h = await setup(4096, undefined, format)
-  const pending = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
+  const pending = Promise.withResolvers<BindingResult>()
   const started: PromiseWithResolvers<void> = Promise.withResolvers()
-  onTestFinished(() => { pending.resolve(encodePtcJsonWire(null)) })
+  onTestFinished(() => { pending.resolve({ value: encodePtcJsonWire(null) }) })
   h.setCall(() => { started.resolve(); return pending.promise })
   const declarations = [{ global: 'tools', names: ['echo'] }]
   await h.peer.revoke()
@@ -153,7 +153,7 @@ it.each([['resolve', 'repl'], ['reject', 'repl'], ['resolve', 'script'], ['rejec
   await h.peer.revoke()
   expect(await first).toEqual({})
   await h.peer.revoke()
-  if (outcome === 'resolve') pending.resolve(encodePtcJsonWire(42))
+  if (outcome === 'resolve') pending.resolve({ value: encodePtcJsonWire(42) })
   else pending.reject(new Error('late failure'))
   await setImmediate()
   expect(decodePtcJsonWire((await h.run('({ kept, effects })')).value)).toEqual({ kept: 42, effects: ['catch', 'finally'] })
@@ -164,7 +164,7 @@ it.each([['resolve', 'repl'], ['reject', 'repl'], ['resolve', 'script'], ['rejec
 it.each(['repl', 'script'] as const)('rejects a binding result followed by revocation before %s user code resumes', async (format) => {
   const h = await setup(4096, undefined, format)
   const request = Promise.withResolvers<string>()
-  const response = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
+  const response = Promise.withResolvers<BindingResult>()
   h.setCall(() => response.promise)
   const wire = rawPeer(h.host, (message) => {
     if (typeof message === 'object' && message !== null && 'm' in message && message.m === 'invoke'
@@ -180,7 +180,7 @@ it.each(['repl', 'script'] as const)('rejects a binding result followed by revoc
     expect(await first).toEqual({})
     expect(decodePtcJsonWire((await h.run('effects')).value)).toEqual(['catch', 'finally'])
   } finally {
-    response.resolve(encodePtcJsonWire(null))
+    response.resolve({ value: encodePtcJsonWire(null) })
     wire.close()
     await first
   }

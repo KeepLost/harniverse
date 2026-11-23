@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/attachment.md
-attachment.md: 7b362d9a24d33dd852f431fd0bbef339194707fa
-attachment.zh.md: 43b11350f737d9b90ea100d29e0c19687eccb45e
+attachment.md: a99159efaf880c2fcc0768ab6f4ace0abfc7f19d
+attachment.zh.md: 281177ac032fbde828f6c81b906f8d68f3a5e2a6
