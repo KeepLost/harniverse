@@ -109,7 +109,10 @@ export async function runNodeMain(
     if (evaluation && acceptsCalls(evaluation) && !evaluation.logs.overflowed) void connection.image(id)
   }
   const logSink = {
-    get overflowed(): boolean { return context.getStore()?.logs.overflowed ?? true },
+    get overflowed(): boolean {
+      /* v8 ignore next 2 -- program continuations inherit the evaluation store; only they can read this. */
+      return context.getStore()?.logs.overflowed ?? true
+    },
     push(text: string): void {
       const evaluation = context.getStore()
       if (evaluation && acceptsCalls(evaluation)) evaluation.logs.push(text)
@@ -196,6 +199,7 @@ export async function runNodeMain(
               : prepareException(result.error, data.maxOutputBytes - 2))
           })
         } catch (error: unknown) {
+          /* v8 ignore next -- revocation arrives between RPC dispatches, never inside this synchronous setup window. */
           if (canContinue()) evaluation.finish(prepareException(error, data.maxOutputBytes - 2))
         }
       })

@@ -4,7 +4,7 @@ import { expect, it, onTestFinished, vi } from 'vitest'
 import { createProcessRpc } from '../src/rpc.ts'
 import { runNodeMain, type ProgramProcess } from '../src/process.ts'
 import type { BindingResult, HostMethods, ProgramBootData, ProgramMethods } from '../src/protocol.ts'
-import { decodePtcJsonWire, encodePtcJsonWire } from '../src/json-wire.ts'
+import { decodePtcJsonWire, encodePtcJsonWire, type PtcImageWire } from '../src/json-wire.ts'
 import { duplexPair } from './duplex-pair.ts'
 
 function endpoints() {
@@ -34,9 +34,9 @@ async function setup(limit = 4096, namespaces: ProgramBootData['namespaces'] = [
   const main = runNodeMain(child, limit, state)
   onTestFinished(async () => { peer.$close(); child.destroy(); await main })
   await ready.promise
-  const run = (code: string, maxOutputBytes = 1024, programFormat?: PtcProgramFormat) => peer.run('/', {
+  const run = (code: string, maxOutputBytes = 1024, programFormat?: PtcProgramFormat, extra?: Partial<ProgramBootData>) => peer.run('/', {
     code, ...programFormat === undefined ? {} : { programFormat },
-    namespaces, maxOutputBytes, retainsState: false,
+    namespaces, maxOutputBytes, retainsState: false, ...extra,
   })
   return { child, host, state, nativeEnvironment, methods, peer, main, logs, run }
 }
@@ -57,6 +57,83 @@ it('clears the environment and returns a binding result after captured output', 
   h.peer.$close()
   await h.main
   expect(h.state.exitCode).toBeUndefined()
+})
+
+it('delivers binding images for direct and nested inspection', async () => {
+  const h = await setup()
+  const imageToken: PtcImageWire = {
+    kind: 'image', id: 'img-7', attachmentId: 'sha256:proof', path: '/host/proof.png', width: 4, height: 2,
+  }
+  const sentinel = {}
+  h.methods.invoke = async () => ({ value: encodePtcJsonWire({ image: sentinel }, value => (value === sentinel ? imageToken : undefined)) })
+  const delivered: string[] = []
+  h.methods.image = (id) => { delivered.push(id) }
+  const result = await h.run('const value = await tools.echo({}); inspect(value.image); inspect({ wrapped: value.image }); return { seen: true }')
+  expect(decodePtcJsonWire(result.value)).toEqual({ seen: true })
+  expect(delivered).toEqual(['img-7', 'img-7'])
+  expect(h.logs.join('')).toContain('Image')
+})
+
+it('replays a host-provided inspection for a binding result containing an image', async () => {
+  const h = await setup()
+  const imageToken: PtcImageWire = {
+    kind: 'image', id: 'img-3', attachmentId: 'sha256:proof', path: '/host/proof.png', width: 4, height: 2,
+  }
+  const sentinel = {}
+  h.methods.invoke = async () => ({
+    value: encodePtcJsonWire({ image: sentinel }, value => (value === sentinel ? imageToken : undefined)),
+    inspection: 'the image',
+  })
+  const result = await h.run('const value = await tools.echo({}); inspect(value); return 1')
+  expect(decodePtcJsonWire(result.value)).toBe(1)
+  expect(h.logs).toEqual(['the image\n'])
+})
+
+it('withholds image delivery once output accounting has overflowed', async () => {
+  const h = await setup()
+  const imageToken: PtcImageWire = {
+    kind: 'image', id: 'img-9', attachmentId: 'sha256:proof', path: '/host/proof.png', width: 4, height: 2,
+  }
+  const sentinel = {}
+  h.methods.invoke = async () => ({ value: encodePtcJsonWire({ image: sentinel }, value => (value === sentinel ? imageToken : undefined)) })
+  const delivered: string[] = []
+  h.methods.image = (id) => { delivered.push(id) }
+  const result = await h.run('const value = await tools.echo({}); inspect("x".repeat(100), value.image); return 0', 64)
+  expect(decodePtcJsonWire(result.value)).toBe(0)
+  expect(delivered).toEqual([])
+})
+
+it('rejects program construction of the runtime Image class', async () => {
+  const h = await setup(4096)
+  const result = await h.run('new Image()', 4096)
+  expect(result.error?.kind).toBe('exception')
+  expect(result.error?.message).toContain('Images are created by image-producing tools')
+})
+
+it('discards the completion value when the host requests no result', async () => {
+  const h = await setup()
+  const result = await h.run('inspect("shown"); return 42', 1024, undefined, { discardCompletion: true })
+  expect(result).toEqual({})
+  expect(h.logs).toEqual(['shown\n'])
+})
+
+it('drops captured output after a mid-run discard request', async () => {
+  const h = await setup()
+  const release = Promise.withResolvers<BindingResult>()
+  h.methods.invoke = () => release.promise
+  const first = h.run('await tools.echo({}); inspect("after"); return { ok: 1 }')
+  await h.peer.discardOutput()
+  release.resolve({ value: encodePtcJsonWire(null) })
+  expect(decodePtcJsonWire((await first).value)).toEqual({ ok: 1 })
+  expect(h.logs).toEqual([])
+})
+
+it('silences output from a timer that outlives its evaluation', async () => {
+  const h = await setup()
+  expect(decodePtcJsonWire((await h.run('setImmediate(() => inspect("leaked")); return 1')).value)).toBe(1)
+  await nextTurn()
+  await nextTurn()
+  expect(h.logs).toEqual([])
 })
 
 it('keeps unfinished temporary calls pending and suppresses later logs while awaiting host shutdown', async () => {
