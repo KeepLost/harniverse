@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -1615,7 +1616,7 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
-    expect((result.content[0] as { text: string }).text).toBe('path /stored/nested.png width 2')
+    expect((result.content[0] as { text: string }).text).toBe(`path ${resolve('/stored/nested.png')} width 2`)
   })
 
   it('rejects an image-producing tool whose result carries no single image block', async () => {
