@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -8,7 +8,7 @@ import { PtcInspectableValue, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
-import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, TRUNCATION_NOTICE, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -575,6 +575,33 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
     expect(unsafe.order).toEqual(['start:w', 'end:w'])
     // r3 started only after w ended.
     expect(safe.order.indexOf('start:r3')).toBeGreaterThan(safe.order.indexOf('end:r1'))
+  })
+
+  it('waits when slow durable settle events exceed the log-work cap', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code', maxParallelSubCalls: 2 })
+    const calls = registerEcho(ctx)
+    const events: { type: string; data: unknown }[] = []
+    const gates: Array<() => void> = []
+    const agent = {
+      session: {
+        header: { cwd: '/workspace' },
+        append: () => new Promise<void>((resolve) => { gates.push(resolve); events.push({ type: 'logged' }) }),
+      },
+    } as unknown as Agent
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      await tools.echo!({ value: 'one' })
+      await tools.echo!({ value: 'two' })
+      await tools.echo!({ value: 'three' })
+      return { output: [] }
+    }
+    const pending = runCode(ctx, 'program', { agent })
+    // The ordered commit lane parks at the cap while the slow appends hold.
+    await vi.waitFor(() => { expect(gates.length).toBeGreaterThanOrEqual(2) })
+    for (const release of gates.splice(0)) release()
+    const result = await pending
+    expect(result.isError).toBe(false)
+    expect(calls).toHaveLength(3)
   })
 
   it('maxParallelSubCalls caps the overlap window', async () => {
@@ -1553,6 +1580,117 @@ describe('the run_code dispatch bridge', () => {
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
     expect((result.content[0] as { text: string }).text).toContain('Image storage must expose a readable path')
+  })
+
+  it('adapts a nested read_image into the runtime Image through a readable attachment path', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    await ctx.plugin((await import('@deepseek-ai/dsh-fs-local')).default, { cwd: '/' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:nested'), mediaType: 'image/png' as const, bytes: 32, width: 2, height: 2 }
+    class StubStore extends (await import('@deepseek-ai/dsh-attachment')).default {
+      readonly imageLimits = Object.freeze({ maxImageBytes: 100, maxImagesPerMessage: 2, maxMessageImageBytes: 100, maxImagePixels: 100, mediaTypes: Object.freeze(['image/png'] as const) })
+      validateImage(): Promise<void> { return Promise.resolve() }
+      async saveImage(): Promise<typeof attachment> { return attachment }
+      async readImage(): Promise<never> { throw new Error('not used') }
+      override imageHostPath(): string { return '/stored/nested.png' }
+    }
+    await ctx.plugin(StubStore)
+    await ctx.plugin(FakeRuntime)
+    const runtime = ctx.ptcRuntime as FakeRuntime
+    ctx.tools.register(defineTool({
+      name: 'read_image',
+      description: 'Reads an image.',
+      parameters: { file_path: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: () => [{ type: 'text', text: 'envelope' }, { type: 'image', attachment }],
+      },
+      execute: () => Promise.resolve({ path: '/x.png', image: { ...attachment } }),
+    }))
+    runtime.behavior = async (request) => {
+      const image = await request.bindings[0]!.functions.read_image!({ file_path: '/x.png' })
+      const described = image as { path: string; attachment: { width: number } }
+      return { output: [{ type: 'text', text: `path ${described.path} width ${described.attachment.width}` }] }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect((result.content[0] as { text: string }).text).toBe('path /stored/nested.png width 2')
+  })
+
+  it('rejects an image-producing tool whose result carries no single image block', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    ctx.tools.register(defineTool({
+      name: 'read_image',
+      description: 'Reads an image.',
+      parameters: { file_path: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: () => [{ type: 'text', text: 'text only' }],
+      },
+      execute: () => Promise.resolve({ path: '/x.png' }),
+    }))
+    runtime.behavior = async (request) => {
+      const message = await request.bindings[0]!.functions.read_image!({ file_path: '/x.png' }).then(
+        () => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
+      return { output: [{ type: 'text', text: message }] }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect((result.content[0] as { text: string }).text).toContain('Image-producing tools must return exactly one image')
+  })
+
+  it('interleaves inspected images with the truncation notice on a truncated successful run', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:truncated-run'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => Promise.resolve({
+      output: [{ type: 'text', text: 'kept\n' }, { type: 'image', attachment }],
+      outputTruncated: true,
+    })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ logs: ['kept\n', `\n${TRUNCATION_NOTICE}`], outputTruncated: true })
+    expect(result.content).toEqual([
+      { type: 'text', text: 'kept\n' },
+      { type: 'image', attachment },
+      { type: 'text', text: TRUNCATION_NOTICE },
+    ])
+  })
+
+  it.each([true, false])('keeps a wrapper-replaced %s result when a run inspected images', async (failed) => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:replaced-failure'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => failed
+      ? Promise.resolve({ output: [{ type: 'image', attachment }], error: { kind: 'exception', message: 'boom' } })
+      : Promise.resolve({ output: [{ type: 'image', attachment }, { type: 'text', text: 'kept\n' }] })
+    ctx.on('tools/execute', async (exec: unknown, next: () => Promise<unknown>) => {
+      const result = await next()
+      if ((exec as { name: string }).name !== RUN_CODE_NAME) return result
+      // A result replaced after the tool body ran no longer matches the
+      // interleaving projection, so the replacement wins verbatim.
+      return failed
+        ? { isError: true, error: { message: 'replaced diagnostic' }, content: [{ type: 'text', text: 'replaced' }] }
+        : { isError: false, value: { logs: ['replaced'] }, content: [{ type: 'text', text: 'replaced' }] }
+    })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(failed)
+    expect(result.content).toEqual([{ type: 'text', text: 'replaced' }])
+  })
+
+  it('appends interleaved inspected images beside a failed run\'s error content', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:failed-run'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => Promise.resolve({
+      output: [{ type: 'image', attachment }],
+      error: { kind: 'exception', message: 'boom' },
+    })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([
+      { type: 'text', text: 'Error: code run failed (exception): boom' },
+      { type: 'image', attachment },
+    ])
   })
 
   it('interleaves inspected images with text in the finalized result content', async () => {

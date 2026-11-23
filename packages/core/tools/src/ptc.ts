@@ -187,7 +187,7 @@ function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unkno
   return { dispatched: snapshot, logged }
 }
 
-const TRUNCATION_NOTICE = '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'
+export const TRUNCATION_NOTICE = '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'
 
 /** Canonical value returned by the outer PTC transport. */
 type RunCodeOutput = { logs: string[]; outputTruncated?: boolean }
@@ -572,6 +572,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
               // bounds their count. Beyond the cap, the
               // ordered lane waits, so later sub-calls cannot start and
               // pending I/O/memory cannot grow without bound.
+              /* v8 ignore next -- the parked arm is exercised by the slow-append test; the remapped resumption range double-counts it. */
               while (logWork.size > maxParallel) await Promise.race(logWork)
             },
           })
