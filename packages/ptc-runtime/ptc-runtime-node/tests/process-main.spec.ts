@@ -25,8 +25,9 @@ async function setup(limit = 4096, namespaces: ProgramBootData['namespaces'] = [
   const logs: string[] = []
   const methods: HostMethods = {
     ready: () => { ready.resolve(undefined) },
-    invoke: async () => encodePtcJsonWire(42),
+    invoke: async () => ({ value: encodePtcJsonWire(42) }),
     log: (text) => { logs.push(text) },
+    image: () => {},
     outputLimit: () => {},
   }
   const peer = createProcessRpc<ProgramMethods, HostMethods>(host, limit, methods, [], () => {})
@@ -44,11 +45,11 @@ it('clears the environment and returns a binding result after captured output', 
   const h = await setup()
   h.methods.invoke = async (_global, _name, wire) => {
     const args = decodePtcJsonWire(wire) as { n: number }
-    return encodePtcJsonWire(args.n * 2)
+    return { value: encodePtcJsonWire(args.n * 2) }
   }
-  const result = await h.run('const doubled = await tools.echo({ n: 21 }); console.log("got", doubled); return { doubled };')
+  const result = await h.run('const doubled = await tools.echo({ n: 21 }); inspect("got", doubled); return { doubled };')
   expect(decodePtcJsonWire(result.value)).toEqual({ doubled: 42 })
-  expect(h.logs).toEqual(['got 42'])
+  expect(h.logs).toEqual(['got 42\n'])
   expect(h.state.env).toEqual({})
   expect(h.state.env).not.toBe(h.nativeEnvironment)
   expect(Object.getPrototypeOf(h.state.env)).toBeNull()
@@ -92,11 +93,11 @@ it.each(['function-body', 'repl', 'script'] as const)('leaves an unawaited call 
   expect(h.state.exitCode).toBeUndefined()
 })
 
-it.each([4, 64])('reports exhausted output accounting during the run and still completes with a %s-byte limit', async (maxOutputBytes) => {
+it.each([4, 64])('reports exhausted output accounting during the run with a %s-byte limit', async (maxOutputBytes) => {
   const h = await setup()
   const limited = vi.fn()
   h.methods.outputLimit = limited
-  expect(await h.run('console.log("x".repeat(100)); return null', maxOutputBytes)).toEqual({ value: [null] })
+  expect(await h.run('inspect("x".repeat(100)); return 0', maxOutputBytes)).toEqual({ value: encodePtcJsonWire(0) })
   if (maxOutputBytes === 4) expect(h.logs).toEqual([])
   await vi.waitFor(() => { expect(limited).toHaveBeenCalledOnce() })
 })
@@ -165,7 +166,7 @@ it('accepts host shutdown before the first evaluation', async () => {
 })
 
 it.each([
-  'console.log("x".repeat(2000));',
+  'inspect("x".repeat(2000));',
   'return "x".repeat(2000)',
 ])('closes on control output overflow: %s', async (code) => {
   const h = await setup(1024)

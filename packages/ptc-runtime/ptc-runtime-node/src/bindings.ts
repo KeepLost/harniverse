@@ -1,8 +1,8 @@
 /** Validate and capture the binding names available to one program. */
-import { DUNDER_MEMBER, PORTABLE_RESERVED_WORDS, RESERVED_BINDING_GLOBALS, RESERVED_ERROR_MEMBERS } from '@deepseek-ai/dsh-ptc-runtime'
+import { DUNDER_MEMBER, PtcImage, PtcInspectableValue, PORTABLE_RESERVED_WORDS, RESERVED_BINDING_GLOBALS, RESERVED_ERROR_MEMBERS } from '@deepseek-ai/dsh-ptc-runtime'
 import type { PtcBindingFunction, PtcBindingNamespace, PtcJsonValue, PtcRunRequest } from '@deepseek-ai/dsh-ptc-runtime'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import { encodePtcJsonWire, type PtcJsonWire } from './json-wire.ts'
+import { snapshotPtcJsonValue, encodePtcJsonWire, type PtcImageWire } from './json-wire.ts'
+import type { BindingResult } from './protocol.ts'
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 /**
  * Reject unusable namespaces before starting a process.
@@ -56,11 +56,20 @@ export function validateBindings(request: PtcRunRequest): Map<string, PtcBinding
  * Invoke a host binding and encode its lossless result.
  * @param binding - Current evaluation's function, absent if it was removed.
  * @param args - Validated JSON arguments detached from the program.
- * @returns Flat lossless JSON; unavailable bindings and invalid results reject.
+ * @param image - Registers host-issued images with the owning process.
+ * @returns Flat binding data; unavailable bindings and invalid results reject.
  */
-export async function invokeBinding(binding: PtcBindingFunction | undefined, args: PtcJsonValue): Promise<PtcJsonWire> {
+export async function invokeBinding(
+  binding: PtcBindingFunction | undefined, args: PtcJsonValue, image?: (value: PtcImage) => PtcImageWire,
+): Promise<BindingResult> {
   if (!binding) throw new Error('binding is unavailable in this evaluation; reacquire the current tool')
-  const value = snapshotJsonValue(await binding(args))
+  const resolved = await binding(args)
+  const inspection = resolved instanceof PtcInspectableValue ? resolved.text : undefined
+  const value = snapshotPtcJsonValue(resolved instanceof PtcInspectableValue ? resolved.value : resolved,
+    value => image !== undefined && value instanceof PtcImage)
   if (value === undefined) throw new Error('binding resolution must be lossless JSON')
-  return encodePtcJsonWire(value)
+  return {
+    value: encodePtcJsonWire(value, candidate => candidate instanceof PtcImage ? image?.(candidate) : undefined),
+    ...inspection === undefined ? {} : { inspection },
+  }
 }

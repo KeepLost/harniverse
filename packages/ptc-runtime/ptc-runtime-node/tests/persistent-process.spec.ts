@@ -21,9 +21,10 @@ async function setup(limit = 4096, chdir: (cwd: string) => void = () => {}, prog
     ready: () => { ready.resolve(true) },
     invoke: async (global, name, args) => {
       seen.push({ type: 'call', global, name, args })
-      return encodePtcJsonWire(42)
+      return { value: encodePtcJsonWire(42) }
     },
     log: (text) => { seen.push({ type: 'log', text }) },
+    image: () => {},
     outputLimit: () => { seen.push({ type: 'output-limit' }) },
   }
   const peer = createProcessRpc<ProgramMethods, HostMethods>(host, limit, methods, ['revoke'], () => {})
@@ -62,9 +63,9 @@ it('keeps an environment while capturing each evaluation and binding replies sep
   const h = await setup(diagnosticBudget)
   const declarations = [{ global: 'tools', names: ['echo'], errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' } }]
   expect(await h.run('let count = 1; const saved = tools.echo;', declarations)).toEqual({})
-  const result = await h.run('count++; process.stdout.write("raw"); console.log("value", count); await saved({})', declarations)
+  const result = await h.run('count++; process.stdout.write("raw"); inspect("value", count); await saved({})', declarations)
   expect(decodePtcJsonWire(result.value)).toBe(42)
-  expect(h.seen.filter(item => item.type === 'log').map(item => item.text)).toEqual(['raw', 'value 2'])
+  expect(h.seen.filter(item => item.type === 'log').map(item => item.text)).toEqual(['raw', 'value 2\n'])
   expect(h.state.env).toEqual({})
   expect(h.nativeEnvironment).toEqual({ PATH: '/native' })
   const failed = await h.run('throw new Error("failed")', [], diagnosticBudget)
@@ -106,7 +107,7 @@ it('contains directory failures and output overflow in the active evaluation', a
   expect(failed).toMatchObject({ error: { kind: 'exception' } })
   expect((failed.error as { message: string }).message).toContain('directory missing')
   const h = await setup()
-  await h.run('console.log("x".repeat(100))', [], 20)
+  await h.run('inspect("x".repeat(100))', [], 20)
   expect(h.seen.some(item => item.type === 'output-limit')).toBe(true)
 })
 
@@ -119,7 +120,7 @@ it('closes the process channel when a terminal result cannot fit its write budge
 it('ignores output and rejects new tool calls from a completed evaluation', async () => {
   const h = await setup()
   const declarations = [{ global: 'tools', names: ['echo'] }]
-  await h.run('let finish; let old; const trigger = new Promise(resolve => { finish = resolve }); void trigger.then(async () => { console.log("late"); try { await tools.echo({}) } catch (error) { old = error.message } });', declarations)
+  await h.run('let finish; let old; const trigger = new Promise(resolve => { finish = resolve }); void trigger.then(async () => { inspect("late"); try { await tools.echo({}) } catch (error) { old = error.message } });', declarations)
   const result = await h.run('finish(); await new Promise(resolve => setImmediate(resolve)); old', declarations)
   expect(decodePtcJsonWire(result.value)).toBe('PTC evaluation ended')
   expect(h.seen.some(item => item.type === 'log' || item.type === 'call')).toBe(false)
