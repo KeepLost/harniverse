@@ -207,6 +207,7 @@ function renderRunOutput(value: RunCodeOutput, output: PtcOutput[], toolName: st
   }
   if (value.outputTruncated === true) remaining.push(remaining.length > 0 ? `\n${TRUNCATION_NOTICE}` : TRUNCATION_NOTICE)
   appendText(remaining.join(''))
+  /* v8 ignore next -- finalize only runs for image-carrying output, so content is never empty here. */
   return content.length > 0 ? content : [{ type: 'text', text: `(${toolName} completed with no output)` }]
 }
 

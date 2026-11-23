@@ -1640,6 +1640,42 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toContain('Image-producing tools must return exactly one image')
   })
 
+  it('appends the truncation notice after trailing text without a leading blank line', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:trailing-run'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => Promise.resolve({ output: [{ type: 'image', attachment }, { type: 'text', text: 'kept\n' }], outputTruncated: true })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ logs: ['kept\n', '\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'], outputTruncated: true })
+    expect(result.content).toEqual([
+      { type: 'image', attachment },
+      { type: 'text', text: 'kept\n\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]' },
+    ])
+  })
+
+  it('reports a lone truncation notice when nothing was admitted before overflow', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({ output: [], outputTruncated: true })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ logs: ['[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'], outputTruncated: true })
+    expect(result.content).toEqual([
+      { type: 'text', text: '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]' },
+    ])
+  })
+
+  it('reports a quiet completion with no output as plain text', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({ output: [] })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toEqual({ logs: [] })
+    expect(result.content).toEqual([{ type: 'text', text: '(run_code completed with no output)' }])
+  })
+
   it('interleaves inspected images with the truncation notice on a truncated successful run', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const attachment = { attachmentId: brandString<AttachmentId>('sha256:truncated-run'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
