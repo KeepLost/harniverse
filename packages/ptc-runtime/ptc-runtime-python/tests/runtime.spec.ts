@@ -80,10 +80,19 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     })
     expect(runtime.language).toBe('python')
     expect(runtime.isolation).toBe('process')
-    expect(result).toEqual({ logs: [], value: { answer: 42 } })
-    expect(await runtime.run({ cwd: '/test', timeoutMs: null, program: 'return None', bindings: [] })).toEqual({ logs: [], value: null })
+    expect(result).toEqual({ output: [], value: { answer: 42 } })
+    expect(await runtime.run({ cwd: '/test', timeoutMs: null, program: 'return None', bindings: [] })).toEqual({ output: [], value: null })
     expect(await runtime.run({ cwd: '/test', timeoutMs: null, program: 'return chr(0xD800)', bindings: [] }))
-      .toEqual({ logs: [], value: String.fromCharCode(0xd800) })
+      .toEqual({ output: [], value: String.fromCharCode(0xd800) })
+  })
+
+  it('discards a lossy completion without validating it when discardCompletion is set', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ cwd: '/test', timeoutMs: null,
+      program: 'print("selected")\nreturn chr(0xD800) + "tail"', bindings: [], discardCompletion: true })
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBeUndefined()
+    expect(result.output).toEqual([{ type: 'text', text: 'selected' }, { type: 'text', text: '\n' }])
   })
 
   it('captures Python stdout, stderr, and console-style output in order', async () => {
@@ -92,7 +101,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
       bindings: [],
     })
     expect(result.error).toBeUndefined()
-    expect(result.logs).toEqual(['one', 'two', 'three 3'])
+    expect(result.output).toEqual([{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }, { type: 'text', text: 'three 3' }])
   })
 
   it('passes no Host environment and captures native stdout as a bounded backstop', async () => {
@@ -101,7 +110,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     expect(environment.value).toEqual({})
     const native = await runtime.run({ cwd: '/test', timeoutMs: null, program: 'import os\nos.write(1, b"native-out")\nreturn 1', bindings: [] })
     expect(native.error).toBeUndefined()
-    expect(native.logs.join('')).toContain('native-out')
+    expect(native.output.filter(block => block.type === 'text').map(block => block.text).join('')).toContain('native-out')
   })
 
   it('bridges binding results and typed binding rejections', async () => {
@@ -159,14 +168,14 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     }),
     })
     expect(calls).toBe(1)
-    expect(result).toEqual({ logs: [], value: 'still-running' })
+    expect(result).toEqual({ output: [], value: 'still-running' })
   })
 
   it('reports invalid completion values without string substitution', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({ cwd: '/test', timeoutMs: null, program: 'return {1, 2, 3}', bindings: [] })
     expect(result).toEqual({
-      logs: [],
+      output: [],
       error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' },
     })
     const exotic = await runtime.run({ cwd: '/test', timeoutMs: null, program: 'class Sneaky(list):\n    pass\nreturn Sneaky([1])', bindings: [] })
@@ -196,7 +205,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     } else {
       // Darwin aliases RLIMIT_AS onto RLIMIT_RSS and Windows has no rlimits,
       // so the bound is not applied and the run completes normally.
-      expect(result).toEqual({ logs: [], value: 2 })
+      expect(result).toEqual({ output: [], value: 2 })
     }
   })
 
@@ -214,7 +223,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     const outputResult = await capped.runtime.run({ cwd: '/test', timeoutMs: null, program: 'print("x" * 1000)\nreturn 1', bindings: [] })
     expect(outputResult.value).toBeUndefined()
     expect(outputResult.error?.kind).toBe('output-limit')
-    const resultBytes = Buffer.byteLength(JSON.stringify(outputResult.logs))
+    const resultBytes = Buffer.byteLength(JSON.stringify(outputResult.output))
       + Buffer.byteLength(JSON.stringify(outputResult.error?.message))
     expect(resultBytes).toBeLessThanOrEqual(128)
   }, extendedRuntimeTestTimeoutMs)
@@ -222,7 +231,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
   it('uses serialized UTF-8 bytes at the exact completion boundary', async () => {
     const exact = await setup({ maxOutputBytes: 7 })
     expect(await exact.runtime.run({ cwd: '/test', timeoutMs: null, program: 'return "€"', bindings: [] }))
-      .toEqual({ logs: [], value: '€' })
+      .toEqual({ output: [], value: '€' })
     const over = await setup({ maxOutputBytes: 6 })
     expect((await over.runtime.run({ cwd: '/test', timeoutMs: null, program: 'return "€"', bindings: [] })).error?.kind).toBe('output-limit')
   })
@@ -238,8 +247,8 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     })
     expect(result.error).toBeUndefined()
     expect(result.outputTruncated).toBe(true)
-    expect(result.logs[0]?.startsWith('start-')).toBe(true)
-    expect(Buffer.byteLength(JSON.stringify(result.logs))).toBeLessThanOrEqual(128)
+    expect(result.output[0]?.type === 'text' && result.output[0].text.startsWith('start-')).toBe(true)
+    expect(Buffer.byteLength(JSON.stringify(result.output.map(block => block.type === 'text' ? block.text : block)))).toBeLessThanOrEqual(128)
   }, heavyRuntimeTestTimeoutMs)
 
   it('reports pre-abort and rejects unusable configured executables at load', async () => {
@@ -247,7 +256,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     const controller = new AbortController()
     controller.abort('/private/reason')
     expect(await runtime.run({ cwd: '/test', timeoutMs: null, program: 'return 1', bindings: [], signal: controller.signal }))
-      .toEqual({ logs: [], error: { kind: 'abort', message: 'run aborted' } })
+      .toEqual({ output: [], error: { kind: 'abort', message: 'run aborted' } })
 
     await expect(setup({ pythonExecutable: 'dsh-python-does-not-exist' }))
       .rejects.toThrow(/does not resolve to an executable file on PATH/)
@@ -263,7 +272,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
       const { runtime, fiber } = await setup({ pythonExecutable: wrapper })
       rmSync(dir, { recursive: true, force: true })
       expect(await runtime.run({ cwd: '/test', timeoutMs: null, program: 'return 1', bindings: [] }))
-        .toEqual({ logs: [], error: { kind: 'worker-exit', message: 'python process could not start' } })
+        .toEqual({ output: [], error: { kind: 'worker-exit', message: 'python process could not start' } })
       await fiber.dispose()
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -305,7 +314,7 @@ describe.skipIf(!python3Available)('PythonPtcRuntime real subprocess', { timeout
     bindings: tools({ hang: async () => new Promise<unknown>(() => {}) }),
     })
     expect(result).toEqual({
-      logs: [],
+      output: [],
       error: { kind: 'worker-exit', message: 'call backlog exceeded 1024 in-flight binding calls (a binding never settled)' },
     })
     await fiber.dispose()

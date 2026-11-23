@@ -430,6 +430,7 @@ class _BindingNamespace:
 async def _execute(boot: dict[str, Any], run: dict[str, Any]) -> None:
     max_output = int(boot["maxOutputBytes"])
     max_control = int(boot["maxControlBytes"])
+    discard_completion = bool(run.get("discardCompletion"))
     stream = _LogStream(max_output, max_control)
     sys.stdout = stream
     sys.stderr = stream
@@ -461,6 +462,9 @@ async def _execute(boot: dict[str, Any], run: dict[str, Any]) -> None:
     try:
         exec(compile(source, "<model-code>", "exec"), globals_map)
         value = await globals_map["__dsh_main__"]()
+        if discard_completion:
+            _send({"type": "done"}, max_control)
+            return
         if not _json_safe(value):
             _send({"type": "done", "error": {"kind": "invalid-output", "message": "program completion must be lossless JSON"}}, max_control)
             return

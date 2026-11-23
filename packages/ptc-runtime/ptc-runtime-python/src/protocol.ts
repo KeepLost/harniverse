@@ -31,6 +31,7 @@ export interface BootMessage {
 interface RunMessage {
   type: 'run'
   program: string
+  discardCompletion?: boolean
 }
 
 interface BootAckMessage {
@@ -114,7 +115,7 @@ void _rosterSubsetOfUnion
 const WIRE_FRAME_FIELD_ROLES = {
   BootMessage: { type: 'required', cpuSeconds: 'required', addressSpaceBytes: 'required', maxOutputBytes: 'required', maxControlBytes: 'required', namespaces: 'required' },
   Namespace: { global: 'required', names: 'required', errorClass: 'optional' },
-  RunMessage: { type: 'required', program: 'required' },
+  RunMessage: { type: 'required', program: 'required', discardCompletion: 'optional' },
   BootAckMessage: { type: 'required' },
   CallMessage: { type: 'required', id: 'required', global: 'required', name: 'required', args: 'required' },
   LogMessage: { type: 'required', text: 'required' },

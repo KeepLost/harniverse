@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { PtcRuntime, DUNDER_MEMBER, PORTABLE_RESERVED_WORDS, RESERVED_BINDING_GLOBALS, RESERVED_ERROR_MEMBERS } from '@deepseek-ai/dsh-ptc-runtime'
-import type { PtcBindingFunction, PtcJsonValue, PtcRunFailure, PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcBindingFunction, PtcJsonValue, PtcOutput, PtcRunFailure, PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -234,121 +234,61 @@ function jsonValueBytesUpTo(value: PtcJsonValue, maxBytes: number): number | und
 
 /* jscpd:ignore-start -- deliberate mirror of dsh-ptc-runtime-node/src/output-ledger.ts:
  * the same bounded-ledger contract, kept local to avoid a cross-backend dependency. */
-class OutputLedger{
+class OutputLedger {
   private bytes = 2
   private entries = 0
+  truncated = false
 
   constructor(private readonly maxBytes: number) {}
 
-  admit(text: string, sink: string[]): boolean {
+  admit(entry: PtcOutput, sink: PtcOutput[]): boolean {
+    if (this.truncated) return false
     const separator = this.entries > 0 ? 1 : 0
-    const stringBytes = jsonStringBytesUpTo(text, this.maxBytes - this.bytes - separator)
-    if (stringBytes === undefined) return false
-    const cost = stringBytes + separator
-    this.bytes += cost
+    const remaining = this.maxBytes - this.bytes - separator
+    const bytes = entryBytes(entry, remaining)
+    if (bytes === undefined) {
+      this.truncated = true
+      if (entry.type === 'text') {
+        const prefix = truncateJsonString(entry.text, remaining)
+        if (prefix.length > 0) sink.push({ type: 'text', text: prefix })
+      }
+      return false
+    }
+    this.bytes += bytes + separator
     this.entries += 1
-    sink.push(text)
+    sink.push(entry)
     return true
   }
 
-  /** Admit the fitting prefix of one overflowing entry, preserving an ordered prefix of captured output. */
-  admitPrefix(text: string, sink: string[]): void {
-    const separator = this.entries > 0 ? 1 : 0
-    const available = this.maxBytes - this.bytes - separator
-    if (available < 2) return
-    const prefix = truncateJsonString(text, available)
-    if (prefix.length === 0) return
-    const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
-    this.bytes += prefixBytes + separator
-    this.entries += 1
-    sink.push(prefix)
+  success(output: PtcOutput[], value?: PtcJsonValue): PtcRunResult {
+    const valueBytes = value === undefined ? 0 : jsonValueBytesUpTo(value, this.maxBytes - 2)
+    if (valueBytes === undefined) return this.failure(output, { kind: 'output-limit', message: `completion value exceeded ${this.maxBytes} bytes` })
+    return { ...this.retain(output, valueBytes), ...value !== undefined ? { value } : {} }
   }
 
-  success(logs: string[], value?: PtcJsonValue): PtcRunResult {
-    if (value === undefined) return { logs }
-    const valueBytes = jsonValueBytesUpTo(value, this.maxBytes - 2)
-    if (valueBytes === undefined) return this.limit(logs)
-    if (jsonValueBytesUpTo(value, this.maxBytes - this.bytes) !== undefined) return { logs, value }
-    // Reaching here means the value fits only after logs are cut, so the
-    // prefix always truncates.
-    const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - valueBytes)
-    return { logs: retained.logs, value, outputTruncated: true }
-  }
-
-  failure(logs: string[], error: PtcRunFailure): PtcRunResult {
-    if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) !== undefined) return { logs, error }
+  failure(output: PtcOutput[], error: PtcRunFailure): PtcRunResult {
     const message = truncateJsonString(error.message, this.maxBytes - 2)
-    // truncateJsonString returned a fitting prefix, so it measures; the
-    // fallback only names the empty-string floor.
-    /* v8 ignore next -- a fitting truncated diagnostic always measures. */
-    const messageBytes = jsonStringBytesUpTo(message, this.maxBytes - 2) ?? 2
-    // Reaching here means the diagnostic fits only after logs are cut, so the
-    // result always truncates.
-    const retained = this.logPrefixWithin(logs, this.maxBytes - 2 - messageBytes)
-    return { logs: retained.logs, error: { ...error, message }, outputTruncated: true }
+    if (message !== error.message) this.truncated = true
+    return { ...this.retain(output, Buffer.byteLength(JSON.stringify(message))), error: { ...error, message } }
   }
 
-  limit(logs: string[]): PtcRunResult {
-    const fullMessage = `outer output exceeded ${this.maxBytes} bytes`
-    const fullMessageBytes = fullMessage.length + 2
-    const retained: string[] = []
-    let retainedBytes = 2
-    const logBudget = this.maxBytes - fullMessageBytes
-    for (const text of logs) {
-      const separator = retained.length > 0 ? 1 : 0
-      const available = logBudget - retainedBytes - separator
-      /* v8 ignore next -- only a sub-2-byte budget stays exhausted here. */
-      if (available < 2) break
-      const stringBytes = jsonStringBytesUpTo(text, available)
-      if (stringBytes !== undefined) {
-        retained.push(text)
-        retainedBytes += stringBytes + separator
-        continue
-      }
-      const prefix = truncateJsonString(text, available)
-      /* v8 ignore next 3 -- a zero-length prefix means nothing fits, which the byte math of `available` already bounds. */
-      if (prefix.length > 0) {
-        const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
-        retained.push(prefix)
-        retainedBytes += prefixBytes + separator
-      }
-      break
+  private retain(output: PtcOutput[], terminalBytes: number): Pick<PtcRunResult, 'output' | 'outputTruncated'> {
+    const retained: PtcOutput[] = []
+    const ledger = new OutputLedger(this.maxBytes - terminalBytes)
+    for (const entry of output) {
+      if (!ledger.admit(entry, retained)) break
     }
-    const message = truncateJsonString(fullMessage, this.maxBytes - retainedBytes)
-    return { logs: retained, error: { kind: 'output-limit', message }, outputTruncated: true }
+    this.truncated ||= ledger.truncated
+    return { output: retained, ...this.truncated ? { outputTruncated: true } : {} }
   }
+}
 
-  /** Keep the fitting prefix of `logs` within `budget` combined bytes. */
-  private logPrefixWithin(logs: readonly string[], budget: number): { logs: string[]; bytes: number; truncated: boolean } {
-    const retained: string[] = []
-    let retainedBytes = 2
-    let truncated = false
-    for (const text of logs) {
-      const separator = retained.length > 0 ? 1 : 0
-      const available = budget - retainedBytes - separator
-      if (available < 2) {
-        truncated = true
-        break
-      }
-      const stringBytes = jsonStringBytesUpTo(text, available)
-      if (stringBytes !== undefined) {
-        retained.push(text)
-        retainedBytes += stringBytes + separator
-        continue
-      }
-      const prefix = truncateJsonString(text, available)
-      /* v8 ignore next 3 -- a zero-length prefix means nothing fits, which the byte math of `available` already bounds. */
-      if (prefix.length > 0) {
-        const prefixBytes = jsonStringBytesUpTo(prefix, available) as number
-        retained.push(prefix)
-        retainedBytes += prefixBytes + separator
-      }
-      truncated = true
-      break
-    }
-    return { logs: retained, bytes: retainedBytes, truncated }
-  }
-}/* jscpd:ignore-end */
+/** Measure a text entry against the remaining JSON-byte budget (Python emits text fragments only). */
+function entryBytes(entry: PtcOutput, available: number): number | undefined {
+  return entry.type === 'text' ? jsonStringBytesUpTo(entry.text, available) : undefined
+}
+
+/* jscpd:ignore-end */
 
 class JsonLineReader {
   private readonly parts: Buffer[] = []
@@ -622,8 +562,8 @@ export class PythonPtcRuntime extends PtcRuntime {
       const answered = new Set<number>()
       let pendingReplies = 0
       let pendingCalls = 0
-      const logs: string[] = []
-      const output = new OutputLedger(this.config.maxOutputBytes)
+      const output: PtcOutput[] = []
+      const ledger = new OutputLedger(this.config.maxOutputBytes)
       let truncated = false
       let closeSignal: NodeJS.Signals | null = null
       let closeResolve!: () => void
@@ -649,19 +589,15 @@ export class PythonPtcRuntime extends PtcRuntime {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
         void closed.then(() => {
           const finalized = finalize()
-          const result: PtcRunResult = truncated ? { ...finalized, outputTruncated: true } : finalized
           this.live.delete(live)
           finishResolve()
-          resolve(result)
+          resolve(finalized)
         })
       }
 
       const capture = (text: string): void => {
         if (truncated) return
-        if (!output.admit(text, logs)) {
-          truncated = true
-          output.admitPrefix(text, logs)
-        }
+        if (!ledger.admit({ type: 'text', text }, output)) truncated = true
       }
       stdout.on('data', (chunk: Buffer) => { capture(chunk.toString('utf8')) })
       stderr.on('data', (chunk: Buffer) => { capture(chunk.toString('utf8')) })
@@ -669,7 +605,7 @@ export class PythonPtcRuntime extends PtcRuntime {
       const sendReply = (reply: ReplyMessage): void => {
         if (state !== 'running' || settling) return
         if (pendingReplies >= MAX_PENDING_BINDING_WORK) {
-          finish(() => output.failure(logs, { kind: 'worker-exit', message: `reply backlog exceeded ${MAX_PENDING_BINDING_WORK} frames the child has not consumed on stdin` }))
+          finish(() => ledger.failure(output, { kind: 'worker-exit', message: `reply backlog exceeded ${MAX_PENDING_BINDING_WORK} frames the child has not consumed on stdin` }))
           return
         }
         pendingReplies += 1
@@ -690,7 +626,7 @@ export class PythonPtcRuntime extends PtcRuntime {
           return
         }
         if (pendingCalls >= MAX_PENDING_BINDING_WORK) {
-          finish(() => output.failure(logs, { kind: 'worker-exit', message: `call backlog exceeded ${MAX_PENDING_BINDING_WORK} in-flight binding calls (a binding never settled)` }))
+          finish(() => ledger.failure(output, { kind: 'worker-exit', message: `call backlog exceeded ${MAX_PENDING_BINDING_WORK} in-flight binding calls (a binding never settled)` }))
           return
         }
         pendingCalls += 1
@@ -720,8 +656,8 @@ export class PythonPtcRuntime extends PtcRuntime {
         if (message.type === 'boot-ack') {
           if (state !== 'booting' || settling) return
           state = 'running'
-          if (!writeFrame(input, { type: 'run', program: request.program }, this.config.maxControlBytes)) {
-            finish(() => output.failure(logs, { kind: 'exception', message: 'program exceeds configured control limit' }))
+          if (!writeFrame(input, { type: 'run', program: request.program, ...request.discardCompletion === true ? { discardCompletion: true } : {} }, this.config.maxControlBytes)) {
+            finish(() => ledger.failure(output, { kind: 'exception', message: 'program exceeds configured control limit' }))
           }
           return
         }
@@ -736,18 +672,18 @@ export class PythonPtcRuntime extends PtcRuntime {
         if (state !== 'running' || settling) return
         if (message.error) {
           const error = { ...message.error, message: sanitizeDiagnostic(message.error.message) }
-          finish(() => output.failure(logs, error))
+          finish(() => ledger.failure(output, error))
           return
         }
         if (message.value === undefined) {
-          finish(() => output.success(logs))
+          finish(() => ledger.success(output))
           return
         }
         if (hasNonLosslessNumber(message.value)) {
-          finish(() => output.failure(logs, { kind: 'invalid-output', message: 'program completion must be lossless JSON' }))
+          finish(() => ledger.failure(output, { kind: 'invalid-output', message: 'program completion must be lossless JSON' }))
           return
         }
-        finish(() => output.success(logs, message.value as PtcJsonValue))
+        finish(() => ledger.success(output, message.value as PtcJsonValue))
       }
 
       const reader = new JsonLineReader(
@@ -763,45 +699,45 @@ export class PythonPtcRuntime extends PtcRuntime {
           const message = validateChildFrame(raw)
           if (message) onFrame(message)
         },
-        () => { finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process violated the control protocol' })) },
+        () => { finish(() => ledger.failure(output, { kind: 'worker-exit', message: 'python process violated the control protocol' })) },
       )
       protocol.on('data', (chunk: Buffer) => { reader.push(chunk) })
       protocol.on('error', () => {
-        if (!settling) finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
+        if (!settling) finish(() => ledger.failure(output, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
       })
       input.on('error', () => {
-        if (!settling) finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
+        if (!settling) finish(() => ledger.failure(output, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
       })
 
       child.once('error', () => {
-        finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process could not start' }))
+        finish(() => ledger.failure(output, { kind: 'worker-exit', message: 'python process could not start' }))
       })
       child.once('close', (_code, signal) => {
         closeSignal = signal
         closeResolve()
-        if (!settling) finish(() => output.failure(logs, finalExitFailure()))
+        if (!settling) finish(() => ledger.failure(output, finalExitFailure()))
       })
 
       const onAbort = (): void => {
-        finish(() => output.failure(logs, { kind: 'abort', message: 'run aborted' }))
+        finish(() => ledger.failure(output, { kind: 'abort', message: 'run aborted' }))
       }
       request.signal?.addEventListener('abort', onAbort, { once: true })
       const wallTimer = setTimeout(() => {
-        finish(() => output.failure(logs, { kind: 'timeout', message: `wall-clock ceiling reached (${this.config.maxWallMs}ms)` }))
+        finish(() => ledger.failure(output, { kind: 'timeout', message: `wall-clock ceiling reached (${this.config.maxWallMs}ms)` }))
       }, this.config.maxWallMs)
 
       const live: LiveRun = {
         finished,
-        settle: (failure) => { finish(() => output.failure(logs, failure)) },
+        settle: (failure) => { finish(() => ledger.failure(output, failure)) },
       }
       this.live.add(live)
 
       try {
         if (!writeFrame(input, boot, this.config.maxControlBytes)) {
-          finish(() => output.failure(logs, { kind: 'exception', message: 'binding metadata exceeds configured control limit' }))
+          finish(() => ledger.failure(output, { kind: 'exception', message: 'binding metadata exceeds configured control limit' }))
         }
       } catch {
-        finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
+        finish(() => ledger.failure(output, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
       }
     })
   }
