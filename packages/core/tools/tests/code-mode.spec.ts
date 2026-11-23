@@ -8,7 +8,7 @@ import { PtcInspectableValue, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
-import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, TRUNCATION_NOTICE, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -1650,11 +1650,11 @@ describe('the run_code dispatch bridge', () => {
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected success')
-    expect(result.value).toMatchObject({ logs: ['kept\n', `\n${TRUNCATION_NOTICE}`], outputTruncated: true })
+    expect(result.value).toMatchObject({ logs: ['kept\n', '\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'], outputTruncated: true })
     expect(result.content).toEqual([
       { type: 'text', text: 'kept\n' },
       { type: 'image', attachment },
-      { type: 'text', text: TRUNCATION_NOTICE },
+      { type: 'text', text: '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]' },
     ])
   })
 

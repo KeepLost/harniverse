@@ -187,7 +187,7 @@ function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unkno
   return { dispatched: snapshot, logged }
 }
 
-export const TRUNCATION_NOTICE = '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'
+const TRUNCATION_NOTICE = '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'
 
 /** Canonical value returned by the outer PTC transport. */
 type RunCodeOutput = { logs: string[]; outputTruncated?: boolean }
