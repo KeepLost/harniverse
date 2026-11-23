@@ -818,7 +818,7 @@ describe('the run_code dispatch bridge', () => {
       const first = await tools.echo!({ value: 'one' })
       const second = await tools.echo!({ value: 'two' })
       if (typeof first !== 'string' || typeof second !== 'string') throw new Error('echo returned a non-string')
-      return { output: [{ type: 'text', text: `saw ${first}` }, { type: 'text', text: String(second) }] }
+      return { output: [{ type: 'text', text: `saw ${first}` }, { type: 'text', text: second }] }
     }
     const result = await runCode(ctx, 'const …: string = …', { agent })
     expect(result.isError).toBe(false)
@@ -1367,7 +1367,8 @@ describe('the run_code dispatch bridge', () => {
     }))
     runtime.behavior = async (request) => {
       const value = await request.bindings[0]!.functions.mixed!({})
-      return { output: [{ type: 'text', text: String(value) }] }
+      if (typeof value !== 'string') throw new Error('mixed returned a non-string')
+      return { output: [{ type: 'text', text: value }] }
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
@@ -1501,7 +1502,8 @@ describe('the run_code dispatch bridge', () => {
       const functions = request.bindings[0]!.functions
       expect(Object.getPrototypeOf(functions)).toBeNull()
       const value = await functions['__proto__']!({})
-      return { output: [{ type: 'text', text: String(value) }] }
+      if (typeof value !== 'string') throw new Error('__proto__ returned a non-string')
+      return { output: [{ type: 'text', text: value }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
