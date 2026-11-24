@@ -57,7 +57,7 @@ CLI 在准备阶段之前为独占组合获取 home 租约，并为每个组合�
 
 ## Config schema export
 
-`generateConfigSchema(profile, layers)` 在不启动的情况下回答「这个 profile 的配置可以包含什么」：它用与启动相同的 `composeEntries` 组合调用方传入的各 patch 层，遍历条目树（include 文件按字面读取，拥有自己的解析基准与 patch 索引；循环即拒绝；展开 `cordis:group`/`cordis:include` 载体，禁用的载体不声明子项），以与启动解析一致的方式导入每个具名插件（裸名经由 profile 旁由启动器维护的扁平回退目录解析），读取其 `Config` 导出，并把每个原生 Schemastery 图投影为 JSON Schema 2020-12。插件绝不被应用，`!!js` 绝不被求值：表达式值位置与惰性的 `#/$defs/loaderExpression` 标记取并集，其结果只在运行时校验。导入、`Config` getter 与惰性 schema 构建器会执行——收集过程运行的是可信模块代码，与启动同等信任；原生校验器与 transform 回调绝不运行，因此一切无法静态判定的语义（loose 回退、transform 回调、会改写输入的 union 分支、非有限边界、Unicode pattern 语义、lazy 元数据传播）都会放宽生成的校验，并以警告诊断的形式呈现，而不是变成静默错误的约束。
+`generateConfigSchema(profile, layers)` 在不启动的情况下回答「这个 profile 的配置可以包含什么」：它用与启动相同的 `composeEntries` 组合调用方传入的各 patch 层，遍历条目树（include 文件按字面读取——`path` 按内建 Include 的读法解析，Windows 盘符路径即文件路径——并拥有自己的解析基准与 patch 索引；循环即拒绝；展开 `cordis:group`/`cordis:include` 载体，禁用的载体不声明子项），以与启动解析一致的方式导入每个具名插件（裸名经由 profile 旁由启动器维护的扁平回退目录解析），读取其 `Config` 导出，并把每个原生 Schemastery 图投影为 JSON Schema 2020-12。插件绝不被应用，`!!js` 绝不被求值：表达式值位置与惰性的 `#/$defs/loaderExpression` 标记取并集，其结果只在运行时校验。导入、`Config` getter 与惰性 schema 构建器会执行——收集过程运行的是可信模块代码，与启动同等信任；原生校验器与 transform 回调绝不运行，因此一切无法静态判定的语义（loose 回退、transform 回调、会改写输入的 union 分支、非有限边界、Unicode pattern 语义、lazy 元数据传播）都会放宽生成的校验，并以警告诊断的形式呈现，而不是变成静默错误的约束。
 
 文档对不完整性自我描述，而不是猜测：只要存在 error 级诊断、任一条目状态为 `partial`/`unsupported`/`error`，或某一插件名收集到多个不同的 schema（取其并集并给出警告，因为模块解析取决于所属树），`x-cordis.complete` 即为 `false`。`x-cordis.entries[]` 携带每个已声明行的状态与 `configRef`；`x-cordis.patchSchema` 指向 `$defs.patchList`，即 profile/home/CLI overlay 的 schema；按 id 定位的 patch 规则由根树的当前索引生成。
 
