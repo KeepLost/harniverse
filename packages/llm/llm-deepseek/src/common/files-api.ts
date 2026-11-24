@@ -1,5 +1,6 @@
 /** DeepSeek Files API transport for chat-completions and Messages endpoints. */
 
+import { randomUUID } from 'node:crypto'
 import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { DeepSeekFileId } from './file-id.ts'
@@ -148,6 +149,49 @@ function parseMessagesFile(value: unknown, operation: string): DeepSeekFileObjec
   }
 }
 
+/**
+ * Encode the upload as one `multipart/form-data` byte array (RFC 7578).
+ *
+ * `fetch` receives bytes instead of a `FormData`: Node's `fetch` copies a `FormData` body into the request stream from a
+ * detached task, and a request cancelled while that task runs fails it as an unhandled rejection.
+ */
+function multipartUpload(boundary: string, input: {
+  data: Uint8Array
+  mediaType: ImageMediaType
+  filename: string
+  expiresAfterSeconds: number
+  /** Leading `purpose` field; Messages omits it. */
+  purpose?: DeepSeekFileObject['purpose']
+}): Uint8Array<ArrayBuffer> {
+  const encoder = new TextEncoder()
+  // The escapes of the WHATWG multipart/form-data encoding keep the filename inside its quoted header value.
+  const filename = input.filename.replaceAll('"', '%22').replaceAll('\r', '%0D').replaceAll('\n', '%0A')
+  const head = encoder.encode([
+    `--${boundary}`,
+    ...input.purpose === undefined
+      ? []
+      : ['Content-Disposition: form-data; name="purpose"', '', input.purpose, `--${boundary}`],
+    'Content-Disposition: form-data; name="expires_after[anchor]"',
+    '',
+    'created_at',
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="expires_after[seconds]"',
+    '',
+    String(input.expiresAfterSeconds),
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="file"; filename="${filename}"`,
+    `Content-Type: ${input.mediaType}`,
+    '',
+    '',
+  ].join('\r\n'))
+  const tail = encoder.encode(`\r\n--${boundary}--\r\n`)
+  const body = new Uint8Array(head.byteLength + input.data.byteLength + tail.byteLength)
+  body.set(head)
+  body.set(input.data, head.byteLength)
+  body.set(tail, head.byteLength + input.data.byteLength)
+  return body
+}
+
 /** Direct Files client retaining the configured URL root and refusing redirects before credentials can leave its origin. */
 export class DeepSeekFilesClient {
   private readonly baseURL: string
@@ -176,7 +220,8 @@ export class DeepSeekFilesClient {
   private async request(path: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
     let response: Response
     try {
-      const headers = new Headers(attributionHeaders())
+      const headers = new Headers(init.headers)
+      for (const [name, value] of Object.entries(attributionHeaders())) headers.set(name, value)
       if (this.protocol === 'messages') {
         headers.set('x-api-key', this.apiKey)
         headers.set('anthropic-version', '2023-06-01')
@@ -225,12 +270,18 @@ export class DeepSeekFilesClient {
       || input.expiresAfterSeconds > MAX_FILE_EXPIRY_SECONDS) {
       throw new LlmError('DeepSeek file expiry must be between 3600 and 2592000 seconds.', 'INVALID_REQUEST')
     }
-    const form = new FormData()
-    if (this.protocol === 'chat-completions') form.set('purpose', 'user_data')
-    form.set('expires_after[anchor]', 'created_at')
-    form.set('expires_after[seconds]', String(input.expiresAfterSeconds))
-    form.set('file', new Blob([Uint8Array.from(input.data).buffer], { type: input.mediaType }), input.filename)
-    const response = await this.request(this.path, { method: 'POST', body: form }, input.signal)
+    const boundary = `----dsh-${randomUUID()}`
+    const response = await this.request(this.path, {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      body: multipartUpload(boundary, {
+        data: input.data,
+        mediaType: input.mediaType,
+        filename: input.filename,
+        expiresAfterSeconds: input.expiresAfterSeconds,
+        ...this.protocol === 'chat-completions' ? { purpose: 'user_data' as const } : {},
+      }),
+    }, input.signal)
     const file = this.parseFile(await responseJson(response, 'upload'), 'upload')
     if (this.protocol === 'messages') return { ...file, expiresAt: file.createdAt + input.expiresAfterSeconds * 1_000 }
     if (file.expiresAt === undefined) throw invalidResponse('upload')

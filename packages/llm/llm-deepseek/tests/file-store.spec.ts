@@ -7,6 +7,7 @@ import { DeepSeekFileId } from '../src/common/file-id.ts'
 import { DeepSeekFileStore } from '../src/common/file-store.ts'
 import { DeepSeekUploadIndex, deepSeekFileScope } from '../src/common/upload-index.ts'
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import { uploadedForm } from './helpers.ts'
 
 const roots: string[] = []
 
@@ -160,13 +161,14 @@ describe('DeepSeek file store', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-file-store-'))
     roots.push(root)
     const filenames: string[] = []
+    const mediaTypes: string[] = []
     const store = new DeepSeekFileStore({
       index: new DeepSeekUploadIndex(join(root, 'files-v1.json')),
       fetch: async (_input, init) => {
-        const body = init?.body
-        if (body instanceof FormData) {
-          const file = body.get('file')
-          if (file instanceof File) filenames.push(file.name)
+        const file = (await uploadedForm(init)).get('file')
+        if (file instanceof File) {
+          filenames.push(file.name)
+          mediaTypes.push(file.type)
         }
         return fileResponse('file-1')
       },
@@ -178,6 +180,7 @@ describe('DeepSeek file store', () => {
       { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 },
     )
     expect(filenames).toEqual([expect.stringMatching(new RegExp(`\\.${extension}$`, 'u'))])
+    expect(mediaTypes).toEqual([mediaType])
   })
 
   it('leaves files this deployment did not upload during quota cleanup', async () => {
