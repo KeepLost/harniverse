@@ -22,7 +22,7 @@ Live roots deliver directly. Cold sessions resolve through the session-delivery-
 
 ### Rules, missed runs, and failures
 
-The rule grammar is the official `at`/`after`/`every` (five-minute floor, first-run anchor). An overdue `every` skips to its latest missed slot and fires once — no per-slot catch-up. An overdue `at` fires once late. A failed one-shot retries after ten minutes with `lastError` recorded; a failed `every` continues at its next slot. Advancement happens after the delivery attempt, so a crash between delivery and advancement replays one dispatch — at-least-once, because a silently missed reminder is worse than a rare duplicate.
+The rule grammar is the official `at`/`after`/`every` (five-minute floor, first-run anchor). An overdue `every` skips to its latest missed slot and fires once — no per-slot catch-up. An overdue `at` fires once late. A failed one-shot retries after ten minutes with `lastError` recorded; a failed `every` continues at its next slot. Advancement happens after the delivery attempt, so a crash between delivery and advancement replays one dispatch — at-least-once, because a silently missed reminder is worse than a rare duplicate. A dispatch claims its slot where the prompt is enqueued: a record paused, deleted, or rescheduled while the dispatch waits for the idle phase delivers nothing, and a wait that crosses further `every` boundaries serves the latest missed slot only ([slot-claim record](../bug-fix/2026-11-24-include-path-and-scheduler-slot-claim.md)).
 
 ### Fresh contexts compose the reset seam
 
