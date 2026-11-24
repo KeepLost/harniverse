@@ -442,6 +442,9 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
 
+/** Characters of a transport failure reason kept in the model-visible message. */
+const MAX_REASON_CHARS = 500
+
 /**
  * Translate a thrown request/stream error into a `WebError`, classified by the
  * deadline signal rather than the thrown value (which differs by phase: the
@@ -450,11 +453,14 @@ function toError(error: unknown): Error {
  * recovering OUR reason means our timeout fired (`WEB_FETCH_TIMEOUT`); any other
  * abort — an upstream cancel, or a foreign/outer deadline's timeout under
  * nesting — is `WEB_ABORTED`; a throw with the signal NOT aborted is a
- * transport/network failure (`WEB_PROVIDER_ERROR`).
+ * transport/network failure (`WEB_PROVIDER_ERROR`) whose reason is cut at
+ * `MAX_REASON_CHARS`.
  */
 function translateAbortOrNetwork(error: unknown, signal: AbortSignal): WebError {
   const timeout = timeoutOf(signal, 'WEB_FETCH_TIMEOUT')
   if (timeout !== undefined) return new WebError('web fetch timed out', 'WEB_FETCH_TIMEOUT', { cause: timeout })
   if (signal.aborted) return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
-  return new WebError(`web fetch failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+  const reason = String(error)
+  const bounded = reason.length > MAX_REASON_CHARS ? `${reason.slice(0, MAX_REASON_CHARS)}…` : reason
+  return new WebError(`web fetch failed: ${bounded}`, 'WEB_PROVIDER_ERROR', { cause: error })
 }
