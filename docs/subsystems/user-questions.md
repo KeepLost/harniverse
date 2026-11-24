@@ -121,7 +121,7 @@ interface UserQuestionProvider {
 
 ## Errors
 
-`UserQuestionError` extends `HarnessError`, so `ctx.tools.execute()` preserves `{ name, code }` for model-facing tool failures such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `ASK_ABORTED`, or UI-side cancellation.
+`UserQuestionError` extends `HarnessError`, so `ctx.tools.execute()` preserves `{ name, code }` for model-facing tool failures such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `ASK_ABORTED`, or UI-side cancellation. An answerer failure that is not a `HarnessError` becomes `PROVIDER_ERROR` with the original message and the original as `cause`; another `HarnessError` keeps its own `name` and `code`.
 
 ```ts type-equiv
 /** Stable error taxonomy for user-questions failures. */
@@ -168,11 +168,14 @@ registerProvider(provider: UserQuestionProvider): () => void
  * @param request Questions, owner agent, and abort signal.
  * @returns The answer chosen or typed by the human.
  * @throws {UserQuestionError} code `CALLER_NOT_LIVE` when a supplied
- *   agent is not the registry's exact live instance, or `DELEGATED_CALLER`
- *   when that live agent is owned by another agent.
+ *   agent is not the registry's exact live instance, `DELEGATED_CALLER`
+ *   when that live agent is owned by another agent, or `PROVIDER_ERROR`,
+ *   keeping the original message, when the answerer fails with a value
+ *   that is not a `HarnessError`; a coded `HarnessError` from an answerer
+ *   keeps its `name` and `code`.
  */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```
 
-Source: [`packages/interaction/user-questions/src/index.ts:52`](../../packages/interaction/user-questions/src/index.ts)
+Source: [`packages/interaction/user-questions/src/index.ts:60`](../../packages/interaction/user-questions/src/index.ts)
 <!-- END GENERATED cordis-surface -->
