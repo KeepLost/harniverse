@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -95,6 +96,69 @@ describe('threshold escalation', () => {
 })
 
 describe('chain semantics', () => {
+  it.each(['composite', 'other'])('nested %s calls neither count nor reset the model-direct chain', async (nestedName) => {
+    const ctx = await harness()
+    const downstreamContext = createUserMessage({
+      content: [{ type: 'text', text: 'nested policy context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    let nestedCalls = 0
+    const nestedResults: ToolExecutionResult[] = []
+    ctx.on('tools/post-execute', async (exec, _result, next) => {
+      const decision = await next()
+      if (exec.parent === undefined) return decision
+      nestedCalls += 1
+      return { ...decision, additionalContexts: [downstreamContext] }
+    })
+    ctx.tools.register(defineContentToolFixture({
+      name: 'composite',
+      description: 'Run nested calls.',
+      parameters: {},
+      async execute(_args, exec) {
+        if (exec.parent === undefined) {
+          for (let index = 0; index < 5; index += 1) {
+            nestedResults.push(await ctx.tools.execute({
+              callId: CallId(`${exec.callId}:nested:${index}`),
+              name: nestedName,
+              arguments: {},
+              ...(exec.agent === undefined ? {} : { agent: exec.agent }),
+              parent: exec.token,
+              signal: exec.signal,
+            }))
+          }
+        }
+        return [{ type: 'text', text: 'ok' }]
+      },
+    }))
+    const adapter = new MockAdapter([
+      ...Array.from({ length: 5 }, (_, index) => toolCallResponse(`c${index}`, 'composite', {})),
+      textResponse('done'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = ctx.agentLoop.create(SessionId('nested'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // Every nested call still reaches the downstream listener; none of them touched the chain.
+    expect(nestedCalls).toBe(25)
+    expect(nestedResults.every(result => !result.isError)).toBe(true)
+    expect(nestedResults.map(result => result.additionalContexts)).toEqual(
+      Array.from({ length: 25 }, () => [downstreamContext]),
+    )
+    expect(reminders(agent).map(message => message.source)).toEqual([
+      guardSource('composite', 3),
+      guardSource('composite', 5),
+    ])
+    expect(adapter.requests.map(request => request.messages
+      .filter(message => message.role === 'user' && message.source?.kind === 'plugin' && message.source.plugin === 'repeat-tool-reminder')
+      .map(message => message.source))).toEqual([
+      [], [], [],
+      [guardSource('composite', 3)],
+      [guardSource('composite', 3)],
+      [guardSource('composite', 3), guardSource('composite', 5)],
+    ])
+  })
+
   it('caps the detailed reminder arguments at argumentsPreviewChars (detection still keys on the full string)', async () => {
     const ctx = await harness({ thresholds: [2, 3], argumentsPreviewChars: 24 })
     const bigPayload = 'x'.repeat(400)
