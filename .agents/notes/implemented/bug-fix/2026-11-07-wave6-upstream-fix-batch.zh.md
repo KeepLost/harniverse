@@ -15,7 +15,7 @@ Status: implemented
 
 ## 决策
 
-- **参数容错（逐工具、非通用放宽）**：`parseGrepArgs` 把恰好为空的 `include` 视为省略（纯空白仍然非法）；`update_goal` 忽略所选 action 用不到的已知字段，任意取值不再拒绝（`blocked` 仍要求 `blocked_reason`，阈值与授权校验不变）；`validateEscalationArgs` 不再拒绝孤立 `justification`——真正升权（带 `sandbox_permissions`）仍要求非空理由并走审批，重复模式对仍由 `normalizeRedundantEscalation` 先行剥离。规则留在各工具内，不建立通用字段强制转换政策。
+- **参数容错（逐工具、非通用放宽）**：`parseGrepArgs` 把恰好为空的 `include` 视为省略（纯空白仍然非法）；`update_goal` 忽略所选 action 用不到的已知字段，任意取值不再拒绝（`blocked` 仍要求 `blocked_reason`，阈值与授权校验不变）；`validateEscalationArgs` 不再拒绝孤立 `justification`——真正升权（带 `sandbox_permissions`）仍要求非空理由并走审批，重复模式对仍由 `normalizeRedundantEscalation` 先行剥离。规则留在各工具内，不建立通用字段强制转换政策。没有沙箱执行器的组合会把非空的孤立 `justification` 当作未公开的参数拒绝，见 [wave-8 修复批](2026-11-24-wave8-upstream-fix-batch.md)。
 - **charset 恢复**：`decoderForCharset` 对整串不支持的声明按逗号/空白拆分标签，任一标签属 WHATWG UTF-8 标签集即返回 **fatal** UTF-8 解码器；否则在读正文之前抛 `WEB_UNSUPPORTED_CONTENT_TYPE` 并取消流。fatal 解码失败在 provider 映射回同一错误码并保留 cause。不含 UTF-8 标签的声明、单标签 legacy 解码、`<meta charset>` 忽略均不变。
 - **read 指引**：并入官方措辞——点名 `cat, sed, head, or tail` 并新增"用 offset 与 limit 读行区间或续读大文件"——保留本树自有的行号、`line_byte_offset` 续传与 legacy 编码提示句。30 个 pinned system-prompt sidecar 经 `test:snapshot:refresh` keyless 重录。
 - **锁定部署**：deploy 改用 pnpm 默认策略（从工作区 lockfile 派生生产 lockfile 并 frozen 安装），去掉 `--legacy` 与 `auto-install-peers=false`；新增 `--config.inject-workspace-packages=true`（默认部署的前提）与 deploy 专用 `scripts/python-runtime-deploy.pnpmfile.mjs`——其 `hooks.updateConfig` 把 `allowBuilds` 中相对 `name@file:<path>` 审批键翻译成派生 lockfile 使用的绝对 `file://` 身份，审批/拒绝与 strictDepBuilds 校验本身不变。`restoreLegacyHoists` 更名为 `verifyStagedDependencies`（默认部署会物化全部直接依赖，该函数保留为完整性校验与兜底恢复）。本树无 `file:` 直接依赖，无需官方 pnpmfile 的审批翻译之外的逻辑。
