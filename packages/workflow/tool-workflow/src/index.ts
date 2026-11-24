@@ -17,6 +17,7 @@ import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JobRegistry } from '@deepseek-ai/dsh-jobs'
 import type { JsonValue, Session, SessionEventMap } from '@deepseek-ai/dsh-session'
+import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type {
   WorkflowResult, WorkflowRun, WorkflowRunId, WorkflowStopReason,
 } from '@deepseek-ai/dsh-workflow'
@@ -184,17 +185,17 @@ function presentWorkflowResult(args: WorkflowCallArgs, result: { content: Conten
 }
 
 /** A non-`completed` stop reason means the script did not finish cleanly. */
-function stopReasonError(result: WorkflowResult): string | undefined {
+function stopReasonError(result: WorkflowResult): WorkflowError | undefined {
   switch (result.stopReason) {
     case 'completed':
       return undefined
     case 'cancelled':
-      return `workflow run was cancelled${result.error !== undefined ? ` (${result.error})` : ''}`
+      return new WorkflowError(`workflow run was cancelled${result.error !== undefined ? ` (${result.error})` : ''}`, 'CANCELLED')
     case 'error':
-      return `workflow run failed: ${result.error ?? 'unknown error'}`
+      return new WorkflowError(`workflow run failed: ${result.error ?? 'unknown error'}`, result.errorCode ?? 'RUN_FAILED')
     /* v8 ignore start -- defensive: WorkflowStopReason is a closed union, exhaustive by construction; a future variant fails here loudly */
     default:
-      return `workflow run ended abnormally (${String(result.stopReason satisfies never)})`
+      return new WorkflowError(`workflow run ended abnormally (${String(result.stopReason satisfies never)})`, 'RUN_FAILED')
     /* v8 ignore stop */
   }
 }
@@ -348,7 +349,7 @@ export function apply(ctx: Context, config: Config): void {
               const error = stopReasonError(outcome)
               return error === undefined
                 ? { status: 'completed' as const, detail: `agents: ${outcome.agentsStarted}`, output: renderResult(args.meta.name, outcome.agentsStarted, outcome.value as JsonValue, maxResultChars) }
-                : { status: outcome.stopReason === 'cancelled' ? 'killed' as const : 'failed' as const, detail: error }
+                : { status: outcome.stopReason === 'cancelled' ? 'killed' as const : 'failed' as const, detail: error.message }
             }),
             readOutput: () => tail.splice(0).join('\n'),
           }),
@@ -373,7 +374,7 @@ export function apply(ctx: Context, config: Config): void {
         if (error !== undefined) {
           // Map a non-clean finish to an isError result (the registry turns a
           // throw into an isError). Report the reason, not partial output.
-          throw new Error(error)
+          throw error
         }
         return {
           runId: run.id,

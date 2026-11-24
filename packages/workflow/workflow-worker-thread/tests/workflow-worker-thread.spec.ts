@@ -885,6 +885,31 @@ describe('dsh-workflow-worker-thread', () => {
       await ctx.fiber.dispose()
     })
 
+    it('carries a worker-reported fatal code onto the run result and drops a code outside the seam union', async () => {
+      const { ctx, parent } = await setup({
+        manual: true,
+        config: { provider: 'stub', disposeGraceMs: 30_000 },
+      })
+      const workerOf = (run: unknown): Worker => (run as { worker: Worker }).worker
+
+      const coded = ctx.workflowEngine.start({ ...scripted('await new Promise(() => {})'), parent })
+      workerOf(coded).emit('message', {
+        type: WorkerToHostType.Result,
+        result: { value: null, stopReason: 'error', error: 'total agent cap (1)', errorCode: 'AGENT_CAP', agentsStarted: 1 },
+      })
+      await expect(coded.result).resolves.toEqual({
+        value: null, stopReason: 'error', error: 'total agent cap (1)', errorCode: 'AGENT_CAP', agentsStarted: 1,
+      })
+
+      const uncoded = ctx.workflowEngine.start({ ...scripted('await new Promise(() => {})'), parent })
+      workerOf(uncoded).emit('message', {
+        type: WorkerToHostType.Result,
+        result: { value: null, stopReason: 'error', error: 'cap', errorCode: 'NOT_A_CODE', agentsStarted: 0 },
+      })
+      await expect(uncoded.result).resolves.toEqual({ value: null, stopReason: 'error', error: 'cap', agentsStarted: 0 })
+      await ctx.fiber.dispose()
+    })
+
     it('the settle-reap fires the request signal too: a provider honoring ONLY the signal winds its stray down promptly', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentRuntime)

@@ -434,6 +434,29 @@ describe('dsh-tool-workflow', () => {
     expect(((await pending).content[0] as { text: string }).text).toContain('unknown error')
   })
 
+  it.each([
+    ['the fatal code that ended the run', { errorCode: 'AGENT_CAP' as const }, { name: 'WorkflowError', code: 'AGENT_CAP' }],
+    ['RUN_FAILED when the run carries none', {}, { name: 'WorkflowError', code: 'RUN_FAILED' }],
+  ])('fails an error run with %s', async (_label, extra, info) => {
+    const { ctx, engine, parent } = await setup()
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
+    await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+    engine.settle({ value: null, stopReason: 'error', error: 'total agent cap (1)', agentsStarted: 1, ...extra })
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(result.error?.info).toEqual(info)
+  })
+
+  it('fails a cancelled run with CANCELLED', async () => {
+    const { ctx, engine, parent } = await setup()
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
+    await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+    engine.settle({ value: null, stopReason: 'cancelled', error: 'user', agentsStarted: 0 })
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(result.error?.info).toEqual({ name: 'WorkflowError', code: 'CANCELLED' })
+  })
+
   it('cancels the run when exec.signal aborts MID-FLIGHT (the abort bridge)', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()

@@ -62,7 +62,7 @@ interface WorkflowMeta {
 
 ## The terminal result: `WorkflowResult`
 
-The outcome of one run, resolved by `WorkflowRun.result`. `value` is the script's materialized return value — plain host-realm JSON data (`null` when the script returned nothing) — meaningful only for `completed`. `stopReason` is a CLOSED union (engine-owned; consumers may exhaust it): `completed` | `cancelled` | `error`. A non-`completed` reason carries the failure in `error`, and the consumer maps it to an `isError` tool result rather than reporting partial output as success.
+The outcome of one run, resolved by `WorkflowRun.result`. `value` is the script's materialized return value — plain host-realm JSON data (`null` when the script returned nothing) — meaningful only for `completed`. `stopReason` is a CLOSED union (engine-owned; consumers may exhaust it): `completed` | `cancelled` | `error`. A non-`completed` reason carries the failure in `error` — with the code of the fatal `WorkflowError` that ended an `error` run in `errorCode` — and the consumer maps it to an `isError` tool result rather than reporting partial output as success.
 
 ```ts type-equiv
 /**
@@ -79,6 +79,11 @@ interface WorkflowResult {
   stopReason: WorkflowStopReason
   /** The failure message (present iff `stopReason` is not `completed`). */
   error?: string
+  /**
+   * The code of the fatal {@link WorkflowError} that ended an `error` run;
+   * absent when the script's own exception or the engine runtime ended it.
+   */
+  errorCode?: WorkflowErrorCode
   /**
    * How many `agent()` calls the run accepted over its whole lifetime. On a
    * graceful settlement this is the script-side count (calls still queued for
@@ -151,7 +156,7 @@ Workflow Service Definition contract. Invalid requests throw before publication;
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:157`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:163`](../../packages/workflow/workflow/src/index.ts)
 
 <a id="workflow-events"></a>
 

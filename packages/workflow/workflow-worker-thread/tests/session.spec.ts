@@ -179,7 +179,29 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     expect(result.stopReason).toBe('error')
     expect(result.error).toContain('agent() could not start a child')
     expect(result.error).toContain('no provider here')
+    expect(result.errorCode).toBe('AGENT_START')
     host.close()
+  })
+
+  it('reports no fatal code when the script throws its own error', async () => {
+    const host = fakeHost()
+    void runWorkerSession(host.port, init('throw new Error("script bug")'))
+    const result = await host.result()
+    expect(result).toMatchObject({ stopReason: 'error', error: expect.stringContaining('script bug') as string })
+    expect(result).not.toHaveProperty('errorCode')
+    host.close()
+  })
+
+  it('reports a tripped cap by its fatal code', async () => {
+    const total = fakeHost({ reply: () => text('ok') })
+    void runWorkerSession(total.port, init('await agent("one"); return await agent("two")', undefined, { maxTotalAgents: 1 }))
+    expect(await total.result()).toMatchObject({ stopReason: 'error', errorCode: 'AGENT_CAP' })
+    total.close()
+
+    const perCall = fakeHost({ reply: () => text('ok') })
+    void runWorkerSession(perCall.port, init('return await parallel([() => 1, () => 2])', undefined, { maxItemsPerCall: 1 }))
+    expect(await perCall.result()).toMatchObject({ stopReason: 'error', errorCode: 'ITEM_CAP' })
+    perCall.close()
   })
 
   it('a child-failed message (infrastructure rejection) is fatal AGENT_RESULT with the paired failed outcome', async () => {

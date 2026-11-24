@@ -181,8 +181,15 @@ export class WorkflowExecution {
       }
       // renderThrown is total (thrown values of any realm), so this arm
       // cannot throw — drive() resolving is the `result` never-rejects contract
-      // contract.
-      return { value: null, stopReason: 'error', error: renderThrown(error), agentsStarted: this.started }
+      // contract. A fatal WorkflowError names its code so the consumer can
+      // route on it; the script's own exception carries none.
+      return {
+        value: null,
+        stopReason: 'error',
+        error: renderThrown(error),
+        ...error instanceof WorkflowError ? { errorCode: error.code } : {},
+        agentsStarted: this.started,
+      }
     }
   }
 
