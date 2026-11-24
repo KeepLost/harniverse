@@ -401,6 +401,7 @@ describe('fetch formatting', () => {
 
   it('validates url (non-empty), no timeout parameter', () => {
     expect(() => parseFetchArgs({ url: ' ' })).toThrow('non-empty')
+    expect(() => parseFetchArgs({ url: ' ' })).toThrow(expect.objectContaining({ name: 'ToolArgsError', code: 'INVALID_ARGS' }))
     expect(parseFetchArgs({ url: 'https://a.test' })).toEqual({ url: 'https://a.test' })
   })
 
@@ -954,8 +955,17 @@ describe('searchMaxQueries is plugin config', () => {
     })
     expect(ctx.tools.schemas().find(item => item.name === 'web_search')?.description).toContain('1–2 queries')
     const out = await call('web_search', { queries: ['one', 'two', 'three'] })
-    expect(out.content).toEqual([{ type: 'text', text: 'Error: queries must contain at most 2 queries' }])
+    expect(out.content).toEqual([{ type: 'text', text: 'Error: invalid arguments: queries must contain at most 2 queries' }])
+    expect(out.error?.info).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
     expect(seen).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('reports a blank web_fetch URL as a structured argument error', async () => {
+    const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: searchProvider({ sources: [], truncated: false }) })
+    expect((await call('web_fetch', { url: ' ' })).error).toEqual({
+      message: 'invalid arguments: url must be a non-empty string', info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+    })
     await fiber.dispose()
   })
 

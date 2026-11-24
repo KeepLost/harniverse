@@ -135,7 +135,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Invalid or stale selections return exactly `Error: invalid skill name "<name>"` or `Error: skill "<name>" is unknown or no longer available`. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper.
+Invalid or stale selections return exactly `Error: invalid arguments: invalid skill name "<name>"` as `ToolArgsError` with `INVALID_ARGS`, or `Error: skill "<name>" is unknown or no longer available`. Provider-thrown lookup text is data-dependent and receives the same `Error: <message>` wrapper.
 
 #### Token effect
 
