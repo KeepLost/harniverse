@@ -32,7 +32,7 @@ tools:
 
 ### 取消
 
-取消采用协作方式，并等待完全停稳。每次类型化调用都提供由调用方拥有的 `AbortSignal`；工具主体通过必填的只读 `exec.signal` 接收它，只有 `tools/execute` 包装层可以临时替换这个必填信号。注册表会在替换期间保留调用方取消，并且绝不会在已启动的同进程 Promise 尚未结算时提前返回。工具主体调用前发生的取消为 `ABORTED_BEFORE_DISPATCH`；工具主体被调用后发生的取消，只能将成功结果替换为 `ABORTED`。拒绝、包装层失败、工具失败、后置策略失败或由超时机制产生的 `TOOL_TIMEOUT` 仍保留更具体的结果。入口处已中止的调用会实体化并冻结参数，随后跳过所有策略和分发阶段，只发布一个结果。每个异步工具都必须观测或转发该信号，并且只能在其负责的工作停止后结算。[工具取消 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-19-cooperative-tool-cancellation.md) 规定完整约定和强制终止边界。
+取消采用协作方式，并等待完全停稳。每次类型化调用都提供由调用方拥有的 `AbortSignal`；工具主体通过必填的只读 `exec.signal` 接收它，只有 `tools/execute` 包装层可以临时替换这个必填信号。注册表会在替换期间保留调用方取消，并且绝不会在已启动的同进程 Promise 尚未结算时提前返回。工具主体调用前发生的取消为 `ABORTED_BEFORE_DISPATCH`；工具主体被调用后发生的取消，只能将成功结果替换为 `ABORTED`。已开始的工具主体或 `tools/execute` 包装层在调用方取消后抛出 signal 的 reason，或不具备 `HarnessError` 身份、name 为 `AbortError` 的 `Error` 时，结果保留该 message 并携带 `ABORTED`，工具主体尚未开始时则为 `ABORTED_BEFORE_DISPATCH`。拒绝、其他包装层失败、工具失败、后置策略失败或由超时机制产生的 `TOOL_TIMEOUT` 仍保留更具体的结果。入口处已中止的调用会实体化并冻结参数，随后跳过所有策略和分发阶段，只发布一个结果。每个异步工具都必须观测或转发该信号，并且只能在其负责的工作停止后结算。[工具取消 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-19-cooperative-tool-cancellation.md) 规定完整约定和强制终止边界。
 
 ### 实时事件
 

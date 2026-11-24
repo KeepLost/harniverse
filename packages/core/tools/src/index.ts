@@ -679,6 +679,17 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
   }
 }
 
+/** Whether a value thrown after cancellation is that cancellation and carries no identity of its own. */
+function isUnclassifiedCancellation(error: unknown, signal: AbortSignal): boolean {
+  if (errorInfo(error) !== undefined) return false
+  try {
+    return error === signal.reason || (error instanceof Error && error.name === 'AbortError')
+  } catch {
+    // A value whose prototype or `name` cannot be read is not a recognizable cancellation.
+    return false
+  }
+}
+
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 
@@ -1591,6 +1602,9 @@ export class ToolRuntime extends Service {
    * Dispatch the registered body with the original caller signal fused back
    * into any around-wrapper replacement. Cancellation never abandons the body:
    * a started promise reaches quiescence before its outcome becomes `ABORTED`.
+   * After cancellation, a thrown signal reason or `AbortError` without
+   * `HarnessError` identity keeps its message and gains the `ABORTED`
+   * identity; a thrown `HarnessError` and any other failure stay unchanged.
    */
   private async dispatchToolBody(exec: MutableToolRunContext): Promise<ToolExecutionResult> {
     const state = this.cancellationStates.get(exec)
@@ -1615,7 +1629,9 @@ export class ToolRuntime extends Service {
         ? toolAbortedResult(result)
         : result
     } catch (error: unknown) {
-      return toolErrorResult(error)
+      return isAborted(signal) && isUnclassifiedCancellation(error, signal)
+        ? toolErrorResult(error, { name: 'AbortError', code: TOOL_ABORTED })
+        : toolErrorResult(error)
     } finally {
       fused.dispose()
       exec.signal = wrapperSignal
@@ -1624,7 +1640,12 @@ export class ToolRuntime extends Service {
 
   /**
    * Run around-dispatch and the tool body. Tool and unknown-tool failures still
-   * receive post-execute; pipeline failures are already final.
+   * receive post-execute; pipeline failures are already final. Started bodies
+   * drain on cancellation before a successful outcome becomes `ABORTED`. After
+   * caller cancellation, a wrapper that throws the caller signal's reason or an
+   * `Error` named `AbortError` without `HarnessError` identity keeps its message
+   * and gains `ABORTED`, or `ABORTED_BEFORE_DISPATCH` when the body never
+   * started; a wrapper's `HarnessError` and other failures stay unchanged.
    * @param exec - the prepared execution.
    * @returns whether the result still needs post-execute.
    * @internal
@@ -1657,8 +1678,17 @@ export class ToolRuntime extends Service {
           : resultWithDeferredContexts,
       }
     } catch (error: unknown) {
-      return { kind: 'final-result', result: toolErrorResult(error) }
+      return { kind: 'final-result', result: this.wrapperFailureResult(exec, error) }
     }
+  }
+
+  /** Classify a failure thrown around dispatch; see {@link dispatchScheduledExecution}. */
+  private wrapperFailureResult(exec: ToolRunContext, error: unknown): ToolExecutionResult {
+    const state = this.cancellationStates.get(exec)
+    /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
+    if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
+    if (!isAborted(state.callerSignal) || !isUnclassifiedCancellation(error, state.callerSignal)) return toolErrorResult(error)
+    return toolErrorResult(error, { name: 'AbortError', code: state.bodyInvoked ? TOOL_ABORTED : TOOL_ABORTED_BEFORE_DISPATCH })
   }
 
   /**
@@ -1949,8 +1979,7 @@ function createExecutionToken(): ToolExecutionToken {
   return Symbol('dsh.tool.execution') as ToolExecutionToken
 }
 
-function toolErrorResult(error: unknown): ToolExecutionResult {
-  const info = errorInfo(error)
+function toolErrorResult(error: unknown, info: ToolErrorInfo | undefined = errorInfo(error)): ToolExecutionResult {
   const message = errorMessage(error)
   return {
     content: [{ type: 'text', text: `Error: ${message}` }],
