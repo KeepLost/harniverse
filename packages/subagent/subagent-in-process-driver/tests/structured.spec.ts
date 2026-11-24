@@ -38,7 +38,7 @@ interface PtcRunRequestLike {
 
 interface SetupOptions {
   toolMode?: ToolConfig['mode']
-  codeRun?: (request: PtcRunRequestLike) => Promise<{ logs: never[]; value?: unknown }>
+  codeRun?: (request: PtcRunRequestLike) => Promise<{ output: never[]; value?: unknown }>
 }
 
 const SCHEMA: ObjectJsonSchema = {
@@ -63,7 +63,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
       language: 'typescript',
       isolation: 'test',
       resolve: (request: { program: string; bindings: unknown[]; signal?: AbortSignal }) => ({ ...request, cwd: '/test', timeoutMs: null }),
-      run: options.codeRun ?? (() => Promise.resolve({ logs: [] })),
+      run: options.codeRun ?? (() => Promise.resolve({ output: [] })),
     } as never)
   }
   await mountInvariants(ctx)
@@ -392,7 +392,7 @@ describe('in-process structured output', () => {
         const capture = request.bindings.at(0)?.functions[STRUCTURED_OUTPUT_TOOL]
         if (!capture) throw new Error('structured_output binding missing')
         await capture({ answer: 12 })
-        return { logs: [], value: 'captured' }
+        return { output: [], value: 'captured' }
       },
     })
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
@@ -420,7 +420,7 @@ describe('in-process structured output', () => {
         if (!capture) throw new Error('structured_output binding missing')
         await capture({ answer: 12 })
         return {
-          logs: [],
+          output: [],
           error: { kind: 'runtime', message: 'boom after capture' },
         } as never
       },
@@ -448,7 +448,7 @@ describe('in-process structured output', () => {
         const capture = request.bindings.at(0)?.functions[STRUCTURED_OUTPUT_TOOL]
         if (!capture) throw new Error('structured_output binding missing')
         await capture({ answer: 12 })
-        return { logs: [], value: 'captured' }
+        return { output: [], value: 'captured' }
       },
     })
     ctx.on('tools/post-execute', (exec, _result, next) => exec.name === RUN_CODE_NAME

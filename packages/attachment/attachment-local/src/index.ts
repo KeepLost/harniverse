@@ -15,7 +15,7 @@ import type {
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { readImageFile, saveImageFile, validateImageFile } from './store.ts'
+import { ensureReference, objectPath, readImageFile, saveImageFile, validateImageFile } from './store.ts'
 import { publishFileHandle, readFileObject, saveFileObject } from './files.ts'
 import { readRequestImageFile } from './request-image.ts'
 import type { ImageRequestPolicy, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
@@ -93,6 +93,10 @@ export class LocalAttachmentStore extends AttachmentStore {
 
   async readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment> {
     return readImageFile(this.root, ref, signal)
+  }
+
+  override imageHostPath(ref: ImageAttachmentRef): string {
+    return objectPath(this.root, ensureReference(ref))
   }
 
   override async saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef> {

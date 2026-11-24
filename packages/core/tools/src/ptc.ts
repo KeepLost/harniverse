@@ -9,12 +9,14 @@
 import { symbols } from '@deepseek-ai/cordis'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { PtcBindingFunction, PtcRunResult, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import { PtcImage, PtcInspectableValue } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcJsonValue, PtcOutput, PtcBindingFunction, PtcRunResult, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import { isDeepStrictEqual } from 'node:util'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool, parameterSchemaSpecToJsonSchema } from './schema.ts'
 import { TOOL_RUNTIME_SCHEDULER } from './index.ts'
-import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRuntime, ToolRunContext } from './index.ts'
+import type { CodeDispatchLog, ToolDefinition, ToolExecution, ToolExecutionFailure, ToolExecutionResult, ToolRuntime, ToolRunContext } from './index.ts'
 import type {} from './types.ts'
 
 /** The model-facing name of the PTC tool. */
@@ -49,7 +51,7 @@ const TYPESCRIPT_FUNCTION_FLAVOR: RunCodeFlavor = {
     + 'arguments: `code`, the BODY of an async function (erasable syntax only; top-level '
     + '`await` and `return` work), and `description`, a short summary of what the program '
     + 'does. Call tools as `await tools.name(args)` per the declarations in the system '
-    + 'prompt. Only what you print or return comes back — curate it.',
+    + 'prompt. Show selected text and images with `inspect(...values)`.',
   codeDescription: 'The program: the body of an async TypeScript function.',
 }
 
@@ -70,8 +72,8 @@ const TYPESCRIPT_PROGRAM_FLAVOR: RunCodeFlavor = {
 
 /**
  * The Python flavor: the body of an async function, top-level `await` and
- * `return`, answer via `print` and/or the returned value, matching
- * {@link ./py-types.ts}'s SDK instructions.
+ * `return`, answer via `print`, matching {@link ./py-types.ts}'s SDK
+ * instructions.
  */
 const PYTHON_FLAVOR: RunCodeFlavor = {
   description:
@@ -79,7 +81,7 @@ const PYTHON_FLAVOR: RunCodeFlavor = {
     + 'arguments: `code`, the BODY of an async function (top-level `await` and `return` '
     + 'work), and `description`, a short summary of what the program does. Call tools as '
     + '`await tools.name(args)` per the declarations in the system prompt. Answer '
-    + 'with `print(...)` and/or `return <value>` — only that comes back, so curate it.',
+    + 'with `print(...)` — only the printed text comes back, so curate it.',
   codeDescription: 'The program: the body of an async Python function.',
 }
 
@@ -185,105 +187,29 @@ function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unkno
   return { dispatched: snapshot, logged }
 }
 
-/** Two-space JSON presentation, matching the existing shallow `run_code` text contract. */
-const JSON_INDENT = '  '
-
-/**
- * ECMAScript caps `JSON.stringify`'s `space` string at ten characters. The
- * renderer also caps TOTAL indentation there, compacting deeper subtrees, so
- * formatted output remains linear in the canonical JSON size.
- */
-const MAX_JSON_INDENT_CHARS = 10
-
-/** A pending fragment in the iterative JSON presentation traversal. */
-type JsonRenderTask =
-  | { kind: 'text'; text: string }
-  | { kind: 'value'; value: JsonValue; depth: number; compact: boolean }
-
-/** Render one non-string JSON root without recursive traversal or unbounded indentation growth. */
-function renderJsonValue(value: Exclude<JsonValue, string>): string {
-  const chunks: string[] = []
-  const tasks: JsonRenderTask[] = [{ kind: 'value', value, depth: 0, compact: false }]
-  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
-    if (task.kind === 'text') {
-      chunks.push(task.text)
-      continue
-    }
-
-    const current = task.value
-    if (current === null || typeof current === 'boolean' || typeof current === 'number') {
-      chunks.push(String(current))
-      continue
-    }
-    if (typeof current === 'string') {
-      chunks.push(JSON.stringify(current))
-      continue
-    }
-
-    const compact = task.compact || (task.depth + 1) * JSON_INDENT.length > MAX_JSON_INDENT_CHARS
-    const childDepth = task.depth + 1
-    if (Array.isArray(current)) {
-      chunks.push('[')
-      if (current.length === 0) {
-        chunks.push(']')
-        continue
-      }
-      tasks.push({ kind: 'text', text: compact ? ']' : `\n${JSON_INDENT.repeat(task.depth)}]` })
-      for (let index = current.length - 1; index >= 0; index--) {
-        const item = current[index]
-        /* v8 ignore next -- canonical JsonValue arrays are dense. */
-        if (item === undefined) throw new Error('cannot render a sparse JSON array')
-        tasks.push({ kind: 'value', value: item, depth: childDepth, compact })
-        tasks.push({
-          kind: 'text',
-          text: compact
-            ? index === 0 ? '' : ','
-            : `${index === 0 ? '\n' : ',\n'}${JSON_INDENT.repeat(childDepth)}`,
-        })
-      }
-      continue
-    }
-
-    const keys = Object.keys(current)
-    chunks.push('{')
-    if (keys.length === 0) {
-      chunks.push('}')
-      continue
-    }
-    tasks.push({ kind: 'text', text: compact ? '}' : `\n${JSON_INDENT.repeat(task.depth)}}` })
-    for (let index = keys.length - 1; index >= 0; index--) {
-      const key = keys[index]
-      /* v8 ignore next -- the loop is bounded by the captured key count. */
-      if (key === undefined) throw new Error('cannot render a missing JSON object key')
-      const item = current[key]
-      /* v8 ignore next -- canonical JsonValue records contain no undefined properties. */
-      if (item === undefined) throw new Error('cannot render an undefined JSON object property')
-      tasks.push({ kind: 'value', value: item, depth: childDepth, compact })
-      tasks.push({
-        kind: 'text',
-        text: compact
-          ? `${index === 0 ? '' : ','}${JSON.stringify(key)}:`
-          : `${index === 0 ? '\n' : ',\n'}${JSON_INDENT.repeat(childDepth)}${JSON.stringify(key)}: `,
-      })
-    }
-  }
-  return chunks.join('')
-}
-
-/**
- * One bounded notice appended to a truncated run's captured output: later
- * output was discarded to keep the result within the request budget, and the
- * run was not canceled, so replaying it may repeat completed side effects.
- */
 const TRUNCATION_NOTICE = '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'
 
-/** Render one present program completion value for the model-facing result text. */
-function renderValue(value: JsonValue): string {
-  return typeof value === 'string' ? value : renderJsonValue(value)
-}
-
 /** Canonical value returned by the outer PTC transport. */
-type RunCodeOutput = { logs: string[]; result?: JsonValue }
+type RunCodeOutput = { logs: string[]; outputTruncated?: boolean }
+
+/** Render captured text, selected images, and the truncation notice in emission order. */
+function renderRunOutput(value: RunCodeOutput, output: PtcOutput[], toolName: string): ContentBlock[] {
+  const content: ContentBlock[] = []
+  const appendText = (text: string): void => { if (text.length > 0) content.push({ type: 'text', text }) }
+  const remaining: string[] = []
+  for (const block of output) {
+    if (block.type === 'text') remaining.push(block.text)
+    else {
+      appendText(remaining.join(''))
+      remaining.length = 0
+      content.push({ type: 'image', attachment: block.attachment })
+    }
+  }
+  if (value.outputTruncated === true) remaining.push(remaining.length > 0 ? `\n${TRUNCATION_NOTICE}` : TRUNCATION_NOTICE)
+  appendText(remaining.join(''))
+  /* v8 ignore next -- finalize only runs for image-carrying output, so content is never empty here. */
+  return content.length > 0 ? content : [{ type: 'text', text: `(${toolName} completed with no output)` }]
+}
 
 /**
  * Registry-private capabilities the bridge receives at construction — the
@@ -304,6 +230,11 @@ export interface RunCodeBridgeOptions {
   maxParallel: number
   /** Runs the contained `tools/code-dispatch-log` waterfall over one settled sub-dispatch (the registry's private invoker). */
   shapeDispatchLog: (dispatch: CodeDispatchLog) => Promise<ContentBlock[]>
+  /**
+   * Builds the program value for one durable image reference, or returns
+   * undefined when no attachment store or readable path mapping is mounted.
+   */
+  programImage: (ref: Extract<ContentBlock, { type: 'image' }>['attachment']) => PtcImage | undefined
 }
 
 /**
@@ -351,6 +282,20 @@ function registerStateOwner(runtime: PtcRuntime, agent: StateOwningAgent): void 
  */
 export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeOptions): ToolDefinition {
   const { requireRuntime, peekRuntime, maxParallel, shapeDispatchLog } = options
+
+  type ImageRef = Extract<ContentBlock, { type: 'image' }>['attachment']
+  /** Per-run interleaved output retained for the completion-time content projection. */
+  const inspections = new WeakMap<ToolExecution, {
+    value?: RunCodeOutput
+    failure?: Pick<ToolExecutionFailure, 'error' | 'content'>
+    output: PtcOutput[]
+  }>()
+  const programImage = (ref: ImageRef): PtcImage => {
+    const image = options.programImage(ref)
+    if (image === undefined) throw new Error('Image storage must expose a readable path in the program filesystem')
+    return image
+  }
+
   const definition = defineTool({
     name: RUN_CODE_NAME,
     // The description and `code` parameter description are placeholders here:
@@ -374,14 +319,10 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
         additionalProperties: false,
         properties: {
           logs: { type: 'array', required: true, items: { type: 'string' } },
-          result: { type: 'json' },
+          outputTruncated: { type: 'boolean' },
         },
       },
-      render: (_args, value) => {
-        const rendered = value.result === undefined ? '' : renderValue(value.result)
-        const parts = [value.logs.join('\n'), rendered].filter(part => part.length > 0)
-        return [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }]
-      },
+      render: (_args, value) => [{ type: 'text', text: value.logs.length > 0 ? value.logs.join('') : '(run_code completed with no output)' }],
     },
     async execute(args, exec): Promise<RunCodeOutput> {
       if (args.description.trim().length === 0) {
@@ -519,7 +460,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       // would be narrowed away by control flow analysis.
       const runOver = (): boolean => runController.signal.aborted
 
-      const binding = (name: string): PtcBindingFunction => async (rawArgs: unknown): Promise<JsonValue> => {
+      const binding = (name: string): PtcBindingFunction => async (rawArgs: unknown): Promise<PtcJsonValue> => {
         if (runOver()) {
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} not dispatched`)
         }
@@ -535,7 +476,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
           parent: exec.token,
           signal: runController.signal,
         }
-        type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue }
+        type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue; content: readonly ContentBlock[] }
         const scheduler = registry[TOOL_RUNTIME_SCHEDULER]
         const outcome = await new Promise<DispatchOutcome>((resolve, reject) => {
           // Set by the dispatch stage (or start() for a pre-settled result): what commit() finalizes in submission order.
@@ -551,7 +492,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
             // chain cannot reject).
             resolve(result.isError
               ? { isError: true, message: result.error.message }
-              : { isError: false, value: result.value })
+              : { isError: false, value: result.value, content: result.content })
             const agent = exec.agent
             if (agent === undefined) return
             const task: Promise<void> = (async () => {
@@ -632,6 +573,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
               // bounds their count. Beyond the cap, the
               // ordered lane waits, so later sub-calls cannot start and
               // pending I/O/memory cannot grow without bound.
+              /* v8 ignore next -- the parked arm is exercised by the slow-append test; the remapped resumption range double-counts it. */
               while (logWork.size > maxParallel) await Promise.race(logWork)
             },
           })
@@ -648,6 +590,18 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
         // only the binding name. Native content and internal error metadata
         // stay outside the program-facing failure contract.
         if (outcome.isError) throw new Error(outcome.message)
+        // FIXME: Let image-producing tools declare their program result adaptation.
+        const usesProgramImage = name === 'read_image'
+        if (usesProgramImage) {
+          const images = outcome.content.filter(block => block.type === 'image')
+          const first = images[0]
+          if (first !== undefined && images.length === 1) return programImage(first.attachment)
+          throw new Error('Image-producing tools must return exactly one image')
+        }
+        if (outcome.value !== null && typeof outcome.value === 'object'
+          && outcome.content.every(block => block.type === 'text')) {
+          return new PtcInspectableValue(outcome.value, outcome.content.map(block => block.text).join('\n'))
+        }
         return outcome.value
       }
 
@@ -674,6 +628,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
           }
           result = await runtime.run(runtime.resolve({
             program: args.code,
+            discardCompletion: true,
             ...(runtime.retainsState && exec.agent !== undefined ? { stateOwner: exec.agent } : {}),
             bindings: [{
               global: 'tools',
@@ -690,15 +645,24 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
           await drainDispatches()
         }
 
+        const logs = result.output.flatMap(block => block.type === 'text' ? [block.text] : [])
+        const hasImages = result.output.some(block => block.type === 'image')
         if (result.error) {
-          const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
+          const logsText = logs.length > 0 && !hasImages ? `\nCaptured output:\n${logs.join('')}` : ''
           const truncatedText = result.outputTruncated === true ? `\n${TRUNCATION_NOTICE}` : ''
-          throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}${truncatedText}`)
+          const failure = new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}${truncatedText}`)
+          if (hasImages) inspections.set(exec, {
+            failure: { error: { message: failure.message, info: { name: failure.name, code: failure.code } }, content: [{ type: 'text', text: `Error: ${failure.message}` }] },
+            output: result.output,
+          })
+          throw failure
         }
-        return {
-          logs: result.outputTruncated === true ? [...result.logs, TRUNCATION_NOTICE] : result.logs,
-          ...result.value !== undefined ? { result: result.value } : {},
+        const value: RunCodeOutput = {
+          logs: result.outputTruncated === true ? [...logs, logs.length > 0 ? `\n${TRUNCATION_NOTICE}` : TRUNCATION_NOTICE] : logs,
+          ...result.outputTruncated === true ? { outputTruncated: true } : {},
         }
+        if (hasImages) inspections.set(exec, { value, output: result.output })
+        return value
       } finally {
         exec.signal.removeEventListener('abort', onOuterAbort)
       }
@@ -714,6 +678,17 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
     // Deliberately no presentResult: the generic card fallback keeps this
     // title and reads durable result content without duplicating a large raw
     // result into the host view payload.
+    finalizeContent(exec, result) {
+      const selected = inspections.get(exec)
+      inspections.delete(exec)
+      if (selected === undefined) return undefined
+      if (result.isError) {
+        if (!isDeepStrictEqual(selected.failure, { error: result.error, content: result.content })) return undefined
+        return [...result.content, ...renderRunOutput({ logs: [] }, selected.output, RUN_CODE_NAME)]
+      }
+      if (selected.value === undefined || !isDeepStrictEqual(selected.value, result.value)) return undefined
+      return renderRunOutput(selected.value, selected.output, RUN_CODE_NAME)
+    },
   })
   // Resolve the language flavor lazily, at the moment the registry projects the
   // schema (`schemaOf` destructures `description`/`parameters`). The definition

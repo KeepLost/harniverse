@@ -5,7 +5,7 @@ import { createProcessRpc } from '../src/rpc.ts'
 import { runPersistentMain } from '../src/persistent-process.ts'
 import type { ProgramProcess } from '../src/process.ts'
 import { decodePtcJsonWire, encodePtcJsonWire } from '../src/json-wire.ts'
-import type { ProgramBootData, HostMethods, ProgramMethods } from '../src/protocol.ts'
+import type { BindingResult, ProgramBootData, HostMethods, ProgramMethods } from '../src/protocol.ts'
 import { rawPeer } from './raw-peer.ts'
 import { duplexPair } from './duplex-pair.ts'
 
@@ -21,9 +21,10 @@ async function setup(limit = 4096, chdir: (cwd: string) => void = () => {}, prog
     ready: () => { ready.resolve(true) },
     invoke: async (global, name, args) => {
       seen.push({ type: 'call', global, name, args })
-      return encodePtcJsonWire(42)
+      return { value: encodePtcJsonWire(42) }
     },
     log: (text) => { seen.push({ type: 'log', text }) },
+    image: () => {},
     outputLimit: () => { seen.push({ type: 'output-limit' }) },
   }
   const peer = createProcessRpc<ProgramMethods, HostMethods>(host, limit, methods, ['revoke'], () => {})
@@ -62,9 +63,9 @@ it('keeps an environment while capturing each evaluation and binding replies sep
   const h = await setup(diagnosticBudget)
   const declarations = [{ global: 'tools', names: ['echo'], errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' } }]
   expect(await h.run('let count = 1; const saved = tools.echo;', declarations)).toEqual({})
-  const result = await h.run('count++; process.stdout.write("raw"); console.log("value", count); await saved({})', declarations)
+  const result = await h.run('count++; process.stdout.write("raw"); inspect("value", count); await saved({})', declarations)
   expect(decodePtcJsonWire(result.value)).toBe(42)
-  expect(h.seen.filter(item => item.type === 'log').map(item => item.text)).toEqual(['raw', 'value 2'])
+  expect(h.seen.filter(item => item.type === 'log').map(item => item.text)).toEqual(['raw', 'value 2\n'])
   expect(h.state.env).toEqual({})
   expect(h.nativeEnvironment).toEqual({ PATH: '/native' })
   const failed = await h.run('throw new Error("failed")', [], diagnosticBudget)
@@ -106,7 +107,7 @@ it('contains directory failures and output overflow in the active evaluation', a
   expect(failed).toMatchObject({ error: { kind: 'exception' } })
   expect((failed.error as { message: string }).message).toContain('directory missing')
   const h = await setup()
-  await h.run('console.log("x".repeat(100))', [], 20)
+  await h.run('inspect("x".repeat(100))', [], 20)
   expect(h.seen.some(item => item.type === 'output-limit')).toBe(true)
 })
 
@@ -119,7 +120,7 @@ it('closes the process channel when a terminal result cannot fit its write budge
 it('ignores output and rejects new tool calls from a completed evaluation', async () => {
   const h = await setup()
   const declarations = [{ global: 'tools', names: ['echo'] }]
-  await h.run('let finish; let old; const trigger = new Promise(resolve => { finish = resolve }); void trigger.then(async () => { console.log("late"); try { await tools.echo({}) } catch (error) { old = error.message } });', declarations)
+  await h.run('let finish; let old; const trigger = new Promise(resolve => { finish = resolve }); void trigger.then(async () => { inspect("late"); try { await tools.echo({}) } catch (error) { old = error.message } });', declarations)
   const result = await h.run('finish(); await new Promise(resolve => setImmediate(resolve)); old', declarations)
   expect(decodePtcJsonWire(result.value)).toBe('PTC evaluation ended')
   expect(h.seen.some(item => item.type === 'log' || item.type === 'call')).toBe(false)
@@ -129,11 +130,11 @@ it('ignores output and rejects new tool calls from a completed evaluation', asyn
 
 it.each(['resolve', 'reject'] as const)('rejects an unfinished binding once when a completed program receives a late %s', async (outcome) => {
   const h = await setup()
-  const pending = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
-  onTestFinished(() => { pending.resolve(encodePtcJsonWire(null)) })
+  const pending = Promise.withResolvers<BindingResult>()
+  onTestFinished(() => { pending.resolve({ value: encodePtcJsonWire(null) }) })
   h.setCall(() => pending.promise)
   await h.run('let effects = []; void tools.echo({}).then(() => effects.push("then")).catch(() => effects.push("catch")).finally(() => effects.push("finally"));', [{ global: 'tools', names: ['echo'] }])
-  if (outcome === 'resolve') pending.resolve(encodePtcJsonWire(42))
+  if (outcome === 'resolve') pending.resolve({ value: encodePtcJsonWire(42) })
   else pending.reject(new Error('late failure'))
   await setImmediate()
   expect(decodePtcJsonWire((await h.run('effects')).value)).toEqual(['catch', 'finally'])
@@ -141,9 +142,9 @@ it.each(['resolve', 'reject'] as const)('rejects an unfinished binding once when
 
 it.each([['resolve', 'repl'], ['reject', 'repl'], ['resolve', 'script'], ['reject', 'script']] as const)('revokes an awaiting program after a late %s in %s', async (outcome, format) => {
   const h = await setup(4096, undefined, format)
-  const pending = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
+  const pending = Promise.withResolvers<BindingResult>()
   const started: PromiseWithResolvers<void> = Promise.withResolvers()
-  onTestFinished(() => { pending.resolve(encodePtcJsonWire(null)) })
+  onTestFinished(() => { pending.resolve({ value: encodePtcJsonWire(null) }) })
   h.setCall(() => { started.resolve(); return pending.promise })
   const declarations = [{ global: 'tools', names: ['echo'] }]
   await h.peer.revoke()
@@ -152,7 +153,7 @@ it.each([['resolve', 'repl'], ['reject', 'repl'], ['resolve', 'script'], ['rejec
   await h.peer.revoke()
   expect(await first).toEqual({})
   await h.peer.revoke()
-  if (outcome === 'resolve') pending.resolve(encodePtcJsonWire(42))
+  if (outcome === 'resolve') pending.resolve({ value: encodePtcJsonWire(42) })
   else pending.reject(new Error('late failure'))
   await setImmediate()
   expect(decodePtcJsonWire((await h.run('({ kept, effects })')).value)).toEqual({ kept: 42, effects: ['catch', 'finally'] })
@@ -163,7 +164,7 @@ it.each([['resolve', 'repl'], ['reject', 'repl'], ['resolve', 'script'], ['rejec
 it.each(['repl', 'script'] as const)('rejects a binding result followed by revocation before %s user code resumes', async (format) => {
   const h = await setup(4096, undefined, format)
   const request = Promise.withResolvers<string>()
-  const response = Promise.withResolvers<ReturnType<typeof encodePtcJsonWire>>()
+  const response = Promise.withResolvers<BindingResult>()
   h.setCall(() => response.promise)
   const wire = rawPeer(h.host, (message) => {
     if (typeof message === 'object' && message !== null && 'm' in message && message.m === 'invoke'
@@ -179,7 +180,7 @@ it.each(['repl', 'script'] as const)('rejects a binding result followed by revoc
     expect(await first).toEqual({})
     expect(decodePtcJsonWire((await h.run('effects')).value)).toEqual(['catch', 'finally'])
   } finally {
-    response.resolve(encodePtcJsonWire(null))
+    response.resolve({ value: encodePtcJsonWire(null) })
     wire.close()
     await first
   }

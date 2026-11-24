@@ -22,6 +22,9 @@ import type { ToolCallView, ToolResultView } from './presentation.ts'
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './ptc.ts'
+import { PtcImage } from '@deepseek-ai/dsh-ptc-runtime'
+import type { FileSystem } from '@deepseek-ai/dsh-fs'
+import { resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm/content'
 import type { CodeSdkLanguage } from './ptc.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
@@ -963,6 +966,13 @@ export class ToolRuntime extends Service {
       peekRuntime: () => this.ctx.get('ptcRuntime'),
       maxParallel: this.maxParallelSubCalls,
       shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
+      programImage: (ref) => {
+        const attachments = this.ctx.get('attachments')
+        const fs: FileSystem | undefined = this.ctx.get('fs')
+        const access = attachments === undefined || fs === undefined ? undefined
+          : resolveImageAttachmentAccess(attachments, path => fs.processPathFromHostPath(path), ref)
+        return access === undefined ? undefined : new PtcImage(access.readonlyPath, ref)
+      },
     })
     return this.codeTransport
   }

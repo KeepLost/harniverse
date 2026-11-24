@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-执行模型编写的 TypeScript，并提供宿主异步函数。默认的 `per-call` 模式在全新 Node 进程中运行异步函数体；`vm-script` 支持顶层 await，并可通过 `scriptPersistence` 为每个 Agent 保留 context。显式启用的 `persistent-in-memory` 为每个 Agent 保留 REPL。所有模式都应用所选文件沙箱策略，返回捕获日志、无损 JSON 或结构化失败。执行时限、输出上限和 V8 堆上限约束运行。未确认的停止请求与单次执行完成后清理受管进程范围；约束不可用时执行失败。
+执行模型编写的 TypeScript，并提供宿主异步函数。默认的 `per-call` 模式在全新 Node 进程中运行异步函数体；`vm-script` 支持顶层 await，并可通过 `scriptPersistence` 为每个 Agent 保留 context。显式启用的 `persistent-in-memory` 为每个 Agent 保留 REPL。所有模式都应用所选文件沙箱策略，返回有序输出片段、无损 JSON 或结构化失败。程序通过顶层 `inspect(...values)` 选择可见的文本与图像。执行时限、输出上限和 V8 堆上限约束运行。未确认的停止请求与单次执行完成后清理受管进程范围；约束不可用时执行失败。
 
 ## 目录
 
@@ -51,7 +51,7 @@ kind: "package-reference"
 | `scriptPersistence` | `false` | 在 `executionMode: vm-script` 下，为每个所有者复用进程与 context；其他模式下设为 `true` 会在加载时拒绝 |
 | `timeoutMs` | `120,000` | 默认经过时间截止，包括嵌套工具与审批等待 |
 | `maxTimeoutMs` | `600,000` | 解析器应用的经过时间截止上限 |
-| `maxOutputBytes` | `67,108,864` | 序列化日志与完成值或诊断的合计预算 |
+| `maxOutputBytes` | `67,108,864` | 序列化输出与完成值或诊断的合计预算 |
 | `maxOldGenerationSizeMb` | `512` | V8 老生代堆上限，单位 MiB |
 | `maxMessageBytes` | `134,217,728` | 控制消息、未完成绑定参数字节和排队控制写入的上限 |
 | `maxPendingCalls` | `128` | 同时进行的 Host 绑定调用数量上限 |
@@ -65,11 +65,11 @@ profile 编辑器可从 `@deepseek-ai/dsh-ptc-runtime-node/configuration` 导入
 
 ### 执行与结果
 
-`per-call` 模式中的程序是异步函数体：支持顶层 `await` 与 `return`，且只接受可擦除 TypeScript。Node 全局变量仍然可用，函数体可声明局部 `process`，例如 `const process = await import("node:process")`。成功调用以 `result.value` 返回无损 JSON 值，以 `result.logs` 返回捕获文本。`result.sandbox` 独立于程序结果报告所选模式、观察到的拒绝，以及后端完整或部分的强制能力。
+`per-call` 模式中的程序是异步函数体：支持顶层 `await` 与 `return`，且只接受可擦除 TypeScript。Node 全局变量仍然可用，函数体可声明局部 `process`，例如 `const process = await import("node:process")`。成功调用以 `result.value` 返回无损 JSON 值，以 `result.output` 按发出顺序返回捕获文本与被检视图像。`inspect(...values)` 直接渲染字符串，其他值经 Node 的 `util.inspect` 渲染且不受深度、数组长度或字符串预览限制；格式化到达的已注册 `Image` 值随文本一起输出。`run_code` 请求 `discardCompletion: true`，其程序仅以检视输出作答。`result.sandbox` 独立于程序结果报告所选模式、观察到的拒绝，以及后端完整或部分的强制能力。
 
 直接文件系统、网络与子进程操作仍是 Node 操作，受所选 OS 沙箱约束。嵌套 Host 绑定通过控制通道调用；PTC 工具调用保留注册表的可见性、排序、日志和审批规则。运行程序不会改变 Session 的常设策略，也不会在拒绝后自动重放程序。
 
-设置 `executionMode: vm-script`，即可通过 `node:vm` Script 求值可擦除 TypeScript。支持顶层声明和 `await`，例如 `var fs = await import("node:fs/promises"); await fs.readdir(".")`。不支持顶层 `return` 和静态 `import`/`export`。运行时等待末尾表达式，并返回其无损 JSON 值；`console.log(...)` 也会产生输出。相对动态导入以传入的工作目录为基准解析。除非程序显式启用严格模式，否则 Script 使用非严格语法；context 不是安全边界，Node 访问仍受进程沙箱约束。
+设置 `executionMode: vm-script`，即可通过 `node:vm` Script 求值可擦除 TypeScript。支持顶层声明和 `await`，例如 `var fs = await import("node:fs/promises"); await fs.readdir(".")`。不支持顶层 `return` 和静态 `import`/`export`。运行时等待末尾表达式，并在请求未设置 `discardCompletion` 时返回其无损 JSON 值；`inspect(...values)` 与原生 console 也会产生输出。相对动态导入以传入的工作目录为基准解析。除非程序显式启用严格模式，否则 Script 使用非严格语法；context 不是安全边界，Node 访问仍受进程沙箱约束。
 
 `scriptPersistence: false` 是默认值：每次调用都使用全新进程和 context，忽略 `stateOwner`。设为 `true` 后，运行时按下述生命周期规则为每个所有者保留 context。顶层声明、函数与对象身份可供后续调用使用，包括通过顶层 `await` 初始化的值。函数局部变量仍只在函数内有效。该选项要求 `executionMode: vm-script`；两种设置接受相同语法。
 
@@ -93,7 +93,7 @@ profile 编辑器可从 `@deepseek-ai/dsh-ptc-runtime-node/configuration` 导入
 
 保存补丁，在使用 PTC 工具展示的配置中通过 `dsh headless --patch <path>` 加载。`per-call` 模式和 `scriptPersistence: false` 的 Script 模式不跨调用保留程序内存。修改配置会重载提供方并释放其执行资源。单文件打包宿主使用内存保留模式时，需要使用 `node-script` 启动方式，将 `launch.executable` 指向 Node，并将 `launch.bootstrapPath` 指向本包构建出的 `process.js`。
 
-在 REPL 模式下，每个存活 Agent 保留独立进程，跨 `run_code` 调用和轮次保留顶层变量、函数及导入模块。使用 `await import(...)`、`console.log(...)` 和末尾 JSON 表达式；不支持顶层 `return`。Node REPL 使用非严格模式，给未声明的名称赋值会创建保留的全局变量。`_` 和 `_error` 是普通的保留全局变量，不使用交互式 REPL 的结果设置器。声明遵循 Node REPL 规则，包括重复声明已有 `let`、`const` 或 `class` 名称时报错；应给可变绑定赋值或选择新名称。开头的 `{ ... }` 按语句块执行，可以包含顶层 await 和临时声明；需要返回对象表达式时，用圆括号包裹。保留的函数和工具方法引用调用当前执行的绑定。必须等待所有工具调用；已完成执行的回调不能在后续执行中调用工具。
+在 REPL 模式下，每个存活 Agent 保留独立进程，跨 `run_code` 调用和轮次保留顶层变量、函数及导入模块。使用 `await import(...)` 与 `inspect(...values)`；不支持顶层 `return`。Node REPL 使用非严格模式，给未声明的名称赋值会创建保留的全局变量。`_` 和 `_error` 是普通的保留全局变量，不使用交互式 REPL 的结果设置器。声明遵循 Node REPL 规则，包括重复声明已有 `let`、`const` 或 `class` 名称时报错；应给可变绑定赋值或选择新名称。开头的 `{ ... }` 按语句块执行，可以包含顶层 await 和临时声明；需要返回对象表达式时，用圆括号包裹。保留的函数和工具方法引用调用当前执行的绑定。必须等待所有工具调用；已完成执行的回调不能在后续执行中调用工具。
 
 内存按尽力保留处理，不保存到磁盘。重启、Agent 销毁、提供方卸载、协议失败或进程退出都会清除内存；输出截断决不会。缺失变量产生普通引用错误，模型需要重新获取句柄和创建声明。当前执行中的异常只结算一次，并保留此前发生的修改。在 REPL 模式下，已完成执行的回调抛出的异常不会在后续结果中报告。在 Script 模式下，未捕获的回调异常可能终止保留进程；结束执行前应等待异步工作完成。Session 仍记录程序、工具分派和可见结果；恢复 Session 或派生 Agent 时从空内存开始。每次执行都会将进程工作目录重置为本次解析的 cwd；程序中的 `process.chdir()` 不跨执行保留。直接 Node 访问遵循已解析的文件策略。保留状态的所有者必须先释放环境，才能更改权限模式、工作区根目录或 Session 身份。额外可写目录在进程启动时固定：之后的授予与撤销只在释放并重建后才生效。
 
@@ -133,7 +133,7 @@ Host 通过有序控制管道上的 birpc 调用子进程的 `run()`。同一时
 
 定时器、任意用户创建的 Promise、I/O 回调、Worker 和子进程不承诺按执行取消。停止确认仅等待当前执行结束，不表示这些资源已清理。未受管异步工作在确认停止后仍可能修改保留的全局变量；已结束执行的捕获输出和完成通知会被忽略。返回前应等待必要工作完成，资源不可信时使用宿主重置。
 
-单次执行完成后，尚未完成的绑定等待保持挂起，并停止绑定调用和捕获输出的通知。子进程保持控制管道打开，直到 Host 收到结果并关闭管道。输出捕获计量序列化日志加完成值或诊断；固定结果信封字段与沙箱元数据不计入该账本。
+单次执行完成后，尚未完成的绑定等待保持挂起，并停止绑定调用和捕获输出的通知。子进程保持控制管道打开，直到 Host 收到结果并关闭管道。输出捕获计量序列化输出加完成值或诊断；固定结果信封字段与沙箱元数据不计入该账本。
 
 ### 源代码与构建后 bootstrap
 

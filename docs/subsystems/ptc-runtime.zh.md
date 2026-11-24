@@ -26,6 +26,8 @@ interface PtcRunRequest {
    * becomes {@link PtcRunResult.value}.
    */
   program: string
+  /** Discard the completion without JSON validation when true; omission preserves the completion value. */
+  discardCompletion?: boolean
   /**
    * Object-identity owner for optional in-memory state. Omission requests a fresh
    * environment. Consumers must await runtime.release(owner) when the owner ends.
@@ -93,11 +95,13 @@ interface PtcRunResult {
    */
   value?: PtcJsonValue
   /**
-   * Captured text. Each source channel preserves emission order; interleaving
-   * across independent channels is backend-dependent. Bounded only as part of
-   * the outer result.
+   * Captured text fragments and inspected images in emission order. Text
+   * fragments retain their emitted line breaks; concatenate adjacent text
+   * without separators. Each source channel preserves emission order;
+   * interleaving across independent channels is backend-dependent. Bounded
+   * only as part of the outer result.
    */
-  logs: string[]
+  output: PtcOutput[]
   /** Present iff the run failed; see {@link PtcRunFailure} for the taxonomy. */
   error?: PtcRunFailure
   /**
@@ -111,6 +115,11 @@ interface PtcRunResult {
 ```
 
 ```ts type-equiv
+/** Raw text fragments and inspected images in emission order; concatenate adjacent text without separators. */
+type PtcOutput = { type: 'text'; text: string } | { type: 'image'; attachment: ImageAttachmentRef }
+```
+
+```ts type-equiv
 /** Source evaluation form, independent of retained program state. */
 type PtcProgramFormat = 'function-body' | 'repl' | 'script'
 ```
@@ -119,7 +128,7 @@ type PtcProgramFormat = 'function-body' | 'repl' | 'script'
 
 ## 绑定：宿主函数作为程序全局变量
 
-每个 `PtcBindingNamespace` 成为一个异步可调用函数的全局对象；PTC 传入 `tools`。参数与返回值必须是无损 JSON。提供方强制各自的传输上限；seam 不设统一的绑定字节上限。可选错误类描述符创建程序可见的类型化拒绝，无需在运行时内点名消费方。绑定名是自有属性，因此 `__proto__` 不能遍历原型：
+每个 `PtcBindingNamespace` 成为一个异步可调用函数的全局对象；PTC 传入 `tools`。参数必须是无损 JSON；返回值还支持宿主签发的 `PtcImage` 值（带程序可读路径的已存图像，被选中检视时输出）与 `PtcInspectableValue` 值（未改动地检视时按宿主文本渲染的 JSON 对象或数组）。提供方强制各自的传输上限；seam 不设统一的绑定字节上限。可选错误类描述符创建程序可见的类型化拒绝，无需在运行时内点名消费方。绑定名是自有属性，因此 `__proto__` 不能遍历原型：
 
 ```ts type-equiv
 /**
@@ -178,18 +187,19 @@ type PtcJsonValue = null | boolean | number | string | PtcJsonValue[] | { [key: 
 /**
  * One host-side function exposed to the program as an async callable. The
  * runtime bridges calls to it (possibly across a serialization boundary), so
- * `args` and the resolution value MUST be lossless JSON. A runtime rejects a
- * lossy or non-cloneable value with a descriptive error rather than corrupting
- * the run. No seam-level byte cap applies to a binding resolution. A rejection
- * of this function surfaces inside the program as a rejection of the
- * corresponding call.
- */
-type PtcBindingFunction = (args: unknown) => Promise<PtcJsonValue>
+ * `args` must be lossless JSON; resolutions also support host-issued PtcImage
+ * and PtcInspectableValue values. An inspectable resolution delivers its JSON
+ * object or array to the program and uses its text only when that unchanged
+ * value is inspected directly. A runtime rejects a lossy or non-cloneable
+ * value with a descriptive error rather than corrupting the run. No seam-level
+ * byte cap applies to a binding resolution. A rejection of this function
+ * surfaces inside the program as a rejection of the corresponding call.
+ */type PtcBindingFunction = (args: unknown) => Promise<PtcJsonValue>
 ```
 
 ## 捕获的输出与失败分类体系
 
-日志是纯字符串。每个来源通道保留自身的发出顺序；由于通道元数据不属于 seam，相互独立的通道如何交错由后端决定。运行时捕获程序的 console 与流输出，Consumer 只渲染文本。实现会对序列化后的外层日志数组，以及完成值或失败消息的组合载荷设置上限；固定的结果封装语法与 Consumer 展示空白不计入这份可变载荷计量。超限会显式失败，而不会在值中插入替代内容。
+输出是有序的片段列表：文本片段与被检视的图像按发出顺序交错，Consumer 拼接相邻文本时不加分隔符。每个来源通道保留自身的发出顺序；由于通道元数据不属于 seam，相互独立的通道如何交错由后端决定。运行时在显式检视输出旁捕获程序的 console 与流输出，Consumer 按持久图像引用渲染片段。实现会对序列化后的外层片段数组，以及完成值或失败消息的组合载荷设置上限；固定的结果封装语法与 Consumer 展示空白不计入这份可变载荷计量。超限会截断已捕获输出而不取消执行；即使为空也无法放下的必需完成值以 `output-limit` 失败。
 
 失败类型是**正交的结果，独立报告**（见 [defensive-patterns]）：预算耗尽不是异常，中止不是超时，基底崩溃（如 OOM）也不是二者中的任何一个：
 
@@ -262,5 +272,5 @@ abstract resolve(request: PtcRunRequest): PtcRunSpec
 abstract run(spec: PtcRunSpec): Promise<PtcRunResult>
 ```
 
-Source: [`packages/ptc-runtime/ptc-runtime/src/index.ts:105`](../../packages/ptc-runtime/ptc-runtime/src/index.ts)
+Source: [`packages/ptc-runtime/ptc-runtime/src/index.ts:110`](../../packages/ptc-runtime/ptc-runtime/src/index.ts)
 <!-- END GENERATED cordis-surface -->

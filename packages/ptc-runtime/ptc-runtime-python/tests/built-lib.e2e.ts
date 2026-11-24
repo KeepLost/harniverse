@@ -44,6 +44,6 @@ describe.skipIf(!built || !python3Available)('Python runtime built entry (plain 
       reject: false,
     })
     expect(exitCode, stderr).toBe(0)
-    expect(JSON.parse(stdout.trim().split('\n').at(-1) ?? '')).toEqual({ logs: ['value 42'], value: 42 })
+    expect(JSON.parse(stdout.trim().split('\n').at(-1) ?? '')).toEqual({ output: [{ type: 'text', text: 'value 42' }], value: 42 })
   })
 })

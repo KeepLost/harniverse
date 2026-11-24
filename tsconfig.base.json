@@ -165,6 +165,7 @@
       "@deepseek-ai/dsh-tool-workflow/types": ["./packages/workflow/tool-workflow/src/types.ts"],
       "@deepseek-ai/dsh-llm/message": ["./packages/llm/llm/src/message.ts"],
       "@deepseek-ai/dsh-llm/request-images": ["./packages/llm/llm/src/request-images.ts"],
+      "@deepseek-ai/dsh-llm/content": ["./packages/llm/llm/src/content.ts"],
       "@deepseek-ai/dsh-commands/brand": ["./packages/interaction/commands/src/brand.ts"],
       "@deepseek-ai/dsh-commands/types": ["./packages/interaction/commands/src/types.ts"],
       "@deepseek-ai/dsh-jobs/brand": ["./packages/jobs/jobs/src/brand.ts"],

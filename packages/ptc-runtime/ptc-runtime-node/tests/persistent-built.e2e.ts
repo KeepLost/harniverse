@@ -22,7 +22,7 @@ describe.skipIf(!built)('persistent PTC published exports', () => {
         const stateOwner = {}
         const run = (program, timeoutMs, bindings = []) => ctx.ptcRuntime.run(ctx.ptcRuntime.resolve({program, timeoutMs, bindings, stateOwner}))
         const first = await run('let count: number = 40; const path = await import("node:path");')
-        const second = await run('count += 2; console.log(path.basename("/a/b")); count')
+        const second = await run('count += 2; inspect(path.basename("/a/b")); count')
         const interrupted = await run('try { await tools.wait({}) } catch {} finally { count++ }', 200, [{ global: 'tools', functions: { wait: () => new Promise(() => {}) } }])
         const preserved = await run('count')
         await ctx.ptcRuntime.release(stateOwner)
@@ -38,6 +38,6 @@ describe.skipIf(!built)('persistent PTC published exports', () => {
     expect(result.exitCode, result.stderr).toBe(0)
     const observed = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '') as { first: { error?: unknown } }
     expect(observed.first.error).toBeUndefined()
-    expect(observed).toMatchObject({ second: { logs: ['b'], value: 42 }, interrupted: { error: { kind: 'timeout' } }, preserved: { value: 43 }, fresh: { logs: [], value: 'undefined' } })
+    expect(observed).toMatchObject({ second: { output: [{ type: 'text', text: 'b\n' }], value: 42 }, interrupted: { error: { kind: 'timeout' } }, preserved: { value: 43 }, fresh: { value: 'undefined' } })
   })
 })

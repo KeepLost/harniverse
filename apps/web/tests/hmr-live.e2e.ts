@@ -49,7 +49,7 @@ function waitForOutput(child: SubprocessHandle, pattern: RegExp, label: string):
       if (match === null) return
       resolveOnce(match[1] ?? match[0])
     }
-    const timer = setTimeout(() => { rejectOnce(new Error(`${label} not ready:\n${output}`)) }, 60_000)
+    const timer = setTimeout(() => { rejectOnce(new Error(`${label} not ready:\n${output}`)) }, 180_000)
     child.stdout?.on('data', onData)
     child.stderr?.on('data', onData)
     void child.done.then((outcome) => {

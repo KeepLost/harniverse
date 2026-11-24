@@ -125,6 +125,19 @@ describe('renderToolsSdk', () => {
     output: { type: 'array', items: { type: 'string' } },
   }
 
+  it('declares read_image output as the runtime Image type', () => {
+    const readImage: ToolSdkSchema = {
+      name: 'read_image',
+      description: 'Read an image.',
+      parameters: parameterSchemaSpecToJsonSchema({ file_path: { type: 'string', required: true } }) as unknown as Record<string, unknown>,
+      output: { type: 'object', additionalProperties: true },
+    }
+    const text = renderToolsSdk([readImage])
+    expect(text).toContain('read_image: Image;')
+    expect(text).toContain('declare class Image { private constructor(); readonly attachmentId: string; readonly path: string; readonly width: number; readonly height: number; }')
+    expect(text).toContain('declare function inspect(...values: unknown[]): void;')
+  })
+
   it('declares every tool in lexicographic order with quoted keys for exotic names', () => {
     const text = renderToolsSdk([exotic, bash])
     expect(text).toContain('interface ToolArgsMap {')

@@ -12,6 +12,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../fs/fs"
+    },
+    {
       "path": "../../ptc-runtime/ptc-runtime"
     },
     {
