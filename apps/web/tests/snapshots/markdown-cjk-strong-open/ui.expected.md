@@ -1,0 +1,60 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "CJK strong emphasis opening" [disabled]
+  - button "Session log":
+    - text: Session log
+    - img
+  - button "Open workspace workbench":
+    - text: Workspace
+    - img
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Statistics"
+    - tab "Capabilities"
+- text: Render punctuation-led CJK strong emphasis. {{clock}}
+- button "Copy":
+  - img
+- heading "CJK strong emphasis opening" [level=2]
+- paragraph:
+  - text: 针对
+  - strong: “重连速度”
+  - text: ，继续
+- paragraph:
+  - text: 采用
+  - strong: （实验性）
+  - text: 方案
+- paragraph:
+  - text: 是
+  - strong: 「还是有点现代」
+  - text: ，不是
+- paragraph:
+  - text: 导致了
+  - strong: “Wi-Fi 下收不到推送”
+  - text: 的现象
+- paragraph: word**“引号”**word
+- paragraph: 词*“引号”*继续
+- paragraph: CJK_STRONG_OPEN_DONE
+- text: fixture · fixture
+- button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}} Ran for {{duration}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- button "Add files":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- 'button "Supervision mode: Supervised"': Supervised
+- button "Start voice input"
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 1 steps LLM {{duration}}
