@@ -95,6 +95,13 @@ interface DeliveryTarget {
   readonly resumedHere: boolean
 }
 
+/** One due slot delivered into its target session. */
+interface DispatchedSlot {
+  readonly record: ScheduleRecord
+  readonly due: number
+  readonly at: number
+}
+
 /** The session one record currently delivers into: its named target, its job session, or its creator fallback. */
 function deliverySessionId(record: ScheduleRecord): SessionId {
   if (record.target.kind === 'session') return record.target.sessionId
@@ -505,14 +512,18 @@ export class SchedulerService extends TypertRemoteService {
       return
     }
     let target: DeliveryTarget | undefined
+    let delivered: DispatchedSlot | undefined
     let failure: string | undefined
     try {
       target = await this.resolveTarget(record)
       if (record.contextMode === 'fresh') await this.resetTarget(target.agent)
-      await this.deliver(target, record, due)
-      await this.advance(record, {
-        lastDue: due,
-        lastRunAt: now,
+      delivered = await this.deliver(target, fresh.id, planned)
+      // The owner paused, deleted, or rescheduled the record while this
+      // dispatch waited: that decision stands and no slot was served.
+      if (delivered === undefined) return
+      await this.advance(delivered.record, {
+        lastDue: delivered.due,
+        lastRunAt: delivered.at,
         lastError: undefined,
       })
 
@@ -524,10 +535,13 @@ export class SchedulerService extends TypertRemoteService {
         lastError: failure,
       })
     } finally {
-      const fallbackTarget = record.target.kind === 'session'
-        ? record.target.sessionId
-        : record.jobSessionId ?? record.createdBy.sessionId
-      await this.recordRun(record, due, now, target?.sessionId ?? fallbackTarget, failure)
+      if (delivered !== undefined || failure !== undefined) {
+        const fallbackTarget = record.target.kind === 'session'
+          ? record.target.sessionId
+          : record.jobSessionId ?? record.createdBy.sessionId
+        const served = delivered ?? { record, due, at: now }
+        await this.recordRun(served.record, served.due, served.at, target?.sessionId ?? fallbackTarget, failure)
+      }
       if (target !== undefined && target.resumedHere) this.recycle(target.sessionId)
     }
   }
@@ -703,38 +717,52 @@ export class SchedulerService extends TypertRemoteService {
     await reset.resetNow(agent, AbortSignal.timeout(30_000))
   }
 
-  /** Deliver the prompt through the idle maintenance phase. */
+  /**
+   * Deliver the prompt through the idle maintenance phase. The slot is claimed
+   * where the prompt is enqueued: a record its owner paused, deleted, or
+   * rescheduled while this dispatch waited for the idle phase delivers nothing,
+   * and a wait that crossed further `every` boundaries delivers the latest
+   * missed slot only.
+   * @param target - resolved delivery destination.
+   * @param scheduleId - identity of the due record.
+   * @param planned - due slot this dispatch was queued for.
+   * @returns the delivered slot, or `undefined` when the record no longer plans it.
+   */
   private async deliver(
     target: DeliveryTarget,
-    record: ScheduleRecord,
-    due: number,
-  ): Promise<void> {
+    scheduleId: string,
+    planned: number,
+  ): Promise<DispatchedSlot | undefined> {
     const session: Session = target.agent.session
-    // The envelope carries the schedule's progress so the delivered prompt is
-    // self-contained; lifecycle writes never touch the runtime context.
-    const message = scheduledDeliveryMessage(record, due, this.now(), subsequentDue(record.rule, due))
-    const send = (): void => {
+    const send = (): DispatchedSlot | undefined => {
+      const current = this.records().find(candidate => candidate.id === scheduleId)
+      if (current === undefined || current.status !== 'active' || current.nextDue !== planned) return undefined
+      const at = this.now()
+      const due = latestMissedDue(current.rule, planned, at)
+      // The envelope carries the schedule's progress so the delivered prompt is
+      // self-contained; lifecycle writes never touch the runtime context.
+      const message = scheduledDeliveryMessage(current, due, at, subsequentDue(current.rule, due))
       session.append('schedule/dispatch', {
-        scheduleId: record.id,
+        scheduleId,
         dueAt: due,
         targetSessionId: session.id,
         turn: null,
       })
       target.agent.followup(message)
+      return { record: current, due, at }
     }
+    const claim = (): Promise<DispatchedSlot | undefined> => target.agent.runMaintenance(() => Promise.resolve(send()))
+    let delivered: DispatchedSlot | undefined
     try {
-      await target.agent.runMaintenance(() => {
-        send()
-        return Promise.resolve(true)
-      })
+      delivered = await claim()
     } catch {
+      // The idle phase was claimed by a running activity: wait it out, then claim again.
       await waitForAgentIdle(target.agent)
-      await target.agent.runMaintenance(() => {
-        send()
-        return Promise.resolve(true)
-      })
+      delivered = await claim()
     }
+    if (delivered === undefined) return undefined
     await this.ctx.sessions.flush(session)
+    return delivered
   }
 
   /** Close one cold-resumed session once it settles back to idle. */

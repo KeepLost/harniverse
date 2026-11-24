@@ -26,6 +26,12 @@ interface AgentScript {
   maintenance?: { busyOnce?: boolean }
   runMaintenanceError?: Error
   running?: boolean
+  /** Idle gate: `whenIdle` resolves only after this promise does. */
+  idle?: Promise<void>
+  /** Maintenance claims attempted so far. */
+  claims?: number
+  /** Maintenance jobs executed so far. */
+  jobs?: number
 }
 
 /** Minimal live-agent stub over a real session. */
@@ -38,17 +44,20 @@ function fakeAgent(script: AgentScript): Agent {
     options: {},
     status: script.running === true ? 'running' : 'idle',
     whenIdle: async (): Promise<void> => {
+      await script.idle
       ;(agent as unknown as { status: string }).status = 'idle'
     },
     followup: (message: UserMessage) => {
       script.followups.push(message)
     },
     runMaintenance: <T>(task: (agentSignal: AbortSignal) => Promise<T>): Promise<T> => {
+      script.claims = (script.claims ?? 0) + 1
       if (script.runMaintenanceError !== undefined) throw script.runMaintenanceError
       if (busy) {
         busy = false
         throw new Error('agent already has active work')
       }
+      script.jobs = (script.jobs ?? 0) + 1
       return task(signal)
     },
   }
@@ -635,6 +644,150 @@ describe('scheduler dispatch', () => {
         expect(overdue.followups).toHaveLength(1)
         const stored = (test.service.list()).find(row => row.id === overdueRecord.id)
         expect(stored?.lastDue).toBe(start - 650_000 + 600_000)
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+describe('scheduler dispatch while its record changes', () => {
+  /** Seed a busy agent whose idle boundary opens only through the returned release. */
+  function waitingAgent(test: Harness, name: string): { script: AgentScript; release: () => void } {
+    const session = test.ctx.sessions.create(SessionId(name))
+    let release!: () => void
+    const idle = new Promise<void>((resolve) => { release = resolve })
+    const script: AgentScript = { session, followups: [], maintenance: { busyOnce: true }, running: true, idle }
+    seedAgent(test, name, script)
+    return { script, release }
+  }
+
+  /** Let the refused claim settle into its idle wait. */
+  async function refusedClaim(script: AgentScript): Promise<void> {
+    await vi.advanceTimersByTimeAsync(30_000)
+    await waitForDelivery(() => {
+      expect(script.claims).toBe(1)
+    })
+  }
+
+  /** Open the idle boundary and let the retried claim settle. */
+  async function releasedClaim(script: AgentScript, release: () => void): Promise<void> {
+    release()
+    await waitForDelivery(() => {
+      expect(script.jobs).toBe(1)
+    })
+    await settled()
+    await settled()
+  }
+
+  it('delivers nothing once its record is paused during the idle wait', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const { script, release } = waitingAgent(test, 'paused-mid-wait')
+      vi.spyOn(test.ctx.sessions, 'flush').mockResolvedValue(true)
+      const record = await test.service.create({
+        prompt: 'after the turn',
+        rule: { kind: 'after', delayMs: 30_000 },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: script.session.id },
+      })
+      await refusedClaim(script)
+      await test.service.update(record.id, { status: 'paused' }, script.session.id)
+      await releasedClaim(script, release)
+      expect(script.followups).toHaveLength(0)
+      expect(test.service.listRuns(record.id)).toEqual([])
+      expect(test.service.list()).toMatchObject([{ id: record.id, status: 'paused', nextDue: record.nextDue }])
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('delivers nothing once its record is deleted during the idle wait', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const { script, release } = waitingAgent(test, 'deleted-mid-wait')
+      vi.spyOn(test.ctx.sessions, 'flush').mockResolvedValue(true)
+      const record = await test.service.create({
+        prompt: 'gone before delivery',
+        rule: { kind: 'after', delayMs: 30_000 },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: script.session.id },
+      })
+      await refusedClaim(script)
+      await test.service.remove(record.id, script.session.id)
+      await releasedClaim(script, release)
+      expect(script.followups).toHaveLength(0)
+      expect(test.service.list()).toEqual([])
+      expect(test.service.listRuns(record.id)).toEqual([])
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('keeps the rescheduled slot when the rule changes during the idle wait', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const { script, release } = waitingAgent(test, 'rescheduled-mid-wait')
+      vi.spyOn(test.ctx.sessions, 'flush').mockResolvedValue(true)
+      const record = await test.service.create({
+        prompt: 'moved',
+        rule: { kind: 'after', delayMs: 30_000 },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: script.session.id },
+      })
+      await refusedClaim(script)
+      await test.service.update(record.id, { rule: { kind: 'after', delayMs: 10_000 } }, script.session.id)
+      await releasedClaim(script, release)
+      expect(script.followups).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitForDelivery(() => {
+        expect(script.followups).toHaveLength(1)
+        expect(test.service.list()).toMatchObject([{ id: record.id, status: 'done' }])
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('delivers once for the latest missed slot when the idle wait crosses further boundaries', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(0)
+      const { script, release } = waitingAgent(test, 'late-recurrence')
+      vi.spyOn(test.ctx.sessions, 'flush').mockResolvedValue(true)
+      const record = await test.service.create({
+        prompt: 'heartbeat',
+        rule: { kind: 'every', intervalMs: 300_000, anchor: new Date(0).toISOString() },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: script.session.id },
+      })
+      // The epoch anchor is due at once; the agent stays busy through two further slots.
+      await vi.advanceTimersByTimeAsync(11 * 60_000)
+      await waitForDelivery(() => {
+        expect(script.claims).toBe(1)
+      })
+      await releasedClaim(script, release)
+      expect(script.followups).toHaveLength(1)
+      const served = script.followups[0]!.source as unknown as { dueAt: number; firedAt: number; nextDue: number }
+      expect(served).toMatchObject({ dueAt: 600_000, nextDue: 900_000 })
+      expect(served.firedAt).toBeGreaterThanOrEqual(660_000)
+      expect(served.firedAt).toBeLessThan(900_000)
+      await waitForDelivery(() => {
+        expect(test.service.list()).toMatchObject([{ id: record.id, status: 'active', lastDue: 600_000, nextDue: 900_000 }])
+      })
+      await vi.advanceTimersByTimeAsync(3 * 60_000)
+      expect(script.followups).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(2 * 60_000)
+      await waitForDelivery(() => {
+        expect(script.followups).toHaveLength(2)
       })
     } finally {
       await cleanup()
