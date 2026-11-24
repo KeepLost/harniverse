@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
-import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import { defineTool, TOOL_ABORTED, ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -66,16 +66,45 @@ interface BashToolArgs {
   justification?: string
 }
 
-function validateBashArgs(args: BashToolArgs): void {
+/** Which optional argument groups the registered schema advertises in this composition. */
+interface AdvertisedArgs {
+  /** `sandbox_permissions` and `justification`; advertised only with a sandboxing executor. */
+  escalation: boolean
+  /** `run_in_background`; advertised unless `enableRunInBackground: false`. */
+  background: boolean
+}
+
+/**
+ * Reject arguments the schema does not advertise. Schema validation checks
+ * advertised keys only, so these still reach `execute`; the model fixes the call
+ * by dropping them, which makes them argument errors. Runs before escalation
+ * pairing checks, approval, and working-directory setup.
+ * @param args - the call's arguments.
+ * @param advertised - the argument groups this composition advertises.
+ */
+function rejectUnadvertisedArgs(
+  args: { sandbox_permissions?: string; justification?: string; run_in_background?: boolean },
+  advertised: AdvertisedArgs,
+): void {
+  if (!advertised.escalation && (args.sandbox_permissions !== undefined || (args.justification ?? '').trim() !== '')) {
+    throw new ToolArgsError(['sandbox_permissions and justification are not available in this composition (no sandboxing executor to escalate)'])
+  }
+  if (!advertised.background && args.run_in_background === true) {
+    throw new ToolArgsError(['run_in_background is disabled for this deployment (enableRunInBackground: false)'])
+  }
+}
+
+function validateBashArgs(args: BashToolArgs, advertised: AdvertisedArgs): void {
   if (args.command.trim().length === 0) {
-    throw new Error('invalid command: expected a non-empty string')
+    throw new ToolArgsError(['invalid command: expected a non-empty string'])
   }
   if (args.description.trim().length === 0) {
-    throw new Error('invalid description: expected a non-empty string')
+    throw new ToolArgsError(['invalid description: expected a non-empty string'])
   }
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
-    throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
+    throw new ToolArgsError([`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`])
   }
+  rejectUnadvertisedArgs(args, advertised)
   // A blank justification without a requested mode is an omitted reason, not a
   // malformed escalation; a non-empty reason still requires its mode.
   const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
@@ -239,12 +268,11 @@ export function apply(ctx: Context, config: Config = {}): void {
    * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
    * anything executes, delegating the shared fail-closed sequence (strict
    * widening, channel resolution, outcome mapping) to
-   * {@link approveEscalation}. This tool contributes only the composition
-   * guard (the fields are unadvertised without a sandboxing executor, yet
-   * schema validation checks advertised keys only, so an unadvertised
-   * `sandbox_permissions` still reaches execute) and the approval
-   * ingredients. The shared policy resolver is required whenever the executor
-   * advertises confinement, so a split composition fails at tool-plugin load.
+   * {@link approveEscalation}. This tool contributes only the approval
+   * ingredients; {@link validateBashArgs} has already rejected the fields when
+   * no sandboxing executor advertises them. The shared policy resolver is
+   * required whenever the executor advertises confinement, so a split
+   * composition fails at tool-plugin load.
    */
   const approveBashEscalation = (
     mode: string,
@@ -252,9 +280,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     exec: ToolExecution,
     standingPolicy: SandboxExecutionPolicy | undefined,
   ): Promise<SandboxMode> => {
-    if (escalationModes.length === 0) {
-      throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
-    }
     const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
     return approveEscalation(
       { requestedMode: mode, justification, effectiveMode, subject: 'command' },
@@ -393,7 +418,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // Description is display metadata; workdir defaults to the caller's session.
       const standingPolicy = resolveSandboxPolicy(exec)
       const call = normalizeRedundantEscalation(args, standingPolicy?.mode)
-      validateBashArgs(call)
+      validateBashArgs(call, { escalation: escalationModes.length > 0, background: backgroundEnabled })
       const approvedMode = call.sandbox_permissions !== undefined && call.justification !== undefined
         ? await approveBashEscalation(call.sandbox_permissions, call.justification, exec, standingPolicy)
         : undefined
@@ -432,13 +457,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...limits !== undefined ? { limits } : {},
       }
       if (call.run_in_background === true) {
-        // Undeclared keys are allowed, so schema omission also needs enforcement.
-        if (!backgroundEnabled) {
-          throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
-        }
         const jobs = ctx.get('jobs')
         if (jobs === undefined) {
-          throw new Error('background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
+          throw new ToolContextUnavailableError('background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
         }
         // The caller owns cancellation until ctx.jobs commits detached ownership.
         if (exec.signal.aborted) {
