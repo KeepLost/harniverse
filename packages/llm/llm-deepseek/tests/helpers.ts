@@ -7,5 +7,9 @@
  */
 export async function uploadedForm(init: RequestInit | undefined): Promise<FormData> {
   if (!(init?.body instanceof Uint8Array)) throw new Error('expected an encoded multipart body')
-  return await new Request('http://localhost/v1/files', { method: 'POST', headers: init.headers, body: init.body }).formData()
+  return await new Request('http://localhost/v1/files', {
+    method: 'POST',
+    ...init.headers === undefined ? {} : { headers: init.headers },
+    body: init.body,
+  }).formData()
 }
