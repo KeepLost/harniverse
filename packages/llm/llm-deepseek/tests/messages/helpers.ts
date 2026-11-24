@@ -30,6 +30,19 @@ export async function chunks(stream: AsyncIterable<StreamChunk>) {
   for await (const chunk of stream) result.push(chunk)
   return result
 }
+/** Drain a stream that is expected to fail, keeping the chunks it yielded before the failure.
+ * @param stream - chunks to drain.
+ * @returns the yielded chunks and the thrown value, or `undefined` when the stream completed.
+ */
+export async function settle(stream: AsyncIterable<StreamChunk>): Promise<{ received: StreamChunk[]; error: unknown }> {
+  const received: StreamChunk[] = []
+  try {
+    for await (const chunk of stream) received.push(chunk)
+  } catch (error) {
+    return { received, error }
+  }
+  return { received, error: undefined }
+}
 export async function assemble(stream: AsyncIterable<StreamChunk>, model = MODEL) {
   const assembler = new BlockAssembler()
   const output = await chunks(stream)

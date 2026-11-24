@@ -11,7 +11,7 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
 import { deepSeekFileScope } from '../../src/common/upload-index.ts'
-import { chunks, messagesAdapter, messagesServer, MODEL, options, sse, textEvents, user } from './helpers.ts'
+import { chunks, messagesAdapter, messagesServer, MODEL, options, settle, sse, textEvents, user } from './helpers.ts'
 import { closeMessagesServers } from './helpers.ts'
 
 afterEach(async () => {
@@ -304,6 +304,22 @@ describe('direct Messages HTTP', () => {
     await expect(chunks(messagesAdapter().stream(options({ onWireAttempt: record => records.push(record) }))))
       .rejects.toMatchObject({ code: 'TRANSPORT' })
     expect(records[0]).toMatchObject({ outcome: 'stream-error', failure: { code: 'TRANSPORT', message: 'socket died' } })
+  })
+
+  it('reports a provider refusal as CONTENT_REFUSED after its billed usage', async () => {
+    const http = await messagesServer((response) => {
+      response.end(sse([...textEvents.slice(0, 4),
+        { type: 'message_delta', delta: { stop_reason: 'refusal', stop_details: { type: 'refusal', explanation: 'blocked: messages.1.content.0' } }, usage: { output_tokens: 5 } },
+        { type: 'message_stop' }]))
+    })
+    const records: LlmWireAttempt[] = []
+    const { received, error } = await settle(messagesAdapter({ baseURL: http.url })
+      .stream(options({ onWireAttempt: record => records.push(record) })))
+    expect(error).toMatchObject({
+      code: 'CONTENT_REFUSED', message: 'DeepSeek refused to answer under its content safety review: blocked: messages.1.content.0',
+    })
+    expect(received.filter(chunk => chunk.type === 'usage')).toEqual([{ type: 'usage', usage: { inputTokens: 12, outputTokens: 5 } }])
+    expect(records[0]).toMatchObject({ outcome: 'stream-error', failure: { code: 'CONTENT_REFUSED' } })
   })
 
   it('surfaces caller cancellation while file representations resolve', async () => {
